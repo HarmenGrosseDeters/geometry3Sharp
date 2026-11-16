@@ -142,6 +142,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Planar_ExactMeshBooleanTests_IsTheClassItself()
+        {
+            // the bare term matched the 11 classes named after it as well (as in the arrangement shards)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var terms = Alternatives(TestFilters(root)["stryker-mesh-planar"]).ToList();
+            Assert.Contains("FullyQualifiedName~ExactMeshBooleanTests.", terms);
+            Assert.DoesNotContain("FullyQualifiedName~ExactMeshBooleanTests", terms);
+        }
+
+        [Fact]
         public void RoundingParts_SharedTests_FewExtras()
         {
             // every part of the rounding shard runs the same tests; the coverage pass costs about 100-200 minutes per

@@ -367,6 +367,118 @@ namespace geometry3Sharp.Tests
             return q;
         }
 
+        // random query for the pre-filter tests: constructed contacts, near misses and far pairs, at several scales and shifts
+        static Query prefilterQuery(Random rnd, int i)
+        {
+            bool vf = (i & 1) == 0;
+            Query q;
+            switch (i % 4) {
+                case 0: q = ConstructedContact(rnd, vf, out _); break;
+                case 1: {
+                    // a near miss: a constructed contact moved off by a small offset
+                    q = ConstructedContact(rnd, vf, out _);
+                    Vector3d off = (1.0 / (1 << (3 + rnd.Next(8)))) * point(rnd);
+                    for (int k = 1; k < 4; ++k) { q.S[k] += off; q.E[k] += off; }
+                    break;
+                }
+                default: {
+                    q = new Query { VF = vf };
+                    double spread = rnd.Next(2) == 0 ? 1 : 0.125;
+                    for (int k = 0; k < 4; ++k) { q.S[k] = spread * point(rnd); q.E[k] = q.S[k] + 0.5 * point(rnd); }
+                    break;
+                }
+            }
+            double scale = Math.Pow(2, rnd.Next(-6, 7));
+            Vector3d shift = (i % 5 == 0) ? V(632117.25, 5712043.5, 113.75) : Vector3d.Zero;
+            return q.Map(x => scale * x + shift);
+        }
+
+        static void sameResult(CcdResult x, CcdResult y, string at)
+        {
+            Assert.True(x.Status == y.Status && x.TimeOfImpact.Equals(y.TimeOfImpact) && x.NearContactTime.Equals(y.NearContactTime)
+                        && x.ToleranceReached.Equals(y.ToleranceReached) && x.ErrorBound.Equals(y.ErrorBound) && x.Iterations == y.Iterations,
+                        $"{at}: {x.Status} {x.TimeOfImpact:R} {x.NearContactTime:R} {x.ToleranceReached:R} {x.ErrorBound:R} {x.Iterations} vs {y.Status} {y.TimeOfImpact:R} {y.NearContactTime:R} {y.ToleranceReached:R} {y.ErrorBound:R} {y.Iterations}");
+        }
+
+        // #940: the shortcut of the first box (Solve discards it on an axis without the queue) gives every field of the
+        // result that the search through the queue gives, and RootDiscards says exactly when the shortcut applies
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1e-3)]
+        [InlineData(0.25)]
+        public void RootShortcut_EqualsTheQueue(double ms)
+        {
+            var rnd = new Random(940);
+            var fast = new CcdSolver();
+            var slow = new CcdSolver { RootShortcut = false };
+            var probe = new CcdSolver();
+            int discarded = 0, kept = 0;
+            for (int i = 0; i < 4000; ++i) {
+                Query q = prefilterQuery(rnd, i);
+                var o = new CcdOptions { MinSeparation = ms, TimeLimit = i % 7 == 0 ? 0.5 : 1 };
+                CcdResult a = Run(q, o, fast), b = Run(q, o, slow);
+                sameResult(a, b, $"query {i}");
+                probe.Set(q.S[0], q.S[1], q.S[2], q.S[3], q.E[0], q.E[1], q.E[2], q.E[3]);
+                if (probe.RootDiscards(q.VF, o)) {
+                    ++discarded;
+                    Assert.Equal(CcdStatus.NoCollision, b.Status);
+                    Assert.Equal(1, b.Iterations);
+                } else
+                    ++kept;
+            }
+            Assert.True(discarded > 200 && kept > 400, $"{discarded} discarded, {kept} kept");
+            // invalid input and range stay with the general path
+            probe.Set(V(double.NaN, 0, 0), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0), V(0, 0, 1), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0));
+            Assert.False(probe.RootDiscards(true, new CcdOptions()));
+            probe.Set(V(5, 5, 5), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0), V(5, 5, 5), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0));
+            Assert.False(probe.RootDiscards(true, new CcdOptions { MinSeparation = -1 }));
+            Assert.True(probe.RootDiscards(true, new CcdOptions()));
+            // a point that is NaN, infinite or beyond the solver's range on one axis, while another axis separates the
+            // primitives: InvalidInput, not a discarded box
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, 2 * CcdSolver.InputRange }) {
+                probe.Set(V(bad, 0, 5), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0), V(bad, 0, 5), V(0, 0, 0), V(1, 0, 0), V(0, 1, 0));
+                Assert.False(probe.RootDiscards(true, new CcdOptions()), $"{bad}");
+                Assert.Equal(CcdStatus.InvalidInput, probe.Solve(true, new CcdOptions()).Status);
+            }
+        }
+
+        // #940: AbandonAfter. A query that is not abandoned has the result it has without the bound, field for field; an
+        // abandoned one has a time of impact above the bound without it (so it cannot be the earliest contact of a sweep
+        // whose earliest near contact is at most the bound), and a bound at or above a query's time of impact never abandons it
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1e-3)]
+        public void AbandonAfter_NeverChangesARelevantResult(double ms)
+        {
+            var rnd = new Random(941);
+            var plain = new CcdSolver();
+            var bounded = new CcdSolver();
+            int abandoned = 0, same = 0;
+            for (int i = 0; i < 1800; ++i) {
+                Query q = prefilterQuery(rnd, i);
+                var o = new CcdOptions { MinSeparation = ms, MaxIterations = i % 11 == 0 ? 40 : 1000000, TimeLimit = i % 3 == 0 ? 0.5 : 1, TimeTolerance = i % 4 == 0 ? 0.05 : 1e-6, Tolerance = i % 5 == 0 ? 1e-3 : double.NaN };
+                CcdResult free = Run(q, o, plain);
+                double[] bounds = { 0, 1e-3, 0.0625, 0.3, 0.5, 0.99, 1, free.TimeOfImpact, free.NearContactTime };
+                foreach (double bound in bounds) {
+                    bounded.AbandonAfter = bound;
+                    CcdResult r = Run(q, o, bounded);
+                    if (bounded.Abandoned) {
+                        ++abandoned;
+                        Assert.True(free.TimeOfImpact > bound, $"query {i} bound {bound:R}: abandoned, but the time of impact is {free.TimeOfImpact:R} ({free.Status})");
+                        Assert.Equal(CcdStatus.NoCollision, r.Status);
+                    } else {
+                        ++same;
+                        sameResult(r, free, $"query {i} bound {bound:R}");
+                    }
+                }
+            }
+            Assert.True(abandoned > 900 && same > 900, $"{abandoned} abandoned, {same} the same");
+            // the flag is per solve
+            bounded.AbandonAfter = double.PositiveInfinity;
+            Run(prefilterQuery(rnd, 3), new CcdOptions(), bounded);
+            Assert.False(bounded.Abandoned);
+        }
+
         // G1 / G2 on exact contacts: never NoCollision, and the time of impact not after the contact
         [Theory]
         [InlineData(false, false)]

@@ -163,8 +163,8 @@ namespace g3
                 double h = 2 * sizes[sizes.Count / 2];
                 double W = Math.Max(all.Width, 1e-300), H = Math.Max(all.Height, 1e-300);
                 if (!(h > 0)) h = Math.Max(W, H);
-                NX = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(W / h)));
-                NY = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(H / h)));
+                NX = MathUtil.ToIntSaturating(Math.Min(2048, Math.Max(1, Math.Ceiling(W / h))));
+                NY = MathUtil.ToIntSaturating(Math.Min(2048, Math.Max(1, Math.Ceiling(H / h))));
                 hx = W / NX; hy = H / NY; x0 = all.Min.x; y0 = all.Min.y;
                 foreach (int i in items) {
                     AxisAlignedBox2d b = tris[i].Box;
@@ -181,8 +181,8 @@ namespace g3
                 }
             }
 
-            public int CX(double x) { return Math.Min(NX - 1, Math.Max(0, (int)((x - x0) / hx))); }
-            public int CY(double y) { return Math.Min(NY - 1, Math.Max(0, (int)((y - y0) / hy))); }
+            public int CX(double x) { return Math.Min(NX - 1, Math.Max(0, MathUtil.ToIntSaturating((x - x0) / hx))); }
+            public int CY(double y) { return Math.Min(NY - 1, Math.Max(0, MathUtil.ToIntSaturating((y - y0) / hy))); }
         }
 
         const int LargeCells = 64;

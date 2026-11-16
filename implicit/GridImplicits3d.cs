@@ -60,9 +60,9 @@ namespace g3
                 return Outside;
 
             // compute integer coordinates; on a max face use the last cell
-            int x0 = Math.Min((int)gridPt.x, Grid.ni - 2);
-            int y0 = Math.Min((int)gridPt.y, Grid.nj - 2), y1 = y0 + 1;
-            int z0 = Math.Min((int)gridPt.z, Grid.nk - 2), z1 = z0 + 1;
+            int x0 = Math.Min(MathUtil.ToIntSaturating(gridPt.x), Grid.ni - 2);
+            int y0 = Math.Min(MathUtil.ToIntSaturating(gridPt.y), Grid.nj - 2), y1 = y0 + 1;
+            int z0 = Math.Min(MathUtil.ToIntSaturating(gridPt.z), Grid.nk - 2), z1 = z0 + 1;
 
             // convert double coords to [0,1] range
             double fAx = gridPt.x - (double)x0;
@@ -124,9 +124,9 @@ namespace g3
                 return Vector3d.Zero;
 
             // compute integer coordinates
-            int x0 = (int)gridPt.x;
-            int y0 = (int)gridPt.y, y1 = y0 + 1;
-            int z0 = (int)gridPt.z, z1 = z0 + 1;
+            int x0 = MathUtil.ToIntSaturating(gridPt.x);
+            int y0 = MathUtil.ToIntSaturating(gridPt.y), y1 = y0 + 1;
+            int z0 = MathUtil.ToIntSaturating(gridPt.z), z1 = z0 + 1;
 
             // convert double coords to [0,1] range
             double fAx = gridPt.x - (double)x0;

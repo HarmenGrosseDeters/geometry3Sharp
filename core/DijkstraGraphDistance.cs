@@ -113,7 +113,7 @@ namespace g3
             max_value = float.MinValue;
             if (seeds != null) {
                 foreach (var v in seeds)
-                    AddSeed((int)v.x, (float)v.y);
+                    AddSeed(MathUtil.ToIntSaturating(v.x), (float)v.y);
             }
         }
 

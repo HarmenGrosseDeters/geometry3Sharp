@@ -61,8 +61,8 @@ by priority; this section names only what is in flight.
 - **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
   hygiene session 2): the coverage gate (red since 2026-11-13), the scheduled mutation runs (every scheduled run
   since 2026-11-02 cancelled, none after 2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's remaining
-  casts are open. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's audit of every remaining
+  `double` to integer cast is done ([CAST_AUDIT_804.md](design/CAST_AUDIT_804.md), 2026-11-16, #973, #804 closed). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Local (owner machine, 2026-11-15/16):** the net48 vs net10 comparison (#929), the boolean candidate pairs and the
   thread scaling beyond 4 cores (#858). Finding so far: at 1 thread the boolean is about 45 % faster on 22370752 than
   on 2026-11-14's master (likely #769 and #881); #772 alone is neutral.
@@ -121,7 +121,8 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Exact booleans after 3.0 (owner 2026-11-16): maintenance mode; the exact imprint is the only new
   feature; everything else is parked or dropped, see the triage in [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16).
 - Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
-  matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
+  matched shells, the grading placement strategy, parked until a use case; the <= 2x fork speed target is closed (owner
+  2026-11-16). [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
   2026-11-12). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Later list (point clouds, offsets, quad remeshing, deformation, tetrahedral meshing,
