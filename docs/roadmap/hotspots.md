@@ -22,7 +22,7 @@ Part of the [roadmap](../ROADMAP.md).
   (18 alpha wrap pipelines of 21.9-77.7 s, 10 booleans up to 480.7 s for 55928). Thread scaling beyond 4 cores is
   unmeasured (#858).
 - CCD `MeshSweepCollision` (#866, open): the 1M-triangle ToI frame takes 18.2-20.5 s parallel on 4 cores after #872
-  (about 51 s serial; about 40 s before #872); about half is enumerating the whole-step self edge pairs.
+  (about 51 s serial; about 40 s before #872); about half is enumerating the whole-step self edge pairs. Sub-step tree (#945): 29.9-32.7 s serial / 10.6-10.9 s parallel; narrow-phase pre-filter (#940, CCD.md 10.12): 23.5-24.9 s serial / 8.8-10.4 s parallel, still above 20 s serial.
 
 ### Done / history
 
