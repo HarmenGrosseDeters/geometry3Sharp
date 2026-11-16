@@ -18,6 +18,15 @@ def res(t, ok=True, cid="c"):
 
 
 class OutlierRule(unittest.TestCase):
+    def test_judged_only_from_three_earlier_runs(self):
+        # one or two earlier runs: a noisy first night must not flag (owner 2026-11-16); from three, one outlier cannot set the median
+        self.assertEqual(rw.judge(res(30.0), [entry(10.0)], RULES)["flags"], [])
+        self.assertEqual(rw.judge(res(30.0), [entry(10.0)] * 2, RULES)["flags"], [])
+        self.assertEqual(rw.judge(res(30.0), [entry(10.0)] * 3, RULES)["flags"], ["regression"])
+        # a failed run is not an earlier run
+        self.assertEqual(rw.judge(res(30.0), [entry(10.0)] * 2 + [entry(None, ok=False)], RULES)["flags"], [])
+        self.assertEqual(rw.judge(res(30.0), [entry(10.0), entry(10.0), entry(9.0)], RULES)["baseline_n"], 3)
+
     def test_no_history_no_regression(self):
         self.assertEqual(rw.judge(res(5.0), [], RULES)["flags"], [])
 

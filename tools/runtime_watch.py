@@ -13,8 +13,8 @@ and report the outliers (docs/QA.md, "Runtime watch"; workflow .github/workflows
 The outlier rule (cases.json "rules"): a case is a regression when its median is more than `ratio` times the median of its
 last `window` successful runs AND more than `abs_s` seconds above it; a failed or timed-out run is an outlier, too.
 There is no absolute time limit here (owner 2026-11-15, #888: the 20 s limit is for tests; the tail cases are slow by nature and
-are judged by the regression rule only). A case with no baseline yet is not judged, and is reported as "baseline building (n of
-window)".
+are judged by the regression rule only). A case is judged from `min_runs` (3) earlier successful runs on (the median of one or two runs would flag any noisy first
+night; from three, one outlier cannot set it); before that it is reported as "baseline building (n of window)" and gets no flag.
 The time is the isolated time of one process (never several cases at once), the median of the repeats.
 """
 
@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 
-DEFAULT_RULES = {"ratio": 1.3, "abs_s": 1.0, "window": 10, "repeats": 3,
+DEFAULT_RULES = {"ratio": 1.3, "abs_s": 1.0, "window": 10, "min_runs": 3, "repeats": 3,
                  "repeat_budget_s": 60.0, "timeout_s": 900.0}
 AREAS = ("boolean", "alphawrap")
 KINDS = ("procedural", "thingi")
@@ -148,7 +148,7 @@ def judge(result, history, rules):
     if not result.get("ok") or t is None:
         flags.append("failed")
     else:
-        if base is not None and t > rules["ratio"] * base and t - base > rules["abs_s"]:
+        if base is not None and n >= int(rules["min_runs"]) and t > rules["ratio"] * base and t - base > rules["abs_s"]:
             flags.append("regression")
     ratio = (t / base) if (t is not None and base) else None
     return {"flags": flags, "baseline_s": base, "baseline_n": n, "ratio": ratio, "new": [f for f in flags if f not in prev_flags]}
@@ -183,7 +183,7 @@ def render_report(results, judged, rules):
     lines.append(f"Machine: {m.get('cpu', '?')}, {m.get('cores', '?')} cores, {m.get('memory_gb', '?')} GB, "
                  f"{m.get('os', '?')}, dotnet {m.get('dotnet', '?')}. Isolated runs (one process each), median of the repeats.")
     lines.append(f"Rule: regression = more than {rules['ratio']}x the median of the last {int(rules['window'])} runs and "
-                 f"more than {rules['abs_s']} s above it, once a baseline exists; no absolute limit (the 20 s limit is for tests).")
+                 f"more than {rules['abs_s']} s above it, once {int(rules['min_runs'])} earlier runs exist; no absolute limit (the 20 s limit is for tests).")
     lines.append("")
     bad = [j for j in judged if j["flags"]]
     lines.append(f"**{len(bad)} outlier(s) of {len(judged)} cases.**" if bad else f"No outliers in {len(judged)} cases.")
