@@ -91,9 +91,9 @@ namespace g3
         /// <summary> per triangle id of Result: the triangle of Target it comes from (-1 for ids not in use) </summary>
         public int[] SourceTriangle;
         /// <summary> the edges of Result on the intersection curves: undirected vertex pairs, key <see cref="ExactMeshArrangement.EdgeKey"/> </summary>
-        public HashSet<long> CurveEdges = new HashSet<long>();
+        public HashSet<long> CurveEdges = new HashSet<long>(EdgeKeyComparer.Instance);
         /// <summary> with LabelCurves: per curve edge (key of CurveEdges) the number of its curve, from 0 </summary>
-        public Dictionary<long, int> CurveId = new Dictionary<long, int>();
+        public Dictionary<long, int> CurveId = new Dictionary<long, int>(EdgeKeyComparer.Instance);
         /// <summary> the repair run by SafeRounding, or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary> SafeRounding ran and its result has no new self-intersection or degenerate triangle (and no contact made by the rounding) </summary>
@@ -134,7 +134,7 @@ namespace g3
         public bool Compute()
         {
             Result = null; Error = null; SourceTriangle = null; Rounding = null; ResultExactVertices = null;
-            CurveEdges = new HashSet<long>(); CurveId = new Dictionary<long, int>();
+            CurveEdges = new HashSet<long>(EdgeKeyComparer.Instance); CurveId = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             Counts = new Dictionary<string, long>(); PhaseMilliseconds = new Dictionary<string, long>(); PhaseAllocatedBytes = new Dictionary<string, long>();
             Status = ImprintStatus.NotComputed;
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -229,7 +229,7 @@ namespace g3
             Counts["split_triangles"] = touched.Count;
 
             // slots: (source, canonical point) of every piece corner that is not a corner of the source triangle
-            var slotOf = new Dictionary<long, int>();
+            var slotOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             var slotPoint = new List<int>();
             var slotSource = new List<int>();
             var slotsOfSource = new Dictionary<int, List<int>>();
@@ -318,7 +318,7 @@ namespace g3
             var constraint = arr.ConstraintEdges;
             var add = new List<(int src, Index3i tri)>();
             var toRemove = new List<int>();
-            var curve = new HashSet<long>();
+            var curve = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (int ti in touched) {
                 var t = arr.Triangles[ti];
                 int tid = t.Tid;
@@ -385,7 +385,7 @@ namespace g3
         {
             int original = originalMaxVertexId;
             DMesh3 target = Target;
-            var locks = new HashSet<long>();
+            var locks = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in CurveEdges) locks.Add(MeshRoundingRepair.LockedKey((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
             int[] point = vertexPoint;
             Rounding = new MeshRoundingRepair(Result) {
@@ -409,7 +409,7 @@ namespace g3
             Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
             Counts["curve_edges_contracted"] = Rounding.LockedContractions;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
-            var edges = new HashSet<long>();
+            var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)
                 edges.Add(ExactMeshArrangement.EdgeKey((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
             CurveEdges = edges;
@@ -434,7 +434,7 @@ namespace g3
                     l.Add(k);
                 }
             }
-            var parent = new Dictionary<long, long>();
+            var parent = new Dictionary<long, long>(EdgeKeyComparer.Instance);
             Func<long, long> find = null;
             find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
             foreach (long k in CurveEdges) parent[k] = k;
@@ -443,7 +443,7 @@ namespace g3
                     long a = find(kv.Value[0]), b = find(kv.Value[1]);
                     if (a != b) parent[a] = b;
                 }
-            var number = new Dictionary<long, int>();
+            var number = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             foreach (long k in CurveEdges.OrderBy(x => x)) {
                 long r = find(k);
                 if (number.TryGetValue(r, out int id) == false) number[r] = id = number.Count;
