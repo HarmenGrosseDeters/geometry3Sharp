@@ -12,6 +12,30 @@ Prototype progress: a separate scalar verification recurrence avoids transferrin
 
 Contract blocker from the extreme-fixture probe: at 700 decimal digits, a candidate that loses the tiny200 response entirely still satisfies the proposed absolute normalized position budget (bound 6.43e-99 versus 1e-8). The production regression explicitly requires NumericalRange. Preserve its rejection guard pending a decision about absolute position error versus relative preservation of tiny motion; an absolute certificate alone cannot justify removing it. Lost-handle and tiny150 wrong candidates reject. Raw commands/results are in the probe README.
 
+## 100k structural and bound diagnosis (2026-11-16)
+
+The complete 400x250 Q-pattern count is 2993506243 Q/Schur updates and 14480195
+factor entries in the existing solver ordering. The initial Q has 988530 entries;
+this is a lower bound on peak live fill, not its measured peak. These exceed the
+current production certificate budgets. The benchmark surrogate factor establishes
+pattern/count feasibility only, not the cost of original-data certification.
+
+An exact ideal rational-grid comparison finds that the present global trace
+correction is very conservative. Rump's sparse bound III and the 2026 Perron bound
+reduce it substantially in that model, but neither is integrated or a certificate
+for represented binary64 inputs. See the benchmark README and raw logs. Independent
+review verified the model formulas and corrected the original scope labeling.
+
+Next bounded steps:
+1. Specify and review original-data midpoint/radius composition with the sharper
+   bound, preserving the same scalar recurrence, runtime contract and rejection
+   controls. Validate on small exact references before a production integration.
+2. Measure actual corrected-matrix behavior on the represented 25k/50k/100k
+   fixtures. A model Rayleigh upper bound cannot authorize acceptance or choose mu.
+3. Separately address retained factor storage and scalar update cost; the complete
+   symbolic count supplies a cost boundary before another performance spike.
+   Do not raise all budgets and infer a practical solution from a long run.
+
 ## Accuracy contract and historical conceptual alternatives
 
 Owner decision: on 2026-11-15, use absolute Euclidean position error per free vertex together with relative Euclidean free-response error per connected component. Do not use independent per-axis relative thresholds, which depend on the coordinate frame. This supersedes the per-axis option below. The owner authorized implementation; all claims still require their stated bounds and tests.

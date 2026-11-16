@@ -1,5 +1,58 @@
 # Biharmonic displacement benchmark (#886)
 
+## 100k diagnosis (2026-11-16)
+
+The benchmark-only `--certificate-growth <nx>x<ny> solver <shift> rotated <fresh.json>`
+counts complete scalar Schur work from the numerical factor's symbolic column
+lengths: sum d*(d+1)/2, including diagonal updates. This avoids the older diagnostic's
+50-million-update simulation cutoff. It factors a diagonally dominant surrogate
+with the exact procedural Q pattern, not the deformation operator. A completed
+factor gives structural counts for that ordering, not a position certificate.
+
+```sh
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_growth_profile.py <dotnet> <producer.dll>
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_trace_diagnostic.py
+```
+
+Raw commands, hashes, controls and scaling results are in
+`certificate-growth-results.txt`; exact ideal-grid comparisons are in
+`certificate-trace-model-results.txt`. Small cases match the independent dense
+elimination reference and explicit graph update counts. The ideal-grid trace,
+individual Q diagonals and trial-vector energy also match separate exact triangle
+assembly on small rectangular grids.
+
+| Vertices | Complete Q/Schur updates | Factor entries | Initial Q entries |
+|---|---:|---:|---:|
+| 10000 | 89102044 | 971621 | 96030 |
+| 25000 | 308703626 | 2754690 | 244280 |
+| 50000 | 1111228810 | 6630400 | 491530 |
+| 100000 | 2993506243 | 14480195 | 988530 |
+
+The existing 200M-update, 250k-live-entry and 2M-retained/live scalar budgets do
+not admit this 100k ordering. Initial Q alone exceeds the live-entry budget;
+retained off-diagonal factor entries alone reach 14380695. Peak live fill is **not**
+computed here; initial entries are only its lower bound. Surrogate factor timing
+is not production assembly/certification cost. No production limit is changed.
+
+The exact **ideal rational-grid** model also diagnoses conservatism in the global
+trace correction. At 100k, its correction is 2.80170 versus a trial-vector Rayleigh
+upper bound of 0.00505235. Sparse bound III from Rump (2006) gives 0.00413349;
+the model of Rump (2026), Lemma 2.10/Corollary 2.12, gives 0.00240228. The latter
+uses floating iterations only to propose a positive vector and then exact integer
+Collatz evaluation with upward rational diagonal bounds. Neither comparison proves
+positive definiteness: a Rayleigh quotient is an **upper** eigenvalue bound, the
+ideal rational grid differs from the rounded binary64 fixture, and no compatible
+floating-point Cholesky execution on its corrected matrix is checked here.
+
+Independent review checked the formulas, indexing and exact bound arithmetic
+against both papers. It caught the original ideal/represented-grid scope mismatch;
+that limitation is now explicit. The next production experiment should apply a
+sparsity-aware bound to original-data midpoint/radius assembly, validate it on the
+existing small controls and then measure the complete larger-input path. Separately,
+the scalar kernel needs a fill/work plan for 14.5M entries and 3B updates; a tighter
+roundoff bound does not remove that arithmetic. SIMD alone does not address either
+structural obstacle. This diagnosis does not complete 100k certification.
+
 ## Larger production inputs (2026-11-16)
 
 Strict mode now admits one active component up to 10000 vertices on the supported

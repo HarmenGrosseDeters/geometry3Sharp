@@ -15,21 +15,28 @@ static class CertificateStructureProbe
 
     public static int Run(string[] args)
     {
-        if (args.Length != 6 || !int.TryParse(args[1], out int n) || n < 3 || n > 100 ||
+        bool growth = args[0] == "--certificate-growth";
+        var dimensions = args.Length > 1 ? args[1].Split('x') : Array.Empty<string>();
+        int n = 0, height = 0;
+        bool dimensionsValid = dimensions.Length == 1 && int.TryParse(dimensions[0], out n);
+        if (dimensionsValid) height = n;
+        else dimensionsValid = growth && dimensions.Length == 2 && int.TryParse(dimensions[0], out n) && int.TryParse(dimensions[1], out height);
+        if (args.Length != 6 || !dimensionsValid || n < 3 || height < 3 ||
+            (!growth && (n > 100 || height != n)) || (growth && ((long)n*height > 100000 || args[2] != "solver")) ||
             (args[2] != "natural" && args[2] != "solver") ||
             !double.TryParse(args[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double shift) ||
             !(shift > 0) || !double.IsFinite(shift) || args[4] != "rotated") {
-            Console.Error.WriteLine("usage: --certificate-structure <n 3..100> <natural|solver> <positive shift> rotated <fresh output.json>"); return 2;
+            Console.Error.WriteLine("usage: --certificate-structure <n 3..100> <natural|solver> <positive shift> rotated <fresh output.json>; --certificate-growth <nx>x<ny> solver <positive shift> rotated <fresh output.json> (up to 100000 vertices)"); return 2;
         }
         if (File.Exists(args[5])) { Console.Error.WriteLine("output already exists; use a fresh path"); return 2; }
         var timer = Stopwatch.StartNew();
-        int count = n*n, nf = 0;
+        int count = n*height, nf = 0;
         var free = new int[count]; var fixedVertices = new bool[count]; var vertices = new long[count][];
         var rows = new HashSet<int>[count]; var faces = new List<int[]>();
         var rotation = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 31);
         double scale = 0;
         for (int i = 0; i < count; i++) {
-            var p = rotation * new Vector3d((double)(i%n)/(n-1), (double)(i/n)/(n-1), 0);
+            var p = rotation * new Vector3d((double)(i%n)/(n-1), (double)(i/n)/(height-1), 0);
             vertices[i] = Bits(p); scale = Math.Max(scale, Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
             fixedVertices[i] = i%n == 0 || i%n == n-1; free[i] = fixedVertices[i] ? -1 : nf++;
             rows[i] = new HashSet<int>();
@@ -39,7 +46,7 @@ static class CertificateStructureProbe
             // Production keeps every triangle edge key, including zero weights.
             foreach (int i in new[] {a,b,c}) { rows[i].Add(a); rows[i].Add(b); rows[i].Add(c); }
         }
-        for (int y = 0; y < n-1; y++) for (int x = 0; x < n-1; x++) {
+        for (int y = 0; y < height-1; y++) for (int x = 0; x < n-1; x++) {
             int a = x+n*y, b = a+1, d = a+n, c = d+1; Face(a,b,c); Face(a,c,d);
         }
         var pattern = new HashSet<int>[nf]; for (int i = 0; i < nf; i++) pattern[i] = new HashSet<int>();
@@ -52,6 +59,9 @@ static class CertificateStructureProbe
         }
         var order = new int[nf]; for (int i = 0; i < nf; i++) order[i] = i;
         int numericalNonzeros = 0;
+        int[] factorColumnPointers = null;
+        SparseCholesky factorForGrowth = null;
+        double numericalFactorMilliseconds = 0;
         if (args[2] == "solver") {
             // Strictly diagonally dominant SPD surrogate, with exactly the Q
             // pattern. Only its pattern-dependent ordering is used, never its values.
@@ -60,17 +70,50 @@ static class CertificateStructureProbe
                 factor.Add(r,c,-1); degree[r]++; degree[c]++;
             }
             for (int i = 0; i < nf; i++) factor.Add(i,i,degree[i]+1);
+            var factorTimer = Stopwatch.StartNew();
             if (!factor.Factorize()) throw new InvalidOperationException("ordering surrogate failed: "+factor.Error);
             // Benchmark-only reflection avoids adding a public or friend API.
             var method = typeof(SparseCholesky).GetMethod("CopyPermutation", BindingFlags.Instance | BindingFlags.NonPublic);
             if (method == null) throw new InvalidOperationException("ordering snapshot unavailable");
+            factorTimer.Stop(); numericalFactorMilliseconds = factorTimer.Elapsed.TotalMilliseconds;
             order = (int[])method.Invoke(factor, null); numericalNonzeros = factor.FactorNonZeros;
+            if (growth) {
+                var field = typeof(SparseCholesky).GetField("Lp", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field == null) throw new InvalidOperationException("factor pattern unavailable");
+                factorColumnPointers = (int[])field.GetValue(factor);
+                factorForGrowth = factor;
+            }
         }
         var inverse = new int[nf]; var seen = new bool[nf];
         if (order.Length != nf) throw new InvalidOperationException("ordering size");
         for (int i = 0; i < nf; i++) {
             int old = order[i]; if (old < 0 || old >= nf || seen[old]) throw new InvalidOperationException("ordering bijection");
             seen[old] = true; inverse[old] = i;
+        }
+        if (growth) {
+            // Exact symbolic work from the completed factor column lengths:
+            // each column with d strict-lower entries contributes d(d+1)/2
+            // Schur updates, without performing those updates diagnostically.
+            long schurTotal = 0, initialTotal = 0;
+            for (int i = 0; i < nf; i++) {
+                int d = factorColumnPointers[i+1]-factorColumnPointers[i]-1;
+                if (d < 0) throw new InvalidOperationException("invalid factor column");
+                schurTotal = checked(schurTotal+(long)d*(d+1)/2);
+                initialTotal += pattern[i].Count;
+            }
+            var factorRows = (int[])typeof(SparseCholesky).GetField("Li", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(factorForGrowth);
+            var precedingCounts = new int[nf];
+            for (int column=0; column<nf; column++)
+                for (int k=factorColumnPointers[column]+1; k<factorColumnPointers[column+1]; k++) precedingCounts[factorRows[k]]++;
+            using (var stream = new FileStream(args[5], FileMode.CreateNew, FileAccess.Write))
+                JsonSerializer.Serialize(stream, new { width=n, height, vertices=count, free=nf, order, preceding_counts=precedingCounts,
+                    assembly_updates=assemblyUpdates, schur_updates=schurTotal, initial_entries=initialTotal,
+                    factor_entries=numericalNonzeros, scalar_retained_entries_lower_bound=numericalNonzeros-nf,
+                    peak_live_entries_lower_bound=initialTotal, position_certificate="not_checked" });
+            Console.WriteLine($"grid={n}x{height} vertices={count} free={nf} ordering=solver structure_complete=True");
+            Console.WriteLine($"assembly_updates={assemblyUpdates} schur_updates={schurTotal} total_updates={assemblyUpdates+schurTotal} initial_entries={initialTotal} factor_entries={numericalNonzeros} scalar_retained_entries_lower_bound={numericalNonzeros-nf} peak_live_entries_lower_bound={initialTotal}");
+            Console.WriteLine($"surrogate_factor_ms={numericalFactorMilliseconds:F3} diagnostic_total_ms={timer.Elapsed.TotalMilliseconds:F3} allocated_bytes={GC.GetTotalAllocatedBytes(true)} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64} position_certificate=not_checked reason=structure_only");
+            return 0;
         }
         var columns = new HashSet<int>[nf]; for (int i = 0; i < nf; i++) columns[i] = new HashSet<int>();
         long initial = 0;
