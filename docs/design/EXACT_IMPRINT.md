@@ -358,12 +358,13 @@ triangulation, classification, simplify, assemble, rounding):
 | assemble | yes | simpler (target joins only) | |
 | rounding | on the whole result | only pairs with a piece triangle (4.2.3), with more locked edges | the exact intersection search of the boolean's result is up to 76 % of its rounding time; the imprint's follows the touched region |
 
-Estimate (an upper bound, **not measured**): imprint = 30 to 60 % of the boolean's time when the classification is not the
-dominant phase (closed meshes: classification is a smaller share), and 5 to 20 % where it is (open inputs; the slow tail).
-Per the rule of AGENT_WORKFLOW section 3 the share is a statement about a stratum: the imprint's saving is the classification and the
-cutter's triangulation, so it is large on classification-bound operations (open and large meshes) and about half on
-others. The rounding is restricted to the touched region (4.2.3), so its cost follows the pieces, not the target size; it is the phase to measure
-first (the upper bound below). With `SafeRounding = false` the imprint is the arrangement alone.
+**Measured** (`benchmarks/ExactImprint`, 2026-11-16, this container, not pinned, median of 5 runs after a warm-up; the commands are in the benchmark README):
+the imprint of a sphere by an offset sphere is 0.45 to 0.58 of the time of `ExactMeshBoolean` Union of the same pair (23k, 95k and 387k triangles:
+52 / 89 / 374 ms against 89 / 197 / 700 ms), and 0.44 to 0.56 for a small cutter sphere. Where it goes (the boolean's phases on the same pairs, `bound` mode, one
+run): classification is only 6 to 13 % of the boolean on these closed pairs, simplification 2 %, triangulation 4 to 5 %; the rest of the saving is the self-join
+of each operand (the arrangement alone: 183 against 317 ms at 387k triangles, noisy), the cutter's triangulation and the restricted rounding. The earlier estimate
+(30 to 60 %) was for classification-bound (open) inputs and is not measured here; closed pairs land at about half. The rounding stays the phase that does not shrink with
+the cutter (the `no-rounding` column of the benchmark: 36 / 67 / 215 ms against 52 / 89 / 374 ms with it).
 
 **Benchmark plan** (`benchmarks/ExactImprint`, a console project like `benchmarks/BooleanComparison`, built in CI as every benchmark):
 (1) the same pairs as the BooleanComparison's study set (procedural: sphere / cube / torus pairs at 1k to 1M triangles; the
