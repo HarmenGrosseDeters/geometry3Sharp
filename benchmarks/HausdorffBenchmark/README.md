@@ -113,3 +113,15 @@ Summary:
 
 In the last row the default upper bound happens to hold. On such inputs it is below the exact distance in about 40% of
 random cases (`HausdorffCertifiedUpperTests`).
+
+## Patch bound upper-bound check (#848)
+
+    dotnet run --project benchmarks/HausdorffBenchmark -c Release -- patch [<runs>]
+    dotnet run --project benchmarks/HausdorffBenchmark -c Release -- predcost
+
+`patch`: how many subdivisions and how much time would `CertifiedUpper` save if the patch bound could be used? A
+one-sided branch and bound written out in `PatchOracle.cs`, with the certified cascade and the existing (uncertified)
+patch bound as the oracle (internals by reflection), on reduced meshes against their originals and other procedural
+inputs. `predcost`: nanoseconds of the sign of a 3x3 determinant by a filtered double evaluation, by intervals and by
+`AdaptivePredicates.Orient2d`. Tables, reading and the recommendation:
+[docs/design/CERTIFIED_PATCH_BOUND.md](../../docs/design/CERTIFIED_PATCH_BOUND.md) section 7.

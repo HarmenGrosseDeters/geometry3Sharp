@@ -626,7 +626,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    floor.
 4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
    Options B and C only after a reviewed proof.
-5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2).
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first), awaiting the owner.
 6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
 7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not scheduled (the
    rounding spike is a no-go).
