@@ -19,8 +19,11 @@ namespace geometry3Sharp.Tests
         public void SnapToIncrement_HugeValue_SaturatesTheIncrementCount()
         {
             // (nInc = (int)(1e300 / 1): int.MinValue on net48, giving -2147483648 instead of +2147483647)
-            Assert.Equal(2147483647.0, Snapping.SnapToIncrement(1e300, 1.0));
-            Assert.Equal(-2147483647.0, Snapping.SnapToIncrement(-1e300, 1.0));
+            // (a count beyond the int range: net48 gave a negative result with the int cast; the long count keeps the value)
+            Assert.Equal(9223372036854775807.0, Snapping.SnapToIncrement(1e300, 1.0));
+            Assert.Equal(-9223372036854775807.0, Snapping.SnapToIncrement(-1e300, 1.0));
+            // (the rounding step ++nInc used to wrap int.MaxValue to int.MinValue on every runtime)
+            Assert.Equal(10000000001.0, Snapping.SnapToIncrement(1e10 + 0.7, 1.0));
             Assert.Equal(0.0, Snapping.SnapToIncrement(double.NaN, 1.0));
             Assert.Equal(0.0, Snapping.SnapToIncrement(double.PositiveInfinity, 1.0));
         }

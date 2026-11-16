@@ -123,6 +123,16 @@ Converted by earlier PRs of this issue (not in the analyzer run above, which see
   bins), `PrimitiveFit3` (`maxRing`), `ClothSimulationFilter` (guarded by a double test before), `TilingUtil` (`+Inf` bounds
   give `int.MaxValue` tiles on net10, memory exhaustion; net48 gave 1). These behave the same on every runtime now; they are
   input-validation questions (status code or exception), not runtime differences, and stay open.
+- Review follow-ups. `TerrainGridTin.CreaseCrossings`: a segment end at or beyond 2^31 saturated the loop bound to
+  `int.MaxValue`, so `++cy` wrapped and the loop never ended (net10 included); the function now returns for coordinates
+  beyond 1e9 or NaN. `Snapping.SnapToIncrement` counts in `long` (`++nInc` wrapped at `int.MaxValue`, flipping the sign
+  of the result on every runtime). Left open, same on every runtime: `TilingUtil` with a finite but huge
+  `bounds / element size` (the `while (nx > 1 ..) nx--` loop runs up to 2^31 times; net48 gave 1 before), a
+  `ClothSimulationFilter` iteration budget (`MaxIterations + count`) that wraps for a very deep pit,
+  `Query2Integer` operands beyond 2^63 (the exact predicate on saturated, silently wrong operands: out of its
+  integer-coordinate contract), and the unchecked `+ 1` / `+ 10` after a helper in `CurveResampler`, `CurveSampler2`,
+  `TerrainOffset`, `PointCloudSurface`, `TerrainSafety`, `PlanarHoleFiller`, `PlanarSpansFiller`.
+- `CachingMeshSDFImplicit` has the same wrap fix as `CachingDenseGridTrilinearImplicit` but no test (it needs a mesh SDF).
 - The sites that clamp after the cast (`Colorb`, `PLYWriter`, `PolyLine2d`, `CurveGenerators`) hid NaN but not `+Inf` or a
   huge value (net10 255, net48 0).
 

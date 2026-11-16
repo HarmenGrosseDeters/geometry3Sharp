@@ -544,6 +544,9 @@ namespace gs
             var seenVertex = new HashSet<int>(); var seenSeg = new HashSet<int>();
             double len2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y), len = Math.Sqrt(len2);
             double minx = Math.Min(p.x, q.x), maxx = Math.Max(p.x, q.x), miny = Math.Min(p.y, q.y), maxy = Math.Max(p.y, q.y);
+            // (a segment beyond 1e9 cells, or with a NaN coordinate, cannot cross a crease of the grid; without this test a saturated
+            // int.MaxValue bound would never end the loops below, #804)
+            if (!(minx > -1e9 && maxx < 1e9 && miny > -1e9 && maxy < 1e9)) return list;
             var cand = new List<int>();
             for (int cy = MathUtil.FloorToIntSaturating(miny); cy <= MathUtil.FloorToIntSaturating(maxy); ++cy)
                 for (int cx = MathUtil.FloorToIntSaturating(minx); cx <= MathUtil.FloorToIntSaturating(maxx); ++cx)
