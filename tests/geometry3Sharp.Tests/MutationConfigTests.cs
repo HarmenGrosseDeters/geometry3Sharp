@@ -16,7 +16,8 @@ namespace geometry3Sharp.Tests
         // the methods the splits of a file are at, in order
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
-            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "PatchOpen open_winding_per_patch(", "List<int>[] trace_clusters(", "int front_winding(" },
+            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "public static EdgeTable Build(", "internal static double far_term(", "void verify_traced(",
+                "static double[] corner_box(", "internal static int plane_side_abs(", "internal static int orient3d_filtered(" },
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
@@ -100,12 +101,21 @@ namespace geometry3Sharp.Tests
                 foreach (string alt in Alternatives(kv.Value))
                     foreach (string cond in alt.Split('&')) {
                         Match m = Regex.Match(cond, @"^FullyQualifiedName!?~(.+)$");
-                        Match d = Regex.Match(cond, @"^DisplayName!~(\w+)$");
-                        Assert.True(m.Success || d.Success, kv.Key + ": unknown condition " + cond);
+                        // (the coverage-based sets of tests/mutation/coverage_select.py: exact method names, and the rows of a
+                        // theory whose display name contains a word of its data)
+                        Match e = Regex.Match(cond, @"^FullyQualifiedName=(.+)$");
+                        Match d = Regex.Match(cond, @"^DisplayName!?~([\w^.\- ]+)$");
+                        Assert.True(m.Success || e.Success || d.Success, kv.Key + ": unknown condition " + cond);
                         if (m.Success)
                             Assert.True(names.Any(n => n.Contains(m.Groups[1].Value)), kv.Key + ": " + cond + " names no test");
-                        else
+                        else if (e.Success)
+                            Assert.True(names.Contains(e.Groups[1].Value), kv.Key + ": " + cond + " names no test method");
+                        else if (cond.StartsWith("DisplayName!~"))
                             Assert.True(sources.Contains("\"" + d.Groups[1].Value), kv.Key + ": " + cond + " names no test case");
+                        else
+                            // (a row of a theory: a string of its data, an enum value such as Union, or a number)
+                            Assert.True(sources.Contains("\"" + d.Groups[1].Value) || sources.Contains("." + d.Groups[1].Value)
+                                || Regex.IsMatch(sources, @"[(, ]" + Regex.Escape(d.Groups[1].Value) + @"[,)]"), kv.Key + ": " + cond + " names no test case");
                     }
         }
 

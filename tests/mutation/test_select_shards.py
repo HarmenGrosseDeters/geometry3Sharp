@@ -9,13 +9,14 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_configs, select, workflow_edit_forces_full
+from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the config file names)
-ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
+BO = ["boolean-%d" % i for i in range(1, 8)]
+ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2"}
 
 
@@ -49,7 +50,7 @@ class SelectShards(unittest.TestCase):
 
     def test_source_runs_only_its_shards_incrementally(self):
         self.assertEqual(("none", {r: "source" for r in RO}), run("mesh_ops/MeshRoundingRepair.cs"))
-        self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source", "boolean-3": "source", "boolean-4": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
+        self.assertEqual(("none", {b: "source" for b in BO}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
@@ -63,9 +64,10 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests", "boolean-3": "tests", "boolean-4": "tests"}, **{r: "tests" for r in RO})),
+        # (the boolean parts hold coverage-based test sets, coverage_select.py: a part runs the classes of its own set)
+        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-5": "tests", "boolean-7": "tests"}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
-        self.assertEqual(("none", {"boolean-4": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
+        self.assertEqual(("none", {"boolean-5": "tests", "boolean-7": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
 
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
@@ -405,10 +407,21 @@ class SelectShards(unittest.TestCase):
             self.assertIn("arithmetic=full", p.stdout)
             self.assertEqual(len(ALL_MESH), p.stdout.count('"mode": "full"'))
 
+    def test_the_classes_of_exact_and_row_terms(self):
+        # (coverage_select.py writes exact method names and theory rows: their classes are the test files of the shard)
+        self.assertEqual("ExactMeshBooleanTestsCrossCarry", test_class(
+            "FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsCrossCarry.CrossCarry_SameAsOwnRays_UnderSimilarity"))
+        self.assertEqual("MeshRoundingRepairTests", test_class("FullyQualifiedName~MeshRoundingRepairTests.ExactVertices"))
+        self.assertEqual("ExactBooleanFilterTests", test_class("FullyQualifiedName~ExactBooleanFilterTests"))
+        cfg = CONFIGS["mesh-boolean-6"]
+        self.assertIn("tests/geometry3Sharp.Tests/ExactMeshBooleanTestsLocalFilter.cs", cfg[2])
+        self.assertTrue(all(not t.endswith("DisplayName~utm.cs") for t in cfg[2]))
+        self.assertEqual("tests", mode_of(cfg, {"tests/geometry3Sharp.Tests/ExactMeshBooleanTestsLocalFilter.cs"}))
+
     def test_the_scripts_of_the_runs_run_a_representative_shard_in_full(self):
         # a change to run_stryker.sh, incremental.py or baseline.py can break every shard's real run (the fake-dotnet tests
         # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
-        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
+        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"):
             self.assertEqual(("none", {"fixed": "full"}), run(path), path)
         self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
                          run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))

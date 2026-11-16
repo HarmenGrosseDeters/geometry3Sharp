@@ -51,6 +51,10 @@ on:
       - 'tests/geometry3Sharp.Tests/PolyhedralEnvelopeTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
+      # (the classes of the boolean parts' coverage-based sets, coverage_select.py: also names with a suffix after Tests)
+      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanTests*.cs'
+      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanNaryTests*.cs'
+      - 'tests/geometry3Sharp.Tests/ExactBooleanOpenInputTests*.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
       - 'tests/geometry3Sharp.Tests/BoxTreeMortonTests.cs'
@@ -133,6 +137,8 @@ jobs:
           python3 test_incremental.py
           python3 test_suggest_split.py
           python3 test_narrow_tests.py
+          python3 test_exclude_other_sources.py
+          python3 test_run_stryker_restore.py
       # Runs once a day although two things start it (docs/QA.md 2.12): the external dispatcher at a fixed time and the cron
       # line as the fallback (tools/schedule_guard.py). A step of this job, not a job of its own: select_shards.py takes a new
       # job or top key of this workflow as a reason to run every shard in full.

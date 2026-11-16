@@ -346,7 +346,7 @@ class RunStryker(unittest.TestCase):
 
     def run_script(self, **env):
         out = os.path.join(self.tmp.name, "seen.json")
-        e = dict(os.environ, PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + os.environ["PATH"], MODE="full",
+        e = dict(os.environ, PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + os.environ["PATH"], MODE="full", G3_NO_EXCLUDE="1",
                  G3_STUB_OUT=out, G3_TEST_FILTERS=os.path.join(self.tmp.name, "filters"),
                  GITHUB_STEP_SUMMARY=os.path.join(self.tmp.name, "summary.md"), **env)
         subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), self.cfg_path], cwd=self.tmp.name, env=e,
