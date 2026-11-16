@@ -13,6 +13,8 @@ static class Program
     static void Main(string[] args)
     {
         string Arg(string name, string def) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : def; }
+        if (args.Contains("--phases")) { Phases(); return; }
+        if (args.Contains("--quality")) { Quality(); return; }
         int[] res = Arg("--res", "32,64,128,256").Split(',').Select(int.Parse).ToArray();
         string[] shapes = Arg("--shapes", string.Join(",", Shapes.Names)).Split(',');
         double[] tols = Arg("--tol", "0.1,0.25,0.5").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
@@ -74,5 +76,58 @@ static class Program
         public ImplicitFunctionDelegate(Func<Vector3d, double> f) { this.f = f; }
         public double Value(ref Vector3d pt) { return f(pt); }
         public AxisAlignedBox3d Bounds() { return AxisAlignedBox3d.Empty; }
+    }
+
+    // time per phase of the uniform contour and the simplification (upper bound for a sparse construction)
+    static void Phases()
+    {
+        Console.WriteLine("| shape | N | tol | sample | crossings | hermite | vertices | intersections | mesh | simplify | total ms |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|");
+        foreach (string shape in new[] { "csg", "bracket", "sphere" })
+            foreach (int N in new[] { 64, 128, 256 }) {
+                double ext = Shapes.Extent(shape);
+                var f = Shapes.Get(shape);
+                var ad = new AdaptiveDualContouring() { Implicit = new ImplicitFunctionDelegate(f), InsideIsLess = true, CellSize = 2 * ext / N, Tolerance = 0.25,
+                    Bounds = new AxisAlignedBox3d(new Vector3d(-ext, -ext, -ext), new Vector3d(ext, ext, ext)) };
+                ad.Generate();
+                var sw = Stopwatch.StartNew(); ad.Generate(); long total = sw.ElapsedMilliseconds;
+                var ph = ad.BasePhaseMilliseconds;
+                Console.WriteLine($"| {shape} | {N} | 0.25 | {ph["sample"]} | {ph["crossings"]} | {ph["hermite"]} | {ph["vertices"]} | {ph["intersections"]} | {ph["mesh"]} | {ad.PhaseMilliseconds["simplify"]} | {total} |");
+            }
+    }
+
+    // triangle quality: smallest angle (degrees) of each triangle; share below 5 and 10 degrees, 1st percentile, mean
+    static void Quality()
+    {
+        Console.WriteLine("| shape | N | tolerance | triangles | min angle p01 | min angle mean | below 5 deg | below 10 deg | max angle above 150 deg |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|");
+        foreach (string shape in new[] { "csg", "bracket", "sphere", "torus" })
+            foreach (int N in new[] { 64, 128 }) {
+                double ext = Shapes.Extent(shape);
+                var f = Shapes.Get(shape);
+                foreach (double tol in new[] { 0.0, 0.25, 0.5 }) {
+                    var ad = new AdaptiveDualContouring() { Implicit = new ImplicitFunctionDelegate(f), InsideIsLess = true, CellSize = 2 * ext / N, Tolerance = tol,
+                        Bounds = new AxisAlignedBox3d(new Vector3d(-ext, -ext, -ext), new Vector3d(ext, ext, ext)) };
+                    ad.Generate();
+                    var mins = new List<double>(); int obtuse = 0;
+                    foreach (int t in ad.Mesh.TriangleIndices()) {
+                        Index3i it = ad.Mesh.GetTriangle(t);
+                        Vector3d a = ad.Mesh.GetVertex(it.a), b = ad.Mesh.GetVertex(it.b), c = ad.Mesh.GetVertex(it.c);
+                        double mn = 180, mx = 0;
+                        foreach (var ang in new[] { Ang(a, b, c), Ang(b, c, a), Ang(c, a, b) }) { mn = Math.Min(mn, ang); mx = Math.Max(mx, ang); }
+                        mins.Add(mn); if (mx > 150) obtuse++;
+                    }
+                    mins.Sort();
+                    int n = mins.Count;
+                    Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "| {0} | {1} | {2} | {3} | {4:F1} | {5:F1} | {6:P1} | {7:P1} | {8:P1} |",
+                        shape, N, tol, n, mins[n / 100], mins.Average(), (double)mins.Count(x => x < 5) / n, (double)mins.Count(x => x < 10) / n, (double)obtuse / n));
+                }
+            }
+    }
+    static double Ang(Vector3d p, Vector3d q, Vector3d r)
+    {
+        Vector3d u = q - p, v = r - p;
+        double d = u.Length * v.Length;
+        return d == 0 ? 0 : Math.Acos(MathUtil.Clamp(u.Dot(v) / d, -1, 1)) * 180 / Math.PI;
     }
 }

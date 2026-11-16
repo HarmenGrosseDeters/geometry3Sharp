@@ -58,12 +58,16 @@ namespace g3
         public int[] ClustersByLevel = new int[0];
         /// <summary> rounds of the check (1 if the first merge was accepted) and the clusters taken back by it </summary>
         public int CheckRounds, RejectedClusters;
+        /// <summary> 1 if the uniform contour had intersections that no merged vertex was part of, so it was repaired and the merge ran again </summary>
+        public int BaseRepairs;
         /// <summary> the uniform contour's own report: polygons left out (holes) and whether it is free of self-intersections </summary>
         public int NonManifoldTriangles;
         public bool BaseSelfIntersectionFree;
         /// <summary> true if the last Generate found no intersecting pair (the base contour was free of them and no merged vertex is in one) </summary>
         public bool SelfIntersectionFree;
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+        /// <summary> time per phase of the uniform contour (DualContouring.PhaseMilliseconds) </summary>
+        public Dictionary<string, long> BasePhaseMilliseconds = new Dictionary<string, long>();
 
 
         public void Generate()
@@ -72,28 +76,44 @@ namespace g3
             Clusters = MergedVertices = RejectedClusters = CheckRounds = 0;
             UniformTriangles = UniformVertices = NonManifoldTriangles = 0;
             BaseSelfIntersectionFree = SelfIntersectionFree = false;
+            BaseRepairs = 0;
             ClustersByLevel = new int[0];
             PhaseMilliseconds = new Dictionary<string, long>();
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            var dc = new DualContouring() {
-                Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
-                QEFEigenTolerance = QEFEigenTolerance, ParallelCompute = ParallelCompute, CancelF = CancelF,
-                RecordVertexCrossings = true
-            };
-            dc.Generate();
-            PhaseMilliseconds["contour"] = timer.ElapsedMilliseconds; timer.Restart();
-            if (CancelF() || dc.Mesh == null) return;
-            UniformTriangles = dc.Mesh.TriangleCount;
-            UniformVertices = dc.Mesh.VertexCount;
-            NonManifoldTriangles = dc.NonManifoldTriangles;
-            BaseSelfIntersectionFree = dc.SelfIntersectionFree;
-            SelfIntersectionFree = dc.SelfIntersectionFree;
-            if (Tolerance <= 0 || MaxLevel < 1 || dc.Mesh.TriangleCount == 0) {
-                Mesh = dc.Mesh;
+            bool simplify = Tolerance > 0 && MaxLevel >= 1;
+            // The uniform contour is not repaired first (its check costs about a fifth of the time and the result is much smaller): the
+            // final mesh is checked as a whole. Only if it has intersections that no merged vertex is part of, the uniform contour
+            // is repaired and the merge runs again on it.
+            for (int attempt = 0; ; ++attempt) {
+                bool baseResolved = !simplify || attempt > 0;
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                var dc = new DualContouring() {
+                    Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
+                    QEFEigenTolerance = QEFEigenTolerance, ParallelCompute = ParallelCompute, CancelF = CancelF,
+                    RecordVertexCrossings = simplify, ResolveSelfIntersections = baseResolved
+                };
+                dc.Generate();
+                PhaseMilliseconds["contour"] = timer.ElapsedMilliseconds; timer.Restart();
+                BasePhaseMilliseconds = new Dictionary<string, long>(dc.PhaseMilliseconds);
+                if (CancelF() || dc.Mesh == null) return;
+                UniformTriangles = dc.Mesh.TriangleCount;
+                UniformVertices = dc.Mesh.VertexCount;
+                NonManifoldTriangles = dc.NonManifoldTriangles;
+                BaseSelfIntersectionFree = dc.SelfIntersectionFree;
+                SelfIntersectionFree = dc.SelfIntersectionFree;
+                if (!simplify || dc.Mesh.TriangleCount == 0) {
+                    Mesh = dc.Mesh;
+                    return;
+                }
+                RejectedClusters = CheckRounds = 0;
+                var simplifier = new Simplifier(this, dc, baseResolved);
+                DMesh3 result = simplifier.Run();
+                PhaseMilliseconds["simplify"] = timer.ElapsedMilliseconds;
+                if (result == null) return;
+                if (simplifier.BaseHasIntersections && !baseResolved) { BaseRepairs = 1; continue; }
+                Mesh = result;
+                if (!baseResolved) BaseSelfIntersectionFree = SelfIntersectionFree = !simplifier.BaseHasIntersections;
                 return;
             }
-            Mesh = new Simplifier(this, dc).Run();
-            PhaseMilliseconds["simplify"] = timer.ElapsedMilliseconds;
         }
 
         class Simplifier
@@ -103,11 +123,13 @@ namespace g3
             readonly DMesh3 M0;
             readonly int NV, Lmax;
             readonly Vector3d[] P0;
-            readonly bool[] mergeable, baseBad;
+            readonly bool[] mergeable;
+            readonly sbyte[] baseBadCache;    // 0 unknown, 1 bad, -1 fine: defects of the uniform contour, found when needed
             readonly Vector3i[] cell;
             readonly int[][] root;           // per level: component root (smallest vertex id), -1 if not mergeable
             readonly int[][] roots;          // per level: the roots
             readonly List<int>[][] members;  // per level, by root
+            readonly int[][] childOne;       // per level, by root: 1 + the only child component root, if there is just one
             readonly int[][][] children;     // per level, by root: distinct component roots of level-1 (null at level 0)
             readonly sbyte[][] fit;          // 0 unknown, 1 fits, -1 does not
             readonly Vector3d[][] cpos;
@@ -117,9 +139,13 @@ namespace g3
             readonly Vector3d origin;
             readonly double tol;
 
-            public Simplifier(AdaptiveDualContouring owner, DualContouring dc)
+            readonly bool baseResolved;
+            /// <summary> the last check found intersecting triangles that no merged vertex is part of (only if the uniform contour was not repaired) </summary>
+            public bool BaseHasIntersections;
+
+            public Simplifier(AdaptiveDualContouring owner, DualContouring dc, bool baseResolved)
             {
-                this.owner = owner; this.dc = dc; M0 = dc.Mesh;
+                this.owner = owner; this.dc = dc; this.baseResolved = baseResolved; M0 = dc.Mesh;
                 NV = M0.MaxVertexID;
                 P0 = new Vector3d[NV]; mergeable = new bool[NV]; cell = new Vector3i[NV];
                 origin = owner.Bounds.Min;
@@ -133,15 +159,13 @@ namespace g3
                         cell[v] = dc.VertexCellMin(v);
                     }
                 }
-                baseBad = new bool[NV];
-                for (int v = 0; v < NV; ++v)
-                    if (M0.IsVertex(v)) baseBad[v] = vertex_bad(M0, v);
+                baseBadCache = new sbyte[NV];
                 cap = new int[NV];
                 for (int v = 0; v < NV; ++v) cap[v] = owner.MaxLevel;
 
                 // components per level
                 int L = Math.Min(owner.MaxLevel, 30);
-                root = new int[L + 1][]; roots = new int[L + 1][]; members = new List<int>[L + 1][]; children = new int[L + 1][][];
+                root = new int[L + 1][]; roots = new int[L + 1][]; members = new List<int>[L + 1][]; children = new int[L + 1][][]; childOne = new int[L + 1][];
                 fit = new sbyte[L + 1][]; cpos = new Vector3d[L + 1][]; mlev = new int[L + 1][]; coll = new bool[L + 1][];
                 for (int l = 0; l <= L; ++l) {
                     int[] r = new int[NV];
@@ -153,27 +177,46 @@ namespace g3
                                 union(r, ev.a, ev.b);
                         }
                     var rl = new List<int>();
-                    var mem = new List<int>[NV];
                     for (int v = 0; v < NV; ++v) {
                         if (!mergeable[v]) continue;
                         r[v] = find(r, v);
-                        if (mem[r[v]] == null) { mem[r[v]] = new List<int>(); rl.Add(r[v]); }
-                        mem[r[v]].Add(v);
+                        if (r[v] == v) rl.Add(v);
                     }
-                    root[l] = r; roots[l] = rl.ToArray(); members[l] = mem;
+                    root[l] = r; roots[l] = rl.ToArray();
                     fit[l] = new sbyte[NV]; cpos[l] = new Vector3d[NV]; mlev[l] = new int[NV]; coll[l] = new bool[NV];
+                    var mem = new List<int>[NV];
+                    members[l] = mem;
                     if (l > 0) {
+                        // a component with a single child component is the same vertex set as that child (it inherits its result); only the
+                        // others (several children) get member and child lists
+                        var one = new int[NV];
                         var ch = new int[NV][];
-                        foreach (int rt in rl) {
-                            var set = new SortedSet<int>();
-                            foreach (int v in mem[rt]) set.Add(root[l - 1][v]);
-                            var a = new int[set.Count]; set.CopyTo(a); ch[rt] = a;
+                        var prev = root[l - 1];
+                        for (int v = 0; v < NV; ++v) {
+                            if (!mergeable[v]) continue;
+                            int rt = r[v], c = prev[v];
+                            if (ch[rt] == null && one[rt] == 0) { one[rt] = c + 1; continue; }
+                            if (ch[rt] == null) {
+                                if (one[rt] == c + 1) continue;
+                                ch[rt] = new[] { one[rt] - 1, c };
+                                mem[rt] = new List<int>();
+                            } else if (Array.IndexOf(ch[rt], c) < 0) {
+                                var na = new int[ch[rt].Length + 1]; ch[rt].CopyTo(na, 0); na[na.Length - 1] = c; ch[rt] = na;
+                            }
                         }
-                        children[l] = ch;
+                        for (int v = 0; v < NV; ++v)
+                            if (mergeable[v] && mem[r[v]] != null) mem[r[v]].Add(v);
+                        children[l] = ch; childOne[l] = one;
                     }
                 }
                 Lmax = L;
                 for (int v = 0; v < NV; ++v) if (mergeable[v]) { cpos[0][v] = P0[v]; coll[0][v] = true; mlev[0][v] = 0; }
+            }
+
+            bool base_bad(int v)
+            {
+                if (baseBadCache[v] == 0) baseBadCache[v] = (sbyte)(vertex_bad(M0, v) ? 1 : -1);
+                return baseBadCache[v] > 0;
             }
 
             bool same_block(int a, int b, int l)
@@ -247,13 +290,13 @@ namespace g3
                     var todo = new List<int>();
                     foreach (int r in roots[l]) {
                         int[] ch = children[l][r];
-                        bool allChildren = true;
-                        foreach (int c in ch) allChildren &= coll[l - 1][c];
-                        if (ch.Length == 1) {
-                            int c = ch[0];
+                        if (ch == null) {
+                            int c = childOne[l][r] - 1;
                             coll[l][r] = coll[l - 1][c]; mlev[l][r] = mlev[l - 1][c]; cpos[l][r] = cpos[l - 1][c];
                             continue;
                         }
+                        bool allChildren = true;
+                        foreach (int c in ch) allChildren &= coll[l - 1][c];
                         bool capOk = true;
                         foreach (int v in members[l][r]) if (cap[v] < l) { capOk = false; break; }
                         mlev[l][r] = l;
@@ -384,7 +427,7 @@ namespace g3
                     if (outMesh.IsVertex(o) == false || !vertex_bad(outMesh, o)) continue;
                     if (clusterOfOut[o].Level >= 1) { bad.Add(clusterOfOut[o]); continue; }
                     int bv;
-                    if (baseOf.TryGetValue(o, out bv) && baseBad[bv]) continue;
+                    if (baseOf.TryGetValue(o, out bv) && base_bad(bv)) continue;
                     foreach (int nb in outMesh.VtxVerticesItr(o))
                         if (clusterOfOut[nb].Level >= 1) bad.Add(clusterOfOut[nb]);
                 }
@@ -399,13 +442,15 @@ namespace g3
                 var cand = new List<int>();
                 foreach (int t in m.TriangleIndices()) {
                     Index3i it = m.GetTriangle(t);
-                    if (clusterOfOut[it.a].Level >= 1 || clusterOfOut[it.b].Level >= 1 || clusterOfOut[it.c].Level >= 1) cand.Add(t);
+                    if (!baseResolved || clusterOfOut[it.a].Level >= 1 || clusterOfOut[it.b].Level >= 1 || clusterOfOut[it.c].Level >= 1) cand.Add(t);
                 }
-                if (cand.Count == 0) return result;
+                if (cand.Count == 0) { BaseHasIntersections = false; return result; }
                 var candSet = new HashSet<int>(cand);
                 var tree = new DMeshAABBTree3(m, true);
                 object lockObj = new object();
                 var bad = new HashSet<Key>();
+                bool hitAny = false;
+                BaseHasIntersections = false;
                 Action<int> check = (k) => {
                     int ta = cand[k];
                     Index3i ia = m.GetTriangle(ta);
@@ -425,6 +470,7 @@ namespace g3
                     });
                     if (hits.Count == 0) return;
                     lock (lockObj) {
+                        hitAny = true;
                         foreach (int v in new[] { ia.a, ia.b, ia.c })
                             if (clusterOfOut[v].Level >= 1) bad.Add(clusterOfOut[v]);
                         foreach (int tb in hits) {
@@ -436,6 +482,7 @@ namespace g3
                 };
                 if (owner.ParallelCompute) gParallel.ForEach(Interval1i.Range(cand.Count), check);
                 else for (int k = 0; k < cand.Count; ++k) check(k);
+                BaseHasIntersections = hitAny && bad.Count == 0;
                 result.AddRange(bad);
                 result.Sort((p, q) => p.Level != q.Level ? p.Level.CompareTo(q.Level) : p.Root.CompareTo(q.Root));
                 return result;

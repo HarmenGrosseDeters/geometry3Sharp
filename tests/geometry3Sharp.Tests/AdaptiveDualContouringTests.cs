@@ -227,6 +227,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(first, ad.Mesh));
         }
 
+        // a gyroid sheet: the uniform contour (unrepaired) has self-intersections where sheets meet in few cells; the result has none,
+        // with or without the repair of the uniform contour first (measured: with N = 48 the uniform contour has intersections of its own, so Generate repairs it and merges again)
+        [Theory]
+        [InlineData(24, 0.3, 1.6, 0)]
+        [InlineData(32, 0.8, 1.6, 0)]
+        [InlineData(48, 0.1, 1.6173, 1)]
+        public void Gyroid_ResultHasNoSelfIntersections(int n, double tol, double ext, int baseRepairs)
+        {
+            double k = 2 * Math.PI * 1.5;
+            Func<Vector3d, double> gyroid = p => Math.Sin(k * p.x) * Math.Cos(k * p.y) + Math.Sin(k * p.y) * Math.Cos(k * p.z) + Math.Sin(k * p.z) * Math.Cos(k * p.x);
+            var ad = Make(gyroid, n, tol, true, ext);
+            ad.Generate();
+            Assert.True(ad.Clusters > 0);
+            Assert.Equal(baseRepairs, ad.BaseRepairs);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(ad.Mesh));
+            Assert.True(ad.SelfIntersectionFree);
+            Assert.True(Invariance.AllFinite(ad.Mesh));
+        }
+
         [Fact]
         public void Cancelled_Generate_LeavesNoStaleOutputs()
         {
