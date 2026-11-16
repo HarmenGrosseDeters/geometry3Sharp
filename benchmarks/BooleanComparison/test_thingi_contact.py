@@ -129,6 +129,52 @@ class OracleSettingsTests(unittest.TestCase):
         self.assertTrue(any(l.startswith("| mirror") for l in lines))
         self.assertTrue(any("mirror_p0001_6+6" in l and "inexact" in l for l in lines))
 
+class RemovedComponentsTests(unittest.TestCase):
+    """an empty result that the rounding stage produced by removing components is told apart from a really empty one"""
+    def row(self, name, removed, method="ours", key="counts"):
+        r = {"class": "thingi-contact", "file": name, "method": method, "ops": analyze.OPS, "all_results": True, "ie_error": 0.0, "diff_error": 0.0,
+             "input": {"kind": "ulp"}}
+        for op in analyze.OPS:
+            r.update({f"{op}_status": "ok", f"{op}_ms": 5, f"{op}_wclosed": True, f"{op}_selfint": 0, f"{op}_clean_reason": ""})
+        r["difference_clean_reason"] = "empty"
+        if key == "counts":
+            r["difference_counts"] = {"rounding_removed_components": removed}
+        else:
+            r["difference_removed_components"] = removed
+        return r
+
+    def summary(self, rows):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.jsonl")
+            with open(path, "w") as f:
+                f.writelines(json.dumps(x) + "\n" for x in rows)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                tc.cmd_summary([path])
+        return [l.split("|") for l in out.getvalue().splitlines() if l.startswith("| ulp-shift")]
+
+    def test_removed_helper_reads_both_forms(self):
+        self.assertEqual(tc.removed(self.row("a", 4), "difference"), 4)                      # counts of the first run
+        self.assertEqual(tc.removed(self.row("a", 7, key="flat"), "difference"), 7)          # the field compare.py writes now
+        self.assertIsNone(tc.removed(self.row("a", 4, method="manifold") | {"difference_counts": None}, "difference"))
+        self.assertIsNone(tc.removed(self.row("a", 4), "union"))
+
+    def test_summary_separates_removed_from_really_empty(self):
+        rows = [self.row("ulp-shift_p0000_1+1", 3), self.row("ulp-shift_p0001_2+2", 0), self.row("ulp-shift_p0002_3+3", 5, key="flat")]
+        cells = self.summary(rows)[0]
+        self.assertEqual(cells[9].strip(), "1")      # empty, really (removed 0)
+        self.assertEqual(cells[10].strip(), "2")     # empty, removed by rounding
+        self.assertEqual(cells[-2].strip(), "8")     # removed components, sum (3 + 0 + 5)
+
+    def test_other_methods_have_no_removed_column(self):
+        cells = self.summary([self.row("ulp-shift_p0000_1+1", 0, method="manifold")])[0]
+        self.assertEqual(cells[-2].strip(), "–")
+
+    def test_compare_records_removed_components_as_a_field(self):
+        src = open(os.path.join(HERE, "compare.py")).read()
+        self.assertIn('res["removed_components"] = counts["rounding_removed_components"]', src)
+
+
 @unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
 class PlacementEndToEndTests(unittest.TestCase):
     """the case writer and the oracle on procedural cubes: the volumes of the results are known exactly"""
@@ -160,6 +206,9 @@ class PlacementEndToEndTests(unittest.TestCase):
         self.assertLess(r["expected_error"], 1e-12)
         self.assertEqual(r["input"]["inputs_clean"], True)
         self.assertEqual(analyze.outcome(r), "clean")
+        for op in analyze.OPS:      # what the rounding stage dropped is a field of the row (ours only)
+            self.assertEqual(r[f"{op}_removed_components"], r[f"{op}_counts"]["rounding_removed_components"])
+        self.assertEqual(r["intersection_removed_components"], 0)      # really empty, nothing was removed
 
     def test_partial_overlap_flush(self):
         # param 0: B's far face is flush with A's face (tall: 0.5 x 0.5 x 1, scaled by 1/2 to 0.25 x 0.25 x 0.5; A is 0.75 cube)

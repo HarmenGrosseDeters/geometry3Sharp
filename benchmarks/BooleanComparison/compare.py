@@ -85,6 +85,12 @@ def run_one(method, op, d, timeout):
             res["error"] = f"exit {p.returncode}: {p.stderr.strip()[-200:]}"
     res["wall_ms"] = wall
     res["status"] = status_of(res, p.returncode)
+    # ours: what the rounding stage dropped (ExactMeshBoolean.Rounding.RemovedComponents / RemovedTriangles, SafeRounding): it tells
+    # an empty result that was removed by the rounding from a really empty one (README.md, "Thingi10K pairs with exact contact")
+    counts = res.get("counts") if isinstance(res.get("counts"), dict) else None
+    if counts and "rounding_removed_components" in counts:
+        res["removed_components"] = counts["rounding_removed_components"]
+        res["removed_triangles"] = counts.get("rounding_removed_triangles", 0)
     return res
 
 # --- sequences: an Open Boolean Benchmark request, of which the result of the last operation is evaluated
