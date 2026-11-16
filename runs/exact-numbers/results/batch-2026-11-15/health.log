@@ -1,0 +1,10 @@
+2026-11-15 18:57 check 5 min after start of 02-c1-without-99282039 (started 2026-11-15 18:52:31): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: 
+2026-11-15 20:34 check 5 min after start of 03-c1-with-2fea6ac7 (started 2026-11-15 20:29:05): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: 
+2026-11-15 22:07 check 5 min after start of 04-c2-without-ce7b57ec (started 2026-11-15 22:02:57): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 05-c2-with-2c9c6340 (started 2026-11-15 22:03:06): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 06-c3-without-be8815d5 (started 2026-11-15 22:03:13): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 07-c3-with-b4380c1c (started 2026-11-15 22:03:20): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 08-c4-without-e2c23d41 (started 2026-11-15 22:03:27): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 09-c4-with-9f00591d (started 2026-11-15 22:03:34): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: no run.log
+2026-11-15 22:08 check 5 min after start of 10-base-drift-22370752 (started 2026-11-15 22:03:41): batch alive=True; rows: no runs.csv yet; errors in run.log: 0; tail: 
+2026-11-15 23:05 batch done, watcher ends

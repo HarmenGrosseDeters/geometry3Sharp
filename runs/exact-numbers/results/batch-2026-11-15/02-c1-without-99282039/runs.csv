@@ -1,0 +1,5 @@
+stratum,runtime,round,threads,mask,time_ms,hash,cases,status
+scaling-b30,net10.0,1,1,0x1,1866557,D39147B535C3519E,216,ok
+scaling-b30,net48,1,1,0x1,2408269,D39147B535C3519E,216,ok
+scaling-b30,net10.0,1,12,0xFFF,468598,D39147B535C3519E,216,ok
+scaling-b30,net48,1,12,0xFFF,664599,D39147B535C3519E,216,ok

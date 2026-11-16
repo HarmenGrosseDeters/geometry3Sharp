@@ -1,0 +1,19 @@
+﻿{
+    "date":  "2026-11-15T18:52:58.3938059+01:00",
+    "machine":  "DESKTOP-9U4HBS0",
+    "cores":  12,
+    "os":  "Microsoft Windows NT 10.0.26300.0",
+    "dotnet":  "10.0.401",
+    "rounds":  5,
+    "runtimes":  [
+                     "net10.0",
+                     "net48"
+                 ],
+    "net10Env":  {
+
+                 },
+    "dotnetEnvironment":  [
+
+                          ],
+    "note":  "net48 has no tiered PGO; net10.0 runs with the runtime defaults unless a net10.0-\u003csuffix\u003e runtime sets variables (net10.0-pgo0: DOTNET_TieredPGO=0)"
+}
