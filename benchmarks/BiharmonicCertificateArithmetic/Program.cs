@@ -87,7 +87,7 @@ class Program
 {
     static string PivotOutputPath;
     static bool ScalarMode;
-    static bool EnvelopeMode, BoundsOnly;
+    static bool EnvelopeMode, BoundsOnly, ScanControl;
     static void Check(bool value,string message) { if(!value)throw new Exception(message); }
     static BigInteger Min4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Min(BigInteger.Min(a,b),BigInteger.Min(c,d));
     static BigInteger Max4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Max(BigInteger.Max(a,b),BigInteger.Max(c,d));
@@ -250,7 +250,7 @@ class Program
             columns[i][i]=diag-shiftI;
         }
         string shiftText=shift.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
-        if(ScalarMode ? ScalarCholesky.Verify(columns,digest,shiftText,PivotOutputPath,EnvelopeMode,BoundsOnly) : Factor(columns,digest,shiftText,"mesh")) {
+        if(ScalarMode ? ScalarCholesky.Verify(columns,digest,shiftText,PivotOutputPath,EnvelopeMode,BoundsOnly,!ScanControl) : Factor(columns,digest,shiftText,"mesh")) {
             if(ScalarMode) Console.WriteLine("position_certificate=not_checked reason=experimental_scalar_matrix_only");
             else if(root.TryGetProperty("candidate_bits",out var candidateBits) && root.TryGetProperty("target_bits",out var targetBits))
                 CheckResidual(coords,rows,mass,free,scaleI,shiftI,candidateBits,targetBits);
@@ -305,7 +305,8 @@ class Program
     static void Main(string[] args)
     {
         if(args.Length==1 && args[0]=="scalar-selftest") { ScalarCholesky.SelfTest();return; }
-        EnvelopeMode=args.Length>0 && (args[0]=="mesh-envelope"||args[0]=="mesh-envelope-bounds");
+        ScanControl=args.Length>0 && args[0]=="mesh-envelope-scan";
+        EnvelopeMode=args.Length>0 && (args[0]=="mesh-envelope"||args[0]=="mesh-envelope-bounds"||ScanControl);
         BoundsOnly=args.Length>0 && args[0]=="mesh-envelope-bounds";
         ScalarMode=args.Length>0 && (args[0]=="mesh-scalar"||EnvelopeMode);
         bool factor=args.Length>0 && (args[0]=="factor"||args[0]=="mesh"||ScalarMode);

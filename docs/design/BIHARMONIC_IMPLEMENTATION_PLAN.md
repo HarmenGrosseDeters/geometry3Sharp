@@ -12,6 +12,36 @@ Prototype progress: a separate scalar verification recurrence avoids transferrin
 
 Contract blocker from the extreme-fixture probe: at 700 decimal digits, a candidate that loses the tiny200 response entirely still satisfies the proposed absolute normalized position budget (bound 6.43e-99 versus 1e-8). The production regression explicitly requires NumericalRange. Preserve its rejection guard pending a decision about absolute position error versus relative preservation of tiny motion; an absolute certificate alone cannot justify removing it. Lost-handle and tiny150 wrong candidates reject. Raw commands/results are in the probe README.
 
+## Indexed scalar intersections (2026-11-16, bounded implementation step)
+
+Goal: reduce scalar row-intersection traversal without changing any floating-point
+operation or result. Scope: scalar certificate and independent pilot; no size,
+work/fill, precision, tolerance or arithmetic-contract changes. Reuse existing
+array workspaces/pattern concepts in SparseCholesky; prior art: Davis, *Direct
+Methods for Sparse Linear Systems* (2006), sparse workspaces, and Liu (1990),
+elimination-tree analysis. No external implementation code is read or ported.
+
+Five fresh-process 2500-vertex scalar-pilot runs separate median bounds/symbolic/
+numeric phases at 91/106/273 ms, whole matrix run 2032 ms (including JIT and each
+phase's allocations/GC). These shares describe that fixture and scalar/matrix
+boundaries only, not the 100k tail or a fundamental exact-arithmetic floor. The
+numeric phase offers a measurable bound on a row-traversal optimization; symbolic
+fill alone accounts for about 5% of this matrix run.
+
+Proposed bounded change: index the completed row j into stamp/value arrays once.
+Traverse each target row i in increasing column order through the last key of j,
+performing a product/subtraction only when its stamp matches the current j. Keep
+ascending common-key order, diagonal operations, neighbor order and direct
+quotients exactly as before. An empty row performs no products; stamps prevent
+stale coefficients from earlier columns. Extra scratch is one int and one double
+per unknown, bounded by the existing vertex cap.
+
+Acceptance: complete small trace replay and bitwise trace equality with the scan
+control; original corruption/budget/underflow controls; power-of-two and production
+output checks; A/B scalar and whole-matrix timings. Stop after two measured variants
+if the benefit is not stable. Production integration follows positive measurements
+and independent review; the broader 100k storage/fill problem remains separate.
+
 ## 100k structural and bound diagnosis (2026-11-16)
 
 The complete 400x250 Q-pattern count is 2993506243 Q/Schur updates and 14480195

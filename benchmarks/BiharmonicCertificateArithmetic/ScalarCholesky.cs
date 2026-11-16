@@ -71,7 +71,7 @@ static class ScalarCholesky
         }
         internal double Root(double a) => Record("sqrt",a,0,Checked(Math.Sqrt(a)));
     }
-    internal static bool Verify(Dictionary<int,Interval>[] input, string digest, string shift, string tracePath, bool envelopeBound = false, bool boundsOnly = false)
+    internal static bool Verify(Dictionary<int,Interval>[] input, string digest, string shift, string tracePath, bool envelopeBound = false, bool boundsOnly = false, bool useIndex = true)
     {
         var timer = Stopwatch.StartNew(); int n = input.Length;
         using var trace = tracePath == null ? null : new StreamWriter(new FileStream(tracePath,FileMode.CreateNew,FileAccess.Write));
@@ -126,30 +126,50 @@ static class ScalarCholesky
             if (trace != null) trace.WriteLine(JsonSerializer.Serialize(new { kind="bounds", input_sha256=digest, size=n,
                 bits=Interval.Bits, envelope_bound=envelopeBound, envelope, correction_units=correction.ToString(), radius_units=radiusMax.ToString(), adjusted, entries=auditEntries }));
             var rows = new List<KeyValuePair<int,double>>[n]; for (int i = 0; i < n; i++) rows[i] = new List<KeyValuePair<int,double>>();
-            long symbolic = 0;
+            var rowIndex = useIndex ? new int[n] : null;
+            var rowValue = useIndex ? new double[n] : null;
+            long symbolic = 0, symbolicTicks = 0, numericTicks = 0, symbolicAllocated = 0, numericAllocated = 0;
+            double boundsMilliseconds = timer.Elapsed.TotalMilliseconds;
             for (int j = 0; j < n; j++) {
+                long phaseStart = Stopwatch.GetTimestamp(), phaseAllocated = GC.GetAllocatedBytesForCurrentThread();
                 var neighbors = new List<int>(columns[j]); neighbors.Sort();
                 long work = (long)neighbors.Count*(neighbors.Count-1)/2;
                 if (work > 50000000-symbolic) throw new ArithmeticException("symbolic budget");
                 symbolic += work;
                 for (int p = 0; p < neighbors.Count; p++) for (int q = p+1; q < neighbors.Count; q++) columns[neighbors[p]].Add(neighbors[q]);
                 columns[j].Clear();
+                symbolicTicks += Stopwatch.GetTimestamp()-phaseStart;
+                symbolicAllocated += GC.GetAllocatedBytesForCurrentThread()-phaseAllocated;
+                phaseStart = Stopwatch.GetTimestamp(); phaseAllocated = GC.GetAllocatedBytesForCurrentThread();
                 double diagonal = matrix[j][j];
                 foreach (var entry in rows[j]) diagonal = arithmetic.Difference(diagonal,arithmetic.Product(entry.Value,entry.Value));
                 if (!(diagonal > 0)) throw new ArithmeticException("nonpositive scalar pivot at "+j);
                 double pivot = arithmetic.Root(diagonal);
+                int lastKey = rows[j].Count == 0 ? -1 : rows[j][rows[j].Count-1].Key;
+                if (useIndex) foreach (var item in rows[j]) { rowIndex[item.Key]=j+1; rowValue[item.Key]=item.Value; }
                 foreach (int i in neighbors) {
                     double value; if (!matrix[j].TryGetValue(i,out value)) value = 0;
-                    int a = 0, b = 0;
-                    while (a < rows[i].Count && b < rows[j].Count) {
-                        var x = rows[i][a]; var y = rows[j][b];
-                        if (x.Key < y.Key) a++; else if (x.Key > y.Key) b++;
-                        else { value = arithmetic.Difference(value,arithmetic.Product(x.Value,y.Value)); a++; b++; }
+                    if (useIndex) {
+                        foreach (var item in rows[i]) {
+                            if (item.Key>lastKey) break;
+                            if (rowIndex[item.Key]==j+1)
+                                value=arithmetic.Difference(value,arithmetic.Product(item.Value,rowValue[item.Key]));
+                        }
+                    } else {
+                        int a = 0, b = 0;
+                        while (a < rows[i].Count && b < rows[j].Count) {
+                            var x = rows[i][a]; var y = rows[j][b];
+                            if (x.Key < y.Key) a++; else if (x.Key > y.Key) b++;
+                            else { value = arithmetic.Difference(value,arithmetic.Product(x.Value,y.Value)); a++; b++; }
+                        }
                     }
                     rows[i].Add(new KeyValuePair<int,double>(j,arithmetic.Quotient(value,pivot)));
                 }
                 matrix[j].Clear();
+                numericTicks += Stopwatch.GetTimestamp()-phaseStart;
+                numericAllocated += GC.GetAllocatedBytesForCurrentThread()-phaseAllocated;
             }
+            Console.WriteLine($"scalar_phase_bounds_ms={boundsMilliseconds:F3} symbolic_ms={1000.0*symbolicTicks/Stopwatch.Frequency:F3} numeric_ms={1000.0*numericTicks/Stopwatch.Frequency:F3} symbolic_allocated_bytes={symbolicAllocated} numeric_allocated_bytes={numericAllocated} row_index={useIndex} phase_scope=scalar_verifier_only_including_its_allocations_and_gc");
             Console.WriteLine($"status=positive_scalar_pivots mode=mesh-scalar size={n} products={arithmetic.Products} elapsed_ms={timer.Elapsed.TotalMilliseconds:F3} input_sha256={digest} shift_binary64={shift} arithmetic_audited=False trace_available={trace!=null} ieee_binary64_premise=True");
             return true;
         }
