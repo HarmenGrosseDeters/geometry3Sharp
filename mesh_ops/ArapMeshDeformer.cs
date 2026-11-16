@@ -17,6 +17,8 @@ namespace g3
         {
             public int MaxIterations = 50;
             public double RelativeTolerance = 1e-8;
+            /// <summary>History length of the Anderson acceleration of the local/global iteration; 0 selects the plain iteration of Sorkine and Alexa. At most 32.</summary>
+            public int AccelerationDepth = 5;
         }
         /// <summary>
         /// Success and MaxIterations carry a finite output mesh with exact handle positions;
@@ -29,6 +31,8 @@ namespace g3
             public int Iterations;
             /// <summary>Maximum normalized vertex motion in the last iteration. This is a stopping heuristic, not a linear-system or energy-stationarity residual.</summary>
             public double Residual;
+            /// <summary>Energy of the last evaluated positions divided by twice the weighted sum of squared rest edge lengths (dimensionless, equal for all similarities); 0 for a rigid motion. NaN when no iteration ran.</summary>
+            public double Energy = double.NaN;
             public bool Converged { get { return Status == Status.Success; } }
         }
 
@@ -65,16 +69,17 @@ namespace g3
             if (LostComponent(u, a) || LostComponent(v, b)) return false;
             double cross = StableLength(a.Cross(b));
             if (!(cross > 0) || !MathUtil.IsFinite(cross)) return false;
-            double dot = 0;
+            // A product flushed to zero is harmless while the sum is dominated by other terms, and the sum of
+            // rounded terms is as accurate as any floating-point dot product. Only a dot product whose every
+            // nonzero contribution was lost, or a non-finite value, is rejected.
+            double dot = 0; bool flushed = false;
             for (int i = 0; i < 3; ++i) {
                 double product = a[i] * b[i];
-                if (product == 0 && a[i] != 0 && b[i] != 0) return false;
+                if (product == 0 && a[i] != 0 && b[i] != 0) flushed = true;
                 dot += product;
             }
-            double halfDot = 0.5 * dot;
-            if (dot != 0 && halfDot == 0) return false;
-            weight = halfDot / cross;
-            if (halfDot != 0 && weight == 0) return false;
+            if (!MathUtil.IsFinite(dot) || (dot == 0 && flushed)) return false;
+            weight = 0.5 * dot / cross;
             return MathUtil.IsFinite(weight);
         }
 
@@ -112,7 +117,7 @@ namespace g3
         {
             var result = new ResultInfo { Status = Status.InvalidInput };
             if (Mesh == null || handles == null || Options == null || Mesh.VertexCount == 0 ||
-                Options.MaxIterations <= 0 || !(Options.RelativeTolerance > 0) || !MathUtil.IsFinite(Options.RelativeTolerance))
+                Options.MaxIterations <= 0 || Options.AccelerationDepth < 0 || Options.AccelerationDepth > 32 || !(Options.RelativeTolerance > 0) || !MathUtil.IsFinite(Options.RelativeTolerance))
                 return result;
             var ids = new List<int>(Mesh.VertexIndices());
             int n = ids.Count;
@@ -272,40 +277,63 @@ namespace g3
             var svd = new FastQuaternionSVD();
             var bx = new double[count]; var by = new double[count]; var bz = new double[count];
             var sx = new double[count]; var sy = new double[count]; var sz = new double[count];
-            for (int iter = 0; iter < Options.MaxIterations; ++iter) {
+            // Energy normalizer: twice the sum of w |q|^2 over the rest edges, so the reported energy is dimensionless
+            // and the same for every similarity of the input.
+            double restEnergy = 0;
+            foreach (var edge in edges) restEnergy += 2 * edge.Weight * (rest[edge.A] - rest[edge.B]).LengthSquared;
+            Status failure = Status.Success;
+
+            // Local step: optimal proper rotation of every active vertex for the given positions, and the energy
+            // E(p) = min_R E(p, R) they give. Returns false (and sets failure) when a quantity leaves the range.
+            bool LocalStep(Vector3d[] pos, out double energy)
+            {
+                energy = double.NaN;
                 for (int i = 0; i < n; ++i) {
                     if (!activeComponent[i]) continue;
                     Matrix3d cov = Matrix3d.Zero;
                     double pScale = 0, qScale = 0;
                     foreach (int e in neighbors[i]) {
                         var edge = edges[e]; int j = edge.A == i ? edge.B : edge.A;
-                        Vector3d p = positions[i] - positions[j], q = rest[i] - rest[j];
-                        pScale = Math.Max(pScale, Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
-                        qScale = Math.Max(qScale, Math.Max(Math.Abs(q.x), Math.Max(Math.Abs(q.y), Math.Abs(q.z))));
+                        pScale = Math.Max(pScale, MaxAbs(pos[i] - pos[j]));
+                        qScale = Math.Max(qScale, MaxAbs(rest[i] - rest[j]));
                     }
-                    if (!MathUtil.IsFinite(pScale) || !MathUtil.IsFinite(qScale)) { result.Status = Status.NonFiniteResult; return result; }
+                    if (!MathUtil.IsFinite(pScale) || !MathUtil.IsFinite(qScale)) { failure = Status.NonFiniteResult; return false; }
                     if (pScale > 0 && qScale > 0) foreach (int e in neighbors[i]) {
                         var edge = edges[e]; int j = edge.A == i ? edge.B : edge.A;
-                        Vector3d dp = positions[i] - positions[j], dq = rest[i] - rest[j];
+                        Vector3d dp = pos[i] - pos[j], dq = rest[i] - rest[j];
                         Vector3d p = dp / pScale, q = dq / qScale;
-                        if (LostComponent(dp, p) || LostComponent(dq, q)) { result.Status = Status.NumericalRange; return result; }
+                        // A component flushed to zero by the normalization changes the covariance and is rejected as in the
+                        // cotangent weights. A product that is merely rounded or flushed next to larger terms is not: the
+                        // covariance is normalized by its largest entry before the SVD.
+                        if (LostComponent(dp, p) || LostComponent(dq, q)) { failure = Status.NumericalRange; return false; }
                         for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) {
-                            double product = p[r] * q[c];
-                            if (product == 0 && p[r] != 0 && q[c] != 0) { result.Status = Status.NumericalRange; return result; }
-                            double term = edge.Weight * product;
-                            if ((term == 0 && product != 0) || !MathUtil.IsFinite(term)) { result.Status = Status.NumericalRange; return result; }
+                            double term = edge.Weight * (p[r] * q[c]);
+                            if (!MathUtil.IsFinite(term)) { failure = Status.NumericalRange; return false; }
                             cov[r, c] += term;
                         }
                     }
                     double max = 0;
                     for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) max = Math.Max(max, Math.Abs(cov[r, c]));
-                    if (!MathUtil.IsFinite(max)) { result.Status = Status.NonFiniteResult; return result; }
+                    if (!MathUtil.IsFinite(max)) { failure = Status.NonFiniteResult; return false; }
                     if (max > 0) {
                         for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) cov[r, c] /= max;
                         svd.Solve(cov, jacobiIters: 20);
                         rotations[i] = svd.U.ToRotationMatrix() * svd.V.Conjugate().ToRotationMatrix();
                     }
                 }
+                double sum = 0;
+                foreach (var edge in edges) {
+                    Vector3d pab = pos[edge.A] - pos[edge.B], qab = rest[edge.A] - rest[edge.B];
+                    sum += edge.Weight * ((pab - rotations[edge.A] * qab).LengthSquared + (pab - rotations[edge.B] * qab).LengthSquared);
+                }
+                if (!MathUtil.IsFinite(sum)) { failure = Status.NonFiniteResult; return false; }
+                energy = sum;
+                return true;
+            }
+
+            // Global step for the current rotations: the free coordinates of the minimizer, in three blocks of `count`.
+            void GlobalStep(double[] target)
+            {
                 Array.Clear(bx, 0, count); Array.Clear(by, 0, count); Array.Clear(bz, 0, count);
                 foreach (var edge in edges) {
                     int a = edge.A, b = edge.B;
@@ -320,25 +348,135 @@ namespace g3
                     }
                 }
                 chol.Solve(bx, sx); chol.Solve(by, sy); chol.Solve(bz, sz);
+                for (int k = 0; k < count; ++k) { target[3 * k] = sx[k]; target[3 * k + 1] = sy[k]; target[3 * k + 2] = sz[k]; }
+            }
+
+            var freeIndex = new int[count];
+            for (int i = 0; i < n; ++i) if (free[i] >= 0) freeIndex[free[i]] = i;
+            var current = new double[3 * count];
+            for (int k = 0; k < count; ++k) {
+                Vector3d p = positions[freeIndex[k]]; current[3 * k] = p.x; current[3 * k + 1] = p.y; current[3 * k + 2] = p.z;
+            }
+            void Store(double[] source, Vector3d[] pos)
+            {
+                for (int k = 0; k < count; ++k) pos[freeIndex[k]] = new Vector3d(source[3 * k], source[3 * k + 1], source[3 * k + 2]);
+            }
+
+            // Anderson acceleration (Walker and Ni 2011) of the local/global fixed-point map G, safeguarded by the
+            // energy as in Peng et al. 2018: a candidate that does not lower the energy is discarded, the history is
+            // cleared and the plain G step is taken, so the energy never increases.
+            int depth = Options.AccelerationDepth;
+            var historyF = new List<double[]>(); var historyG = new List<double[]>();
+            var plain = new double[3 * count]; var residual = new double[3 * count];
+            var previousF = new double[3 * count]; var previousG = new double[3 * count]; bool havePrevious = false;
+            var candidate = new double[3 * count]; var trial = (Vector3d[])positions.Clone();
+            double energyNow;
+            if (!LocalStep(positions, out energyNow)) { result.Status = failure; return result; }
+            for (int iter = 0; iter < Options.MaxIterations; ++iter) {
+                GlobalStep(plain);
                 double motion = 0;
-                for (int i = 0; i < n; ++i) if (free[i] >= 0) {
-                    int k = free[i]; var next = new Vector3d(sx[k], sy[k], sz[k]);
-                    if (!next.IsFinite) { result.Status = Status.NonFiniteResult; return result; }
-                    motion = Math.Max(motion, StableLength(next - positions[i]));
-                    positions[i] = next;
+                for (int k = 0; k < count; ++k) {
+                    var step = new Vector3d(plain[3 * k] - current[3 * k], plain[3 * k + 1] - current[3 * k + 1], plain[3 * k + 2] - current[3 * k + 2]);
+                    if (!new Vector3d(plain[3 * k], plain[3 * k + 1], plain[3 * k + 2]).IsFinite) { result.Status = Status.NonFiniteResult; return result; }
+                    motion = Math.Max(motion, StableLength(step));
+                    residual[3 * k] = step.x; residual[3 * k + 1] = step.y; residual[3 * k + 2] = step.z;
                 }
-                result.Iterations = iter + 1; result.Residual = motion;
-                if (!MathUtil.IsFinite(result.Residual)) { result.Status = Status.NonFiniteResult; return result; }
-                if (result.Residual <= Options.RelativeTolerance) {
+                result.Iterations = iter + 1; result.Residual = motion; result.Energy = energyNow / restEnergy;
+                if (!MathUtil.IsFinite(motion)) { result.Status = Status.NonFiniteResult; return result; }
+                if (motion <= Options.RelativeTolerance) {
                     result.Mesh = MakeMesh(ids, positions, origins, scales, handles);
                     result.Status = result.Mesh == null ? Status.NonFiniteResult : Status.Success;
                     return result;
                 }
+                if (depth > 0 && havePrevious) {
+                    double[] dF = historyF.Count == depth ? Take(historyF) : new double[3 * count];
+                    double[] dG = historyG.Count == depth ? Take(historyG) : new double[3 * count];
+                    for (int k = 0; k < 3 * count; ++k) { dF[k] = residual[k] - previousF[k]; dG[k] = plain[k] - previousG[k]; }
+                    historyF.Add(dF); historyG.Add(dG);
+                }
+                Array.Copy(residual, previousF, 3 * count); Array.Copy(plain, previousG, 3 * count); havePrevious = depth > 0;
+                bool accelerated = false;
+                if (historyF.Count > 0 && TryAndersonCandidate(historyF, historyG, residual, plain, candidate)) {
+                    Store(candidate, trial);
+                    double energyCandidate;
+                    if (!LocalStep(trial, out energyCandidate)) { result.Status = failure; return result; }
+                    if (energyCandidate <= energyNow) {
+                        accelerated = true; energyNow = energyCandidate;
+                        Array.Copy(candidate, current, 3 * count);
+                        Array.Copy(trial, positions, n);
+                    }
+                }
+                if (!accelerated) {
+                    if (historyF.Count > 0) { historyF.Clear(); historyG.Clear(); }
+                    Array.Copy(plain, current, 3 * count);
+                    Store(current, positions);
+                    if (!LocalStep(positions, out energyNow)) { result.Status = failure; return result; }
+                }
             }
             // A finite last iterate is useful to the caller even when the iteration budget is exhausted.
+            result.Energy = energyNow / restEnergy;
             result.Mesh = MakeMesh(ids, positions, origins, scales, handles);
             result.Status = result.Mesh == null ? Status.NonFiniteResult : Status.MaxIterations;
             return result;
+        }
+
+        // Removes and returns the oldest history vector (its array is reused for the newest one).
+        static double[] Take(List<double[]> history)
+        {
+            double[] oldest = history[0]; history.RemoveAt(0); return oldest;
+        }
+
+        static double Dot(double[] a, double[] b)
+        {
+            double s = 0;
+            for (int i = 0; i < a.Length; ++i) s += a[i] * b[i];
+            return s;
+        }
+
+        // x = g - sum gamma_j dG_j, gamma minimizing |f - sum gamma_j dF_j| (type II Anderson acceleration). The small
+        // normal equations get a relative ridge; false when they are not positive definite or the result is not finite.
+        static bool TryAndersonCandidate(List<double[]> dF, List<double[]> dG, double[] f, double[] g, double[] x)
+        {
+            int m = dF.Count;
+            var a = new double[m, m]; var rhs = new double[m];
+            for (int i = 0; i < m; ++i) {
+                for (int j = 0; j <= i; ++j) { double d = Dot(dF[i], dF[j]); a[i, j] = d; a[j, i] = d; }
+                rhs[i] = Dot(dF[i], f);
+            }
+            double trace = 0;
+            for (int i = 0; i < m; ++i) trace += a[i, i];
+            if (!(trace > 0) || !MathUtil.IsFinite(trace)) return false;
+            for (int i = 0; i < m; ++i) a[i, i] += 1e-10 * trace / m;
+            // Cholesky of the m x m system in place.
+            for (int j = 0; j < m; ++j) {
+                double d = a[j, j];
+                for (int k = 0; k < j; ++k) d -= a[j, k] * a[j, k];
+                if (!(d > 0)) return false;
+                a[j, j] = Math.Sqrt(d);
+                for (int i = j + 1; i < m; ++i) {
+                    double s = a[i, j];
+                    for (int k = 0; k < j; ++k) s -= a[i, k] * a[j, k];
+                    a[i, j] = s / a[j, j];
+                }
+            }
+            var gamma = new double[m];
+            for (int i = 0; i < m; ++i) {
+                double s = rhs[i];
+                for (int k = 0; k < i; ++k) s -= a[i, k] * gamma[k];
+                gamma[i] = s / a[i, i];
+            }
+            for (int i = m - 1; i >= 0; --i) {
+                double s = gamma[i];
+                for (int k = i + 1; k < m; ++k) s -= a[k, i] * gamma[k];
+                gamma[i] = s / a[i, i];
+            }
+            for (int k = 0; k < x.Length; ++k) {
+                double v = g[k];
+                for (int j = 0; j < m; ++j) v -= gamma[j] * dG[j][k];
+                if (!MathUtil.IsFinite(v)) return false;
+                x[k] = v;
+            }
+            return true;
         }
 
         DMesh3 MakeMesh(List<int> ids, Vector3d[] positions, Vector3d[] origins, double[] scales,

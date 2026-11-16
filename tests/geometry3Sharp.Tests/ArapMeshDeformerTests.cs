@@ -440,5 +440,247 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ArapMeshDeformer.Status.UnanchoredComponent, result.Status);
             Assert.Null(result.Mesh);
         }
+
+        // ---- Meshes above 16 vertices, rotated off the axes so that right angles are rounding noise ----
+
+        static DMesh3 Cylinder(int around, int rows)
+        {
+            var m = new DMesh3();
+            for (int r = 0; r < rows; ++r) for (int a = 0; a < around; ++a) {
+                double t = 2 * Math.PI * a / around; m.AppendVertex(new Vector3d(Math.Cos(t), Math.Sin(t), 0.3 * r));
+            }
+            for (int r = 0; r + 1 < rows; ++r) for (int a = 0; a < around; ++a) {
+                int a2 = (a + 1) % around, p = r * around + a, q = r * around + a2, u = (r + 1) * around + a, v = (r + 1) * around + a2;
+                m.AppendTriangle(p, q, v); m.AppendTriangle(p, v, u);
+            }
+            return m;
+        }
+
+        // Jittered grid with a curved, noisy height field and alternating diagonals: irregular angles and valences.
+        static DMesh3 IrregularSurface(int nx, int ny, int seed)
+        {
+            var random = new Random(seed); var m = new DMesh3();
+            for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i)
+                m.AppendVertex(new Vector3d(i + 0.4 * (random.NextDouble() - 0.5), j + 0.4 * (random.NextDouble() - 0.5),
+                    0.3 * Math.Sin(0.7 * i) * Math.Cos(0.5 * j) + 0.1 * random.NextDouble()));
+            for (int j = 0; j + 1 < ny; ++j) for (int i = 0; i + 1 < nx; ++i) {
+                int a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+                if (((i + j) & 1) == 0) { m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c); }
+                else { m.AppendTriangle(a, b, c); m.AppendTriangle(b, d, c); }
+            }
+            return m;
+        }
+
+        static Func<Vector3d, Vector3d> Place(Matrix3d rotation, Vector3d translation) { return p => rotation * p + translation; }
+
+        static DMesh3 Moved(DMesh3 mesh, Func<Vector3d, Vector3d> map)
+        {
+            var copy = new DMesh3(mesh);
+            foreach (int v in copy.VertexIndices()) copy.SetVertex(v, map(mesh.GetVertex(v)));
+            return copy;
+        }
+
+        static readonly Matrix3d Frame = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 37);
+        static readonly Vector3d FrameShift = new Vector3d(5, -3, 2);
+
+        // Both rings of a cylinder are handles. Rigid: both move by one rigid motion. Bend: the top ring rotates about
+        // an axis through its centre. Everything is expressed in the rotated frame.
+        static Dictionary<int, Vector3d> RingHandles(DMesh3 rest, int around, int rows, Func<Vector3d, Vector3d> topMotion, Func<Vector3d, Vector3d> bottomMotion)
+        {
+            var handles = new Dictionary<int, Vector3d>();
+            for (int a = 0; a < around; ++a) {
+                handles[a] = bottomMotion(rest.GetVertex(a));
+                handles[(rows - 1) * around + a] = topMotion(rest.GetVertex((rows - 1) * around + a));
+            }
+            return handles;
+        }
+
+        static Func<Vector3d, Vector3d> BendMotion(double degrees, Vector3d center)
+        {
+            var rotation = Matrix3d.AxisAngleD(Vector3d.AxisX, degrees);
+            return p => rotation * (p - center) + center;
+        }
+
+        static void AssertSuccessPath(DMesh3 input, ArapMeshDeformer.ResultInfo result, Dictionary<int, Vector3d> handles)
+        {
+            Assert.Equal(ArapMeshDeformer.Status.Success, result.Status);
+            Assert.NotNull(result.Mesh);
+            Assert.True(result.Mesh.CheckValidity());
+            Assert.Equal(input.VertexCount, result.Mesh.VertexCount);
+            Assert.Equal(input.TriangleCount, result.Mesh.TriangleCount);
+            foreach (int v in input.VertexIndices()) Assert.True(result.Mesh.GetVertex(v).IsFinite);
+            foreach (var h in handles) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
+            Assert.True(MathUtil.IsFinite(result.Energy) && result.Energy >= 0);
+        }
+
+        [Fact]
+        public void RotatedCylinder_RigidHandleMotion_IsReproduced()
+        {
+            DMesh3 plain = Cylinder(24, 12);
+            Func<Vector3d, Vector3d> frame = Place(Frame, FrameShift);
+            DMesh3 mesh = Moved(plain, frame);
+            Assert.True(mesh.VertexCount > 16);
+            var rigid = Place(Matrix3d.AxisAngleD(new Vector3d(-2, 1, 1).Normalized, 25), new Vector3d(1, 2, -1));
+            var handles = RingHandles(mesh, 24, 12, rigid, rigid);
+            var result = new ArapMeshDeformer(mesh).Compute(handles);
+            AssertSuccessPath(mesh, result, handles);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(result.Mesh.GetVertex(v).Distance(rigid(mesh.GetVertex(v))) < 1e-6, "vertex " + v);
+            Assert.True(result.Energy < 1e-12, "energy " + result.Energy.ToString("R"));
+        }
+
+        [Fact]
+        public void JitteredIrregularSurface_RigidHandleMotion_IsReproduced()
+        {
+            DMesh3 mesh = Moved(IrregularSurface(12, 10, 7), Place(Frame, FrameShift));
+            Assert.True(mesh.VertexCount > 16);
+            var rigid = Place(Matrix3d.AxisAngleD(new Vector3d(1, -1, 2).Normalized, -40), new Vector3d(-2, 1, 3));
+            var handles = new Dictionary<int, Vector3d>();
+            foreach (int v in new[] { 0, 11, 108, 119, 55, 66 }) handles[v] = rigid(mesh.GetVertex(v));
+            var deformer = new ArapMeshDeformer(mesh); deformer.Options.MaxIterations = 500;
+            var result = deformer.Compute(handles);
+            AssertSuccessPath(mesh, result, handles);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(result.Mesh.GetVertex(v).Distance(rigid(mesh.GetVertex(v))) < 1e-6 * 12, "vertex " + v + " off by " + result.Mesh.GetVertex(v).Distance(rigid(mesh.GetVertex(v))).ToString("R") + " iterations " + result.Iterations + " energy " + result.Energy.ToString("R") + " residual " + result.Residual.ToString("R"));
+            Assert.True(result.Energy < 1e-12, "energy " + result.Energy.ToString("R"));
+        }
+
+        [Fact]
+        public void RotatedCylinder_Bend_ReachesTheMinimumOfThePlainIteration()
+        {
+            DMesh3 mesh = Moved(Cylinder(16, 7), Place(Frame, FrameShift));
+            Vector3d center = Frame * new Vector3d(0, 0, 1.8) + FrameShift;
+            var handles = RingHandles(mesh, 16, 7, BendMotion(20, center), p => p);
+            var fast = new ArapMeshDeformer(mesh); fast.Options.MaxIterations = 400;
+            var reference = new ArapMeshDeformer(mesh); reference.Options.MaxIterations = 20000; reference.Options.AccelerationDepth = 0;
+            var a = fast.Compute(handles); var b = reference.Compute(handles);
+            AssertSuccessPath(mesh, a, handles); AssertSuccessPath(mesh, b, handles);
+            Assert.True(a.Iterations < b.Iterations, a.Iterations + " vs " + b.Iterations);
+            Assert.True(a.Energy > 1e-6, "a bend is not rigid: " + a.Energy.ToString("R"));
+            Assert.True(Math.Abs(a.Energy - b.Energy) <= 1e-7 * b.Energy, a.Energy.ToString("R") + " vs " + b.Energy.ToString("R"));
+            foreach (int v in mesh.VertexIndices()) Assert.True(a.Mesh.GetVertex(v).Distance(b.Mesh.GetVertex(v)) < 1e-4);
+        }
+
+        [Fact]
+        public void JitteredIrregularSurface_Bend_ReachesTheMinimumOfThePlainIteration()
+        {
+            DMesh3 mesh = Moved(IrregularSurface(10, 8, 3), Place(Frame, FrameShift));
+            var handles = new Dictionary<int, Vector3d>();
+            for (int i = 0; i < 10; ++i) { handles[i] = mesh.GetVertex(i); }
+            var lift = Frame * new Vector3d(0, 0, 2.5);
+            for (int i = 0; i < 10; ++i) handles[70 + i] = mesh.GetVertex(70 + i) + lift;
+            var fast = new ArapMeshDeformer(mesh); fast.Options.MaxIterations = 400;
+            var reference = new ArapMeshDeformer(mesh); reference.Options.MaxIterations = 20000; reference.Options.AccelerationDepth = 0;
+            var a = fast.Compute(handles); var b = reference.Compute(handles);
+            AssertSuccessPath(mesh, a, handles); AssertSuccessPath(mesh, b, handles);
+            Assert.True(a.Energy > 1e-6);
+            Assert.True(Math.Abs(a.Energy - b.Energy) <= 1e-6 * b.Energy, a.Energy.ToString("R") + " vs " + b.Energy.ToString("R"));
+        }
+
+        [Fact]
+        public void OutOfPlaneSquare_ConvergesWithinTheDefaultBudget()
+        {
+            var mesh = Patch();
+            var handles = new Dictionary<int, Vector3d> { [0] = mesh.GetVertex(0), [1] = mesh.GetVertex(1), [3] = mesh.GetVertex(3) + new Vector3d(0, 0, 0.2) };
+            var result = new ArapMeshDeformer(mesh).Compute(handles);
+            Assert.Equal(ArapMeshDeformer.Status.Success, result.Status);
+            Assert.True(result.Iterations < 50, result.Iterations.ToString());
+            var plain = new ArapMeshDeformer(mesh); plain.Options.MaxIterations = 20000; plain.Options.AccelerationDepth = 0;
+            var reference = plain.Compute(handles);
+            Assert.Equal(ArapMeshDeformer.Status.Success, reference.Status);
+            Assert.True(reference.Iterations > 1000, "the plain iteration is slow here: " + reference.Iterations);
+            Assert.True(Math.Abs(result.Energy - reference.Energy) <= 1e-9 * reference.Energy);
+            Assert.True(result.Mesh.GetVertex(2).Distance(reference.Mesh.GetVertex(2)) < 1e-5);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        public void Energy_NeverIncreasesWithTheIterationBudget(int depth)
+        {
+            DMesh3 mesh = Moved(Cylinder(16, 7), Place(Frame, FrameShift));
+            Vector3d center = Frame * new Vector3d(0, 0, 1.8) + FrameShift;
+            var handles = RingHandles(mesh, 16, 7, BendMotion(35, center), p => p);
+            double previous = double.PositiveInfinity;
+            for (int budget = 1; budget <= 40; ++budget) {
+                var d = new ArapMeshDeformer(mesh); d.Options.MaxIterations = budget; d.Options.AccelerationDepth = depth;
+                var r = d.Compute(handles);
+                Assert.NotNull(r.Mesh);
+                Assert.True(r.Energy <= previous, "budget " + budget + ": " + r.Energy.ToString("R") + " after " + previous.ToString("R"));
+                previous = r.Energy;
+            }
+        }
+
+        [Fact]
+        public void BentCylinder_Invariance_OverSimilarityAll()
+        {
+            DMesh3 mesh = Cylinder(12, 6);
+            var handles = RingHandles(mesh, 12, 6, BendMotion(30, new Vector3d(0, 0, 1.5)), p => p);
+            var d = new ArapMeshDeformer(mesh); d.Options.MaxIterations = 400;
+            var reference = d.Compute(handles);
+            AssertSuccessPath(mesh, reference, handles);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 moved = Moved(mesh, s.Apply);
+                var mapped = new Dictionary<int, Vector3d>();
+                foreach (var h in handles) mapped.Add(h.Key, s.Apply(h.Value));
+                var next = new ArapMeshDeformer(moved); next.Options.MaxIterations = 400;
+                var output = next.Compute(mapped);
+                AssertSuccessPath(moved, output, mapped);
+                Assert.Equal(reference.Iterations, output.Iterations);
+                foreach (int v in mesh.VertexIndices()) {
+                    Vector3d back = s.Inverse(output.Mesh.GetVertex(v));
+                    if (s.IsExact) Assert.Equal(reference.Mesh.GetVertex(v), back);
+                    else Assert.True(reference.Mesh.GetVertex(v).Distance(back) <= Math.Max(1e-6, 64 * s.Resolution(4)), s.Name);
+                }
+                if (s.IsExact) Assert.Equal(reference.Energy, output.Energy);
+                else Assert.True(Math.Abs(reference.Energy - output.Energy) <= 1e-6 * reference.Energy, s.Name);
+            }
+        }
+
+        [Fact]
+        public void Reuse_RepeatedComputeOnOneInstance_IsBitIdentical()
+        {
+            DMesh3 mesh = Moved(Cylinder(16, 7), Place(Frame, FrameShift));
+            Vector3d center = Frame * new Vector3d(0, 0, 1.8) + FrameShift;
+            var bend = RingHandles(mesh, 16, 7, BendMotion(20, center), p => p);
+            var shift = RingHandles(mesh, 16, 7, p => p + new Vector3d(0, 0, 1), p => p);
+            var d = new ArapMeshDeformer(mesh);
+            var first = d.Compute(bend); var other = d.Compute(shift); var second = d.Compute(bend);
+            var fresh = new ArapMeshDeformer(mesh).Compute(bend);
+            Assert.Equal(first.Status, second.Status);
+            Assert.NotEqual(first.Energy, other.Energy);
+            foreach (int v in mesh.VertexIndices()) {
+                Assert.Equal(first.Mesh.GetVertex(v), second.Mesh.GetVertex(v));
+                Assert.Equal(first.Mesh.GetVertex(v), fresh.Mesh.GetVertex(v));
+            }
+            Assert.Equal(first.Iterations, second.Iterations); Assert.Equal(first.Energy, second.Energy);
+        }
+
+        [Fact]
+        public void InvalidAccelerationDepth_IsInvalidInput()
+        {
+            var mesh = Patch();
+            var handles = new Dictionary<int, Vector3d> { [0] = mesh.GetVertex(0) };
+            foreach (int depth in new[] { -1, 33 }) {
+                var d = new ArapMeshDeformer(mesh); d.Options.AccelerationDepth = depth;
+                var r = d.Compute(handles);
+                Assert.Equal(ArapMeshDeformer.Status.InvalidInput, r.Status);
+                Assert.Null(r.Mesh);
+            }
+        }
+
+        [Fact]
+        public void FlushedProductNextToLargeTerms_IsNotRejected()
+        {
+            // The two off-axis components multiply to 1e-340, which flushes to zero, next to a dot product of 0.5.
+            var mesh = new DMesh3(MeshComponents.None);
+            int a = mesh.AppendVertex(Vector3d.Zero), b = mesh.AppendVertex(new Vector3d(1, 1e-170, 0));
+            int c = mesh.AppendVertex(new Vector3d(0.5, 1e-170, 0.4));
+            mesh.AppendTriangle(a, b, c);
+            var handles = new Dictionary<int, Vector3d> { [b] = mesh.GetVertex(b), [c] = mesh.GetVertex(c) };
+            var result = new ArapMeshDeformer(mesh).Compute(handles);
+            AssertSuccessPath(mesh, result, handles);
+            Assert.True(result.Mesh.GetVertex(a).Distance(Vector3d.Zero) < 1e-9);
+        }
     }
 }

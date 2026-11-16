@@ -27,9 +27,10 @@ class Probe {
   var mesh=new DMesh3(); mesh.AppendVertex(new Vector3d(0,0,0));mesh.AppendVertex(new Vector3d(1,0,0));mesh.AppendVertex(new Vector3d(1,1,0));mesh.AppendVertex(new Vector3d(0,1,0)); mesh.AppendTriangle(0,1,2);mesh.AppendTriangle(0,2,3);
   foreach (var move in new[]{new Vector3d(0,0,0.2),new Vector3d(0.2,0,0)}) {
    var handles=new Dictionary<int,Vector3d>{[0]=mesh.GetVertex(0),[1]=mesh.GetVertex(1),[3]=mesh.GetVertex(3)+move};
-   foreach (int maxIterations in new[]{50,500,5000}) {
-    var solver=new ArapMeshDeformer(mesh);solver.Options.MaxIterations=maxIterations;var result=solver.Compute(handles);
-    Console.WriteLine($"move={move} budget={maxIterations} status={result.Status} iterations={result.Iterations} residual={result.Residual:G17}");
+   foreach (int depth in new[]{0,5})
+   foreach (int maxIterations in new[]{50,500,5000,20000}) {
+    var solver=new ArapMeshDeformer(mesh);solver.Options.MaxIterations=maxIterations;solver.Options.AccelerationDepth=depth;var result=solver.Compute(handles);
+    Console.WriteLine($"move={move} depth={depth} budget={maxIterations} status={result.Status} iterations={result.Iterations} residual={result.Residual:G17} energy={result.Energy:G17}");
    }
   }
  }

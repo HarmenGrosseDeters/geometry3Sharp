@@ -7,9 +7,11 @@ class Program
 {
     static int Main(string[] args)
     {
-        if (args.Length != 3 || !int.TryParse(args[0], out int nx) || !int.TryParse(args[1], out int ny) ||
-            !int.TryParse(args[2], out int iterations) || nx < 2 || ny < 2 || iterations < 1) {
-            Console.Error.WriteLine("usage: ArapDeformationBenchmark <nx> <ny> <iterations>"); return 2;
+        int depth = new ArapMeshDeformer.Settings().AccelerationDepth;
+        if ((args.Length != 3 && args.Length != 4) || !int.TryParse(args[0], out int nx) || !int.TryParse(args[1], out int ny) ||
+            !int.TryParse(args[2], out int iterations) || nx < 2 || ny < 2 || iterations < 1 ||
+            (args.Length == 4 && !int.TryParse(args[3], out depth))) {
+            Console.Error.WriteLine("usage: ArapDeformationBenchmark <nx> <ny> <iterations> [accelerationDepth; 0 = plain local/global]"); return 2;
         }
         var mesh = new DMesh3(MeshComponents.None);
         for (int y = 0; y < ny; ++y)
@@ -25,7 +27,7 @@ class Program
             handles.Add(left, mesh.GetVertex(left));
             handles.Add(right, mesh.GetVertex(right) + new Vector3d(0.1, 0, 0.05 * Math.Sin(2 * Math.PI * y / (ny - 1))));
         }
-        var solver = new ArapMeshDeformer(mesh); solver.Options.MaxIterations = iterations;
+        var solver = new ArapMeshDeformer(mesh); solver.Options.MaxIterations = iterations; solver.Options.AccelerationDepth = depth;
         long allocated = GC.GetTotalAllocatedBytes(true);
         var watch = Stopwatch.StartNew();
         var result = solver.Compute(handles);
@@ -42,7 +44,7 @@ class Program
                 var t = result.Mesh.GetTriangle(id); AddHash(id); AddHash(t.a); AddHash(t.b); AddHash(t.c);
             }
         }
-        Console.WriteLine($"vertices={mesh.VertexCount} triangles={mesh.TriangleCount} handles={handles.Count} budget={iterations} status={result.Status} iterations={result.Iterations} residual={result.Residual:R} elapsed_ms={watch.Elapsed.TotalMilliseconds:F3} allocated_bytes={allocated} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64} mesh_hash={hash:x16}");
+        Console.WriteLine($"vertices={mesh.VertexCount} triangles={mesh.TriangleCount} handles={handles.Count} budget={iterations} depth={depth} status={result.Status} iterations={result.Iterations} residual={result.Residual:R} energy={result.Energy:R} elapsed_ms={watch.Elapsed.TotalMilliseconds:F3} allocated_bytes={allocated} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64} mesh_hash={hash:x16}");
         if (result.Mesh == null || result.Mesh.VertexCount != mesh.VertexCount) return 1;
         foreach (var h in handles) if (result.Mesh.GetVertex(h.Key) != h.Value) return 1;
         foreach (int id in result.Mesh.VertexIndices()) if (!result.Mesh.GetVertex(id).IsFinite) return 1;
