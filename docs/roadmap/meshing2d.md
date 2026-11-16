@@ -397,14 +397,13 @@ the `SplitTriangle` breakdown (measured; the mesher speed item is dropped, #909)
 3. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
 4. Fuzz group (f) slow units (#947, measured 2026-11-16): the time is in the **oracle** (`benchmarks/Meshing2Benchmark/Oracle`), not in
    `QualityMesh2` or Clipper2. The 14 units' bytes are not on `runs/mesh-fuzz` (only `timing-master.txt`), so they could not be split
-   by operation; the `random` smoke run of the pilot (the same targets) finds the same class: 69 `quality-mesh2` inputs above 0.3 s in
-   about 14 000 and none of `clipper2` in 20 000. On those 69 the mesher takes 0.15-0.5 s (1000-1500 output vertices from 6-16 points)
-   and the oracle 89 % of the time, up to 11 s. Cause: inputs with coordinates at very different binary exponents (a vertex at 1e-212
+   by operation; the `random` smoke run of the pilot (the same targets, a 250 s run, so the set depends on the machine) finds the same class: 69
+   `quality-mesh2` inputs above 0.3 s and none of `clipper2` above 0.3 s in 20 000. On those 69 the mesher takes 0.15-0.5 s (600-1500
+   output vertices from 6-16 points) and the oracle 89 % of the time, up to 11 s. Cause: inputs with coordinates at very different binary exponents (a vertex at 1e-212 to 1e-277
    beside an extent of 1) make the tube squared a quotient of two numbers beyond a double; `Q.Bounds` said "does not fit", every double
    filter that needs the tube was off, and the tests "within the tube" ran in BigInteger; and the angle excuse `SpansSmallInputAngle`
-   recomputed per triangle what depends on a vertex or a pair of sources only (a mesh with 1650 of 1800 triangles below the angle at
-   many small input angles). Fixed in the oracle (`Q.Bounds` of such a quotient, memoized per vertex and per source pair; the
-   verdicts are the same on all 69, `perf/oracle-wide-range-net10.txt`): 133 s -> 83 s over the 69, slowest 11.2 s -> 4.4 s. Left, as
+   recomputed per triangle what depends on a vertex or a pair of sources only (most triangles of such a mesh lie below the angle at small input angles). Fixed in the oracle (`Q.Bounds` of such a quotient, memoized per vertex and per source pair; the
+   verdicts are the same on all 69 and on the Meshing2 / QualityMesh2 suite, which has no wide-exponent snap-grid case; `perf/oracle-wide-range-net10.txt`, 15 of the 69 rows, one run per cell): 133 s -> 83 s over the 69, slowest 11.2 s -> 4.4 s. Left, as
    a documented limit: 2-4.4 s per such input, in `segments` (the exact selection and the chain checks, about 3 s on the slowest),
    `coverage` and `marks`; they are a cost of the exact oracle on these inputs (1000 and more bits per coordinate difference), a
    profile (dotnet-trace was not available in the session) would be the next step. The mesher's output is unchanged.

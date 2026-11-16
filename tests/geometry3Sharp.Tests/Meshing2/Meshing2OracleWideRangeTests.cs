@@ -19,6 +19,7 @@ namespace geometry3Sharp.Tests
         static void AssertContains(Q value, double lo, double hi, string what)
         {
             Assert.True(!double.IsNaN(lo) && !double.IsNaN(hi) && lo <= hi, what + ": interval " + lo + " .. " + hi);
+            if (double.IsInfinity(lo) || double.IsInfinity(hi)) return;       // (within 1e-13 of the largest double: no exact value to compare)
             Assert.True(Q.FromDouble(lo) <= value && value <= Q.FromDouble(hi), what + ": " + value + " not in " + lo + " .. " + hi);
         }
 
