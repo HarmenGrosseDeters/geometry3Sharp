@@ -768,6 +768,8 @@ A/B on the T6 set (98 pairs, 294 booleans, SafeRounding on, warm, `profile --rep
 At 1 thread the difference is noise (±3 %); at 4 threads the trees phase falls by 41 % and the rounding by 10 %, the whole by 4.5 %. 8192 and 4097 do not differ; 8192
 is kept (smaller trees gain little from the parallel build). All 18 files give the same result hash for every one of the 294 booleans (1 and 4 threads, three thresholds).
 
+The re-check against #837's case set (37 unions of the extreme-runtime study, thresholds 262144 / 16384 / 8192, 4 and 1 threads, 3 interleaved rounds): rows `perf/tree_threshold_2026-11-15/rerun_837_variants_2026-11-15.jsonl.gz`, tables by `python3 perf/rerun_837_report.py <rows>` (classification does not slow down: −0.1 % at 8192, 4 threads; the details are in the PR body of #956).
+
 ## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
 
 The question: what limits the speedup of `ExactMeshBoolean` with the number of threads (the analysis and the lever list:

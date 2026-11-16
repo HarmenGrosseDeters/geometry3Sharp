@@ -85,11 +85,11 @@ namespace geometry3Sharp.Tests
             return sb.ToString();
         }
 
-        // two overlapping spheres of more triangles than the default threshold each (so their input trees, and the rounding's tree of
+        // two overlapping spheres of just more triangles than the default threshold each (12 (28 - 1)^2 = 8748; smaller than before: the mutation capture runs the tests under a coverage lock) (so their input trees, and the rounding's tree of
         // the result, take the parallel build), scaled by s about the origin
         static string Run(ExactMeshBoolean.Operations op, double scale, int parallelFrom, bool serialWorkers = false)
         {
-            DMesh3 a = Sphere(new Vector3d(0, 0, 0), 1, 40), b = Sphere(new Vector3d(0.4, 0.3, 0.2), 0.9, 40);
+            DMesh3 a = Sphere(new Vector3d(0, 0, 0), 1, 28), b = Sphere(new Vector3d(0.4, 0.3, 0.2), 0.9, 28);
             Assert.True(a.TriangleCount > TriangleBoxTree.DefaultParallelBuildFrom);
             MeshTransforms.Scale(a, scale); MeshTransforms.Scale(b, scale);
             int saved = TriangleBoxTree.ParallelBuildFrom;
