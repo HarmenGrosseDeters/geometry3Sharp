@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 namespace g3
 {
     /// <summary>
+    /// For a robust cut use <see cref="ExactMeshImprint"/> (exact intersections, the target's vertices and orientation kept, contact and coplanar overlaps handled).
     /// Cuts the curves where CutMesh intersects Target into Target, in place (floating-point): Compute()
     /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
     /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
