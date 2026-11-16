@@ -874,6 +874,28 @@ is kept (smaller trees gain little from the parallel build). All 18 files give t
 
 The re-check against #837's case set (37 unions of the extreme-runtime study, thresholds 262144 / 16384 / 8192, 4 and 1 threads, 3 interleaved rounds): rows `perf/tree_threshold_2026-11-15/rerun_837_variants_2026-11-15.jsonl.gz`, tables by `python3 perf/rerun_837_report.py <rows>` (classification does not slow down: −0.1 % at 8192, 4 threads; the details are in the PR body of #956).
 
+## Thread scaling: the parallel assembly and classification edge groups (November 2026)
+
+`ExactMeshBoolean.assemble` and the edge grouping / patch joins of `classify` run in parallel from 65 536 sorted edge entries on (levers 2 and 4 of
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md), section 6, with the upper bound, the building blocks and the
+literature): a stable blocked radix partition, an order-independent union-find, the vertices by a prefix sum, and a bulk builder for the result
+(`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`). Results are bit-identical: the `profile` hash of
+all 294 booleans of the T6 set equals master's at 1, 2 and 4 threads (2940 rows of 10 files, 0 differences). The sub-phases are the `assembly.*_us` and
+`classification.*_us` entries (microseconds) of `phases_ms`.
+
+T6 set, 4-vCPU container, 4 threads, `DOTNET_TieredPGO=0`, 3 interleaved rounds (base, candidate; candidate, base; base, candidate), sums over the 294 booleans of the faster of two runs, ms:
+
+| 4 threads | master, mean of 3 | candidate, mean of 3 | change |
+|---|---|---|---|
+| classification | 1345 | 938 | -30 % |
+| assembly (without simplify) | 2235 | 1373 | -39 % |
+| simplify, rounding (unchanged) | 942, 4320 | 941, 4329 | 0 % |
+| whole boolean | 19 416 | 18 084 | **-6.9 %** |
+
+1 thread: 35 712 → 35 561 ms (-0.4 %); 2 threads: 23 955 → 23 285 ms (-2.8 %), one run each. Raw rows: `perf/assembly_parallel_2026-11-16/`
+(`python3 perf/assembly_parallel_2026-11-16/subphases.py <label>=<file.jsonl.gz> ...` for the sub-phase table). The owner's i7-8700 (6 cores / 12 threads), T6 set, 3 rounds A B A B: 1 thread 43.8 → 42.2 s (-3.7 %), 4 threads 24.4 → 22.9 s (-6.2 %), 12 threads 17.0 → 15.4 s (-9.6 %; classification -37 %, assembly -34 %), hashes 294 of 294 equal
+(branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`). Not measured: net48.
+
 ## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
 
 The question: what limits the speedup of `ExactMeshBoolean` with the number of threads (the analysis and the lever list:

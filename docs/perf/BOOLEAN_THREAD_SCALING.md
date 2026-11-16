@@ -189,6 +189,75 @@ largest block, not the serial tails.
 Order of work: 1 (days, measured, a constant; a test at the new threshold is still to be added) → 2 with 4 (one `group_edges`, one union-find) → 5 → 3 → 6; 7 needs a diagnosis first (a probe of the tasks' times).
 On the owner's machine (6 cores, 12 threads with SMT) run `thread_scaling.ps1` first: with SMT the second thread of a core gives 20-30 %, not 100 %, which the bounds above do not know.
 
+## 6. Levers 2 and 4 built: the assembly and the classification's edge groups (2026-11-16)
+
+Built in one PR: parallel stable `group_edges` (classification C.2 and assembly A.3), the pairing of corner slots and the patch joins with an
+order-independent union-find (A.4, C.3), the vertices by a prefix sum over the classes (A.7), the used points (A.5), and a bulk builder for the
+result mesh that gives the ids of `AppendVertex` / `AppendTriangle` (A.9, for the case that no edge has more than two pieces or two pieces
+running it the same way; the rest appends as before). `ExactPlanarSimplify` (lever 3), the rounding's setup (5) and the gather A.1 are untouched.
+
+**Upper bound first** (T6 set, 294 booleans, warm, `profile --repeat 2 --safe-rounding`, sub-phase timers `assembly.*_us` / `classification.*_us`,
+sums in ms, master 414c6b5 plus the timers; raw rows `perf/assembly_parallel_2026-11-16/probe_base_t{1,4}.jsonl.gz`):
+
+| step | 1 thr | 4 thr | what it is |
+|---|---|---|---|
+| assembly: gather A.1 / edges A.3 / pairing A.4 / used A.5 / vertices A.7 / triangles A.9 | 93 / 467 / 397 / 53 / 280 / 932 | 84 / 441 / 382 / 50 / 290 / 901 | serial (coords A.6: 286 / 135, already parallel) |
+| classification: edges C.2 / patches C.3 / open prep C.4 / first pieces / decisions C.6 | 534 / 442 / 130 / 60 / 96 | 525 / 421 / 125 / 68 / 97 | serial (stacks, winding: parallel) |
+
+The serial chain is 2148 ms of the 19 541 ms at 4 threads (11.0 %) in the assembly and 1236 ms (6.3 %) in the classification. An ideal linear speedup
+of both at 4 threads would save 1611 + 927 = 2538 ms, **13.0 %**, the bound; the doc's estimate (4-6 %) is about half of it. The sizes of T6 limit the real
+gain: the median result has 7.5k triangles, a parallel pass costs 10-100 µs, and a sort of 65 536 entries takes 1.3 ms serially, so the loops
+run in parallel from 65 536 entries (`ExactMeshEdgeGroups.ParallelFrom`) and the smaller booleans run as before.
+
+**Building blocks in the library** (searched first): `gParallel.ForRange` and its serial hooks, the blocks of 4096 with a slot each (`TriangleBlock`,
+`TriangleBoxTree.BlockSize`), `TriangleBoxTree.sort_codes_parallel` (a sort of (code, index) pairs by runs and merges; not usable for 64-bit edge
+keys with items without its own tuning), the serial stable radix sort `sort_by_key` (kept as the small-input path), the union-find of `classify`
+and `assemble` (serial, arbitrary roots). **Literature** (papers only, no code read; [SOURCES.md](../SOURCES.md)): the blocked radix partition (Zagha and Blelloch 1991,
+Satish et al. 2009, Polychroniou and Ross 2014), union by index with compare-and-swap (Anderson and Woll 1991, Jayanti and Tarjan 2016), prefix sums (Blelloch 1990).
+
+**Why the results are the same bit for bit.** The stable sort has one result whatever the blocks. The union-find links the larger root under the smaller
+one, so a class ends with its smallest slot as root whatever the order of the unions; the vertex ids are the classes in the order of their first slot, which is that
+root, so the numbering is a prefix sum over the roots. The patches of the classification only use the root as a key. The groups of equal edges are cut by blocks of the
+sorted list (a group belongs to the block it begins in), groups of more than two pieces are paired serially afterwards in the order of the sorted edges (they use exact
+arithmetic and the BigInteger helpers), the counters are summed per block. The bulk builder takes the edge ids from the sorted groups (an edge is numbered by its first slot,
+as `AppendTriangle` creates it), the edges at each vertex in the order of the inserts, and the reference counts, normals and time stamps of the appends
+(`ExactBooleanParallelAssemblyTests` compares every one with the appended mesh, with block sizes down to 2 entries and under permuted loop orders).
+
+**Result** (T6, 294 booleans, 4-vCPU container, `DOTNET_TieredPGO=0`, three interleaved rounds base / candidate, order reversed in round 2, sums of the faster of two runs per
+boolean, ms; raw rows `perf/assembly_parallel_2026-11-16/`):
+
+| phase, 4 threads | master (3 rounds) | mean | candidate (3 rounds) | mean | change |
+|---|---|---|---|---|---|
+| classification | 1377 / 1349 / 1310 | 1345 | 919 / 960 / 934 | 938 | **-30 %** |
+| assembly without simplify | 2280 / 2203 / 2221 | 2235 | 1351 / 1401 / 1367 | 1373 | **-39 %** |
+| simplify (unchanged) | 917 / 977 / 933 | 942 | 914 / 949 / 959 | 941 | 0 % |
+| rounding (unchanged) | 4373 / 4316 / 4271 | 4320 | 4313 / 4374 / 4299 | 4329 | 0 % |
+| **whole boolean** | 19 752 / 19 362 / 19 133 | 19 416 | 17 807 / 18 386 / 18 059 | 18 084 | **-6.9 %** |
+| GC pauses (sum) | 310 / 285 / 318 | 304 | 370 / 370 / 346 | 362 | +58 ms |
+
+At 1 thread (one run each): 35 712 → 35 561 ms (-0.4 %; classification 1481 → 1502, assembly 2379 → 2029); at 2 threads: 23 955 → 23 285 ms (-2.8 %). The
+speedup of the set from 1 to 4 threads is 1.84x before and 1.97x after. The classification at 1 thread is within the noise (±3 %), the other phases were not slower in any round.
+The larger share of the gain is the bulk builder (A.9 and A.7: 1191 ms → 676 ms at 4 threads) and the edge groups of both phases (A.3 441 → 280, C.2 525 → 333); the pairing and the patch joins halve (382 → 191, 421 → 229).
+What stays serial in the assembly at 4 threads: `ExactPlanarSimplify` 941 ms (lever 3), the builder's serial counting sort of the edges at each vertex, the gather (80), and in the classification the
+open prep (118), the decisions (92), the first pieces (37).
+
+**The assembly +5.5 % after the parallel tree build (#956).** Checked with the sub-phase timers, candidate build, threshold 8192 against 262 144 (one run each, 4 threads):
+no assembly step differs beyond the noise (vertices 676 / 633, pairing 191 / 183, edges 280 / 278, simplify 1066 / 1049); the assembly total is 1373 against 1317 ms (4 %), all of it in the
+step that allocates the most (the result's arrays), which fits memory and GC pressure (GC pauses 362 against 304 ms in the sums above) rather than a slower loop. The per-subtree node arrays are
+dead before the assembly starts (`arr.Trees = null`). Not pursued further: below the noise of one run.
+
+**The owner's machine** (i7-8700, 6 cores / 12 threads, T6 set, `thread_scaling.ps1`, net10.0, 3 rounds A B A B, two processes per side and thread count; measured by the owner's session on head bf34eff, data on branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`):
+
+| threads | master 414c6b5f | #962 bf34eff7 | change |
+|---|---|---|---|
+| 1 | 43.8 s | 42.2 s | -3.7 % |
+| 4 | 24.4 s | 22.9 s | -6.2 % |
+| 12 | 17.0 s | 15.4 s | -9.6 % |
+
+Spread between runs: master about 1.5 %, the PR about 0.5 %. Phases at 12 threads: classification -37 %, assembly -34 %, intersections -1 %, rounding 0 %, the rest under 2 %. Result hashes: 294 of 294 equal across both sides, all thread counts and rounds.
+
+**Not measured:** net48, cold processes (one per boolean), inputs above 100k triangles (the T6 set has none; the parallel paths start at 65 536 sorted entries, 22k pieces). The serial part of the vertex edge lists in the builder is a counting sort over about 3 entries per piece, a few ns each.
+
 ## Experiments (benchmark-side switches, no library change in the PR)
 
 4 threads, T6 set, warm, two runs each (total of the 294 booleans, ms; the best-per-boolean sum of both runs in brackets). All hashes equal to the 1-thread master run (all 14 files, 4116 rows, one hash per boolean).
