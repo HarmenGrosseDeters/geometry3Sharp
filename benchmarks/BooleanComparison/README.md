@@ -228,7 +228,52 @@ three methods and writes the table to the step summary; the raw rows go to the d
 
 ExactMeshImprint is not a method of this class yet. TODO: add it as a method once PR #981 is merged.
 
-**First run** (RESULTS_PLACEHOLDER)
+**First run** (GitHub run [43949164518](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43949164518), 2026-11-16, master d5fb874a, `workflow_dispatch`, ubuntu-latest with 4 cores, `-j 1`, timeout 300 s; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the first 30 pairs of each variant; raw rows on the data branch `runs/thingi-contact`, folder `run-43949164518`):
+
+| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | unclean | max volume error | median ms | max ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| face-contact | cgal_epeck | 22 | 16 | 66 | 64 | 2 | 39 | 20 | bowties 1, not evaluated 4 | 1.19e-14 | 24 | 84 |
+| face-contact | manifold | 22 | 16 | 66 | 66 | 0 | 41 | 19 | empty (inconsistent) 3, not closed 2, self-intersections 1 | 5.46e-14 | 24 | 48 |
+| face-contact | ours | 22 | 16 | 66 | 66 | 0 | 41 | 20 | bowties 1, empty (inconsistent) 2, not closed 2 | 1.19e-14 | 112 | 335 |
+| partial-overlap | cgal_epeck | 24 | 5 | 72 | 72 | 0 | 61 | 4 | bowties 1, degenerate triangles 6 | 1.45e-14 | 24 | 385 |
+| partial-overlap | manifold | 24 | 5 | 72 | 72 | 0 | 41 | 4 | degenerate triangles 27 | 2.31e-14 | 29 | 48 |
+| partial-overlap | ours | 24 | 5 | 72 | 72 | 0 | 67 | 4 | bowties 1 | 9.61e-13 | 109 | 394 |
+| ulp-shift | cgal_epeck | 30 | 0 | 90 | 84 | 6 | 0 | 0 | degenerate triangles 10, not closed 74 | 1.12e-14 | 858 | 3054 |
+| ulp-shift | manifold | 30 | 0 | 90 | 90 | 0 | 67 | 4 | bowties 1, degenerate triangles 2, inside-out components 3, not closed 13 | 2.38e-13 | 45 | 179 |
+| ulp-shift | ours | 30 | 0 | 90 | 90 | 0 | 59 | 30 | degenerate triangles 1 | 2.59e-09 | 798 | 3435 |
+| ulp-shift-few | cgal_epeck | 30 | 0 | 90 | 87 | 3 | 0 | 0 | degenerate triangles 14, not closed 73 | 1.46e-14 | 625 | 93228 |
+| ulp-shift-few | manifold | 30 | 0 | 90 | 90 | 0 | 63 | 5 | bowties 1, degenerate triangles 4, inside-out components 1, not closed 15, self-intersections 1 | 5.27e-14 | 74 | 221 |
+| ulp-shift-few | ours | 30 | 0 | 90 | 90 | 0 | 60 | 30 | – | 4.97e-08 | 792 | 10702 |
+| mirror | cgal_epeck | 30 | 0 | 90 | 81 | 9 | 21 | 0 | bowties 15, degenerate triangles 45 | 2.14e-13 | 295 | 4416 |
+| mirror | manifold | 30 | 0 | 90 | 90 | 0 | 30 | 0 | bowties 16, degenerate triangles 34, not closed 9, self-intersections 1 | 1.51e-14 | 53 | 245 |
+| mirror | ours | 30 | 0 | 90 | 90 | 0 | 66 | 0 | bowties 15, not closed 9 | 9.38e-06 | 432 | 3216 |
+
+`pairs` are the placements that were accepted (of 30 per variant), `face contact` those with `kind` `face`, the other columns count operations as in `thingi-pairs`. Times are the boolean alone, from one run on a shared runner (indicative only, no repeats).
+
+Placements refused as inexact or failed to load: 14 of 150 cases:
+- face-contact_p0000_88616+92837: RuntimeError('inexact transform: contact shift not exact')
+- face-contact_p0002_37282+985160: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0008_136634+84320: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0013_925244+65149: RuntimeError('inexact transform: contact shift not exact')
+- face-contact_p0022_100339+40051: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0025_47748+985160: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0028_113862+59228: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0029_242305+178193: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0001_91452+73413: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0002_121868+200963: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0009_107439+514852: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0011_92836+49546: RuntimeError('inexact transform: embedding depth not exact')
+- partial-overlap_p0023_44397+54467: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0028_472179+76057: RuntimeError('inexact transform: translation not exact')
+
+What the run shows (all of it from the raw rows; causes marked *not diagnosed* were not investigated):
+- **Refused placements: 14 of 150, all in the two variants that move B by a general shift** (8 of 30 `face-contact`, 6 of 30 `partial-overlap`); `ulp-shift`, `ulp-shift-few` and `mirror` had none. Probable cause (*not verified on the models*): the shift is of order 1, and a model with a coordinate that is nearly but not exactly zero (single precision noise, about 1e-8) has a finer last bit than a sum of that size can keep. That is the exactness rule working (the case is refused, not rounded), but it costs 27 % of the pairs of these two variants. A follow-up can pre-select the models whose coordinates survive the placement.
+- **`face-contact`: 16 of 22 accepted pairs have planar faces on both sides** (`kind` `face`), 6 touch through vertices or edges (`bbox`). `partial-overlap`: 5 of 24 `face` (flush), the others `embedded` or `bbox`. In 4 of 24 `partial-overlap` pairs the intersection is empty although B was moved into A (no volume under B's footprint), which the oracle accepts as volume-consistent.
+- **ours, `face-contact`**: the union of 2 pairs is `not closed` (p0012, p0021; both `kind` `face`); manifold has 2 `not closed` results too (which cases was not compared). Volumes are right (expected_error 2.4e-15). Not diagnosed; issue filed.
+- **ours, `mirror`**: the difference A - mirror(A) is `not closed` for 8 of 30 pairs and `bowties` for 15 (bowties are plausible for pieces that meet on the mirror plane); the largest identity error is 9.4e-06 (p0024) and 5.2e-07 (p0001), above the class tolerance 1e-7. Issue filed (pair ids and parameters in it).
+- **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants and counted as volume-consistent; the exact result is a shell of volume about 1e-16 of the model. This is the behaviour of the rounding stage (pieces below the degenerate threshold are dropped), not necessarily a defect; the oracle cannot tell it from a correct empty result. Identity errors up to 5.0e-08 (`ulp-shift-few`).
+- **CGAL EPECK** failed or timed out on 18 operations (`ulp-shift` 6, `ulp-shift-few` 3, `mirror` 9; one `ulp-shift-few` case took 93 s) and its results are mostly `not closed` under our weld-by-position check for `ulp-shift` (74 of 90) and `ulp-shift-few` (73 of 90): not analysed whether that is CGAL's output after the conversion to double or the check. **manifold** is `not closed` or `self-intersections` in a few cases per variant, and `degenerate triangles` in 27 of 72 `partial-overlap` results.
+- Summary rows for results that `eval` could not read back were crashing `summary` (a result without a clean reason); fixed here (`not evaluated`), and the workflow's report steps now fail on a summary error (`set -o pipefail`; the run above shows an empty table in the step summary for that reason, the table here is computed from the raw rows).
 
 ## Open Boolean Benchmark runner
 

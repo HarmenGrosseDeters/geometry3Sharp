@@ -117,6 +117,7 @@ def cmd_summary(files):
                 ok += 1
                 ms.append(r.get(f"{op}_ms") or 0)
                 reason = r.get(f"{op}_clean_reason")
+                if reason is None: reason = "not evaluated"        # the result was not read back by eval
                 if reason == "": clean += 1
                 elif reason == "empty" and tp.consistent(r): empty += 1
                 elif reason == "empty": unclean["empty (inconsistent)"] = unclean.get("empty (inconsistent)", 0) + 1
