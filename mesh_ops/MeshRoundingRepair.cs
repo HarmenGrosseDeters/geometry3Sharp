@@ -161,8 +161,10 @@ namespace g3
         public Func<int, int, bool> LockedEdgeF = null;
         /// <summary> a locked edge may be contracted if the edit is within the bound (counted in LockedContractions) </summary>
         public bool AllowLockedContraction = false;
-        /// <summary> locked edges contracted by Apply </summary>
+        /// <summary> edges of LockedEdges contracted by Apply </summary>
         public int LockedContractions;
+        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        public int RuleLockedContractions;
         /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
         public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
         bool locked(int a, int b)
@@ -534,7 +536,7 @@ namespace g3
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
-            LockedContractions = 0;
+            LockedContractions = RuleLockedContractions = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
@@ -1817,6 +1819,13 @@ namespace g3
             bool lockedEdge = has_locks && locked(a, b);
             if (lockedEdge && AllowLockedContraction == false)
                 return false;
+            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost)
+            if (LockedEdgeF != null) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && LockedEdgeF(a, x) && LockedEdgeF(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
+                        return false;
+            }
+            bool setLocked = LockedEdges != null && LockedEdges.Contains(LockedKey(a, b));
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(a)) {
                 removed.Add(t);
@@ -1862,7 +1871,8 @@ namespace g3
             }
             if (lockedEdge) {
                 LockedEdges?.Remove(LockedKey(a, b));
-                LockedContractions++;
+                if (setLocked) LockedContractions++;
+                else RuleLockedContractions++;
             }
             if (atPosition != null)
                 position_remove(a, pa);

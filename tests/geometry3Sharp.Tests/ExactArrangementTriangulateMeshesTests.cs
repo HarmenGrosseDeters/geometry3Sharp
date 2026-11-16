@@ -60,7 +60,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(masked.Output.Count, masked.PredictedPieces);
             Assert.True(masked.PredictedPieces < full.PredictedPieces);
             Assert.Equal(full.IntersectingPairs, masked.IntersectingPairs);
-            Assert.Equal(full.PointCount >= masked.PointCount, true);
+            Assert.Equal(full.PointCount, masked.PointCount);
         }
 
         [Fact]

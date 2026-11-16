@@ -94,6 +94,10 @@ namespace geometry3Sharp.Tests
             Assert.True(imprint.CurveEdges.Count > 8);
             Assert.True(imprint.RoundingClean);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(imprint.Result));
+            Assert.False(imprint.HasCracks);
+            // the arrangement's pieces are the target's only (the cutter is not triangulated), and no repair edit changed their number
+            Assert.Equal(imprint.Result.TriangleCount, imprint.Counts["pieces"]);
+            Assert.Equal(0, imprint.Counts["rounding_edits"]);
         }
 
         [Fact]
@@ -365,6 +369,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, target.BoundaryEdgeIndices().Count(e => target.GetEdgeV(e).a == u && target.GetEdgeV(e).b == v));
             var cutter = Box(new Vector3d(1, 0.2, 0), new Vector3d(0.3, 0.5, 1), Matrix3d.Identity);
             var imprint = Run(target, cutter);
+            Assert.True(imprint.HasCracks);
             Assert.True(imprint.Counts["unsplit_degenerate_points"] > 0);
             Assert.True(imprint.Result.IsTriangle(d), "the degenerate triangle is kept");
             Assert.Equal(target.GetTriangle(d), imprint.Result.GetTriangle(d));
@@ -566,6 +571,69 @@ namespace geometry3Sharp.Tests
             var imprint = Run(target, cutter);
             AssertKeepsTarget(target, imprint);
             Assert.Equal(BoundaryPositions(target).Count <= BoundaryPositions(imprint.Result).Count, true);
+        }
+
+        [Fact]
+        public void Invariance_PowerOfTwoScalings_WithTheDefaults_AreBitIdentical()
+        {
+            // SafeRounding on: the vertices, the triangles, the curve edges and the sources are the same bit for bit (the scaling by 2^k is exact)
+            foreach (var s in new[] { Similarity.Pow2Small, Similarity.Pow2Large }) {
+                DMesh3 t0, c0, t1, c1;
+                Pair(Similarity.Identity, out t0, out c0);
+                Pair(s, out t1, out c1);
+                var a = Run(t0, c0);
+                var b = Run(t1, c1);
+                Assert.Equal(a.Result.MaxVertexID, b.Result.MaxVertexID);
+                foreach (int v in a.Result.VertexIndices())
+                    Assert.Equal(s.Apply(a.Result.GetVertex(v)), b.Result.GetVertex(v));
+                Assert.Equal(a.Result.MaxTriangleID, b.Result.MaxTriangleID);
+                foreach (int t in a.Result.TriangleIndices())
+                    Assert.Equal(a.Result.GetTriangle(t), b.Result.GetTriangle(t));
+                Assert.Equal(a.CurveEdges.OrderBy(x => x), b.CurveEdges.OrderBy(x => x));
+                Assert.Equal(a.SourceTriangle, b.SourceTriangle);
+                Assert.Equal(a.Counts["rounding_edits"], b.Counts["rounding_edits"]);
+            }
+        }
+
+        [Fact]
+        public void TouchingComponent_IsNotJoinedToTheCutOne()
+        {
+            // two components in one target: a cube, and a tetrahedron above it whose apex touches the cube's top face; a cutter plane through the apex
+            var target = Box(Vector3d.Zero, Vector3d.One, Matrix3d.Identity);
+            int firstTetVertex = target.MaxVertexID;
+            int apex = target.AppendVertex(new Vector3d(0.1, 0.2, 1));
+            int p = target.AppendVertex(new Vector3d(0.6, 0.2, 1.8)), q = target.AppendVertex(new Vector3d(-0.3, 0.7, 1.8)), r = target.AppendVertex(new Vector3d(-0.2, -0.4, 1.9));
+            int firstTetTriangle = target.MaxTriangleID;
+            target.AppendTriangle(apex, q, p); target.AppendTriangle(apex, p, r); target.AppendTriangle(apex, r, q); target.AppendTriangle(p, q, r);
+            var cutter = new DMesh3();
+            foreach (var v in new[] { new Vector3d(0.1, -3, -3), new Vector3d(0.1, 3, -3), new Vector3d(0.1, 3, 3), new Vector3d(0.1, -3, 3) }) cutter.AppendVertex(v);
+            cutter.AppendTriangle(0, 1, 2); cutter.AppendTriangle(0, 2, 3);
+            var imprint = Run(target, cutter);
+            // every triangle at the apex belongs to the tetrahedron (a vertex of the cube at that position would join the components)
+            foreach (int tid in imprint.Result.VtxTrianglesItr(apex))
+                Assert.True(imprint.SourceTriangle[tid] >= firstTetTriangle, "the apex is shared with a triangle of the cube");
+            Assert.Equal(1, imprint.Result.VertexIndices().Count(v => imprint.Result.GetVertex(v) == new Vector3d(0.1, 0.2, 1) && imprint.Result.VtxTrianglesItr(v).Any(t => imprint.SourceTriangle[t] >= firstTetTriangle)));
+            AssertKeepsTarget(target, imprint);
+        }
+
+        [Fact]
+        public void LabelCurves_NumbersChainsAndSplitsAtAJunction()
+        {
+            var target = Grid(4, 4);
+            DMesh3 Quad(Vector3d a, Vector3d b)
+            {
+                var m = new DMesh3();
+                m.AppendVertex(new Vector3d(a.x, a.y, -1)); m.AppendVertex(new Vector3d(b.x, b.y, -1)); m.AppendVertex(new Vector3d(b.x, b.y, 1)); m.AppendVertex(new Vector3d(a.x, a.y, 1));
+                m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 2, 3);
+                return m;
+            }
+            // a long curve along y = 0.3, a branch from its point x = 0.5 (ends on it: a T), and a separate curve at x = -1.2
+            var imprint = new ExactMeshImprint() { Target = target, LabelCurves = true,
+                Cutters = new List<DMesh3> { Quad(new Vector3d(-1.7, 0.3, 0), new Vector3d(1.7, 0.3, 0)), Quad(new Vector3d(0.5, 0.3, 0), new Vector3d(0.5, 1.6, 0)), Quad(new Vector3d(-1.2, -1.5, 0), new Vector3d(-1.2, -0.9, 0)) } };
+            Assert.True(imprint.Compute(), imprint.Error);
+            // the long curve is cut in two at the T, plus the branch, plus the separate curve
+            Assert.Equal(imprint.CurveEdges.Count, imprint.CurveId.Count);
+            Assert.Equal(new[] { 0, 1, 2, 3 }, imprint.CurveId.Values.Distinct().OrderBy(x => x));
         }
     }
 }

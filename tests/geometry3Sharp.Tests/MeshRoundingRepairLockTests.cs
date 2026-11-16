@@ -184,5 +184,20 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, repair.Zips + repair.StripZips + repair.Flips + repair.Collapses);
             Assert.Equal(before, AllEdges(m));
         }
+
+        [Fact]
+        public void LockedEdgeF_ARuleLockedEdgeIsNotLostByAContractionIntoAVertexOffTheLine()
+        {
+            // a on the line y = 0 between u and v, with x 1e-13 above it: contracting a into x would drop the rule-locked edges u-a and a-v
+            var m = new DMesh3();
+            int u = m.AppendVertex(new Vector3d(0, 0, 0)), a = m.AppendVertex(new Vector3d(2, 0, 0)), v = m.AppendVertex(new Vector3d(4, 0, 0));
+            int x = m.AppendVertex(new Vector3d(2, 1e-13, 0)), y = m.AppendVertex(new Vector3d(2, -2, 0)), p = m.AppendVertex(new Vector3d(2, 2, 0));
+            m.AppendTriangle(u, a, x); m.AppendTriangle(a, v, x); m.AppendTriangle(u, x, p); m.AppendTriangle(x, v, p);
+            m.AppendTriangle(a, u, y); m.AppendTriangle(v, a, y);
+            var repair = new MeshRoundingRepair(m) { LockedEdgeF = (s, t) => m.GetVertex(s).y == 0 && m.GetVertex(t).y == 0, AllowLockedContraction = true, RemoveTinyComponents = false };
+            repair.Apply();
+            Assert.True(m.IsVertex(a), "the vertex on the line was contracted into the one off it");
+            Assert.True(m.FindEdge(u, a) >= 0 && m.FindEdge(a, v) >= 0);
+        }
     }
 }

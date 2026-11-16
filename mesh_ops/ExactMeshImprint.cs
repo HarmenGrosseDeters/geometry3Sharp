@@ -94,7 +94,7 @@ namespace g3
         public HashSet<long> CurveEdges = new HashSet<long>(EdgeKeyComparer.Instance);
         /// <summary> with LabelCurves: per curve edge (key of CurveEdges) the number of its curve, from 0 </summary>
         public Dictionary<long, int> CurveId = new Dictionary<long, int>(EdgeKeyComparer.Instance);
-        /// <summary> the result has a crack the target did not have: new vertices on an edge shared with a degenerate target triangle (which is not split, Counts["unsplit_degenerate_points"]) or on the edge of a triangle that has a target vertex on it (Counts["target_vertex_points"] reuses the vertex): the result is then not closed although the target was </summary>
+        /// <summary> the result has a crack the target did not have: new vertices on an edge shared with a degenerate target triangle (which is not split, Counts["unsplit_degenerate_points"]): the result is then not closed although the target was </summary>
         public bool HasCracks { get { return Counts.TryGetValue("unsplit_degenerate_points", out long n) && n > 0; } }
         /// <summary> the repair run by SafeRounding, or null </summary>
         public MeshRoundingRepair Rounding;
@@ -129,7 +129,8 @@ namespace g3
         {
             Status = status;
             Error = error;
-            Result = null;
+            Result = null; SourceTriangle = null; Rounding = null; ResultExactVertices = null;
+            CurveEdges = new HashSet<long>(EdgeKeyComparer.Instance); CurveId = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             return false;
         }
 
@@ -177,8 +178,12 @@ namespace g3
             if (CheckTargetSelfIntersections)
                 Counts["target_self_intersections"] = gs.MeshRepairMetrics.SelfIntersections(Target);
 
+            if (Cancellation.IsCancellationRequested)
+                return fail(ImprintStatus.Cancelled, "cancelled");
             if (build(arr) == false)
                 return false;
+            if (Cancellation.IsCancellationRequested)
+                return fail(ImprintStatus.Cancelled, "cancelled");
             clock.Lap("assembly");
             if (ComputeExactVertices)
                 compute_exact_vertices(arr);
@@ -230,13 +235,24 @@ namespace g3
             }
             Counts["split_triangles"] = touched.Count;
 
-            // a point that is the position of a target vertex is that vertex (a target vertex on the edge of a split triangle, or a curve through it)
-            var pointVertex = new Dictionary<int, int>();
-            foreach (int vid in Target.VertexIndices())
-{
-                    int pp = arr.Canonical(arr.VertexPoints[0][vid]);
-                    if (pointVertex.ContainsKey(pp) == false) pointVertex[pp] = vid;
-                }
+            // a point that is the position of a vertex of the source triangle's neighbourhood (the vertices of the triangles around its corners) is that
+            // vertex (a target vertex on the edge of a split triangle, or a curve through it); vertices of other components are not (no bowtie between them)
+            Dictionary<int, int> ring_points(int tid)
+            {
+                var ring = new Dictionary<int, int>();
+                Index3i tvr = Target.GetTriangle(tid);
+                foreach (int corner in new[] { tvr.a, tvr.b, tvr.c })
+                    foreach (int nt in Target.VtxTrianglesItr(corner)) {
+                        Index3i nv = Target.GetTriangle(nt);
+                        foreach (int vid in new[] { nv.a, nv.b, nv.c }) {
+                            int pp = arr.Canonical(arr.VertexPoints[0][vid]);
+                            if (ring.TryGetValue(pp, out int old) == false || vid < old) ring[pp] = vid;
+                        }
+                    }
+                return ring;
+            }
+            var ringOf = new Dictionary<int, Dictionary<int, int>>();
+            Dictionary<int, int> ring_of(int ti) { if (ringOf.TryGetValue(ti, out var r) == false) ringOf[ti] = r = ring_points(arr.Triangles[ti].Tid); return r; }
             long reused = 0;
             // slots: (source, canonical point) of every piece corner that is not a corner of the source triangle
             var slotOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);
@@ -250,7 +266,7 @@ namespace g3
                     foreach (int p0 in new[] { o.A, o.B, o.C }) {
                         int p = arr.Canonical(p0);
                         if (p == cp[0] || p == cp[1] || p == cp[2]) continue;
-                        if (pointVertex.ContainsKey(p)) continue;
+                        if (ring_of(ti).ContainsKey(p)) continue;
                         long key = ((long)ti << 32) | (uint)p;
                         if (slotOf.ContainsKey(key)) continue;
                         slotOf[key] = slotPoint.Count;
@@ -342,8 +358,8 @@ namespace g3
                     var v = new int[3];
                     for (int c = 0; c < 3; ++c) {
                         int k = Array.IndexOf(cp, pts[c]);
-                        v[c] = k >= 0 ? tv[k] : pointVertex.TryGetValue(pts[c], out int tvid) ? tvid : vertexOfRoot[slot_find(slotOf[((long)ti << 32) | (uint)pts[c]])];
-                        if (k < 0 && pointVertex.ContainsKey(pts[c])) reused++;
+                        v[c] = k >= 0 ? tv[k] : ring_of(ti).TryGetValue(pts[c], out int tvid) ? tvid : vertexOfRoot[slot_find(slotOf[((long)ti << 32) | (uint)pts[c]])];
+                        if (k < 0 && ring_of(ti).ContainsKey(pts[c])) reused++;
                     }
                     add.Add((tid, new Index3i(v[0], v[1], v[2])));
                     for (int c = 0; c < 3; ++c) {
@@ -451,7 +467,7 @@ namespace g3
             Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips + Rounding.VertexRemovals;
             Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
             Counts["curve_edges_contracted"] = Rounding.LockedContractions;
-            Counts["locked_edges_contracted"] = Rounding.LockedContractions;
+            Counts["target_edge_parts_contracted"] = Rounding.RuleLockedContractions;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)
