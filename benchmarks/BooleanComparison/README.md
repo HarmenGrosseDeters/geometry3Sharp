@@ -43,6 +43,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
 | `knot` | an open tube wound tightly inside a ball like a ball of yarn (one component, two open ends, many self-intersecting pairs per triangle), with the export's rotated, shifted copy: a procedural stand-in for the knot of Thingi10K 55928 | open operands with a dense self-intersecting region: per-piece open winding and triangulation cost (`docs/design/EXACT_BOOLEAN_TAIL_55928.md`) | `BooleanComparison knot <dir> [--segments s] [--ring m] [--turns t] [--tube r] [--seed k]` ([below](#tail-case-knot-the-55928-stand-in)) |
 | `thingi-pairs` | 1000 pairs of different clean Thingi10K models (1k-100k triangles each) after the EMBER protocol, B randomly rotated and shifted; `thingi-pairs-size`: 100 pairs of models with 100k-1M triangles | the performance and correctness of the three operations on real models at scale, with `NotCleanReason` and the volume identities as the oracle | `python3 data/thingi_pairs.py fetch/filter/manifest` ([below](#thingi10k-pairs-after-the-ember-protocol)); the pair lists are `thingi-pairs/pairs.csv` and `pairs_size.csv` |
+| `abc-chained` | chains of three booleans on triplets of ABC CAD models placed with the exact contact transforms, each method on its own rounded results | results of exact booleans re-entering the exact pipeline, on CAD-like models (planar faces, cylinders), where exact contact really happens | `abc-chained.yml` (run-time download of one ABC chunk on a runner only) and `python3 data/abc_chained.py` ([below](#chained-booleans-on-abc-models)) |
 | `thingi-contact` | Thingi10K pairs (or one model against itself) with deliberate exact contact: coplanar faces touching or overlapping, a one-ulp or few-ulp offset, a mirror image; 5 variants, 100 pairs each in the list | the hard cases of the exact predicates: exactly coplanar faces, touching edges, flush parts (the use case of `ExactMeshImprint`), where `thingi-pairs` almost never touches exactly | `python3 data/thingi_contact.py fetch/manifest` ([below](#thingi10k-pairs-with-exact-contact)); the list is `thingi-pairs/contact_pairs.csv` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
@@ -280,6 +281,64 @@ What the run shows (all of it from the raw rows; causes marked *not diagnosed* w
 - **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants. All 60 of these empty results are `empty, removed by rounding` (1 to 733 removed components each; 1440 and 689 removed components over all operations of the two variants), none is really empty; the exact result is a shell of volume about 1e-16 of the model, which the identities cannot see. Intended behaviour of `SafeRounding` (owner decision 2026-11-16, see the oracle note above), not a defect. Identity errors up to 5.0e-08 (`ulp-shift-few`). In contrast the 26 empty intersections of `face-contact` and `partial-overlap` removed nothing: they are really empty.
 - **CGAL EPECK** failed or timed out on 18 operations (`ulp-shift` 6, `ulp-shift-few` 3, `mirror` 9; one `ulp-shift-few` case took 93 s) and its results are mostly `not closed` under our weld-by-position check for `ulp-shift` (74 of 90) and `ulp-shift-few` (73 of 90): not analysed whether that is CGAL's output after the conversion to double or the check. **manifold** is `not closed` or `self-intersections` in a few cases per variant, and `degenerate triangles` in 27 of 72 `partial-overlap` results.
 - Summary rows for results that `eval` could not read back were crashing `summary` (a result without a clean reason); fixed here (`not evaluated`), and the workflow's report steps now fail on a summary error (`set -o pipefail`; the run above shows an empty table in the step summary for that reason, the table here is computed from the raw rows).
+
+## Chained booleans on ABC models
+
+The class `abc-chained` runs **chains of booleans** on triplets of CAD models of the ABC dataset (Koch et al., *ABC: A Big CAD Model Dataset For
+Geometric Deep Learning*, CVPR 2019: about a million CAD models from public Onshape documents, tessellated). ABC models are CAD-like (planar faces,
+cylinders, coordinates that are nearly exact), which is where exact contact and coplanarity really happen, and a chain makes the result of one boolean the
+input of the next: **results that were rounded to doubles re-enter the exact pipeline**, which a single boolean on clean inputs never exercises.
+
+**Dataset terms (owner decisions 2026-11-16).** ABC is approved for tests and benchmarks with **run-time fetching only**: the chunk is downloaded on a
+GitHub-hosted runner by the workflow, never committed, never redistributed, never uploaded as an artifact (only result rows, the sampled model ids, the chain list and the file listing of the chunk, names and sizes, leave the
+job), never fetched by a PR-tier test. The dataset page gives the models' copyright to their creators (Onshape Terms of Use 1.g.ii) and no warranties; cite the
+paper. The Fusion 360 Gallery is excluded and GrabCAD is not pursued. The tests of this class write procedural meshes.
+
+**Which files.** The download page lists chunks of 10 000 models per format, `abc_NNNN_<format>_v00.7z`, with links on `archive.nyu.edu`; chunk 0000 has
+7.94 GB in the `obj` format (triangle meshes, one file per model part, with vertex normals), 9.37 GB as binary STL (`stl2`), 2.5 GB as Parasolid, 1.6 GB as
+STEP (CAD, not meshes). `obj` is the smallest mesh format, so the workflow takes `obj` (`obj_v00.txt` of the page maps a chunk's file name to its link; the workflow
+reads it at run time instead of hard-coding the link). The archive is a solid 7z: `7z l -slt` lists its files from the header, one `7z x` of a list of paths extracts
+the sample (the whole chunk is never unpacked, which would not fit the runner's disk). Whether the files are closed enough is what the filter measures (first run below).
+
+**Models.** `data/abc_chained.py select`: of the `.obj` files of the listing with 60 kB to 3 MB (about 500 to 30 000 triangles), 400 are drawn with SplitMix64 (seed 20261116,
+partial Fisher-Yates over the sorted paths). `filter` runs the tool's `thingi-filter` on them: `MeshRobustRepair.NotCleanReason(mesh) == ""` and a positive volume, then
+500-30 000 triangles. The ids of the clean ones are an output of the run (`clean_raw.csv`), not a committed list: the sample depends on the chunk.
+
+**Chains** (`generate`, seed 20261117 plus 7919 per variant index; `chains.csv`, 100 per variant, a run takes a prefix): three different models A, B, C per chain and a variant:
+
+| variant | step 1 | step 2 | step 3 | B is placed |
+|---|---|---|---|---|
+| `ucd` | R1 = A ∪ B | R2 = R1 − C | R3 = R2 ∩ A | `face-contact` or `partial-overlap` |
+| `dui` | R1 = A − B | R2 = R1 ∪ C | R3 = R2 ∩ A | `face-contact` or `partial-overlap` |
+| `iud` | R1 = A ∩ B | R2 = R1 ∪ C | R3 = R2 − A | `partial-overlap` (B must overlap A, an empty R1 ends the chain) |
+
+B and C are each placed against A by the exact placements of [`thingi-contact`](#thingi10k-pairs-with-exact-contact) (`ContactTransforms.BuildChain`: translations, power-of-two scales,
+reflections; every coordinate sum checked, an inexact placement refuses the chain and is listed); C uses `face-contact`, `partial-overlap`, or one of the offsets of A itself,
+`ulp-shift` and `mirror` (then the third model is not used: c = a). Placement, axis, sign and parameter are drawn per chain.
+
+**Running a chain** (`abc_chained.py run`, `BooleanComparison abc-chain-inputs` and `chain-step`): each method runs the steps **on its own results**: the output of
+step k of ours is the input of step k+1 of ours, as the file the method wrote (`chain-step` copies the OFF file; its volumes and `NotCleanReason` are those of the mesh as the reader builds it, which drops triangles that do not fit a manifold mesh), likewise for manifold and CGAL EPECK. At each step all three operations are run on the
+step's inputs, so that the volume identities of the step hold on the inputs the method actually got; the operation of the plan is the chosen result that goes on. The chosen operation runs first: if it
+fails, the other two are not run. A chain ends early if the chosen result is missing or empty; the summary counts the empty ends (expected) apart from the failures. An exception of the driver or a hung tool for one method is a `runner_error` row of that method (the rows of the others stay, and it is listed apart from refused placements). The run has a time budget (`--budget`, the workflow's `budget_min`): no new chain starts after it, finished chains are kept.
+
+**Oracle** (per step and method, as in `thingi-pairs`): `NotCleanReason` of the results, `V(X∪Y) + V(X∩Y) = V(X) + V(Y)` and `V(X−Y) = V(X) − V(X∩Y)` with the class tolerance 1e-7 **per step** (the error
+budget of a chain is the sum over its steps, 3e-7; the summary reports the largest identity error per step), no self-intersections; `input.inputs_clean` says whether the step's inputs were clean when
+they arrived (a rounded result is not always). For `ours` the rows record `removed_components` per operation (what `SafeRounding` dropped; the summary adds up the chosen results of the chains only) and the time of each step (the summary's median counts finished operations only, a timeout is not a fast run).
+
+**Running** (from `benchmarks/BooleanComparison`, with the models already extracted to `$D/meshes/<id>.obj`, eg for a local trial with procedural or licensed files you hold):
+
+```
+python3 data/abc_chained.py filter $D $D/clean_raw.csv
+python3 data/abc_chained.py generate $D/clean_raw.csv.clean $D/chains.csv
+python3 data/abc_chained.py manifest $D $D/chains.csv $D/cases.jsonl --limit 30
+python3 data/abc_chained.py run $D/cases.jsonl results-abc.jsonl --methods ours,manifold,cgal_epeck --timeout 300
+python3 data/abc_chained.py summary results-abc.jsonl
+```
+
+On GitHub: `abc-chained.yml` (`workflow_dispatch` only, no schedule, one job on a GitHub-hosted runner: downloads the chunk to the runner's second disk, lists, extracts, filters, runs, writes the table to the step
+summary; the result rows go to the data branch `runs/abc-chained`). `listing_only` stops after the listing, to check the layout of an archive.
+
+**First run:** pending (the workflow is dispatched after this section is on master; the results table follows in a results PR).
 
 ## Open Boolean Benchmark runner
 

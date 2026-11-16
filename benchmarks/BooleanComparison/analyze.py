@@ -25,9 +25,9 @@ CORRECT = {"clean", "degenerate", "non-manif.", "self-int."}
 NAMES = {"ours": "ExactMeshBoolean", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
 TOL = 1e-6
 # the relative tolerance of the volume identities per class (README.md, "Thingi10K pairs", justifies 1e-7)
-CLASS_TOL = {"thingi-pairs": 1e-7, "thingi-pairs-size": 1e-7, "thingi-contact": 1e-7}
+CLASS_TOL = {"thingi-pairs": 1e-7, "thingi-pairs-size": 1e-7, "thingi-contact": 1e-7, "abc-chained": 1e-7}
 # the classes whose results must not self-intersect to be correct (see self-int. above)
-NO_SELFINT = {"thingi-pairs", "thingi-pairs-size", "thingi-contact"}
+NO_SELFINT = {"thingi-pairs", "thingi-pairs-size", "thingi-contact", "abc-chained"}
 
 def correct(r):
     o = outcome(r)
