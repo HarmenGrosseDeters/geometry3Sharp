@@ -73,8 +73,8 @@ Part of the [roadmap](../ROADMAP.md).
      implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
      Stage 2 merged (#793, 2026-11-13): `ContinuousCollision` and `MeshSweepCollision`, with the bound review fixes.
      Follow-ups merged: nearly parallel edges (#845), a parallel fused broad and narrow phase (#857), sub-steps in the
-     broad phase (#872, 2026-11-14). Open: #866, the 1M-triangle ToI frame takes 41 s parallel / 121 s serial against the
-     20 s rule (still open after #872; current time unverified).
+     broad phase (#872, 2026-11-14). #866 / #940 (the 1M-triangle ToI frame against the 20 s rule): closed 2026-11-16 as a documented limit (owner),
+     serial 23.5-24.9 s and parallel 8.8-10.4 s after #945 and #977.
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -619,11 +619,11 @@ Done and removed from this list: #721 closed (the plateau variant of the positio
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: #804 (casts audited 2026-11-16), then the net48 / net10 measurement (#929, local).
+1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
    exudation.
-3. #866 / #940: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule; the narrow phase is the serial
-   floor.
+3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
+   pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
    Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
