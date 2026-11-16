@@ -8,6 +8,49 @@ namespace geometry3Sharp.Tests
     public class BiharmonicMeshDeformerTests
     {
         [Fact]
+        public void ScalarCertificate_RejectsIndefiniteIntervalsAndExhaustedBudgets()
+        {
+#if NET10_0_OR_GREATER
+            if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.X64)
+                Assert.True(BiharmonicScalarCertificate.IsSupported);
+#endif
+            if (!BiharmonicScalarCertificate.IsSupported) return;
+            var one = BiharmonicFixedInterval.FromDouble(1);
+            var four = BiharmonicFixedInterval.FromDouble(4);
+            var columns = new[] {
+                new Dictionary<int,BiharmonicFixedInterval> {{0,four},{1,one}},
+                new Dictionary<int,BiharmonicFixedInterval> {{1,four}}
+            };
+            Assert.True(BiharmonicScalarCertificate.Verify(columns));
+            Assert.False(BiharmonicScalarCertificate.Verify(columns,0));
+            Assert.False(BiharmonicScalarCertificate.Verify(columns,100,2));
+            Assert.Equal(four.Lo,columns[0][0].Lo); // verifier owns its scratch
+            columns[1][1] = BiharmonicFixedInterval.FromDouble(-1);
+            Assert.False(BiharmonicScalarCertificate.Verify(columns));
+            // Positive midpoint does not establish positivity of every enclosed matrix.
+            columns[0][0] = new BiharmonicFixedInterval(-one.Hi, 3*one.Hi);
+            columns[1][1] = four;
+            Assert.False(BiharmonicScalarCertificate.Verify(columns));
+            // A nearly singular SPD matrix is inconclusive after the trace correction.
+            columns[0][0] = one;
+            columns[1][1] = BiharmonicFixedInterval.FromDouble(1.0000000000000002);
+            Assert.False(BiharmonicScalarCertificate.Verify(columns));
+        }
+
+        [Fact]
+        public void ScalarCertificate_DirectedConversionEnclosesExactUnits()
+        {
+            var unit = System.Numerics.BigInteger.One << 1074;
+            foreach (var exact in new[] { unit,unit+1,unit-1,-unit-1,-unit+1,
+                System.Numerics.BigInteger.One,-System.Numerics.BigInteger.One }) {
+                double lo = BiharmonicScalarCertificate.Directed(exact,false);
+                double hi = BiharmonicScalarCertificate.Directed(exact,true);
+                Assert.True(BiharmonicScalarCertificate.Units(lo)<=exact);
+                Assert.True(BiharmonicScalarCertificate.Units(hi)>=exact);
+            }
+        }
+
+        [Fact]
         public void CertificateOrdering_ValidatesPermutationAndOwnsSnapshot()
         {
             Assert.Equal(new[] {1,2,0}, BiharmonicSparseCertificate.InvertOrder(new[] {2,0,1},3));

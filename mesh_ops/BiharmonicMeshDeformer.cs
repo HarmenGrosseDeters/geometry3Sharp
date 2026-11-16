@@ -17,7 +17,7 @@ namespace g3
         public enum AccuracyAssessment { NotEstablished, NotCertified, Certified }
         public class Settings {
             public double RelativeTolerance = 1e-8;
-            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 400 vertices in one active component.</summary>
+            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 400 vertices in one active component. On .NET 10+ x64 the scalar spectral verifier requires nearest-even binary64 arithmetic, gradual underflow and no native changes to floating-point controls during Compute; other runtimes use interval factorization.</summary>
             public bool RequireEuclideanAccuracy = false;
             /// <summary>Maximum Euclidean position error relative to component rest radius in strict mode.</summary>
             public double PositionTolerance = 1e-8;

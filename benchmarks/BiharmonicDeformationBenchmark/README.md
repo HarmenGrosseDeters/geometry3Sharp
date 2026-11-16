@@ -1,5 +1,11 @@
 # Biharmonic displacement benchmark (#886)
 
+## Production scalar integration (2026-11-16)
+
+The reviewed scalar spectral verifier is now connected to `BiharmonicSparseCertificate.Prepare` in production. Original-data interval Q assembly, final rounded-position residuals, both Euclidean comparisons and prepared-proof invalidation are retained. On net10.0 x64 it uses exact integer correction/radius accounting and the direct scalar recurrence under nearest-even binary64/gradual-underflow execution with no native floating-point control changes during Compute. Entry probes detect changed rounding/FTZ/DAZ; other targets retain interval factorization. A failed scalar check cannot release the candidate.
+
+The existing 400-vertex, 2000-triangle, million-total-update and 50000-live-pattern-entry budgets remain: scalar symbolic work is charged against the remainder after Q assembly using the same Schur count and peak-live convention. All 28 focused tests pass, including the supported-runtime assertion, direct correction/radius and budget rejection controls, and existing end-to-end corruption/cache tests. The production connection is complete for the current admitted domain; larger rotated inputs and the cold performance budget remain release work. Full CI of the preceding master-merge head d95440f4 passed before this integration.
+
 ## Structural scaling diagnosis and separate scalar verifier
 
 The production certificate remains bounded to 400 vertices. `--certificate-structure <n> <natural|solver> <shift> rotated <fresh.json>` generates procedural original-data metadata without a deformation candidate. It reconstructs the complete L/Q **pattern**, including zero-valued triangle edges. Solver ordering comes from the existing SparseCholesky on a strictly diagonally dominant surrogate with the identical pattern. Only that permutation is used. Scalar elimination counts are checked against the numerical solver's symbolic factor count and, on small fixtures, an independent dense boolean elimination. This is not a deformation timing or a position certificate.

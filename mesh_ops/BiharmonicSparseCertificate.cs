@@ -115,6 +115,10 @@ namespace g3
             // itself, establish the lower spectral bound.
             var shift=I.FromDouble(0.5);
             for(int i=0;i<count;i++) {I diagonal;if(!columns[i].TryGetValue(i,out diagonal))return null;columns[i][i]=diagonal-shift;}
+            if (BiharmonicScalarCertificate.IsSupported) {
+                if (!BiharmonicScalarCertificate.Verify(columns,MaxUpdates-updates,MaxEntries)) return null;
+                return new Prepared(mesh,ids,original,free,p,rows,mass,scaleI,shift);
+            }
             for(int k=0;k<count;k++) {
                 I pivot;if(!columns[k].TryGetValue(k,out pivot)||pivot.Lo.Sign<=0)return null;
                 var neighbors=new List<int>(columns[k].Keys);neighbors.Remove(k);neighbors.Sort();
