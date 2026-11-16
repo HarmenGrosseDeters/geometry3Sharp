@@ -21,8 +21,8 @@ Part of the [roadmap](../ROADMAP.md).
 - Runtime watch (#726, merged 2026-11-13; first report #888): 28 of 35 known extreme cases above the 20 s hard limit
   (18 alpha wrap pipelines of 21.9-77.7 s, 10 booleans up to 480.7 s for 55928). Thread scaling beyond 4 cores is
   unmeasured (#858).
-- CCD `MeshSweepCollision` (#866, open): the 1M-triangle ToI frame takes 18.2-20.5 s parallel on 4 cores after #872
-  (about 51 s serial; about 40 s before #872); about half is enumerating the whole-step self edge pairs. Sub-step tree (#945): 29.9-32.7 s serial / 10.6-10.9 s parallel; narrow-phase pre-filter (#940, CCD.md 10.12): 23.5-24.9 s serial / 8.8-10.4 s parallel, still above 20 s serial.
+- CCD `MeshSweepCollision` (#866 / #940, closed 2026-11-16 as a documented limit (owner)): the 1M-triangle ToI frame takes 18.2-20.5 s parallel on 4 cores after #872
+  (about 51 s serial; about 40 s before #872); about half is enumerating the whole-step self edge pairs. Sub-step tree (#945): 29.9-32.7 s serial / 10.6-10.9 s parallel; narrow-phase pre-filter (#940, CCD.md 10.12): 23.5-24.9 s serial / 8.8-10.4 s parallel, still above 20 s serial; the rest is broad-phase work (tree search about 11 s, preparation 3.5 s, surviving pairs 5 s). Owner 2026-11-16: stop here; serial above 20 s on this input is a documented limit.
 
 ### Done / history
 
@@ -59,7 +59,7 @@ Open tasks further up, and work further down, in the code or in the research lis
 
 1. The exact-boolean tail above 20 s (#888): 55928 at 460-480 s; levers in flight #881 (allocations) and #893 (limb kernels).
 2. The alpha wrap tail above 20 s (#888): 18 pipelines of 21.9-77.7 s; (B) #774 is near merge.
-3. CCD `MeshSweepCollision` at 18-20 s parallel on the 1M ToI frame (#866): pairs per sub-step only where motion is large.
+3. ~~CCD `MeshSweepCollision` on the 1M ToI frame (#866 / #940)~~: closed 2026-11-16 as a documented limit (owner) after #945 and #977 (serial 23.5-24.9 s, parallel 8.8-10.4 s).
 4. Dynamic PGO slowdown as a measurement hazard and possible runtime fix (#825).
 5. Thread scaling beyond 4 cores, not measured (#858).
 6. Open inputs, inside / outside across patches: Feng & Crane 2024 as a lead, untried.

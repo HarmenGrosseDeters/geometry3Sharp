@@ -79,7 +79,7 @@ Part of the [roadmap](../ROADMAP.md).
   reason; ClippedRegion, BandRepair and EarlyRegionCheck move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
-  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
+  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame; closed 2026-11-16 as a documented limit (owner), serial 23.5-24.9 s after #977)
   is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue is #888 (28 outliers of 35 cases on
   master e741c130; the cases over 20 s include `boolean-thingi-55928-union` at 481 s and two alpha wrap pipes at 56-78 s).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
@@ -457,10 +457,9 @@ Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism
 3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists: same session.
 4. Mutation: merge #913, then the rest of #615 (see exact-boolean.md).
-5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #866 / #940
-   (`MeshSweepCollision` above the 20 s rule), #947 (slow fuzz units). A third net48 shard only if the queue wait is
+5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #947 (slow fuzz units). A third net48 shard only if the queue wait is
    short and shard b stays the critical path (check 2026-11-16).
-6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); open from it: input validation for the sizes that wrap after saturation (the audit's findings).
+6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); #804 closed; the sizes that are still too large after saturation are a documented limit (owner 2026-11-16; the same on every runtime).
 7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).
 8. Clipper2: #955 (remaining failures after #949; deferred, owner 2026-11-15).
 9. Thingi10K full corpus: draft #385.
