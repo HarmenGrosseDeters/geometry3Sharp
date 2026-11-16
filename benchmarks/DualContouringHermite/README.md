@@ -21,7 +21,7 @@ upright plate, boss, hole, slot, 45 degree chamfer; `sphere`; `torus`. The grid 
 | csg | 64 | 35210 / 35196 | 0.0075 → 0.0033 | 0.311 → 0.136 | 74 → 78 |
 | bracket | 16 | 992 / 992 | 0.0282 → 0.0054 | 0.333 → 0.199 | 2 → 3 |
 | bracket | 32 | 3892 / 3892 | 0.0141 → 0.0020 | 0.453 → 0.138 | 6 → 8 |
-| bracket | 64 | 15548 / 15548 | 0.0066 → 0.0015 | 0.320 → 0.192 | 24 → 30 |
+| bracket | 64 | 15548 / 15550 | 0.0066 → 0.0015 | 0.320 → 0.192 | 24 → 30 |
 | sphere | 16 | 1608 / 1608 | 0.0086 → 0.0119 | 0.052 → 0.053 | 2 → 3 |
 | sphere | 32 | 6484 / 6484 | 0.0044 → 0.0061 | 0.025 → 0.026 | 14 → 11 |
 | sphere | 64 | 25820 / 25820 | 0.0024 → 0.0032 | 0.022 → 0.017 | 41 → 53 |
@@ -29,10 +29,14 @@ upright plate, boss, hole, slot, 45 degree chamfer; `sphere`; `torus`. The grid 
 | torus | 32 | 4460 / 4460 | 0.0114 → 0.0126 | 0.057 → 0.062 | 7 → 8 |
 | torus | 64 | 17196 / 17196 | 0.0060 → 0.0066 | 0.085 → 0.036 | 27 → 36 |
 
-Reading: on the sharp shapes the mean error halves to a fifth and the max error is cut by 2 to 3; the triangle count is the same
-(csg 64: 14 fewer); the time rises by 0 to 30% (60 field evaluations per sign-changing edge; the field here is cheap, a costlier
-field costs proportionally more, `ExactHermite = false` restores the old time). On smooth shapes the mean error is slightly
-higher (+0.0006 to +0.0033 cells, well under 1/100 of a cell) and the max error equal or lower.
+Reading: on the sharp shapes the mean error falls to a half (csg) or a fifth (bracket) and the max error by a factor of 1.7 to 3.5; the
+triangle count is the same (csg 64: 14 fewer). The time rises by 0 to 100% on this cheap field (60 bisection and 6 gradient
+evaluations of `Implicit` per sign-changing edge instead of 6, about 11 times as many; on a small grid the surface edges are a
+large share of the work, and times of a few ms are noisy); an expensive field (a mesh distance, a winding number) costs
+proportionally more, `ExactHermite = false` restores the old time. On smooth shapes the mean error is **higher**, by 10 to 40%
+(sphere 0.0044 → 0.0061 at 32 cells; absolute +0.0006 to +0.0033 cells, under 1/30 of a cell), and the max error is equal or lower.
+The volume of plates about one cell thick scatters more with the position of the grid (up to 20% instead of 10% between a grid and
+a rotated one, `DualContouringFaceVertexTests`).
 
 ## Tolerance sweep (32 cells, ms omitted)
 

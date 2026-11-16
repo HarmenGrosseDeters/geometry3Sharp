@@ -17,8 +17,10 @@ namespace g3
     /// Otherwise, if Implicit is set and ExactHermite is true (the default), each sign-changing edge is bisected on
     /// Implicit to the true crossing and the normal is the central-difference gradient of Implicit at that point,
     /// so the normals of the two faces of a crease do not blend (the QEF then finds the crease, QEFEigenTolerance
-    /// can be low). With ExactHermite = false, or in sparse mode with NodeValueF and no Implicit, the crossing is
-    /// the linear interpolation of the grid values and the normal the gradient at it (as before 2026-11).
+    /// can be low). With ExactHermite = false, or where Implicit disagrees with the sign of a grid value at an end of
+    /// the edge (float rounding, imposed signs), the crossing is the linear interpolation of the grid values and the
+    /// normal the gradient at it (as before 2026-11). Without HermiteF the normals always come from Implicit, so it is
+    /// needed in sparse mode too (the exact crossing then also uses it; the grid values only decide which edges cross).
     ///
     /// Each cell gets one vertex per surface patch (the patches marching cubes would create in it), as in
     /// manifold dual contouring (Schaefer et al. 2007), so thin walls and gaps do not create non-manifold edges.
@@ -68,10 +70,11 @@ namespace g3
         /// <summary>
         /// With HermiteF null and Implicit set: take the edge crossing by bisection of Implicit (a fixed number of
         /// halvings, so the result is scale invariant) and the normal from the central-difference gradient of Implicit
-        /// there, instead of the interpolated crossing and the gradient at it. Same triangle count and a similar time,
-        /// sharper creases (see benchmarks/DualContouringHermite). false gives the former behaviour (interpolation).
-        /// No effect when HermiteF is set (also where it returns false: the fallback stays the interpolation) and in
-        /// sparse mode without Implicit, where only NodeValueF is available.
+        /// there, instead of the interpolated crossing and the gradient at it. Same triangle count, sharper creases on
+        /// sharp shapes, slightly less accurate on smooth ones; about 66 instead of 6 evaluations of Implicit per
+        /// sign-changing edge (0 to 100% more time on cheap fields, more on expensive ones; see
+        /// benchmarks/DualContouringHermite). false gives the former behaviour (interpolation).
+        /// No effect when HermiteF is set (also where it returns false: the fallback stays the interpolation).
         /// </summary>
         public bool ExactHermite = true;
 
@@ -258,7 +261,7 @@ namespace g3
                 bool aInside = is_inside(fa);
                 if (HermiteF != null && HermiteF(aInside ? pa : pb, aInside ? pb : pa, p, out hp, out hn)) {
                     hpoints[ci] = hp; hnormals[ci] = hn.Normalized;
-                } else if (ExactHermite && HermiteF == null && Implicit != null) {
+                } else if (ExactHermite && HermiteF == null && Implicit != null && bracketed(pa, pb, aInside)) {
                     // bisection in the parameter t of the edge (scale free: only powers of two and sign tests)
                     double lo = 0, hi = 1;
                     for (int it = 0; it < ExactBisectionSteps; ++it) {
@@ -1346,6 +1349,15 @@ namespace g3
         // central-difference step of the exact normal: a power of two (1/32) of the grid edge, so it scales exactly
         const double ExactGradientStep = 1.0 / 32;
 
+        // Implicit has the signs of the stored node values at the ends of the edge (they are floats, or signs imposed on a
+        // transition face): otherwise the edge keeps the interpolated crossing
+        bool bracketed(Vector3d pa, Vector3d pb, bool aInside)
+        {
+            return is_inside(Implicit.Value(ref pa)) == aInside && is_inside(Implicit.Value(ref pb)) != aInside;
+        }
+
+        // central difference divided by its step 2s, so that the length (about |grad|) does not underflow into
+        // Vector3d.Normalized's absolute threshold at small scales
         Vector3d exact_gradient(Vector3d p)
         {
             double s = h * ExactGradientStep;
@@ -1353,7 +1365,7 @@ namespace g3
             for (int c = 0; c < 3; ++c) {
                 Vector3d d = Vector3d.Zero; d[c] = s;
                 Vector3d p0 = p + d, p1 = p - d;
-                g[c] = Implicit.Value(ref p0) - Implicit.Value(ref p1);
+                g[c] = (Implicit.Value(ref p0) - Implicit.Value(ref p1)) / (2 * s);
             }
             return g;
         }

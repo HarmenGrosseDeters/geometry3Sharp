@@ -39,7 +39,10 @@ namespace geometry3Sharp.Tests
 
         static readonly Vector3d Shift = new Vector3d(0.1371, 0.2713, 0.3891);
 
-        static DualContouring Contour(Func<Vector3d, double> f, int res, Similarity s = null, bool parallel = true)
+        // legacy: the interpolated Hermite data of before ExactHermite. The volume of plates about one cell thick scatters with the position of the
+        // grid (up to 10% with them, up to 20% with exact data, measured over seeds 2, 4, 9 and the inexact similarities), so the 10% bound of the
+        // rotation test below keeps its meaning only with them
+        static DualContouring Contour(Func<Vector3d, double> f, int res, Similarity s = null, bool parallel = true, bool legacy = false)
         {
             s = s ?? Similarity.Identity;
             double cell = 2.2 / res;
@@ -49,7 +52,8 @@ namespace geometry3Sharp.Tests
                 box.Contain(s.Apply(o + 2.2 * new Vector3d(c & 1, (c >> 1) & 1, (c >> 2) & 1)));
             var dc = new DualContouring() {
                 Implicit = new Fn() { F = p => f(s.Inverse(p)) }, InsideIsLess = true, CellSize = s.ApplyLength(cell),
-                Bounds = box, ParallelCompute = parallel
+                Bounds = box, ParallelCompute = parallel,
+                ExactHermite = !legacy, QEFEigenTolerance = legacy ? 0.1 : 0.02
             };
             dc.Generate();
             return dc;
@@ -148,7 +152,7 @@ namespace geometry3Sharp.Tests
         public void FaceVertices_SameResultUnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);
-            DualContouring d0 = Contour(Plates(4), 48), d1 = Contour(Plates(4), 48, s);
+            DualContouring d0 = Contour(Plates(4), 48, null, true, true), d1 = Contour(Plates(4), 48, s, true, true);
             AssertClosedManifoldClean(d1, s.Name);
             if (s.IsExact) {
                 Assert.Equal("", Invariance.Difference(d0.Mesh, Invariance.MappedBack(d1.Mesh, s)));
@@ -156,10 +160,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d0.ClampedFaceVertices, d1.ClampedFaceVertices);
             } else {
                 double v0 = Invariance.Volume(d0.Mesh), v1 = Invariance.Volume(Invariance.MappedBack(d1.Mesh, s));
-                // plates about one cell thick: the volume scatters with the position of the grid (measured over seeds 2, 4, 9 and the three
-                // inexact similarities, 18 pairs: up to 10% with interpolated Hermite data, up to 20% with exact data; the true volume lies
-                // between 0.16 and 0.17 for all of them). The check is that no part is lost; closed and clean are asserted above.
-                Assert.True(Math.Abs(v1 - v0) < 0.25 * v0, $"{s.Name}: volume {v1} vs {v0}");
+                Assert.True(Math.Abs(v1 - v0) < 0.1 * v0, $"{s.Name}: volume {v1} vs {v0}");
             }
         }
 

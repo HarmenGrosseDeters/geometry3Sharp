@@ -53,7 +53,8 @@ namespace geometry3Sharp.Tests
 
         sealed class Sphere : ImplicitFunction3d
         {
-            public double Value(ref Vector3d p) { return p.Length - 0.9; }
+            public double R = 0.9;
+            public double Value(ref Vector3d p) { return p.Length - R; }
         }
 
         const double Cell = 2.2 / 24;   // 24 cells over [-1.1, 1.1]
@@ -242,10 +243,94 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(serial, Contour(Similarity.Identity, true)));
         }
 
+
         [Fact]
-        public void SmoothShape_IsNotWorseThanBefore()
+        public void Similarities_ExtremeScales_BitIdentical()
         {
-            // on a sphere both are as accurate as a grid of this size allows (measured: 0.006 cells vs 0.004, max 0.026 vs 0.025)
+            // the gradient is divided by its step before normalizing: the length of the undivided difference falls below Vector3d.Normalized's absolute threshold from about 2^-45 (other absolute
+            // constants of the contouring break the invariance from 2^-46 on, with interpolated data from 2^-43: measured)
+            DMesh3 r0 = Contour(Similarity.Identity, true);
+            foreach (double scale in new[] { Math.Pow(2, -45), Math.Pow(2, 40) }) {
+                var sim = new Similarity("scale " + scale, scale, Matrix3d.Identity, Vector3d.Zero);
+                Assert.True("" == Invariance.Difference(r0, Invariance.MappedBack(Contour(sim, true), sim)), "scale " + scale + ": " + Invariance.Difference(r0, Invariance.MappedBack(Contour(sim, true), sim)));
+            }
+        }
+
+        // the bracket of a demo (base plate, wall, boss, hole, slot, chamfer), 256 cells along the long axis there
+        static DMesh3 BracketMesh(int cells)
+        {
+            var baseP = new ImplicitBox3d { Box = new Box3d(new Vector3d(0, -0.8, 0), new Vector3d(1.3, 0.2, 0.8)) };
+            var wall = new ImplicitBox3d { Box = new Box3d(new Vector3d(-1.1, 0.2, 0), new Vector3d(0.2, 1.0, 0.8)) };
+            var boss = new ImplicitIntersection3d {
+                A = new ImplicitLine3d { Segment = new Segment3d(new Vector3d(0.6, -1.5, 0), new Vector3d(0.6, 0.4, 0)), Radius = 0.38 },
+                B = new ImplicitBox3d { Box = new Box3d(new Vector3d(0.6, -0.55, 0), new Vector3d(0.5, 0.45, 0.5)) } };
+            var body = new ImplicitNaryUnion3d { Children = new System.Collections.Generic.List<BoundedImplicitFunction3d> { baseP, wall, boss } };
+            var hole = new ImplicitLine3d { Segment = new Segment3d(new Vector3d(0.6, -2, 0), new Vector3d(0.6, 2, 0)), Radius = 0.2 };
+            var slot = new ImplicitBox3d { Box = new Box3d(new Vector3d(-1.1, 0.55, 0), new Vector3d(0.4, 0.4, 0.13)) };
+            var chamfer = new ImplicitIntersection3d {
+                A = new ImplicitHalfSpace3d { Origin = new Vector3d(1.1, -0.6, 0), Normal = new Vector3d(-1, -1, 0).Normalized },
+                B = new ImplicitBox3d { Box = new Box3d(new Vector3d(1.25, -0.8, 0), new Vector3d(0.25, 0.6, 1.0)) } };
+            var f = new ImplicitDifference3d { A = body, B = new ImplicitNaryUnion3d { Children = new System.Collections.Generic.List<BoundedImplicitFunction3d> { hole, slot, chamfer } } };
+            AxisAlignedBox3d bounds = f.Bounds(); bounds.Expand(0.15);
+            var dc = new DualContouring() { Implicit = f, Bounds = bounds, CellSize = bounds.MaxDim / cells, InsideIsLess = true };
+            dc.Generate();
+            Assert.Equal(0, dc.NonManifoldTriangles);
+            return new DMesh3(dc.Mesh, true, MeshComponents.None);
+        }
+
+        [Theory]
+        [InlineData(32)]
+        [InlineData(37)]
+        [InlineData(48)]
+        public void Bracket_WithTheDefaults_IsClean(int cells)
+        {
+            // (at 256 cells, 11 resolutions between 200 and 300 were measured clean too; a test of that size is a benchmark)
+            DMesh3 m = BracketMesh(cells);
+            Assert.True(m.IsClosed());
+            Assert.True(Invariance.AllFinite(m));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+        }
+
+        [Fact]
+        public void SparseMode_FieldDifferingFromTheNodeValues_KeepsTheEdgeInterpolation_AndIsDeterministic()
+        {
+            // NodeValueF a sphere of radius 0.9, Implicit one of 0.93: where the node signs and Implicit disagree at an edge end the edge
+            // is interpolated, elsewhere bisected; no failure, finite, the same for serial and parallel and for a repeated run
+            Func<bool, DualContouring> make = parallel => {
+                int n = 16; double h = 2.2 / n; Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + h * new Vector3d(0.37, 0.61, 0.23);
+                var cells = new System.Collections.Generic.List<Vector3i>();
+                for (int k = 0; k < n; ++k) for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) cells.Add(new Vector3i(i, j, k));
+                var dc = new DualContouring() {
+                    Implicit = new Sphere() { R = 0.93 }, InsideIsLess = true, CellSize = h, Bounds = new AxisAlignedBox3d(o, o + n * h * Vector3d.One),
+                    CandidateCells = cells, NodeValueF = v => (o + h * new Vector3d(v.x, v.y, v.z)).Length - 0.9, ParallelCompute = parallel
+                };
+                dc.Generate();
+                return dc;
+            };
+            DualContouring a = make(false), b = make(true), c = make(true);
+            Assert.True(Invariance.AllFinite(a.Mesh));
+            Assert.True(a.Mesh.TriangleCount > 100);
+            Assert.Equal("", Invariance.Difference(a.Mesh, b.Mesh));
+            Assert.Equal("", Invariance.Difference(b.Mesh, c.Mesh));
+        }
+
+        [Fact]
+        public void RefinedSparseMode_WithExactHermite_IsSaneAndRepeatable()
+        {
+            foreach (Func<DualContouring> make in new Func<DualContouring>[] {
+                () => DualContouringCoverageTests.Refined(9496, 3.7, 3, 2, 0.30000000000000004, 4, false),
+                () => DualContouringCoverageTests.Refined(5935, 1024, 0, 4, 0.2, 4, false) }) {
+                DualContouring a = make(), b = make();
+                DualContouringCoverageTests.AssertSane(a, "refined exact");
+                Assert.Equal("", Invariance.Difference(a.Mesh, b.Mesh));
+            }
+        }
+
+        [Fact]
+        public void SmoothShape_StaysOnTheSurfaceWithinAFractionOfACell()
+        {
+            // on a sphere the mean error is a little higher with exact data (measured 0.0061 cells vs 0.0044 before, max 0.026 vs 0.025: the
+            // tangent planes of exact points cut the sphere slightly outside); both stay far below a cell: the bound is for a lost surface, not a ranking
             Func<bool, DMesh3> run = exact => {
                 var dc = new DualContouring() {
                     Implicit = new Sphere(), InsideIsLess = true, CellSize = Cell, Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.1),
