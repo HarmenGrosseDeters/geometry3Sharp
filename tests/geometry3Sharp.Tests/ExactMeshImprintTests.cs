@@ -249,5 +249,253 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(sums.Count > 4);
         }
+
+        // ---- topology cases ----
+
+        static DMesh3 Grid(int n, double size, double z = 0)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= n; ++j) for (int i = 0; i <= n; ++i) m.AppendVertex(new Vector3d(i * size / n - size / 2, j * size / n - size / 2, z));
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                int a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+                m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c);
+            }
+            return m;
+        }
+
+        static List<Vector3d> BoundaryPositions(DMesh3 m)
+        {
+            var set = new HashSet<Vector3d>();
+            foreach (int eid in m.BoundaryEdgeIndices()) { Index2i ev = m.GetEdgeV(eid); set.Add(m.GetVertex(ev.a)); set.Add(m.GetVertex(ev.b)); }
+            return set.OrderBy(v => v.x).ThenBy(v => v.y).ThenBy(v => v.z).ToList();
+        }
+
+        [Fact]
+        public void OpenTarget_BoundaryLoopsKept_CutterOpenToo()
+        {
+            DMesh3 target = Grid(6, 4);
+            // an open cutter: a vertical strip (two triangles) crossing the plate, and a self-intersecting pair of them
+            var cutter = new DMesh3();
+            foreach (var p in new[] { new Vector3d(-1.3, -2.7, -1), new Vector3d(1.7, -2.2, -1), new Vector3d(1.7, 2.9, 1), new Vector3d(-1.3, 2.4, 1) }) cutter.AppendVertex(p);
+            cutter.AppendTriangle(0, 1, 2); cutter.AppendTriangle(0, 2, 3);
+            var crossing = new DMesh3(cutter);
+            MeshTransforms.Rotate(crossing, Vector3d.Zero, new Quaterniond(Vector3d.AxisZ, 40));
+            MeshEditor.Append(cutter, crossing);
+            var imprint = Run(target, cutter);
+            Assert.True(imprint.Result.TriangleCount > target.TriangleCount);
+            Assert.Equal(BoundaryPositions(target), BoundaryPositions(imprint.Result));
+            Assert.Equal(target.BoundaryEdgeIndices().Count(), imprint.Result.BoundaryEdgeIndices().Count() - SplitBoundaryEdges(target, imprint));
+            AssertKeepsTarget(target, imprint);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(imprint.Result));
+            Assert.NotEmpty(imprint.CurveEdges);
+        }
+
+        // boundary edges of the target that a curve ends on are split: the result has that many more
+        static int SplitBoundaryEdges(DMesh3 target, ExactMeshImprint imprint)
+        {
+            int extra = 0;
+            foreach (int eid in target.BoundaryEdgeIndices()) {
+                Index2i ev = target.GetEdgeV(eid);
+                Vector3d a = target.GetVertex(ev.a), b = target.GetVertex(ev.b);
+                int onEdge = imprint.Result.VertexIndices().Count(v => v >= target.MaxVertexID && new Segment3d(a, b).DistanceSquared(imprint.Result.GetVertex(v)) < 1e-20);
+                extra += onEdge;
+            }
+            return extra;
+        }
+
+        [Fact]
+        public void UnweldedSeam_StaysASeam()
+        {
+            // two triangles side by side with duplicated vertices along their common edge (a seam), crossed by a cutter
+            var target = new DMesh3();
+            int a0 = target.AppendVertex(new Vector3d(0, 0, 0)), b0 = target.AppendVertex(new Vector3d(2, 0, 0)), c0 = target.AppendVertex(new Vector3d(0, 2, 0));
+            int a1 = target.AppendVertex(new Vector3d(2, 0, 0)), b1 = target.AppendVertex(new Vector3d(0, 2, 0)), c1 = target.AppendVertex(new Vector3d(2, 2, 0));
+            target.AppendTriangle(a0, b0, c0); target.AppendTriangle(a1, c1, b1);
+            var cutter = Box(new Vector3d(1, 1, 0), new Vector3d(0.3, 0.3, 1), Matrix3d.Identity);
+            var imprint = Run(target, cutter);
+            // the seam is still two boundary edges at every point: the mesh stays two sheets that touch
+            Assert.True(imprint.Result.TriangleCount > 2);
+            int seamVertices = imprint.Result.VertexIndices().Count(v => Math.Abs(imprint.Result.GetVertex(v).x + imprint.Result.GetVertex(v).y - 2) < 1e-12);
+            // each new vertex on the seam exists twice (once per sheet): the number is even
+            Assert.Equal(0, seamVertices % 2);
+            // no edge is shared across the seam: every edge between pieces of different source triangles is... none (the sources are the two sheets)
+            foreach (int eid in imprint.Result.EdgeIndices()) {
+                Index2i et = imprint.Result.GetEdgeT(eid);
+                if (et.b < 0) continue;
+                Assert.Equal(imprint.SourceTriangle[et.a], imprint.SourceTriangle[et.b]);
+            }
+            Assert.True(imprint.Result.BoundaryEdgeIndices().Count() >= 4);
+            AssertKeepsTarget(target, imprint);
+        }
+
+        [Fact]
+        public void TriangleGroups_AreCopiedToThePieces()
+        {
+            DMesh3 target, cutter;
+            Pair(Similarity.Identity, out target, out cutter);
+            target.EnableTriangleGroups();
+            foreach (int t in target.TriangleIndices()) target.SetTriangleGroup(t, 100 + t % 7);
+            var imprint = Run(target, cutter);
+            Assert.True(imprint.Result.HasTriangleGroups);
+            foreach (int p in imprint.Result.TriangleIndices())
+                Assert.Equal(target.GetTriangleGroup(imprint.SourceTriangle[p]), imprint.Result.GetTriangleGroup(p));
+        }
+
+        [Fact]
+        public void DegenerateTargetTriangle_NextToACutEdge_IsKeptAndTheCrackIsCounted()
+        {
+            // a flat target: t1 = (u, v, x) and t2 = (v, u, y) share the edge u-v; t2 is split at w on that edge and the gap
+            // closed by the degenerate triangle (v, u, w). The cutter crosses the edge: the degenerate triangle is kept, not split
+            // (the crack is the documented limit), and the result is still a valid mesh with the target's vertices
+            var target = new DMesh3();
+            int u = target.AppendVertex(new Vector3d(0, 0, 0)), v = target.AppendVertex(new Vector3d(4, 0, 0)), x = target.AppendVertex(new Vector3d(1, 2, 0));
+            int y = target.AppendVertex(new Vector3d(3, -2, 0)), w = target.AppendVertex(new Vector3d(2, 0, 0));
+            int t1 = target.AppendTriangle(u, v, x), t2a = target.AppendTriangle(v, w, y), t2b = target.AppendTriangle(w, u, y), d = target.AppendTriangle(v, u, w);
+            Assert.True(t1 >= 0 && t2a >= 0 && t2b >= 0 && d >= 0);
+            Assert.Equal(0, target.BoundaryEdgeIndices().Count(e => target.GetEdgeV(e).a == u && target.GetEdgeV(e).b == v));
+            var cutter = Box(new Vector3d(1, 0.2, 0), new Vector3d(0.3, 0.5, 1), Matrix3d.Identity);
+            var imprint = Run(target, cutter);
+            Assert.True(imprint.Counts["unsplit_degenerate_points"] > 0);
+            Assert.True(imprint.Result.IsTriangle(d), "the degenerate triangle is kept");
+            Assert.Equal(target.GetTriangle(d), imprint.Result.GetTriangle(d));
+            AssertKeepsTarget(target, imprint);
+        }
+
+        [Fact]
+        public void ContactAndCoplanar_ArePointsAndOutlines()
+        {
+            // a cutter vertex on a target face (contact), and a cutter face coplanar with it: both imprinted, exactly
+            var target = Grid(2, 4);
+            var cutter = new DMesh3();
+            cutter.AppendVertex(new Vector3d(0.3, 0.3, 0)); cutter.AppendVertex(new Vector3d(2.5, 0.5, 1)); cutter.AppendVertex(new Vector3d(0.5, 2.5, 1));
+            cutter.AppendTriangle(0, 1, 2);
+            var touch = Run(target, cutter);
+            Assert.True(touch.Result.VertexCount > target.VertexCount, "the touching vertex is a vertex of the target");
+            Assert.Contains(touch.Result.VertexIndices(), v => touch.Result.GetVertex(v) == new Vector3d(0.3, 0.3, 0));
+            AssertKeepsTarget(target, touch);
+            var flat = new DMesh3();
+            flat.AppendVertex(new Vector3d(-0.7, -0.6, 0)); flat.AppendVertex(new Vector3d(1.3, -0.9, 0)); flat.AppendVertex(new Vector3d(0.2, 1.1, 0));
+            flat.AppendTriangle(0, 1, 2);
+            var coplanar = Run(target, flat);
+            Assert.True(coplanar.Result.TriangleCount > target.TriangleCount);
+            // the outline of the flat triangle is on edges of the result
+            Assert.True(coplanar.CurveEdges.Count >= 3);
+            AssertKeepsTarget(target, coplanar);
+        }
+
+        [Fact]
+        public void TargetTJunction_StaysATJunction_ResultIsTheTargetsTopology()
+        {
+            // a vertex of the target on the interior of a neighbour's edge (a crack-free T): the cutter cuts both; no new crack opens
+            var target = new DMesh3();
+            int a = target.AppendVertex(new Vector3d(0, 0, 0)), b = target.AppendVertex(new Vector3d(4, 0, 0)), c = target.AppendVertex(new Vector3d(0, 4, 0));
+            int m = target.AppendVertex(new Vector3d(2, 0, 0)), d = target.AppendVertex(new Vector3d(2, -3, 0));
+            target.AppendTriangle(a, b, c);
+            target.AppendTriangle(m, d, b);          // touches the long edge a-b at m (a T-junction)
+            var cutter = Box(new Vector3d(1, 0.6, 0), new Vector3d(0.4, 0.4, 1), Matrix3d.Identity);
+            var imprint = Run(target, cutter);
+            Assert.True(imprint.Result.TriangleCount > 2);
+            AssertKeepsTarget(target, imprint);
+        }
+
+        [Fact]
+        public void TargetWithASelfIntersection_IsNotRepaired_AndTheDiagnosisCountsIt()
+        {
+            // two crossing quads as the target, a cutter elsewhere: the target's crossing stays, counted on request
+            var target = Grid(2, 4);
+            var cross = Grid(2, 4);
+            MeshTransforms.Rotate(cross, Vector3d.Zero, new Quaterniond(Vector3d.AxisX, 90));
+            MeshEditor.Append(target, cross);
+            int before = MeshRepairMetrics.SelfIntersections(target);
+            Assert.True(before > 0);
+            var cutter = Box(new Vector3d(1.2, 0.3, 0.2), new Vector3d(0.3, 0.3, 0.3), Matrix3d.Identity);
+            var imprint = Run(target, cutter, i => i.CheckTargetSelfIntersections = true);
+            Assert.Equal(before, imprint.Counts["target_self_intersections"]);
+            AssertKeepsTarget(target, imprint);
+            Assert.True(imprint.Result.TriangleCount > target.TriangleCount);
+        }
+
+        [Fact]
+        public void BudgetCancellationAndStrictRounding()
+        {
+            DMesh3 target, cutter;
+            Pair(Similarity.Identity, out target, out cutter);
+            var budget = new ExactMeshImprint() { Target = target, Cutter = cutter, MaxPieces = 5 };
+            Assert.False(budget.Compute());
+            Assert.Equal(ExactMeshImprint.ImprintStatus.BudgetExceeded, budget.Status);
+            Assert.Null(budget.Result);
+            var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+            var cancelled = new ExactMeshImprint() { Target = target, Cutter = cutter, Cancellation = cts.Token };
+            Assert.False(cancelled.Compute());
+            Assert.Equal(ExactMeshImprint.ImprintStatus.Cancelled, cancelled.Status);
+        }
+
+        [Fact]
+        public void ApplyTo_ReplacesTheTarget_AndLabelCurvesNumbersThem()
+        {
+            DMesh3 target, cutter;
+            Pair(Similarity.Identity, out target, out cutter);
+            var imprint = Run(target, cutter, i => i.LabelCurves = true);
+            Assert.Equal(imprint.CurveEdges.Count, imprint.CurveId.Count);
+            Assert.True(imprint.CurveId.Values.Distinct().Count() >= 1);
+            var copy = new DMesh3(target);
+            Assert.True(imprint.ApplyTo(copy));
+            Assert.True(Same(copy, imprint.Result));
+            Assert.Null(ExactMeshImprint.Imprint(null, cutter));
+            Assert.NotNull(ExactMeshImprint.Imprint(target, cutter));
+        }
+
+        // ---- the failures of MeshMeshCut (docs/ROBUSTNESS_SWEEP.md R6, issue 856): random closed cuts of a cube, at every scale ----
+
+        static DMesh3 RandomCutter(Random rnd, Similarity s)
+        {
+            Vector3d c = new Vector3d(rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 1.6 - 0.8);
+            Vector3d h = new Vector3d(0.2 + rnd.NextDouble() * 0.6, 0.2 + rnd.NextDouble() * 0.6, 0.2 + rnd.NextDouble() * 0.6);
+            Matrix3d r = Matrix3d.AxisAngleD(Vector3d.AxisZ, rnd.NextDouble() * 90) * Matrix3d.AxisAngleD(Vector3d.AxisX, rnd.NextDouble() * 90);
+            return Box(s.Apply(c), s.ApplyLength(1) * h, s.Rotation * r);
+        }
+
+        [Fact]
+        public void RandomClosedCutsOfACube_AreCleanAndScaleInvariant()
+        {
+            var rnd = new Random(856);
+            var scalings = new[] { Similarity.Identity, Similarity.Pow2Small, Similarity.Pow2Large, Similarity.Millimetre,
+                new Similarity("2^-24", Math.Pow(2, -24), Matrix3d.Identity, Vector3d.Zero), Similarity.RotatedUtmMillimetre };
+            for (int seed = 0; seed < 40; ++seed) {
+                var local = new Random(rnd.Next());
+                int state = local.Next();
+                long pieces = -1;
+                foreach (var s in scalings) {
+                    var one = new Random(state);
+                    DMesh3 target = Box(s.Apply(Vector3d.Zero), s.ApplyLength(1) * Vector3d.One, s.Rotation);
+                    DMesh3 cutter = RandomCutter(one, s);
+                    var imprint = Run(target, cutter);
+                    Assert.Equal("", MeshRobustRepair.NotCleanReason(imprint.Result, true));
+                    Assert.True(imprint.Result.IsClosed(), "seed " + seed + " " + s.Name);
+                    if (pieces < 0) pieces = imprint.Counts["pieces"];
+                    Assert.True(imprint.Counts["pieces"] == pieces, "seed " + seed + " " + s.Name + ": " + imprint.Counts["pieces"] + " vs " + pieces);
+                }
+            }
+        }
+
+        [Fact]
+        public void PlaneThroughATargetVertex_AndACutterVertexOnAFace_AreExact()
+        {
+            // the contact class that RefuseContact refuses: exact here, at every scaling
+            foreach (var s in Similarity.All().Where(x => x.IsRotated == false)) {
+                DMesh3 target = Box(s.Apply(Vector3d.Zero), s.ApplyLength(1) * Vector3d.One, Matrix3d.Identity);
+                var cutter = new DMesh3();
+                // a tetrahedron with a vertex on the face x = 1 of the cube and the rest outside
+                cutter.AppendVertex(s.Apply(new Vector3d(1, 0.2, 0.3)));
+                cutter.AppendVertex(s.Apply(new Vector3d(2, 0.5, 0.1)));
+                cutter.AppendVertex(s.Apply(new Vector3d(2, -0.3, 0.6)));
+                cutter.AppendVertex(s.Apply(new Vector3d(2.3, 0.1, -0.4)));
+                foreach (var t in new[] { (0, 2, 1), (0, 1, 3), (1, 2, 3), (2, 0, 3) }) cutter.AppendTriangle(t.Item1, t.Item2, t.Item3);
+                var imprint = Run(target, cutter);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(imprint.Result, true));
+                Assert.Equal(target.VertexCount + 1, imprint.Result.VertexCount);
+            }
+        }
     }
 }

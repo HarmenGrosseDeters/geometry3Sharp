@@ -28,8 +28,9 @@ namespace g3
     /// none for the new ones.
     ///
     /// Not covered: a T-junction of the target (a vertex on the interior of a neighbour's edge) stays a T-junction; a degenerate target triangle
-    /// is split along the edges it shares with a split triangle (a fan of degenerate triangles), not along edges shared with another
-    /// degenerate triangle.
+    /// is kept as it is and not split, so where a split triangle shares an edge with one, the new vertices on that edge open a crack in the
+    /// target's topology (counted in Counts["unsplit_degenerate_points"]; the guarantee of a closed result holds for targets without
+    /// degenerate triangles at the cut).
     ///
     /// Implemented from the papers cited in ExactMeshArrangement and docs/design/EXACT_IMPRINT.md, no code taken over.
     /// </summary>
@@ -252,7 +253,7 @@ namespace g3
             slotParent = new int[slotPoint.Count];
             for (int i = 0; i < slotParent.Length; ++i) slotParent[i] = i;
             // joined across the edges that the target shares (by its vertices): the points on such an edge are one vertex
-            var degenerateSplits = new Dictionary<int, List<(int u, int v, List<int> chain, int ti)>>();      // target tid of a degenerate triangle -> its edges to split
+            long unsplitDegenerate = 0;
             foreach (int ti in touched) {
                 var t = arr.Triangles[ti];
                 int tid = t.Tid;
@@ -272,12 +273,8 @@ namespace g3
                     if (onEdge.Count == 0) continue;
                     if (indexOfTid.TryGetValue(other, out int oti) == false) continue;
                     if (arr.Triangles[oti].Degenerate) {
-                        // split the degenerate neighbour along this edge: the points from u to v
-                        var chain = onEdge.Select(s => slotPoint[s]).OrderBy(p => p, Comparer<int>.Create(arr.ComparePoints)).ToList();
-                        if (arr.ComparePoints(arr.Canonical(t.Corners[k]), arr.Canonical(t.Corners[(k + 1) % 3])) > 0)
-                            chain.Reverse();
-                        if (degenerateSplits.TryGetValue(other, out var list) == false) degenerateSplits[other] = list = new List<(int, int, List<int>, int)>();
-                        list.Add((u, v, chain, ti));
+                        // (a degenerate neighbour is not split: the target's crack stays, and G1 does not hold there; counted)
+                        unsplitDegenerate += onEdge.Count;
                         continue;
                     }
                     foreach (int s in onEdge)
@@ -288,6 +285,7 @@ namespace g3
                 }
             }
 
+            Counts["unsplit_degenerate_points"] = unsplitDegenerate;
             // the new vertices, in the order of their exact points (then the smallest source triangle): deterministic
             var groups = new Dictionary<int, (int point, int minTid)>();
             for (int s = 0; s < slotPoint.Count; ++s) {
@@ -339,36 +337,6 @@ namespace g3
                         if (constraint.Contains(ExactMeshArrangement.EdgeKey(pts[c], pts[(c + 1) % 3])))
                             curve.Add(ExactMeshArrangement.EdgeKey(v[c], v[(c + 1) % 3]));
                 }
-            }
-            // degenerate neighbours: fans along the split edges
-            foreach (int dtid in degenerateSplits.Keys.OrderBy(x => x)) {
-                var tris = new List<Index3i>() { Target.GetTriangle(dtid) };
-                foreach (var split in degenerateSplits[dtid]) {
-                    // the chain as vertices from u to v: the new vertices of the points
-                    var chainVertices = new List<int>() { split.u };
-                    int srcTi = split.ti;
-                    foreach (int p in split.chain)
-                        chainVertices.Add(vertexOfRoot[slot_find(slotOf[((long)srcTi << 32) | (uint)p])]);
-                    chainVertices.Add(split.v);
-                    for (int i = 0; i < tris.Count; ++i) {
-                        Index3i tri = tris[i];
-                        for (int k = 0; k < 3; ++k) {
-                            int p = tri[k], q = tri[(k + 1) % 3], apex = tri[(k + 2) % 3];
-                            bool forward = p == split.v && q == split.u;      // D runs the edge against the neighbour
-                            bool same = p == split.u && q == split.v;
-                            if (forward == false && same == false) continue;
-                            var ch = new List<int>(chainVertices);
-                            if (forward) ch.Reverse();
-                            tris.RemoveAt(i);
-                            for (int j = 0; j + 1 < ch.Count; ++j)
-                                tris.Insert(i + j, new Index3i(ch[j], ch[j + 1], apex));
-                            i = tris.Count;
-                            break;
-                        }
-                    }
-                }
-                toRemove.Add(dtid);
-                foreach (Index3i tri in tris) add.Add((dtid, tri));
             }
             var groupOf = new Dictionary<int, int>();
             foreach (int tid in toRemove)
