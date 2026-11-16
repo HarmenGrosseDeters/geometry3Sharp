@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
+from select_shards import ALWAYS, gate_shard, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,6 +26,15 @@ def run(*changed):
 
 
 class SelectShards(unittest.TestCase):
+    def test_gate_shard_is_exact_arithmetic_files_of_the_config_only(self):
+        configs = load_configs()
+        self.assertTrue(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
+        self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
+        self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))   # (reviewed, not gated)
+        self.assertFalse(gate_shard(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
+
     def test_every_path_in_the_configs_exists(self):
         # a renamed file or test class would otherwise silently stop selecting its shard
         for name, (config, sources, tests) in CONFIGS.items():

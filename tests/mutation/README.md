@@ -24,18 +24,20 @@ too slow to run against every mutant.
 ## Running
 
 The [mutation workflow](../../.github/workflows/mutation.yml) runs in full every Monday and on demand through "Run
-workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing), then
+workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing); **a pull request makes no full
+shard run** (3.0: a full shard is a 3 to 6 hour runner slot; exception: the exact-arithmetic gate,
+[below](#exact-boolean-30-process)), only incrementally where a baseline fits. Then
 [select_shards.py](select_shards.py) picks the configs from the changed files, using the `mutate` and
 `test-case-filter` of each config:
 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
-| a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
-| the config | the whole shard; an edit that only moves the spans of `mutate` (offsets after a source edit, a resplit) runs incrementally, as a mutated file | yes |
+| a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache that fits: nothing, the summary says "full run on master" (except the gate below) | yes, on the combined score |
+| the config | nothing, the summary says "full run on master" (except the gate below); an edit that only moves the spans of `mutate` (offsets after a source edit, a resplit) runs incrementally, as a mutated file | yes where it runs |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
-| `.config/dotnet-tools.json` | every config in full | yes |
-| the workflow | every config in full if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
-| anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
+| `.config/dotnet-tools.json` | every config is selected in full, which a PR does not run: "full run on master" (except the gate below) | yes where it runs |
+| the workflow | as above (full, so "full run on master") if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
+| anything else, including `geometry3Sharp.Tests.csproj` | nothing (the scheduled runs cover it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
 (`arithmetic`, `rounding-1`, `boolean-1`, ...).
@@ -96,6 +98,25 @@ classified: any edit of it runs everything (the real one has none; `test_select_
 arithmetic job and the selection job that is 8, which leaves 12 of the account's 20 concurrent jobs for CI. At about 4 hours a shard
 (1 to 5 hours) a full run needs about 17 hours of wall time. A concurrency group per slot does not work: a group keeps one running and
 one pending job and cancels every older pending one, so most shards would end as cancelled.
+
+### Exact Boolean 3.0 process
+
+(Owner 2026-11-11; CLAUDE.md "Review before every merge", docs/roadmap/exact-boolean.md "3.0 process".) The per-PR full
+shards cost a 6 hour runner slot each and were cancelled at the limit (#539) without a result, so during 3.0:
+
+- **No full shard run on a pull request.** A shard that would run in full there (its config or the tools changed, split
+  offsets moved, or no baseline in the cache fits) runs nothing; its job summary says "full run on master" and why, and the job
+  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). An
+  incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
+  no baseline.
+- **The exact-arithmetic gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact arithmetic
+  (`math/Exact*.cs`, `AdaptivePredicates.cs`, implicit points, error bounds). Without a baseline such a PR would pass with no
+  check, so a shard that mutates one of these files (`EXACT_GATED` in `select_shards.py`: `math/Exact*.cs`,
+  `AdaptivePredicates.cs`, `FixedPoint3.cs`, `Generated/*.cs`) **and** whose file the PR changes keeps its full run on the
+  PR, also when its config changed in the same PR (`select_shards.py gate <config>`, called by `run_stryker.sh`). These are
+  the shards `arithmetic`, `fixed`, `generated`, `terrain-arith` and `terrain-kernel`, 50 minutes to a few hours. The
+  `mesh_ops/ExactMesh*` shards are not in it: CLAUDE.md gives them the review, and their mutation check is the incremental run
+  or the scheduled one on master.
 
 ### Coverage pass: only the shard's files are mutated
 

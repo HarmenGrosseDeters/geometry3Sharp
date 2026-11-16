@@ -317,6 +317,17 @@ def shard_name(config_name):
 # the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
 # (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
 # the `changes` job of every workflow run (their paths are in the workflow's trigger).
+# Exact arithmetic for the merge gate (CLAUDE.md "Review before every merge"): a PR that changes one of these files gets the
+# threshold check of the shards that mutate them even where no full run is made on a PR (run_stryker.sh NO_FULL): the exact
+# predicates, the adaptive predicates, the implicit points, the fixed-width points and the generated predicates (error bounds).
+EXACT_GATED = re.compile(r"math/(Exact[^/]*|AdaptivePredicates|FixedPoint3|Generated/[^/]*)\.cs$")
+
+
+def gate_shard(config, changed):
+    """True if a changed path is an exact-arithmetic file (EXACT_GATED) that this config mutates"""
+    return any(EXACT_GATED.search(p) for p in set(changed) & config[1])
+
+
 SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}
 SCRIPT_SHARD = "mesh-fixed"
 
@@ -343,6 +354,12 @@ def select(changed, configs, run_all=False, only=None, moved=()):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if args[:1] == ["gate"]:
+        # gate <config path>: changed paths on stdin; prints `gate` if the PR changes an exact-arithmetic file of that config
+        name = os.path.basename(args[1])[len("stryker-"):-len(".json")]
+        configs = load_configs()
+        print("gate" if name in configs and gate_shard(configs[name], [l.strip() for l in sys.stdin if l.strip()]) else "no")
+        sys.exit(0)
     run_all = "--all" in args
     only = None
     if "--only" in args:
