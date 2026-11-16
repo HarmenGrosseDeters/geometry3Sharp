@@ -738,6 +738,7 @@ discards; an older probe found about a third of the 1-thread time there.
 | EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low | parked until a caller chains booleans |
 | Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | parked until a concrete use case |
 | Plateau variant of 3D snap rounding | low | parked (no-go before the release) |
+| Exact output coordinates of the coplanar 2D clipping | low | parked |
 | S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
 | Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
 | EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
