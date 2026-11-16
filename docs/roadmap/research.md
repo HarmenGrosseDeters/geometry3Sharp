@@ -394,6 +394,12 @@ Problems where the library already has a head start and that could be researched
 - **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,
   the defect generators and the differential predicate tests into a method and benchmark, applicable to other
   kernels as black boxes (without porting their code).
+  **Study done 2026-11-16** ([research/METAMORPHIC_TESTING.md](../research/METAMORPHIC_TESTING.md), catalogue
+  [design/METAMORPHIC_RELATIONS.md](../design/METAMORPHIC_RELATIONS.md), harness `benchmarks/MetamorphicFalsification`): a
+  falsification run over the 83 issues and six executed repros on the fixing commits' parents. A relation was the finding
+  mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
+  does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
+  black-box part (needs a reference); stop rules in the note. Owner decision pending.
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,
