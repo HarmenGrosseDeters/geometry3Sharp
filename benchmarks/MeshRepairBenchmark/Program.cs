@@ -568,6 +568,9 @@ class Program
         var phases = new System.Collections.Generic.Dictionary<string, long>();
         var sw = Stopwatch.StartNew();
         var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        // BENCH_WRAP_BUDGET: MeshAlphaWrap.MaxEstimatedTriangles in the pipeline as well (it was read only by the robust mode)
+        string wrapBudget = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
+        if (wrapBudget != null) wrap.MaxEstimatedTriangles = int.Parse(wrapBudget, inv);
         wrap.Compute();
         long wrapMs = sw.ElapsedMilliseconds;
         r["wrap_ms"] = wrapMs;
@@ -577,6 +580,8 @@ class Program
         r["wrap_rel_offset"] = relOffset;
         r["wrap_alpha"] = wrap.UsedAlpha;
         r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_estimate"] = wrap.EstimatedTriangles;
+        r["wrap_coarsening"] = wrap.AlphaCoarsening;
         r["wrap_counts"] = wrap.Counts;
         foreach (var kv in wrap.PhaseMilliseconds) phases[kv.Key.StartsWith("wrap") ? kv.Key : "wrap." + kv.Key] = kv.Value;
         DMesh3 raw = wrap.Result;
