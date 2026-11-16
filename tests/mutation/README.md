@@ -23,8 +23,8 @@ too slow to run against every mutant.
 
 ## Running
 
-The [mutation workflow](../../.github/workflows/mutation.yml) runs in full every Monday and on demand through "Run
-workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing); **a pull request makes no full
+The [mutation workflow](../../.github/workflows/mutation.yml) runs in full on master in the evening (19:17 UTC: the big boolean
+shards Monday to Saturday, the others on Sunday, [below](#exact-boolean-30-process)) and on demand through "Run workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing); **a pull request makes no full
 shard run** (3.0: a full shard is a 3 to 6 hour runner slot; exception: the exact-arithmetic gate,
 [below](#exact-boolean-30-process)), only incrementally where a baseline fits. Then
 [select_shards.py](select_shards.py) picks the configs from the changed files, using the `mutate` and
@@ -40,7 +40,7 @@ shard run** (3.0: a full shard is a 3 to 6 hour runner slot; exception: the exac
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the scheduled runs cover it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
-(`arithmetic`, `rounding-1`, `boolean-1`, ...).
+(`arithmetic`, `rounding-1`, `boolean-1`, prefixes such as `boolean-*`, and the groups `nightly` and `weekly`).
 
 ### Baseline (incremental runs)
 
@@ -49,7 +49,7 @@ Every full run stores its JSON report as the baseline of its config in the Actio
 `mutation-baseline-<config>-<hash of the tools and `BASELINE_FORMAT`>-<run id>`; the report holds the run's config as
 `g3-config`). A PR that changes a mutated file restores
 the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
-master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
+master the scheduled runs). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
 1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
@@ -75,7 +75,7 @@ the next PR ran in full for 4-6 hours. The FORMAT of a baseline is what `baselin
 which files, under which keys, with which fields of Stryker's report), how `incremental.py` finds its file in it
 (`baseline_file`), and the fields `plan` and `merge` read of it (`source`, and `status` and `location` lines per mutant).
 Bump the file (and nothing else) when an OLD stored baseline would give other results through the new code, i.e. when
-one of these changes: then every shard runs in full once and stores a new baseline (the next weekly or dispatched run on
+one of these changes: then every shard runs in full once and stores a new baseline (the next scheduled or dispatched run on
 master seeds them). `test_baseline.py` fingerprints the first two and `baseline_file` (as ASTs: comments and docstrings
 do not count) and fails when one changes; `test_incremental.test_plan_and_merge_read_only_these_baseline_fields` pins
 the fields read (a new field fails it). Decide, bump the file if needed, and set `FORMAT_FINGERPRINT` to the value in the
@@ -117,6 +117,30 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   the shards `arithmetic`, `fixed`, `generated`, `terrain-arith` and `terrain-kernel`, 50 minutes to a few hours. The
   `mesh_ops/ExactMesh*` shards are not in it: CLAUDE.md gives them the review, and their mutation check is the incremental run
   or the scheduled one on master.
+
+- **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 24
+  of the 38 configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, arithmetic, 14
+  configs), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
+  the baselines of the incremental PR runs; survivors are tasks of the area's next PR. Every shard runs at least once a week
+  (`test_select_shards.py`). Timing is an **estimate, not a measurement**: a shard takes 1 to 6 hours and 6 run at a time
+  (`max-parallel`), so the 24 nightly shards need about 12 to 16 hours, from 19:17 UTC to between 07:00 and 11:00 UTC, partly
+  into the Berlin working day; the first measured nights replace this. The narrowed test sets (below) belong to shards of the
+  weekly group only (the Sunday run is their unfiltered check; `test_select_shards.py` checks that no nightly shard gets a
+  filter file).
+- **The schedule and the daily dispatch** (docs/QA.md 2.12): the two cron lines are the fallback of an external dispatcher.
+  A plain `workflow_dispatch` (`shards=all`) that ran on a day is a full run of all 38 shards and makes the schedule guard skip
+  that evening's cron run; without the dispatcher the cron lines are the only starter (GitHub has started them up to 8 hours
+  late). A dispatch with `shards=nightly` or `weekly` is a custom run: never skipped, and not counted as the day's run, so the
+  cron run of the evening would run as well.
+- **The runs on master do not cancel each other.** The concurrency group is `mutation-<ref>` for a PR, with `cancel-in-progress`
+  (a new push cancels the old run), and `mutation-schedule` / `mutation-workflow_dispatch` for the others, never cancelling.
+  GitHub keeps one running and **one pending** run per group and cancels an older pending run when another arrives, so a
+  scheduled run can never drop a pending dispatch (a gate run) and the reverse; two dispatches in a row do replace a pending one
+  (the later request wins), and a scheduled run that finds the previous one still running waits for it. A scheduled and a
+  dispatched run can run at the same time (the schedule guard skips the scheduled one when a plain dispatch of the day ran or
+  runs).
+- **The 3.0 completion gate** is a full run of every touched shard above its break threshold on master, on GitHub or run
+  locally by the owner.
 
 ### Coverage pass: only the shard's files are mutated
 
@@ -235,7 +259,7 @@ Limits:
   local function). A baseline mutant that now crosses the span is not counted, as in a full run.
 - A baseline result is reused even if a test or another file changed in the same PR: a test the PR weakens or removes
   keeps its kills, and a change in a called file is not seen. So a PR that changes a mutated file and weakens its
-  tests can pass where a full run would fail. The weekly full run is the check of record, and the review checks test
+  tests can pass where a full run would fail. The scheduled full runs are the check of record, and the review checks test
   changes in such PRs.
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:

@@ -89,11 +89,19 @@ on:
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
-    - cron: '23 3 * * 1'        # Mondays 03:23 UTC
+    # master, in the evening (UTC; Exact Boolean 3.0, tests/mutation/README.md "3.0 process"): the big shards of the exact boolean
+    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 38 configs) Monday to Saturday, everything else (envelope,
+    # geodesic, hausdorff, terrain, planar, fixed, generated, arithmetic) on Sunday (select_shards.py --only nightly / weekly).
+    # Estimate, not measured: a shard takes 1 to 6 hours (README) and 6 run at a time (max-parallel), so the 24 nightly shards need
+    # about 12 to 16 hours, ending between 07:00 and 11:00 UTC. The baselines of the incremental PR runs come from these runs.
+    # These cron lines are the fallback of the daily dispatch (docs/QA.md 2.12): the schedule guard skips them on a day that a
+    # plain dispatch (`shards=all`) already ran.
+    - cron: '17 19 * * 1-6'     # Monday to Saturday 19:17 UTC: nightly group
+    - cron: '17 19 * * 0'       # Sunday 19:17 UTC: weekly group
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
+        description: 'Shards to run in full: all, or a comma-separated list of shards, prefixes (boolean-*) and the groups nightly and weekly (arithmetic, rounding-1, boolean-1, ...)'
         default: all
       force:
         description: 'Run although a daily run of today already ran or is running (the schedule guard)'
@@ -101,10 +109,13 @@ on:
         default: false
 
 # a new push to the same PR, a switch back to draft, and closing or merging the PR cancel the running run; a scheduled or
-# dispatched run is never cancelled by another (the late cron would otherwise cancel the full run that the dispatcher started,
-# hours of work: it waits and the schedule guard skips it)
+# dispatched run is never cancelled by another (hours of work). The runs on master have a group per kind of run: GitHub keeps one
+# running and ONE pending run per group and cancels an older pending run when another arrives, so a scheduled run cannot drop a
+# pending dispatch (a gate run) and the reverse; two dispatches in a row do replace a pending one (the later request wins), and a
+# scheduled run queues behind an earlier scheduled one that is still running. A scheduled run that starts while a dispatched
+# full run of the day is under way is skipped by the schedule guard (docs/QA.md 2.12), not queued.
 concurrency:
-  group: mutation-${{ github.ref }}
+  group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -163,6 +174,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           GUARD: ${{ steps.guard.outputs.run }}
           SHARDS: ${{ github.event.inputs.shards }}
+          SCHEDULE: ${{ github.event.schedule }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -173,6 +185,10 @@ jobs:
             echo 'arithmetic=none' | tee -a "$GITHUB_OUTPUT"
             echo 'mesh=[]' | tee -a "$GITHUB_OUTPUT"
           elif [ "$EVENT" != "pull_request" ]; then
+            if [ "$EVENT" = schedule ]; then
+              # (Sunday: the weekly group, else the nightly one; the cron strings are in the trigger above)
+              if [ "$SCHEDULE" = "17 19 * * 0" ]; then SHARDS=weekly; else SHARDS=nightly; fi
+            fi
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
             git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"
