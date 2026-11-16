@@ -567,6 +567,20 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(pb.Result));
         }
 
+        [Fact]
+        public void SubPhaseTimers_ArePresent()
+        {
+            // the sub-steps of the assembly and the classification are timed in microseconds ("<phase>.<step>_us")
+            ExactMeshBoolean b = Run(Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1)), Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 12), ExactMeshBoolean.Operations.Union);
+            foreach (string key in new[] { "assembly.gather", "assembly.simplify", "assembly.edges", "assembly.pairing", "assembly.used", "assembly.coords", "assembly.vertices", "assembly.split", "assembly.triangles", "assembly.rest",
+                "classification.stacks", "classification.edges", "classification.patches", "classification.prep", "classification.firsts", "classification.winding", "classification.open", "classification.decisions" }) {
+                long us;
+                Assert.True(b.PhaseMilliseconds.TryGetValue(key + "_us", out us), key);
+                Assert.True(us >= 0 && us < 60L * 1000 * 1000, key);
+            }
+            Assert.False(b.PhaseMilliseconds.ContainsKey("_us"));
+        }
+
         public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }
