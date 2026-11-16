@@ -87,6 +87,7 @@ jobs:
       - name: Report
         if: always()
         run: |
+          set -o pipefail
           python3 scripts/benchmarks/BooleanComparison/data/thingi_contact.py summary results-${{ matrix.variant }}.jsonl | tee report-${{ matrix.variant }}.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -110,6 +111,7 @@ jobs:
           path: art
       - name: Table of all variants
         run: |
+          set -o pipefail
           python3 benchmarks/BooleanComparison/data/thingi_contact.py summary art/*/results-*.jsonl | tee table.md >> "$GITHUB_STEP_SUMMARY"
       - name: Raw rows to runs/thingi-contact
         run: |
