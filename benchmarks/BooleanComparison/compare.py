@@ -8,7 +8,9 @@
 #     given), "case" (a directory with A.off, B.off, info.json) or "sequence" (a directory with an Open Boolean
 #     Benchmark request.json and info.json: a list of booleans, of which the final result is evaluated).
 #     "thingi_pair" (class thingi-pairs: [meshA, meshB, qx, qy, qz, qw, tx, ty, tz]: both meshes normalized to the unit
-#     box, B rotated and translated; data/thingi_pairs.py writes these manifests).
+#     box, B rotated and translated; data/thingi_pairs.py writes these manifests),
+#     "thingi_contact" (class thingi-contact: [meshA, meshB, variant, axis, sign, param]: B placed against A by an exact
+#     translation or reflection; data/thingi_contact.py writes these manifests).
 # --resume: cases that have a result row for every requested method in the output file are skipped, so an
 # interrupted run continues where it stopped (the file is appended to).
 # Results are evaluated by BooleanComparison eval (closedness, manifoldness, exact self-intersections, volume
@@ -198,6 +200,11 @@ def process(case, methods, timeout):
             for f in ("A.off", "B.off", "info.json"):
                 shutil.copy(os.path.join(case["case"], f), d)
             info = json.load(open(os.path.join(d, "info.json")))
+        elif "thingi_contact" in case:
+            e = subprocess.run(tool + ["thingi-contact"] + case["thingi_contact"][:2] + [d] + case["thingi_contact"][2:], capture_output=True, text=True, timeout=3600)
+            info = json.loads(e.stdout.strip().splitlines()[-1])
+            if "error" in info:
+                raise RuntimeError(info["error"])
         elif "thingi_pair" in case:
             e = subprocess.run(tool + ["thingi-pair"] + case["thingi_pair"][:2] + [d] + case["thingi_pair"][2:], capture_output=True, text=True, timeout=3600)
             info = json.loads(e.stdout.strip().splitlines()[-1])
