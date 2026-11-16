@@ -1,0 +1,249 @@
+Geometric forest current-state validation, 2026-11-16
+Common build flags: -c Release --artifacts-path /workspace/arap-886-artifacts --no-restore -m:1 -p:UseSharedCompilation=false
+Environment: DOTNET_CLI_HOME=/workspace/dotnet-user NUGET_PACKAGES=/workspace/nuget DOTNET_CLI_USE_MSBUILD_SERVER=0
+
+Command: dotnet test tests/geometry3Sharp.Tests --filter FullyQualifiedName~BiharmonicMeshDeformerTests (common flags; last test-only compile also used BuildProjectReferences=false, RunAnalyzers=false; library was already checked with analyzers)
+Test run for /workspace/arap-886-artifacts/bin/geometry3Sharp.Tests/release_net10.0/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    40, Skipped:     0, Total:    40, Duration: 4 s - geometry3Sharp.Tests.dll (net10.0)
+
+dotnet build geometry3Sharp_netstandard.csproj -f netstandard2.0 (common flags)
+    35 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:31.21
+
+dotnet build tests/geometry3Sharp.Tests -f net48 -p:TestNet48=true (common flags)
+    21 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:52.61
+
+same net48 command, final test-only compile with BuildProjectReferences=false, RunAnalyzers=false (common flags)
+    2 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:34.98
+
+dotnet build benchmarks/BiharmonicDeformationBenchmark (common flags)
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.65
+
+Targeted mutations in BiharmonicSparseCertificate.cs. Save source and original library/test DLL/PDB bytes, build net10.0 library with --no-dependencies -p:RunAnalyzers=false plus common flags, copy DLL to prebuilt test directory, run named test with dotnet vstest. Restore source and original bytes in finally. These hand mutants do not replace the incremental Stryker gate.
+1. Replace load[i]=distance[i] with load[i]=distance[i]>0 ? 1 : 0; expected weighted-subtree/64-bit load test fails.
+VSTest version 18.7.0 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:04.73]     geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(n: 7) [FAIL]
+[xUnit.net 00:00:04.75]     geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(n: 65537) [FAIL]
+  Failed geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(n: 7) [13 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 21
+Actual:   6
+  Stack Trace:
+     at geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(Int32 n) in /workspace/geometry3Sharp-biharmonic-886/tests/geometry3Sharp.Tests/BiharmonicMeshDeformerTests.cs:line 83
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+  Failed geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(n: 65537) [21 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 2147516416
+Actual:   65536
+  Stack Trace:
+     at geometry3Sharp.Tests.BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(Int32 n) in /workspace/geometry3Sharp-biharmonic-886/tests/geometry3Sharp.Tests/BiharmonicMeshDeformerTests.cs:line 83
+   at InvokeStub_BiharmonicMeshDeformerTests.ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 22 ms - geometry3Sharp.Tests.dll (net10.0)
+
+2. Add prepared=null to the BiharmonicCertificateRangeException catch; expected valid-cache preservation test fails. The test injects a range/division fault via the internal diagnostic hook without changing the rest snapshot.
+VSTest version 18.7.0 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:05.44]     geometry3Sharp.Tests.BiharmonicMeshDeformerTests.GeometricCertificate_InconclusiveCheckRetainsValidatedRestProof [FAIL]
+  Failed geometry3Sharp.Tests.BiharmonicMeshDeformerTests.GeometricCertificate_InconclusiveCheckRetainsValidatedRestProof [51 ms]
+  Error Message:
+   Assert.Same() Failure: Values are not the same instance
+Expected: Prepared { }
+Actual:   null
+  Stack Trace:
+     at geometry3Sharp.Tests.BiharmonicMeshDeformerTests.GeometricCertificate_InconclusiveCheckRetainsValidatedRestProof() in /workspace/geometry3Sharp-biharmonic-886/tests/geometry3Sharp.Tests/BiharmonicMeshDeformerTests.cs:line 26
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 51 ms - geometry3Sharp.Tests.dll (net10.0)
+
+Original source/artifacts restored; focused suite:
+VSTest version 18.7.0 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    40, Skipped:     0, Total:    40, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)
+
+Command: python3 benchmarks/BiharmonicDeformationBenchmark/forest_certificate_controls.py <dotnet> <producer>
+producer_sha256=69f1d95d6916a912d3bece9bb3cbcc88811ea5a53d227a2d6e9ddabd4a484df1
+library_sha256=319690f7587d63015d0e69aa35b8aa7d2bd9cc4672f845c514396baf38b49124
+certificate_geometric=True gap_units=3216446923258783206210305139130219662590832907378904556651599555775364712219 fraction_bits=256
+certificate_coarse_axis=0 bound_units=133978267927634077487085067911135355920880903943835194347160133385
+certificate_coarse_axis=1 bound_units=88890100649020629824115645238321370388710174009536473908850775009
+certificate_coarse_axis=2 bound_units=30045813711253601137282089458622683827519083234779453879917077949
+first_compute_including_jit_ms=62.872 iterations=1 position_error_bound=1.1570589045426523E-12 residual=2.9602702552797947E-16
+certificate_route=forest geometric_gap_units=3216446923258783206210305139130219662590832907378904556651599555775364712219 gap_fraction_bits=256
+vertices=25 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+grid=5 orientation=aligned input_sha256=e22c7bba791919918515ef3157858cd9efcf3ecf9c9b02242bbf9878a79750a6 exact_gap_ldl=True exact_solution_accuracy=True bad_gap_rejected=True corrupted_output_rejected=True gap_lower=0.0277777777778 max_normalized_squared_error=1.10296590747e-32
+certificate_geometric=True gap_units=5025698317591848201739003078851046845847742578181815615212782461511234800196 fraction_bits=256
+certificate_coarse_axis=0 bound_units=271671170606473403142613832526509485736271082209229755159026149228
+certificate_coarse_axis=1 bound_units=126135906798298333936813230096513185354411434135968231546163667501
+certificate_coarse_axis=2 bound_units=79653695775848100094450909497843263161264274901441543695263947212
+first_compute_including_jit_ms=75.093 iterations=1 position_error_bound=2.3461980209173244E-12 residual=6.483633743651424E-16
+certificate_route=forest geometric_gap_units=5025698317591848201739003078851046845847742578181815615212782461511234800196 gap_fraction_bits=256
+vertices=36 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+grid=6 orientation=aligned input_sha256=4de5c38695a3ce74eb7d51b2987da3824d757c2e2409a3fae783ea767aef4447 exact_gap_ldl=True exact_solution_accuracy=True bad_gap_rejected=True corrupted_output_rejected=True gap_lower=0.0434027777778 max_normalized_squared_error=6.94950213636e-32
+certificate_geometric=True gap_units=3590878444763098659549845822823912019182930579402009501480746246675522868412 fraction_bits=256
+certificate_coarse_axis=0 bound_units=1150817530806240467726240537272617324755806827118816500427951611536
+certificate_coarse_axis=1 bound_units=616320408478523128652911463557592189689360786546892990585815196726
+certificate_coarse_axis=2 bound_units=290249897898975625561222569651201222297807411191132985436591402704
+first_compute_including_jit_ms=88.024 iterations=1 position_error_bound=9.938654172200289E-12 residual=6.979359759081287E-16
+certificate_route=forest geometric_gap_units=3590878444763098659549845822823912019182930579402009501480746246675522868412 gap_fraction_bits=256
+vertices=25 mode=strict orientation=sheared status=Success accuracy=Certified fallback=False
+grid=5 orientation=sheared input_sha256=5566c54884e212eafaa05f7894481e7ba3d8c68b118bdc900884a6c7991c92b3 exact_gap_ldl=True exact_solution_accuracy=True bad_gap_rejected=True corrupted_output_rejected=True gap_lower=0.0310114315098 max_normalized_squared_error=3.88457139024e-33
+
+Command: python3 benchmarks/BiharmonicDeformationBenchmark/production_certificate_controls.py <dotnet> <producer> <checker>
+producer_sha256=69f1d95d6916a912d3bece9bb3cbcc88811ea5a53d227a2d6e9ddabd4a484df1
+checker_sha256=0cc390f97bfc4504ec1a6c552ef3c86097cbbd9f3eaad832bf69cf8eba738577
+library_sha256=319690f7587d63015d0e69aa35b8aa7d2bd9cc4672f845c514396baf38b49124
+exporter_source_sha256=897a3872a179d82d9006420495c9620483c2b2cc20eaecde90904f09ff3f95e9
+diagnostic_source_sha256=2e75ea4ce8babe058796dd5d8dbec27363e5b4c1fe28ed7d3ceedeb2a27c57e6
+checker_source_sha256=0eeb1ed555b0f95f0c949591155c9bb76ae83c3595e581b27814bd8d2e8dceb7
+git_head=de6936644b346f91cf678f0242cd1bdd280bda93
+git_status_begin
+ M benchmarks/BiharmonicDeformationBenchmark/ProductionCandidateExport.cs
+ M benchmarks/BiharmonicDeformationBenchmark/Program.cs
+ M benchmarks/BiharmonicDeformationBenchmark/README.md
+ M docs/SOURCES.md
+ M docs/design/BIHARMONIC_CERTIFICATE_PROOF.md
+ M docs/design/BIHARMONIC_DEFORMATION.md
+ M docs/design/BIHARMONIC_IMPLEMENTATION_PLAN.md
+ M docs/roadmap/research.md
+ M mesh_ops/BiharmonicMeshDeformer.cs
+ M mesh_ops/BiharmonicSparseCertificate.cs
+ M tests/geometry3Sharp.Tests/BiharmonicMeshDeformerTests.cs
+?? benchmarks/BiharmonicDeformationBenchmark/forest-production-results.txt
+?? benchmarks/BiharmonicDeformationBenchmark/forest-small-reference-results.txt
+?? benchmarks/BiharmonicDeformationBenchmark/forest_certificate_controls.py
+git_status_end
+dotnet_sdk=10.0.403
+export 4 aligned normal exit=0
+  vertices=16 mode=normal orientation=aligned status=Success accuracy=NotCertified fallback=False
+candidate_sha256=f213f03376daffd4eb69333c882149a58a94162ceaa4e2f1dbeca6e87dc20bfc
+certificate 4 aligned normal exit=0
+  status=positive_interval_pivots mode=mesh bits=256 size=8 updates=60 input_sha256=f213f03376daffd4eb69333c882149a58a94162ceaa4e2f1dbeca6e87dc20bfc shift_binary64=0.5 min_pivot_index=7 min_pivot_lo_scaled=5513373106218882474145705814301350622294408166412085857452909311906693711597362 min_pivot_hi_scaled=5513373106218882474145705814301350622294408166412085857452909311906693711604930 elapsed_ms=1.601 peak_working_set_bytes=38711296
+  euclidean_absolute=True euclidean_relative=True component_scope=fixture
+  position_certificate=within_tolerance
+  mesh_total_ms=53.635 peak_working_set_bytes=40357888
+export 4 rotated normal exit=0
+  vertices=16 mode=normal orientation=rotated status=Success accuracy=Certified fallback=True
+candidate_sha256=cc388bd1a29f0b2e005942384dde8bbe780fbd63f2919e4af3cb627a7a7b3c33
+certificate 4 rotated normal exit=0
+  status=positive_interval_pivots mode=mesh bits=256 size=8 updates=60 input_sha256=cc388bd1a29f0b2e005942384dde8bbe780fbd63f2919e4af3cb627a7a7b3c33 shift_binary64=0.5 min_pivot_index=7 min_pivot_lo_scaled=9841713288955590746769435783626909087479322826977330311710783703774245612731740 min_pivot_hi_scaled=9841713288955590746769435783626909087479322826977330311710783703774245615146492 elapsed_ms=1.841 peak_working_set_bytes=39116800
+  euclidean_absolute=True euclidean_relative=True component_scope=fixture
+  position_certificate=within_tolerance
+  mesh_total_ms=65.803 peak_working_set_bytes=40960000
+export 4 rotated strict exit=0
+  vertices=16 mode=strict orientation=rotated status=Success accuracy=Certified fallback=True
+candidate_sha256=cc388bd1a29f0b2e005942384dde8bbe780fbd63f2919e4af3cb627a7a7b3c33
+certificate 4 rotated strict exit=0
+  status=positive_interval_pivots mode=mesh bits=256 size=8 updates=60 input_sha256=cc388bd1a29f0b2e005942384dde8bbe780fbd63f2919e4af3cb627a7a7b3c33 shift_binary64=0.5 min_pivot_index=7 min_pivot_lo_scaled=9841713288955590746769435783626909087479322826977330311710783703774245612731740 min_pivot_hi_scaled=9841713288955590746769435783626909087479322826977330311710783703774245615146492 elapsed_ms=4.329 peak_working_set_bytes=39043072
+  euclidean_absolute=True euclidean_relative=True component_scope=fixture
+  position_certificate=within_tolerance
+  mesh_total_ms=84.099 peak_working_set_bytes=40890368
+export 20 aligned normal exit=0
+  vertices=400 mode=normal orientation=aligned status=Success accuracy=NotCertified fallback=False
+candidate_sha256=791ff754b0f7b19da164b253af448c7fbf9513f92fcf464a4ea7b0d3c19c4467
+certificate 20 aligned normal exit=0
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=791ff754b0f7b19da164b253af448c7fbf9513f92fcf464a4ea7b0d3c19c4467 shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=89295811192312866673733557365564627374380271057249731181168846889621027146994892 min_pivot_hi_scaled=89295811192312866673733557365564627374380271057249734803087055978091007776683716 elapsed_ms=847.907 peak_working_set_bytes=188563456
+  euclidean_absolute=True euclidean_relative=True component_scope=fixture
+  position_certificate=within_tolerance
+  mesh_total_ms=1130.619 peak_working_set_bytes=189853696
+changed axis 0 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=2ca6ae8d78d1b0775ea52717fbf4300528206160fc43ae0434c5a7c7fba8601b shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=89295811192312866673733557365564627374380271057249731181168846889621027146994892 min_pivot_hi_scaled=89295811192312866673733557365564627374380271057249734803087055978091007776683716 elapsed_ms=751.209 peak_working_set_bytes=188579840
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=1052.971 peak_working_set_bytes=189874176
+changed axis 1 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=469a27cf4045ea8af10d866770e1bdf4cfba54e96e14b96daf7e66e48b223792 shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=89295811192312866673733557365564627374380271057249731181168846889621027146994892 min_pivot_hi_scaled=89295811192312866673733557365564627374380271057249734803087055978091007776683716 elapsed_ms=761.899 peak_working_set_bytes=188559360
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=1066.025 peak_working_set_bytes=189849600
+changed axis 2 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=3a9610faefbc31680b7e2f0ef49f8aea7f5eb8a8b7aeeef26265902faa2e184b shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=89295811192312866673733557365564627374380271057249731181168846889621027146994892 min_pivot_hi_scaled=89295811192312866673733557365564627374380271057249734803087055978091007776683716 elapsed_ms=698.141 peak_working_set_bytes=188612608
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=977.966 peak_working_set_bytes=189906944
+excessive shift exit=1
+  status=uncertain pivot=0 input_sha256=5dee07d63754d231bfb9b90ed6276674c285f1d864b1c86800003fb3b0ed9fc7
+  mesh_total_ms=205.223 peak_working_set_bytes=74891264
+existing export rejected exit=2
+export 20 rotated normal exit=1
+  vertices=400 mode=normal orientation=rotated status=NumericalRange accuracy=NotEstablished fallback=False
+  replayed_assembly_guard=row triangle=0 row=0 col=0 accumulated=-3.035059924727271E-17 term=0.5000000000000001
+export 20 rotated strict exit=0
+  vertices=400 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=f85730f5706102c956a8d31ec49722497bacacf2ecb8b542bef9179d447697f8
+certificate 20 rotated strict exit=0
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=f85730f5706102c956a8d31ec49722497bacacf2ecb8b542bef9179d447697f8 shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=162634096340762571206882786185966038084992470158506536756058221497479140562948644 min_pivot_hi_scaled=162634096340762571206882786185966038084992470162702199997458731849228618965399646 elapsed_ms=760.664 peak_working_set_bytes=188665856
+  euclidean_absolute=True euclidean_relative=True component_scope=fixture
+  position_certificate=within_tolerance
+  mesh_total_ms=1267.325 peak_working_set_bytes=189878272
+changed axis 0 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=69e8c0842cc927f2ce4e55b9133f0faa54773aa2a376db5e0423cc1883ed0d8b shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=162634096340762571206882786185966038084992470158506536756058221497479140562948644 min_pivot_hi_scaled=162634096340762571206882786185966038084992470162702199997458731849228618965399646 elapsed_ms=740.923 peak_working_set_bytes=188628992
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=1128.281 peak_working_set_bytes=190136320
+changed axis 1 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=8002b31ca87ab5bea13945b04d04c49e4b9b87df075175478cf4ac42f3f84eb0 shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=162634096340762571206882786185966038084992470158506536756058221497479140562948644 min_pivot_hi_scaled=162634096340762571206882786185966038084992470162702199997458731849228618965399646 elapsed_ms=894.319 peak_working_set_bytes=188653568
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=1290.414 peak_working_set_bytes=189870080
+changed axis 2 exit=2
+  status=positive_interval_pivots mode=mesh bits=256 size=360 updates=239060 input_sha256=dc54bec657fa3a102f5ce262de52bf5439f010fddbf6b3914e1ce9d6deace567 shift_binary64=0.5 min_pivot_index=356 min_pivot_lo_scaled=162634096340762571206882786185966038084992470158506536756058221497479140562948644 min_pivot_hi_scaled=162634096340762571206882786185966038084992470162702199997458731849228618965399646 elapsed_ms=635.240 peak_working_set_bytes=188620800
+  euclidean_absolute=False euclidean_relative=False component_scope=fixture
+  position_certificate=not_established
+  mesh_total_ms=1100.677 peak_working_set_bytes=190087168
+excessive shift exit=1
+  status=uncertain pivot=0 input_sha256=a348d0317e6fde1d08cedbf968eaa63828bcdec9f714e18a8ce094b664784dfe
+  mesh_total_ms=289.426 peak_working_set_bytes=94425088
+existing export rejected exit=2
+
+Command: python3 benchmarks/BiharmonicDeformationBenchmark/large_certificate_profile.py <dotnet> <producer>
+BiharmonicDeformationBenchmark.dll_sha256=69f1d95d6916a912d3bece9bb3cbcc88811ea5a53d227a2d6e9ddabd4a484df1
+geometry3Sharp.dll_sha256=319690f7587d63015d0e69aa35b8aa7d2bd9cc4672f845c514396baf38b49124
+grid=50 orientation=aligned exit=0 process_seconds=1.768
+first_compute_including_jit_ms=1554.747 iterations=1 position_error_bound=2.475561111434216E-13 residual=1.0092693850564267E-15
+vertices=2500 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=cf32e8063b741d3997196eea7cb12a31b5d011a8cf89e474bcdcd2e84ce36d87
+grid=50 orientation=rotated exit=0 process_seconds=2.070
+first_compute_including_jit_ms=1852.535 iterations=1 position_error_bound=3.704729722926128E-13 residual=1.4334972759817463E-15
+vertices=2500 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=6256d04e9a271ca05588b1607c48a5abf328dd948d906dfda5058fdfae20e78c
+grid=100 orientation=aligned exit=0 process_seconds=6.277
+first_compute_including_jit_ms=5868.934 iterations=1 position_error_bound=8.878600158452862E-12 residual=1.5376321872630537E-15
+vertices=10000 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=91c5719ac9d776f57d1ff1155cfdd90163533f625e46fc1baadd81723da606cd
+grid=100 orientation=rotated exit=0 process_seconds=7.762
+first_compute_including_jit_ms=7411.070 iterations=1 position_error_bound=3.498381913007804E-12 residual=1.5589455626347004E-15
+vertices=10000 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=9d78bef9293991625c782e5bb5634aae787b992839f2a29d0f09ac0f53fd3cb6
+
+Four ordinary 2500/10000-vertex export hashes match the accepted baseline exactly. Geometric diagnostic exports have extra gap metadata and therefore different whole-file hashes.
+
+Fast CI tools: test_ci_scope.py 12 passed, test_trx_durations.py 19 passed, test_changed_line_coverage.py 31 passed (python3 -m unittest discover -s tools -p <pattern>).
+
+Independent review: forest inequality/FEM factor, binary64 normalization, fixed-point rounding, actual predecessor edges, checked load, original-data residual composition and cache behavior reviewed. Range/division cache invalidation finding fixed. No general large-mesh acceptance or cold-budget claim; #980 retains aligned100k and >20s latency work.

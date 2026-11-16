@@ -17,7 +17,7 @@ namespace g3
         public enum AccuracyAssessment { NotEstablished, NotCertified, Certified }
         public class Settings {
             public double RelativeTolerance = 1e-8;
-            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 10000 vertices on the supported scalar runtime (otherwise 400), in one active component. On .NET 10+ x64 the scalar spectral verifier requires nearest-even binary64 arithmetic, gradual underflow and no native changes to floating-point controls during Compute; other runtimes use interval factorization.</summary>
+            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded geometric verification up to 100000 vertices on the supported scalar runtime (otherwise 400), with shifted-factor fallback up to 10000, in one active component. On .NET 10+ x64 the scalar spectral verifier requires nearest-even binary64 arithmetic, gradual underflow and no native changes to floating-point controls during Compute; other runtimes use interval factorization.</summary>
             public bool RequireEuclideanAccuracy = false;
             /// <summary>Maximum Euclidean position error relative to component rest radius in strict mode.</summary>
             public double PositionTolerance = 1e-8;
@@ -43,6 +43,7 @@ namespace g3
         public DMesh3 Mesh;
         public Settings Options = new Settings();
         BiharmonicSparseCertificate.Prepared preparedCertificate;
+        internal Action<string> CertificateReport;
         sealed class PreparedFactor {
             internal readonly BiharmonicSparseCertificate.Prepared Proof;
             internal readonly SparseCholesky Factor;
@@ -325,7 +326,7 @@ namespace g3
                 var candidate = new Vector3d[n]; for (int i = 0; i < n; ++i) candidate[i] = output.GetVertex(ids[i]);
                 double bound;
                 bool established = BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
-                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate, candidateFactor);
+                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate, candidateFactor, report:CertificateReport);
                 if(established) {
                     for(int i=0;i<n;i++) {
                         double scale=motionScale[componentRoot[i]];

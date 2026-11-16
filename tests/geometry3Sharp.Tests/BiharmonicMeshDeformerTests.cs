@@ -7,6 +7,84 @@ namespace geometry3Sharp.Tests
 {
     public class BiharmonicMeshDeformerTests
     {
+        [Fact]
+        public void GeometricCertificate_InconclusiveCheckRetainsValidatedRestProof()
+        {
+            var mesh=Patch();var ids=new List<int>(mesh.VertexIndices());var lookup=new Dictionary<int,int>();
+            var original=new Vector3d[4];for(int i=0;i<4;i++){lookup[i]=i;original[i]=mesh.GetVertex(i);}
+            var handles=Targets(mesh);var candidate=(Vector3d[])original.Clone();
+            foreach(var h in handles)candidate[h.Key]=h.Value;candidate[2].z=.75;
+            var roots=new int[4];var active=new[]{true,true,true,true};var free=new[]{-1,-1,0,-1};
+            BiharmonicSparseCertificate.Prepared proof=null;double bound;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref proof));
+            var saved=proof;
+            // Fault injection through the internal diagnostic hook exercises the
+            // same inconclusive-check catches without corrupting the rest proof.
+            foreach(Action<string> fault in new Action<string>[] {
+                _=>throw new BiharmonicCertificateRangeException(), _=>throw new DivideByZeroException()}) {
+                Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref proof,report:fault));
+                Assert.True(double.IsNaN(bound));Assert.Same(saved,proof);
+                Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref proof));
+                Assert.Same(saved,proof);
+            }
+        }
+
+        [Fact]
+        public void GeometricCertificate_SimilarityAllPreservesZeroAndExactScaleGap()
+        {
+            const int n=5;var mesh=new DMesh3(MeshComponents.None);
+            for(int y=0;y<n;y++)for(int x=0;x<n;x++)mesh.AppendVertex(new Vector3d(x*.25,y*.25,0));
+            for(int y=0;y<n-1;y++)for(int x=0;x<n-1;x++) {
+                int a=x+n*y,b=a+1,d=a+n,c=d+1;mesh.AppendTriangle(a,b,c);mesh.AppendTriangle(a,c,d);
+            }
+            var ids=new List<int>(mesh.VertexIndices());var lookup=new Dictionary<int,int>();
+            var free=new int[n*n];var roots=new int[n*n];var active=new bool[n*n];int count=0;
+            for(int i=0;i<n*n;i++) {lookup[i]=i;free[i]=i%n==0||i%n==n-1 ? -1 : count++;active[i]=true;}
+            System.Numerics.BigInteger? referenceGap=null;
+            foreach(var similarity in Similarity.All()) {
+                var transformed=new DMesh3(mesh);var original=new Vector3d[n*n];var handles=new Dictionary<int,Vector3d>();
+                for(int i=0;i<n*n;i++) {
+                    original[i]=similarity.Apply(mesh.GetVertex(i));transformed.SetVertex(i,original[i]);
+                    if(free[i]<0)handles[i]=original[i];
+                }
+                BiharmonicSparseCertificate.Prepared proof=null;double bound;
+                Assert.True(BiharmonicSparseCertificate.TryVerify(transformed,ids,lookup,original,(Vector3d[])original.Clone(),roots,active,free,count,
+                    handles,1e-8,1e-8,out bound,ref proof),similarity.Name);
+                Assert.True(proof.Geometric);Assert.InRange(bound,0,double.Epsilon);
+                if(referenceGap==null)referenceGap=proof.GapUnits;
+                if(similarity.IsExact)Assert.Equal(referenceGap.Value,proof.GapUnits);
+                if(similarity==Similarity.Identity)Assert.InRange(proof.GapUnits,BiharmonicFixedInterval.Scale/37,BiharmonicFixedInterval.Scale/36);
+                var saved=proof;
+                Assert.True(BiharmonicSparseCertificate.TryVerify(transformed,ids,lookup,original,(Vector3d[])original.Clone(),roots,active,free,count,
+                    handles,1e-8,1e-8,out bound,ref proof));Assert.Same(saved,proof);
+            }
+            var solver=new BiharmonicMeshDeformer(mesh);solver.Options.RequireEuclideanAccuracy=true;
+            var moved=new Dictionary<int,Vector3d>();var move=new Vector3d(.125,-.0625,.25);
+            for(int i=0;i<n*n;i++)if(free[i]<0)moved[i]=mesh.GetVertex(i)+move;
+            var result=solver.Compute(moved);Assert.True(result.Converged,result.Status.ToString());
+            Assert.True(result.Mesh.CheckValidity());var repeated=solver.Compute(moved);Assert.True(repeated.Converged);
+            for(int i=0;i<n*n;i++) {
+                Assert.True(result.Mesh.GetVertex(i).Distance(mesh.GetVertex(i)+move)<1e-8);
+                Assert.Equal(result.Mesh.GetVertex(i),repeated.Mesh.GetVertex(i));
+            }
+        }
+
+        [Theory]
+        [InlineData(7)]
+        [InlineData(65537)]
+        public void ForestCongestion_UsesWeightedSubtreeLoadsWithoutIntOverflow(int n)
+        {
+            var rows=new Dictionary<int,BiharmonicFixedInterval>[n];var free=new int[n];
+            var zero=BiharmonicFixedInterval.FromDouble(0);
+            for(int i=0;i<n;i++) {
+                free[i]=i==0 ? -1 : i-1;rows[i]=new Dictionary<int,BiharmonicFixedInterval>();
+                if(i>0)rows[i][i-1]=zero;if(i+1<n)rows[i][i+1]=zero;
+            }
+            Assert.Equal((long)n*(n-1)/2,BiharmonicSparseCertificate.ForestCongestion(rows,free));
+            rows[n-2].Remove(n-1);rows[n-1].Clear();
+            Assert.Equal(0,BiharmonicSparseCertificate.ForestCongestion(rows,free));
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

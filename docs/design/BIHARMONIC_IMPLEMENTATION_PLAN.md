@@ -1,6 +1,6 @@
 # Biharmonic implementation plan
 
-Status (2026-11-16): production strict verification now certifies the aligned and rotated 2500- and 10000-vertex procedural grids. On the supported net10.0 x64 scalar runtime, one active component can have up to 10000 vertices; other runtimes retain the 400-vertex interval path. Dense solves up to 16 vertices and exact zero-handle-motion behavior remain. Default representation-loss guards and both requested Euclidean tolerances are unchanged.
+Status (2026-11-16): the geometric forest route certifies aligned/rotated procedural fixtures through 50000 vertices and the rotated 100000-vertex fixture. The aligned 100000-vertex candidate remains AccuracyNotEstablished under the unchanged relative-response requirement. One component can attempt geometric verification up to 100000 vertices on supported .NET 10 x64 execution; other runtimes retain 400. Shifted-factor verification remains bounded to 10000/400. Dense/zero-motion paths and default representation-loss guards remain. **#980 tracks aligned 100k completion and the measured >20s cold operations. Keep #897 Draft.**
 
 The larger-input change combines bounded scalar spectral verification with an original-data residual correction bound. The untrusted numerical factor proposes a correction; its interval defect establishes a tighter error bound without changing the candidate. The complete proof and work/fill tiers are in [BIHARMONIC_CERTIFICATE_PROOF.md](BIHARMONIC_CERTIFICATE_PROOF.md). Independent bounds review found no concrete incorrect-certificate path. Benchmarks record complete Compute timings and candidate hashes; the 441-vertex translation reference tests exercise the former size boundary and reuse. Prepared geometry and numeric factors retain their exact live-key validation.
 
@@ -11,6 +11,27 @@ Owner authorized implementation on 2026-11-15, subject to stopping on unresolved
 Prototype progress: a separate scalar verification recurrence avoids transferring constants to the production supernodal solver. An exact rational per-operation rounding audit and an in-memory connection to original-data interval assembly and the rounded-output residual now pass the rotated 20x20 z-motion fixture and reject bad-shift/bad-output controls. Independent review found no concrete defect in the composition. This run took 5.893 s; it does not meet a practical large-mesh default goal. See the certificate probe README and raw logs. The investigation below records the earlier rationale; the prototype does not resolve general inputs, production candidates or the cold performance budget.
 
 Contract blocker from the extreme-fixture probe: at 700 decimal digits, a candidate that loses the tiny200 response entirely still satisfies the proposed absolute normalized position budget (bound 6.43e-99 versus 1e-8). The production regression explicitly requires NumericalRange. Preserve its rejection guard pending a decision about absolute position error versus relative preservation of tiny motion; an absolute certificate alone cannot justify removing it. Lost-handle and tiny150 wrong candidates reject. Raw commands/results are in the probe README.
+
+## Geometric forest experiment (2026-11-16)
+
+Goal: avoid explicit interval Q assembly and a second factorization when a cheaper
+geometric spectral bound suffices. This refines the earlier global-path proposal;
+the precise inequality and integer rounding are in the certificate proof. Keep
+original-data geometry, signed cotangents, hard handles and both accuracy tests.
+Any parent-selection heuristic is untrusted; the verified forest load and interval
+shape/mass bounds supply the premise. No external implementation code is used.
+
+Scope: bounded forest helper, interval preparation, final verification integration,
+independent small exact references and procedural larger workloads in #897.
+Keep shifted-factor controls/fallback in the current domain; no silent acceptance
+or tolerance floor. Start with small exact graph/matrix controls and 2500/10000
+production outputs before considering 100k. Gate the enlarged admission domain on
+actual output certification, reference checks, reuse and complete cost evidence.
+Stop and diagnose if the stronger path bound cannot establish accuracy; do not
+replace the lower bound by an eigenvalue estimate. The proof has passed independent review and is implemented. Exact small reference
+controls pass; larger gates currently succeed through 50k in both orientations
+and at 100k rotated, while aligned 100k rejects. Cold >20s operations and that
+rejection remain open in #980. See the benchmark README and raw logs.
 
 ## Indexed scalar intersections (2026-11-16, bounded implementation step)
 

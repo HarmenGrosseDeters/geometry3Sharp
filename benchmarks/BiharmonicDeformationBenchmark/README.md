@@ -1,5 +1,65 @@
 # Biharmonic displacement benchmark (#886)
 
+## Geometric forest certificate: current Draft state (2026-11-16)
+
+Strict mode now tries an original-data geometric forest bound before shifted
+factor verification. It replaces the old global path-length sum by a per-edge
+weighted path load, computes triangle shape and mass bounds with outward intervals,
+and checks the same final rounded-output residual/correction and both Euclidean
+requirements. The [proof](../../docs/design/BIHARMONIC_CERTIFICATE_PROOF.md#geometric-forest-bound-2026-11-16)
+gives the inequality and integer rounding. Independent bounds review found no
+missing factor. The shifted proof remains a control/fallback within its previous
+domain; a failed target or stronger attempt retains an already valid cached rest
+proof. Ordinary numerical guards are unchanged.
+
+The geometric branch can attempt one active component up to 100000 vertices on
+the supported .NET 10 x64 runtime; other runtimes retain the 400-vertex admission
+limit. Shifted-factor verification still caps at 10000/400. Triangle, precision,
+endpoint and numerical-assembly guards remain. Forest work is O(n+T) with arrays
+O(n), checked 64-bit path loads and actual distance-decreasing mesh edges. Parent
+selection by approximate short-edge length is untrusted and supplies no bound.
+
+Current measured outcomes, same 1e-8 position/response tolerances:
+
+| Procedural fixture | Aligned | Rotated |
+|---|---|---|
+| 2500 vertices | Success/Certified | Success/Certified |
+| 10000 vertices | Success/Certified | Success/Certified |
+| 25000 vertices | Success/Certified | Success/Certified |
+| 50000 vertices | Success/Certified | Success/Certified |
+| 100000 vertices | AccuracyNotEstablished | Success/Certified |
+
+`forest-production-results.txt` contains all raw commands/results and the aligned
+100k diagnostics. Cold runs include 25.5 s (50k rotated), 34.9 s (100k aligned
+rejection; repeat 36.9 s) and 60.0 s (100k rotated success). **#980 tracks these
+>20-second operations, the aligned 100k relative-bound rejection and the remaining
+cold-cost work. This is not a completed 100k release.** No accuracy tolerance has
+been relaxed. The requested current state remains Draft.
+
+Small independent exact controls reconstruct L/M/Q from the actual represented
+coordinates, prove positive rational LDL pivots of Qff minus the reported gap,
+and compare production output with the exact constrained solution. They cover
+aligned 5x5/6x6 and a sheared obtuse 5x5 grid, including excessive-gap and corrupted
+output controls. See `forest-small-reference-results.txt` and
+`forest_certificate_controls.py`; they do not independently solve the large cases.
+All 40 focused tests pass; weighted-load and valid-cache source mutations are
+killed and restored artifacts pass again. `forest-validation-results.txt` records
+the target builds, references, baseline hash checks and mutation evidence.
+Tests cover weighted load versus mere subtree counts, a load above 32-bit range,
+disconnected refusal, all Similarity frames, exact power-of-two gap invariance,
+nonzero translation, reuse and the existing corruption/cache controls.
+
+The exporter accepts square n or rectangular nx*ny shapes (pass `400x250`).
+`--certificate-geometric` adds the gap metadata and opt-in diagnostic report;
+ordinary `--certificate` keeps its existing JSON fields. Exported gap metadata is
+an untrusted statement for the independent small exact control, never an extra
+acceptance rule. No mesh files are committed.
+
+```sh
+python3 benchmarks/BiharmonicDeformationBenchmark/forest_certificate_controls.py <dotnet> <producer.dll>
+<dotnet> <producer.dll> --certificate-geometric 400x250 rotated strict <fresh.json>
+```
+
 ## Indexed scalar rows and compact factor storage (2026-11-16)
 
 The production scalar verifier now indexes each completed factor row into a

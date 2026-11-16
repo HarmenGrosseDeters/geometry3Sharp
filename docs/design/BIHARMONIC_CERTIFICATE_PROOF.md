@@ -260,3 +260,63 @@ for ideal rational edge values its last LDL pivot is -19/280, while incorrectly
 using an earlier row's coefficient can make it positive. The represented binary64
 fixture is tested only for the robust sign, at three power-of-two scales. This
 layout/index change adds no new numerical error bound or supported runtime.
+
+## Geometric forest bound (2026-11-16)
+
+For a single connected triangle component with a nonempty handle set, choose an
+anchored forest: every free vertex v has a mesh-edge parent at hop distance d_v-1
+from the handles. Let C be the maximum over forest edges e of the sum of d_v for
+free vertices whose path to a handle uses e. Set c = min_T(area_T / sum of its
+three squared edge lengths), and Mmax = max_i M_ii. The bound is
+
+    lambda_min(Q_ff) >= c^2 / (Mmax*C^2).
+
+This is the existing graph-path bound with edge congestion replacing the global
+sum of all path lengths. For a scalar vector zero on handles, Cauchy-Schwarz along
+each path gives sum_v x_v^2 <= C sum_forest_edges (x_a-x_b)^2. On each triangle,
+linear interpolation gives x^T L_T x = area_T*|grad x|^2, while the sum of squared
+edge differences is at most |grad x|^2 times the sum of squared edge lengths.
+Thus x^T L_ff x >= (c/C)*|x|^2. Keeping only the free rows in L*x gives
+|L*x|^2 >= |L_ff*x|^2 >= (c/C)^2*|x|^2; M^-1 >= I/Mmax finishes the bound.
+Signed cotangents and zero edge weights are permitted: the argument uses whole
+triangle energies and geometric edges, not positive individual cotangent weights.
+
+Compute hop distances by multi-source BFS and parents in reverse BFS order.
+Any predecessor at distance d_v-1 is valid. A short-edge heuristic may propose a
+parent, using approximate normalized coordinates; its floating-point result is
+not a premise of the bound. Ties use current accumulated load then vertex ID.
+A reverse pass initializes each load to d_v and adds it to the selected parent;
+the maximum load of a nonroot is C. This includes path lengths, not just subtree
+vertex counts. Reject disconnected forests or C=0 for an active free system.
+For at most 100000 vertices, a signed 64-bit load is sufficient; additions remain
+checked. BFS/parent storage is O(n), scans O(n+T).
+
+With fixed-point unit U=2^256, compute cLower per triangle by the downward integer
+quotient (twiceArea.Lo*U)/(2*sumSquaredEdges.Hi), then take the minimum. Let
+massUpper be the maximum mass.Hi. The encoded lower gap is the downward integer
+quotient cLower^2/(massUpper*C^2). Require strictly positive encoded gap; this
+establishes a non-strict lambda>=gap premise, sufficient for the existing error
+bound. All geometry and masses are reconstructed from original binary64 inputs.
+No numerical factor supplies a spectral premise. Final rounded-position residuals,
+untrusted correction defects and both Euclidean acceptance inequalities remain.
+
+Independent bounds review found no missing factor or rounding-direction issue.
+The implementation passes exact small-matrix/solution controls and retains the
+old shifted-factor proof as a fallback in its existing domain. Failed target
+checks, including range/division failure, retain an already validated rest proof;
+invalid live rest keys are still discarded. Geometric admission is bounded to
+100000 vertices on the supported runtime (400 elsewhere), 8*n triangles above
+400, and the existing endpoint/precision/numerical-assembly guards. The interval
+L dictionaries contain at most n+6*T structural keys; forest/heuristic scratch is
+O(n), with checked loads. These are not total heap-byte or wall-clock guarantees.
+The shifted proof retains its previous table unchanged. Current evidence certifies
+the rotated 100k fixture but not the aligned one, and cold cost exceeds 20s;
+#980 tracks those remaining gates. No general 100k completion follows from this
+sufficient inequality alone.
+
+Prior art: canonical-path/congestion Poincare estimates (Diaconis and Stroock,
+*Geometric Bounds for Eigenvalues of Markov Chains*, 1991; Sinclair, *Improved Bounds
+for Mixing Rates of Markov Chains and Multicommodity Flow*, 1992). The anchored FEM
+composition above is derived here; no Markov-chain theorem constants or code are
+transferred to the mesh verifier. The library search found the earlier global-path
+proposal in BIHARMONIC_DEFORMATION.md and existing adjacency/BFS building blocks.

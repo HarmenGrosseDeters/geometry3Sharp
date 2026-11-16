@@ -11,7 +11,8 @@ namespace g3
     // residual is evaluated afresh. No timestamp-only cache validation.
     internal static class BiharmonicSparseCertificate
     {
-        internal static int VertexLimit => BiharmonicScalarCertificate.IsSupported ? 10000 : 400;
+        internal static int VertexLimit => BiharmonicScalarCertificate.IsSupported ? 100000 : 400;
+        internal static int SpectralVertexLimit => BiharmonicScalarCertificate.IsSupported ? 10000 : 400;
         const long MaxUpdates = 1000000;
         const int MaxEntries = 50000;
         static bool SameBits(Vector3d a,Vector3d b) => BitConverter.DoubleToInt64Bits(a.x)==BitConverter.DoubleToInt64Bits(b.x) &&
@@ -29,6 +30,39 @@ namespace g3
         static void Edge(Dictionary<int,I>[] rows,int a,int b,I weight) {
             Add(rows[a],a,weight);Add(rows[b],b,weight);
             var negative=new I(-weight.Hi,-weight.Lo);Add(rows[a],b,negative);Add(rows[b],a,negative);
+        }
+        // Parent selection is untrusted; only actual distance-decreasing edges
+        // contribute to the checked forest load. All graph keys come from triangles.
+        internal static long ForestCongestion(Dictionary<int,I>[] rows,int[] free,Vector3d[] preferred=null)
+        {
+            int n=rows.Length;if(n<1||n>100000||free.Length!=n||preferred!=null&&preferred.Length!=n)return 0;
+            var distance=new int[n];var order=new int[n];var load=new long[n];int tail=0;
+            for(int i=0;i<n;i++) {distance[i]=-1;if(free[i]<0) {distance[i]=0;order[tail++]=i;}}
+            for(int head=0;head<tail;head++) {
+                int v=order[head];
+                foreach(int u in rows[v].Keys) {
+                    if(u<0||u>=n)return 0;
+                    if(distance[u]<0) {distance[u]=distance[v]+1;order[tail++]=u;}
+                }
+            }
+            if(tail!=n)return 0;
+            for(int i=0;i<n;i++)load[i]=distance[i];
+            long maximum=0;
+            for(int k=n-1;k>=0;k--) {
+                int v=order[k];if(distance[v]==0)continue;
+                int parent=-1;double best=double.PositiveInfinity;
+                foreach(int u in rows[v].Keys)if(distance[u]==distance[v]-1) {
+                    double score=preferred==null ? 0 : (preferred[v]-preferred[u]).LengthSquared;
+                    if(!MathUtil.IsFinite(score))score=double.PositiveInfinity;
+                    if(parent<0||score<best||score==best&&(load[u]<load[parent]||load[u]==load[parent]&&u<parent)) {
+                        parent=u;best=score;
+                    }
+                }
+                if(parent<0)return 0;
+                maximum=Math.Max(maximum,load[v]);
+                load[parent]=checked(load[parent]+load[v]);
+            }
+            return maximum;
         }
         internal static int[] InvertOrder(int[] order,int count)
         {
@@ -53,10 +87,13 @@ namespace g3
         internal static bool TryVerify(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,
             Vector3d[] original,Vector3d[] candidate,int[] roots,bool[] active,int[] free,int count,
             IReadOnlyDictionary<int,Vector3d> handles,double positionTolerance,double responseTolerance,out double bound,ref Prepared prepared,
-            SparseCholesky orderingSource = null)
+            SparseCholesky orderingSource = null,bool useGeometric = true,Action<string> report=null)
         {
             bound=double.NaN;int n=ids.Count;
             if(n<3 || n>VertexLimit || mesh.VertexCount!=n || mesh.TriangleCount>(n<=400 ? 2000 : 8*n) || count<1 || count>=n) return false;
+            if(!useGeometric&&n>SpectralVertexLimit)return false;
+            if(orderingSource!=null&&(!orderingSource.IsValid||orderingSource.N!=count))return false;
+            if(prepared!=null&&prepared.Geometric&&!useGeometric)prepared=null;
             // The caller supplies these arrays from its validated traversal. Refuse
             // multiple components until separate resource/accounting is implemented.
             for(int i=0;i<n;i++) {
@@ -73,15 +110,25 @@ namespace g3
             try {
                 if(prepared==null) {
                     if(orderingSource!=null && !orderingSource.IsValid)return false;
-                    prepared=Prepare(mesh,ids,lookup,original,free,count,scale,orderingSource==null ? null : orderingSource.CopyPermutation());
+                    prepared=Prepare(mesh,ids,lookup,original,free,count,scale,orderingSource==null ? null : orderingSource.CopyPermutation(),useGeometric);
                 }
-                return prepared!=null && prepared.Check(candidate,handles,positionTolerance,responseTolerance,out bound,orderingSource);
+                if(prepared==null)return false;
+                if(prepared.Check(candidate,handles,positionTolerance,responseTolerance,out bound,orderingSource,report))return true;
+                // Upgrade only after a successful stronger proof/check. A failed
+                // target or tighter request must retain an existing valid rest key.
+                if(prepared.Geometric&&n<=SpectralVertexLimit) {
+                    var stronger=Prepare(mesh,ids,lookup,original,free,count,scale,orderingSource==null ? null : orderingSource.CopyPermutation(),false);
+                    if(stronger!=null&&stronger.Check(candidate,handles,positionTolerance,responseTolerance,out bound,orderingSource,report)) {
+                        prepared=stronger;return true;
+                    }
+                }
+                bound=double.NaN;return false;
             }
-            catch(DivideByZeroException) {prepared=null;return false;}
-            catch(BiharmonicCertificateRangeException) {prepared=null;return false;}
+            catch(DivideByZeroException) {bound=double.NaN;return false;}
+            catch(BiharmonicCertificateRangeException) {bound=double.NaN;return false;}
         }
         static Prepared Prepare(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,Vector3d[] original,
-            int[] free,int count,double scale,int[] order)
+            int[] free,int count,double scale,int[] order,bool useGeometric)
         {
             int n=ids.Count;
             long updateLimit = n<=400 ? MaxUpdates : n<=2500 ? 10000000 : 200000000;
@@ -93,15 +140,35 @@ namespace g3
                 for(int axis=0;axis<3;axis++)p[i][axis]=(I.FromDouble(original[i][axis])-I.FromDouble(original[0][axis]))/scaleI;
             }
             var half=I.FromDouble(0.5);var six=I.FromDouble(6);
+            BigInteger shapeLower=I.Scale;
             foreach(int tid in mesh.TriangleIndices()) {
                 var tri=mesh.GetTriangle(tid);int a=lookup[tri.a],b=lookup[tri.b],c=lookup[tri.c];
                 var ab=Sub(p[b],p[a]);var ac=Sub(p[c],p[a]);var cross=Cross(ab,ac);var area=I.Sqrt(Dot(cross,cross));
                 if(area.Lo.Sign<=0)return null;
+                if(useGeometric) {
+                    var bc=Sub(p[c],p[b]);var squared=Zero;
+                    for(int axis=0;axis<3;axis++)squared=squared+Square(ab[axis])+Square(ac[axis])+Square(bc[axis]);
+                    if(squared.Hi.Sign<=0)return null;
+                    shapeLower=BigInteger.Min(shapeLower,area.Lo*I.Scale/(2*squared.Hi));
+                }
                 Edge(rows,b,c,half*Dot(ab,ac)/area);
                 Edge(rows,a,c,half*Dot(Sub(p[a],p[b]),Sub(p[c],p[b]))/area);
                 Edge(rows,a,b,half*Dot(Sub(p[a],p[c]),Sub(p[b],p[c]))/area);
                 var share=area/six;mass[a]=mass[a]+share;mass[b]=mass[b]+share;mass[c]=mass[c]+share;
             }
+            BigInteger maximumMass=0;
+            for(int i=0;i<n;i++) {if(mass[i].Lo.Sign<=0)return null;maximumMass=BigInteger.Max(maximumMass,mass[i].Hi);}
+            if(useGeometric&&shapeLower.Sign>0) {
+                var preferred=new Vector3d[n];
+                for(int i=0;i<n;i++)for(int axis=0;axis<3;axis++)preferred[i][axis]=(double)(p[i][axis].Lo+p[i][axis].Hi)/(2*(double)I.Scale);
+                long congestion=ForestCongestion(rows,free,preferred);
+                if(congestion>0) {
+                    var load=new BigInteger(congestion);
+                    var gap=shapeLower*shapeLower/(maximumMass*load*load);
+                    if(gap.Sign>0)return new Prepared(mesh,ids,original,free,p,rows,mass,scaleI,new I(gap,gap),true);
+                }
+            }
+            if(n>SpectralVertexLimit)return null;
             var inverse=InvertOrder(order,count);if(inverse==null)return null;
             var columns=new Dictionary<int,I>[count];for(int i=0;i<count;i++)columns[i]=new Dictionary<int,I>();
             long updates=0;int entriesStored=0;
@@ -152,10 +219,12 @@ namespace g3
             readonly Dictionary<int,I>[] rows;
             readonly I[] mass;
             readonly I scaleI,shift;
-            internal Prepared(DMesh3 mesh,List<int> ids,Vector3d[] original,int[] free,I[][] p,Dictionary<int,I>[] rows,I[] mass,I scaleI,I shift)
+            internal readonly bool Geometric;
+            internal BigInteger GapUnits => shift.Lo;
+            internal Prepared(DMesh3 mesh,List<int> ids,Vector3d[] original,int[] free,I[][] p,Dictionary<int,I>[] rows,I[] mass,I scaleI,I shift,bool geometric=false)
             {
                 this.mesh=mesh;this.ids=ids.ToArray();this.original=(Vector3d[])original.Clone();this.free=(int[])free.Clone();
-                this.p=p;this.rows=rows;this.mass=mass;this.scaleI=scaleI;this.shift=shift;
+                this.p=p;this.rows=rows;this.mass=mass;this.scaleI=scaleI;this.shift=shift;Geometric=geometric;
                 var tids=new List<int>(mesh.TriangleIndices());triangleIds=tids.ToArray();triangles=new Index3i[tids.Count];
                 for(int i=0;i<tids.Count;i++)triangles[i]=mesh.GetTriangle(tids[i]);
             }
@@ -189,9 +258,10 @@ namespace g3
                 }
                 return gradient;
             }
-            internal bool Check(Vector3d[] candidate,IReadOnlyDictionary<int,Vector3d> handles,double pt,double rt,out double bound,SparseCholesky factor=null)
+            internal bool Check(Vector3d[] candidate,IReadOnlyDictionary<int,Vector3d> handles,double pt,double rt,out double bound,SparseCholesky factor=null,Action<string> report=null)
             {
                 bound=double.NaN;int n=ids.Length;
+                report?.Invoke($"certificate_geometric={Geometric} gap_units={shift.Lo} fraction_bits={I.Bits}");
                 I[][] displacement;var gradient=Gradient(candidate,handles,out displacement);if(gradient==null)return false;
                 BigInteger errorSquared=0,maximumBound=0;var originalBounds=new BigInteger[3];
                 for(int axis=0;axis<3;axis++) {
@@ -200,6 +270,7 @@ namespace g3
                     }
                     var norm=I.IntegerSqrt(sum);if(norm*norm<sum)norm++;
                     BigInteger remainder;var upper=BigInteger.DivRem(norm*I.Scale,shift.Lo,out remainder);if(!remainder.IsZero)upper++;
+                    report?.Invoke($"certificate_coarse_axis={axis} bound_units={upper}");
                     originalBounds[axis]=upper;maximumBound=BigInteger.Max(maximumBound,upper);errorSquared+=upper*upper;
                 }
                 BigInteger restLower=0,responseLower=0;
@@ -241,8 +312,10 @@ namespace g3
                         }
                         var norm=I.IntegerSqrt(sum);if(norm*norm<sum)norm++;
                         BigInteger remainder;var upper=BigInteger.DivRem(norm*I.Scale,shift.Lo,out remainder);if(!remainder.IsZero)upper++;
+                        report?.Invoke($"certificate_correction_axis={axis} correction_max_units={zmax} defect_bound_units={upper}");
                         upper=BigInteger.Min(originalBounds[axis],upper+zmax);maximumBound=BigInteger.Max(maximumBound,upper);errorSquared+=upper*upper;
                     }
+                    report?.Invoke($"certificate_error_squared={errorSquared} rest_squared_lower={restLower} response_squared_lower={responseLower}");
                     if(!Accept(errorSquared))return false;
                 }
                 double numerator=ExactInterval.Up((double)maximumBound);

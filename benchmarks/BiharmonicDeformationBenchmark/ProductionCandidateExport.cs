@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using g3;
 
@@ -14,32 +15,38 @@ static class ProductionCandidateExport
 
     public static int Run(string[] args)
     {
-        if (args.Length != 5 || !int.TryParse(args[1], out int n) || n < 3 || n > 100 ||
-            (args[2] != "aligned" && args[2] != "rotated") ||
+        var dimensions=args.Length>1 ? args[1].Split('x') : Array.Empty<string>();
+        int n=0,height=0;
+        bool valid=dimensions.Length==1&&int.TryParse(dimensions[0],out n);
+        if(valid)height=n;
+        else valid=dimensions.Length==2&&int.TryParse(dimensions[0],out n)&&int.TryParse(dimensions[1],out height);
+        if (args.Length != 5 || !valid || n < 3 || height < 3 || (long)n*height>100000 ||
+            (args[2] != "aligned" && args[2] != "rotated" && args[2] != "sheared") ||
             (args[3] != "normal" && args[3] != "strict")) {
-            Console.Error.WriteLine("usage: --certificate <n 3..100> <aligned|rotated> <normal|strict> <output.json>"); return 2;
+            Console.Error.WriteLine("usage: --certificate <n or nx>x<ny, at most 100000 vertices> <aligned|rotated|sheared> <normal|strict> <output.json>"); return 2;
         }
         if (File.Exists(args[4])) { Console.Error.WriteLine("output already exists; use a fresh path"); return 2; }
         var mesh = new DMesh3(MeshComponents.None);
         var rotation = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 31);
-        for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
-            var p = new Vector3d((double)x / (n - 1), (double)y / (n - 1), 0);
+        for (int y = 0; y < height; y++) for (int x = 0; x < n; x++) {
+            var p = new Vector3d((double)x / (n - 1), (double)y / (height - 1), 0);
+            if(args[2]=="sheared")p.x+=.75*p.y;
             int id = mesh.AppendVertex(args[2] == "rotated" ? rotation * p : p);
             if (id != x + y * n) throw new InvalidOperationException("unexpected vertex IDs");
         }
-        for (int y = 0; y < n - 1; y++) for (int x = 0; x < n - 1; x++) {
+        for (int y = 0; y < height - 1; y++) for (int x = 0; x < n - 1; x++) {
             int a = x + n * y, b = a + 1, d = a + n, c = d + 1;
             if (mesh.AppendTriangle(a, b, c) < 0 || mesh.AppendTriangle(a, c, d) < 0)
                 throw new InvalidOperationException("failed to build fixture");
         }
-        var originalPositions = new Vector3d[n*n];
+        var originalPositions = new Vector3d[n*height];
         for (int i = 0; i < originalPositions.Length; i++) originalPositions[i] = mesh.GetVertex(i);
         var originalFaces = new Dictionary<int, Index3i>();
         foreach (int tid in mesh.TriangleIndices()) originalFaces.Add(tid, mesh.GetTriangle(tid));
-        var handles = new Dictionary<int, Vector3d>(); var fixedVertices = new bool[n*n];
-        var targets = new Vector3d[n*n];
+        var handles = new Dictionary<int, Vector3d>(); var fixedVertices = new bool[n*height];
+        var targets = new Vector3d[n*height];
         for (int i = 0; i < targets.Length; i++) targets[i] = mesh.GetVertex(i);
-        for (int y = 0; y < n; y++) {
+        for (int y = 0; y < height; y++) {
             int left = n*y, right = left+n-1;
             targets[right] += new Vector3d(0.04, -0.03, 0.1);
             fixedVertices[left] = fixedVertices[right] = true;
@@ -47,12 +54,22 @@ static class ProductionCandidateExport
         }
         var solver = new BiharmonicMeshDeformer(mesh);
         solver.Options.RequireEuclideanAccuracy = args[3] == "strict";
+        if(args[0]=="--certificate-geometric")typeof(BiharmonicMeshDeformer).GetField("CertificateReport",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(solver,new Action<string>(Console.WriteLine));
         var preparationTimer = Stopwatch.StartNew();
         var result = solver.Compute(handles); preparationTimer.Stop();
-        Console.WriteLine($"first_compute_including_jit_ms={preparationTimer.Elapsed.TotalMilliseconds:F3} iterations={result.Iterations}");
+        Console.WriteLine($"first_compute_including_jit_ms={preparationTimer.Elapsed.TotalMilliseconds:F3} iterations={result.Iterations} position_error_bound={result.PositionErrorBound:R} residual={result.Residual:R}");
+        string geometricGap = null;
+        if(args[0]=="--certificate-geometric") {
+            var proof=typeof(BiharmonicMeshDeformer).GetField("preparedCertificate",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(solver);
+            if(proof!=null) {
+                bool geometric=(bool)proof.GetType().GetField("Geometric",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(proof);
+                if(geometric)geometricGap=proof.GetType().GetProperty("GapUnits",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(proof).ToString();
+            }
+            Console.WriteLine($"certificate_route={(geometricGap==null ? "other" : "forest")} geometric_gap_units={geometricGap??"unavailable"} gap_fraction_bits=256");
+        }
         bool reuseProfile = args[0] == "--certificate-reuse-profile";
-        if (reuseProfile && (args[3] != "strict" || n*n <= 16 || n*n > 10000 || !result.Converged || result.UsedIntervalFallback)) {
-            Console.Error.WriteLine("reuse profile requires a successful sparse strict fixture with 17..10000 vertices"); return 1;
+        if (reuseProfile && (args[3] != "strict" || n*height <= 16 || n*height > 100000 || !result.Converged || result.UsedIntervalFallback)) {
+            Console.Error.WriteLine("reuse profile requires a successful sparse strict fixture with 17..100000 vertices"); return 1;
         }
         if (args[0] == "--certificate-profile" || reuseProfile) {
             // Cold: fresh deformer each call. Reuse: same prepared rest proof and
@@ -60,7 +77,7 @@ static class ProductionCandidateExport
             var times = new List<double>(); var allocations = new List<long>();
             var referenceTimes = new List<double>(); var referenceAllocations = new List<long>();
             for (int run = 0; run < 5; run++) {
-                if (reuseProfile) for (int y = 0; y < n; y++) {
+                if (reuseProfile) for (int y = 0; y < height; y++) {
                     int right = n*y+n-1;
                     targets[right] = originalPositions[right] + (1 + .01*(run+1))*new Vector3d(.04,-.03,.1);
                     handles[right] = targets[right];
@@ -155,6 +172,7 @@ static class ProductionCandidateExport
             ["scale_bits"] = BitConverter.DoubleToInt64Bits(scale), ["shift_bits"] = BitConverter.DoubleToInt64Bits(shift),
             ["candidate_bits"] = candidate, ["target_bits"] = targetBits
         };
+        if(geometricGap!=null) {data["geometric_gap_units"]=geometricGap;data["gap_fraction_bits"]=256;}
         // CreateNew prevents stale or previously existing fixture data from being overwritten.
         using (var stream = new FileStream(args[4], FileMode.CreateNew, FileAccess.Write))
             JsonSerializer.Serialize(stream, data);
