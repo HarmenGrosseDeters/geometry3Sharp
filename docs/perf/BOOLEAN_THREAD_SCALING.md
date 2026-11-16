@@ -246,8 +246,17 @@ no assembly step differs beyond the noise (vertices 676 / 633, pairing 191 / 183
 step that allocates the most (the result's arrays), which fits memory and GC pressure (GC pauses 362 against 304 ms in the sums above) rather than a slower loop. The per-subtree node arrays are
 dead before the assembly starts (`arr.Trees = null`). Not pursued further: below the noise of one run.
 
-**Not measured:** 8 and 12 threads (this container has 4 cores), net48, the owner's 6-core machine; cold processes (one per boolean); inputs above 100k triangles (the T6 set has none; the parallel paths start at 65 536
-sorted entries, 22k pieces). The serial part of the vertex edge lists in the builder is a counting sort over about 3 entries per piece, a few ns each.
+**The owner's machine** (i7-8700, 6 cores / 12 threads, T6 set, `thread_scaling.ps1`, net10.0, 3 rounds A B A B, two processes per side and thread count; measured by the owner's session on head bf34eff, data on branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`):
+
+| threads | master 414c6b5f | #962 bf34eff7 | change |
+|---|---|---|---|
+| 1 | 43.8 s | 42.2 s | -3.7 % |
+| 4 | 24.4 s | 22.9 s | -6.2 % |
+| 12 | 17.0 s | 15.4 s | -9.6 % |
+
+Spread between runs: master about 1.5 %, the PR about 0.5 %. Phases at 12 threads: classification -37 %, assembly -34 %, intersections -1 %, rounding 0 %, the rest under 2 %. Result hashes: 294 of 294 equal across both sides, all thread counts and rounds.
+
+**Not measured:** net48, cold processes (one per boolean), inputs above 100k triangles (the T6 set has none; the parallel paths start at 65 536 sorted entries, 22k pieces). The serial part of the vertex edge lists in the builder is a counting sort over about 3 entries per piece, a few ns each.
 
 ## Experiments (benchmark-side switches, no library change in the PR)
 

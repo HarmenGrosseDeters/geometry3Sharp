@@ -789,7 +789,8 @@ T6 set, 4-vCPU container, 4 threads, `DOTNET_TieredPGO=0`, 3 interleaved rounds 
 | whole boolean | 19 416 | 18 084 | **-6.9 %** |
 
 1 thread: 35 712 → 35 561 ms (-0.4 %); 2 threads: 23 955 → 23 285 ms (-2.8 %), one run each. Raw rows: `perf/assembly_parallel_2026-11-16/`
-(`python3 perf/assembly_parallel_2026-11-16/subphases.py <label>=<file.jsonl.gz> ...` for the sub-phase table). Not measured: 8 and 12 threads, net48.
+(`python3 perf/assembly_parallel_2026-11-16/subphases.py <label>=<file.jsonl.gz> ...` for the sub-phase table). The owner's i7-8700 (6 cores / 12 threads), T6 set, 3 rounds A B A B: 1 thread 43.8 → 42.2 s (-3.7 %), 4 threads 24.4 → 22.9 s (-6.2 %), 12 threads 17.0 → 15.4 s (-9.6 %; classification -37 %, assembly -34 %), hashes 294 of 294 equal
+(branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`). Not measured: net48.
 
 ## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
 
