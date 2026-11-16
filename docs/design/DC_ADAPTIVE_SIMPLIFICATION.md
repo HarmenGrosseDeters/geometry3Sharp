@@ -73,7 +73,7 @@ others connect cluster vertices.
   clusters in intersecting pairs lose a level; repeat. A result is returned only when the check is clean or all
   remaining pairs involve only unmerged vertices (inherited from the base, which reports `BaseSelfIntersectionFree`).
 - **Termination.** Every repair step lowers the cap of at least one cluster, caps are bounded below by 0 (the base
-  mesh), so it ends. `Tolerance = 0` merges nothing: the result equals the uniform contour of the base (same vertices,
+  mesh), so it ends (after 200 rounds, which was not seen, it returns to the uniform contour). `Tolerance = 0` merges nothing: the result equals the uniform contour of the base (same vertices,
   same triangles).
 
 ## 4. Guarantees and what is only reported
@@ -88,7 +88,7 @@ Reported: base results (`NonManifoldTriangles`, `BaseSelfIntersectionFree`), mer
 
 ## 5. Cost and limits
 
-The base contour is uniform, so time and memory scale with the finest grid, not with the output (simplification adds
+The base contour is uniform, so time and memory scale with the finest grid, not with the output (the simplifier keeps about 60 bytes per vertex per level up to `MaxLevel`; simplification adds
 roughly 20-60 % to the contour time, see the benchmark). A top-down sparse variant (evaluate coarse blocks first, refine
 only where the error is large) would save the dense sampling and is the follow-up; it needs the multi-level transition
 logic that `SetRefinement` does not have.

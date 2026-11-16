@@ -228,6 +228,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Cancelled_Generate_LeavesNoStaleOutputs()
+        {
+            var ad = Make(Csg, 32, 0.25);
+            ad.Generate();
+            Assert.True(ad.UniformTriangles > 0);
+            ad.CancelF = () => true;
+            ad.Generate();
+            Assert.Null(ad.Mesh);
+            Assert.Equal(0, ad.UniformTriangles);
+            Assert.Equal(0, ad.Clusters);
+            Assert.False(ad.SelfIntersectionFree);
+        }
+
+        [Fact]
         public void ParallelEqualsSerial_AndRepeatedRunsAreIdentical()
         {
             var serial = Make(Csg, 40, 0.25, false); serial.Generate();

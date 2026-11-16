@@ -1,7 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
-using gs;
 
 namespace g3
 {
@@ -71,6 +70,8 @@ namespace g3
         {
             Mesh = null;
             Clusters = MergedVertices = RejectedClusters = CheckRounds = 0;
+            UniformTriangles = UniformVertices = NonManifoldTriangles = 0;
+            BaseSelfIntersectionFree = SelfIntersectionFree = false;
             ClustersByLevel = new int[0];
             PhaseMilliseconds = new Dictionary<string, long>();
             var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -115,7 +116,7 @@ namespace g3
                 Vector3d p0 = point + d, p1 = point - d;
                 g[c] = Implicit.Value(ref p0) - Implicit.Value(ref p1);
             }
-            normal = g;
+            normal = g / (2 * h);       // (a gradient, not yet a unit vector: DualContouring normalizes; scaled so it does not vanish at tiny scales)
             return g.LengthSquared > 0 && !double.IsNaN(g.LengthSquared) && !double.IsInfinity(g.LengthSquared);
         }
 
@@ -140,7 +141,6 @@ namespace g3
             readonly int[] cap;
             readonly Vector3d origin;
             readonly double tol;
-            readonly double degenerateScale;     // squared diagonal of the triangle bounds of the uniform contour
 
             public Simplifier(AdaptiveDualContouring owner, DualContouring dc)
             {
@@ -149,8 +149,6 @@ namespace g3
                 P0 = new Vector3d[NV]; mergeable = new bool[NV]; cell = new Vector3i[NV];
                 origin = owner.Bounds.Min;
                 tol = owner.Tolerance * owner.CellSize;
-                degenerateScale = MeshRepairMetrics.TriangleBounds(M0).DiagonalLength;
-                degenerateScale *= degenerateScale;
                 var cross = dc.VertexCrossings;
                 for (int v = 0; v < NV; ++v) {
                     if (M0.IsVertex(v) == false) continue;
@@ -311,6 +309,7 @@ namespace g3
                 var timer = System.Diagnostics.Stopwatch.StartNew();
                 for (int round = 0; ; ++round) {
                     owner.CheckRounds = round + 1;
+                    if (owner.CancelF()) return null;
                     if (round > 200) for (int v = 0; v < NV; ++v) cap[v] = 0;       // (not expected: back to the uniform contour)
                     decide();
                     List<Key> clusterOfOut;
@@ -381,13 +380,15 @@ namespace g3
                 foreach (var kv in clusterIds) outMesh.SetVertex(kv.Value, cpos[kv.Key.Level][kv.Key.Root]);
                 culprits = new List<Key>();
                 var bad = new HashSet<Key>();
+                // (degenerate area of NotCleanReason: relative to the bounds of the result)
+                double diag = outMesh.GetBounds().DiagonalLength, degenerateArea = 1e-12 * diag * diag;
                 foreach (int t in M0.TriangleIndices()) {
                     Index3i it = M0.GetTriangle(t);
                     int a = map[it.a], b = map[it.b], c = map[it.c];
                     if (a == b || b == c || a == c) continue;
                     // (area below the degenerate area of MeshRobustRepair.NotCleanReason: three cluster vertices on one crease)
                     bool anyCluster = isCluster[it.a] || isCluster[it.b] || isCluster[it.c];
-                    if (anyCluster && 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < 1e-12 * degenerateScale) {
+                    if (anyCluster && 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < degenerateArea) {
                         foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
                         continue;
                     }
