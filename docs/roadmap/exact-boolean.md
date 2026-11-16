@@ -770,7 +770,8 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    #913; #615 itself is then closed.
 7. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
-   2026-11-15).
+   2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, awaiting review; one
+   implementation PR).
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi), EMBER lever 2, Exact Boolean 4.0 (exact output with
