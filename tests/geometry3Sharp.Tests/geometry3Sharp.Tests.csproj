@@ -65,6 +65,13 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <Compile Include="..\..\benchmarks\ReducerRemesherBaseline\Harness.cs" Link="BaselineHarness\Harness.cs" />
   </ItemGroup>
+  <!-- the exact placements of benchmarks/BooleanComparison's thingi-contact class (tested without data) -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <Compile Include="..\..\benchmarks\BooleanComparison\ContactTransforms.cs" Link="ThingiContact\ContactTransforms.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <Compile Remove="ThingiContactTransformTests.cs" />
+  </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <Compile Remove="BaselineHarnessTests.cs" />
   </ItemGroup>

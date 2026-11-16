@@ -28,8 +28,8 @@ in mesh kernels systematically, and which relations find which fault classes?
    refinement invariance and idempotence (one issue each at most, none for algebra and idempotence; keep as cheap regression nets only when an area is
    reopened); drop black-box comparison runs against other kernels as a bug-finding method (no relation fires without a
    reference, and the differential tier exists). Stop rules in section 7.
-6. A failure to find new bugs is also a result: the falsification run found **no new defect**; the only open finding on master
-   is the documented one (MeshMeshCut without `RefuseContact` still depends on the scale, #856).
+6. A failure to find new bugs is also a result: the falsification run found **no new defect**; the relations that
+   still fire on master (#856, #710, #712) are documented limits, checked in section 3.1.
 
 ## 2. Method
 
@@ -94,7 +94,33 @@ Readings, and what the control changed:
   triangles at 3.7e-223, outside the 2^-200 .. 2^200 range of `ExactMeshBoolean`, 16 at 2^700, 2^740 and 2^760: the rounding
   runs inside the range only, QA.md 2.5a). A scale relation must compare inside the supported range, or the documented
   outside status.
-- #856 on master still fires without `RefuseContact` (documented in the class comment); not a new finding.
+- #856 on master still fires without `RefuseContact` (documented, section 3.1); not a new finding.
+
+### 3.1 The relations that fire on master are documented limits (follow-up, 2026-11-16)
+
+CLAUDE.md promises bit-identical results under 2^k scales for exact operations, so each firing on the control was checked
+against the documentation and against an in-range variant of the same input (`benchmarks/MetamorphicFalsification`, mode
+`diagnose`, output `results/diagnose_master.txt`). No issue was opened: all three are documented, and the in-range variants
+hold the promise.
+
+- **#856 `MeshMeshCut`** (2^-7 scale, symmetry): documented. `VertexSnapTol` is absolute, "the cut itself is not scale invariant";
+  `RefuseContact` is off by default and then "the cut can have gaps, differ with the scale, or throw" (class remarks and
+  property doc, `mesh_ops/MeshMeshCut.cs`). With `RefuseContact` the decision is exact and the same under every 2^k.
+- **#710 `ExactMeshBoolean`** (20 triangles at 3.7e-223, 16 at 2^700 and beyond, and differences under two of the three
+  symmetries tried): documented range, QA.md 2.5a table: magnitude 2^-200 .. 2^200, disparity 2^60. The identity run reports
+  `rounding_outside_range = 1` (the rounding did not run: 20 triangles, `RoundingClean` false); the input's corner at 1.8e-284
+  against a cube of 3.7e-223 has a disparity of 2^200. With the corner at 2^-30 of the cube (in range) the result is **bit for
+  bit the same at 51 of 51 scales from 2^600 to 2^800 (cube from 2^-139 to 2^61) and under identity and three symmetries at
+  2^700, 2^740 and 2^760**; at scale 1 (outside the range) it is also the same 20 triangles.
+- **#712 `MeshRobustRepair`** (differences under symmetry and permutation): a documented limit and a classified difference.
+  The flattened tetrahedron is outside the range (extent 2^-46 of the largest magnitude, the table allows 2^-40), the repair
+  falls back to the alpha wrap (`FallbackReason` "degenerate triangles", 84 triangles), and `MeshAlphaWrap` is a classified
+  row of `SymmetryInvarianceTests.Toleranced` (an axis-aligned octree of cells, area within 1.2e-2); the volumes differ by 0.2 %
+  (1.0073e-92 vs 1.0094e-92). The unflattened tetrahedron (in range, no fallback, 4 triangles) is bit for bit the same under
+  permutation and five symmetries. `MeshRobustRepair` documents no permutation invariance for the wrap path.
+
+An earlier run of this diagnosis showed "differs at 2^700" for #710; that was the probe comparing against a reference not yet
+computed (loop order), fixed before the run in the results file.
 
 **Not done.** Step 4 of the brief (black-box runs of the Boolean relations against `manifold` and `cgal_epeck` via the
 BooleanComparison workflows) was not run: the harness there reports volume identities per op, but the relations of this note

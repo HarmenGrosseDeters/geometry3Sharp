@@ -22,3 +22,5 @@ The harness uses only API that exists at the parents (`MeshMeshCut`, `PointAABBT
 `ExactMeshBoolean`). Output of the run described in the note: `results/parents.txt` and `results/control_master.txt`
 Symmetries per case are a fixed subset of the 48 (`Syms().Take(n)` in `Cases.cs`; #856 uses 18). The hull epsilon of #644 scales with the input (`1e-9 * Scale`), the ring is compared as an index set. The signature normalises `-0` to `0` (a sign flip turns +0 into -0). #856 does not set `RefuseContact`, so master still reproduces it.
 (parents: #867 51270ea, #809 2c2e300, ConvexHull2 e1ff201, #703 cbf8b78, #759 c677da7, #732 f5f4985).
+
+`diagnose` mode (`-- diagnose`, output `results/diagnose_master.txt`): the relations that fire on master (#856, #710, #712) against the documentation, with in-range variants of the inputs (note section 3.1).

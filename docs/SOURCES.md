@@ -4,6 +4,19 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Biharmonic displacement deformation (`BiharmonicMeshDeformer`)
+
+Implemented from the papers; no libigl source (MPL) or other solver code was read or ported. The solve uses the existing `SparseCholesky`.
+
+| Part | Source |
+|---|---|
+| Squared-Laplacian displacement energy `L^T M^-1 L` with a lumped mass matrix and equality constraints (sections 3.1 and 3.4; the paper's bounds, skinning weights and affine handles are not implemented) | A. Jacobson, I. Baran, J. Popović, O. Sorkine, *Bounded Biharmonic Weights for Real-Time Deformation*, ACM Trans. Graph. 30(4), 2011, [doi:10.1145/1964921.1964973](https://doi.org/10.1145/1964921.1964973) |
+| Cotangent stiffness matrix of a triangle mesh | U. Pinkall, K. Polthier, *Computing Discrete Minimal Surfaces and Their Conjugates*, Experimental Mathematics 2(1), 1993, [doi:10.1080/10586458.1993.10504266](https://doi.org/10.1080/10586458.1993.10504266) |
+| Barycentric (one third of each incident triangle) lumped mass | M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Springer, 2003), [doi:10.1007/978-3-662-05105-4_2](https://doi.org/10.1007/978-3-662-05105-4_2) |
+| Biharmonic energy as the thin-plate / membrane minimizer with point constraints (the continuous background) | M. Botsch, O. Sorkine, *On Linear Variational Surface Deformation Methods*, IEEE TVCG 14(1), 2008, [doi:10.1109/TVCG.2007.1054](https://doi.org/10.1109/TVCG.2007.1054) |
+
+The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-certificate-parked`) also cited S. M. Rump, *Verification of Positive Definiteness*, BIT 46 (2006), and Diaconis / Stroock and Sinclair for path-congestion eigenvalue bounds; none of that is in the library.
+
 ## Historical meshing recheck tools and data
 
 The standalone Python preparation tool in `benchmarks/Meshing2Benchmark/rechecks`
