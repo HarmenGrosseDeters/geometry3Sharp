@@ -732,6 +732,7 @@ namespace geometry3Sharp.Tests
                     else if (iter == corruptAt + 1) historyAfter = history;
                 };
                 var r = d.Compute(handles);
+                Assert.Equal(budget < reference.Iterations ? ArapMeshDeformer.Status.MaxIterations : ArapMeshDeformer.Status.Success, r.Status);
                 Assert.NotNull(r.Mesh);
                 Assert.True(r.Mesh.CheckValidity());
                 foreach (int v in mesh.VertexIndices()) Assert.True(r.Mesh.GetVertex(v).IsFinite);
@@ -743,7 +744,10 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(1, fired);
                     // A rejection clears the history: the next candidate is built from the one difference of its own step.
                     Assert.True(historyBefore > 1, "the rejected candidate used a history of " + historyBefore);
-                    if (budget > corruptAt + 1) Assert.Equal(1, historyAfter);
+                    if (budget > corruptAt + 1) {
+                        Assert.True(historyAfter != -1, "no candidate was built after the rejection");
+                        Assert.Equal(1, historyAfter);
+                    }
                 }
                 if (budget == reference.Iterations + 2) {
                     // The rejected step costs at most a few iterations; the iteration still reaches the same minimum.
