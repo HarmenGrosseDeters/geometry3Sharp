@@ -170,13 +170,13 @@ namespace g3
 
         // explicit cast to double/float vector types
         public static explicit operator Vector3i(Vector3f v) {
-            return new Vector3i((int)v.x, (int)v.y, (int)v.z);
+            return new Vector3i(MathUtil.ToIntSaturating(v.x), MathUtil.ToIntSaturating(v.y), MathUtil.ToIntSaturating(v.z));
         }
         public static explicit operator Vector3f(Vector3i v) {
             return new Vector3f((float)v.x, (float)v.y, (float)v.z);
         }
         public static explicit operator Vector3i(Vector3d v) {
-            return new Vector3i((int)v.x, (int)v.y, (int)v.z);
+            return new Vector3i(MathUtil.ToIntSaturating(v.x), MathUtil.ToIntSaturating(v.y), MathUtil.ToIntSaturating(v.z));
         }
         public static explicit operator Vector3d(Vector3i v) {
             return new Vector3d((double)v.x, (double)v.y, (double)v.z);

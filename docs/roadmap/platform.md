@@ -1,16 +1,16 @@
-# Platform layer and release (Phase 4)
+# Platform layer (Phase 4)
 
 Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** the CLI / MCP server `g3cli`, analysis building blocks and evaluation metrics, verifiable agent work
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
-  the DAP audit, the test suite on other locales, and the release.
+  the DAP audit and the test suite on other locales. No public package is planned (owner 2026-11-16).
 - **Status (2026-11-15):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299; the update
-  closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 open); the issue-tracker fix list is complete
+  closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 merged); the issue-tracker fix list is complete
   (2026-11-03). QA 2.0 rollout continuing (status table [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the
   mutation 3.0 process and coverage-pass fix are in #615 (open). Determinism stage 0 (#871) and the exact fallback
   monomial kernels (#769) are merged. The Clipper2 vendoring line is done (#751, #826, #851, #874); Clipper2's
-  triangulation is not offered (owner decision). Open: the release, the net48 hang (#824, fix #883), the open fuzz
+  triangulation is not offered (owner decision). Open: the net48 hang (#824; fix #883 merged, close if it does not come back), the open fuzz
   campaigns, a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-15).
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
@@ -79,7 +79,7 @@ Part of the [roadmap](../ROADMAP.md).
   reason; ClippedRegion, BandRepair and EarlyRegionCheck move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
-  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
+  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame; closed 2026-11-16 as a documented limit (owner), serial 23.5-24.9 s after #977)
   is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue is #888 (28 outliers of 35 cases on
   master e741c130; the cases over 20 s include `boolean-thingi-55928-union` at 481 s and two alpha wrap pipes at 56-78 s).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
@@ -206,8 +206,8 @@ Part of the [roadmap](../ROADMAP.md).
   `hausdorff` shard (green run; thresholds being set). On #843 the rounding shards time out in the coverage pass; the
   fix is to narrow the test filter `FullyQualifiedName~ExactMeshBooleanTests` to that class itself (`~` is a substring
   match, so it also selects the other classes whose names contain it).
-- **Release:** no public package until the library "just works"; package ID and publishing open (the nuget.org ID
-  `geometry3Sharp` belongs to upstream).
+- **Public package:** none planned (owner 2026-11-16); `dotnet pack`, the API check against 1.0.324 and the package
+  smoke tests stay in CI.
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
   P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept). Follow-ups: the ray batch API
   ([research.md](research.md#later)). Closed: the P1 collapse (a documented limitation, the real fix is research) and the regressions a remesher flip-guard default would cause
@@ -434,30 +434,33 @@ Task 5 (honest terrain metrics) is on [terrain.md](terrain.md#task-5-honest-terr
 - **6. Upstream deviation ledger (E.5): dropped (owner 2026-11-11).** The fork differs too much for a per-file
   inventory to stay useful, and there is no package or upstream contact to serve. What users of 1.0.324 need stays in
   [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md): every changed semantics of an inherited class gets a row there, and
-  `dotnet pack` validates the API against 1.0.324. If a release or upstream contact comes, write only a short list of
+  `dotnet pack` validates the API against 1.0.324. If a public package or upstream contact comes, write only a short list of
   separable fixes.
 
-#### Release: when it's done
+#### Quality bar: when it's done
 
-No public package until the library "just works": the operations give correct, documented results on hard inputs
+No public package is planned (owner 2026-11-16). The quality bar stays: the library "just works", that is, the operations give correct, documented results on hard inputs
 without tuning, and it compares with the leading geometry processing libraries (eg the top of
 [github.com/topics/geometry-processing](https://github.com/topics/geometry-processing): libigl, geogram, PMP,
-cinolib, geometry-central, Manifold) on the operations it shares with them. Publishing a package makes us a
-maintainer with users to support; that pays off only then.
+cinolib, geometry-central, Manifold) on the operations it shares with them.
 
 - [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing. Booleans done (`ExactBooleanIssueCasesTests`); repair and alpha wrap merged in #326 (24 failure modes, MinimalHoleFill fix); groups 2-4 merged in #330 (2026-11-02); P3 by design (#349); Q2/Q3 (watertight exact ray-triangle: repair CPU +0.9 %, tree queries +2-29 %, single Intersects 4.2x, 260/260 boolean hashes) in #341 G3 (relative path-trace tolerance) in #343 and P1 (FlippedTriangles status, degenerate-UV rule relative to the surface triangle; UVAtlas A/B identical) in #346 and G2 in #347 (2026-11-03). **The fix list is complete** (2026-11-03): fixed R1, S1, G1-G3, P1, P4, Q1-Q3 and the Reducer and constraint bowties; P3 by design; R2 a limitation; P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept, OPERATIONS.md recommends the guards) open, pinned and documented as decided. Follow-ups: the ray batch API (Later), the P1 collapse itself (closed 2026-11-12 as a limitation; the real fix, virtual fan vertices or spectral conformal, is research); the flip-guard follow-up (the regressions a remesher flip-guard default would cause) is closed: the Remesher defaults stay upstream's (owner November 2026); the other operations started 2026-11-02 in a QA session (repair and alpha wrap, Reducer / Remesher, geodesics and parameterization, queries; mesher and terrain failure modes collected only). Findings in [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); owner 2026-11-02: every finding is fixed (correct first, then fast), distributed: QA session Q2+Q3 (exact ray/triangle crossings, IsInside), G3, P1, then G2, P2, S2, S3, P3; 7b session R1 (orientation rule for crossing components; merged in #333 on 2026-11-03: crossing components keep their orientation, A/B 3 inputs now accepted exactly instead of falling back, controls 1.008×), then S1 merged in #336 (2026-11-03; Reducer fold-over guard from area-weighted original normals plus a boundary ear rule, owner: PreventFoldOver default on, UPSTREAM_CHANGES row; noisy terrains 20/110 → 7/0 folds/walls, time on/off 1.00-1.14x, with MaxDeviation 1.01-1.02x)
-- [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream); the pack and package smoke
-  test already run in CI
 
 ### Open for the future (2026-11-15)
 
-1. Merge #883 (fixes the #882 race in `patch_winding`), then close the net48 hang #824 if it does not come back.
-2. Determinism: take over and merge #891 (#804, saturating casts in the grid indexers) and #892 (#803, signed-zero Min / Max in `AxisAlignedBox3d`); then #789 (ExactPoint3 hash seed, a test).
-3. Mutation: merge the process PR #615; set the thresholds of the `hausdorff` shard and merge #884; narrow the rounding test filter of #843 to `ExactMeshBooleanTests` itself.
-4. `coverage.yml`: the nightly runs of 2026-11-13 and 2026-11-14 failed (cause unverified).
-5. g3cli: finish #868 (`offset --method mesh_offset`, default cell |d| / 4, `max_cells` unchanged).
-6. Tests above 20 s: #696 (TerrainSlope frame rows), #698 (full-run starvation), #866 (`MeshSweepCollision`); runtime watch outliers #888.
-7. Fuzzing: #624 (MeshFuzzPilot overnight groups (c) to (f)), #623 (reader campaigns), the third wave draft #686.
-8. Clipper2: #756, the remaining micro-branch class (documented as known; no fix planned).
+Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
+(hausdorff shard), #868 (`g3cli offset --method mesh_offset`), the fuzz campaigns #623 / #624 and wave 3 #686, #756,
+#696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
+
+1. Coverage gate red on master since 2026-11-13 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
+2. Scheduled mutation runs: every scheduled run since 2026-11-02 is cancelled (none after 2026-11-09): same session.
+3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
+   regression rule only, once a baseline exists: same session.
+4. Mutation: merge #913, then the rest of #615 (see exact-boolean.md).
+5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
+   short and shard b stays the critical path (check 2026-11-16).
+6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); #804 closed; the sizes that are still too large after saturation are a documented limit (owner 2026-11-16; the same on every runtime).
+7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).
+8. Clipper2: #955 (remaining failures after #949; deferred, owner 2026-11-15).
 9. Thingi10K full corpus: draft #385.
-10. Release: package ID and publishing; .NET 11 migration (not scheduled).
+10. .NET 11 migration (not scheduled).

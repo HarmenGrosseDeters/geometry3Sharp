@@ -320,5 +320,42 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, ExactDyadic.Quotient(ExactDyadic.Of(-1), ExactDyadic.Of(-4)));
             Assert.Throws<DivideByZeroException>(() => ExactDyadic.Quotient(ExactDyadic.Of(1), ExactDyadic.Zero));
         }
+
+        // survivors of the terrain-arith shard (mutation run 535, 2026-11-14)
+
+        // a NaN in only one bound (infinity minus infinity at the low end) gives the whole line, not a NaN bound
+        [Fact]
+        public void OneNaNBound_IsTheWholeLine()
+        {
+            var a = new ExactInterval(double.PositiveInfinity, double.PositiveInfinity);
+            var b = new ExactInterval(1, double.PositiveInfinity);
+            ExactInterval d = a - b;
+            Assert.Equal(double.NegativeInfinity, d.Lo);
+            Assert.Equal(double.PositiveInfinity, d.Hi);
+            Assert.Equal(2, d.Sign());
+        }
+
+        // the product of mixed-sign intervals: the bounds come from either pair of the four products
+        [Fact]
+        public void Product_MixedSigns_BoundsFromEitherPair()
+        {
+            // (lo and hi from p3, p4: a.Hi times b)
+            ExactInterval p = new ExactInterval(-2, 3) * new ExactInterval(-5, 7);
+            Assert.Equal(ExactInterval.Down(-15), p.Lo);
+            Assert.Equal(ExactInterval.Up(21), p.Hi);
+            // (lo and hi from p1, p2: a.Lo times b)
+            ExactInterval q = new ExactInterval(-3, 2) * new ExactInterval(-7, 5);
+            Assert.Equal(ExactInterval.Down(-15), q.Lo);
+            Assert.Equal(ExactInterval.Up(21), q.Hi);
+        }
+
+        [Fact]
+        public void Quotient_OfZero_IsZero()
+        {
+            double z = ExactDyadic.Quotient(ExactDyadic.Zero, ExactDyadic.Of(3));
+            Assert.Equal(0.0, z);
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(z));     // (+0, not -0)
+            Assert.Equal(0.0, ExactDyadic.Quotient(ExactDyadic.Zero, ExactDyadic.Of(-3)));
+        }
     }
 }

@@ -376,7 +376,7 @@ namespace g3
             return double.IsNaN(u) ? 0.5 : (u < 0 ? 0 : (u > 1 ? 1 : u));
         }
 
-        static uint Q10(double u) { return (uint)Math.Min(1023, (int)(u * 1024)); }
+        static uint Q10(double u) { return (uint)Math.Min(1023, MathUtil.ToIntSaturating(u * 1024)); }
 
         // 30-bit Morton code of three 10-bit coordinates
         static ulong Morton3(uint x, uint y, uint z)

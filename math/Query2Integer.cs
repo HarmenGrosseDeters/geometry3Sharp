@@ -25,10 +25,10 @@ namespace g3
             Vector2d vec0 = mVertices[v0];
             Vector2d vec1 = mVertices[v1];
 
-            long x0 = (long)test.x - (long)vec0.x;
-            long y0 = (long)test.y - (long)vec0.y;
-            long x1 = (long)vec1.x - (long)vec0.x;
-            long y1 = (long)vec1.y - (long)vec0.y;
+            long x0 = MathUtil.ToLongSaturating(test.x) - MathUtil.ToLongSaturating(vec0.x);
+            long y0 = MathUtil.ToLongSaturating(test.y) - MathUtil.ToLongSaturating(vec0.y);
+            long x1 = MathUtil.ToLongSaturating(vec1.x) - MathUtil.ToLongSaturating(vec0.x);
+            long y1 = MathUtil.ToLongSaturating(vec1.y) - MathUtil.ToLongSaturating(vec0.y);
 
             long det = Det2(x0, y0, x1, y1);
             return (det > 0 ? +1 : (det < 0 ? -1 : 0));
@@ -41,10 +41,10 @@ namespace g3
             Vector2d vec1 = mVertices[v1];
             Vector2d vec2 = mVertices[v2];
 
-            Vector2l iTest = new Vector2l( (long)test.x, (long)test.y);
-            Vector2l iV0 = new Vector2l((long)vec0.x, (long)vec0.y);
-            Vector2l iV1 = new Vector2l((long)vec1.x, (long)vec1.y);
-            Vector2l iV2 = new Vector2l((long)vec2.x, (long)vec2.y);
+            Vector2l iTest = new Vector2l( MathUtil.ToLongSaturating(test.x), MathUtil.ToLongSaturating(test.y));
+            Vector2l iV0 = new Vector2l(MathUtil.ToLongSaturating(vec0.x), MathUtil.ToLongSaturating(vec0.y));
+            Vector2l iV1 = new Vector2l(MathUtil.ToLongSaturating(vec1.x), MathUtil.ToLongSaturating(vec1.y));
+            Vector2l iV2 = new Vector2l(MathUtil.ToLongSaturating(vec2.x), MathUtil.ToLongSaturating(vec2.y));
 
             long s0x = iV0.x + iTest.x;
             long d0x = iV0.x - iTest.x;

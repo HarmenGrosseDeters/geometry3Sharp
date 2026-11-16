@@ -1172,7 +1172,7 @@ namespace g3
                 for (long dx = -1; dx <= 1; ++dx) for (long dy = -1; dy <= 1; ++dy) seenPixels.Add((kx + dx, ky + dy));
                 var wider = new List<(double d, Vector2d c)>();
                 double span = Math.Abs(tw - tu) * Math.Sqrt(dir.LengthSquared);
-                int samples = (int)Math.Min(256, Math.Max(2, Math.Ceiling(2 * span / grid.W)));
+                int samples = MathUtil.ToIntSaturating(Math.Min(256, Math.Max(2, Math.Ceiling(2 * span / grid.W))));
                 for (int i = 1; i < samples; ++i) {
                     var sp = A + dir * (tu + (tw - tu) * i / samples);
                     long sx = grid.Pixel(sp.x), sy = grid.Pixel(sp.y);

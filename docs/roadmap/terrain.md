@@ -22,10 +22,9 @@ Part of the [roadmap](../ROADMAP.md).
 ### Open
 
 - **`TerrainGreedyTIN` with `MaxError = 0` never ends (#855, bugfix):** `Compute()` runs out of memory for a height of
-  -2.87e-223 with the default `MaxVertices`. Fix in draft #889 (repeated vertex insertion at zero error); the terrain
-  session takes it over.
+  -2.87e-223 with the default `MaxVertices`. Fixed by #889 (merged 2026-11-15).
 - **`TerrainGreedyTIN.RemoveVertices` ear choice (#854, bugfix):** an absolute 1e-12 tolerance, so the result is not
-  invariant under 2^k scaling. Fix in draft #890; the terrain session takes it over.
+  invariant under 2^k scaling. Fixed by #890 (merged 2026-11-15).
 - **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
   #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
   designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:
@@ -40,7 +39,7 @@ Part of the [roadmap](../ROADMAP.md).
   limit, #696, still open; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
-distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14). Still owner decisions: the slope-envelope construction,
+distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). Still owner decisions: the slope-envelope construction,
 berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): done (#752, merged 2026-11-13; resumed by
@@ -67,7 +66,9 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
   the result has the same bits on every platform.
 - **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13). Owner 2026-11-13:
   yes to the proposals (E1, the exterior distance, first; R2 attribution with the smaller slope on a boundary; an
-  ε-approximation within the Tolerance budget). After ramps R1 (merged #841), so E1 is next; not built yet, no PR or issue.
+  ε-approximation within the Tolerance budget). **Parked (owner 2026-11-16): E1, S1 and R2 are not built and no behaviour changes.**
+  The E1 session found that the note's premises (`Modes`, a `NotImplemented` rejection, `CrossDesignInfluence`) are not in the code and
+  that the work is 2-3 times 1b; findings and options A/B/C: [TERRAIN_SECTORS.md, status 2026-11-16](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
@@ -183,9 +184,10 @@ Plan fact-checked on 2026-10-30 (see [platform.md](platform.md#plans-fact-checke
 
 ### Open for the future (2026-11-15)
 
-1. #855: `TerrainGreedyTIN` with `MaxError = 0` never ends (fix in draft #889; terrain session).
-2. #854: `TerrainGreedyTIN` ear tolerance 1e-12 is not 2^k invariant (fix in draft #890; terrain session).
-3. Sector polygons E1, the exterior distance on demand (owner yes 2026-11-13; no PR yet), then R2 attribution.
-4. #696: TerrainSlope rows in the rotated / 1e-3 / utm frame above 20 s (test tiers; no library change).
-5. Owner decisions: the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
-6. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
+Done and removed from this list: #855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15:
+the extreme frame runs in Nightly; its cost is correct behaviour), terrain mutation survivors (#908).
+
+1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
+2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), berms and
+   inter-ramp checks, the GeoTIFF reader, 3D blocks.
+3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).

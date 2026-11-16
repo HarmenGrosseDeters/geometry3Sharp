@@ -92,7 +92,7 @@ Searched: `Interval`, `Exact*`, `AdaptivePredicates`, the AABB trees and box tre
 |---|---|---|
 | Outward-rounded evaluation (fallback path, test oracle) | `math/ExactIntervals.cs`: `ExactInterval` (each `+ - *` rounds to nearest and widens by one ulp, NaN gives the whole line, `Sign()`) | Direct. Internal, same assembly |
 | Exact values of `F` at dyadic points (oracle in tests) | `ExactDyadic` (same file, `BigInteger` mantissa, exact `+ - *`, `Compare`) | Direct; test-only use |
-| Broad phase over swept boxes | `TriangleBoxTree` (`mesh_ops/ExactMeshArrangement.cs`): a BVH over arbitrary `AxisAlignedBox3d`, closed overlap tests, no padding, `Query(box, ...)`, `SelfPairs`, parallel build from 262144 boxes, deterministic | Direct, over the swept boxes of vertices, edges and triangles. Used as is: the file is on the locked list of Exact Boolean 3.0, so stage 2 does not edit or move it |
+| Broad phase over swept boxes | `TriangleBoxTree` (`mesh_ops/ExactMeshArrangement.cs`): a BVH over arbitrary `AxisAlignedBox3d`, closed overlap tests, no padding, `Query(box, ...)`, `SelfPairs`, parallel build from 8192 boxes, deterministic | Direct, over the swept boxes of vertices, edges and triangles. Used as is: the file is on the locked list of Exact Boolean 3.0, so stage 2 does not edit or move it |
 | Mesh-level trees | `DMeshAABBTree3` | No: it indexes triangles at one position; swept boxes differ |
 | Exact orientation predicates | `ExactPredicates.Orient3d`, `AdaptivePredicates` | Not needed by the method; used in tests to build exact contact configurations (eg a vertex path that hits a triangle edge exactly) |
 | Mechanical bound derivation | `tools/PredicateCompiler` (magnitude bounds of fixed-width predicates; its README plans a floating-point filter pass) | Option b of section 6.4 |
@@ -734,3 +734,84 @@ Tests:
   neighbour's sub-step boxes. Survived as equivalent: passing the full mask to
   the children instead of the narrowed one. The mask only prunes, and the leaves test every sub-step in the mask they
   get.
+
+### 10.12 Narrow-phase pre-filter (#940, 2026-11-16)
+
+Upper bound (#940, puffer-ball, serial, instrumented run with a timestamp around `Set` and `Solve` of each of the 24 953 688
+candidates; the timers cost about 0.05 µs per pair, so the shares are upper estimates): `Solve` took 18.9 s and the gathers of
+the pair's points 1.7 s. Of the pairs 24 876 991 end in `NoCollision` and only 76 697 in `Collision`; 23 861 384 (95.6 %) are
+discarded at the first box (7.1 s, 0.30 µs per pair), and 458 408 pairs that need seven or more boxes take **11.1 s (24 µs per
+pair, 58 % of the solver time)**: the cost is not the volume of ordinary queries, as #940 assumed, but a tail of near misses
+that explore the whole time range. Of the first-box discards 92 % are decided by the axis tests (x 64 %, y 20 %, z 8 %) and 8 % by the normals. Two bounds follow:
+- skipping every `NoCollision` pair outright (not possible bit-identically, see below) would save at most 20.6 s of 33;
+- a query that stops once it cannot be the earliest contact (a time limit at the earliest contact, 0.0053, as an experiment)
+  takes the solver from 19.3 s to 9.9 s: the tail shrinks from 11.1 s to 0.6 s.
+
+Library and literature (the short check of AGENT_WORKFLOW section 3): the building blocks are `CcdSolver` itself (the corner
+values of `corners_filter` and the bound B1 stay as they are), `ExactInterval` and the sub-step culling of 10.10 / 10.11. A
+separate conservative test (a swept-volume or sub-step box separation, or an interval pre-filter as in Wang et al. 2021) cannot be
+the pre-filter: #940's constraint says a skipped pair must be one the solver itself answers `NoCollision`, and a proof of
+separation does not imply that (the solver reports a `Collision` within its error bound for a pair that is separated by less than
+the bound). The sub-step boxes of 10.10 have no such margin to the solver's arithmetic either. So the pre-filter is made of
+two pieces that are the solver's own decisions:
+
+1. **The first-box shortcut** (`CcdSolver.root_discarded`, `RootDiscards`). The first box [0, 1]^3 is discarded on an axis for
+   95.6 % of the candidates. `Solve` now evaluates only that: the same differences `d_i`, the same positions `x_i = s_i + t d_i`
+   at t = 0 and 1, the same `(e0 -/+ u e1) - v e2` at the corners (for a vertex-triangle box the clipped polygon's three corners
+   (0, 0), (1, 0), (0, 1), which hold the two crossing points of 10.1 as well, so the set of values is that of `evaluate`), the
+   same thresholds and comparisons, in the same order of axes. If an axis discards it, the result is what the search gives
+   after one box: `NoCollision`, `TimeOfImpact` from `no_collision_time`, `Iterations` 1, the `ErrorBound` of the filter. Otherwise the
+   search starts as before (the box is evaluated again; 4 % of the pairs). No new bound is used or derived. The sweep
+   (CollectAll false, where a pair that is not a contact has no output but its count) drops such a pair in the job that found it,
+   right after the tree search, without a queue, a result or a record (`drop_root_discarded`, counted as a candidate).
+2. **Abandoning a query that cannot matter** (`CcdSolver.AbandonAfter`). Let L be the smallest `NearContactTime` of the
+   `Collision` results seen so far. The reductions of `Compute` are: `EarliestTimeOfImpact` the minimum time of impact of the
+   touching results, `EarliestNearContactTime` the minimum near time of the `Collision` results (so the final one is at most L),
+   and `Contacts` the touching results with `TimeOfImpact <= EarliestNearContactTime`. A pair whose time of impact is above L
+   is none of these: the pair with the final near time N has `TimeOfImpact <= N <= L`, so it also sets the minimum of the
+   times, and the pair is above `EarliestNearContactTime`. The solver's time of impact of a pair is the smallest start of
+   the boxes that are left (10.1, G2), and the starts of the queue never decrease, so when the box taken from the queue
+   (before a near box is known), or the box a dive follows together with the queue, starts after L, the final time of
+   impact of the pair is above L: the query stops (`Abandoned`) and the sweep treats the pair like a `NoCollision`. A query
+   that is not abandoned runs exactly as before (the checks have no other effect), so its result is bit for bit its old one.
+   Unlike the "shared bound" that 10.1 rejected, no result under a bound is used: a result that is used is one that the bound
+   never touched. The bound is also not shared between threads: it is fixed per chunk of 65 536 pairs of a batch (order of the
+   batch's pairs, which depends only on the input) and updated from the finished chunk's results in pair order, so the
+   abandoned pairs, the counts and the output do not depend on the schedule. L is not a bound on `TimeOfImpact` (the
+   contacts list keeps pairs with a time of impact up to the earliest near time, which can be later than the earliest time of impact
+   by `TimeTolerance` or more): using L from the times of impact would drop pairs that are contacts, and a test checks that.
+
+Not done (measured or argued against): the pairs are not dropped in the broad phase by L (a pair whose boxes overlap only
+after L can still have `TimeOfImpact <= L` through the solver's lower bound); a larger set of first-box discards (the
+normals test, 8 % of them) was not added to the shortcut.
+
+As built: `MeshSweepCollision.PreFilter` (internal, default true; tests switch it off) covers both pieces and applies only with
+`CollectAll = false`. Public API and results are unchanged: the candidate count, status, `EarliestTimeOfImpact`,
+`EarliestNearContactTime` and `Contacts` (with the full result of each contact) are equal to the unfiltered path in every test and in
+all six sample scenes.
+
+Measured: `benchmarks/CcdBenchmark/README.md` ("Narrow-phase pre-filter"). Serial, puffer-ball goes from 33.9-34.9 s to
+23.5-24.9 s, parallel from 11.0-11.4 s to 8.8-10.4 s; cloth-ball from 20.7 s to 6.7 s, n-body 9.4 s to 3.8 s, armadillo-rollers
+4.4 s to 2.3 s, rod-twist 6.7 s to 4.0 s serial. The serial sweep of the 1M-triangle frame is therefore still above the 20 s rule
+(#866, #940 stay open): what is left is the tree search of the candidates (about 11 s), the first-box test and the gathers
+(about 3 s), the 1.1M survivors (about 5 s) and the preparation (about 3.5 s).
+
+Tests:
+- `RootShortcut_EqualsTheQueue` (ms 0, 1e-3, 0.25, 4 000 random constructed, near-miss and far queries at 2^-6 to 2^6 scale and a
+  UTM-like shift, vertex-triangle and edge-edge, time limits): every field of the result equals the result without the shortcut;
+  `RootDiscards` implies `NoCollision` after one box; NaN, infinite and out-of-range points with a separating axis are
+  `InvalidInput`, not discarded.
+- `AbandonAfter_NeverChangesARelevantResult`: bounds at 0, round values, 1, the query's own time of impact and near time, with
+  and without an iteration limit: a query that is not abandoned equals the unbounded one field for field; an abandoned one has an
+  unbounded time of impact above the bound.
+- `PreFilter_EqualsTheUnfilteredSweep` (A against B, the self sweep, one mesh against itself with other ends; minimum separations,
+  `TimeLimit`, `MaxIterations`; CollectAll on and off; one job and small jobs, batches and chunks; serial and parallel),
+  `PreFilter_FaceContactKeepsEveryContact` (faces that meet at one time, a chunk of one pair, large `TimeTolerance`),
+  `PreFilter_ParallelEqualsSerial` (serial order, backwards and permuted orders, repeated parallel runs: contacts, times, counts of
+  skipped and abandoned pairs), `PreFilter_Reuse`. The invariance (`SelfSweep_Invariance`, `Invariance` over `Similarity.All()`),
+  `Jobs_ParallelEqualsSerial` and the sub-step tests run the pre-filter by default.
+- Mutants, killed: the discard comparison of one side, one time end of the corners, one of the clipped corners, the abandon test
+  non-strict (`>=`), the dive test without the queue, no range check in `RootDiscards`, the bound from the time of impact instead
+  of the near time, the skipped pairs not counted as candidates, the pre-filter with CollectAll, the bound with CollectAll. Survived
+  as equivalent: abandoning also after a near box is known (the final time of impact is then above L as well, so the property holds;
+  the code keeps the narrower condition), the bound from `IterationLimit` results (their near time is infinite).

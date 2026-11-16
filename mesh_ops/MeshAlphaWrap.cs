@@ -897,8 +897,8 @@ namespace gs
                 }
                 // (the evaluation's wall time, split by its CPU time, so that the parts add up to the phase as in the serial loop)
                 if (cpuEval > 0) {
-                    ticksIntersection += (long)((double)te * cpuIntersection / cpuEval);
-                    ticksTouch += (long)((double)te * cpuTouch / cpuEval);
+                    ticksIntersection += MathUtil.ToLongSaturating((double)te * cpuIntersection / cpuEval);
+                    ticksTouch += MathUtil.ToLongSaturating((double)te * cpuTouch / cpuEval);
                 }
                 // 4. assign ids (serial, heap order), apply (parallel, disjoint)
                 long t2 = Stopwatch.GetTimestamp();

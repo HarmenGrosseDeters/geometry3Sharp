@@ -11,8 +11,10 @@ and report the outliers (docs/QA.md, "Runtime watch"; workflow .github/workflows
                                           prints `outliers=N` and `notify=0|1` (GITHUB_OUTPUT lines)
 
 The outlier rule (cases.json "rules"): a case is a regression when its median is more than `ratio` times the median of its
-last `window` successful runs AND more than `abs_s` seconds above it; it is "over the hard limit" above `hard_s` seconds
-(owner 2026-11-12: more than 20 s is a potential defect); a failed or timed-out run is an outlier, too.
+last `window` successful runs AND more than `abs_s` seconds above it; a failed or timed-out run is an outlier, too.
+There is no absolute time limit here (owner 2026-11-15, #888: the 20 s limit is for tests; the tail cases are slow by nature and
+are judged by the regression rule only). A case is judged from `min_runs` (3) earlier successful runs on (the median of one or two runs would flag any noisy first
+night; from three, one outlier cannot set it); before that it is reported as "baseline building (n of window)" and gets no flag.
 The time is the isolated time of one process (never several cases at once), the median of the repeats.
 """
 
@@ -27,7 +29,7 @@ import subprocess
 import sys
 import time
 
-DEFAULT_RULES = {"ratio": 1.3, "abs_s": 1.0, "hard_s": 20.0, "window": 10, "repeats": 3,
+DEFAULT_RULES = {"ratio": 1.3, "abs_s": 1.0, "window": 10, "min_runs": 3, "repeats": 3,
                  "repeat_budget_s": 60.0, "timeout_s": 900.0}
 AREAS = ("boolean", "alphawrap")
 KINDS = ("procedural", "thingi")
@@ -136,21 +138,20 @@ def baseline(history, window):
 
 def judge(result, history, rules):
     """Classify one result against its case history. Returns a dict with:
-    flags: subset of {'failed', 'hard', 'regression'}; baseline_s; ratio; new: flags the previous entry did not have."""
+    flags: subset of {'failed', 'regression'}; baseline_s; baseline_n (the successful runs of the window so far); ratio; new: flags the previous entry did not have."""
     # a flag is new when none of the last NOTIFY_MEMORY entries had it (a flaky failure between two slow runs does not re-notify)
     prev_flags = {f for e in history[-NOTIFY_MEMORY:] for f in e.get("flags", [])}
     base = baseline(history, rules["window"])
+    n = min(len([e for e in history if e.get("ok") and e.get("median_s") is not None]), int(rules["window"]))
     flags = []
     t = result.get("median_s")
     if not result.get("ok") or t is None:
         flags.append("failed")
     else:
-        if t > rules["hard_s"]:
-            flags.append("hard")
-        if base is not None and t > rules["ratio"] * base and t - base > rules["abs_s"]:
+        if base is not None and n >= int(rules["min_runs"]) and t > rules["ratio"] * base and t - base > rules["abs_s"]:
             flags.append("regression")
     ratio = (t / base) if (t is not None and base) else None
-    return {"flags": flags, "baseline_s": base, "ratio": ratio, "new": [f for f in flags if f not in prev_flags]}
+    return {"flags": flags, "baseline_s": base, "baseline_n": n, "ratio": ratio, "new": [f for f in flags if f not in prev_flags]}
 
 
 def evaluate(results, history, rules):
@@ -171,7 +172,7 @@ def evaluate(results, history, rules):
 
 
 def notify(judged):
-    """Comment on the tracking issue only for something new: a regression, a failure or a case over the hard limit that none
+    """Comment on the tracking issue only for something new: a regression or a failure that none
     of the last nights had. What persists stays in the job summary but is not repeated."""
     return any(j["new"] for j in judged)
 
@@ -182,7 +183,7 @@ def render_report(results, judged, rules):
     lines.append(f"Machine: {m.get('cpu', '?')}, {m.get('cores', '?')} cores, {m.get('memory_gb', '?')} GB, "
                  f"{m.get('os', '?')}, dotnet {m.get('dotnet', '?')}. Isolated runs (one process each), median of the repeats.")
     lines.append(f"Rule: regression = more than {rules['ratio']}x the median of the last {int(rules['window'])} runs and "
-                 f"more than {rules['abs_s']} s above it; hard limit {rules['hard_s']} s (potential defect).")
+                 f"more than {rules['abs_s']} s above it, once {int(rules['min_runs'])} earlier runs exist; no absolute limit (the 20 s limit is for tests).")
     lines.append("")
     bad = [j for j in judged if j["flags"]]
     lines.append(f"**{len(bad)} outlier(s) of {len(judged)} cases.**" if bad else f"No outliers in {len(judged)} cases.")
@@ -192,6 +193,8 @@ def render_report(results, judged, rules):
             return "-" if x is None else f"{x:.{d}f}"
         runs = ", ".join(f"{x:.2f}" for x in (j.get("runs_s") or []))
         flags = ", ".join(j["flags"]) if j["flags"] else ""
+        if j["baseline_n"] < int(rules["window"]):
+            flags = (flags + "; " if flags else "") + f"baseline building ({j['baseline_n']} of {int(rules['window'])})"
         if not j.get("ok") and j.get("error"):
             flags += f" ({j['error']})"
         lines.append(f"| {j['id']} | {j.get('area', '')} | {f(j.get('median_s'))} | {runs} | {f(j['baseline_s'])} | "

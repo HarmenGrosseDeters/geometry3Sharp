@@ -367,7 +367,7 @@ namespace g3
                     double[] idx = read_accessor(to_int(p["indices"]), 1);
                     indices = new int[idx.Length];
                     for (int i = 0; i < idx.Length; ++i)
-                        indices[i] = (int)idx[i];
+                        indices[i] = MathUtil.ToIntSaturating(idx[i]);
                 } else {
                     indices = new int[nv];
                     for (int i = 0; i < nv; ++i)
@@ -432,7 +432,7 @@ namespace g3
                 double[] val = new double[(long)sparseCount * nComponents];
                 read_view(get_int(sVal, "bufferView", -1), get_int(sVal, "byteOffset", 0), sparseCount, nComponents, componentType, normalized, compSize, val, -1);
                 for (int i = 0; i < sparseCount; ++i) {
-                    int k = (int)idx[i];
+                    int k = MathUtil.ToIntSaturating(idx[i]);
                     if (k < 0 || k >= count)
                         throw new FormatException("sparse accessor index out of range");
                     for (int j = 0; j < nComponents; ++j)
@@ -611,7 +611,7 @@ namespace g3
             double d = (double)o;
             if (d < int.MinValue || d > int.MaxValue)
                 throw new FormatException("number out of range");
-            return (int)d;
+            return MathUtil.ToIntSaturating(d);
         }
         static double to_double(object o)
         {

@@ -128,7 +128,7 @@ namespace gs
             stamps = new int[Mesh.MaxVertexID];
             for (int k = 0; k < rejectedAt.Length; ++k) rejectedAt[k] = new Dictionary<int, int>();
             Flips = Moves = Splits = Collapses = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = SkippedRejections = 0;
-            maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
+            maxTriangles = MathUtil.FloorToIntSaturating(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
@@ -170,7 +170,7 @@ namespace gs
         int cell(double d)
         {
             // (at most 64 cells across the mesh's box: -1 .. 65 covers it with a border)
-            return (int)MathUtil.Clamp(Math.Floor(d / protectedCell), -1, 66);
+            return MathUtil.ToIntSaturating(MathUtil.Clamp(Math.Floor(d / protectedCell), -1, 66));
         }
 
         // is triangle tid of Mesh within ProtectedDistance of a protected segment?

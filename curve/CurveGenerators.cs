@@ -41,7 +41,7 @@ namespace g3
             if (Subdivisions > 0)
                 nSteps = Subdivisions;
             else if (StepSize > 0)
-                nSteps = (int)MathUtil.Clamp( (int)(fLen / StepSize), 2, 10000);
+                nSteps = MathUtil.Clamp( MathUtil.ToIntSaturating(fLen / StepSize), 2, 10000);
 
             vertices = new VectorArray3d(nSteps+1);
 

@@ -10,8 +10,8 @@ Part of the [roadmap](../ROADMAP.md).
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
   2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Since the inventory of 2026-11-12: the provenance delta
   6b-4 (#677, no (A) finding), the fixes of #637, #695, #723, #728/#729, #748, #863 and #864 part A (#876), and the #870
-  oracle fix #880 (10 of 11 dumps) are merged; the last #870 dump (d6710852) is in review. Open: the SplitTriangle measurement, the
-  inputs that stay blocked, and research.
+  oracle fix #880 (10 of 11 dumps) are merged; the last #870 dump (d6710852) is fixed by #936 (#870 closed); the SplitTriangle
+  breakdown is measured and the speed item dropped (#909). Open: the inputs that stay blocked, and research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
@@ -30,7 +30,7 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **#870, the last dump `d6710852` (bugfix, in review).** The verdict of #880 (merged 2026-11-14): the oracle was wrong, not the
+- **#870, the last dump `d6710852` (bugfix, done: #936, closed 2026-11-15).** The verdict of #880 (merged 2026-11-14): the oracle was wrong, not the
   mesher; #880 fixed 10 of the 11 dumps. In `d6710852` the refused piece ends at a crossing, and the oracle could not tell a
   crossing from a split point near two constraints. Coordinator decision (2026-11-15), now implemented: the output reports each
   piece's sources and which vertices existed before refinement (internal `ConstrainedMesh2` fields, `Mesh2Output`), and the oracle
@@ -71,14 +71,16 @@ so the Herne items below can run; run-A outputs (produced by the fork) and stmlf
     reused buffers, a cheaper fan and petal, that is about 0.2-0.3 s, 6-9 % of the mesh.
   - **More** would need fewer or different candidates (a smaller petal search, fewer arc points, a stronger bound that
     drops candidates the current rule might pick). That changes the output (golden fingerprints, grading counts) and is an
-    owner decision for later. The <= 2x fork target stays open as a future goal.
+    owner decision for later. The <= 2x fork target is closed (owner 2026-11-16, see Research below).
   - Not built: a bit-identical 6-9 % does not justify a PR with its review and CI cycle now (coordinator 2026-11-15).
 - **Fast-oracle leftovers** (no verdict of ours affected): 373600 q30 delaunay 9.8 s (pass on the remaining needles 7.5 s);
   corpus segments and conformity.
-- **Judging very large outputs of other producers:** the quality phase on the two Herne q20 fork outputs (1171 s, or no
-  result within 1800 s; profile first); `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min
-  each); f-16's triangle.c output not re-timed since `Conformity`'s `OverlapPairs` sweep was replaced in #392.
-- **The other 72 own ORACLE-TIMEOUT outputs of run A** were not judged (blocked: run-A outputs).
+- **Judging very large outputs of other producers: closed (owner 2026-11-16).** The quality phase on the two Herne q20
+  fork outputs (1171 s, or no result within 1800 s), `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder
+  (about 4 min each) and the re-timing of f-16's triangle.c output are not pursued: the inputs are blocked and the
+  reference comparison is done; no verdict of ours depends on them.
+- **The other 72 own ORACLE-TIMEOUT outputs of run A: closed (owner 2026-11-16)**, not judged (blocked: run-A outputs;
+  the 12 sampled ones were all VALID, 2026-11-05).
 
 Research or not scheduled (not built without a new decision):
 
@@ -92,8 +94,9 @@ Research or not scheduled (not built without a new decision):
   f-40 1.42x reached). About 5 vertices per octave against the reference's 2.7, so closing it needs a different placement
   strategy. Further options (a size function, one point per ring, quadtree meshing, smoothing) recorded, not scheduled
   (off-centres, Üngör 2004, are already the default split point; Erten / Üngör 2007's candidates are grading step 2).
-- **<= 2x the fork's mesher-only time:** a future goal (owner 2026-11-04); after #384 about 2.7-2.8x on cq 373600 q30 and
-  about 3.4x on q20. Fewer triangles are the expected route.
+- **<= 2x the fork's mesher-only time: closed (owner 2026-11-16)**, like the boolean's 2x target (80 % rule): after #384
+  about 2.7-2.8x on cq 373600 q30 and about 3.4x on q20; the SplitTriangle breakdown (#909, 2026-11-15) shows only 6-9 %
+  left without changing the output, and more needs output changes. Fewer triangles stay the route if a use case asks.
 - **A Chew-2 variant** (Rand, CCCG 2011, 28.6°): a different algorithm; see the lens decision under Done / history.
 - **Iterated rounding can depend on the order** (Hershberger 2013); no case is known. If one appears, the mesher returns its
   collapsed double chains as a certificate that the oracle checks.
@@ -165,6 +168,38 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   (`RuleC_PinnedCounts` 27 -> 25, `HoleTriangleAcrossTheExemptSubsegment` 285 -> 308, 68 -> 70, 137 -> 141), and the quality bound of
   `Cluster_GradesWithFewerTriangles` is missed (241 triangles, at most 235). Taking it needs a re-recording of the golden rows with a
   reason and a look at the grading bound.
+  **Measured on normal inputs (2026-11-16, master 898bdf7 against the same plus 3c7464c's change in `Collect`, scratch branch, nothing
+  committed; net10.0 Release, 4 cores, three interleaved runs per variant, `mesh --no-oracle` per Herne file, `corpus` and `rows`
+  per process; the Herne tiles and the corpus fetched at run time).** Closed as measured, not taken (owner's rule: at least 10 %
+  faster in total on normal inputs, all verdicts VALID, triangles at most about 1 % more):
+  - Verdicts: all 12 Herne runs (base and cq, q20 and q30, all three tiles) VALID with both variants; every judged corpus and catalogue
+    row `ok` with both (two corpus runs, poly2tri/debug2 M3@20 and M3@30, 309 998 triangles, are above the judge limit with both).
+  - Triangles: Herne 552 128 -> 552 095 (-0.01 %); corpus 1 110 725 -> 1 110 223 (-0.05 %); catalogue rows 679 287 -> 679 423 and
+    constrained rows 598 350 -> 598 498 (+0.02 %). Within +-1 %, but the counts differ on 12 of 12 Herne files, 57 of 252 corpus runs
+    and 27 of 55 catalogue rows: the order changes everywhere, not only on the channel.
+  - Mesher time, sum over the inputs (minimum of three runs; the sum of the three runs in brackets):
+
+    | Set | Master, ms | Dedup, ms | Change |
+    |---|---|---|---|
+    | Herne, 12 runs (q20, q30; base and cq) | 15 843 | 15 461 | -2.4 % (-1.6 %) |
+    | Corpus, 250 runs (84 inputs x M2, M3@20, M3@30, less the two debug2 runs) | 10 099 | 8 343 | -17 % (-4.7 %; sub-100 ms runs, ms rounding and noise: the min-of-three total is not stable) |
+    | Catalogue rows, M3 | 5 350 | 5 168 | -3.4 % |
+    | Catalogue rows, constrained mode | 5 081 | 4 600 | -9.5 % |
+    | All of the above | 36 373 | 33 572 | -7.7 % (-2.9 %) |
+    | Corpus poly2tri/debug2 M3@20 and M3@30 (Steiner limit reached, 309 998 triangles) | 13 222 | 9 004 | -32 % |
+
+    The run-to-run spread of one set is 3-8 % (Herne totals 16.2 / 17.4 / 16.4 s on master), so the totals over the normal inputs are
+    inside the noise; only the stress input debug2 (and the narrow channel of #638) gains clearly. Largest Herne gains are
+    inside the noise too (cq 373600 q30 3321 -> 3042 ms, base 373600 q20 2257 -> 2091 ms), and two Herne runs are slower
+    (base 373600 q30 2908 -> 3096 ms).
+  - Cost: on the dedup branch 66 of 138 selected tests fail: 30 `M3_RecordedRow_IsReproduced` and 31 `M3Constrained_RecordedRow_IsReproduced`
+    golden rows (many more than the six of #688, the golden file has grown since), `RuleC_PinnedCounts` (27 -> 25),
+    `HoleTriangleAcrossTheExemptSubsegment_RevokesIt` (three cases: 285 -> 308, 68 -> 70, 137 -> 141) and `Cluster_GradesWithFewerTriangles` (the
+    bound of 235 is missed again).
+  - Recommendation: **close** (not taken). The gain on normal inputs is -2.9 % to -7.7 % in total (sum of runs, minimum of runs), below the 10 % rule, and not distinguishable from noise on the Herne
+    tiles, against re-recording 61 golden rows and a missed grading bound. A cheaper route for #638-like inputs, if ever needed, is the
+    cap on split attempts that is already in (#688); the dedup could be revisited only together with a change that re-records the
+    golden rows anyway.
 
 - **Drift promise on the snap grid (owner 2026-11-10, option A): done.** The QA 2.0 T5 campaign found chains at sub-pixel
   wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources), caused by Q17, against the promise of half a pixel.
@@ -258,7 +293,7 @@ Then lenses for Conforming=false (owner 2026-11-02: a second mode "constrained q
 
 **Merged 2026-11-02:** #328 (snap-path speed), #332 (lenses (B) in the constrained-quality mode: catalogue vertices −7.2 %, corpus 20° 116k → 94k vertices, Herne 373600 q20-snap 93 320 → 62 303 triangles; **intentional behaviour change: the default output of `QualityMesh2` with `Conforming = false` changes**), #334 (grid-hole vertex renumbering bugfix). #337 (grid reroute: retag the triangles a reroute sweeps, merged 2026-11-03). T14 (conforming hole seeding: constraints inside holes queued) merged in #340, T13 (the oracle tolerates hull corners within the tube; one verdict changes, robustness1 M3@0 constrained) in #342, docs #345 (2026-11-03).
 
-Done criterion (owner 2026-11-03): correctness, grading and speed at reference level; provisional targets: triangle count ≤ 1.25x triangle.c on f-11/a, f-11/b, f-40 and a corpus sample at the same bound, Herne snap runs ≤ 2x the fork's mesher-only time, no verdict worse.
+Done criterion (owner 2026-11-03): correctness, grading and speed at reference level; provisional targets: triangle count ≤ 1.25x triangle.c on f-11/a, f-11/b, f-40 and a corpus sample at the same bound, Herne snap runs ≤ 2x the fork's mesher-only time (closed 2026-11-16, see Open), no verdict worse.
 
 Order: oracle speed, vertex deletion + T15, Q17, lenses (A), grading, snap speed.
 
@@ -341,7 +376,7 @@ Follow-up: the corner choice in doubles (MinSin2) vs the oracle's exact shortest
 
 Owner 2026-11-06: build the Failed bugfix first, then A for cq / constrained mode only (design note first, with the termination argument). Default (conforming) mode needs a spec decision on O2 near small angles. #390 section 6 paired the modes crossed; the matched angle-variant recomputation keeps the outliers (stmlf/1461 25.1x constrained vs constrained), and a docs correction follows.
 
-Left, only for judging very large outputs of other producers (no verdict of ours affected): `Conformity`'s `OverlapPairs` sweep (f-16's triangle.c output 10-15 min: needle boxes keep the active list long; at most about 4x from a y-index, and any faster pair order changes which example violations an INVALID report names, golden rows included, so a deliberate report change) and `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min each).
+Left, only for judging very large outputs of other producers (no verdict of ours affected; closed by the owner 2026-11-16, see Open): `Conformity`'s `OverlapPairs` sweep (f-16's triangle.c output 10-15 min: needle boxes keep the active list long; at most about 4x from a y-index, and any faster pair order changes which example violations an INVALID report names, golden rows included, so a deliberate report change) and `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min each).
 
 Finish plan (owner 2026-11-04): grading step 2 (petal candidates, Erten and Üngör 2007, scored as in step 1) and the exact double filters in front of SnapGrid.Pixel / CrossesInterior in one PR (Herne mesher −11.9 % vs pre-grading with −26 % triangles; f-11/a 215, f-11/b 363, f-40 184), with Herne snap runs measured against the fork's mesher-only times; then one last grading step time-boxed to one day; target revised by the owner (2026-11-04): a short look whether 1.25x is cheap, otherwise triangle count <= 1.5x the reference (1.4x welcome) on f-11/a, f-11/b, f-40 and the corpus sample.
 
@@ -389,9 +424,29 @@ Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirt
 
 ### Open for the future (2026-11-15)
 
-1. #870: the last dump `d6710852` (in review).
-2. SplitTriangle breakdown (measurement only), then one speed PR with SplitSegment if the gain is worth its code (no issue).
-3. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
-4. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
-5. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
-6. Research: Shewchuk's Terminator with a region-based oracle excuse; matched shells; grading placement strategy; <= 2x the fork's mesher time; Chew-2 (no issues).
+Done and removed from this list: #870 (the last dump `d6710852`, the O11 excuse from the mesher's provenance, #936),
+the `SplitTriangle` breakdown (measured; the mesher speed item is dropped, #909); closed by the owner 2026-11-16: the
+<= 2x fork speed target, judging the fork's huge Herne q20 outputs and the 72 run-A oracle timeouts.
+
+Decision rule (owner 2026-11-16, as for the boolean): build only what is measured, low risk and gives >= 10 %; everything
+else waits for a concrete use case or is closed with its measurement.
+
+1. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; parked while they do
+   not run in PR CI; if they make PR CI noticeably slower, they become a CI item).
+2. Blocked on inputs: stmlf (no issue).
+3. ~~`Dirty` deduplication in `Collect`~~ closed as measured and not taken (2026-11-16, the item under #638 above: -2.9 % to -7.7 % in total on normal inputs, below the 10 % rule; 61 golden rows and the grading bound change).
+4. Fuzz group (f) slow units (#947, measured 2026-11-16): the time is in the **oracle** (`benchmarks/Meshing2Benchmark/Oracle`), not in
+   `QualityMesh2` or Clipper2. The 14 units' bytes are not on `runs/mesh-fuzz` (only `timing-master.txt`), so they could not be split
+   by operation; the `random` smoke run of the pilot (the same targets, a 250 s run, so the set depends on the machine) finds the same class: 69
+   `quality-mesh2` inputs above 0.3 s and none of `clipper2` above 0.3 s in 20 000. On those 69 the mesher takes 0.15-0.5 s (600-1500
+   output vertices from 6-16 points) and the oracle 89 % of the time, up to 11 s. Cause: inputs with coordinates at very different binary exponents (a vertex at 1e-212 to 1e-277
+   beside an extent of 1) make the tube squared a quotient of two numbers beyond a double; `Q.Bounds` said "does not fit", every double
+   filter that needs the tube was off, and the tests "within the tube" ran in BigInteger; and the angle excuse `SpansSmallInputAngle`
+   recomputed per triangle what depends on a vertex or a pair of sources only (most triangles of such a mesh lie below the angle at small input angles). Fixed in the oracle (`Q.Bounds` of such a quotient, memoized per vertex and per source pair; the
+   verdicts are the same on all 69 and on the Meshing2 / QualityMesh2 suite, which has no wide-exponent snap-grid case; `perf/oracle-wide-range-net10.txt`, 15 of the 69 rows, one run per cell): 133 s -> 83 s over the 69, slowest 11.2 s -> 4.4 s. Left, as
+   a documented limit: 2-4.4 s per such input, in `segments` (the exact selection and the chain checks, about 3 s on the slowest),
+   `coverage` and `marks`; they are a cost of the exact oracle on these inputs (1000 and more bits per coordinate difference), a
+   profile (dotnet-trace was not available in the session) would be the next step. The mesher's output is unchanged.
+5. Research, parked until a concrete use case: Shewchuk's Terminator with a region-based oracle excuse (until a real
+   input fails the current small-angle rule); matched shells (the constrained quality mode is the answer); grading
+   placement strategy (if fewer triangles matter, eg FE meshes); Chew-2 (no issues).

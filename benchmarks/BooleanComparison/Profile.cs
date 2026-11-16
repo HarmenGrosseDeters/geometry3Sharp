@@ -14,7 +14,7 @@
 //     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
 //                                            Rounding.EvaluationLimitReached)
 //     --rounding-max-pair-tests <n>          RoundingMaxPairTests (the rounding's pair-test budget; default 5M)
-//     --tree-parallel-from <n>               TriangleBoxTree.ParallelBuildFrom = n (default 262144: trees of fewer boxes are built
+//     --tree-parallel-from <n>               TriangleBoxTree.ParallelBuildFrom = n (default 8192: trees of fewer boxes are built
 //                                            serially; the tree, and so every result, is the same, see docs/perf/BOOLEAN_THREAD_SCALING.md)
 //     --antipodal-unlimited                  AntipodalMaxBoundarySegments and AntipodalMaxTriangles unlimited (the
 //                                            open-operand classification on the Antipodal path everywhere; T5 option A)

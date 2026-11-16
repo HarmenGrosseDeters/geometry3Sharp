@@ -391,7 +391,7 @@ better; 0.75 is 1.09-1.22x.
   upper bounds; the coplanar 2D shortcut and the clearance filter were measured and closed).
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
-- **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
+- **Issue-tracker follow-ups** ([platform.md](platform.md#quality-bar-when-its-done)): P2 (Disk iteration, parked as
   research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
   would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
@@ -533,14 +533,18 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 
 ### Open for the future (2026-11-15)
 
-1. Alpha Wrap 3.0 (B), round-based parallel carving: #774, merged 2026-11-15 (`RoundWindow` 256 by default, 0 as the opt-out); its 800 run is done (passed on the distribution, owner 2026-11-15; the worst mesh is #919, closed).
-2. (B) part two, parallel trial passes (pinch / manifold): #898, merged 2026-11-15.
-3. The wrap tail above the 20 s hard limit: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888).
-4. (done) Wrap simplification not certified (#747): the retries certify every wrap; a first-pass guard is a no-go (upper bound 2 of 800 meshes, about 17 s in all).
-5. Default decisions for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget (#846), each after an 800 run.
-6. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall thickness (135363).
-7. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).
-8. Procedural coverage of `WindingContouring.FinishHoles`.
-9. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
-10. Remove `external/cgal_wrap.cpp` once no comparison needs it.
-11. A quality-aware manifold step in the alpha wrap: an angle bound for the facets that `make_manifold` exposes (the class without a bound in the `MeshAlphaWrap` doc; diagnosis in #919, closed). Output-changing, gated by an 800 run.
+Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run passed, owner 2026-11-15), #747 (first-pass
+guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
+
+1. Default decisions (owner) for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget
+   (#846). Both change outputs; each needs an 800 run with the lever on first (Haiku runner), then the owner decides.
+2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
+   judged by the regression rule once the watch has a baseline.
+3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).
+   Output-changing, gated by an 800 run.
+4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
+   thickness (135363).
+5. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).
+6. Procedural coverage of `WindingContouring.FinishHoles`.
+7. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
+8. Remove `external/cgal_wrap.cpp` once no comparison needs it.

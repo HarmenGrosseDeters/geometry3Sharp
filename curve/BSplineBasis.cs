@@ -340,7 +340,7 @@ namespace g3
             int i;
 
             if (mUniform) {
-                i = mDegree + (int)((mNumCtrlPoints - mDegree) * t);
+                i = mDegree + MathUtil.ToIntSaturating((mNumCtrlPoints - mDegree) * t);
             } else {
                 for (i = mDegree + 1; i <= mNumCtrlPoints; ++i) {
                     if (t < mKnot[i]) {

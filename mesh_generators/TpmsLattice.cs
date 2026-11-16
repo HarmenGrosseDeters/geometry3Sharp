@@ -291,7 +291,7 @@ namespace g3
                 double pos = (double)m / TableKnots * total - 0.5;
                 if (pos <= 0) { table[m] = values[0]; continue; }
                 if (pos >= total - 1) { table[m] = values[total - 1]; continue; }
-                int lo = (int)pos;
+                int lo = MathUtil.ToIntSaturating(pos);
                 double t = pos - lo;
                 table[m] = values[lo] * (1 - t) + values[lo + 1] * t;
             }
@@ -303,7 +303,7 @@ namespace g3
         {
             double fr = Math.Min(Math.Max(fraction, MinFraction), MaxFraction);
             double pos = fr * TableKnots;
-            int lo = Math.Min((int)pos, TableKnots - 1);
+            int lo = Math.Min(MathUtil.ToIntSaturating(pos), TableKnots - 1);
             double t = pos - lo;
             return table[lo] * (1 - t) + table[lo + 1] * t;
         }
@@ -572,7 +572,7 @@ namespace g3
                 kmin[d] = Math.Floor(box.Min[d] / h) - 3;
                 double span = Math.Ceiling((box.Max[d] - h * kmin[d]) / h) + 3;
                 if (double.IsNaN(span) || span > int.MaxValue / 2) { Fail(TpmsStatus.TooLarge, "the grid does not fit"); return; }
-                cells[d] = (int)span;
+                cells[d] = MathUtil.ToIntSaturating(span);
                 nodes *= cells[d] + 1.0;
             }
             if (nodes > MaxCells) { Fail(TpmsStatus.TooLarge, "the grid has " + nodes.ToString("G6") + " nodes, MaxCells is " + MaxCells); return; }
@@ -671,7 +671,7 @@ namespace g3
                 break;
             }
             if (result == null) { Fail(TpmsStatus.ContouringFailed, "no grid shift gave a valid contouring: " + last); return; }
-            CellsEvaluated = (long)((mc.CellDimensions.x + 1.0) * (mc.CellDimensions.y + 1.0) * (mc.CellDimensions.z + 1.0));
+            CellsEvaluated = MathUtil.ToLongSaturating((mc.CellDimensions.x + 1.0) * (mc.CellDimensions.y + 1.0) * (mc.CellDimensions.z + 1.0));
             if (reason != "") {
                 NotCleanReason = reason;
                 if (reason.Contains("self-intersection")) {

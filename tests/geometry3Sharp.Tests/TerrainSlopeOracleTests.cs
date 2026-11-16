@@ -427,5 +427,36 @@ namespace geometry3Sharp.Tests
             Assert.True(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, 0)));
             Assert.False(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, -1e-300)));
         }
+
+        // survivors of the terrain-arith shard (mutation run 535, 2026-11-14)
+
+        // 90 degrees is rejected (the explicit < 90 check, with a NaN tangent bound as backup); just below is valid. The
+        // 89.9 case is the one that kills mutants of the check; a < to <= mutant is equivalent (the NaN bound rejects 90)
+        [Fact]
+        public void Degrees90_IsNotValid()
+        {
+            Assert.False(SlopeSpec.Degrees(90).IsValid);
+            Assert.True(SlopeSpec.Degrees(89.9).IsValid);
+        }
+
+        [Fact]
+        public void SlopeSpec_ToString_NamesTheKind()
+        {
+            Assert.Equal("1:1.5", SlopeSpec.Ratio(1.5).ToString());
+            Assert.Equal("10 %", SlopeSpec.Percent(10).ToString());
+            Assert.Equal("40 deg", SlopeSpec.Degrees(40).ToString());
+        }
+
+        // a triangle with one vertex not finite is not "not steeper" (in any position of that vertex); a vertical one neither
+        [Fact]
+        public void IsNotSteeper_NonFiniteOrVerticalTriangle_IsFalse()
+        {
+            var a = new Vector3d(0, 0, 0); var b = new Vector3d(1, 0, 0); var c = new Vector3d(0, 1, 0);
+            var bad = new Vector3d(0.5, 0.5, double.NaN);
+            foreach (var t in new[] { new[] { bad, b, c }, new[] { a, bad, c }, new[] { a, b, bad }, new[] { a, b, new Vector3d(0, double.PositiveInfinity, 0) } })
+                Assert.False(Slope.IsNotSteeper(t[0], t[1], t[2], SlopeSpec.Ratio(1)));
+            Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Ratio(1)));
+            Assert.False(Slope.IsNotSteeper(a, b, new Vector3d(0, 0, 1), SlopeSpec.Ratio(1)));
+        }
     }
 }

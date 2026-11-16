@@ -596,7 +596,7 @@ namespace gs
                 segs = s; h = cell; origin = o;
                 for (int i = 0; i < s.Count; ++i) {
                     double len = s[i].P0.Distance(s[i].P1);
-                    int n = Math.Max(1, (int)Math.Ceiling(len / (0.5 * h)));
+                    int n = Math.Max(1, MathUtil.ToIntSaturating(Math.Ceiling(len / (0.5 * h))));
                     for (int k = 0; k <= n; ++k) {
                         Vector3i c = key(Vector3d.Lerp(s[i].P0, s[i].P1, (double)k / n));
                         List<int> l;
@@ -608,7 +608,7 @@ namespace gs
 
             Vector3i key(Vector3d p)
             {
-                return new Vector3i((int)Math.Floor((p.x - origin.x) / h), (int)Math.Floor((p.y - origin.y) / h), (int)Math.Floor((p.z - origin.z) / h));
+                return new Vector3i(MathUtil.FloorToIntSaturating((p.x - origin.x) / h), MathUtil.FloorToIntSaturating((p.y - origin.y) / h), MathUtil.FloorToIntSaturating((p.z - origin.z) / h));
             }
 
             internal bool AnyWithin(Vector3d p, double r)

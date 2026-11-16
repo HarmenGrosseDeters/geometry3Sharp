@@ -80,6 +80,9 @@ of DistanceQueryBox. This pilot chooses **remove the final `+1e-300`** in
 `reach = sqrt(max(0,d2hi)) * (1+1e-12) + 1e-300`.
 
 For d2>=0 and a successful Q.Bounds, its rounded quotient v is nonnegative.
+(Since #947 v is `Quotient(n, d)` when a part of the quotient overflows a double: the leading 62 bits of both,
+scaled by powers of two; for n>=0 it is >= 0 too, and the pad formula is the same. The obligations below take v as
+any nonnegative binary64, so they do not depend on how v was computed; the source contract pins the method's text.)
 The fifth SMT obligation proves that
 `RN(v + RN(RN(v*1e-13)+1e-300)) >= binary64(1e-300)`.
 If an intermediate overflows, both original and mutant refuse the box.

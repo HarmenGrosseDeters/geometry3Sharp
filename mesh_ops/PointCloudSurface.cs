@@ -163,7 +163,7 @@ namespace gs
             // marching cubes asks for every node up to four times (once per cell around it): remember the values
             // (a value is a pure function of the node, so the order of the queries does not matter)
             double ox = bounds.Min.x, oy = bounds.Min.y, oz = bounds.Min.z, cs = UsedCubeSize;
-            long nodesX = (long)Math.Floor(bounds.Width / cs) + 3, nodesY = (long)Math.Floor(bounds.Height / cs) + 3;
+            long nodesX = MathUtil.FloorToLongSaturating(bounds.Width / cs) + 3, nodesY = MathUtil.FloorToLongSaturating(bounds.Height / cs) + 3;
             var memo = new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
             RawFieldF rawField = null;
             Func<Vector3d, double> field = (p) => {
@@ -177,7 +177,7 @@ namespace gs
                 double tz = Math.Min(1e-6, 1e-9 + 8 * 2.3e-16 * Math.Max(Math.Abs(p.z), Math.Abs(oz)) / cs);
                 if (Math.Abs(fx - rx) > tx || Math.Abs(fy - ry) > ty || Math.Abs(fz - rz) > tz)
                     return rawField(p, out bool offLattice);
-                long key = ((long)rz * nodesY + (long)ry) * nodesX + (long)rx;
+                long key = (MathUtil.ToLongSaturating(rz) * nodesY + MathUtil.ToLongSaturating(ry)) * nodesX + MathUtil.ToLongSaturating(rx);
                 double v;
                 if (memo.TryGetValue(key, out v)) return v;
                 v = rawField(p, out bool inBand);
