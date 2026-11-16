@@ -28,14 +28,14 @@ namespace Meshing2Acceptance
 
         /// <summary>The exact value of a finite double, from its bits. Throws on NaN and infinities.</summary>
         /// <summary> an interval of doubles around n / d (d > 0): the conversions and the division round by at most a few units in
-        /// the last place, the interval is wider by far; false if a part overflows a double </summary>
+        /// the last place, the interval is wider by far; false if the quotient overflows a double. A quotient whose parts overflow a
+        /// double (a tube squared of 1000 bits and more) can still be a double: it is taken from the leading bits of both and the
+        /// exponent difference (#947; before, the filters were off there and every test ran in BigInteger) </summary>
         public static bool Bounds(BigInteger n, BigInteger d, out double lo, out double hi)
         {
             double dn = (double)n, dd = (double)d;
             lo = hi = 0;
             if (d.Sign <= 0) return false;
-            // (a quotient whose parts overflow a double, a tube squared of 1000 bits and more, can still be a double: from the leading
-            // bits of both and the exponent difference; before, the filters were off there and every test ran in BigInteger)
             double v = double.IsInfinity(dn) || double.IsInfinity(dd) ? Quotient(n, d) : dn / dd, pad;
             if (double.IsInfinity(v) || double.IsNaN(v)) return false;
             pad = Math.Abs(v) * 1e-13 + 1e-300;
