@@ -107,6 +107,8 @@ static class CertificateStructureProbe
                 for (int k=factorColumnPointers[column]+1; k<factorColumnPointers[column+1]; k++) precedingCounts[factorRows[k]]++;
             using (var stream = new FileStream(args[5], FileMode.CreateNew, FileAccess.Write))
                 JsonSerializer.Serialize(stream, new { width=n, height, vertices=count, free=nf, order, preceding_counts=precedingCounts,
+                    size=nf, vertices_bits=vertices, faces, @fixed=fixedVertices,
+                    scale_bits=BitConverter.DoubleToInt64Bits(scale), shift_bits=BitConverter.DoubleToInt64Bits(shift),
                     assembly_updates=assemblyUpdates, schur_updates=schurTotal, initial_entries=initialTotal,
                     factor_entries=numericalNonzeros, scalar_retained_entries_lower_bound=numericalNonzeros-nf,
                     peak_live_entries_lower_bound=initialTotal, position_certificate="not_checked" });
@@ -143,7 +145,7 @@ static class CertificateStructureProbe
         Console.WriteLine($"grid={n} vertices={count} triangles={faces.Count} free={nf} ordering={args[2]} structure_complete={budget} completed_columns={completed}");
         Console.WriteLine($"assembly_updates={assemblyUpdates} schur_updates={schur} total_updates={assemblyUpdates+schur} initial_entries={initial} peak_live_entries={peak} factor_entries={factorEntries} numerical_factor_nonzeros={numericalNonzeros}");
         string entryBudget = peak > 50000 ? "False" : budget ? "True" : "unknown";
-        Console.WriteLine($"production_vertex_budget={count<=400} triangle_budget={faces.Count<=2000} update_budget={budget && assemblyUpdates+schur<=1000000} entry_budget={entryBudget} counters={(budget ? "complete" : "partial_lower_bounds")} diagnostic_schur_cap={DiagnosticUpdates}");
+        Console.WriteLine($"budget_scope=historical_interval_baseline historical_400_vertex_budget={count<=400} historical_2000_triangle_budget={faces.Count<=2000} historical_1m_update_budget={budget && assemblyUpdates+schur<=1000000} historical_50k_entry_budget={entryBudget} counters={(budget ? "complete" : "partial_lower_bounds")} diagnostic_schur_cap={DiagnosticUpdates}");
         Console.WriteLine($"diagnostic_total_ms={timer.Elapsed.TotalMilliseconds:F3} position_certificate=not_checked reason=structure_only");
         return 0;
     }

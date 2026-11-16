@@ -40,9 +40,24 @@ maximum symmetric radius row sum. Then every enclosed matrix differs from B in
 spectral norm by at most rho, since the radius is symmetric and nonnegative.
 
 Apply Rump's sufficient shifted-Cholesky criterion (2006, Corollary 2.7 and
-section 3 bound I). For n free unknowns, eps = 2^-53 and
+section 3 bounds I and II). For n free unknowns, eps = 2^-53 and
 gamma = (n+1)*eps/(1-(n+1)*eps), a no-underflow trace correction is
 c >= gamma/(1-gamma)*trace(B), subject to the theorem's gamma conditions.
+Production also evaluates the envelope-aware bound II. In lower-triangular
+storage, let t_i = max(i-j) over all retained entries (i,j) in row i, including
+structural zeros. This bounds the envelope of upper Cholesky column i. Set
+k_i=t_i+2, beta_i=gamma_(k_i). In the same exact 2^-1074 units, an outward bound is
+
+    c_II >= sum_i B_ii * k_i / (2^53-2*k_i).
+
+Each positive term is rounded upward separately with integer division. The smaller
+of this bound and the separately valid global bound I is used. A structural
+superset only enlarges t_i, so retained zero weights are conservative. No computed
+factor value or imported symbolic count supplies this correction. The internal
+control mode keeps bound I for comparisons. The existing arithmetic/range and
+complete-pattern premises apply equally to both bounds; no supported size or
+resource cap changes in this step.
+
 Construct C with the same off-diagonals as B and C_ii <= B_ii-c-rho, rounding
 downward. Successful scalar Cholesky under the theorem's arithmetic assumptions
 proves positive definiteness for every matrix in the enclosure, hence

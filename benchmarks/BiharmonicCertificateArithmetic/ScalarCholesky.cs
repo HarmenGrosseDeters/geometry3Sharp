@@ -71,15 +71,16 @@ static class ScalarCholesky
         }
         internal double Root(double a) => Record("sqrt",a,0,Checked(Math.Sqrt(a)));
     }
-    internal static bool Verify(Dictionary<int,Interval>[] input, string digest, string shift, string tracePath)
+    internal static bool Verify(Dictionary<int,Interval>[] input, string digest, string shift, string tracePath, bool envelopeBound = false, bool boundsOnly = false)
     {
         var timer = Stopwatch.StartNew(); int n = input.Length;
         using var trace = tracePath == null ? null : new StreamWriter(new FileStream(tracePath,FileMode.CreateNew,FileAccess.Write));
         var arithmetic = new Arithmetic(trace);
         try {
-            if (n < 1 || n > 2500 || Interval.Bits > UnitBits) throw new ArithmeticException("experimental size/precision cap");
+            if (n < 1 || n > (boundsOnly ? 100000 : 2500) || Interval.Bits > UnitBits) throw new ArithmeticException("experimental size/precision cap");
             var columns = new HashSet<int>[n]; var matrix = new Dictionary<int,double>[n];
             var radiusRows = new BigInteger[n]; BigInteger diagonalSum = 0;
+            var envelope = new int[n];
             var auditEntries = trace == null ? null : new List<object>();
             for (int c = 0; c < n; c++) {
                 columns[c] = new HashSet<int>(); matrix[c] = new Dictionary<int,double>();
@@ -89,6 +90,7 @@ static class ScalarCholesky
                     double midpoint = Checked(Directed((lo+hi)>>1, false));
                     BigInteger center = Units(midpoint), radius = BigInteger.Max(BigInteger.Abs(center-lo),BigInteger.Abs(hi-center));
                     radiusRows[r] += radius; if (r != c) radiusRows[c] += radius;
+                    envelope[r] = Math.Max(envelope[r],r-c);
                     matrix[c].Add(r,midpoint); if (r != c) columns[c].Add(r);
                     if (r == c) { if (midpoint <= 0) throw new ArithmeticException("nonpositive diagonal"); diagonalSum += center; }
                     if (auditEntries != null) auditEntries.Add(new { row=r, column=c, lo=entry.Value.Lo.ToString(), hi=entry.Value.Hi.ToString(), midpoint=BitConverter.DoubleToInt64Bits(midpoint) });
@@ -101,13 +103,28 @@ static class ScalarCholesky
             BigInteger denominator = (BigInteger.One << 53)-2*(n+1), remainder;
             BigInteger correction = BigInteger.DivRem(diagonalSum*(n+1),denominator,out remainder);
             if (!remainder.IsZero) correction++;
+            var globalCorrection = correction;
+            if (envelopeBound) {
+                BigInteger envelopeCorrection = 0;
+                for (int i=0;i<n;i++) {
+                    int k=envelope[i]+2;
+                    var term=BigInteger.DivRem(Units(matrix[i][i])*k,(BigInteger.One<<53)-2*k,out remainder);
+                    if (!remainder.IsZero) term++;
+                    envelopeCorrection+=term;
+                }
+                correction=BigInteger.Min(correction,envelopeCorrection);
+            }
+            if (boundsOnly) {
+                Console.WriteLine($"status=matrix_bounds_only size={n} input_sha256={digest} correction_units={correction} global_correction_units={globalCorrection} radius_units={radiusMax} unit_bits={UnitBits} elapsed_ms={timer.Elapsed.TotalMilliseconds:F3} position_certificate=not_checked");
+                return false;
+            }
             var adjusted = new long[n];
             for (int i = 0; i < n; i++) {
                 matrix[i][i] = Checked(Directed(Units(matrix[i][i])-correction-radiusMax,false));
                 adjusted[i] = BitConverter.DoubleToInt64Bits(matrix[i][i]);
             }
             if (trace != null) trace.WriteLine(JsonSerializer.Serialize(new { kind="bounds", input_sha256=digest, size=n,
-                bits=Interval.Bits, correction_units=correction.ToString(), radius_units=radiusMax.ToString(), adjusted, entries=auditEntries }));
+                bits=Interval.Bits, envelope_bound=envelopeBound, envelope, correction_units=correction.ToString(), radius_units=radiusMax.ToString(), adjusted, entries=auditEntries }));
             var rows = new List<KeyValuePair<int,double>>[n]; for (int i = 0; i < n; i++) rows[i] = new List<KeyValuePair<int,double>>();
             long symbolic = 0;
             for (int j = 0; j < n; j++) {

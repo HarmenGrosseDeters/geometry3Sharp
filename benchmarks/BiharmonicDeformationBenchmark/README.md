@@ -1,5 +1,52 @@
 # Biharmonic displacement benchmark (#886)
 
+## Envelope-aware production bound (2026-11-16)
+
+The scalar production verifier now takes the smaller of the former global trace
+correction (control mode) and Rump (2006), section 3 bound II. The latter uses the
+original sparse matrix envelope and exact outward integer term bounds. It needs
+no extra symbolic factorization. Radius accounting, downward diagonals, scalar
+arithmetic/runtime premises, requested accuracy and production resource caps are
+retained. The proof gives the formula and its completeness premises.
+
+The 128-unknown separated-block regression at three exact power-of-two scales
+checks new acceptance versus the global-bound control and rejects an interval
+containing an indefinite member. Independent exact trace replay additionally
+checks the envelope, correction, adjusted matrix and every small scalar operation:
+
+```sh
+python3 benchmarks/BiharmonicDeformationBenchmark/scalar_certificate_controls.py <dotnet> <producer.dll> <checker.dll> --envelope
+python3 benchmarks/BiharmonicDeformationBenchmark/envelope_bound_profile.py <dotnet> <producer.dll> <checker.dll>
+```
+
+The second command runs both recurrences on small represented rotated meshes,
+then reconstructs interval L/M/Q for larger **actual binary64** fixtures and
+reports their bound sizes only. `mesh-envelope-bounds` runs no Cholesky and returns
+no position certificate. This separates the actual roundoff-bound measurement
+from the earlier ideal rational-grid diagnosis; a smaller bound alone cannot
+certify the larger mesh. Raw evidence is in `envelope-bound-results.txt` and `envelope-bound-validation.txt`.
+The structure probe now labels its former 400-vertex budget flags explicitly as
+historical baseline checks. The earlier captured profile retains its original
+stdout, with that limitation called out in its header. The audit script rejects
+combining envelope mode with the global-only source mutation option.
+At 100k actual represented rotated vertices the envelope correction is 0.122258,
+versus 4.96585 for the global control (normalized matrix units); this is a bound
+comparison, not a spectral gap or position certificate. The complete interval
+matrix reconstruction and bound report takes 35.1 s in this single run. It still
+omits Cholesky and final-position residual checks.
+
+The pilot's `JsonElement` array indexing made fixture parsing quadratic. Sequential
+enumeration preserves all three shared input hashes and exact correction/radius
+integers, reducing the measured 50k run from 58.0 to 18.2 s; the old 100k run hit
+the 90 s harness limit. `envelope-parser-before.txt` preserves that diagnosis.
+These are shared-machine single runs, not general timing guarantees.
+
+All four existing 2500/10000-vertex production candidate hashes remain unchanged.
+One run during concurrent local builds exceeded 20 s; #976 records its diagnosis
+as required by the repository time rule. A repeat without concurrent task builds
+took 8.53/10.48 s for the aligned/rotated 10k cases. The raw paired context is in
+`envelope-bound-validation.txt`; these single runs do not isolate contention's share.
+
 ## 100k diagnosis (2026-11-16)
 
 The benchmark-only `--certificate-growth <nx>x<ny> solver <shift> rotated <fresh.json>`

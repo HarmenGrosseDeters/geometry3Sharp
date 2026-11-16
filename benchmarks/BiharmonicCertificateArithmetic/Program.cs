@@ -87,6 +87,7 @@ class Program
 {
     static string PivotOutputPath;
     static bool ScalarMode;
+    static bool EnvelopeMode, BoundsOnly;
     static void Check(bool value,string message) { if(!value)throw new Exception(message); }
     static BigInteger Min4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Min(BigInteger.Min(a,b),BigInteger.Min(c,d));
     static BigInteger Max4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Max(BigInteger.Max(a,b),BigInteger.Max(c,d));
@@ -183,11 +184,15 @@ class Program
         byte[] contents=File.ReadAllBytes(path);string digest=Convert.ToHexString(SHA256.HashData(contents)).ToLowerInvariant();
         using var json=JsonDocument.Parse(contents);var root=json.RootElement;
         var vertices=root.GetProperty("vertices_bits");int n=vertices.GetArrayLength(),nf=root.GetProperty("size").GetInt32();
-        if(n<3||n>10000||nf<1||nf>n)throw new ArgumentOutOfRangeException();
+        if(n<3||n>(BoundsOnly ? 100000 : 10000)||nf<1||nf>n)throw new ArgumentOutOfRangeException();
         var coords=new double[n][];
-        for(int i=0;i<n;i++) {
+        // JsonElement array indexing traverses preceding elements. Enumerate
+        // large arrays once so fixture parsing remains linear in vertex count.
+        int coordinateIndex=0;
+        foreach(var vertex in vertices.EnumerateArray()) {
+            int i=coordinateIndex++;
             coords[i]=new double[3];for(int k=0;k<3;k++) {
-                coords[i][k]=BitConverter.Int64BitsToDouble(vertices[i][k].GetInt64());
+                coords[i][k]=BitConverter.Int64BitsToDouble(vertex[k].GetInt64());
                 if(!double.IsFinite(coords[i][k]))throw new FormatException("nonfinite vertex");
             }
         }
@@ -196,11 +201,16 @@ class Program
         if(!(scale>0)||!double.IsFinite(scale)||!(shift>0)||!double.IsFinite(shift))throw new FormatException("invalid scale or shift");
         var fixedJson=root.GetProperty("fixed");if(fixedJson.GetArrayLength()!=n)throw new FormatException("fixed size");
         var free=new int[n];int count=0;
-        for(int i=0;i<n;i++)free[i]=fixedJson[i].GetBoolean() ? -1 : count++;
+        int fixedIndex=0;
+        foreach(var fixedVertex in fixedJson.EnumerateArray())free[fixedIndex++]=fixedVertex.GetBoolean() ? -1 : count++;
         if(count!=nf)throw new FormatException("free count");
         var inverse=new int[nf];var seen=new bool[nf];var order=root.GetProperty("order");
         if(order.GetArrayLength()!=nf)throw new FormatException("permutation size");
-        for(int i=0;i<nf;i++) { int v=order[i].GetInt32();if(v<0||v>=nf||seen[v])throw new FormatException("permutation");seen[v]=true;inverse[v]=i; }
+        int orderIndex=0;
+        foreach(var orderedVertex in order.EnumerateArray()) {
+            int v=orderedVertex.GetInt32();if(v<0||v>=nf||seen[v])throw new FormatException("permutation");
+            seen[v]=true;inverse[v]=orderIndex++;
+        }
         var p=new Interval[n][];var rows=new Dictionary<int,Interval>[n];var mass=new Interval[n];var scaleI=Interval.FromDouble(scale);
         if(scaleI.Lo.Sign<=0) { Console.WriteLine("status=uncertain reason=scale");Environment.ExitCode=1;return; }
         for(int i=0;i<n;i++) {
@@ -240,7 +250,7 @@ class Program
             columns[i][i]=diag-shiftI;
         }
         string shiftText=shift.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
-        if(ScalarMode ? ScalarCholesky.Verify(columns,digest,shiftText,PivotOutputPath) : Factor(columns,digest,shiftText,"mesh")) {
+        if(ScalarMode ? ScalarCholesky.Verify(columns,digest,shiftText,PivotOutputPath,EnvelopeMode,BoundsOnly) : Factor(columns,digest,shiftText,"mesh")) {
             if(ScalarMode) Console.WriteLine("position_certificate=not_checked reason=experimental_scalar_matrix_only");
             else if(root.TryGetProperty("candidate_bits",out var candidateBits) && root.TryGetProperty("target_bits",out var targetBits))
                 CheckResidual(coords,rows,mass,free,scaleI,shiftI,candidateBits,targetBits);
@@ -255,7 +265,7 @@ class Program
         string digest=Convert.ToHexString(SHA256.HashData(contents)).ToLowerInvariant();
         using var json=JsonDocument.Parse(contents);
         var root=json.RootElement; int n=root.GetProperty("size").GetInt32();
-        if(n<1||n>10000)throw new ArgumentOutOfRangeException("size");
+        if(n<1||n>(BoundsOnly ? 100000 : 10000))throw new ArgumentOutOfRangeException("size");
         var columns=new Dictionary<int,Interval>[n];for(int i=0;i<n;i++)columns[i]=new Dictionary<int,Interval>();
         foreach(var entry in root.GetProperty("entries").EnumerateArray()) {
             int row=entry[0].GetInt32(),col=entry[1].GetInt32();
@@ -295,7 +305,9 @@ class Program
     static void Main(string[] args)
     {
         if(args.Length==1 && args[0]=="scalar-selftest") { ScalarCholesky.SelfTest();return; }
-        ScalarMode=args.Length>0 && args[0]=="mesh-scalar";
+        EnvelopeMode=args.Length>0 && (args[0]=="mesh-envelope"||args[0]=="mesh-envelope-bounds");
+        BoundsOnly=args.Length>0 && args[0]=="mesh-envelope-bounds";
+        ScalarMode=args.Length>0 && (args[0]=="mesh-scalar"||EnvelopeMode);
         bool factor=args.Length>0 && (args[0]=="factor"||args[0]=="mesh"||ScalarMode);
         Interval.Bits=factor ? int.Parse(args[1]) : args.Length>0?int.Parse(args[0]):512;
         if(Interval.Bits<16||Interval.Bits>4096)throw new ArgumentOutOfRangeException();

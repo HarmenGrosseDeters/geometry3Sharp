@@ -26,10 +26,17 @@ reduce it substantially in that model, but neither is integrated or a certificat
 for represented binary64 inputs. See the benchmark README and raw logs. Independent
 review verified the model formulas and corrected the original scope labeling.
 
+Envelope-bound implementation (2026-11-16): production now additionally computes
+Rump2006 bound II directly from original-data midpoint matrix envelopes, with exact
+outward integer sums and the former global bound as a control. Independent bounds
+review found no concrete false-success path. Runtime premises, radius, scalar
+recurrence and production size/work/fill caps remain. The independent pilot has
+matching envelope mode, complete small trace audits and bounds-only reconstruction
+of larger represented binary64 fixtures. The Perron bound remains a model study.
+
 Next bounded steps:
-1. Specify and review original-data midpoint/radius composition with the sharper
-   bound, preserving the same scalar recurrence, runtime contract and rejection
-   controls. Validate on small exact references before a production integration.
+1. Complete acceptance/reference measurements of the envelope-aware composition,
+   including represented large inputs. This does not resolve scalar fill/work cost.
 2. Measure actual corrected-matrix behavior on the represented 25k/50k/100k
    fixtures. A model Rayleigh upper bound cannot authorize acceptance or choose mu.
 3. Separately address retained factor storage and scalar update cost; the complete

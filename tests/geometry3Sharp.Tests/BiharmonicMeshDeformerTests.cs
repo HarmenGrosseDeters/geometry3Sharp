@@ -33,6 +33,27 @@ namespace geometry3Sharp.Tests
             foreach(var h in handles)Assert.Equal(h.Value,result.Mesh.GetVertex(h.Key));
         }
 
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(7.888609052210118E-31)] // 2^-100
+        [InlineData(1.2676506002282294E30)] // 2^100
+        public void ScalarCertificate_EnvelopeBoundCertifiesSeparatedBlocks(double scale)
+        {
+            if (!BiharmonicScalarCertificate.IsSupported) return;
+            const int n=128;
+            var columns=new Dictionary<int,BiharmonicFixedInterval>[n];
+            for(int i=0;i<n;i++)columns[i]=new Dictionary<int,BiharmonicFixedInterval> {
+                {i,BiharmonicFixedInterval.FromDouble(scale)} };
+            columns[0][1]=BiharmonicFixedInterval.FromDouble(scale);
+            columns[1][1]=BiharmonicFixedInterval.FromDouble(scale*(1+2e-12));
+            Assert.False(BiharmonicScalarCertificate.Verify(columns,useEnvelope:false));
+            Assert.True(BiharmonicScalarCertificate.Verify(columns));
+            // A wider supplied interval includes an indefinite member.
+            var diagonal=columns[1][1];
+            columns[1][1]=new BiharmonicFixedInterval(BiharmonicFixedInterval.FromDouble(scale*(1-2e-12)).Lo,diagonal.Hi);
+            Assert.False(BiharmonicScalarCertificate.Verify(columns));
+        }
+
         [Fact]
         public void ScalarCertificate_RejectsIndefiniteIntervalsAndExhaustedBudgets()
         {

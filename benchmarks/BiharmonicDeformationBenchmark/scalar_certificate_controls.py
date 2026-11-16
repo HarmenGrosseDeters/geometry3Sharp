@@ -93,7 +93,17 @@ def audit(records):
     assert len(diagonal) == n
     exact_correction = F(n+1, 2**53 - 2*(n+1)) * sum(diagonal.values())
     correction = int(bounds['correction_units']) * unit
-    assert exact_correction <= correction < exact_correction + unit
+    if bounds.get('envelope_bound'):
+        widths = [0]*n
+        for entry in bounds['entries']:
+            row,column = entry['row'],entry['column']
+            widths[row] = max(widths[row],row-column)
+        assert widths == bounds['envelope']
+        ceil_units = lambda term: (term.numerator*2**1074+term.denominator-1)//term.denominator
+        envelope = sum(ceil_units(diagonal[i]*F(widths[i]+2,2**53-2*(widths[i]+2))) for i in range(n))
+        assert correction == min(ceil_units(exact_correction),envelope)*unit
+    else:
+        assert exact_correction <= correction < exact_correction + unit
     rho = int(bounds['radius_units']) * unit
     assert rho == max(radius)
     for i, raw in enumerate(bounds['adjusted']):
@@ -160,8 +170,11 @@ def mutation(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dotnet'); parser.add_argument('producer'); parser.add_argument('checker')
+    parser.add_argument('--envelope',action='store_true',help='audit the envelope-aware criterion')
     parser.add_argument('--mutation-artifacts', help='temporarily remove the trace correction; use a dedicated worktree and fresh artifact build')
     args = parser.parse_args()
+    if args.envelope and args.mutation_artifacts:
+        parser.error('--mutation-artifacts supports the global control only; run envelope audits separately')
     if args.mutation_artifacts:
         mutation(args)
         return
@@ -175,7 +188,7 @@ def main():
             path = Path(tmp) / f'{n}.json'; trace = Path(tmp) / f'{n}.jsonl'
             produced = run([args.dotnet, args.producer, '--certificate-structure', str(n), 'solver', '0.5', 'rotated', str(path)])
             assert produced.returncode == 0, produced.stdout + produced.stderr
-            checked = run([args.dotnet, args.checker, 'mesh-scalar', '256', str(path), str(trace)])
+            checked = run([args.dotnet, args.checker, 'mesh-envelope' if args.envelope else 'mesh-scalar', '256', str(path), str(trace)])
             assert checked.returncode == 0 and 'status=positive_scalar_pivots' in checked.stdout, checked.stdout + checked.stderr
             assert 'position_certificate=not_checked' in checked.stdout and 'position_certificate=within_tolerance' not in checked.stdout
             records = [json.loads(line) for line in trace.read_text().splitlines()]
@@ -204,7 +217,7 @@ def main():
                 assert rejected, kind + ' audit mutant survived'
             data = json.loads(path.read_text()); data['shift_bits'] = 0x43b0000000000000
             bad = Path(tmp) / f'{n}-bad-shift.json'; bad.write_text(json.dumps(data))
-            rejected = run([args.dotnet, args.checker, 'mesh-scalar', '256', str(bad)])
+            rejected = run([args.dotnet, args.checker, 'mesh-envelope' if args.envelope else 'mesh-scalar', '256', str(bad)])
             assert rejected.returncode != 0 and 'status=uncertain' in rejected.stdout
             print(f'grid={n} bad_shift=rejected audit_negative_controls=5 position_certificate=not_checked', flush=True)
 

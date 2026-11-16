@@ -94,7 +94,7 @@ internal static class BiharmonicScalarCertificate
         Sum(1,-5.5511151231257827E-17) == 1 &&
         Sum(1.0000000000000002,1.1102230246251565E-16) == 1.0000000000000004;
 
-    internal static bool Verify(Dictionary<int,Interval>[] input, long remainingUpdates = 1000000, int maxLiveEntries = 50000)
+    internal static bool Verify(Dictionary<int,Interval>[] input, long remainingUpdates = 1000000, int maxLiveEntries = 50000, bool useEnvelope = true)
     {
         if (!IsSupported) return false;
         int n = input.Length;
@@ -103,6 +103,7 @@ internal static class BiharmonicScalarCertificate
             if (n < 1 || n > 10000 || Interval.Bits > UnitBits) throw new ArithmeticException("size/precision cap");
             var columns = new HashSet<int>[n]; var matrix = new Dictionary<int,double>[n];
             var radiusRows = new BigInteger[n]; BigInteger diagonalSum = 0;
+            var envelope = new int[n];
             for (int c = 0; c < n; c++) {
                 columns[c] = new HashSet<int>(); matrix[c] = new Dictionary<int,double>();
                 foreach (var entry in input[c]) {
@@ -111,6 +112,7 @@ internal static class BiharmonicScalarCertificate
                     double midpoint = Checked(Directed((lo+hi)>>1, false));
                     BigInteger center = Units(midpoint), radius = BigInteger.Max(BigInteger.Abs(center-lo),BigInteger.Abs(hi-center));
                     radiusRows[r] += radius; if (r != c) radiusRows[c] += radius;
+                    envelope[r] = Math.Max(envelope[r],r-c);
                     matrix[c].Add(r,midpoint); if (r != c) columns[c].Add(r);
                     if (r == c) { if (midpoint <= 0) throw new ArithmeticException("nonpositive diagonal"); diagonalSum += center; }
                 }
@@ -122,6 +124,19 @@ internal static class BiharmonicScalarCertificate
             BigInteger denominator = (BigInteger.One << 53)-2*(n+1), remainder;
             BigInteger correction = BigInteger.DivRem(diagonalSum*(n+1),denominator,out remainder);
             if (!remainder.IsZero) correction++;
+            if (useEnvelope) {
+                // Rump (2006), section 3 bound II. L row i corresponds to
+                // R column i; symbolic zeros only enlarge its envelope.
+                // beta/(1-beta) = k/(2^53-2k), k = envelope width + 2.
+                BigInteger envelopeCorrection = 0;
+                for (int i = 0; i < n; i++) {
+                    int k = envelope[i]+2;
+                    var term = BigInteger.DivRem(Units(matrix[i][i])*k,(BigInteger.One<<53)-2*k,out remainder);
+                    if (!remainder.IsZero) term++;
+                    envelopeCorrection += term;
+                }
+                correction = BigInteger.Min(correction,envelopeCorrection);
+            }
             for (int i = 0; i < n; i++) {
                 matrix[i][i] = Checked(Directed(Units(matrix[i][i])-correction-radiusMax,false));
             }
