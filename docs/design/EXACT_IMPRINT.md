@@ -97,7 +97,7 @@ public class ExactMeshImprint
 
     // inputs (not modified) and options: public fields, as ExactMeshBoolean
     public DMesh3 Target;
-    public List<DMesh3> Cutters;              // or Cutter for the common single mesh
+    public List<DMesh3> Cutters;              // plus `Cutter { set }`: sets Cutters to the one mesh (stated once here)
     public bool LabelCurves;                  // 3.3
     public bool CheckTargetSelfIntersections; // 3.5
     public bool AllowCurveContraction = true; // 4.2
@@ -156,8 +156,7 @@ Untouched triangles keep their ids by construction. `SourceTriangle` has length 
 
 ### 3.3 The curve edges
 
-`CurveEdges`: the result's edges that lie on the intersection curves (an edge set of `Result` edge ids, or a
-`HashSet<long>` of vertex pairs, plus `CurveEdgeGroup` option). It comes from the arrangement's `ConstraintEdges` (point-id
+`CurveEdges`: the result's edges that lie on the intersection curves (a `HashSet<long>` of undirected vertex pairs, `ExactMeshArrangement.EdgeKey`). It comes from the arrangement's `ConstraintEdges` (point-id
 pairs), mapped to result vertices. Options:
 - `LabelCurves = true` (default false): additionally an `int[] CurveId` per curve edge, the id of a connected curve
   (chain of curve edges through vertices of curve valence 2; a curve that closes, or ends at the target's boundary). The
@@ -195,8 +194,12 @@ v1 has the arrangement's behaviour, without switches (a switch would need new ar
   self-intersects is exact for the pairs target/cutter; two pieces of the target that cross each other each get their cuts
   from the cutter independently. `Result` is then not a manifold-embedded surface, and `Counts["target_self_intersections"]`
   is not computed (a full search; off). An option `CheckTargetSelfIntersections` (default false) runs it for the diagnosis.
-- Degenerate target triangles: the arrangement drops them, the assembly keeps them: they stay in `Result` with their id and are not split (they are left out of `SourceTriangle` pieces only in the sense that their one piece is themselves). Not finite coordinates:
-  `InvalidInput`, `Target` / `Cutter` null: `InvalidInput`.
+- Degenerate target triangles: the arrangement drops them. The assembly **splits them along their shared edges**: a degenerate
+  target triangle keeps its id and its corners but gets the new vertices of each of its edges that another target triangle shares and the cutter
+  splits (the assembly takes the vertex list of that edge from the neighbour's pieces); the result is degenerate slivers, which are pre-existing by
+  provenance. So a closed manifold target stays closed (no crack). A degenerate triangle whose edge has no neighbour is left as it is. Tested (a
+  closed mesh with a zero-area triangle whose edge is cut). Not finite coordinates:
+  `InvalidInput`, `Target` or a cutter null: `InvalidInput`.
 - Empty imprint (no intersection): `Success`, `Result` a copy of the target, `CurveEdges` empty.
 
 ## 4. Output and rounding
@@ -241,7 +244,11 @@ with these changes:
    source triangles (`SourceTriangle`) intersect in `Target` (exact test of the two source triangles, not shared-edge
    neighbours), or a degenerate triangle whose source is degenerate. Pre-existing defects are not repaired (edits only where a
    non-pre-existing defect is) and not counted in `RemainingIntersections` / `RemainingDegenerate`; the new rounding option
-   `PairProvenance` (a `Func<int,int,bool>` over result triangle ids) carries the test. For a clean target this is the boolean's `IsClean`.
+   `PairProvenance` (a `Func<int,int,bool>` over result triangle ids) carries the test.
+   **Restricted scope (the design, not a fallback):** untouched target triangles keep their bits, so every new defect involves at least one
+   piece triangle (a triangle created by the imprint). The rounding runs its exact pair search, its defect detection and its edits only
+   for pairs with at least one piece triangle (a new `Scope` predicate over triangle ids: the pieces and their one-ring for edit
+   evaluation); untouched-untouched pairs are pre-existing by construction and are never tested. The cost follows the touched region, not the target size. For a clean target this is the boolean's `IsClean`.
    Target T-junction cracks and seams are not defects (they are the target's).
 4. Statuses: `Success` with `RoundingClean` false means defects remain (as the boolean, Counts say which). `StrictRounding`
    gives `RoundingNotClean` and `Result = null`.
@@ -254,9 +261,10 @@ with these changes:
 - G2 Exactness before rounding: the set of imprinted curves (as exact points and constraint edges) equals the arrangement's
   intersection curves of target and cutter (the boolean's `ConstraintEdges` restricted to the target's triangles).
 - G3 Geometric: with rounding, every result point is within `max(MaxDisplacement * diagonal, UlpFactor * ulp)` of the target's
-  surface (the same bound as SafeRounding). For results where no edit was made the distance is at most a rounding unit.
-- G4 Verified: with `SafeRounding`, if `RoundingClean`, the result has no self-intersection and no degenerate triangle that the
-  target had not (exact check on the doubles).
+  surface (the same bound as SafeRounding); with `FixedHard` only new vertices move (tiny moves within the bound, or the
+  contractions of curve edges); target vertices never move. For results where no edit was made the distance is at most a rounding unit.
+- G4 Verified: with `SafeRounding`, if `RoundingClean`, no pair with a piece triangle (these are all the pairs that can be new)
+  self-intersects unless its source triangles intersect in the target, and no piece is degenerate unless its source is (exact check on the doubles).
 - G5 Curve edges: every curve edge of the exact imprint is an edge of `Result`, or was contracted by a counted edit
   (`curve_edges_contracted`, each shorter than the SafeRounding bound); with `AllowCurveContraction = false` the second case is 0 and a
   degenerate curve triangle stays as a defect instead (then `StrictRounding` fails on the dense cases, by design). Two curve
@@ -306,8 +314,8 @@ bit), a reuse test, determinism, time limits (5 s per test; the corpus-like chec
    imprint's curve set equals the arrangement's intersection curves: build an `ExactMeshArrangement` of {target, cutter}, take `ConstraintEdges`,
    and compare as sets of exact point pairs with the imprint's `CurveEdges` mapped to exact points
    (`ResultExactVertices`). Also: the union of the imprint's pieces, rounded or not, has equal total *exact* area to the
-   target (no area gained or lost: sum of exact triangle areas of the pieces of each source triangle equals the source's
-   area, over rationals). The oracle is an `ExactMeshArrangement` of the same meshes with `SelfIntersections = false`, no mask.
+   target (no area gained or lost: the signed area of the pieces of each source triangle, projected onto the source triangle's dominant coordinate plane, sums
+   to that of the source: rational and additive, because the pieces are coplanar with the source; the 3D area has a square root and does not add). The oracle is an `ExactMeshArrangement` of the same meshes with `SelfIntersections = false`, no mask.
    For inputs without self-intersections and T-junctions also: the pieces of mesh A that `ExactMeshBoolean` keeps (with
    `SimplifyFlatRegions = false`, `SafeRounding = false`, orientation aside) are a subset of the imprint's pieces. Plus a
    mask test on the arrangement itself (untriangulated meshes give no output, the triangulated ones equal the unmasked run, and the
@@ -350,16 +358,14 @@ triangulation, classification, simplify, assemble, rounding):
 | classification | 66 to 82 % of the slow ops | none | not needed |
 | simplify flat regions | yes | no | |
 | assemble | yes | simpler (target joins only) | |
-| rounding | on the whole result | on the whole result, with more locked edges | the repair loop's cost follows the triangle count (T1b profile); the exact intersection search of the result (up to 76 % of rounding time) is the same |
+| rounding | on the whole result | only pairs with a piece triangle (4.2.3), with more locked edges | the exact intersection search of the boolean's result is up to 76 % of its rounding time; the imprint's follows the touched region |
 
 Estimate (an upper bound, **not measured**): imprint = 30 to 60 % of the boolean's time when the classification is not the
 dominant phase (closed meshes: classification is a smaller share), and 5 to 20 % where it is (open inputs; the slow tail).
 Per the rule of AGENT_WORKFLOW section 3 the share is a statement about a stratum: the imprint's saving is the classification and the
 cutter's triangulation, so it is large on classification-bound operations (open and large meshes) and about half on
-others. The rounding of the whole result is the part that does not shrink, and it runs over the whole target (untouched triangles too), where the boolean
-rounds its smaller result; against closed-mesh booleans the 30 to 60 % can therefore be too low a cost (the exact intersection search is up to 76 % of
-rounding time): the measured upper bound decides, and an option to round only the pieces and their one-ring is the lever if it does not hold; with `SafeRounding = false` the imprint is
-the arrangement alone.
+others. The rounding is restricted to the touched region (4.2.3), so its cost follows the pieces, not the target size; it is the phase to measure
+first (the upper bound below). With `SafeRounding = false` the imprint is the arrangement alone.
 
 **Benchmark plan** (`benchmarks/ExactImprint`, a console project like `benchmarks/BooleanComparison`, built in CI as every benchmark):
 (1) the same pairs as the BooleanComparison's study set (procedural: sphere / cube / torus pairs at 1k to 1M triangles; the
@@ -386,27 +392,17 @@ Estimate: 4 to 6 sessions of work including the review round, 1 session of revie
 locked edges: more defects may remain, and the dense curve cases decide whether G5 holds without `AllowCurveContraction`);
 the fallback, if the locked-edge repair is not clean on the dense cases, is to ship v1 with G5 reported (`curve_edges_contracted`,
 default allow) instead of guaranteed, and say so. The deprecation decision for `MeshMeshCut` / `MeshBoolean` is a separate step after
-a release with the imprint, not part of this PR.
+the imprint has been merged and has run in the nightly / corpus (no release is planned, owner 2026-11-16); not part of this PR.
 
-## 8. Open questions for the owner
+## 8. Questions for the owner: decided
 
-Kept to the ones that are the owner's (everything else above is decided by default and can be changed in review):
+Decided by the coordinator on 2026-11-16, recommendations taken (a new class and its own defaults: no API break, no change to existing outputs):
 
-- **Q1, output semantics: classification.** v1 outputs the target split and the curve edges only, no inside / outside side label
-  and no "remove the part inside the cutter" (`MeshMeshCut.RemoveContained`). Is that enough for the replacement of
-  `MeshMeshCut` / `MeshBoolean`'s uses, or should v1 include per-piece labels (inside / outside the cutter, by the winding number of
-  the cutter, which brings the classification back and about doubles the cost)? Recommendation: no; labels as a follow-up on
-  demand (`ExactMeshBoolean` already gives the booleans).
-- **Q2, API shape: new class or an extension of `MeshMeshCut`.** Recommendation: a new class `ExactMeshImprint` (a `new`, public
-  type; `MeshMeshCut` unchanged), with `Result` as a new mesh and an `ApplyTo` for the in-place use. The alternative is an
-  `Exact` flag on `MeshMeshCut` (in place, same type), which keeps the `CutVertices` / `AppendSegments` / `ColorFaces`
-  members but ties the new semantics to the old class and its options (`VertexSnapTol`).
-- **Q3, vertex attributes.** Normals, colors and UVs of the new vertices are not carried in v1 (as the boolean). Acceptable?
-- **Q4, coplanar and contact switches.** v1 always imprints coplanar outlines and contact points (the arrangement's behaviour;
-  the float cut refuses or fails there). Options to ignore them (only transversal curves) need new arrangement code and review;
-  wanted in v1, or a follow-up on demand? Recommendation: follow-up.
-- **Q5, rounding vs curve edges.** Default `AllowCurveContraction = true` (a counted contraction of a curve edge below the bound where the
-  rounding needs it) or `false` (a defect stays, `StrictRounding` can fail on dense curves). Recommendation: true.
+- **Q1:** no inside / outside labels in v1 (the imprint is the target split and its curve edges; `ExactMeshBoolean` gives booleans; labels as a follow-up on demand).
+- **Q2:** a new class `ExactMeshImprint` with `Result` and `ApplyTo`; `MeshMeshCut` unchanged.
+- **Q3:** no vertex attributes (normals, colors, UVs) in v1.
+- **Q4:** the coplanar / contact ignore switches are a follow-up (they need new arrangement code and review).
+- **Q5:** `AllowCurveContraction = true` (a counted contraction of a curve edge below the bound where the rounding needs it).
 
 How others solve the open points (prior-art line for the options): Q1 Cherchi 2022 and Lévy 2025 classify after the co-refinement
 as a separate stage; Q2 nothing found beyond the papers' staging (co-refinement as a separate stage; no library code or documentation of a copyleft library was consulted); Q5 White 2004 and Smith 2010 merge curves within a tolerance, i.e. contract; nothing
