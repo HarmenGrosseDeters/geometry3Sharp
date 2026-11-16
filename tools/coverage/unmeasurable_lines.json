@@ -136,5 +136,254 @@
     ],
     "reason": "the failure statuses ContouringFailed, NotClean, SelfIntersecting and Cancelled of TpmsLattice: the library retries shifted grids until the certificate passes and no input of the CLI cancels, so no cheap input reaches them (the library tests force them with the internal RejectAttempt hook, which the CLI cannot set); the branch only maps the status to operation_failed with tpms_status",
     "approved_in": "#895"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return -1;",
+    "after": [
+      "if (next == -1)",
+      "return c;",
+      "if (next == -2)",
+      "}",
+      "}",
+      "break;",
+      "next = n;",
+      "if (ExactPredicates.Orient3d(a, b, d, p) > 0) {",
+      "d = vertices[cv[4 * c + FacetIndices[i, 2]]];",
+      "Vector3d a = vertices[cv[4 * c + FacetIndices[i, 0]]], b = vertices[cv[4 * c + FacetIndices[i, 1]]],",
+      "continue;",
+      "if (n == prev && n >= 0)",
+      "int n = cn[4 * c + i];",
+      "int i = (start + k) & 3;",
+      "for (int k = 0; k < 4; ++k) {",
+      "int next = -2;",
+      "int start = (int)(walk & 3);"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "for (c = 0; c < maxCell; ++c) {",
+    "after": [
+      "}",
+      "c = next;"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "if (alive[c] && contains(c, p))",
+    "after": [
+      "for (c = 0; c < maxCell; ++c) {",
+      "}"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return c;",
+    "after": [
+      "if (alive[c] && contains(c, p))",
+      "for (c = 0; c < maxCell; ++c) {",
+      "}"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return -1;",
+    "after": [
+      "}",
+      "return c;",
+      "if (alive[c] && contains(c, p))",
+      "for (c = 0; c < maxCell; ++c) {",
+      "}"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return InsertResult.Outside;",
+    "after": [
+      "if (c0 < 0)",
+      "int c0 = locate_readonly(p, hint, ref walk);"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return InsertResult.TooClose;",
+    "after": [
+      "if (InCircumsphere(c0, p) <= 0)",
+      "if (vertices[cv[4 * c0 + i]] == p) return InsertResult.TooClose;"
+    ],
+    "reason": "an invariant guard of the read-only point location: a point strictly inside the box is inside the triangulation, the visibility walk of an exact Delaunay triangulation ends within 64 + 4 * cells steps, and the located cell contains the point strictly inside its circumsphere unless it is a vertex (tested before); the guard keeps a broken invariant from becoming an endless loop or a wrong cell",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "if (n < 0) { outside = true; break; }",
+    "after": [
+      "if (ExactPredicates.Orient3d(a, b, d, p) >= 0) {",
+      "d = vertices[cv[4 * c + FacetIndices[i, 2]]];"
+    ],
+    "reason": "the star-shape growth of the cavity, kept for parity with Insert: in an exact Delaunay triangulation it never adds a cell (docs/design/ALPHA_WRAP_ROUNDS.md section 6), so no input reaches it",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "inCavity.Add(n);",
+    "after": [
+      "if (n < 0) { outside = true; break; }",
+      "if (ExactPredicates.Orient3d(a, b, d, p) >= 0) {"
+    ],
+    "reason": "the star-shape growth of the cavity, kept for parity with Insert: in an exact Delaunay triangulation it never adds a cell (docs/design/ALPHA_WRAP_ROUNDS.md section 6), so no input reaches it",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "cavity.Add(n);",
+    "after": [
+      "inCavity.Add(n);",
+      "if (n < 0) { outside = true; break; }"
+    ],
+    "reason": "the star-shape growth of the cavity, kept for parity with Insert: in an exact Delaunay triangulation it never adds a cell (docs/design/ALPHA_WRAP_ROUNDS.md section 6), so no input reaches it",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "grown = true;",
+    "after": [
+      "cavity.Add(n);",
+      "inCavity.Add(n);"
+    ],
+    "reason": "the star-shape growth of the cavity, kept for parity with Insert: in an exact Delaunay triangulation it never adds a cell (docs/design/ALPHA_WRAP_ROUNDS.md section 6), so no input reaches it",
+    "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/Delaunay3.cs",
+    "text": "return result;",
+    "after": [
+      "if (result != InsertResult.Inserted)",
+      "}"
+    ],
+    "reason": "the star-shape growth of the cavity, kept for parity with Insert: in an exact Delaunay triangulation it never adds a cell (docs/design/ALPHA_WRAP_ROUNDS.md section 6), so no input reaches it",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);",
+    "after": [
+      "if (++roundMarkValue == int.MaxValue) {",
+      "}"
+    ],
+    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "Array.Clear(roundInner, 0, roundInner.Length);",
+    "after": [
+      "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);",
+      "if (++roundMarkValue == int.MaxValue) {"
+    ],
+    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "roundMarkValue = 1;",
+    "after": [
+      "Array.Clear(roundInner, 0, roundInner.Length);",
+      "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);"
+    ],
+    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "gates.Push(g.NewKey, g.C, g.I, g.Stamp);",
+    "after": [
+      "if (g.Kind == GateRequeue) {",
+      "write_back_caches(g);"
+    ],
+    "reason": "a kept requeue gate (TraverseByEmptyBall: the radius changed with an unchanged cell stamp): a probe of 120 procedural wraps in round mode found none; the branch keeps a queued key from going stale",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "continue;",
+    "after": [
+      "gates.Push(g.NewKey, g.C, g.I, g.Stamp);",
+      "if (g.Kind == GateRequeue) {"
+    ],
+    "reason": "a kept requeue gate (TraverseByEmptyBall: the radius changed with an unchanged cell stamp): a probe of 120 procedural wraps in round mode found none; the branch keeps a queued key from going stale",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "return false;",
+    "after": [
+      "}",
+      "return true;"
+    ],
+    "reason": "the commit of a requeue gate writes nothing: reachable only with a kept requeue gate, which no input produces (see its push)",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "return false;",
+    "after": [
+      "if (!dt.IsCell(c) || dt.CellStamp(c) != g.Stamp || label[c] != Inside || dt.Neighbour(c, i) != g.N || label_of(g.N) != Outside)",
+      "int c = g.C, i = g.I;"
+    ],
+    "reason": "the test-only lemma check of the round carving (ValidateRounds): a mismatch can only happen if the proven lemma were false (AlphaWrapRoundsTests asserts round_check_mismatches == 0)",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "return false;",
+    "after": [
+      "if (r.Kind != g.Kind || r.Which != g.Which || r.Fallback != g.Fallback)",
+      "evaluate(r, g.Seed);"
+    ],
+    "reason": "the test-only lemma check of the round carving (ValidateRounds): a mismatch can only happen if the proven lemma were false (AlphaWrapRoundsTests asserts round_check_mismatches == 0)",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "return false;",
+    "after": [
+      "if (g.Kind == GateRequeue && BitConverter.DoubleToInt64Bits(r.NewKey) != BitConverter.DoubleToInt64Bits(g.NewKey))",
+      "return false;"
+    ],
+    "reason": "the test-only lemma check of the round carving (ValidateRounds): a mismatch can only happen if the proven lemma were false (AlphaWrapRoundsTests asserts round_check_mismatches == 0)",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "return false;",
+    "after": [
+      "if (r.P != g.P || r.Plan.Result != g.Plan.Result || r.Plan.Cells.Count != g.Plan.Cells.Count)",
+      "return true;"
+    ],
+    "reason": "the test-only lemma check of the round carving (ValidateRounds): a mismatch can only happen if the proven lemma were false (AlphaWrapRoundsTests asserts round_check_mismatches == 0)",
+    "approved_in": "#959"
+  },
+  {
+    "file": "mesh_ops/MeshAlphaWrap.cs",
+    "text": "}",
+    "after": [
+      "return true;",
+      "if (!replayCells.Contains((x.A, x.B, x.C, x.Outer, x.OuterFacet))) return false;"
+    ],
+    "reason": "the test-only lemma check of the round carving (ValidateRounds): a mismatch can only happen if the proven lemma were false (AlphaWrapRoundsTests asserts round_check_mismatches == 0)",
+    "approved_in": "#959"
   }
 ]
