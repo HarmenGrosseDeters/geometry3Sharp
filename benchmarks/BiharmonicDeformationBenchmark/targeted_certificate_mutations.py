@@ -17,6 +17,7 @@ parser.add_argument('dotnet');parser.add_argument('artifacts');parser.add_argume
 selection=parser.add_mutually_exclusive_group()
 selection.add_argument('--factor',action='store_true',help='mutate numerical factor reuse instead of the certificate checks')
 selection.add_argument('--ordering',action='store_true',help='mutate permutation validation instead of the certificate checks')
+selection.add_argument('--correction',action='store_true',help='omit the numerical correction magnitude from the rigorous bound')
 args=parser.parse_args()
 root=Path(__file__).resolve().parents[2]
 source=root/('mesh_ops/BiharmonicMeshDeformer.cs' if args.factor else 'mesh_ops/BiharmonicSparseCertificate.cs')
@@ -25,15 +26,17 @@ library=artifacts/'bin/geometry3Sharp_netstandard/release_net10.0/geometry3Sharp
 testlibrary=artifacts/'bin/geometry3Sharp.Tests/release_net10.0/geometry3Sharp.dll'
 tests=artifacts/'bin/geometry3Sharp.Tests/release_net10.0/geometry3Sharp.Tests.dll'
 original=source.read_bytes();text=original.decode()
-condition='''if(restLower.Sign<=0 || errorSquared*unit>position*position*restLower ||
-                    errorSquared*(unit+relative)*(unit+relative)>relative*relative*responseLower*unit)return false;'''
+condition='''bool Accept(BigInteger error) => restLower.Sign>0 && error*unit<=position*position*restLower &&
+                    error*(unit+relative)*(unit+relative)<=relative*relative*responseLower*unit;'''
 axis='''for(int axis=0;axis<3;axis++) {
                     BigInteger sum=0;'''
 verifier_test='SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption'
 cache_key='if(prepared!=null && !prepared.Matches(mesh,ids,original,free))prepared=null;'
-mutants=[('skip_accuracy',condition,'if(false)return false;',verifier_test),
+mutants=[('skip_accuracy',condition,'bool Accept(BigInteger error) => true;',verifier_test),
          ('omit_z',axis,axis.replace('axis<3','axis<2'),verifier_test),
          ('skip_cache_key',cache_key,'if(false)prepared=null;','PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity')]
+if args.correction:
+    mutants=[('omit_correction_magnitude','upper+zmax','upper',verifier_test)]
 if args.ordering:
     mutants=[('accept_duplicate_order','old<0||old>=count||seen[old]','old<0||old>=count','CertificateOrdering_ValidatesPermutationAndOwnsSnapshot')]
 if args.factor:

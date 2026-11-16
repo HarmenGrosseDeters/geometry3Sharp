@@ -6,11 +6,12 @@ using I = g3.BiharmonicFixedInterval;
 
 namespace g3
 {
-    // Bounded reference verifier: one connected active component, <=400 vertices.
+    // Bounded reference verifier: one connected active component, bounded size and fill.
     // Rest proof is snapshotted from original binary64; every final-position
     // residual is evaluated afresh. No timestamp-only cache validation.
     internal static class BiharmonicSparseCertificate
     {
+        internal static int VertexLimit => BiharmonicScalarCertificate.IsSupported ? 10000 : 400;
         const long MaxUpdates = 1000000;
         const int MaxEntries = 50000;
         static bool SameBits(Vector3d a,Vector3d b) => BitConverter.DoubleToInt64Bits(a.x)==BitConverter.DoubleToInt64Bits(b.x) &&
@@ -31,7 +32,7 @@ namespace g3
         }
         internal static int[] InvertOrder(int[] order,int count)
         {
-            if(count<1||count>400)return null;
+            if(count<1||count>10000)return null;
             var inverse=new int[count];
             if(order==null) {for(int i=0;i<count;i++)inverse[i]=i;return inverse;}
             if(order.Length!=count)return null;
@@ -55,7 +56,7 @@ namespace g3
             SparseCholesky orderingSource = null)
         {
             bound=double.NaN;int n=ids.Count;
-            if(n<3 || n>400 || mesh.VertexCount!=n || mesh.TriangleCount>2000 || count<1 || count>=n) return false;
+            if(n<3 || n>VertexLimit || mesh.VertexCount!=n || mesh.TriangleCount>(n<=400 ? 2000 : 8*n) || count<1 || count>=n) return false;
             // The caller supplies these arrays from its validated traversal. Refuse
             // multiple components until separate resource/accounting is implemented.
             for(int i=0;i<n;i++) {
@@ -74,7 +75,7 @@ namespace g3
                     if(orderingSource!=null && !orderingSource.IsValid)return false;
                     prepared=Prepare(mesh,ids,lookup,original,free,count,scale,orderingSource==null ? null : orderingSource.CopyPermutation());
                 }
-                return prepared!=null && prepared.Check(candidate,handles,positionTolerance,responseTolerance,out bound);
+                return prepared!=null && prepared.Check(candidate,handles,positionTolerance,responseTolerance,out bound,orderingSource);
             }
             catch(DivideByZeroException) {prepared=null;return false;}
             catch(BiharmonicCertificateRangeException) {prepared=null;return false;}
@@ -82,7 +83,10 @@ namespace g3
         static Prepared Prepare(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,Vector3d[] original,
             int[] free,int count,double scale,int[] order)
         {
-            int n=ids.Count;var scaleI=I.FromDouble(scale);if(scaleI.Lo.Sign<=0)return null;
+            int n=ids.Count;
+            long updateLimit = n<=400 ? MaxUpdates : n<=2500 ? 10000000 : 200000000;
+            int entryLimit = n<=400 ? MaxEntries : n<=2500 ? 50000 : 250000;
+            var scaleI=I.FromDouble(scale);if(scaleI.Lo.Sign<=0)return null;
             var p=new I[n][];var rows=new Dictionary<int,I>[n];var mass=new I[n];
             for(int i=0;i<n;i++) {
                 p[i]=new I[3];rows[i]=new Dictionary<int,I>();mass[i]=Zero;
@@ -105,18 +109,18 @@ namespace g3
                 if(mass[k].Lo.Sign<=0)return null;
                 var entries=new List<KeyValuePair<int,I>>();foreach(var e in rows[k])if(free[e.Key]>=0)entries.Add(new KeyValuePair<int,I>(inverse[free[e.Key]],e.Value));
                 for(int i=0;i<entries.Count;i++)for(int j=0;j<=i;j++) {
-                    if(++updates>MaxUpdates)return null;
+                    if(++updates>updateLimit)return null;
                     int row=Math.Max(entries[i].Key,entries[j].Key),col=Math.Min(entries[i].Key,entries[j].Key);
-                    if(!columns[col].ContainsKey(row)&&++entriesStored>MaxEntries)return null;
+                    if(!columns[col].ContainsKey(row)&&++entriesStored>entryLimit)return null;
                     Add(columns[col],row,entries[i].Value*entries[j].Value/mass[k]);
                 }
             }
             // An untrusted fixed trial; positive interval pivots, not the trial
             // itself, establish the lower spectral bound.
-            var shift=I.FromDouble(0.5);
+            var shift=I.FromDouble(n<=400 ? 0.5 : n<=2500 ? 0.125 : 0.015625);
             for(int i=0;i<count;i++) {I diagonal;if(!columns[i].TryGetValue(i,out diagonal))return null;columns[i][i]=diagonal-shift;}
             if (BiharmonicScalarCertificate.IsSupported) {
-                if (!BiharmonicScalarCertificate.Verify(columns,MaxUpdates-updates,MaxEntries)) return null;
+                if (!BiharmonicScalarCertificate.Verify(columns,updateLimit-updates,entryLimit)) return null;
                 return new Prepared(mesh,ids,original,free,p,rows,mass,scaleI,shift);
             }
             for(int k=0;k<count;k++) {
@@ -126,9 +130,9 @@ namespace g3
                 for(int i=0;i<neighbors.Count;i++) {
                     var factor=values[i]/pivot;
                     for(int j=0;j<=i;j++) {
-                        if(++updates>MaxUpdates)return null;
+                        if(++updates>updateLimit)return null;
                         int row=neighbors[i],col=neighbors[j];
-                        if(!columns[col].ContainsKey(row)&&++entriesStored>MaxEntries)return null;
+                        if(!columns[col].ContainsKey(row)&&++entriesStored>entryLimit)return null;
                         Add(columns[col],row,Zero-factor*values[j]);
                     }
                 }
@@ -167,12 +171,12 @@ namespace g3
                 }
                 return true;
             }
-            internal bool Check(Vector3d[] candidate,IReadOnlyDictionary<int,Vector3d> handles,double pt,double rt,out double bound)
+            I[][] Gradient(Vector3d[] candidate,IReadOnlyDictionary<int,Vector3d> handles,out I[][] displacement)
             {
-                bound=double.NaN;int n=ids.Length;
-                var displacement=new I[n][];
+                int n=ids.Length;
+                displacement=new I[n][];
                 for(int i=0;i<n;i++) {
-                    if(free[i]<0) {Vector3d target;if(!handles.TryGetValue(ids[i],out target)||target!=candidate[i])return false;}
+                    if(free[i]<0) {Vector3d target;if(!handles.TryGetValue(ids[i],out target)||target!=candidate[i])return null;}
                     displacement[i]=new I[3];
                     for(int axis=0;axis<3;axis++)displacement[i][axis]=(I.FromDouble(candidate[i][axis])-I.FromDouble(original[i][axis]))/scaleI;
                 }
@@ -183,14 +187,20 @@ namespace g3
                     foreach(var e in rows[k])if(free[e.Key]>=0)for(int axis=0;axis<3;axis++)
                         gradient[e.Key][axis]=gradient[e.Key][axis]+e.Value*lap[axis]/mass[k];
                 }
-                BigInteger errorSquared=0,maximumBound=0;
+                return gradient;
+            }
+            internal bool Check(Vector3d[] candidate,IReadOnlyDictionary<int,Vector3d> handles,double pt,double rt,out double bound,SparseCholesky factor=null)
+            {
+                bound=double.NaN;int n=ids.Length;
+                I[][] displacement;var gradient=Gradient(candidate,handles,out displacement);if(gradient==null)return false;
+                BigInteger errorSquared=0,maximumBound=0;var originalBounds=new BigInteger[3];
                 for(int axis=0;axis<3;axis++) {
                     BigInteger sum=0;for(int i=0;i<n;i++)if(free[i]>=0) {
                         var g=gradient[i][axis];var magnitude=BigInteger.Max(BigInteger.Abs(g.Lo),BigInteger.Abs(g.Hi));sum+=magnitude*magnitude;
                     }
                     var norm=I.IntegerSqrt(sum);if(norm*norm<sum)norm++;
                     BigInteger remainder;var upper=BigInteger.DivRem(norm*I.Scale,shift.Lo,out remainder);if(!remainder.IsZero)upper++;
-                    maximumBound=BigInteger.Max(maximumBound,upper);errorSquared+=upper*upper;
+                    originalBounds[axis]=upper;maximumBound=BigInteger.Max(maximumBound,upper);errorSquared+=upper*upper;
                 }
                 BigInteger restLower=0,responseLower=0;
                 for(int i=0;i<n;i++) {
@@ -199,8 +209,42 @@ namespace g3
                     restLower=BigInteger.Max(restLower,rest.Lo);if(free[i]>=0)responseLower=BigInteger.Max(responseLower,response.Lo);
                 }
                 var position=I.FromDouble(pt).Lo;var relative=I.FromDouble(rt).Lo;var unit=I.Scale;
-                if(restLower.Sign<=0 || errorSquared*unit>position*position*restLower ||
-                    errorSquared*(unit+relative)*(unit+relative)>relative*relative*responseLower*unit)return false;
+                bool Accept(BigInteger error) => restLower.Sign>0 && error*unit<=position*position*restLower &&
+                    error*(unit+relative)*(unit+relative)<=relative*relative*responseLower*unit;
+                if(!Accept(errorSquared)) {
+                    // For any finite z, e = z + A^-1(g-Az). Only the interval
+                    // defect and the proven spectral shift establish its bound;
+                    // the numerical factor merely proposes z.
+                    if(factor==null)return false;
+                    errorSquared=0;maximumBound=0;
+                    for(int axis=0;axis<3;axis++) {
+                        var rhs=new double[factor.N];var solution=new double[factor.N];
+                        for(int i=0;i<n;i++)if(free[i]>=0) {
+                            var g=gradient[i][axis];rhs[free[i]]=(double)(g.Lo+g.Hi)/(2*(double)I.Scale);
+                            if(!MathUtil.IsFinite(rhs[free[i]]))return false;
+                        }
+                        factor.Solve(rhs,solution);
+                        var z=new I[n];BigInteger zmax=0;
+                        for(int i=0;i<n;i++) {
+                            double value=free[i]<0 ? 0 : solution[free[i]];
+                            if(!MathUtil.IsFinite(value))return false;
+                            z[i]=I.FromDouble(value);zmax=BigInteger.Max(zmax,BigInteger.Max(BigInteger.Abs(z[i].Lo),BigInteger.Abs(z[i].Hi)));
+                        }
+                        var applied=new I[n];for(int i=0;i<n;i++)applied[i]=Zero;
+                        for(int k=0;k<n;k++) {
+                            var lap=Zero;foreach(var e in rows[k])lap=lap+e.Value*z[e.Key];
+                            foreach(var e in rows[k])if(free[e.Key]>=0)applied[e.Key]=applied[e.Key]+e.Value*lap/mass[k];
+                        }
+                        BigInteger sum=0;
+                        for(int i=0;i<n;i++)if(free[i]>=0) {
+                            var defect=gradient[i][axis]-applied[i];var size=BigInteger.Max(BigInteger.Abs(defect.Lo),BigInteger.Abs(defect.Hi));sum+=size*size;
+                        }
+                        var norm=I.IntegerSqrt(sum);if(norm*norm<sum)norm++;
+                        BigInteger remainder;var upper=BigInteger.DivRem(norm*I.Scale,shift.Lo,out remainder);if(!remainder.IsZero)upper++;
+                        upper=BigInteger.Min(originalBounds[axis],upper+zmax);maximumBound=BigInteger.Max(maximumBound,upper);errorSquared+=upper*upper;
+                    }
+                    if(!Accept(errorSquared))return false;
+                }
                 double numerator=ExactInterval.Up((double)maximumBound);
                 if(!MathUtil.IsFinite(numerator))return false;
                 bound=ExactInterval.Up(numerator/(double)unit);

@@ -1,6 +1,60 @@
 # Biharmonic displacement benchmark (#886)
 
-## Production scalar integration (2026-11-16)
+## Larger production inputs (2026-11-16)
+
+Strict mode now admits one active component up to 10000 vertices on the supported
+net10.0 x64 scalar runtime; other runtimes retain the 400-vertex interval path.
+A checked defect of an untrusted numerical correction tightens the original-data
+error bound without changing output positions or either requested tolerance.
+The proof and size-dependent certificate budgets are in
+[BIHARMONIC_CERTIFICATE_PROOF.md](../../docs/design/BIHARMONIC_CERTIFICATE_PROOF.md#implementation-evidence).
+They do not bound the preceding numerical candidate factorization or total heap bytes.
+
+Reproduce the previous-library rejection and current production outputs with:
+
+```sh
+python3 benchmarks/BiharmonicDeformationBenchmark/large_certificate_profile.py <dotnet> <producer.dll> --expect-rejection
+python3 benchmarks/BiharmonicDeformationBenchmark/large_certificate_profile.py <dotnet> <producer.dll>
+python3 benchmarks/BiharmonicDeformationBenchmark/large_certificate_profile.py <dotnet> <producer.dll> --reuse
+```
+
+The first command requires the library from PR head `856a332f` (local source
+commit `4893c3b3`, identical tree) with the current procedural exporter. The next
+two require the current library. Raw logs: `large-certificate-before.txt`,
+`large-certificate-after.txt` and `large-certificate-reuse.txt`. Fresh processes
+include JIT; reuse measures five target changes and compares every result with a
+separately timed fresh solve, including output and diagnostic bits. The producer
+checks finite valid meshes, unchanged input/topology and exact handles. Generated
+meshes are temporary. File hashes identify the outputs, not an independent proof.
+
+Measured Compute time (ms), five changing-target runs per fixture; fresh-reference
+and reuse include their allocations/GC. Every reused result matches the fresh
+result bit for bit. Fresh-reference timers are warmed by earlier calls.
+
+| Vertices, orientation | Fresh median ms | Reuse median ms |
+|---|---:|---:|
+| 2500, aligned | 890.457 | 251.349 |
+| 2500, rotated | 1620.565 | 654.210 |
+| 10000, aligned | 6851.437 | 2029.827 |
+| 10000, rotated | 8691.948 | 2647.580 |
+
+The separate one-shot cold runs including JIT took 1891/2562 ms at 2500 vertices
+and 7753/10302 ms at 10000 (aligned/rotated); the previous head rejected these
+inputs in 44/44/65/50 ms without solving. This is an expanded certified domain,
+not a timing speedup over rejection. These are fixture measurements, not a
+worst-case wall-clock guarantee; see raw logs for ranges and allocations.
+
+All four aligned/rotated 2500/10000-vertex fixtures change from
+`AccuracyNotEstablished` to `Success/Certified`. The 441-vertex tests compare to
+the independently known translation solution and check same-instance reuse.
+`large-certificate-validation.txt` records the targeted corruption mutant and
+local checks. Independent bounds review found no concrete incorrect-certificate
+path. Small production outputs retain their separate interval-verifier checks.
+The 100k strict path, general-mesh acceptance and proposed 15% cold-cost budget
+remain open; these measurements are not a default-path speedup claim.
+
+## Historical production scalar integration (2026-11-16)
+
 
 The reviewed scalar spectral verifier is now connected to `BiharmonicSparseCertificate.Prepare` in production. Original-data interval Q assembly, final rounded-position residuals, both Euclidean comparisons and prepared-proof invalidation are retained. On net10.0 x64 it uses exact integer correction/radius accounting and the direct scalar recurrence under nearest-even binary64/gradual-underflow execution with no native floating-point control changes during Compute. Entry probes detect changed rounding/FTZ/DAZ; other targets retain interval factorization. A failed scalar check cannot release the candidate.
 
@@ -8,7 +62,7 @@ The existing 400-vertex, 2000-triangle, million-total-update and 50000-live-patt
 
 ## Structural scaling diagnosis and separate scalar verifier
 
-The production certificate remains bounded to 400 vertices. `--certificate-structure <n> <natural|solver> <shift> rotated <fresh.json>` generates procedural original-data metadata without a deformation candidate. It reconstructs the complete L/Q **pattern**, including zero-valued triangle edges. Solver ordering comes from the existing SparseCholesky on a strictly diagonally dominant surrogate with the identical pattern. Only that permutation is used. Scalar elimination counts are checked against the numerical solver's symbolic factor count and, on small fixtures, an independent dense boolean elimination. This is not a deformation timing or a position certificate.
+At the time of this structural diagnosis, production was bounded to 400 vertices. `--certificate-structure <n> <natural|solver> <shift> rotated <fresh.json>` generates procedural original-data metadata without a deformation candidate. It reconstructs the complete L/Q **pattern**, including zero-valued triangle edges. Solver ordering comes from the existing SparseCholesky on a strictly diagonally dominant surrogate with the identical pattern. Only that permutation is used. Scalar elimination counts are checked against the numerical solver's symbolic factor count and, on small fixtures, an independent dense boolean elimination. This is not a deformation timing or a position certificate.
 
 The 50-million-Schur-update diagnostic cap stops the 100x100 cases. On early exit the counters are partial lower bounds and an unresolved entry-budget result is `unknown`. The production limits are never changed by this tool.
 
@@ -85,7 +139,7 @@ The 25 tests compare reused versus fresh results after target/handle changes, re
 
 The strict sparse deformer now retains an opaque original-data L/M and positive-shift proof. Its key is checked against live mesh identity, exact position bits, vertex IDs/free map and every triangle ID/index/count. New targets/output residuals are always verified. At that stage only the geometric certificate was cached; numerical factor reuse is now added as described above.
 
-`--certificate-reuse-profile` requires a successful strict sparse fixture of 17–400 vertices. It prepares the same instance once, then measures five calls with new right-boundary targets and unchanged handle IDs. Each result is compared to a separately timed fresh-deformer reference for the identical targets; metadata, vertex bits and topology must match. The final export is also hash-bound to the independent checker. The first call is explicitly labeled as including JIT and is not comparable to warmed cold timing. Reference work is outside each reuse timer and allocation sample; process peak memory includes all work. The profile measures same-instance reuse; direct tests separately assert that the same Prepared object is retained for target-only changes.
+`--certificate-reuse-profile` requires a successful strict sparse fixture (now 17–10000 vertices on the supported scalar runtime). It prepares the same instance once, then measures five calls with new right-boundary targets and unchanged handle IDs. Each result is compared to a separately timed fresh-deformer reference for the identical targets; metadata, vertex bits and topology must match. The final export is also hash-bound to the independent checker. The first call is explicitly labeled as including JIT and is not comparable to warmed cold timing. Reference work is outside each reuse timer and allocation sample; process peak memory includes all work. The profile measures same-instance reuse; direct tests separately assert that the same Prepared object is retained for target-only changes.
 
 ```
 DOTNET_CLI_HOME=/workspace/dotnet-user python3 benchmarks/BiharmonicDeformationBenchmark/prepared_certificate_profile.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll

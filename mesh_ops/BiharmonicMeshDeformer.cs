@@ -17,7 +17,7 @@ namespace g3
         public enum AccuracyAssessment { NotEstablished, NotCertified, Certified }
         public class Settings {
             public double RelativeTolerance = 1e-8;
-            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 400 vertices in one active component. On .NET 10+ x64 the scalar spectral verifier requires nearest-even binary64 arithmetic, gradual underflow and no native changes to floating-point controls during Compute; other runtimes use interval factorization.</summary>
+            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 10000 vertices on the supported scalar runtime (otherwise 400), in one active component. On .NET 10+ x64 the scalar spectral verifier requires nearest-even binary64 arithmetic, gradual underflow and no native changes to floating-point controls during Compute; other runtimes use interval factorization.</summary>
             public bool RequireEuclideanAccuracy = false;
             /// <summary>Maximum Euclidean position error relative to component rest radius in strict mode.</summary>
             public double PositionTolerance = 1e-8;
@@ -53,6 +53,24 @@ namespace g3
         internal object FactorIdentity => preparedFactor == null ? null : preparedFactor.Factor;
         public BiharmonicMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
+        static double Stationarity(Dictionary<int,double>[] rows,double[] mass,int[] free,Vector3d[] displacement)
+        {
+            var gradient = new Vector3d[displacement.Length]; double magnitude = 0;
+            for (int k = 0; k < displacement.Length; ++k) if (rows[k].Count > 0) {
+                Vector3d lap = Vector3d.Zero; double bound = 0;
+                foreach (var e in rows[k]) { lap += e.Value * displacement[e.Key]; bound += Math.Abs(e.Value) * MaxAbs(displacement[e.Key]); }
+                if (!lap.IsFinite || !MathUtil.IsFinite(bound)) return double.NaN;
+                foreach (var e in rows[k]) if (free[e.Key] >= 0) {
+                    Vector3d contribution = (e.Value / mass[k]) * lap;
+                    if (!contribution.IsFinite) return double.NaN;
+                    gradient[e.Key] += contribution; magnitude = Math.Max(magnitude, Math.Abs(e.Value / mass[k]) * bound);
+                }
+            }
+            if (!MathUtil.IsFinite(magnitude)) return double.NaN;
+            double maximum = 0;
+            for (int i = 0; i < displacement.Length; ++i) if (free[i] >= 0) maximum = Math.Max(maximum, MaxAbs(gradient[i]));
+            return magnitude == 0 ? maximum : maximum / magnitude;
+        }
         static bool Add(Dictionary<int, double> row, int col, double value, bool trial = false)
         {
             double old; row.TryGetValue(col, out old); double sum = old + value;
@@ -205,7 +223,7 @@ namespace g3
                     }
                 }
                 if (n <= 16) return NumericFallback();
-                if (n > 400) { result.Status = Status.AccuracyNotEstablished; return result; }
+                if (n > BiharmonicSparseCertificate.VertexLimit) { result.Status = Status.AccuracyNotEstablished; return result; }
             }
             bool trialCandidate = Options.RequireEuclideanAccuracy && n > 16;
             var rows = new Dictionary<int, double>[n]; var mass = new double[n];
@@ -290,22 +308,7 @@ namespace g3
                     int j = free[i]; displacement[i] = new Vector3d(x[j], y[j], z[j]);
                     if (!displacement[i].IsFinite) { result.Status = Status.NonFiniteResult; return result; }
                 }
-                // Check stationarity directly using the original sparse Laplacian rows.
-                var gradient = new Vector3d[n]; double magnitude = 0;
-                for (int k = 0; k < n; ++k) if (rows[k].Count > 0) {
-                    Vector3d lap = Vector3d.Zero; double bound = 0;
-                    foreach (var e in rows[k]) { lap += e.Value * displacement[e.Key]; bound += Math.Abs(e.Value) * MaxAbs(displacement[e.Key]); }
-                    if (!lap.IsFinite || !MathUtil.IsFinite(bound)) { result.Status = Status.NumericalRange; return result; }
-                    foreach (var e in rows[k]) if (free[e.Key] >= 0) {
-                        Vector3d contribution = (e.Value / mass[k]) * lap;
-                        if (!contribution.IsFinite) { result.Status = Status.NumericalRange; return result; }
-                        gradient[e.Key] += contribution; magnitude = Math.Max(magnitude, Math.Abs(e.Value / mass[k]) * bound);
-                    }
-                }
-                if (!MathUtil.IsFinite(magnitude)) { result.Status = Status.NumericalRange; return result; }
-                double maximum = 0;
-                for (int i = 0; i < n; ++i) if (free[i] >= 0) maximum = Math.Max(maximum, MaxAbs(gradient[i]));
-                result.Residual = magnitude == 0 ? maximum : maximum / magnitude;
+                result.Residual = Stationarity(rows,mass,free,displacement);
                 result.Iterations = 1;
                 if (!MathUtil.IsFinite(result.Residual) || result.Residual > Options.RelativeTolerance) {
                     result.Status = Status.LinearSolveFailed; return result;
@@ -323,6 +326,16 @@ namespace g3
                 double bound;
                 bool established = BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
                     handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate, candidateFactor);
+                if(established) {
+                    for(int i=0;i<n;i++) {
+                        double scale=motionScale[componentRoot[i]];
+                        displacement[i]=scale==0 ? Vector3d.Zero : (candidate[i]-original[i])/scale;
+                    }
+                    result.Residual=Stationarity(rows,mass,free,displacement);
+                    if(!MathUtil.IsFinite(result.Residual)||result.Residual>Options.RelativeTolerance) {
+                        result.Status=Status.LinearSolveFailed;return result;
+                    }
+                }
                 if (preparedFactor != null && !ReferenceEquals(preparedFactor.Proof, preparedCertificate)) preparedFactor = null;
                 if (!established) {
                     result.Status = Status.AccuracyNotEstablished; return result;

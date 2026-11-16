@@ -7,6 +7,32 @@ namespace geometry3Sharp.Tests
 {
     public class BiharmonicMeshDeformerTests
     {
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void StrictCertificate_AboveFormerLimitPreservesTranslationAndReuse(bool rotated)
+        {
+            const int n=21;
+            var mesh=new DMesh3(MeshComponents.None);
+            var rotation=rotated ? Matrix3d.AxisAngleD(new Vector3d(1,2,3).Normalized,31) : Matrix3d.Identity;
+            for(int y=0;y<n;y++)for(int x=0;x<n;x++)mesh.AppendVertex(rotation*new Vector3d((double)x/(n-1),(double)y/(n-1),0));
+            for(int y=0;y<n-1;y++)for(int x=0;x<n-1;x++) {
+                int a=x+n*y,b=a+1,d=a+n,c=d+1;mesh.AppendTriangle(a,b,c);mesh.AppendTriangle(a,c,d);
+            }
+            var move=new Vector3d(.04,-.03,.1);var handles=new Dictionary<int,Vector3d>();
+            for(int y=0;y<n;y++)foreach(int i in new[]{n*y,n*y+n-1})handles[i]=mesh.GetVertex(i)+move;
+            var solver=new BiharmonicMeshDeformer(mesh);solver.Options.RequireEuclideanAccuracy=true;
+            var result=solver.Compute(handles);
+            if(!BiharmonicScalarCertificate.IsSupported) { Assert.Equal(BiharmonicMeshDeformer.Status.AccuracyNotEstablished,result.Status);return; }
+            Assert.True(result.Converged,result.Status.ToString());
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified,result.Accuracy);
+            Assert.True(result.Mesh.CheckValidity());
+            foreach(int i in mesh.VertexIndices())Assert.True(result.Mesh.GetVertex(i).Distance(mesh.GetVertex(i)+move)<1e-8);
+            var reused=solver.Compute(handles);Assert.True(reused.Converged);
+            foreach(int i in mesh.VertexIndices())Assert.Equal(result.Mesh.GetVertex(i),reused.Mesh.GetVertex(i));
+            foreach(var h in handles)Assert.Equal(h.Value,result.Mesh.GetVertex(h.Key));
+        }
+
         [Fact]
         public void ScalarCertificate_RejectsIndefiniteIntervalsAndExhaustedBudgets()
         {
@@ -186,6 +212,15 @@ namespace geometry3Sharp.Tests
             BiharmonicSparseCertificate.Prepared invalidOrder = null;
             Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound,ref invalidOrder,wrongSize));
             Assert.Null(invalidOrder);
+            // Supplying the numerical factor exercises the defect-correction bound,
+            // which must not turn deliberately wrong output into a certificate.
+            var actualFactor=(SparseCholesky)firstFactor;
+            Assert.Equal(count,actualFactor.N);
+            for(int axis=0;axis<3;axis++) {
+                var corrupt=(Vector3d[])candidate.Clone();corrupt[1][axis]+=.001;
+                BiharmonicSparseCertificate.Prepared proof=null;
+                Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,corrupt,roots,active,free,count,handles,1e-8,1e-8,out bound,ref proof,actualFactor));
+            }
             var saved = candidate[1];
             for (int axis = 0; axis < 3; axis++) {
                 candidate[1] = saved; candidate[1][axis] += .01;

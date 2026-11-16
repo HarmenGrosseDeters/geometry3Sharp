@@ -1,0 +1,19 @@
+Command: python3 benchmarks/BiharmonicDeformationBenchmark/large_certificate_profile.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll
+BiharmonicDeformationBenchmark.dll_sha256=2676583be9505a781d11b6c52659eef328fffdd56a76f0d5943c852e1d62dd5a
+geometry3Sharp.dll_sha256=762c5e10bdbbd6bf2505b5e4fc1bda060c548f2dfb4a8557b00125227cda1974
+grid=50 orientation=aligned exit=0 process_seconds=2.102
+first_compute_including_jit_ms=1891.024 iterations=1
+vertices=2500 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=cf32e8063b741d3997196eea7cb12a31b5d011a8cf89e474bcdcd2e84ce36d87
+grid=50 orientation=rotated exit=0 process_seconds=2.768
+first_compute_including_jit_ms=2562.174 iterations=1
+vertices=2500 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=6256d04e9a271ca05588b1607c48a5abf328dd948d906dfda5058fdfae20e78c
+grid=100 orientation=aligned exit=0 process_seconds=8.069
+first_compute_including_jit_ms=7752.953 iterations=1
+vertices=10000 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=91c5719ac9d776f57d1ff1155cfdd90163533f625e46fc1baadd81723da606cd
+grid=100 orientation=rotated exit=0 process_seconds=10.616
+first_compute_including_jit_ms=10302.470 iterations=1
+vertices=10000 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=9d78bef9293991625c782e5bb5634aae787b992839f2a29d0f09ac0f53fd3cb6

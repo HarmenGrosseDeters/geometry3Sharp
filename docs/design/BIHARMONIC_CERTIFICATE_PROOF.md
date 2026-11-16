@@ -147,15 +147,24 @@ absolute check is an additional conservative rejection gate.
 
 The bounded production reference path in `BiharmonicSparseCertificate` reconstructs
 these objects directly from the deformer arrays and DMesh3 triangle enumeration.
-It accepts one active connected component, at most 400 vertices and 2000 triangles,
-and fixes interval fractional precision at 256 bits. Each signed endpoint is
-limited to 512 bytes; checked arithmetic rejects a larger result. Fixed-point
-division by an interval containing zero is inconclusive. Sparse Q/factor storage
-is limited to 50000 live dictionary entries and Q/Schur updates to 1000000. These
-are explicit structural/arithmetic budgets, not a claim to enforce a particular
-managed heap size or wall-clock deadline. Other storage is bounded by the vertex
-and triangle caps. A successful positive-pivot proof for the fixed trial mu=0.5
-is required; failure does not establish that A is indefinite.
+It accepts one active connected component and fixes interval fractional precision
+at 256 bits. Each signed endpoint is limited to 512 bytes; checked arithmetic
+rejects a larger result. Division by an interval containing zero is inconclusive.
+The supported scalar runtime admits the following tiers (n is the vertex count):
+
+| Vertices | Triangles | Q/Schur updates | Live Q/symbolic entries | Trial mu |
+|---|---:|---:|---:|---:|
+| 17–400 | 2000 | 1000000 | 50000 | 0.5 |
+| 401–2500 | 8*n | 10000000 | 50000 | 0.125 |
+| 2501–10000 | 8*n | 200000000 | 250000 | 0.015625 |
+
+Other runtimes retain the first tier and interval LDL. The scalar verifier also
+limits retained factor entries plus live off-diagonal symbolic entries to 2000000
+and scalar products to the remaining Q/Schur budget after assembly. These limits
+bound certificate work, not the preceding numerical candidate factorization, total
+managed heap bytes or wall-clock time. A successful spectral proof for the chosen
+trial mu is required; the size-dependent proposal is untrusted and failure does
+not establish that A is indefinite.
 
 Only the explicitly requested strict mode may form a trial candidate despite
 completely rounded-away summands. That candidate remains local until this proof,
@@ -200,8 +209,12 @@ For small fixtures the emitted matrix bounds are recomputed rationally and a sep
 
 ## Production scalar integration (2026-11-16)
 
-`BiharmonicScalarCertificate` now supplies the spectral premise to the existing original-data residual/Euclidean checks in `BiharmonicSparseCertificate.Prepare`. The 400-vertex, 2000-triangle, million-total-update and 50000-live-pattern-entry bounds remain. Symbolic scalar elimination charges exactly the former Schur update count, including diagonal updates, against the remainder after Q assembly. Live entries include active diagonals and are charged before clearing the current column. Retained scalar factor rows additionally have a conservative 250000-entry guard. These counts are not heap-byte bounds.
+`BiharmonicScalarCertificate` supplies the spectral premise to the original-data residual/Euclidean checks in `BiharmonicSparseCertificate.Prepare`. The resource tiers above govern production. Symbolic scalar elimination charges the former Schur update count, including diagonal updates, against the remainder after Q assembly. Live entries include active diagonals and are charged before clearing the current column; retained scalar factor rows have the separate combined guard above. The correction denominator remains positive for at most 10000 free unknowns. These counts are not heap-byte bounds.
 
 The scalar path is enabled only in the net10.0 build on x64 with nearest-even binary64 execution and gradual underflow. Non-inlined operations prevent contraction. Per-call probes detect changed rounding, FTZ and DAZ entry conditions; they do not prove the platform contract for every operation. Native code must not change floating-point controls during Compute. Other targets retain the integer interval factorization. Failed scalar verification fails closed. A retained proof remains a statement about the exact rest system; every new output still goes through integer interval residual and response checks. No factor values are trusted as proof or reused as residuals.
 
 Independent bounds review found no incorrect certificate under these stated premises. A resource-accounting finding was fixed by passing remaining assembly/Schur budgets into the scalar verifier. Existing corruption, tiny-response and cache-invalidation tests exercise the composed certificate; new direct tests cover indefinite intervals, trace-correction refusal, exhausted work/fill and directed exact-unit conversion.
+
+## Residual correction bound for larger rounded outputs
+
+Let g=A u_hat-b be the original-data gradient and choose any finite binary64 vector z (zero on handles), for example a numerical solve of A z approximately equal to g. Independently enclose d=g-Az with the original interval L/M operator. Since lambda_min(A)>mu, the exact error e=A^-1 g satisfies e=z+A^-1 d. Thus on each coordinate axis every vertex error is at most max_i |z_i| + ||d||_2/mu. Take the smaller of this outward upper bound and the existing ||g||_2/mu. Combine the three coordinate bounds in exactly the existing squared Euclidean acceptance inequalities. The numerical z is untrusted and no precision assumption about its solve is needed; z, the defect and the final candidate must all be enclosed from their actual binary64 values. This proof tightens verification without changing returned positions or requested tolerances.

@@ -14,10 +14,10 @@ static class ProductionCandidateExport
 
     public static int Run(string[] args)
     {
-        if (args.Length != 5 || !int.TryParse(args[1], out int n) || n < 3 || n > 50 ||
+        if (args.Length != 5 || !int.TryParse(args[1], out int n) || n < 3 || n > 100 ||
             (args[2] != "aligned" && args[2] != "rotated") ||
             (args[3] != "normal" && args[3] != "strict")) {
-            Console.Error.WriteLine("usage: --certificate <n 3..50> <aligned|rotated> <normal|strict> <output.json>"); return 2;
+            Console.Error.WriteLine("usage: --certificate <n 3..100> <aligned|rotated> <normal|strict> <output.json>"); return 2;
         }
         if (File.Exists(args[4])) { Console.Error.WriteLine("output already exists; use a fresh path"); return 2; }
         var mesh = new DMesh3(MeshComponents.None);
@@ -49,11 +49,11 @@ static class ProductionCandidateExport
         solver.Options.RequireEuclideanAccuracy = args[3] == "strict";
         var preparationTimer = Stopwatch.StartNew();
         var result = solver.Compute(handles); preparationTimer.Stop();
+        Console.WriteLine($"first_compute_including_jit_ms={preparationTimer.Elapsed.TotalMilliseconds:F3} iterations={result.Iterations}");
         bool reuseProfile = args[0] == "--certificate-reuse-profile";
-        if (reuseProfile && (args[3] != "strict" || n*n <= 16 || n*n > 400 || !result.Converged || result.UsedIntervalFallback)) {
-            Console.Error.WriteLine("reuse profile requires a successful sparse strict fixture with 17..400 vertices"); return 1;
+        if (reuseProfile && (args[3] != "strict" || n*n <= 16 || n*n > 10000 || !result.Converged || result.UsedIntervalFallback)) {
+            Console.Error.WriteLine("reuse profile requires a successful sparse strict fixture with 17..10000 vertices"); return 1;
         }
-        if (reuseProfile) Console.WriteLine($"first_compute_including_jit_ms={preparationTimer.Elapsed.TotalMilliseconds:F3}");
         if (args[0] == "--certificate-profile" || reuseProfile) {
             // Cold: fresh deformer each call. Reuse: same prepared rest proof and
             // handle IDs, new targets; compare to a fresh result outside the timer.
@@ -132,11 +132,13 @@ static class ProductionCandidateExport
             if (a.a != b.a || a.b != b.b || a.c != b.c || a.a != c.a || a.b != c.b || a.c != c.c)
                 throw new InvalidOperationException("input or output topology changed");
         }
+        if (!result.Mesh.CheckValidity()) throw new InvalidOperationException("invalid output mesh");
         int count = mesh.VertexCount; var vertices = new long[count][]; var candidate = new long[count][]; var targetBits = new long[count][];
         Vector3d origin = originalPositions[0]; double scale = 0;
         for (int i = 0; i < count; i++) {
             var original = originalPositions[i]; var d = original - origin;
             scale = Math.Max(scale, Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z))));
+            if (!result.Mesh.GetVertex(i).IsFinite) throw new InvalidOperationException("nonfinite output");
             vertices[i] = Bits(original); candidate[i] = Bits(result.Mesh.GetVertex(i)); targetBits[i] = Bits(targets[i]);
             if (fixedVertices[i] && !SameBits(result.Mesh.GetVertex(i), targets[i])) throw new InvalidOperationException("handle mismatch");
         }

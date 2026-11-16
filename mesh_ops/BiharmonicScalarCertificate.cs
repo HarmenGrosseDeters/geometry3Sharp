@@ -50,10 +50,11 @@ internal static class BiharmonicScalarCertificate
     sealed class Arithmetic
     {
         internal long Products;
+        internal long Limit;
         // Separate non-inlined product prevents contraction into a fused subtract.
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal double Product(double a, double b) {
-            if (++Products > 50000000) throw new ArithmeticException("product budget");
+            if (++Products > Limit) throw new ArithmeticException("product budget");
             double result = Checked(a*b);
             if ((result == 0 && a != 0 && b != 0) || Math.Abs(result) == MinNormal)
                 throw new ArithmeticException("product underflow boundary");
@@ -97,9 +98,9 @@ internal static class BiharmonicScalarCertificate
     {
         if (!IsSupported) return false;
         int n = input.Length;
-        var arithmetic = new Arithmetic();
+        var arithmetic = new Arithmetic { Limit = remainingUpdates };
         try {
-            if (n < 1 || n > 2500 || Interval.Bits > UnitBits) throw new ArithmeticException("size/precision cap");
+            if (n < 1 || n > 10000 || Interval.Bits > UnitBits) throw new ArithmeticException("size/precision cap");
             var columns = new HashSet<int>[n]; var matrix = new Dictionary<int,double>[n];
             var radiusRows = new BigInteger[n]; BigInteger diagonalSum = 0;
             for (int c = 0; c < n; c++) {
@@ -128,14 +129,14 @@ internal static class BiharmonicScalarCertificate
             long symbolic = 0, stored = 0, liveEntries = n;
             foreach (var column in columns) { stored += column.Count; liveEntries += column.Count; }
             if (liveEntries > maxLiveEntries || remainingUpdates < 0) return false;
-            if (stored > 250000) return false;
+            if (stored > 2000000) return false;
             for (int j = 0; j < n; j++) {
                 var neighbors = new List<int>(columns[j]); neighbors.Sort();
                 long work = (long)neighbors.Count*(neighbors.Count+1)/2;
                 if (work > remainingUpdates-symbolic) throw new ArithmeticException("symbolic budget");
                 symbolic += work;
                 for (int p = 0; p < neighbors.Count; p++) for (int q = p+1; q < neighbors.Count; q++) if(columns[neighbors[p]].Add(neighbors[q])) {
-                    if (++stored > 250000 || ++liveEntries > maxLiveEntries) return false;
+                    if (++stored > 2000000 || ++liveEntries > maxLiveEntries) return false;
                 }
                 stored -= columns[j].Count; liveEntries -= columns[j].Count+1; columns[j].Clear();
                 double diagonal = matrix[j][j];
@@ -150,7 +151,7 @@ internal static class BiharmonicScalarCertificate
                         if (x.Key < y.Key) a++; else if (x.Key > y.Key) b++;
                         else { value = arithmetic.Difference(value,arithmetic.Product(x.Value,y.Value)); a++; b++; }
                     }
-                    if (++stored > 250000) return false;
+                    if (++stored > 2000000) return false;
                     rows[i].Add(new KeyValuePair<int,double>(j,arithmetic.Quotient(value,pivot)));
                 }
                 matrix[j].Clear();
