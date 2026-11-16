@@ -439,7 +439,7 @@ Task 5 (honest terrain metrics) is on [terrain.md](terrain.md#task-5-honest-terr
 
 #### Quality bar: when it's done
 
-No public package is planned (owner 2026-11-16). The quality bar stays: the library "just works", that is the operations give correct, documented results on hard inputs
+No public package is planned (owner 2026-11-16). The quality bar stays: the library "just works", that is, the operations give correct, documented results on hard inputs
 without tuning, and it compares with the leading geometry processing libraries (eg the top of
 [github.com/topics/geometry-processing](https://github.com/topics/geometry-processing): libigl, geogram, PMP,
 cinolib, geometry-central, Manifold) on the operations it shares with them.
