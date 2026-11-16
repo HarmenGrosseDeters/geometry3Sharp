@@ -207,21 +207,21 @@ namespace BoolCmp
                 double target = pA;
                 if (embed) {
                     double depthShift = Pow2(-depth) * h;                                 // exact: power of two times a double
-                    if (!ExactSum(pA, -sg * depthShift, out target)) { firstError ??= "embedding depth not exact"; continue; }
+                    if (!ExactSum(pA, -sg * depthShift, out target)) { if (firstError == null) firstError = "embedding depth not exact"; continue; }
                 }
-                if (!ExactSum(target, -pB, out double delta)) { firstError ??= "contact shift not exact"; continue; }
+                if (!ExactSum(target, -pB, out double delta)) { if (firstError == null) firstError = "contact shift not exact"; continue; }
                 Vector3d t = Vector3d.Zero;
                 int o0 = (ax + 1) % 3, o1 = (ax + 2) % 3;
                 double s0 = RoundToGrid(a.GetBounds().Center[o0] - b.GetBounds().Center[o0], q);
                 double s1 = RoundToGrid(a.GetBounds().Center[o1] - b.GetBounds().Center[o1], q);
                 t[ax] = delta; t[o0] = s0; t[o1] = s1;
                 DMesh3 moved = new DMesh3(b, false, true, false, false);
-                if (!TranslateExact(moved, t)) { firstError ??= "translation not exact"; continue; }
+                if (!TranslateExact(moved, t)) { if (firstError == null) firstError = "translation not exact"; continue; }
                 PlanarFace nearMoved = ExtremeFace(moved, ax, sg < 0);
-                if (nearMoved.Plane != target) { firstError ??= "contact plane not exact"; continue; }
+                if (nearMoved.Plane != target) { if (firstError == null) firstError = "contact plane not exact"; continue; }
                 // planar faces on both sides that overlap laterally: face contact (or flush)
                 PlanarFace farMoved = ExtremeFace(moved, ax, sg > 0);
-                if (embed && depth == 0 && farMoved.Plane != pA) { firstError ??= "flush plane not exact"; continue; }
+                if (embed && depth == 0 && farMoved.Plane != pA) { if (firstError == null) firstError = "flush plane not exact"; continue; }
                 PlanarFace bFace = embed && depth == 0 ? farMoved : nearMoved;
                 bool lateral = Math.Min(fa.Hi0, bFace.Hi0) > Math.Max(fa.Lo0, bFace.Lo0) && Math.Min(fa.Hi1, bFace.Hi1) > Math.Max(fa.Lo1, bFace.Lo1);
                 // "face": planar patches on both sides whose bounding boxes overlap laterally (the patches themselves can still miss each other,
