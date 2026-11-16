@@ -34,6 +34,11 @@ class OutlierRule(unittest.TestCase):
         self.assertEqual(rw.judge(res(13.0), hist, RULES)["flags"], [])                # exactly 1.3x
         self.assertEqual(rw.judge(res(13.01), hist, RULES)["flags"], ["regression"])   # just over 1.3x
 
+    def test_absolute_edge_is_strict(self):
+        hist = [entry(3.0)] * 3
+        self.assertEqual(rw.judge(res(4.0), hist, RULES)["flags"], [])                 # 1.33x, exactly +1.0 s
+        self.assertEqual(rw.judge(res(4.01), hist, RULES)["flags"], ["regression"])
+
     def test_no_absolute_limit_for_tail_cases(self):
         # owner 2026-11-15 (#888): the 20 s limit is for tests; a slow tail case with no baseline, or one that stays slow, is no outlier
         self.assertEqual(rw.judge(res(25.0), [], RULES)["flags"], [])

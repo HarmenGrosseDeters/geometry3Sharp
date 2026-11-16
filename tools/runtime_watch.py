@@ -193,7 +193,7 @@ def render_report(results, judged, rules):
             return "-" if x is None else f"{x:.{d}f}"
         runs = ", ".join(f"{x:.2f}" for x in (j.get("runs_s") or []))
         flags = ", ".join(j["flags"]) if j["flags"] else ""
-        if j.get("baseline_n", int(rules["window"])) < int(rules["window"]):
+        if j["baseline_n"] < int(rules["window"]):
             flags = (flags + "; " if flags else "") + f"baseline building ({j['baseline_n']} of {int(rules['window'])})"
         if not j.get("ok") and j.get("error"):
             flags += f" ({j['error']})"
