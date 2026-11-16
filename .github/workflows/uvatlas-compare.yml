@@ -86,8 +86,10 @@ jobs:
         env:
           XATLAS_COMMIT: ${{ steps.xatlas.outputs.commit }}
         run: |
+          # no pipe: the exit code of the analysis is the step's, so a failing analysis fails the job
           python3 analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl \
-            --selection data/selection.csv | tee results/analysis.md
+            --selection data/selection.csv > results/analysis.md
+          cat results/analysis.md
           { echo "xatlas commit: $XATLAS_COMMIT"; echo; cat results/analysis.md; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the metrics (JSON lines and analysis, no meshes)

@@ -17,7 +17,14 @@ CATEGORIES = ["clean", "open", "multi", "broken", "large"]
 def load(path):
     if not path:
         return []
-    return [json.loads(line) for line in open(path) if line.strip()]
+    # System.Text.Json writes NaN and Infinity as strings: read them back as floats
+    special = {"NaN": float("nan"), "Infinity": float("inf"), "-Infinity": float("-inf")}
+
+    def fix(v):
+        if isinstance(v, str) and v in special:
+            return special[v]
+        return v
+    return [{k: fix(v) for k, v in json.loads(line).items()} for line in open(path) if line.strip()]
 
 
 def is_valid(r):
