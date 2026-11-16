@@ -85,6 +85,13 @@ def cmd_manifest(d, out, limit, variants):
                                 "thingi_contact": [tp.mesh_path(d, r["a"]), tp.mesh_path(d, r["b"]), r["variant"], r["axis"], r["sign"], r["param"]]}) + "\n")
     print(len(rows), "cases ->", out)
 
+def removed(r, op):
+    """components that the rounding stage of ours removed from the result of op (None: not recorded, or another method)"""
+    v = r.get(f"{op}_removed_components")
+    if v is None:
+        v = (r.get(f"{op}_counts") or {}).get("rounding_removed_components")      # rows of the first run (counts only)
+    return v
+
 def cmd_summary(files):
     """per variant and method: the outcomes as thingi_pairs.py summary, plus the kind of contact reached (face: planar faces on both
     sides; bbox: through vertices or edges only) and the placements refused as inexact"""
@@ -102,10 +109,10 @@ def cmd_summary(files):
     by = {}
     for r in last.values():
         by.setdefault((r["file"].split("_p")[0], r["method"]), []).append(r)
-    print("| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | unclean | max volume error | median ms | max ms |")
-    print("|" + "---|" * 13)
+    print("| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | empty, removed by rounding | unclean | max volume error | median ms | max ms | removed components |")
+    print("|" + "---|" * 15)
     for (variant, m), rs in sorted(by.items(), key=lambda kv: (VARIANTS.index(kv[0][0]) if kv[0][0] in VARIANTS else 99, kv[0][1])):
-        n = ok = bad = clean = empty = 0
+        n = ok = bad = clean = empty = empty_removed = removed_total = 0
         unclean, errs, ms = {}, [], []
         for r in rs:
             for op in ops:
@@ -119,13 +126,17 @@ def cmd_summary(files):
                 reason = r.get(f"{op}_clean_reason")
                 if reason is None: reason = "not evaluated"        # the result was not read back by eval
                 if reason == "": clean += 1
-                elif reason == "empty" and tp.consistent(r): empty += 1
+                elif reason == "empty" and tp.consistent(r):
+                    # an empty result is "really empty" only if the rounding removed nothing; otherwise pieces (components) were dropped
+                    if removed(r, op): empty_removed += 1
+                    else: empty += 1
                 elif reason == "empty": unclean["empty (inconsistent)"] = unclean.get("empty (inconsistent)", 0) + 1
                 else: unclean[reason] = unclean.get(reason, 0) + 1
+            removed_total += sum(removed(r, op) or 0 for op in ops)
             errs += [r[k] for k in ("ie_error", "diff_error", "expected_error") if r.get(k) is not None]
         faces = sum(1 for r in rs if (r.get("input") or {}).get("kind") == "face")
-        print(f"| {variant} | {m} | {len(rs)} | {faces} | {n} | {ok} | {bad} | {clean} | {empty} | {', '.join(f'{k} {v}' for k, v in sorted(unclean.items())) or '–'} | "
-              f"{max(errs, default=float('nan')):.2e} | {st.median(ms) if ms else float('nan'):.0f} | {max(ms, default=float('nan')):.0f} |")
+        print(f"| {variant} | {m} | {len(rs)} | {faces} | {n} | {ok} | {bad} | {clean} | {empty} | {empty_removed} | {', '.join(f'{k} {v}' for k, v in sorted(unclean.items())) or '–'} | "
+              f"{max(errs, default=float('nan')):.2e} | {st.median(ms) if ms else float('nan'):.0f} | {max(ms, default=float('nan')):.0f} | {removed_total if m == 'ours' else '–'} |")
     if refused:
         cases = {r["file"] for r in last.values()} | set(refused)
         print(f"\nPlacements refused as inexact or failed to load: {len(refused)} of {len(cases)} cases:")
