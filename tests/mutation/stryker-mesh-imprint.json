@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshImprint.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactMeshImprintTests|FullyQualifiedName~MeshRoundingRepairLockTests|FullyQualifiedName~ExactArrangementTriangulateMeshesTests",
+    "test-case-filter": "FullyQualifiedName~ExactMeshImprintTests|FullyQualifiedName~ExactImprintAssemblyTests|FullyQualifiedName~MeshRoundingRepairLockTests|FullyQualifiedName~ExactArrangementTriangulateMeshesTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

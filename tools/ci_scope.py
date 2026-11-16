@@ -29,7 +29,9 @@ SHARED = (
     "benchmarks/Meshing2Benchmark/MeshCommand.cs",
     "benchmarks/Meshing2Benchmark/golden/",
     "benchmarks/TerrainBenchmark/ClosestFields.cs",
+    "benchmarks/Shared/UvEvaluation.cs",   # UVAtlasEvaluationTests (the evaluation of a UV atlas)
     "benchmarks/ReducerRemesherBaseline/Harness.cs",
+    "benchmarks/BooleanComparison/ContactTransforms.cs",       # ThingiContactTransformTests
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",

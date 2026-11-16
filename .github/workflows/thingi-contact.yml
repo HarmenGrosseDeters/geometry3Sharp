@@ -1,0 +1,134 @@
+name: Thingi10K contact pairs
+
+# The thingi-contact class of benchmarks/BooleanComparison (README.md, "Thingi10K pairs with exact contact"): Thingi10K pairs
+# with deliberate exact contact (coplanar faces, one-ulp offsets, mirror images). Manual only (workflow_dispatch, no schedule):
+# the job fetches the Thingi10K models from huggingface at run time, which a PR-tier test never does. Methods: ours,
+# manifold (the Python package manifold3d, Apache-2.0) and CGAL EPECK, each as a black box on a GitHub-hosted runner
+# (cgal_bool.cpp, the repo's own driver, is built against the runner's libcgal-dev; GPL, the binary is not distributed; no
+# CGAL source is read or ported). One job per variant. Raw rows go to the data branch runs/thingi-contact. No mesh is committed.
+on:
+  workflow_dispatch:
+    inputs:
+      library_ref:
+        description: 'Ref of the library and benchmark tool to measure (must contain the thingi-contact command; the scripts come from the ref the workflow is run on)'
+        default: 'master'
+      pairs_per_variant:
+        description: 'Pairs per variant (a prefix of thingi-pairs/contact_pairs.csv)'
+        default: '30'
+      timeout_s:
+        description: 'Timeout per boolean in seconds'
+        default: '300'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thingi-contact-data-branch
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [face-contact, partial-overlap, ulp-shift, ulp-shift-few, mirror]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build cgal_bool (CGAL from apt, used as a black box) and install manifold3d
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libcgal-dev libgmp-dev libmpfr-dev
+          g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG lib/benchmarks/BooleanComparison/external/cgal_bool.cpp -o cgal_bool -lgmp -lmpfr
+          dpkg -s libcgal-dev | grep '^Version'
+          python3 -m pip install numpy manifold3d==3.0.1
+          python3 -m pip show manifold3d | grep '^Version'
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          git -C scripts rev-parse HEAD >> lib_sha.txt
+          nproc >> lib_sha.txt
+          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
+          python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
+      - name: Case set and models
+        env:
+          PAIRS: ${{ inputs.pairs_per_variant }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/thingi_contact.py fetch data --limit "$PAIRS" --variants "$VARIANT"
+          python3 $S/data/thingi_contact.py manifest data cases.jsonl --limit "$PAIRS" --variants "$VARIANT"
+      - name: Run ours, manifold and CGAL EPECK
+        env:
+          CGAL_BOOL: ${{ github.workspace }}/cgal_bool
+          BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
+          TIMEOUT: ${{ inputs.timeout_s }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/compare.py cases.jsonl "results-$VARIANT.jsonl" --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT" -j 1 --resume
+      - name: Report
+        if: always()
+        run: |
+          python3 scripts/benchmarks/BooleanComparison/data/thingi_contact.py summary results-${{ matrix.variant }}.jsonl | tee report-${{ matrix.variant }}.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contact-${{ matrix.variant }}
+          path: |
+            results-${{ matrix.variant }}.jsonl
+            report-${{ matrix.variant }}.md
+            lib_sha.txt
+
+  publish:
+    needs: measure
+    if: ${{ !cancelled() && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the data branch runs/thingi-contact
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Table of all variants
+        run: |
+          python3 benchmarks/BooleanComparison/data/thingi_contact.py summary art/*/results-*.jsonl | tee table.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Raw rows to runs/thingi-contact
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cp table.md "$RUNNER_TEMP/table.md"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin runs/thingi-contact > /dev/null; then
+            git fetch -q --depth=1 origin runs/thingi-contact:refs/remotes/origin/runs/thingi-contact
+            git checkout -q -B runs/thingi-contact origin/runs/thingi-contact
+          else
+            git checkout -q --orphan runs/thingi-contact
+            git rm -rqf .
+          fi
+          mkdir -p "run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "run-$GITHUB_RUN_ID"/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/table.md" "run-$GITHUB_RUN_ID/table.md"
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Thingi10K contact pairs run $GITHUB_RUN_ID"
+          git push origin runs/thingi-contact

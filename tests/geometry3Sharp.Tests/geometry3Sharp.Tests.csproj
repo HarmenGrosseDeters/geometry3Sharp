@@ -65,6 +65,13 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <Compile Include="..\..\benchmarks\ReducerRemesherBaseline\Harness.cs" Link="BaselineHarness\Harness.cs" />
   </ItemGroup>
+  <!-- the exact placements of benchmarks/BooleanComparison's thingi-contact class (tested without data) -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <Compile Include="..\..\benchmarks\BooleanComparison\ContactTransforms.cs" Link="ThingiContact\ContactTransforms.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <Compile Remove="ThingiContactTransformTests.cs" />
+  </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <Compile Remove="BaselineHarnessTests.cs" />
   </ItemGroup>
@@ -97,9 +104,13 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' And '$(UseNuGetG3)' != 'true'">
     <Compile Include="..\..\benchmarks\TerrainBenchmark\ClosestFields.cs" Link="TerrainMetrics\ClosestFields.cs" />
+    <!-- the evaluation of a UV atlas (UVAtlasBenchmark evaluate mode, the same code for every atlas tool) -->
+    <Compile Include="..\..\benchmarks\Shared\UvEvaluation.cs" Link="UvEvaluation\UvEvaluation.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
     <Compile Remove="TerrainDistanceMetricTests.cs" />
+    <!-- the UV atlas evaluation (benchmarks/Shared/UvEvaluation.cs) is linked for net10.0 only; it uses .NET Core APIs -->
+    <Compile Remove="UVAtlasEvaluationTests.cs" />
   </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
