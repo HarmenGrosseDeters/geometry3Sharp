@@ -943,11 +943,13 @@ runs all cases after a warm-up, `profile`); one-process-per-boolean cold times a
 ### Probes of the pair stage and the rounding (`perf/pair_probe.patch`, `perf/rounding_probe.patch`)
 
 Two patches against the head of #962 (3b52946), applied to the library only at measurement time, never merged: `pair_probe.patch` counts and times the candidate pairs of
-`intersections.pairs` (switches `G3_PAIR_PROBE=1|2|3`, `G3_PROBE_SERIAL=1`, and the experiment `G3_PAIR_FILTER=1`), `rounding_probe.patch` adds the sub-phase timers of
+`intersections.pairs` (switches `G3_PAIR_PROBE=1|2|3`, `G3_PROBE_SERIAL=1`), `rounding_probe.patch` adds the sub-phase timers of
 `MeshRoundingRepair.Apply` (`rounding.<Step>_us` in `phases_ms`, always on). Both only add counters and `Stopwatch` reads; the `profile` hash must equal that of the unpatched build
 (`perf/scaling_report.py --hashes`). Reports `perf/pair_probe_report.py` and `perf/rounding_probe_report.py`, results in
 [docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md#7-two-probes-on-the-head-of-962-the-discarded-pairs-of-the-pair-stage-and-the-rounding-sub-phases-2026-11-16),
 raw rows in `perf/probe_2026-11-16/`.
+`touch_only` asks `TriangleTriangleFilter` before the exact test since 2026-11-16 (the former `G3_PAIR_FILTER` experiment, now the code path; `pair_probe.patch` applies on top of it): before / after on the T6 set in
+section 7.5 of that document, raw rows in `perf/touch_only_filter_2026-11-16/` (pairs phase -21 % at 1 thread, -13 % at 4; whole boolean -8.8 % / -1.3 %, hashes equal).
 
 ## Indirect predicates (`indirect`)
 

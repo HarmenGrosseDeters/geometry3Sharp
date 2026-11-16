@@ -394,6 +394,26 @@ Bounds (a step becoming linear: time = 1-thread time / n):
 
 Open for the owner's 12-thread run: whether the 1.25-1.4× slowdown per operation at 4 threads is the container (shared vCPUs) or the code (then it will show as the same factor, or a larger one, at 12 threads with SMT); `G3_PAIR_PROBE=1` and the filter A/B are cheap to run there.
 
+### 7.5 Built: the filter first in `touch_only` (2026-11-16)
+
+`ExactMeshArrangement.touch_only` now asks `TriangleTriangleFilter.BeyondShared` after the quick one-side tests and before the exact test, and falls back to the exact test (`IntersectsBeyondShared`, or the coplanar variant) on
+Undecided; the experiment switch `G3_PAIR_FILTER` of section 7.1.3 is the code path now, and `perf/pair_probe.patch` was regenerated on top of it (its `filter_reject` / `filter_kept` classes are the pairs the filter decides).
+No new predicate and no new bound; no FMA, `float` or parallel loop (the file is in the exact list of `.editorconfig`; the build analyzers G3E0001-3 pass). Tests (`ExactTouchOnlyFilterTests`, plus the existing
+`ExactTouchOnlyCoplanarTests`): `touch_only` equals `IntersectsBeyondShared == false` in both argument orders on every pair of four generated triangle soups (shared corners 0 / 1 / 2, coplanar neighbours, slivers from nudged corners; about
+6 400 pairs), the filter never contradicts the exact test where it decides, and over `Similarity.All()` the answers are equal, the 2^k scales bit for bit. Mutants killed: inverting the filter's answer, and dropping the fall-back on Undecided (both fail 2 of 2 new tests).
+
+**Before / after**, master ea35c2e (before) against the change, the same T6 set, `profile --repeat 2 --safe-rounding`, runs alternated (before, after, before, after), two rounds per thread count, sums over the 294 booleans, ms; raw rows
+[`perf/touch_only_filter_2026-11-16/`](../../benchmarks/BooleanComparison/perf/touch_only_filter_2026-11-16/) (`Fm*`: before, `Fn*`: after). This container is slower than the one of section 7.1 (a different host: the same code takes 15.2 s in the pairs phase at 1 thread, 12.0 s there), so
+only the ratios compare:
+
+| threads | `intersections.pairs` before (2 runs) | after (2 runs) | change of the phase | whole boolean before (2 runs) | after (2 runs) | change | hashes |
+|---|---|---|---|---|---|---|---|
+| 1 | 15 207, 15 181 | 12 151, 11 869 | **-21.0 %** | 43 036, 43 949 | 40 171, 39 141 | **-8.8 %** | 294 of 294 equal in all 8 runs |
+| 4 | 4 796, 4 552 | 4 217, 3 923 | **-12.9 %** | 19 987, 19 418 | 19 850, 19 047 | -1.3 % (noise ±3 %) | equal |
+
+At 4 threads the first before-run was the slowest of the four (4 796 against 4 552), which makes the gain of this run smaller than the -18.5 % of 7.1.3 (two runs each, ±3 % noise on the totals; the phase gain is between -13 % and -19 % in the two measurements, the whole boolean between -1 and -5 %).
+Not measured: net48, 12 threads (extrapolated -2.8 % in 7.1.4).
+
 ## Experiments (benchmark-side switches, no library change in the PR)
 
 4 threads, T6 set, warm, two runs each (total of the 294 booleans, ms; the best-per-boolean sum of both runs in brackets). All hashes equal to the 1-thread master run (all 14 files, 4116 rows, one hash per boolean).
@@ -427,7 +447,7 @@ DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll prof
 git apply perf/pair_probe.patch; git apply perf/rounding_probe.patch      # then build BooleanComparison
 G3_PAIR_PROBE=1 G3_PROBE_SERIAL=1 DOTNET_PROCESSOR_COUNT=1 taskset -c 0 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > A1_t1.jsonl   # modes 1, 2, 3
 G3_PAIR_PROBE=2 DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > A2_t4.jsonl
-G3_PAIR_FILTER=1 DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > filt_t4.jsonl   # against a run without it, alternated
+# (the filter experiment of 7.1.3 was a switch G3_PAIR_FILTER=1 in the first version of the patch, on 3b52946; since 7.5 it is the code, compare master ea35c2e against the change)
 python3 benchmarks/BooleanComparison/perf/pair_probe_report.py classes 1T=A2_t1.jsonl 4T=A2_t4.jsonl; ... perboolean A2_t1.jsonl; ... filter 1T=A3_t1.jsonl; ... ab ctl1.jsonl,ctl2.jsonl filt1.jsonl,filt2.jsonl
 python3 benchmarks/BooleanComparison/perf/rounding_probe_report.py table 1T=B1_t1.jsonl,B2_t1.jsonl 4T=B1_t4.jsonl,B2_t4.jsonl
 python3 benchmarks/BooleanComparison/perf/scaling_report.py --hashes 1=base_t1.jsonl 4=<every probe run>      # drift 0
