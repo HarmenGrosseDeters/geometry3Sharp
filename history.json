@@ -26,6 +26,19 @@
      1.383
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 1.267,
+    "ok": true,
+    "runs_s": [
+     1.267,
+     1.183,
+     1.275
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-knot-dense-wrap": [
@@ -54,6 +67,19 @@
      1.726
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 1.312,
+    "ok": true,
+    "runs_s": [
+     1.383,
+     1.306,
+     1.312
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-111959-wrappipe": [
@@ -86,6 +112,19 @@
      23.599
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 18.299,
+    "ok": true,
+    "runs_s": [
+     18.659,
+     18.299,
+     18.091
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-1514905-wrappipe": [
@@ -114,6 +153,19 @@
      14.92
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 12.317,
+    "ok": true,
+    "runs_s": [
+     12.16,
+     12.317,
+     12.393
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-222687-wrappipe": [
@@ -146,6 +198,19 @@
      30.433
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 24.458,
+    "ok": true,
+    "runs_s": [
+     24.346,
+     24.458,
+     26.101
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-222695-wrappipe": [
@@ -178,6 +243,19 @@
      32.743
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 26.021,
+    "ok": true,
+    "runs_s": [
+     26.021,
+     26.139,
+     25.446
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-224108-wrappipe": [
@@ -210,6 +288,19 @@
      22.8
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 17.58,
+    "ok": true,
+    "runs_s": [
+     17.58,
+     17.938,
+     17.428
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-39368-wrappipe": [
@@ -240,6 +331,19 @@
      19.795
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 15.139,
+    "ok": true,
+    "runs_s": [
+     15.223,
+     14.714,
+     15.139
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-40118-wrappipe": [
@@ -268,6 +372,19 @@
      77.273
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 59.976,
+    "ok": true,
+    "runs_s": [
+     58.583,
+     59.976,
+     60.062
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-49901-wrappipe": [
@@ -300,6 +417,19 @@
      23.965
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 19.507,
+    "ok": true,
+    "runs_s": [
+     18.937,
+     19.507,
+     20.094
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-49998-wrappipe": [
@@ -332,6 +462,19 @@
      19.93
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 16.202,
+    "ok": true,
+    "runs_s": [
+     16.245,
+     16.202,
+     15.722
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-500097-wrappipe": [
@@ -364,6 +507,19 @@
      31.022
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 24.485,
+    "ok": true,
+    "runs_s": [
+     25.282,
+     24.485,
+     23.125
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-500099-wrappipe": [
@@ -396,6 +552,19 @@
      25.638
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 20.223,
+    "ok": true,
+    "runs_s": [
+     19.778,
+     20.405,
+     20.223
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-500115-wrappipe": [
@@ -428,6 +597,19 @@
      27.91
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 21.6,
+    "ok": true,
+    "runs_s": [
+     21.721,
+     21.078,
+     21.6
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-520646-wrappipe": [
@@ -460,6 +642,19 @@
      33.654
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 25.73,
+    "ok": true,
+    "runs_s": [
+     26.031,
+     25.484,
+     25.73
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-535629-wrappipe": [
@@ -492,6 +687,19 @@
      33.13
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 26.278,
+    "ok": true,
+    "runs_s": [
+     26.16,
+     26.294,
+     26.278
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-679615-wrappipe": [
@@ -524,6 +732,19 @@
      26.533
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 21.168,
+    "ok": true,
+    "runs_s": [
+     21.168,
+     21.1,
+     21.583
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-69261-wrappipe": [
@@ -556,6 +777,19 @@
      33.12
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 27.478,
+    "ok": true,
+    "runs_s": [
+     27.028,
+     27.478,
+     27.793
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-78968-wrappipe": [
@@ -588,6 +822,19 @@
      41.85
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 33.217,
+    "ok": true,
+    "runs_s": [
+     32.843,
+     33.217,
+     33.831
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-84042-wrappipe": [
@@ -618,6 +865,19 @@
      18.939
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 14.884,
+    "ok": true,
+    "runs_s": [
+     14.441,
+     15.115,
+     14.884
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "alphawrap-thingi-860049-wrappipe": [
@@ -650,6 +910,19 @@
      51.794
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 39.72,
+    "ok": true,
+    "runs_s": [
+     39.821,
+     39.72,
+     38.643
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-knot-default-union": [
@@ -678,6 +951,19 @@
      1.797
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 1.404,
+    "ok": true,
+    "runs_s": [
+     1.618,
+     1.404,
+     1.344
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-knot-dense-union": [
@@ -706,6 +992,19 @@
      4.522
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 3.507,
+    "ok": true,
+    "runs_s": [
+     3.901,
+     3.507,
+     3.473
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-1005586-union": [
@@ -738,6 +1037,19 @@
      53.628
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 44.054,
+    "ok": true,
+    "runs_s": [
+     44.022,
+     44.054,
+     44.767
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-107554-union": [
@@ -770,6 +1082,19 @@
      23.437
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 17.877,
+    "ok": true,
+    "runs_s": [
+     17.877,
+     18.437,
+     17.371
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-1087141-union": [
@@ -802,6 +1127,19 @@
      34.995
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 26.94,
+    "ok": true,
+    "runs_s": [
+     27.197,
+     26.94,
+     26.779
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-112798-union": [
@@ -834,6 +1172,19 @@
      40.707
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 33.987,
+    "ok": true,
+    "runs_s": [
+     33.987,
+     32.787,
+     34.419
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-113906-union": [
@@ -866,6 +1217,19 @@
      27.54
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 23.374,
+    "ok": true,
+    "runs_s": [
+     23.694,
+     23.374,
+     22.399
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-117959-union": [
@@ -898,6 +1262,19 @@
      37.568
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 30.658,
+    "ok": true,
+    "runs_s": [
+     30.368,
+     30.658,
+     30.866
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-1368057-union": [
@@ -930,6 +1307,19 @@
      26.863
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 20.068,
+    "ok": true,
+    "runs_s": [
+     20.253,
+     20.002,
+     20.068
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-42327-union": [
@@ -962,6 +1352,19 @@
      36.923
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 25.711,
+    "ok": true,
+    "runs_s": [
+     25.596,
+     26.009,
+     25.711
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-498458-union": [
@@ -990,6 +1393,19 @@
      14.528
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 11.273,
+    "ok": true,
+    "runs_s": [
+     10.896,
+     11.273,
+     11.531
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-519511-union": [
@@ -1018,6 +1434,19 @@
      17.413
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 12.498,
+    "ok": true,
+    "runs_s": [
+     12.638,
+     12.434,
+     12.498
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-55928-difference": [
@@ -1046,6 +1475,17 @@
      418.564
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 345.181,
+    "ok": true,
+    "runs_s": [
+     345.181
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ],
   "boolean-thingi-55928-union": [
@@ -1074,6 +1514,17 @@
      438.813
     ],
     "sha": "51270eaf85b21057c73a5f6bfb3218395366a135"
+   },
+   {
+    "date": "2026-11-16T08:01:48Z",
+    "flags": [],
+    "machine": "AMD EPYC 9V74 80-Core Processor",
+    "median_s": 352.854,
+    "ok": true,
+    "runs_s": [
+     352.854
+    ],
+    "sha": "65ee9bd91ade9ee987ca0beba3efa4f73d9192c5"
    }
   ]
  },
