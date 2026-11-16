@@ -1,8 +1,0 @@
-grid=20 vertices=400 free=360 precision=40 numeric_eigen_estimate=2.28218728567 mu=1.14109364284 mu_binary64=0x1.241eb685a719fp+0
-interval_matrix_radius_infinity_upper=2.561004595777946365764315414280175905054E-12 (conditional on interval assembly)
-scalar_shifted_matrix_check=True arithmetic_audited=True c=1.77303302968e-07 radius=2.73980759699e-12 products=132163 elapsed_factor_seconds=7.274
-axis=0 interval_residual_norm_upper=4.400374374264431653647725104568902044551E-12 normalized_error_upper=3.856278055610993303948791593516615080271E-12
-axis=1 interval_residual_norm_upper=8.100480044324303699013704422170001659552E-12 normalized_error_upper=7.098874045248544509566050218849271873575E-12
-axis=2 interval_residual_norm_upper=2.565104825142270816613672901382382181561E-12 normalized_error_upper=2.247935426901381139811642425508542649762E-12
-maximum_normalized_error_upper=7.098874045248544509566050218849271873575E-12 requested_tolerance=1e-8 perturb=0.0 perturb_axis=2 motion=xyz
-position_certificate=within_tolerance axes_checked=xyz backend=scalar-audit elapsed_total_seconds=7.678

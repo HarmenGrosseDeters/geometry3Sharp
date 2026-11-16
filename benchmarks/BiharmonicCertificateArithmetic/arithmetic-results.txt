@@ -1,4 +1,0 @@
-bits=64 randomized_cases=10000 status=passed elapsed_ms=199.783
-bits=128 randomized_cases=10000 status=passed elapsed_ms=304.430
-bits=512 randomized_cases=10000 status=passed elapsed_ms=944.625
-bits=1024 randomized_cases=10000 status=passed elapsed_ms=1346.154

@@ -1,44 +1,73 @@
-# Biharmonic displacement deformation (#886) — work in progress
+# Biharmonic displacement deformation (#886)
 
-The proposed next contract and implementation gates are in [BIHARMONIC_IMPLEMENTATION_PLAN.md](BIHARMONIC_IMPLEMENTATION_PLAN.md). It separates numerical solve quality from optional certified positions; the measurements below describe the existing prototypes.
+`BiharmonicMeshDeformer` moves a few handle vertices to given targets and lets the rest of the mesh follow with the
+smoothest displacement field, in the sense of the squared cotangent Laplacian. It is a displacement solve with point
+constraints. It is **not** the bounded biharmonic *weights* of the paper (no bounds, skinning weights, affine handle
+frames or volumetric domains) and it is not ARAP (#896).
 
-The sparse strict path retains one opaque rest-proof snapshot per deformer. Reuse
-checks mesh identity, current original-position bits, vertex/free IDs and all
-triangle IDs/indices. New targets, rounded output residuals and requested
-tolerances are always checked afresh. Geometric changes or a different handle set
-invalidate the proof. The numerical factor may now be reused only when paired with that same proof object and a full matching live key; its right-hand side and final certificate are always recomputed. Do not mutate the
-input or use one deformer concurrently while Compute runs.
+## Method
 
-A bounded dense interval fallback is under validation. The high-valence resource limit is checked from topology before computing weights.
+For each connected component, with displacement `u` per vertex and `u = target - rest` at each handle, minimize
+`1/2 u^T L^T M^-1 L u` independently for x, y and z.
 
-For each connected surface component, write the displacement at vertex `i` as `u_i` and prescribe it at each handle. Minimize `1/2 u^T L^T M^-1 L u` independently for x, y and z. `L` is the symmetric cotangent stiffness matrix assembled from the rest triangles; `M` is a diagonal mass matrix with one third of each incident triangle's area. The free rows of `Q = L^T M^-1 L` give `Q_ff u_f = -Q_fc u_c`. Factor `Q_ff` once and solve the three right-hand sides. The barycentric lumping is a deliberate positive-area choice, including on obtuse triangles.
+- `L` is the symmetric cotangent stiffness matrix of the rest triangles.
+- `M` is diagonal, one third of each incident triangle's area per vertex (barycentric lumping). It stays positive on
+  obtuse triangles, where the Voronoi mass of Meyer et al. does not, which is why it was chosen.
+- With `Q = L^T M^-1 L`, the free rows give `Q_ff u_f = -Q_fc u_c`. `Q` is assembled as outer products of single rows of
+  `L`, factored once by `SparseCholesky` (fill-reducing ordering inside) and solved for three right-hand sides.
 
-The Laplacian-energy discretization follows Jacobson et al., *Bounded Biharmonic Weights for Real-Time Deformation* (2011), sections 3.1 and 3.4, https://doi.org/10.1145/1964921.1964973. This implementation minimizes displacement energy with equality constraints; it does **not** implement the paper's bounds, skinning weights, affine handle frames, volumetric domains, or optimization algorithm. No libigl source is read or ported.
+Sources are in [SOURCES.md](../SOURCES.md): Jacobson et al. 2011 sections 3.1 and 3.4 for the energy, Pinkall and Polthier
+for the cotangent matrix, Meyer et al. for the lumped mass, Botsch and Sorkine for the background. No libigl source was read.
 
-The input is not mutated; the result is a copy with handles imposed exactly. Input normals are recomputed on the output if present. At least one handle per topological component is required, including isolated vertices. Reject invalid or degenerate geometry and report numerical range or factorization failure explicitly. A relative stationarity residual is checked against a scale derived from absolute Laplacian contributions; it is not a forward-error guarantee for ill-conditioned systems. Each active component is normalized before assembling the system; handle displacements are normalized separately so tiny motions on large meshes remain representable. Fully fixed components bypass numerical assembly after exact triangle-area validation. The outer-product assembly has quadratic cost in vertex degree; `MaxMatrixContributions` bounds the uncompressed entries from topology and reports `ResourceLimit` before weight construction. It does not bound Cholesky fill or total memory. Only strict sparse calls may reuse a factor paired with their validated geometric proof; ordinary numerical mode still factors on each call. Arbitrary rigid rotation is not guaranteed from a subset of point handles: linear biharmonic displacement energy is not rotation-invariant. Translation is exactly representable; all-vertex handles impose any supplied rigid motion exactly.
+## Behaviour
 
-`Accuracy` distinguishes an ordinary numerical success (`NotCertified`), a certified position bound (`Certified`), and a result for which no accuracy was established (`NotEstablished`). `PositionErrorBound` is NaN when no bound is available. The existing interval fallback's acceptance still includes its documented eight-ULP allowance; `Certified` means the reported bound was enclosed, not that the proposed strict zero-ULP or relative-response contract has been met. Fully fixed meshes have exact target positions and bound zero.
+- The input mesh is not modified. The result is a copy with the handles imposed exactly (bit for bit); vertex normals
+  are recomputed when present.
+- Every connected component needs at least one handle (isolated vertices count), otherwise `UnanchoredComponent`.
+- Each component is normalized (rest radius, and the largest handle displacement) before assembly, so the result does
+  not depend on the unit or on tiny motions of a huge mesh. Scaling by a power of two gives the same result bit for bit
+  (`Similarity.All()` test).
+- A component where every vertex is a handle skips the solve (`Iterations = 0`, `Residual = NaN`), after an exact
+  check that no triangle is degenerate.
+- Translation of all handles by the same vector moves every vertex by it (to rounding). A rigid motion given on **all**
+  vertices is reproduced exactly. A rigid rotation given on only a *subset* is not extended: the linear energy is not
+  rotation-invariant, so the free vertices are not rotated rigidly with it. Use ARAP for that.
+- `Status`: `Success`; `InvalidInput` (null or empty mesh, null handles, unknown handle id, non-finite coordinates or
+  settings); `UnanchoredComponent`; `DegenerateTriangle` (exact zero-area test); `NumericalRange` (overflow or underflow
+  of a weight, a product that underflows to zero, a handle difference lost to rounding, a non-finite intermediate);
+  `LinearSolveFailed` (the factorization fails or the residual exceeds `RelativeTolerance`); `NonFiniteResult`;
+  `ResourceLimit` (see below). `Mesh` is null unless `Success`.
+- `Residual` is the largest free-vertex gradient of the energy divided by an absolute bound of its contributions. It is a
+  backward-error check against `RelativeTolerance` (default 1e-8), **not** a bound on the position error: for an
+  ill-conditioned system (a very fine mesh with few handles) the positions can be less accurate than the residual suggests.
+- Terms below half an ulp of a matrix entry are rounded away like in any floating-point assembly. This matters for
+  rotated meshes, where the cotangent of a right angle is rounding noise of about 1e-17 added to entries of order one.
+  Genuine loss is still reported: a nonzero product that underflows to zero, an overflow, or `target - rest` losing an operand.
+- Limits: `MaxMatrixContributions` (default 10^7 uncompressed outer-product entries, computed from the topology before any
+  weight) bounds the assembly, not the fill of the Cholesky factor or the total memory. The solver is serial, one
+  `Compute` at a time per instance. Cost is dominated by the factorization: about 0.26 s for 10k and 4.5 s for 100k
+  vertices (benchmark below), and the factor is not reused between calls.
 
-`RequireEuclideanAccuracy` requests both an absolute per-vertex Euclidean error bounded by `PositionTolerance` times the component rest radius and a relative error bounded by `ResponseTolerance` times the component's maximum free displacement length. The rest radius is the maximum Euclidean distance from the component's lowest vertex ID. When every handle is unchanged, zero displacement is the exact anchored solution; after validation and representable component normalization, the unchanged mesh is returned with error bound zero without the 16-vertex solver limit. Otherwise this opt-in mode uses the dense interval solver up to 16 vertices. For one active component, geometric verification can attempt 17–100000 vertices on the supported net10.0 x64 runtime (17–400 elsewhere), with shifted-factor fallback limited to 10000/400. It forms a private numerical candidate and verifies it with a separate 256-bit fixed-point interval reconstruction of the original mesh, a geometric or shifted spectral proof and final-coordinate residual bounds. The optional residual correction bound checks the defect of an untrusted numerical solve against that same original-data operator; it does not modify the output or relax either tolerance. The candidate is returned only after both Euclidean tests pass. See the [proof and resource-tier table](BIHARMONIC_CERTIFICATE_PROOF.md#implementation-evidence) for triangle, endpoint, work and fill caps and the runtime arithmetic contract. These bound certificate work, not the preceding numerical factorization, total heap bytes or wall-clock time. It reports `AccuracyNotEstablished` if the bounds cannot establish the request, including unsupported sizes/multiple components, uncertain pivots or exhausted verification budgets. Fixed vertices are copied exactly. `RelativeTolerance` remains the numerical/fallback acceptance threshold, distinct from the Euclidean tolerances (both default to 1e-8). Aligned/rotated production fixtures now certify through 50000 vertices and the rotated 100000-vertex fixture certifies. Aligned 100k still rejects; #980 tracks that relative-bound gate and cold times above 20 seconds. This does not establish general-mesh acceptance or the cold performance budget.
+## Tests
 
-A unit square split diagonally, with z-displacement 1 at vertex 1 and 0 at vertices 0 and 3, has a free displacement of 3/4 at vertex 2. This independently calculated case distinguishes the biharmonic operator from harmonic interpolation. Tests also cover input ownership, invalid and disconnected inputs, repeated calls and `Similarity.All()`.
+`tests/geometry3Sharp.Tests/BiharmonicMeshDeformerTests.cs`, procedural meshes only: the independent unit-square case
+(a split unit square with `z = 1` at vertex 1 and `0` at vertices 0 and 3 gives `3/4` at vertex 2; harmonic
+interpolation would give a different value, so it distinguishes the operator), the `Similarity.All()` invariance on a patch and a
+grid (power-of-two scales bit for bit), reuse on one instance, translation, all-vertex rigid motion, invalid, disconnected
+and degenerate inputs, the extreme-range cases and the assembly limit. Hand mutations that fail them: inverse masses
+replaced by 1, a flipped constraint sign, handles not imposed, the underflow guard removed.
 
-Targeted mutation check: replacing the inverse barycentric masses in both assembly and residual evaluation with the identity causes `UnitSquare_MatchesIndependentBiharmonicSolution` to fail its independent 3/4-position assertion. Command: `dotnet test tests/geometry3Sharp.Tests -c Release --filter FullyQualifiedName~UnitSquare_MatchesIndependentBiharmonicSolution`. This is not a full mutation campaign.
+## Benchmark
 
-When the fast path loses an entire arithmetic contribution, a fallback for meshes with at most 16 vertices rebuilds the system with outward-rounded intervals and solves by dense interval elimination. Each returned world-coordinate interval must fit within `RelativeTolerance * component rest scale + 8 ULP` of the returned position; otherwise it reports `NumericalRange`. The eight-ULP allowance is explicit and is not merely a claim about one final rounding. When the fallback succeeds, `UsedIntervalFallback` is true, `PositionErrorBound` is the largest certified absolute coordinate error divided by component rest scale, and `Residual` is NaN because the ordinary residual is not computed. Larger meshes and uncertain pivots do not use this dense fallback and can still report `NumericalRange`.
+[`benchmarks/BiharmonicDeformationBenchmark`](../../benchmarks/BiharmonicDeformationBenchmark/README.md): a grid with
+the left column fixed and the right column moved; 10k vertices about 0.26 s, 100k about 4.5 s warm.
 
-The initial, historical scaling investigation considered: form an interval residual from original geometry and handles after the sparse solve, and bound position error by the residual norm over a proven lower eigenvalue of `Q_ff`. A graph-path lower bound can be derived from the minimum triangle area divided by squared edge lengths, the largest mass, and the sum of shortest path lengths to handles; it is inexpensive but may be too pessimistic for large meshes. A verified sparse LDLᵀ bound could be stronger. Those proposals preceded the current geometric/shifted verifier. The following pilot measurements are historical and do not describe the current admission limits.
+## Parked: certified accuracy
 
-For the unrotated benchmark grids, the elementary path bound (using normalized coordinates and left/right boundary handles) gives `c = min_T(area_T / sum_edge_lengths_squared)`, `tau = sum_v distance_to_handle(v)`, and `lambda_min >= c^2 / (Mmax * tau^2)`. Direct evaluation gives a lower bound of 2.5513e-9 for 100×100 (`c=.125`, `Mmax=1/99²`, `tau=245000`) and 1.2652e-11 for 400×250 (`c=.112285377`, `Mmax=1/(399*249)`, `tau=9950000`). Certifying an absolute normalized position error of 1e-8 from this bound alone would therefore require an interval residual 2-norm no larger than 2.5513e-17 and 1.2652e-19 respectively. These are thresholds, not measured interval residuals; they motivate measuring whether this inexpensive certificate can pass before investing in it as the large-mesh solution.
-
-A separate 70-digit residual pilot on rotated 20×20 and 100×100 grids solved by SciPy estimates path-bound errors of 9.37e-7 and 0.168 respectively, above 1e-8. This is not an interval certificate and does not measure the library solver. Commands and raw output: `benchmarks/BiharmonicDeformationBenchmark/certificate_probe/`. It suggests that this simple path bound alone is insufficient on these samples.
-
-The same independent pilot with high-precision residual refinement and a numerical shift-invert eigenvalue estimate produced estimated eigenvalues 2.282 (20×20) and 0.08954 (100×100), versus path bounds 3.09e-6 and 4.52e-9. After refinement, the 70-digit residual norms were 6.39e-13 and 1.07e-10. Dividing by the numerical estimates gives 2.80e-13 and 1.19e-9, but these are **not certificates**: the eigenvalues are not proven lower bounds, the residuals are not interval-enclosed, and the final world-coordinate rounding is not included. A numerical shifted sparse factorization had positive pivots on both examples; an outward-rounded implementation and its fill, accuracy, and performance remain to be verified. A simple absolute inverse-factor comparison was much weaker than the path bound. See `benchmarks/BiharmonicDeformationBenchmark/certificate_probe/` for the commands and outputs.
-
-A standalone right-looking sparse decimal-interval LDLᵀ pilot now tests the stronger-bound approach on specific rotated grids. At half a numerical eigenvalue estimate, its pivot intervals were positive on 10×10 and 20×20 with 40 decimal digits and on 30×30 with 80; the 30×30 case was inconclusive at 40 digits. Shifts at 1.5 times the numerical eigenvalue estimate were rejected. The exact binary64 shifts, timings, controls and independent-review scope are in `benchmarks/BiharmonicDeformationBenchmark/certificate_probe/`. This checks only definiteness of those individual shifted matrices, not the end-to-end solution error, and is not yet a production solver. Scaling, precision and an interval residual remain open.
-
-The standalone pilot also encloses the residual of a binary64 world-coordinate candidate and combines it with its interval-certified shift. On its rotated z-only 20×20, 30×30 and 40×40 fixtures, the resulting normalized error upper bounds are approximately 2.25e-12, 2.39e-11 and 1.04e-10; a perturbed candidate is rejected. x/y are exact zero-displacement in this fixture. The 40×40 case uses 120 decimal digits and about 19 s for assembly and factorization; this is not a general-mesh or library certificate. See the pilot README and raw output.
-
-A column-indexed version of the Python interval factorization produced the same digests of all pivot intervals as the scan on 20×20 and 40×40; the single 40×40 runs took 15.88 and 16.62 seconds respectively. A 50×50 fixture certified its z-only candidate at 160 decimal digits, with about 47 seconds in factorization. These are small prototype measurements, not evidence of 100k scalability.
-
-An independent .NET 10 pilot in `benchmarks/BiharmonicCertificateArithmetic` implements outward-rounded fixed-binary-point intervals and sparse LDLᵀ on exported interval matrices. It found positive pivots for the imported 20×20 matrix at 256 bits and 30×30 matrix at 256/512 bits; the over-shifted control and 30×30 at 128 bits were rejected or inconclusive. These proofs apply to the imported matrices only: the C# pilot does not independently verify that Python's export contains every mesh contribution or the stated shift. Original-geometry assembly, all-axis residual certification, resource bounds and integration with the library's sparse symbolic structure remain open.
+An opt-in mode that returned a *proved* bound on the position error (interval arithmetic: a dense interval solver
+up to 16 vertices, and a sparse spectral certificate with geometric path bounds up to 100k vertices) was developed in this PR
+and then parked by the owner decision of 2026-11-16 (ship the core, certify later). It is preserved unchanged,
+with its design notes (`BIHARMONIC_IMPLEMENTATION_PLAN.md`, `BIHARMONIC_CERTIFICATE_PROOF.md`), probes and results, on the
+branch [`claude/biharmonic-certificate-parked`](https://github.com/HarmenGrosseDeters/geometry3Sharp/tree/claude/biharmonic-certificate-parked).
+Its open gates are #980 (the aligned 100k grid does not certify, cold runs take 25 to 60 s) and #976 (a 20 s tail on
+one 10k certificate). It is not part of the library and was never in a release, so adding it later is an addition to the API.

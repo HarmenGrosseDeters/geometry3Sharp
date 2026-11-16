@@ -1,7 +1,0 @@
-command: DOTNET_CLI_HOME=/workspace/dotnet-user NUGET_PACKAGES=/workspace/nuget DOTNET_CLI_USE_MSBUILD_SERVER=0 python3 benchmarks/BiharmonicDeformationBenchmark/scalar_certificate_controls.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll --mutation-artifacts /workspace/arap-886-artifacts
-scalar_mutation_baseline=green
-scalar_mutation=omit_trace_correction killed_by=exact_rational_bound_check
-scalar_source_and_artifacts=restored
-scalar_mutation_restored_controls=green
-mismatched mutation-artifacts path: refused before mutation
-restored_checker_sha256=a8dccb4b54697aed0d58c943f9789a13049e2ea92a68785540050665071a7dab

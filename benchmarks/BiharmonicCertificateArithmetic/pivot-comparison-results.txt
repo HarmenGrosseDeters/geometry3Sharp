@@ -1,4 +1,0 @@
-pivot_count=360 bits=256 status=all_intervals_overlap
-pivot_count=840 bits=256 status=all_intervals_overlap
-pivot_count=1520 bits=512 status=all_intervals_overlap
-pivot_count=2400 bits=768 status=all_intervals_overlap

@@ -1,3 +1,0 @@
-grid=20 vertices=400 free=360 precision=40 numeric_eigen_estimate=2.28218728567 mu=3.42328092851 mu_binary64=0x1.b62e11c87aa6ep+1
-grid=20 precision=40 status=uncertain pivot=278 interval=[-77.777030228830183085118460929182169936,-77.777030228830181582287846883332077062]
-exit=1

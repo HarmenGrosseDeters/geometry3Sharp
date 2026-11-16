@@ -1,6 +1,0 @@
-Targeted factor-identity mutation, not the incremental Stryker gate.
-Command: targeted_certificate_mutations.py <dotnet> /workspace/arap-886-artifacts /tmp/bih-factor-mutation --factor
-baseline: green; executed=25
-disable_factor_reuse: killed; executed=25 failed=1
-source and original library artifacts restored
-geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption

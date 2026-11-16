@@ -1,16 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using g3;
 
+// BiharmonicDeformationBenchmark <nx> <ny> [warm runs, default 5]
+// A procedural nx x ny grid on [0,1]^2; the left column is fixed, the right column is moved along a sine profile.
+// Prints the cold first Compute of the process and the median of the warm runs that follow.
 class Program
 {
     static int Main(string[] args)
     {
-        if (args.Length > 0 && (args[0] == "--certificate-structure" || args[0] == "--certificate-growth")) return CertificateStructureProbe.Run(args);
-        if (args.Length > 0 && (args[0] == "--certificate" || args[0] == "--certificate-geometric" || args[0] == "--certificate-profile" || args[0] == "--certificate-reuse-profile")) return ProductionCandidateExport.Run(args);
-        if (args.Length != 2 || !int.TryParse(args[0], out int nx) || !int.TryParse(args[1], out int ny) || nx < 2 || ny < 2) {
-            Console.Error.WriteLine("usage: BiharmonicDeformationBenchmark <nx> <ny>"); return 2;
+        int warm = 5;
+        if (args.Length < 2 || args.Length > 3 || !int.TryParse(args[0], out int nx) || !int.TryParse(args[1], out int ny) || nx < 2 || ny < 2 ||
+            (args.Length == 3 && (!int.TryParse(args[2], out warm) || warm < 1))) {
+            Console.Error.WriteLine("usage: BiharmonicDeformationBenchmark <nx> <ny> [warm runs]"); return 2;
         }
         var mesh = new DMesh3(MeshComponents.None);
         for (int y = 0; y < ny; ++y)
@@ -27,24 +31,21 @@ class Program
             handles.Add(right, mesh.GetVertex(right) + new Vector3d(0.1, 0, 0.05 * Math.Sin(2 * Math.PI * y / (ny - 1))));
         }
         var solver = new BiharmonicMeshDeformer(mesh);
-        long allocated = GC.GetTotalAllocatedBytes(true);
-        var watch = Stopwatch.StartNew();
-        var result = solver.Compute(handles);
-        watch.Stop();
-        allocated = GC.GetTotalAllocatedBytes(true) - allocated;
-        ulong hash = 14695981039346656037UL;
-        void AddHash(long bits) { unchecked { hash ^= (ulong)bits; hash *= 1099511628211UL; } }
-        if (result.Mesh != null) {
-            foreach (int id in result.Mesh.VertexIndices()) {
-                var v = result.Mesh.GetVertex(id); AddHash(id);
-                AddHash(BitConverter.DoubleToInt64Bits(v.x)); AddHash(BitConverter.DoubleToInt64Bits(v.y)); AddHash(BitConverter.DoubleToInt64Bits(v.z));
-            }
-            foreach (int id in result.Mesh.TriangleIndices()) {
-                var t = result.Mesh.GetTriangle(id); AddHash(id); AddHash(t.a); AddHash(t.b); AddHash(t.c);
-            }
+        var times = new List<double>(); BiharmonicMeshDeformer.ResultInfo result = null; long allocated = 0;
+        for (int run = 0; run <= warm; ++run) {
+            long before = GC.GetTotalAllocatedBytes(true);
+            var watch = Stopwatch.StartNew();
+            result = solver.Compute(handles);
+            watch.Stop();
+            if (run == 0) allocated = GC.GetTotalAllocatedBytes(true) - before;
+            times.Add(watch.Elapsed.TotalMilliseconds);
+            if (!result.Converged) break;
         }
-        Console.WriteLine($"vertices={mesh.VertexCount} triangles={mesh.TriangleCount} handles={handles.Count} status={result.Status} iterations={result.Iterations} residual={result.Residual:R} elapsed_ms={watch.Elapsed.TotalMilliseconds:F3} allocated_bytes={allocated} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64} mesh_hash={hash:x16}");
-        if (result.Mesh == null || result.Mesh.VertexCount != mesh.VertexCount) return 1;
+        var warmTimes = times.Skip(1).OrderBy(t => t).ToList();
+        string median = warmTimes.Count == 0 ? "n/a" : warmTimes[warmTimes.Count / 2].ToString("F0");
+        Console.WriteLine($"vertices={mesh.VertexCount} triangles={mesh.TriangleCount} handles={handles.Count} status={result.Status} residual={result.Residual:E2} " +
+            $"cold_ms={times[0]:F0} warm_median_ms={median} warm_runs={warmTimes.Count} allocated_mb={allocated / 1048576.0:F0} peak_working_set_mb={Process.GetCurrentProcess().PeakWorkingSet64 / 1048576.0:F0}");
+        if (!result.Converged || result.Mesh == null || result.Mesh.VertexCount != mesh.VertexCount) return 1;
         foreach (var h in handles) if (result.Mesh.GetVertex(h.Key) != h.Value) return 1;
         foreach (int id in result.Mesh.VertexIndices()) if (!result.Mesh.GetVertex(id).IsFinite) return 1;
         return 0;

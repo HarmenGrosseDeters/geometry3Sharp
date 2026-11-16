@@ -1,4 +1,0 @@
-grid=20 vertices=400 free=360 precision=40 numeric_eigen_estimate=2.28218728567 mu=1.14109364284 mu_binary64=0x1.241eb685a719fp+0
-status=positive_interval_pivots backend=scan min_pivot_lower=1378.956923247568179264206395869665637205 min_pivot_upper=1378.956923247589346179333558267485100788 min_pivot_index=355 updates=141537 pivot_sha256=d9c0f550b578ab1bd5ea2486df2d6b156c108c88f5db699ad64c3bc4715bffa1 elapsed_factor_seconds=0.655 elapsed_total_seconds=0.852 peak_rss_kib=53676
-interval_residual_norm_upper=2.565104825142270816613672901382382181561E-12 normalized_error_upper=2.247935426901381139811642425508542649762E-12 requested_tolerance=1e-8 perturb=0.0
-position_certificate=within_tolerance x_y_displacement=exactly_zero

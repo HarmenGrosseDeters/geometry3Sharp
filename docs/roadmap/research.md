@@ -73,8 +73,8 @@ Part of the [roadmap](../ROADMAP.md).
      implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
      Stage 2 merged (#793, 2026-11-13): `ContinuousCollision` and `MeshSweepCollision`, with the bound review fixes.
      Follow-ups merged: nearly parallel edges (#845), a parallel fused broad and narrow phase (#857), sub-steps in the
-     broad phase (#872, 2026-11-14). Open: #866, the 1M-triangle ToI frame takes 41 s parallel / 121 s serial against the
-     20 s rule (still open after #872; current time unverified).
+     broad phase (#872, 2026-11-14). #866 / #940 (the 1M-triangle ToI frame against the 20 s rule): closed 2026-11-16 as a documented limit (owner),
+     serial 23.5-24.9 s and parallel 8.8-10.4 s after #945 and #977.
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -179,7 +179,12 @@ Part of the [roadmap](../ROADMAP.md).
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; issue #887 deferred (owner 2026-11-15: closed as not planned until a scan use case and a measured gap of C1 exist).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
-  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M/L: biharmonic displacement implementation and tests in progress for #886 (2026-11-15); see [design/BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md). #897 now has a bounded strict certificate for one active component up to 400 vertices, including a rotated 20x20 production candidate checked independently; 28 focused tests pass. The existing numerical ordering is now reused as a validated permutation for the independent interval proof; measured cold allocation falls by about 49–51 MB on the 400-vertex fixtures, with unchanged output hashes and budgets. Three targeted certificate/cache mutants are killed. Exact endpoint-limit checks reduce the measured strict 20x20 aligned cold median from 463 to 362 ms and rotated median from 544 to 476 ms (five runs; benchmark logs). Geometric proof reuse now validates exact live geometry/topology/handle keys and checks every new output afresh; same-instance 400-vertex changing-target medians are 34 ms aligned and 65 ms rotated versus paired fresh 363/464 ms (five runs). Numerical factor reuse is now paired with the validated proof/key and saves about 1.54 MB of allocation per target update on both measured grids; the separate scalar matrix pilot now lowers the measured 2500-vertex matrix-run median from 7445 to 1567 ms (five fresh-process runs; no position certificate). Structural counts explain why the current production caps cannot simply be raised. The scalar spectral check is now connected to production final-position verification on supported net10.0 x64 execution, retaining the existing 400-vertex/work/fill limits and interval path on other targets (2026-11-16). Production strict verification now also certifies the aligned and rotated 2500/10000-vertex fixtures using the original-data residual correction bound (2026-11-16); 30 focused tests cover the extended path, including the 441-vertex translation reference and reuse. The supported scalar cap is 10000, with explicit work/fill tiers; other runtimes retain 400. The 100k diagnosis now counts 2.99B Q/Schur updates and 14.48M factor entries; the envelope-aware Rump bound II is now connected to production midpoint/radius verification with the global bound retained as a control, unchanged resource caps and independent bounds review. The sharper Perron bound remains an ideal-grid study; larger represented-matrix measurements and scalar fill/work scaling remain open. Indexed scalar row matching and separate key/value storage are implemented (2026-11-16): 36 focused tests and complete independent trace controls pass, including a killed stale-stamp mutant. The 2500-vertex scalar numeric median changes 279 -> 170 ms and numeric-phase allocations 6.806 -> 5.377 MB; complete production cold timing improves on the aligned fixture and is essentially unchanged on the rotated one. Cold latency under concurrent local load is tracked in #976 (26.45 s on one strict 10k Compute; repeat without task builds 8.53/10.48 s aligned/rotated). The reviewed geometric forest route has 40 passing focused tests and killed load/cache mutants; it now certifies both orientations through 50k and rotated 100k, while aligned100k rejects the unchanged relative bound. The 35–60 s 100k cold runs and aligned acceptance remain tracked in #980; full 100k/cold-budget/readiness gates remain open; see [design/BIHARMONIC_IMPLEMENTATION_PLAN.md](../design/BIHARMONIC_IMPLEMENTATION_PLAN.md). The earlier ordinary numerical 100k-grid run took 4.19 s and 852 MB peak working set, not strict certification. ARAP is tracked separately in #896.
+  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+     Issue #886: biharmonic displacement done (2026-11-16, #897): `BiharmonicMeshDeformer`, numerical mode with status and
+     stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
+     `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
+     (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP is tracked separately in #896.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
@@ -229,7 +234,7 @@ Part of the [roadmap](../ROADMAP.md).
   items 1, 3 and 5.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
   ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
-  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
+  variant designed 2026-11-15; owner 2026-11-15: no-go, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -462,9 +467,9 @@ Ordered by expected value for the library.
      rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
      2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
      open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
-     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
-     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
-     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so nothing
+     depends on it). **Owner 2026-11-15 (through the coordinator): no-go, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -614,15 +619,19 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
-   the plateau variant of option 2 is designed ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10) and
-   not built: owner 2026-11-15, no-go before the release, no spike; it stays a design. Open as research: a guarantee.
-2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
-3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
-4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), #925; stage 2 built as the block test (#935); stage 3, growth of the blocks (#944; refinement and transitions not built, upper bound one run and none); options B and C only after a reviewed proof.
-6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
-7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
-8. #886: ARAP deformation, optionally biharmonic (research item 7).
-9. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands).
-10. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
+Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
+(geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
+owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
+
+1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
+   exudation.
+3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
+   pre-filter #977 (serial 23.5-24.9 s).
+4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
+   Options B and C only after a reviewed proof.
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
+6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
+7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not scheduled (the
+   rounding spike is a no-go).
+8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).

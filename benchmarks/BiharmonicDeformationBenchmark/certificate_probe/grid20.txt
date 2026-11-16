@@ -1,3 +1,0 @@
-grid=20x20 vertices=400 free=360 precision=70dps
-refinements= 0 eigenvalue_lower_bound= 3.08570181216e-6 residual_2norm= 0.0,0.0,2.89036783622e-12
-estimated_error_bound= 0.0,0.0,9.36697066718e-7 relative_tolerance=1e-8

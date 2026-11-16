@@ -1,5 +1,0 @@
-grid=10 vertices=100 free=80 precision=40 numeric_eigen_estimate=8.93286819303 mu=4.46643409652 mu_binary64=0x1.1dda0e65917ecp+2
-interval_matrix_radius_infinity_upper=6.145718228902441468405274629947845534266E-13 (conditional on interval assembly)
-scalar_shifted_matrix_check=True arithmetic_audited=True c=1.90047916497e-09 radius=5.96808254496e-13 products=6038 elapsed_factor_seconds=0.291
-interval_residual_norm_upper=0.3643339903449936526893448472501662701477 normalized_error_upper=0.08157155853463283079198577850579604386914 requested_tolerance=1e-8 perturb=0.0001
-position_certificate=not_established
