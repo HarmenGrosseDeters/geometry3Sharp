@@ -22,7 +22,10 @@ namespace g3
         }
         /// <summary>
         /// Success and MaxIterations carry a finite output mesh with exact handle positions;
-        /// MaxIterations is not convergence. All failure statuses carry no output mesh.
+        /// MaxIterations is not convergence.
+        /// Success means that the motion tolerance was met, not that a (local) minimum of the energy was reached:
+        /// a large twist can stop on a plateau where the iteration would still lower the energy (docs/design/ARAP_DEFORMATION.md).
+        /// All failure statuses carry no output mesh.
         /// </summary>
         public class ResultInfo
         {
@@ -36,6 +39,8 @@ namespace g3
             public bool Converged { get { return Status == Status.Success; } }
         }
 
+        /// <summary>Test seam (internal): called for every Anderson candidate with the iteration, the history length it used and the candidate, which it may modify before the safeguard looks at it.</summary>
+        internal Action<int, int, double[]> CandidateProbe;
         public DMesh3 Mesh;
         public Settings Options = new Settings();
         public ArapMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
@@ -391,6 +396,7 @@ namespace g3
                 Array.Copy(residual, previousF, 3 * count); Array.Copy(plain, previousG, 3 * count); havePrevious = depth > 0;
                 bool accelerated = false;
                 if (historyF.Count > 0 && TryAndersonCandidate(historyF, historyG, residual, plain, candidate)) {
+                    if (CandidateProbe != null) CandidateProbe(iter, historyF.Count, candidate);
                     Store(candidate, trial);
                     double energyCandidate;
                     // The trial gets its own rotations (a zero covariance keeps the accepted ones). A candidate that
