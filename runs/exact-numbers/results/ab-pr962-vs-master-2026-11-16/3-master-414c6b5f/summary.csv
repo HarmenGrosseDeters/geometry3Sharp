@@ -1,0 +1,4 @@
+set,runtime,threads,booleans,best_sum_ms,speedup_vs_first,efficiency
+t6,net10.0,1,294,42424,1,1
+t6,net10.0,4,294,23593,1.8,0.45
+t6,net10.0,12,294,16283,2.61,0.22

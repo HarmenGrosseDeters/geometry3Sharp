@@ -1,0 +1,25 @@
+﻿{
+    "date":  "2026-11-16T11:54:26.4685270+01:00",
+    "machine":  "DESKTOP-9U4HBS0",
+    "logical_processors":  12,
+    "os":  "Microsoft Windows NT 10.0.26300.0",
+    "dotnet":  "10.0.401",
+    "sets":  [
+                 "t6"
+             ],
+    "runtimes":  [
+                     "net10.0"
+                 ],
+    "threads":  [
+                    1,
+                    4,
+                    12
+                ],
+    "stride":  1,
+    "rounds":  3,
+    "repeat":  2,
+    "commit":  "414c6b5f23e1d66e294dc1c5fc4567f0b1b3e556",
+    "environment":  [
+
+                    ]
+}

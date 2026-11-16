@@ -1,0 +1,10 @@
+set,runtime,round,threads,mask,time_ms,cases,status
+t6,net10.0,1,1,0x1,41621,294,ok
+t6,net10.0,1,4,0xF,22907,294,ok
+t6,net10.0,1,12,0xFFF,15182,294,ok
+t6,net10.0,2,12,0xFFF,15220,294,ok
+t6,net10.0,2,4,0xF,22702,294,ok
+t6,net10.0,2,1,0x1,41851,294,ok
+t6,net10.0,3,1,0x1,43776,294,ok
+t6,net10.0,3,4,0xF,22756,294,ok
+t6,net10.0,3,12,0xFFF,15261,294,ok
