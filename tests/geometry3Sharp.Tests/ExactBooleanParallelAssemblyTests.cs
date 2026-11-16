@@ -268,6 +268,13 @@ namespace geometry3Sharp.Tests
             DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 9);
             open.RemoveTriangle(open.TriangleIndices().First());
             yield return ("open sphere - box", () => Run(open, box, ExactMeshBoolean.Operations.Intersection));
+            // (the per-patch evaluation of the open mesh without the traced one: the patch joins are collected for it, in the order of the sorted edges)
+            yield return ("open per-patch sphere - box", () => {
+                var eb = new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Union) { TracedOpenWinding = false };
+                Assert.True(eb.Compute(), eb.Error);
+                Assert.True(eb.Result.CheckValidity(true, FailMode.ReturnOnly));
+                return eb;
+            });
         }
 
         public static IEnumerable<object[]> CaseNames() => Cases().Select(c => new object[] { c.Item1 });
