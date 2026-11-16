@@ -244,13 +244,18 @@ public static partial class Program
             catch (ArgumentException) { return; }
             throw new Finding($"{what}: coordinates beyond 1e70 were accepted (the documented contract is an ArgumentException)");
         }
+        var phase = System.Diagnostics.Stopwatch.StartNew();
         Mesh2Output o = new QualityMesh2Candidate().Run(input);
+        long meshMs = phase.ElapsedMilliseconds;
         if (o.Status == Mesh2Status.Failed) {
             CheckMesher2(what, "Failed", o.FailureKind?.ToString() ?? "", false, "");
             return;
         }
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"mesher2: limit reached {o.SteinerLimitReached}, {o.VX.Length} vertices for {input.X.Length} input points, angle {input.MinAngleDeg}, constrained {input.ConstrainedQuality}, conforming {input.Conforming}, x0 {input.X[0]}, {input.Segments.Count} segments, x range {input.X.Min()}..{input.X.Max()}, y range {input.Y.Min()}..{input.Y.Max()}, duplicates {input.X.Length - input.X.Zip(input.Y, (a, b) => (a, b)).Distinct().Count()}, snap {input.SnapTolerance}");
+        phase.Restart();
         OracleReport report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+        if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1")
+            Console.Error.WriteLine($"mesher2 phases: mesher {meshMs} ms, oracle {phase.ElapsedMilliseconds} ms ({input.X.Length} points, {input.Segments.Count} segments, {o.VX.Length} output vertices)");
         if (!report.Ok && KnownMesher2Class(input, report) != null)
             return;     // (an open class, pinned in FINDINGS.md; MESH_FUZZ_STRICT=1 judges it)
         CheckMesher2(what, o.Status.ToString(), "", report.Ok, string.Join("; ", report.Violations.Take(4)));

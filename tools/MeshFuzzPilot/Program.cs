@@ -541,6 +541,8 @@ public static partial class Program
             int n = int.Parse(args[1], CultureInfo.InvariantCulture);
             var rnd = new Random(int.Parse(args[2], CultureInfo.InvariantCulture));
             int bad = 0;
+            // MESH_FUZZ_SLOW_MS: the time above which an input is reported as SLOW (default 5000)
+            int slowMs = int.TryParse(Environment.GetEnvironmentVariable("MESH_FUZZ_SLOW_MS"), out int sm) ? sm : 5000;
             for (int i = 0; i < n; ++i) {
                 var data = new byte[40 + rnd.Next(260)];
                 rnd.NextBytes(data);
@@ -555,7 +557,7 @@ public static partial class Program
                 // (a hung thread cannot be stopped: report and end the process, so it does not compete with the following inputs)
                 if (!thread.Join(60000)) { Console.WriteLine($"HANG {text}"); Console.WriteLine($"{i + 1} inputs, {bad + 1} findings (stopped at a hang)"); return 3; }
                 if (error != null) { Console.WriteLine($"{(error is Finding ? "FINDING" : "EXCEPTION " + error.GetType().Name)} {error.Message.Split('\n')[0]} {text}"); ++bad; }
-                else if (watch.ElapsedMilliseconds > 5000) Console.WriteLine($"SLOW {watch.ElapsedMilliseconds} ms {text}");
+                else if (watch.ElapsedMilliseconds > slowMs) Console.WriteLine($"SLOW {watch.ElapsedMilliseconds} ms {text}");
             }
             Console.WriteLine($"{n} inputs, {bad} findings");
             return bad == 0 ? 0 : 1;

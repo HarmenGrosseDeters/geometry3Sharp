@@ -114,7 +114,7 @@ The `trim-loop` and `mesh-cut` gates of the first smoke runs are gone (5 000 str
 
 `MeshFuzzPilot random <n> <seed>` runs n pseudo-random inputs of the selected operations in one process with a 60 s watchdog and prints the hex
 of every input that gives a finding or an exception: a smoke test without coverage guidance and without libFuzzer, for a first look at a target
-(`MESH_FUZZ_TRACE=1` prints some internals of the 2D mesher and Clipper2 targets).
+(`MESH_FUZZ_TRACE=1` prints some internals of the 2D mesher and Clipper2 targets, and for `quality-mesh2` the time of the mesher and of the oracle apart: the oracle is most of a slow unit, #947; `G3_ORACLE_TIMING=1` adds the oracle's own phases; `MESH_FUZZ_SLOW_MS` is the time in ms above which `random` reports an input as `SLOW`, default 5000).
 
 **Range domains (QA.md 2.5a, 2026-11-10).** The decoder takes the scale 2^e and the offset exponent 2^f three times in four inside
 +-150 (one in eight of those at the edges, +-100 .. +-150) and one time in four anywhere in [-1022, 1023]. Inside a module's
