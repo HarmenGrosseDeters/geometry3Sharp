@@ -37,6 +37,8 @@ def select(ids, shard, shards, rng=None):
     if rng:
         a, b = rng.split(":")
         first, last = int(a or 0), int(b or len(ids))
+        if not 0 <= first <= last <= len(ids):
+            raise ValueError(f"range {rng} is not within 0..{len(ids)}")
     return ids[first:last][shard::shards]
 
 
@@ -62,13 +64,22 @@ def run_one(mesh, cfg, timeout, bench_dir=HERE):
     out = subprocess.run([os.path.join(bench_dir, "run.sh"), mesh], env=env, capture_output=True, text=True).stdout
     wall = time.monotonic() - t0
     lines = [x for x in out.splitlines() if x.strip()]
-    row = lines[-1] if lines else json.dumps({"file": os.path.basename(mesh), "status": "timeout_or_crash"})
+    row = json.dumps({"file": os.path.basename(mesh), "status": "timeout_or_crash"})
+    if lines:
+        try:
+            if json.loads(lines[-1])["file"]:
+                row = lines[-1]
+        except (ValueError, KeyError, TypeError):
+            pass  # a non-JSON last line (a crashed process): a status row
     return row, wall
 
 
 def cmd_run(args):
     ids_file, out = args[0], args[1]
     opt = dict(zip(args[2::2], args[3::2]))
+    unknown = set(opt) - {"--configs", "--timeout", "--deadline-min"}
+    if unknown or len(args) % 2:
+        sys.exit(f"unknown or incomplete options: {sorted(unknown)}")
     cfgs, timeout = opt.get("--configs", "ABC"), int(opt.get("--timeout", "400"))
     deadline = float(opt.get("--deadline-min", "0")) * 60
     meshes = os.path.join(HERE, "data", "ids", "meshes")
@@ -103,9 +114,14 @@ def cmd_merge(args):
             for line in open(p):
                 if not line.strip():
                     continue
-                r = json.loads(line)
-                if r["file"] not in seen:  # the first row of a mesh wins (a resumed shard)
-                    seen.add(r["file"])
+                try:
+                    r = json.loads(line)
+                    name = r["file"]
+                except (ValueError, KeyError, TypeError):
+                    print(f"merge: skipped an unparsable row in {p}", file=sys.stderr)
+                    continue
+                if name not in seen:  # the first row of a mesh wins (a resumed shard)
+                    seen.add(name)
                     rows.append(line.rstrip("\n"))
         rows.sort(key=lambda l: json.loads(l)["file"])
         with open(os.path.join(out, "raw", cfg + ".jsonl"), "w") as w:
@@ -115,8 +131,9 @@ def cmd_merge(args):
         p = os.path.join(d, "wall.tsv")
         if os.path.exists(p):
             for line in open(p):
-                f, c, s = line.rstrip("\n").split("\t")
-                walls.setdefault((f, c), s)
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) == 3:
+                    walls.setdefault((parts[0], parts[1]), parts[2])
     with open(os.path.join(out, "wall.tsv"), "w") as w:
         for (f, c), s in sorted(walls.items()):
             w.write(f"{f}\t{c}\t{s}\n")

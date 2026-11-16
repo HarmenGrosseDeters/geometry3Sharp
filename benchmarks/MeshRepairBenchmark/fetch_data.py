@@ -7,7 +7,7 @@
 #   data/sample<N>_<S>/meshes (selection.csv); run it with BENCH_DATA=sample<N>_<S>
 #   in data/holdout/ (selection_holdout.csv, selection_large_holdout.csv, meshes, meshes_large)
 # Thingi10K models carry individual licenses (mostly Creative Commons), see data/input_summary.csv.
-import csv, json, os, random, re, sys, urllib.request
+import csv, json, os, random, re, sys, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = "https://huggingface.co/datasets/Thingi10K/Thingi10K"
@@ -16,7 +16,17 @@ os.makedirs("data", exist_ok=True)
 
 def fetch(url, path):
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url, path)
+        for attempt in range(5):  # retry with backoff; a partial download never gets the final name
+            try:
+                with urllib.request.urlopen(url, timeout=120) as r, open(path + ".part", "wb") as w:
+                    while chunk := r.read(1 << 20):
+                        w.write(chunk)
+                os.replace(path + ".part", path)
+                return
+            except Exception:
+                if attempt == 4:
+                    raise
+                time.sleep(2 ** attempt * 5)
 
 for f in ["geometry_data.csv", "input_summary.csv"]:
     fetch(f"{BASE}/resolve/main/metadata/{f}", f"data/{f}")

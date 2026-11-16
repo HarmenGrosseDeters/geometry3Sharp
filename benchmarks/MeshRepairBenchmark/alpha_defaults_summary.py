@@ -19,7 +19,7 @@ LIST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.pat
 CFG = ["A", "B", "C"]
 LABEL = {"A": "A (defaults)", "B": "B (features)", "C": "C (budget 300k)"}
 LIMIT_S = 20.0
-TIMEOUT_S = 400.0
+TIMEOUT_S = float(os.environ.get("TIMEOUT_S", "400"))
 
 ids = [x.strip() for x in open(LIST) if x.strip()]
 rows = {c: {} for c in CFG}
@@ -28,14 +28,18 @@ for c in CFG:
     if os.path.exists(p):
         for line in open(p):
             if line.strip():
-                r = json.loads(line)
-                rows[c][r["file"]] = r
+                try:
+                    r = json.loads(line)
+                    rows[c][r["file"]] = r
+                except (ValueError, KeyError, TypeError):
+                    pass
 wall = {}
 p = os.path.join(D, "wall.tsv")
 if os.path.exists(p):
     for line in open(p):
-        f, c, s = line.rstrip("\n").split("\t")
-        wall[(f, c)] = float(s)
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) == 3:
+            wall[(parts[0], parts[1])] = float(parts[2])
 
 files = [i + ".stl" for i in ids]
 done = [f for f in files if all(f in rows[c] for c in CFG)]

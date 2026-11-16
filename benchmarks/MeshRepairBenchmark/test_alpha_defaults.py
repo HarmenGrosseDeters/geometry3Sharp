@@ -27,6 +27,9 @@ class Select(unittest.TestCase):
         self.assertEqual(ad.select(ids, 0, 1, ":5"), ids[:5])
         with self.assertRaises(ValueError):
             ad.select(ids, 4, 4)
+        for bad in ("5:3", "0:801"):
+            with self.assertRaises(ValueError):
+                ad.select(ids, 0, 1, bad)
 
     def test_configs_are_the_documented_ones(self):
         self.assertEqual(ad.CONFIG_ENV, {"A": {}, "B": {"BENCH_WRAP_FEATURES": "1"}, "C": {"BENCH_WRAP_BUDGET": "300000"}})
@@ -70,6 +73,22 @@ class RunAndMerge(unittest.TestCase):
             r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "alpha_defaults_summary.py"), out, lst], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("**3 of 3**", r.stdout)
+
+    def test_torn_rows_do_not_break_merge_or_run_one(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = os.path.join(t, "a")
+            os.makedirs(os.path.join(d, "raw"))
+            for c in "ABC":
+                open(os.path.join(d, "raw", c + ".jsonl"), "w").write('{"file":"1.stl"}\n{"file":"2.st')
+            open(os.path.join(d, "wall.tsv"), "w").write("1.stl\tA\t1.0\n2.stl\tA")
+            ad.cmd_merge([os.path.join(t, "m"), d])
+            self.assertEqual(len(open(os.path.join(t, "m", "raw", "A.jsonl")).readlines()), 1)
+            fake = os.path.join(t, "bench")
+            os.makedirs(fake)
+            open(os.path.join(fake, "run.sh"), "w").write('#!/bin/bash\necho "Unhandled exception"\n')
+            os.chmod(os.path.join(fake, "run.sh"), 0o755)
+            row, _ = ad.run_one("/x/9.stl", "A", 5, fake)
+            self.assertEqual(json.loads(row), {"file": "9.stl", "status": "timeout_or_crash"})
 
     def test_resume_skips_done_rows_and_torn_line(self):
         with tempfile.TemporaryDirectory() as t:
