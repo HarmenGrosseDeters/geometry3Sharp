@@ -50,10 +50,12 @@ selectively.
 Status on 2026-11-15 (late evening, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered
 by priority; this section names only what is in flight.
 
-- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL) and #953 (thread-scaling
-  analysis) are merged; candidate C is a no-go (#915). Open: the mutation shards #913 (7-part split, its last shards
-  running) and lever 1, `TriangleBoxTree` parallel build from 8192 boxes (#956, held until a re-run of #837's cases
-  explains its +7 % classification). Then the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL), #953 (thread-scaling
+  analysis), #913 (7-part mutation split), #956 (`TriangleBoxTree` parallel build from 8192 boxes) and #963 (arrangement mutation filter) are merged;
+  candidate C is a no-go (#915). Open: #962 (parallel assembly and classification edge groups; owner's machine
+  -3.7 / -6.2 / -9.6 % at 1 / 4 / 12 threads, bit-identical) and the probe of the `touch_only` pair work (probe A) and the rounding sub-phases (probe B). **Stopping rule (owner
+  2026-11-16):** at most one more speed lever, only if the probe shows a realistic gain of at least 10 % at low risk; then
+  T6 closes with a report instead of the 2x target, and the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
 - **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
   the default decisions for lever 6 K (#736) and the raw-size budget (#846). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
@@ -92,16 +94,16 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- Merge #913 and #956; then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
+- #962 and the probe (stopping rule, [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)); then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
 - The 800 runs for the alpha wrap default decisions (Haiku runner), then the owner decides.
-- Evaluate the owner's local run (#929, #858, the boolean candidate pairs) and write the finding into the boolean docs.
+- Write the owner's local runs (#929, #858, the boolean candidate pairs, the #962 A/B) into the boolean docs.
 - Review and merge #896 / #897 (ARAP, biharmonic).
 - Release preparation once the owner decides.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
 1. **Finish what runs.** Exact Boolean 3.0: T1b #843, the T6 check #922 and the thread-scaling analysis #953 are
-   merged; left are the mutation shards #913, lever 1 #956 and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
+   merged, and so are #913 and #956; left are #962, the probe and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
    deferred, owner 2026-11-15).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
@@ -120,10 +122,8 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
 ## Later / research
 
-- Exact booleans, not scheduled: EMBER lever 2 (skip self-pairs of results certified free of self-intersections in chained
-  booleans); levers 1 and 5 (quantized inputs, a new architecture): no rewrite (owner 2026-11-07), patent search done
-  2026-11-10 (nothing found); exact output coordinates of the coplanar 2D
-  clipping. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- Exact booleans after 3.0 (owner 2026-11-16): maintenance mode; the exact imprint (after the release) is the only new
+  feature; everything else is parked or dropped, see the triage in [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16).
 - Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
   matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
