@@ -78,3 +78,27 @@ Findings:
 3. The default of 50 iterations is tight from about a 180 deg twist (the bar is still sliding); for grids it is cosmetic (above). The biharmonic start does not help here (a linear interpolation of the displacements shears the bar): 180 deg is still at the limit after 1000 iterations, and 36 against 39 iterations at 135 deg.
 
 No default changes are proposed; they would be an owner decision.
+
+## Prepare, Solve and initial positions
+
+Two additive APIs (no change of the output of `Compute`, checked by identical mesh hashes against master, `benchmarks/ArapDeformationBenchmark/README.md`):
+
+- `Prepare(handleIds)` returns a `Preparation` with everything that depends only on the mesh and on which vertices are handles: validation, the per-component normalization, the cotangent weights, the anchoring checks and the sparse Cholesky factorization of the free-vertex Laplacian. `Solve(preparation, handlePositions[, initialPositions])` moves the handles and runs the local/global iteration; `Compute(handles)` is `Prepare` plus `Solve` with the order of the failure statuses of the single pass (the handle positions are checked before the factorization), so `Solve` equals a fresh `Compute` bit for bit (`PrepareSolve_EqualsAFreshCompute_BitForBit_ForEveryHandlePosition`). A `Solve` reads the preparation only, so concurrent solves on one preparation are allowed (`PrepareSolve_ConcurrentSolvesOnOnePreparation_EqualTheSerialOnes`). A preparation is tied to the mesh object and its `ShapeTimestamp`; `Solve` after an edit, with other handle ids, or with invalid `Options` is `InvalidInput` (and gives no mesh). The saving is small, see the measurement below.
+- `Compute(handles, initialPositions)` and `Solve(..., initialPositions)` start the iteration from the given positions (world coordinates, keyed by vertex id) instead of the harmonic interpolation of the handle displacements. Every free vertex needs a finite entry, ids that are not vertices are rejected, entries for handle vertices are ignored (so a previous result can be passed whole). The start is a start, not a constraint: the safeguarded iteration never raises the energy from it. A start whose normalized coordinates overflow is `NumericalRange`.
+
+Measured (Linux x64, 2026-11-16, raw output in the benchmark README): the setup that `Prepare` saves is about 1 % of a solve (10k: 22 ms against 1.9 s; 100k: 0.5 s against 40 s), so a 30-step drag on 10k vertices takes 55.0 s with reuse against 57.2 s with fresh computes; starting every step from the previous result saves 12 % (10k) and 15 % (100k) of the iterations, because the convergence is linear. The reason to use the API is the interface, not speed: a handle drag that keeps one preparation and the previous result.
+
+Incremental twist (`benchmarks/ArapIncrementalTwist`, the 1178-vertex bar, 10-degree steps, each from the previous result, budget 1000, depth 5):
+
+| Twist | Incremental iterations (energy, mid radius) | Cold jump iterations (energy, mid radius) |
+| ---: | --- | --- |
+| 90 | 23 (0.004893, 0.345) | 35 (0.004893, 0.345) |
+| 120 | 29 (0.008591, 0.341) | 35 (0.008591, 0.341) |
+| 140 | 27 (0.011576, 0.337) | 48 (0.011576, 0.337) |
+| 150 | 319 (0.011133, 0.061) | 60 (0.013213, 0.335) |
+| 160 | 84 (0.012114, 0.027) | 286 (0.012114, 0.012) |
+| 170 | 142 (0.013050, 0.038) | 1000, `MaxIterations` (0.007919, 0.085) |
+| 180 | 1000, `MaxIterations` (0.013928, 0.078) | 1000, `MaxIterations` (0.007936, 0.104) |
+
+Up to 140 degrees the incremental path stays on the round branch (radius 0.350 to 0.337) with 22 to 29 iterations per 10-degree step, against 22 to 48 for the cold jump to the same angle; both reach the same state to the last digit. At 150 degrees it does not stay on the branch: the bar necks (mid radius 0.061) at a lower energy than the round state the cold solve still holds there (0.0111 against 0.0132), the same transition as in the twist findings above, now one step earlier than the cold solve. The incremental path therefore gives no protection against it, and neither the incremental nor the cold path is a minimum at 170 and 180 degrees (both hit the budget). The sum of the incremental iterations of the 18 steps is 1885 against 2773 for the cold jumps of the same angles.
+
