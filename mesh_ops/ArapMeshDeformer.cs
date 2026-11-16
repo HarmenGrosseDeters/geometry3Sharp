@@ -141,14 +141,15 @@ namespace g3
         /// The part of a deformation that depends only on the mesh and on which vertices are handles: validation, the
         /// per-component normalization, the cotangent weights, the anchoring check and the sparse Cholesky factorization of
         /// the Laplacian of the free vertices. <see cref="Solve"/> then moves the handles any number of times without
-        /// repeating it. <c>Status</c> is <c>Success</c> or the failure that <c>Compute</c> would report for any handle
-        /// positions (a failure that depends on the handle positions is reported by <c>Solve</c>). A preparation belongs to
+        /// repeating it. <c>Status</c> is <c>Success</c> or the failure that <c>Compute</c> reports for finite handle positions
+        /// of these ids (a failure that depends on the handle positions is reported by <c>Solve</c>; <c>Solve</c> with a failed
+        /// preparation is <c>InvalidInput</c>). A preparation belongs to
         /// the mesh and the mesh state it was made from; <c>Solve</c> reports <c>InvalidInput</c> after the mesh was
         /// edited or replaced. It is read only after <c>Prepare</c> returns, so several threads may call <c>Solve</c> with it.
         /// </summary>
         public sealed class Preparation
         {
-            public Status Status = Status.InvalidInput;
+            public Status Status { get; internal set; } = Status.InvalidInput;
             /// <summary>Number of handles the preparation was made for.</summary>
             public int HandleCount { get { return HandleIds == null ? 0 : HandleIds.Count; } }
             internal HashSet<int> HandleIds;
@@ -179,18 +180,18 @@ namespace g3
 
         /// <summary>
         /// Move the handles of <paramref name="preparation"/> to <paramref name="handlePositions"/> (the same vertex ids it was made
-        /// for) and solve. The result is bit for bit that of <c>Compute(handlePositions)</c> on a fresh instance with the same
+        /// for) and solve. For a successful preparation the result is bit for bit that of <c>Compute(handlePositions)</c> on a fresh instance with the same
         /// mesh and options. <paramref name="initialPositions"/> (optional, null: the harmonic interpolation of the handle
         /// displacements) is a start for the iteration, keyed by vertex id in the coordinates of the input mesh: it
-        /// must have a finite position for every free vertex and no id that is not a vertex of the mesh; entries for
-        /// handle vertices are ignored (handles stay exact), so the vertices of a previous result can be passed whole.
+        /// must have a finite position for every free vertex and no id that is not a vertex of the mesh; finite entries for
+        /// handle vertices are accepted and ignored (handles stay exact), so the vertices of a previous result can be passed whole.
         /// Anything else is <c>InvalidInput</c>. The energy never increases from the energy of the start.
         /// </summary>
         public ResultInfo Solve(Preparation preparation, IReadOnlyDictionary<int, Vector3d> handlePositions,
                                 IReadOnlyDictionary<int, Vector3d> initialPositions = null)
         {
             var result = new ResultInfo { Status = Status.InvalidInput };
-            if (preparation == null || preparation.Status != Status.Success || handlePositions == null || !OptionsAreValid()) return result;
+            if (preparation == null || preparation.Status != Status.Success || preparation.HandleIds == null || handlePositions == null || !OptionsAreValid()) return result;
             if (preparation.Mesh != Mesh || preparation.ShapeTimestamp != Mesh.ShapeTimestamp) return result;
             return SolveCore(preparation, handlePositions, initialPositions);
         }
@@ -316,6 +317,8 @@ namespace g3
             var free = new int[n]; int count = 0;
             for (int i = 0; i < n; ++i) free[i] = fixedVertex[i] ? -1 : count++;
             // count > 0 here: all vertices being handles returned above.
+            // With handle positions (the Compute path) this keeps the order of the failure statuses of a single pass: the
+            // overflow of a normalized handle is reported before the factorization can fail. Solve checks it again.
             if (handlePositions != null)
                 foreach (var h in handlePositions) {
                     int i = toIndex[h.Key];

@@ -65,6 +65,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InvalidHandleValue_IsReportedBeforeADegenerateTriangleOfAnAllHandlesMesh()
+        {
+            var mesh = new DMesh3();
+            mesh.AppendVertex(new Vector3d(0, 0, 0)); mesh.AppendVertex(new Vector3d(1, 0, 0)); mesh.AppendVertex(new Vector3d(2, 0, 0));
+            mesh.AppendTriangle(0, 1, 2);
+            var targets = new Dictionary<int, Vector3d> { [0] = Vector3d.Zero, [1] = Vector3d.AxisX, [2] = new Vector3d(2, 0, 0) };
+            var d = new ArapMeshDeformer(mesh);
+            Assert.Equal(ArapMeshDeformer.Status.DegenerateTriangle, d.Compute(targets).Status);
+            Assert.Equal(ArapMeshDeformer.Status.DegenerateTriangle, d.Prepare(targets.Keys).Status);
+            targets[1] = new Vector3d(double.NaN, 0, 0);
+            Assert.Equal(ArapMeshDeformer.Status.InvalidInput, d.Compute(targets).Status);
+            Assert.Equal(ArapMeshDeformer.Status.InvalidInput, d.Prepare(new[] { 0, 1, 7 }).Status);
+        }
+
+        [Fact]
+        public void Preparation_StatusCannotBeForgedFromOutside()
+        {
+            Assert.False(typeof(ArapMeshDeformer.Preparation).GetProperty("Status").SetMethod.IsPublic);
+            var d = new ArapMeshDeformer(Patch());
+            var failed = d.Prepare(new int[0]);
+            Assert.Equal(ArapMeshDeformer.Status.UnanchoredComponent, failed.Status);
+            Assert.Equal(ArapMeshDeformer.Status.InvalidInput, d.Solve(failed, new Dictionary<int, Vector3d>()).Status);
+        }
+
+        [Fact]
         public void PrepareSolve_AllHandles_ReturnsTheTargets()
         {
             var mesh = Patch();

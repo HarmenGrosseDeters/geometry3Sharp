@@ -27,7 +27,7 @@ class Program
             handles.Add(left, mesh.GetVertex(left));
             handles.Add(right, mesh.GetVertex(right) + new Vector3d(0.1, 0, 0.05 * Math.Sin(2 * Math.PI * y / (ny - 1))));
         }
-        if (args.Length >= 5) return Drag(mesh, nx, ny, iterations, depth, args.Length == 6 ? int.Parse(args[5]) : 30);
+        if (args.Length >= 5) return Drag(mesh, nx, ny, iterations, depth, args.Length == 6 && int.TryParse(args[5], out int dragSteps) && dragSteps > 0 ? dragSteps : 30);
         var solver = new ArapMeshDeformer(mesh); solver.Options.MaxIterations = iterations; solver.Options.AccelerationDepth = depth;
         long allocated = GC.GetTotalAllocatedBytes(true);
         var watch = Stopwatch.StartNew();
