@@ -201,7 +201,7 @@ choice only matters at changes of slope. The user's decision is in 2.5.
   spatial slope field fits better, which is R2-like. For those areas the plan is **explicit sector polygons**
   given by the caller. "The nearest point of the toe" is only one possible substitute definition of a sector and
   can produce unexpected attributions at concave edges, so it is not the target definition.
-- **Modes that are not available are rejected explicitly** (`Statuses.NotImplemented`), never silently replaced
+- **Modes that are not available are rejected explicitly** (`Statuses.NotImplemented`; designed, but the code has no `Mode` field, 2026-11-16), never silently replaced
   by R1.
 - **R2 construction (when it comes):** an eikonal solve on a refined triangulation (Fast Marching on triangles,
   Kimmel & Sethian 1998; or an ordered upwind method), followed by a conservative correction. Construction: an eikonal solve on a refined triangulation (Fast Marching on triangles, Kimmel &
@@ -237,7 +237,7 @@ The answers to the open questions of the first version, worked into the sections
 
 | # | question | decision | where |
 |---|---|---|---|
-| Q1 | R1 or R2 | R1 as the first implementation, explicitly as the cone-envelope model, not as a general guarantee for geotechnical sectors. Sectors later as a separate mode with explicit sector polygons. Modes that are not available are rejected explicitly. The guarantee always reads "not steeper than the chosen attribution rule allows". R1 is defined through the active cone source, not through a traced fall line | 2.2, 2.3 |
+| Q1 | R1 or R2 | R1 as the first implementation, explicitly as the cone-envelope model, not as a general guarantee for geotechnical sectors. Sectors later as a separate mode with explicit sector polygons. Modes that are not available are rejected explicitly (designed; the code has no `Mode`, 2026-11-16). The guarantee always reads "not steeper than the chosen attribution rule allows". R1 is defined through the active cone source, not through a traced fall line | 2.2, 2.3 |
 | Q2 | tolerances | keep three things strictly apart. **Geometric approximation:** an explicit maximum vertical deviation, given by the caller (1 cm is a sensible start for metre data, but it is not a universal library default). **Slope margin:** 1e-6 relative as a start; the check of the finished triangles decides. **Minimum feature size:** only a threshold for an allowed repair attempt, not a permission to delete small details wholesale. Also: no position or angle tolerance may exceed the slope limit. Collapsing slivers must not change the toe or the catch lines inadmissibly. If the margin is not enough at large coordinates or for small triangles, the computation improves or fails. A vertical tolerance does not bound the horizontal deviation of the catch line, so near-tangential sections are reported as ill-conditioned. Defaults must not depend only on the size of the UTM coordinates: professional accuracy and numerical representability are different quantities | 5.1, 5.4, 5.5 |
 | Q3 | influence across the design area | for a closed ring, no influence through the interior of the design area: it is an obstacle / a bounded interior region. Several levels are allowed, but checked for consistency. Phase 1 supports only the Euclidean R1 envelope, so it **rejects** the problematic cases and names the causing edges. Cones are not simply clipped: restricting them to the exterior changes the mathematical problem. The exterior distance and its topology are a development step of their own. A clearly restricted Euclidean mode is better than an exterior mode that only appears to work | 5.2 |
 | Q4 | how slopes change | support both steps and continuous change, with the interpolation fixed explicitly: constant per segment as the simple standard, piecewise constant with explicit jumps at sector boundaries, continuous change optional. Values per segment end (left / right of a vertex), because one value per shared vertex cannot express a real jump. Interpolation linear in s by default, documented as API contract; linear in n of 1:n must not be silently replaced | 2.1, 5.1, 6 |
@@ -1232,7 +1232,7 @@ namespace gs
         public DMesh3 Design;                  // optional: design TIN (the obstacle of 5.2); each toe must lie on its boundary
         public List<SlopeToe> Toes = new List<SlopeToe>();   // several: pit floor with islands, several pits / dumps
         public Directions Direction = Directions.Auto;
-        public Modes Mode = Modes.ConeEnvelope;
+        public Modes Mode = Modes.ConeEnvelope;      // sketch: not in the code (2026-11-16)
         public double Tolerance = double.NaN;  // required: max vertical deviation from the exact R1 surface (data units)
         public double TerrainVerticalUncertainty = 0;               // part of ε_D (5.5); survey errors are not known otherwise
         public double CatchLineWarningThreshold = double.NaN;       // required: horizontal; above it a section is reported
