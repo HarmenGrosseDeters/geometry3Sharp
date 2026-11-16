@@ -73,7 +73,8 @@ static partial class Program
                 res.PatchCalls++;
                 if (patchMode == 2) {
                     Vector3d nn = (pos[t.b] - pos[t.a]).Cross(pos[t.c] - pos[t.a]).Normalized;
-                    pb /= Math.Max(Math.Abs(nn.x), Math.Max(Math.Abs(nn.y), Math.Abs(nn.z)));
+                    double c = Math.Max(Math.Abs(nn.x), Math.Max(Math.Abs(nn.y), Math.Abs(nn.z)));
+                    pb = (c > 0) ? pb / c : double.PositiveInfinity;
                 }
                 if (!double.IsInfinity(pb)) res.PatchFinite++;
                 double dmax = Math.Max(up[t.a], Math.Max(up[t.b], up[t.c]));

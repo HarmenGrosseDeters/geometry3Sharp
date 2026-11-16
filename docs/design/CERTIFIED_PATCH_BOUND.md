@@ -7,7 +7,7 @@ bound-review finding M3.
 **Result in two lines.** The patch bound can be made certified without an exact-arithmetic kernel: a frame-free sign
 predicate with a *derived* running error bound (about 22 ns, measured), a conservative "not covered" on every doubtful
 sign, and no margin constant. The gain on a reduced mesh against its original is 61 to 100 % fewer subdivisions and
-12 to 98 % less time with the uncertified patch bound as the oracle. Recommendation: **go for the filtered-double design,
+5 to 98 % less time (12 to 98 % on the reduced rows) with the uncertified patch bound as the oracle. Recommendation: **go for the filtered-double design,
 no-go for an interval-only one** (section 8). Whether it pays depends on the certified patch bound costing at most
 about 1.4 to 5 times the uncertified one (section 7), so the implementation starts with a spike that measures exactly that.
 
@@ -40,7 +40,7 @@ sound, because a triangle left out only adds boundary edges, and those are check
 | `AdaptivePredicates.Orient2d / Orient3d` (Shewchuk, exact, adaptive) | `math/AdaptivePredicates.cs` | exact signs, but only for **axis-aligned** frames (section 2); returns the sign only, not a value with a bound |
 | `TriangleDeviationBounds.certified_clip` / `split` (#847 B3: any sign pattern, cut points with an allowance `off`) | `queries/TriangleDeviationBounds.cs` | the idea "a superset of the exact pieces is enough"; its allowance `off` is not needed here (section 6) |
 | `MeshHausdorffDistance` `CertifiedUpper` plumbing (`HausdorffRounding.TriangleUpper` adds the child's `off`) | `mesh_ops/MeshHausdorffDistance.cs` | unchanged: the patch bound is for the triangle with the given double corners |
-| `ExactPoint3`, `ExactLimbSigns`, `ExactSlopePredicates` | `math/Exact*.cs` | integer / rational exact kernels for the booleans; integer / rational kernels for the booleans, heavier than a 3x3 sign needs; not used |
+| `ExactPoint3`, `ExactLimbSigns`, `ExactSlopePredicates` | `math/Exact*.cs` | integer / rational kernels for the booleans, heavier than a 3x3 sign needs; not used |
 
 There is no value-with-bound determinant in the library: `Orient3d` returns an `int`. This note adds one small helper
 (section 3), not a new kernel.
@@ -61,8 +61,7 @@ There is no value-with-bound determinant in the library: `Orient3d` returns an `
 - N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002, section 3.1: the
   standard model and `gamma_n = n u / (1 - n u)` used in section 3. R. E. Moore, *Interval Analysis*, 1966 (already in
   SOURCES.md).
-- Certified Hausdorff computation by branch and bound with a valid enclosing interval: Fan, Tang, Sacht (SIGGRAPH
-  2026, GPU, listing only, not read in full). It does not use a patch bound. Guaranteed-error simplification: J. Cohen et al.,
+- Guaranteed-error simplification: J. Cohen et al.,
   *Simplification envelopes*, SIGGRAPH 1996 (offset surfaces, not a Hausdorff bound).
 
 Nothing found that certifies a coverage-by-projection bound; the closest practice is exactly the filter hierarchy above.
@@ -120,7 +119,7 @@ the exact determinant Delta of the *exact* difference rows satisfies
 3. *Together:* `| det_c - Delta | <= (gamma_5 (1 + u)^3 + 3.0000001 u) perm(d) <= 8.001 u perm(d)`.
 4. *The computed permanent.* All its terms are non-negative and it also passes through at most five roundings:
    `perm(rho) <= perm_c / (1 - gamma_5)`, so `perm(d) <= perm_c (1 + 8.1 u)`, and `| det_c - Delta | <= 8.002 u perm_c`.
-5. *The constant.* 10 u is a double (10 has four significant bits) and exceeds 8.002 u by 1.99 u, which covers the one
+5. *The constant.* 10 u is a double (10 = 101b x 2 has three significant bits) and exceeds 8.002 u by 1.99 u, which covers the one
    rounding of `10 u * perm_c` and of the sum with A (both evaluated rounded up, below).
 6. *Underflow.* A difference of doubles that is subnormal is exact; a sum or difference in the subnormal range is
    exact; only the nine products can lose at most 2^-1075 each. The six inner ones are later multiplied by an entry of
@@ -135,6 +134,8 @@ the exact determinant Delta of the *exact* difference rows satisfies
 
 **Value.** `S = Up(|det_c| + E_up)` is an upper bound of `|Delta|`, and `Lo = Down(det_c - E_up)` a lower bound of
 `Delta` (rounding down is `ExactInterval.Down`).
+
+**Assumptions.** No FMA contraction and no x87 extended precision (RyuJIT does not contract; net48 runs SSE2 on x64; the note's x86 case follows the rule of B1: one rounding per operation, which extended precision only improves, except double rounding on a store, which the count of five roundings already allows for). The helper's file should be added to the exact-code list of `.editorconfig` so that G3E0001-3 enforce it.
 
 **Rows are reused.** `e1 = fl(p1 - p0)`, `e2 = fl(p2 - p0)` of Q, and `(b - a)`, `(c - a)` of each target triangle, are
 computed once and shared by all dets using them: the analysis above holds for any rounded rows.
@@ -187,9 +188,9 @@ boundary edges (step 3) or is not needed.
 
 `margin = 1e-9 * scale` made the floating-point "meets" test insensitive to rounding. It is **removed**: the boundary
 test of step 3 only accepts a strict, certified separation, so an edge that comes closer to Q' than the rounding of
-the sign can resolve is refused; the width of the refusal zone is E of section 3, derived, and shrinks with the
-inputs. There is no tolerance parameter and no scale. The cost is a refusal (+infinity) where the old code accepted
-an edge 1e-9 away (it accepted a rounding-sized gap). Edges that touch Q' exactly (sign 0, e.g. a Q corner on an
+the sign can resolve is refused; the width of the refusal zone is E of section 3 (derived, about 1e-15 of the
+quantities in a well-conditioned case). There is no tolerance parameter and no scale. The old `margin` refused every edge within 1e-9 of Q',
+so the new test accepts **more** in that regime; it refuses more only where E is large (ill-conditioned rows, steep targets, a nearly edge-on Q). Edges that touch Q' exactly (sign 0, e.g. a Q corner on an
 original boundary edge) are refused in both versions.
 
 ## 6. Part 3: the heights at the clip points
@@ -236,7 +237,7 @@ the other orientation by negation). `lambda(P, R) = P / (P - R)` is increasing i
     lo = Down( P0 / Up(P0 - R0) ),     hi = Up( P1 / Down(P1 - R1) ),     with  P1 - R1 > 0,  P0 - R0 > 0.
 
 Each `Up` / `Down` wraps one rounded operation (M1). The candidate's value is
-`g_C = min( max(g_V(a), g_V(b)), Up(Fw * Up(Up((1 - lo)^ * S_a) + Up(hi * S_b))) )`, with `(1 - lo)^ = Up(1 - lo)`.
+`g_C = min( max(g_V(a), g_V(b)), Up(Fw * Up(Up((1 - lo)^ * S_a) + Up(hi * S_b))) )`, with `(1 - lo)^ = Up(1 - lo)`. `Math.Min` propagates NaN: a NaN in `lo`, `hi` or any value must end as +infinity (the `up` / `max` helpers of the library do that).
 **Where the signs are not certified opposite** (parallel edge, rounding-sized `P`), `lo = 0`, `hi = 1`, and the first
 term, `max(g_V(a), g_V(b))`, is used: **the 1 / angle amplification of the old slack becomes a looser bound, never an
 unsound one**, and the cut-point allowance `off` of B3 is not needed, because no cut point is ever stored: the
@@ -265,7 +266,8 @@ witness; `|S|` above `MaxPatchTriangles`; a NaN. All are as safe as today's `Pos
 that cross Q' only (not all three vertices certainly inside), up to 9 corner dets and the (C) candidates; 3 dets for the
 V values. A `det3` with filter measures **22 to 26 ns** (single thread, 4096 random small triangles, `predcost`); the
 interval version of the same sign (`ExactInterval` semantics) **108 to 115 ns**, `AdaptivePredicates.Orient2d` **50 to 59 ns**.
-Today's uncertified call costs 13 to 29 us on these rows ((p) divided by the number of calls; most of it is the
+Today's uncertified call costs 13 to 29 us on the reduced rows (about 5 us on the two small rows, where the same 100 to 150 dets are 1.5 to 2 times
+the call, which is why k\* 1.6 is the row to watch) ((p) divided by the number of calls; most of it is the
 growth of S, the dictionary and the box tests, which stay as they are). For |S| = 30 the certified signs and values
 are about 100 to 150 dets, 2.5 to 4 us with the filter, 12 to 17 us with intervals. I estimate the certified patch
 bound at **1 to 2.5 times** the uncertified one with the filter, and **4 to 6 times** with intervals only (an
@@ -299,16 +301,16 @@ loss of an exact `Orient2d` frame, section 2):
 | bumpy5 -> bumpy6 (1452 / 588) | 145, 10 | 9, 9 (1) | 94%, 5% | 1.6 | 27, 10 (1) | 81%, 1.1 |
 | coplanar grids 16 -> 17, jitter .3 (512 / 578) | 3550, 161 | 105, 17 (4) | 97%, 90% | 40.6 | 105, 17 (4) | 97%, 37.8 |
 
-Checks of the harness: the subdivisions without the patch bound are of the order of the library's own symmetric run
-(reduced 1/8 of the 5k mesh: 4141 symmetric in `HausdorffBenchmark`, README; 3797 one-sided here); the same loop with the default
-cascade (`Certified = false`) saved the same share of subdivisions (97 / 98 / 61 / 90 / 100 / 99 / 94 / 97 %, an earlier version of the
-harness that also ran it; not kept, the question is about `CertifiedUpper`).
+Check of the harness: the subdivisions without the patch bound are of the order of the library's own symmetric run
+(reduced 1/8 of the 5k mesh: 4141 symmetric in `HausdorffBenchmark`, README; 3797 one-sided here).
+The "axis-aligned" column is a model, not a measurement: it scales the oracle by 1 / max|n_i|, which is the along-axis gap only for a target
+parallel to Q, and it does not model the extra refusals of edge-on triangles along an axis. It is optimistic, so the conclusion stands.
 
 **Reading.**
 - **Subdivisions:** the patch bound removes 61 to 100 % (median 97 %) of them on reduced-against-original and on
   smooth inputs: the work that costs 135k subdivisions (3.4 s) on the smooth sphere becomes one.
 - **Time at the uncertified patch cost:** 5 to 98 % less (median about 70 %); the two small or rough rows (bumpy5 -> bumpy6, the 21k
-  bumpy mesh at 1/8) save 5 and 12 %, because the patch bound is a third of the run there.
+  bumpy mesh at 1/8) save 5 and 12 %, (on the 21k row the patch bound is 38 % of the run; on bumpy5 -> bumpy6 other costs dominate).
 - **k\*:** the break-even factor is 3.5 or more on 6 of 8 rows, 1.4 to 1.6 on the other two. At the
   estimated filtered cost (k = 1 to 2.5) the certified patch bound wins on 6 of 8 rows; on the two rows with k\* of 1.4
   and 1.6 it wins only if k stays below that. At interval cost (k = 4 to 6) it wins clearly on 3 rows, is borderline
@@ -329,9 +331,7 @@ harness that also ran it; not kept, the question is about `CertifiedUpper`).
 reviewed, bounds review, mutation run):
 
 - expected: 61 to 100 % fewer subdivisions and typically half the time (or better) of `CertifiedUpper` on a reduced mesh against its
-  original, no worse than neutral elsewhere; `CertifiedUpper` would then be faster than the uncertified default
-  without the patch bound on those inputs (reduced 1/8 of the 5k mesh, same loop: certified with the patch oracle 40 ms, the default
-  cascade without a patch bound about 100 ms in the same session).
+  original, no worse than neutral elsewhere if the cost stays within k\*.
 - **No-go for an interval-only evaluation** (k about 4 to 6: it loses on three rows, is borderline on two, and wins clearly on three).
 - **No-go for the exact `Orient2d` axis frame** unless the filter proves hard to review (it loses the gain on the 21k rows).
 
