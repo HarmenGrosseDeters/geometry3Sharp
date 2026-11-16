@@ -124,9 +124,12 @@ namespace BoolCmp
         public static PlanarFace ExtremeFace(DMesh3 m, int axis, bool atMax)
         {
             double ext = atMax ? double.NegativeInfinity : double.PositiveInfinity;
-            foreach (int vid in m.VertexIndices()) {
-                double c = Get(m.GetVertex(vid), axis);
-                ext = atMax ? Math.Max(ext, c) : Math.Min(ext, c);
+            foreach (int tid in m.TriangleIndices()) {         // referenced vertices only: an isolated vertex is not part of the solid
+                Index3i t = m.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    double c = Get(m.GetVertex(t[k]), axis);
+                    ext = atMax ? Math.Max(ext, c) : Math.Min(ext, c);
+                }
             }
             var f = new PlanarFace { Plane = ext, Lo0 = double.PositiveInfinity, Lo1 = double.PositiveInfinity, Hi0 = double.NegativeInfinity, Hi1 = double.NegativeInfinity };
             int o0 = (axis + 1) % 3, o1 = (axis + 2) % 3;
@@ -218,11 +221,14 @@ namespace BoolCmp
                 if (nearMoved.Plane != target) { firstError ??= "contact plane not exact"; continue; }
                 // planar faces on both sides that overlap laterally: face contact (or flush)
                 PlanarFace farMoved = ExtremeFace(moved, ax, sg > 0);
+                if (embed && depth == 0 && farMoved.Plane != pA) { firstError ??= "flush plane not exact"; continue; }
                 PlanarFace bFace = embed && depth == 0 ? farMoved : nearMoved;
                 bool lateral = Math.Min(fa.Hi0, bFace.Hi0) > Math.Max(fa.Lo0, bFace.Lo0) && Math.Min(fa.Hi1, bFace.Hi1) > Math.Max(fa.Lo1, bFace.Lo1);
-                bool planar = fa.Area > 0 && bFace.Area > 0 && lateral;
+                // "face": planar patches on both sides whose bounding boxes overlap laterally (the patches themselves can still miss each other,
+                // eg a gap in A's patch under B's patch: the area of contact is not computed). Embedded placements (depth 1, 2) have no face of B in A's plane.
+                bool planar = fa.Area > 0 && bFace.Area > 0 && lateral && !(embed && depth > 0);
                 var info = new Dictionary<string, object> {
-                    ["kind"] = planar ? "face" : "bbox", ["contact_axis"] = ax, ["contact_sign"] = sg,
+                    ["kind"] = planar ? "face" : embed && depth > 0 ? "embedded" : "bbox", ["contact_axis"] = ax, ["contact_sign"] = sg,
                     ["plane"] = target, ["plane_a"] = pA, ["areaA"] = fa.Area, ["areaB"] = bFace.Area,
                     ["depth"] = embed ? depth : -1, ["shift"] = new[] { t.x, t.y, t.z },
                 };

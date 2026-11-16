@@ -196,15 +196,15 @@ translation is almost always exact; a model with a coordinate far below the rest
 | `partial-overlap` | as `face-contact`, then moved into A along the contact axis by 2^-d of B's extent (d = `param` in 0, 1, 2; the shift of A's face plane is exact: a power of two times a double). d = 0 is the flush case: B's far face lies in the plane of A's face, both planar and overlapping; d = 1, 2 embed B by a half or a quarter | the identities and `NotCleanReason` |
 | `ulp-shift` | A against A translated by one ulp of A's largest coordinate along an axis (about 1e-16 of the model size: near-coincident surfaces, every filter fails) | the identities and `NotCleanReason` |
 | `ulp-shift-few` | as `ulp-shift` with 2 to 5 ulps (`param` + 2) | the same |
-| `mirror` | A against its mirror image across an axis plane through a vertex coordinate of A (the vertex coordinate nearest to the box centre, then outward by `param`; `x' = 2c - x`, the triangle orientation is kept outward): vertices and faces on the plane coincide | the same |
+| `mirror` | A against its mirror image across an axis plane through a vertex coordinate of A (the `param`-th vertex coordinate in order of distance from the box centre; `x' = 2c - x`, the triangle orientation is kept outward): vertices and faces on the plane coincide | the same |
 
 **Which face (`face-contact`, `partial-overlap`).** A face of the bounding box is a point or an edge contact for most models (the extreme is
 reached by a vertex or an edge), not the coplanar face contact this class is about. So the contact face is an *actual planar face*: the triangles whose three
 vertices have bit-equal coordinates on the extreme plane (flat bottoms and sides of printed parts are exactly that). For each of the six
-directions, starting at the one of the pair list, the tool computes the planar extreme face of A on its side and of B on the opposite side (for `partial-overlap` d = 0 the far side of B), aligns the box centres
-laterally on the grid (so that the faces overlap) and takes the first direction with a planar face on both sides that overlap laterally and an exact placement (`kind` = `face` in
-`info.json`); a model pair with no such direction is placed through its bounding box (`kind` = `bbox`: an exact contact through vertices or edges, still a
-hard case, but not the coplanar one). The summary column *face contact* counts the pairs with `kind` `face`. The contact plane coordinates of the two faces are bit-equal (a test).
+directions, starting at the one of the pair list, the tool computes the planar extreme face of A on its side and of B on the opposite side (for `partial-overlap` d = 0 the far side of B), aligns the centres of the two meshes
+laterally on the grid and takes the first direction with a planar face on both sides whose bounding boxes overlap laterally and an exact placement (`kind` = `face` in
+`info.json`; the patches themselves can still miss each other, eg a gap in A's patch under B's patch: the area of contact is not computed; extremes are taken over the vertices that triangles use); a model pair with no such direction is placed through its bounding box (`kind` = `bbox`: an exact contact through vertices or edges, still a
+hard case, but not the coplanar one); `partial-overlap` with d = 1, 2 has `kind` `embedded` (no face of B lies in a face plane of A; only d = 0 is coplanar, and the tool checks that B's far plane is bit-equal to A's). The summary column *face contact* counts the pairs with `kind` `face`. The contact plane coordinates of the two faces are bit-equal (a test).
 
 **Oracle.** As in `thingi-pairs` (`eval`): `NotCleanReason` of every result, the volume identities, and `expected_error` for `face-contact`; the inputs
 are checked again after the transform (`inputs_clean` in the case). A result that self-intersects is not correct in this class

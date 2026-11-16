@@ -162,17 +162,31 @@ class PlacementEndToEndTests(unittest.TestCase):
         self.assertEqual(analyze.outcome(r), "clean")
 
     def test_partial_overlap_flush(self):
-        # param 0: B's far face is flush with A's face; B is 0.5 x 0.5 x 0.5 after scaling by 1/2? (tall: 0.5 x 0.5 x 1 -> 0.25 x 0.25 x 0.5)
+        # param 0: B's far face is flush with A's face (tall: 0.5 x 0.5 x 1, scaled by 1/2 to 0.25 x 0.25 x 0.5; A is 0.75 cube)
         r = self.run_case("cube.off", "tall.off", "partial-overlap", 0, 1, 0)
         self.assertEqual(r["input"]["kind"], "face")
         self.assertLess(max(r["ie_error"], r["diff_error"]), 1e-12)
-        self.assertGreater(r["intersection_volume"], 0)
+        self.assertAlmostEqual(r["intersection_volume"], 0.25 * 0.25 * 0.5, places=12)      # B lies inside A, flush at the face
+        self.assertAlmostEqual(r["union_volume"], 0.421875, places=12)
+
+    def test_embedded_depths_are_not_face_contacts(self):
+        r = self.run_case("cube.off", "tall.off", "partial-overlap", 0, 1, 1)
+        self.assertEqual(r["input"]["kind"], "embedded")
+        self.assertAlmostEqual(r["intersection_volume"], 0.25 * 0.25 * 0.25, places=12)     # half of B's extent 0.5 is inside A
 
     def test_ulp_shift_keeps_the_volume_identities(self):
         for variant in ("ulp-shift", "ulp-shift-few", "mirror"):
             r = self.run_case("cube.off", "cube.off", variant, 1, -1, 1)
             self.assertLess(max(r["ie_error"], r["diff_error"]), 1e-12, variant)
             self.assertEqual(r["input"]["variant"], variant)
+            if variant == "mirror":     # the plane is a vertex coordinate of A and B is a different mesh: the union differs from A's volume
+                self.assertEqual(r["input"]["kind"], "mirror")
+                self.assertGreater(r["union_volume"], 0.421875 - 1e-12)
+                self.assertAlmostEqual(r["intersection_volume"] + r["union_volume"], 2 * 0.421875, places=12)
+            else:
+                self.assertEqual(r["input"]["kind"], "ulp")
+                self.assertGreaterEqual(r["input"]["ulps"], 1)
+                self.assertLess(abs(r["union_volume"] - 0.421875), 1e-14)       # A against A moved by 1e-16: the union is A up to that
 
     def test_inexact_placement_is_an_error_row_not_a_rounded_case(self):
         v, f = cube(0, 0.5)

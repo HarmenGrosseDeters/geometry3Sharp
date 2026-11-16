@@ -3,7 +3,7 @@
 # pair list `thingi-pairs/contact_pairs.csv` is part of the repository.
 #
 #   python3 data/thingi_contact.py generate                       the list from clean_models.csv and the seed (no network)
-#   python3 data/thingi_contact.py fetch <dir> [--limit N]        the models of the first N pairs of each variant -> <dir>/meshes
+#   python3 data/thingi_contact.py fetch <dir> [--limit N] [--variants v1,v2]   the models of the first N pairs of each variant -> <dir>/meshes
 #   python3 data/thingi_contact.py manifest <dir> <out.jsonl> [--limit N] [--variants v1,v2]
 #                                                                 the case manifest for compare.py (first N pairs per variant)
 #   python3 data/thingi_contact.py summary results.jsonl...       per variant and method: status, kind of contact, outcomes
@@ -69,10 +69,10 @@ def select(rows, limit=None, variants=None):
             out.append(r)
     return out
 
-def cmd_fetch(d, limit):
+def cmd_fetch(d, limit, variants=None):
     os.makedirs(d, exist_ok=True)
     files = tp.file_list(d)
-    ids = sorted({r[k] for r in select(read_list(), limit) for k in ("a", "b")}, key=int)
+    ids = sorted({r[k] for r in select(read_list(), limit, variants) for k in ("a", "b")}, key=int)
     with tp.ThreadPoolExecutor(4) as ex:
         list(ex.map(lambda k: tp.fetch_file(f"{tp.BASE}/resolve/main/{files[k]}", os.path.join(d, "meshes", os.path.basename(files[k]))), ids))
     print(len(ids), "models fetched")
@@ -88,7 +88,10 @@ def cmd_manifest(d, out, limit, variants):
 def cmd_summary(files):
     """per variant and method: the outcomes as thingi_pairs.py summary, plus the kind of contact reached (face: planar faces on both
     sides; bbox: through vertices or edges only) and the placements refused as inexact"""
-    rows = [json.loads(l) for f in files for l in open(f) if l.strip()]
+    rows = []
+    for f in files:
+        with open(f) as fh:
+            rows += [json.loads(l) for l in fh if l.strip()]
     last, refused = {}, {}
     for r in rows:
         if r.get("method") == "export":
@@ -123,15 +126,17 @@ def cmd_summary(files):
         print(f"| {variant} | {m} | {len(rs)} | {faces} | {n} | {ok} | {bad} | {clean} | {empty} | {', '.join(f'{k} {v}' for k, v in sorted(unclean.items())) or '–'} | "
               f"{max(errs, default=float('nan')):.2e} | {st.median(ms) if ms else float('nan'):.0f} | {max(ms, default=float('nan')):.0f} |")
     if refused:
-        print(f"\nPlacements refused as inexact or failed to load: {len(refused)} of {len(refused) + len({r['file'] for r in last.values()})} cases:")
+        cases = {r["file"] for r in last.values()} | set(refused)
+        print(f"\nPlacements refused as inexact or failed to load: {len(refused)} of {len(cases)} cases:")
         for k, v in sorted(refused.items()):
             print(f"- {k}: {v}")
 
 if __name__ == "__main__":
     a = sys.argv[1:]
     lim = int(a[a.index("--limit") + 1]) if "--limit" in a else None
+    variants = a[a.index("--variants") + 1].split(",") if "--variants" in a else None
     if a[:1] == ["generate"]: generate()
-    elif a[:1] == ["fetch"]: cmd_fetch(a[1], lim)
-    elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], lim, a[a.index("--variants") + 1].split(",") if "--variants" in a else None)
+    elif a[:1] == ["fetch"]: cmd_fetch(a[1], lim, variants)
+    elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], lim, variants)
     elif a[:1] == ["summary"]: cmd_summary(a[1:])
     else: sys.exit(__doc__)

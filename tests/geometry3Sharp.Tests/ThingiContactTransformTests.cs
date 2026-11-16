@@ -103,6 +103,7 @@ namespace geometry3Sharp.Tests
             double h = Max(B(), 2) - Min(B(), 2);                          // 0.625
             double top = Max(r.A, 2);
             Assert.Equal(top - Math.Pow(2, -depth) * h, Min(r.B, 2));      // B's near face is inside A by 2^-depth of its extent
+            Assert.Equal(depth == 0 ? "face" : "embedded", r.Info["kind"]);
             if (depth == 0) {
                 // flush: B's far face lies in A's top plane, both faces are planar and overlap
                 Assert.Equal(top, Max(r.B, 2));
@@ -114,7 +115,7 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(0, 1)] [InlineData(1, -1)] [InlineData(2, 1)]
-        public void UlpShift_MovesEveryCoordinateByExactlyOneUlp(int axis, int sign)
+        public void UlpShift_MovesEveryVertexByTheSameExactStep(int axis, int sign)
         {
             ContactResult r = ContactTransforms.Build(A(), B(), ContactVariant.UlpShift, axis, sign, 0);
             Assert.Null(r.Error);
@@ -147,7 +148,7 @@ namespace geometry3Sharp.Tests
             Assert.Null(r.Error);
             Assert.Equal(ulps, r.Info["ulps"]);
             double maxAbs = Verts(r.A).Max(v => Math.Abs(v.z));
-            Assert.Equal(maxAbs + ulps * (double)r.Info["ulp"], Max(r.B, 2) == maxAbs + ulps * (double)r.Info["ulp"] ? Max(r.B, 2) : double.NaN);
+            Assert.Equal(maxAbs + ulps * (double)r.Info["ulp"], Max(r.B, 2));
         }
 
         [Theory]
@@ -184,8 +185,10 @@ namespace geometry3Sharp.Tests
             b.SetVertex(b.VertexIndices().First(), new Vector3d(1e-30, 1e-30, 1e-30));
             DMesh3 a = A();
             ContactResult r = ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0);
+            // the contact axis needs a shift of order 1 for A and B centred at the origin with different extents: not exact for the tiny vertex
+            Assert.NotNull(r.Error);
             if (r.Error == null) {
-                // if a placement was found it is exact: the tiny vertex moved by a sum that is exact (zero shift only)
+                // (if a placement was found it is exact: the tiny vertex moved by a sum that is exact)
                 double[] t = (double[])r.Info["shift"];
                 Assert.True(ContactTransforms.ExactSum(1e-30, t[0], out _) && ContactTransforms.ExactSum(1e-30, t[1], out _) && ContactTransforms.ExactSum(1e-30, t[2], out _));
             } else
@@ -193,6 +196,19 @@ namespace geometry3Sharp.Tests
             Assert.False(ContactTransforms.ExactSum(1.0, 1e-30, out _));
             Assert.True(ContactTransforms.ExactSum(0.5, 0.25, out double s) && s == 0.75);
             Assert.False(ContactTransforms.ExactSum(0.1, 0.2, out _));
+        }
+
+        [Fact]
+        public void AnIsolatedVertexIsNotPartOfTheSolid()
+        {
+            DMesh3 a = A();
+            a.AppendVertex(new Vector3d(0, 0, 0.5));                  // above the top face (0.25), used by no triangle
+            ContactResult r = ContactTransforms.Build(a, B(), ContactVariant.FaceContact, 2, 1, 0);
+            Assert.Null(r.Error);
+            Assert.Equal("face", r.Info["kind"]);
+            double top = r.A.TriangleIndices().Max(t => new[] { r.A.GetTriangle(t).a, r.A.GetTriangle(t).b, r.A.GetTriangle(t).c }.Max(v => r.A.GetVertex(v).z));
+            Assert.Equal(top, (double)r.Info["plane"]);                // the plane of the box top, not of the isolated vertex (which is higher)
+            Assert.True(Max(r.A, 2) > top);
         }
 
         [Fact]

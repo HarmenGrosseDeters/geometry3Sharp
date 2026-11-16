@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       library_ref:
-        description: 'Ref of the library and benchmark tool to measure'
+        description: 'Ref of the library and benchmark tool to measure (must contain the thingi-contact command; the scripts come from the ref the workflow is run on)'
         default: 'master'
       pairs_per_variant:
         description: 'Pairs per variant (a prefix of thingi-pairs/contact_pairs.csv)'
@@ -20,13 +20,19 @@ on:
         default: '300'
 
 permissions:
-  contents: write   # the data branch runs/thingi-contact
+  contents: read
+
+concurrency:
+  group: thingi-contact-data-branch
+  cancel-in-progress: false
 
 jobs:
   measure:
     if: github.repository == 'harmengrossedeters/geometry3Sharp'
     runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
     timeout-minutes: 330
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -36,9 +42,11 @@ jobs:
         with:
           ref: ${{ inputs.library_ref }}
           path: lib
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           path: scripts
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -60,17 +68,22 @@ jobs:
           dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
           python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
       - name: Case set and models
+        env:
+          PAIRS: ${{ inputs.pairs_per_variant }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/thingi_contact.py fetch data --limit "${{ inputs.pairs_per_variant }}"
-          python3 $S/data/thingi_contact.py manifest data cases.jsonl --limit "${{ inputs.pairs_per_variant }}" --variants "${{ matrix.variant }}"
+          python3 $S/data/thingi_contact.py fetch data --limit "$PAIRS" --variants "$VARIANT"
+          python3 $S/data/thingi_contact.py manifest data cases.jsonl --limit "$PAIRS" --variants "$VARIANT"
       - name: Run ours, manifold and CGAL EPECK
         env:
           CGAL_BOOL: ${{ github.workspace }}/cgal_bool
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
+          TIMEOUT: ${{ inputs.timeout_s }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/compare.py cases.jsonl results-${{ matrix.variant }}.jsonl --methods ours,manifold,cgal_epeck --timeout "${{ inputs.timeout_s }}" -j 1 --resume
+          python3 $S/compare.py cases.jsonl "results-$VARIANT.jsonl" --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT" -j 1 --resume
       - name: Report
         if: always()
         run: |
@@ -86,8 +99,10 @@ jobs:
 
   publish:
     needs: measure
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.repository == 'harmengrossedeters/geometry3Sharp' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the data branch runs/thingi-contact
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
