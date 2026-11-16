@@ -28,6 +28,7 @@ The measuring tools and the exact commands are at the end; the run script for th
    first pair search, 11 %) reach 3.1× and 2.9× at 4 threads. More, smaller tasks gave −3.8 %, which two runs cannot tell from the noise (±3 %); the
    loss against linear scaling is about 6 % of the 4-thread time. At 12 threads they are expected to be the largest block (from the s of the 4-thread run); the cause is not found
    (lever 7).
+6. (2026-11-16, [section 7](#7-two-probes-on-the-head-of-962-the-discarded-pairs-of-the-pair-stage-and-the-rounding-sub-phases-2026-11-16)) On the head of #962: in the pair stage 99.7 % of the 81 M candidate pairs end without a crossing (the self-join of the clean T6 operands rejects 100 %), and using `TriangleTriangleFilter` before the exact test in `touch_only` takes 18 % off the pairs phase (−6 % of the boolean at 1 thread, −4 % at 4, bit-identical); the rounding's serial setup steps are 0.82 s, 5 % of the boolean at 4 threads.
 
 ## Method, strata
 
@@ -258,6 +259,141 @@ Spread between runs: master about 1.5 %, the PR about 0.5 %. Phases at 12 thread
 
 **Not measured:** net48, cold processes (one per boolean), inputs above 100k triangles (the T6 set has none; the parallel paths start at 65 536 sorted entries, 22k pieces). The serial part of the vertex edge lists in the builder is a counting sort over about 3 entries per piece, a few ns each.
 
+## 7. Two probes on the head of #962: the discarded pairs of the pair stage, and the rounding sub-phases (2026-11-16)
+
+Measurement only, no library change. Base: the head of PR #962 (`claude/parallel-assembly`, 3b52946, parallel assembly), `SafeRounding`, the T6 set (98 pairs, 294 booleans), warm,
+`profile --repeat 2` (best of two per boolean, sums over the 294), net10.0, 4 vCPU container (1 and 4 threads: `taskset` and `DOTNET_PROCESSOR_COUNT`). Two patches, each applies alone and
+both together to that head (`git apply`, checked): [`perf/pair_probe.patch`](../../benchmarks/BooleanComparison/perf/pair_probe.patch) (probe A) and
+[`perf/rounding_probe.patch`](../../benchmarks/BooleanComparison/perf/rounding_probe.patch) (probe B). Reports: `perf/pair_probe_report.py`, `perf/rounding_probe_report.py`; raw rows (gzip, one line per boolean,
+cases numbered c00-c97 in the order of the manifest, no meshes): [`perf/probe_2026-11-16/`](../../benchmarks/BooleanComparison/perf/probe_2026-11-16/).
+**Gate: the `profile` hash of all 294 booleans is the same in all 23 runs (base, probe A in modes 1-3, probe B, the filter experiment; 1 and 4 threads), `scaling_report.py --hashes`: drift 0.**
+All 12-thread values below are Amdahl extrapolations from the 1 and 4 thread runs (the container has 4 cores), not measurements; the owner can rerun the patches at 12 threads (below).
+
+Control (no patch), mean of two runs: whole boolean 34.8 s at 1 thread, 17.0 s at 4 (2.05×); `intersections.pairs` 11.9 s / 3.8 s (3.1×; 34 % and 22 % of the boolean); `rounding` 7.2 s / 3.7 s (21 % / 22 %).
+
+### 7.1 Probe A: work in `intersections.pairs`
+
+**What it counts** (G3_PAIR_PROBE=1: counters and a timestamp per self-join task, no measurable cost: 12 062 against 12 041 and 11 702 ms in the pairs phase of the control; =2: also a timestamp per
+pair, +20 % in the phase; =3: also the filter experiment of 7.1.3; G3_PROBE_SERIAL=1: the 1-thread runs of the probe use `gParallel.SerialOnThisThread`, so that the per-thread intervals are CPU time. Without it a second pool
+thread time-slices the one core and every interval counts the other's time: the first 1-thread runs of mode 3 summed to twice the wall time and are not used). The shares of the loops are from
+mode 2 (timestamps inflate the absolute values), the unbiased absolute times from mode 1.
+
+#### 7.1.1 Pairs and time
+
+All 294 booleans, per operand self-join (`self_pairs`: box pairs of one operand, `touch_only`), pairs of the two operands (`candidates`: box hits, `separated`), then `intersect` on what is left:
+
+| stage | pairs | outcome | CPU time (1 thread, serial) |
+|---|---|---|---|
+| self-join (`touch_only`) | 65.9 M box pairs (per boolean: median 102 k, p90 530 k, max 2.8 M) | **100 % rejected (kept: 0 in all 294 booleans: T6 operands are clean)** | tasks 10.6 s = traversal 2.2 s + pair tests 8.4 s |
+| A against B (`candidates`) | 15.2 M box hits (median 9.2 k per boolean) | 13.0 M `separated` (86 %), 2.17 M go on | 1.2 s (mode 2: queries 0.48 s, `separated` tests and bookkeeping 1.0 s, 1.6 s in all) |
+| `intersect` | 2.17 M | 1.94 M apart by the prefilter (0.13 µs each), 0.24 M meeting pairs (1.7 µs each) | 0.66 s (phase 0.54-0.65 s) |
+
+So of the 81.1 M pairs the pair loops process, 80.9 M (99.7 %) end without a crossing; the 0.24 M meeting pairs are the useful ones. Time on the discarded pairs: all of the self-join (10.6 s of
+12.1 s in the pairs phase = 88 %) and the 13.0 M separated hits: **about 12.0 s of the 12.6 s of the pairs and intersect phases (95 %), 34 % of the 1-thread boolean**; the useful part is about 0.6 s.
+
+The self-join by the cheapest test that decides each pair (`touch_only`; shared = corners the two triangles share; mode 2, 1 thread, shares of the loop time):
+
+| shared | decided by | pairs | share of box pairs | µs per pair | share of loop time |
+|---|---|---|---|---|---|
+| 0 | quick1: all corners of U on one side of T's plane (1-3 `Orient3d`) | 24.05 M | 36.5 % | 0.08 | 18.0 % |
+| 0 | quick2: the same for T against U's plane | 2.75 M | 4.2 % | 0.14 | 3.7 % |
+| 0 | general: `IntersectsBeyondShared` = `Intersects` (the exact test) says no | 4.70 M | 7.1 % | 0.55 | **25.2 %** |
+| 1 | quick1 / quick2 | 16.68 M / 4.18 M | 25.3 % / 6.3 % | 0.09 / 0.15 | 14.4 % / 6.0 % |
+| 1 | coplanar neighbours: `IntersectsBeyondSharedCoplanar` says no | 4.16 M | 6.3 % | 0.45 | **18.3 %** |
+| 1 | general (exact test) | 2.16 M | 3.3 % | 0.34 | 7.3 % |
+| 2 | quick1 (the shared edge: one `Orient3d`) / coplanar | 6.44 M / 0.80 M | 9.8 % / 1.2 % | 0.09 / 0.22 | 5.4 % / 1.7 % |
+
+82 % of the pairs (quick1 alone 71.6 %) are decided by the quick tests, which take 47.5 % of the loop time at 0.08-0.15 µs each, about the cost of the `Orient3d` floating-point stage plus loading the two triangles. The
+**expensive 11.8 M pairs (18 % of the box pairs) are those that reach the exact test, general and coplanar: 52 % of the loop time (5.4 s of 10.2 s in mode 2, about 4.4 s of the 8.4 s of mode 1), 0.34-0.55 µs each.**
+
+Scaling of the self-join (mode 2 at 4 threads against 1): traversal 2.16 → 3.0 s and tests 10.2 → 13.8 s of thread time, in sum 12.4 → 16.8 s for the same work, while the wall time of the phase falls 14.3 → 4.5 s. At 4 threads the threads
+are busy for the whole phase (thread time 16.8 + 2.0 s over 4 × 4.5 s): the 3.1× of the self-join (lever 7) is **not load imbalance but a slowdown per operation of 1.25-1.4× at 4 threads in every class**
+(quick1 0.08 → 0.10 µs, exact tests 0.55 → 0.75 µs, traversal 1.39×). Cache or memory contention, or vCPUs that are SMT siblings, cannot be told apart here; more tasks would not help (consistent with the 2048-task experiment above).
+
+#### 7.1.2 Which test could decide earlier: an existing filter
+
+Building blocks searched first ("Look before you build"): `TriangleTriangleFilter.BeyondShared` (`intersection/TriangleTriangleFilter.cs`) decides a pair by an exact `Orient2d` projection (edge separates) or by the axis plane, and answers `Undecided` otherwise;
+its contract is that it never changes a decision of the exact test (`TriangleTriangleFilterTests`, also on coplanar slivers). `MeshRoundingRepair` (line 885) and the alpha-wrap passes use it; **`touch_only` calls the exact
+test directly.** The literature on adjacent-feature culling (Volino and Magnenat-Thalmann 1994, normal cone and contour; Schvartzman, Pérez, Otaduy 2010, star contours; Curtis, Tamstorf, Manocha 2008) is
+described in [SELF_INTERSECTION_PATCH_CERTIFICATE.md](../design/SELF_INTERSECTION_PATCH_CERTIFICATE.md): the patch certificate was built for the Reducer and stopped as slower there; it replaces pair tests
+per patch, but the box pairs of the tree traversal are produced all the same (here 2.2 s of the 12.1 s).
+
+#### 7.1.3 Experiment: the filter first (mode 3, and G3_PAIR_FILTER=1)
+
+Mode 3 runs the filter, after the exact test and timed apart, on every pair whose rejection took the exact test (general and coplanar; 11.8 M pairs). It says Separate on 96 % of them (11.56 M), Undecided on 4 % (0.26 M) and **never Intersecting** (a contradiction would mean a defect):
+
+| shared | filter says | pairs | filter | exact test it replaces |
+|---|---|---|---|---|
+| 0 | separate / undecided | 4.48 M / 0.22 M | 0.45 s / 0.03 s | 2.62 s / 0.07 s |
+| 1 | separate / undecided | 6.28 M / 0.04 M | 0.59 s / 0.01 s | 2.64 s / 0.02 s |
+| 2 | separate | 0.80 M | 0.07 s | 0.18 s |
+
+Estimate from it: the exact tests of the decided pairs (5.4 s, mode 3) fall to the filter's 1.1 s, about −4.3 s thread time at 1 thread (timestamp-inflated). The real switch (G3_PAIR_FILTER=1: `touch_only` asks `BeyondShared` before the exact test, falls back to
+the exact test on Undecided, nothing else changes), **A/B, the same binary, alternated, two rounds, no probe active**, T6, 294 booleans:
+
+| threads | `intersections.pairs` control (2 runs) | filter first (2 runs) | change of the phase | whole boolean (mean) | hashes |
+|---|---|---|---|---|---|
+| 1 | 12 041, 11 702 | 9 737, 9 735 | **−18.0 %** (−2.1 s) | 34 811 → 33 652 ms (−3.3 %; noise ±3 %) | equal, 294 × 4 runs |
+| 4 | 3 763, 3 849 | 3 073, 3 134 | **−18.5 %** (−0.70 s) | 16 962 → 16 076 ms (−5.2 %; noise ±3 %) | equal, 294 × 4 runs |
+
+Mode 1 with the switch: test loop 8.44 → 6.27 s, tasks 10.6 → 8.5 s, phase 12.06 → 9.94 s (−17.6 %). What is left in the self-join after it (mode 2, 1 thread): the quick tests 82 % of the pairs, 4.9 s of 8.1 s; the filter's own decisions 17.5 % of the pairs, 3.0 s.
+
+#### 7.1.4 Bounds and estimate
+
+| what | 1 thread | 4 threads | 12 threads (extrapolated) | risk | effort |
+|---|---|---|---|---|---|
+| **upper bound**: every discarded pair free (self-join and `separated` hits cost nothing) | −12.0 s = −34 % of the boolean | ≈ −3.5 s = −21 % | pairs phase 2.0 s = −15 % | needs a certificate that costs less than the pair tests it replaces: the patch certificate did not (Reducer); not a plan | – |
+| **filter first in `touch_only`** (measured) | −2.1 s = **−7.1 %** | −0.70 s = **−4.1 %** | −0.36 s = −2.8 % | **low**: the answer is the exact test's by the filter's contract (no new bound, no new predicate); measured equal on 294 booleans and 11.8 M pairs; `touch_only` is in the exact file `ExactMeshArrangement.cs`: its review and the mutation shard of the file apply | S |
+| quick tests from a per-triangle plane (cached normal and error bound as a filter in front of `Orient3d`) | ≤ −1 s (half of the 4.9 s of quick tests; estimate, not measured) | ≤ −0.3 s | ≤ −0.15 s | medium: a new error bound (exact code, bound review) for 0.08 µs → maybe 0.05 µs per pair, and the loads of two `InputTriangle` objects may be the floor | M |
+| fewer box pairs from the traversal (2.2 s at 1 thread, 18 % of the phase) | – | – | – | not a cheap test: needs a different pair generation | L |
+
+### 7.2 Probe B: the rounding sub-phases
+
+`MeshRoundingRepair.Apply` with `Stopwatch` scopes (a `long[]` of ticks and calls per step, no allocation; the main thread only; steps called from inside an outer step such as `repair_passes` are booked apart,
+so that nothing is counted twice), copied into `PhaseMilliseconds` as `rounding.<Step>_us` and `_n` like the assembly's timers. Probe cost: not measurable (rounding 7.3 s / 3.7 s without it, 7.3 s / 3.5 s with it). Exclusive times,
+sums over the 294 booleans, two runs, per boolean the faster; the speed-up is the 1-thread time over the 4-thread time; p = parallel fraction by Amdahl's law, `extrapolated 12 thr` from it:
+
+| step of `Apply` | calls | 1 thr ms | 4 thr ms | speed-up | share of Apply at 1 / 4 thr | p | 12 thr ms (extrap.) |
+|---|---|---|---|---|---|---|---|
+| first full pair search (`intersecting_pairs_all`; parallel over triangles) | 270 | 3 567 | 1 397 | 2.55 | 48 % / 39 % | 0.81 | 915 |
+| `rebuild_tree` (the only one per boolean; serial below 262 144 boxes) | 270 | 2 129 | 1 041 | 2.05 | 29 % / 29 % | 0.68 | 799 |
+| `atPosition` / `canonId` (position dictionary) | 270 | 251 | 222 | 1.13 | 3.4 % / 7.1 % | 0.15 | 215 |
+| `component_scales` (union-find) | 270 | 235 | 211 | 1.12 | 3.2 % / 5.8 % | 0.14 | 205 |
+| `degenerate_triangles` | 270 | 219 | 123 | 1.79 | 3.0 % / 3.4 % | 0.59 | 101 |
+| anchors (first scan of the triangles) | 294 | 208 | 110 | 1.89 | 2.8 % / 3.0 % | 0.63 | 88 |
+| `remove_tiny_components` (without its nested calls) | 40 | 167 | 124 | 1.36 | 2.3 % / 3.4 % | 0.35 | 114 |
+| finite scan, range check | 270 | 158 + 126 | 59 + 59 | 2.7 / 2.1 | 3.8 % / 3.3 % | 0.84 / 0.71 | 37 + 44 |
+| input boundary edges (`BoundaryEdgeIndices` loop) | 294 | 107 | 106 | 1.00 | 1.4 % / 2.9 % | 0 | 106 |
+| `exactAtStart` | 270 | 98 | 80 | 1.23 | 1.3 % / 2.2 % | 0.25 | 76 |
+| **edit loop** `repair_passes` (without its nested `degenerate_triangles`, 51 ms / 29 ms) | 270 | **33** | **31** | 1.07 | **0.4 % / 0.9 %** | – | – |
+| `false_contacts` (540 calls), untimed rest of `Apply` | | 29 + 4 | 24 + 3 | | 0.4 % / 0.7 % | | |
+| **`Apply` total** | 294 | **7 382** | **3 618** | **2.04** | 100 % | | 2 781 (2.65×) |
+| `count_contacts` after `Apply` (in `ExactMeshBoolean`) | 270 | 163 | 144 | 1.13 | (outside `Apply`) | | |
+
+The serial part (steps below 1.25×: `atPosition`, `component_scales`, boundary, `exactAtStart`, `false_contacts`, the edit loop, the untimed rest) is **0.76 s of 7.38 s at 1 thread (10 %) and 0.68 s of 3.62 s at 4 threads (19 %)**; with `count_contacts`
+0.82 s = 5.1 % of the 4-thread boolean (16.1 s in the probe run), and it hardly shrinks with more threads (extrapolation: 0.80 s of about 12.1 s = 6.6 % of the boolean at 12 threads). The edit loop is 0.4 % again (as in section 2): there is nothing in it.
+The pair search and the tree are 77 % of `Apply` at 1 thread; both scale only 2-2.5× (the pair search for the reason of 7.1.1 most probably, the tree because of its serial sort and build).
+
+Bounds (a step becoming linear: time = 1-thread time / n):
+
+| lever | at 4 threads | at 12 threads (extrapolated) | effort / risk |
+|---|---|---|---|
+| tree build parallel below 262 144 boxes (the old lever 1; its rounding part) | −0.51 s = −3.2 % of the boolean | −0.62 s = −5.2 % | S, measured earlier (a constant) |
+| serial setup steps parallel (`atPosition` by sort, `component_scales` by a parallel union-find, boundary loop, `exactAtStart`, `count_contacts`; 0.82 s at 4 threads) | −0.59 s = −3.7 % (realistic about half) | −0.72 s = −6.0 % (realistic about half) | S-M, not exact code, same components required |
+| pair search balance | −0.51 s = −3.1 % | −0.62 s = −5.1 % | no cheap lever (7.1.1) |
+| edit loop parallel | −0.03 s | – | do not build |
+
+### 7.3 Ranked recommendation
+
+1. **Filter first in `touch_only`** (probe A): −2.1 s at 1 thread (−7.1 %), −0.70 s at 4 (−4.1 %), about −2.8 % at 12 (extrapolated), bit-identical, no new exact code, effort S. It is the only lever of the list that is measured, never slower on this set, and removes work on 18 % of the pairs.
+   Before it is merged: tests of `touch_only` with the filter against the exact test on a procedural corpus (coplanar neighbours, slivers, shared edge with folded flat triangles), the exact-file review of `ExactMeshArrangement.cs`, and the same A/B on the net48 runtime.
+2. **Parallel tree build at ≈ 4096** (probe B: the rounding's `rebuild_tree` is 29 % of `Apply`, 2.05× at 4 threads): a constant, measured earlier at −5 to −7 % for all trees; its bound in the rounding alone is −3.2 % at 4 and −5.2 % at 12 threads.
+3. **The rounding's serial setup** (`atPosition`, `component_scales`, boundary, `exactAtStart`, `count_contacts`): 0.82 s, 5.1 % of the boolean at 4 threads and about 6.6 % at 12; realistic gain half of that, at low risk (not exact code). It grows in share with the thread count and is the reason the 12-thread machine will show a lower speed-up than the 4-core one.
+4. Quick tests from a cached plane (7.1.4): ≤ 1 s at 1 thread, needs a new error bound: only after 1 and 2, and only if a micro benchmark shows the loads are not the floor.
+5. Not worth building: parallel edit loop (0.4 %), more tasks for the self-join (the per-operation slowdown, not imbalance, limits it), a patch certificate for the neighbour pairs (the traversal still makes the box pairs; stopped once before).
+
+Open for the owner's 12-thread run: whether the 1.25-1.4× slowdown per operation at 4 threads is the container (shared vCPUs) or the code (then it will show as the same factor, or a larger one, at 12 threads with SMT); `G3_PAIR_PROBE=1` and the filter A/B are cheap to run there.
+
 ## Experiments (benchmark-side switches, no library change in the PR)
 
 4 threads, T6 set, warm, two runs each (total of the 294 booleans, ms; the best-per-boolean sum of both runs in brackets). All hashes equal to the 1-thread master run (all 14 files, 4116 rows, one hash per boolean).
@@ -287,7 +423,17 @@ python3 benchmarks/BooleanComparison/perf/probe_report.py --top 60 1=probe_t1.js
 python3 benchmarks/BooleanComparison/perf/lever_bounds.py probe_t1.jsonl probe_t4.jsonl 4 12
 # the tree experiment (no patch needed)
 DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding --tree-parallel-from 4096 cases-t6.txt
+# the probes of section 7 (patch applied to the head of #962, 3b52946; G3_PROBE_SERIAL=1 only for the 1-thread probe runs)
+git apply perf/pair_probe.patch; git apply perf/rounding_probe.patch      # then build BooleanComparison
+G3_PAIR_PROBE=1 G3_PROBE_SERIAL=1 DOTNET_PROCESSOR_COUNT=1 taskset -c 0 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > A1_t1.jsonl   # modes 1, 2, 3
+G3_PAIR_PROBE=2 DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > A2_t4.jsonl
+G3_PAIR_FILTER=1 DOTNET_PROCESSOR_COUNT=4 taskset -c 0-3 dotnet frozen/BooleanComparison.dll profile --repeat 2 --safe-rounding cases-t6.txt > filt_t4.jsonl   # against a run without it, alternated
+python3 benchmarks/BooleanComparison/perf/pair_probe_report.py classes 1T=A2_t1.jsonl 4T=A2_t4.jsonl; ... perboolean A2_t1.jsonl; ... filter 1T=A3_t1.jsonl; ... ab ctl1.jsonl,ctl2.jsonl filt1.jsonl,filt2.jsonl
+python3 benchmarks/BooleanComparison/perf/rounding_probe_report.py table 1T=B1_t1.jsonl,B2_t1.jsonl 4T=B1_t4.jsonl,B2_t4.jsonl
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --hashes 1=base_t1.jsonl 4=<every probe run>      # drift 0
+# on the owner's 12-thread machine: the same commands with the thread count 12 (no taskset, or an affinity mask of 12 processors)
 ```
 
+Raw rows of the probes of section 7: [`perf/probe_2026-11-16/`](../../benchmarks/BooleanComparison/perf/probe_2026-11-16/) (`base_t*`: no patch; `A1`-`A3`, `A*f`: probe A modes 1-3 and with the filter switch; `B*`: probe B; `ctl*` / `filt*`: the A/B of 6.1.3).
 Raw rows (gzip): [`perf/thread_scaling_2026-11-15/`](../../benchmarks/BooleanComparison/perf/thread_scaling_2026-11-15/) (`base_t{1,2,4}`: master; `probe2_t{1,4}` and `probe_t2`: the probe build;
 `exp_*`: the experiments). The three named cases cold: `BooleanComparison profile --repeat 1 --safe-rounding --ops <op> <case dir>` with the probe build, best of 3 processes.
