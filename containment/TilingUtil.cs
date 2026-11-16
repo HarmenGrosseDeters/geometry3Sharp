@@ -18,14 +18,14 @@ namespace g3
 			Vector2d oshift = -element.Min;
 			double w = element.Width; double h = element.Height;
 
-			int nx = Math.Max(1, (int)(bounds.Width / w));
+			int nx = Math.Max(1, MathUtil.ToIntSaturating(bounds.Width / w));
 			double spacew = (nx - 1) * spacing;
 			while (nx > 1 && bounds.Width - (w * nx + spacew) < 0) {
 				nx--;
 				spacew = (nx - 1) * spacing;
 			}
 
-			int ny = Math.Max(1, (int)(bounds.Height / h));
+			int ny = Math.Max(1, MathUtil.ToIntSaturating(bounds.Height / h));
 			double spaceh = (ny - 1) * spacing;
 			while (ny > 1 && bounds.Height - (h * ny + spaceh) < 0) {
 				ny--;
@@ -76,7 +76,7 @@ namespace g3
 			double spacingx = spacing;
 
 			// half-rows on top and bottom add up to full row-height
-			int ny = Math.Max(1, (int)(bounds.Height / stepy));
+			int ny = Math.Max(1, MathUtil.ToIntSaturating(bounds.Height / stepy));
 			// reduce count so that we fit w/ spacing
 			double spaceh = (ny - 1) * spacingy;
 			while (ny > 1 && bounds.Height - (stepy * ny + spaceh) < 0) {
@@ -85,7 +85,7 @@ namespace g3
 			}
 
 			// even rows start at x=0
-			int nx_even = Math.Max(1, (int)(bounds.Width / stepx));
+			int nx_even = Math.Max(1, MathUtil.ToIntSaturating(bounds.Width / stepx));
 			// reduce count if we spill over w/ spacing
 			double spacew = (nx_even - 1) * spacingx;
 			while (nx_even > 1 && bounds.Width - (stepx * nx_even + spacew) < 0) {

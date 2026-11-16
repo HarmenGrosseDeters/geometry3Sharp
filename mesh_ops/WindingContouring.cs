@@ -646,7 +646,7 @@ namespace gs
             GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
             int used = 0;
             while (contour != null && FixableEdges >= Math.Max(1, minEdges) && used < maxLevels) {
-                int need = (int)Math.Ceiling(Math.Log(2 * cellSize / MinFixableFound, 2));
+                int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cellSize / MinFixableFound, 2)));
                 int k = Math.Max(1, Math.Min(need, maxLevels - used));
                 double next = cellSize / Math.Pow(2, k);
                 if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), next) > WindingNumberOctree.MaxSupportedDepth)
@@ -687,7 +687,7 @@ namespace gs
                 if (fixableList.Count >= Math.Max(1, minEdges) && used < maxLevels) {
                     // refine (further) around the fixable hidden edges, as far as the narrowest one needs
                     double cur = coarse / (1 << log2F);
-                    int need = (int)Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2));
+                    int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2)));
                     int k = Math.Max(1, Math.Min(need, maxLevels - used));
                     if (octree.MaxDepth + log2F + k > WindingNumberOctree.MaxSupportedDepth)
                         break;
@@ -815,9 +815,9 @@ namespace gs
                     return;
             }
             // The inclusive upper endpoint can be int.MaxValue; the loop counter must not wrap.
-            for (long z = (long)lo.z; z <= (long)hi.z; ++z)
-                for (long y = (long)lo.y; y <= (long)hi.y; ++y)
-                    for (long x = (long)lo.x; x <= (long)hi.x; ++x)
+            for (long z = MathUtil.ToLongSaturating(lo.z); z <= MathUtil.ToLongSaturating(hi.z); ++z)
+                for (long y = MathUtil.ToLongSaturating(lo.y); y <= MathUtil.ToLongSaturating(hi.y); ++y)
+                    for (long x = MathUtil.ToLongSaturating(lo.x); x <= MathUtil.ToLongSaturating(hi.x); ++x)
                         region.Add(new Vector3i((int)x, (int)y, (int)z));
         }
 

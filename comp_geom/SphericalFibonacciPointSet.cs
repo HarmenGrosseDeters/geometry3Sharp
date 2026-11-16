@@ -119,7 +119,7 @@ namespace g3
             }
 
             // [TODO] should we be clamping this??
-            return (int)j;
+            return MathUtil.ToIntSaturating(j);
         }
 
 

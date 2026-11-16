@@ -38,7 +38,7 @@ namespace g3
 
                 if (lengths[i] > fMaxSqr) {
                     double fLen = Math.Sqrt(lengths[i]);
-                    int nSteps = (int)(fLen / fMaxEdgeLen) + 1;
+                    int nSteps = MathUtil.ToIntSaturating(fLen / fMaxEdgeLen) + 1;
                     for ( int k = 1; k < nSteps; ++k ) {
                         double t = (double)k / (double)nSteps;
                         Vector3d mid = Vector3d.Lerp(prev, next, t);
@@ -111,7 +111,7 @@ namespace g3
                 // split edge if it is too long
                 if (lengths[i] > fMaxSqr) {
                     double fLen = Math.Sqrt(lengths[i]);
-                    int nSteps = (int)(fLen / fMaxEdgeLen) + 1;
+                    int nSteps = MathUtil.ToIntSaturating(fLen / fMaxEdgeLen) + 1;
                     for (int k = 1; k < nSteps; ++k) {
                         double t = (double)k / (double)nSteps;
                         Vector3d mid = Vector3d.Lerp(prev, next, t);

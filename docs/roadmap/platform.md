@@ -460,7 +460,7 @@ Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism
 5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #866 / #940
    (`MeshSweepCollision` above the 20 s rule), #947 (slow fuzz units). A third net48 shard only if the queue wait is
    short and shard b stays the critical path (check 2026-11-16).
-6. Determinism: #804, the casts that remain after #942 / #951.
+6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); open from it: input validation for the sizes that wrap after saturation (the audit's findings).
 7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).
 8. Clipper2: #955 (remaining failures after #949; deferred, owner 2026-11-15).
 9. Thingi10K full corpus: draft #385.

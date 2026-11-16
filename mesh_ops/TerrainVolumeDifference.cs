@@ -142,7 +142,7 @@ namespace gs
             foreach (Vector2d p in poly) { minx = Math.Min(minx, p.x); maxx = Math.Max(maxx, p.x); miny = Math.Min(miny, p.y); maxy = Math.Max(maxy, p.y); }
             double fi0 = Math.Floor((minx - lx0) / lat.DX), fi1 = Math.Floor((maxx - lx0) / lat.DX), fj0 = Math.Floor((miny - ly0) / lat.DY), fj1 = Math.Floor((maxy - ly0) / lat.DY);
             if (fi1 < 0 || fj1 < 0 || fi0 > lat.NX - 1 || fj0 > lat.NY - 1) return;
-            int i0 = (int)Math.Max(fi0, 0), i1 = (int)Math.Min(fi1, lat.NX - 1), j0 = (int)Math.Max(fj0, 0), j1 = (int)Math.Min(fj1, lat.NY - 1);
+            int i0 = MathUtil.ToIntSaturating(Math.Max(fi0, 0)), i1 = MathUtil.ToIntSaturating(Math.Min(fi1, lat.NX - 1)), j0 = MathUtil.ToIntSaturating(Math.Max(fj0, 0)), j1 = MathUtil.ToIntSaturating(Math.Min(fj1, lat.NY - 1));
             for (int j = j0; j <= j1; ++j)
                 for (int i = i0; i <= i1; ++i) {
                     double xa = lx0 + i * lat.DX, xb = lx0 + (i + 1) * lat.DX, ya = ly0 + j * lat.DY, yb = ly0 + (j + 1) * lat.DY;

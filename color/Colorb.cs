@@ -27,7 +27,7 @@ namespace g3
 
         // [0,1] float to byte, rounded to nearest
         static byte to_byte(float f) {
-            return (byte)MathUtil.Clamp((int)Math.Round(f * 255.0f, MidpointRounding.AwayFromZero), 0, 255);
+            return (byte)MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Round(f * 255.0f, MidpointRounding.AwayFromZero)), 0, 255);
         }
 
 
