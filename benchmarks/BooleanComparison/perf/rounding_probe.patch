@@ -21,7 +21,7 @@ index 2ff95842..5c4af2ac 100644
              Status = BooleanStatus.Success;
              return true;
 diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
-index 2acdd9aa..a5203e8c 100644
+index 728cc91c..2e235f62 100644
 --- a/mesh_ops/MeshRoundingRepair.cs
 +++ b/mesh_ops/MeshRoundingRepair.cs
 @@ -1,6 +1,7 @@
@@ -32,7 +32,7 @@ index 2acdd9aa..a5203e8c 100644
  using System.Runtime.CompilerServices;
  
  namespace g3
-@@ -494,19 +495,31 @@ namespace g3
+@@ -532,20 +533,32 @@ namespace g3
          }
  
          /// <summary> repair (see class comment); returns IsClean </summary>
@@ -50,6 +50,7 @@ index 2acdd9aa..a5203e8c 100644
 +        bool apply_probed()
          {
              Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             LockedContractions = RuleLockedContractions = 0;
              PositionSearchMoves = 0;
              PositionSearchProposals = 0;
              MaxDrift = 0;
@@ -65,7 +66,7 @@ index 2acdd9aa..a5203e8c 100644
              ghostsAt = new Dictionary<int, List<Ghost>>();
              GhostsMade = GhostsLost = 0;
              touched.Clear();
-@@ -519,6 +532,7 @@ namespace g3
+@@ -558,6 +571,7 @@ namespace g3
                  inputBoundary[ev.a] = Mesh.GetVertex(ev.a);
                  inputBoundary[ev.b] = Mesh.GetVertex(ev.b);
              }
@@ -73,7 +74,7 @@ index 2acdd9aa..a5203e8c 100644
              changed.Clear();
              SmallestRejectedDrift = double.PositiveInfinity;
              RemainingDefectAt = Vector3d.Zero;
-@@ -547,23 +561,29 @@ namespace g3
+@@ -586,23 +600,29 @@ namespace g3
              // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
              // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
              // (per block: one flag)
@@ -104,7 +105,7 @@ index 2acdd9aa..a5203e8c 100644
              if (SharedPositionsTouch) {
                  // (sized for the vertices: no rehash while it fills; the capacity does not change the order of its entries)
                  atPosition = new Dictionary<Vector3d, List<int>>(Mesh.VertexCount);
-@@ -571,6 +591,8 @@ namespace g3
+@@ -610,6 +630,8 @@ namespace g3
                  foreach (int vid in Mesh.VertexIndices())
                      position_add(vid, Mesh.GetVertex(vid));
              }
@@ -113,7 +114,7 @@ index 2acdd9aa..a5203e8c 100644
              SkippedExactQueries = 0;
              if (exactF != null) {
                  exactAtStart = new Index3i[Mesh.MaxTriangleID];
-@@ -579,6 +601,7 @@ namespace g3
+@@ -618,6 +640,7 @@ namespace g3
                      exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
                  }
              }
@@ -121,7 +122,7 @@ index 2acdd9aa..a5203e8c 100644
              rebuild_tree();
              lastPairs = null;
              check = CheckOnThisThread;
-@@ -653,8 +676,15 @@ namespace g3
+@@ -692,8 +715,15 @@ namespace g3
  
  
          // the passes over the defects (see Apply), until one changes nothing
@@ -138,7 +139,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              for (int pass = 0; pass < MaxPasses && SearchWithoutPasses == false && (pairs.Count > 0 || bad.Count > 0); ++pass) {
                  int edits = Collapses + Flips + Moves + Zips;
-@@ -735,7 +765,14 @@ namespace g3
+@@ -774,7 +804,14 @@ namespace g3
          // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
          // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
          // component
@@ -154,7 +155,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
              int n = Math.Max(boxes.Count, 1);
-@@ -917,10 +954,44 @@ namespace g3
+@@ -956,10 +993,44 @@ namespace g3
          }
  
  
@@ -200,7 +201,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              treeTids = new List<int>(Mesh.TriangleCount);
              foreach (int tid in Mesh.TriangleIndices())
-@@ -1089,8 +1160,17 @@ namespace g3
+@@ -1128,8 +1199,17 @@ namespace g3
          // the intersecting pairs of the whole mesh (ta < tb, sorted); with skipExact, the pairs of two exact triangles of
          // the start are not tested: they do not intersect beyond what they share (docs/design/ROUNDING_EXACT_PAIRS.md),
          // so the result is the same
@@ -219,7 +220,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              int[] tris = treeTids.ToArray();
              bool skip = skipExact && exactAtStart != null;
-@@ -1135,8 +1215,17 @@ namespace g3
+@@ -1174,8 +1254,17 @@ namespace g3
              return pairs;
          }
  
@@ -238,7 +239,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              var pairs = new List<Index2i>();
              foreach (Index2i p in lastPairs)
-@@ -1179,8 +1268,17 @@ namespace g3
+@@ -1218,8 +1307,17 @@ namespace g3
              return pairs;
          }
  
@@ -257,7 +258,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              // (one block: a serial scan, without the marks)
              if (triangle_blocks(Mesh) <= 1) {
-@@ -1663,7 +1761,14 @@ namespace g3
+@@ -1702,7 +1800,14 @@ namespace g3
  
          // (check mode, after the edits) every bound of a triangle and of a ghost, recomputed from the mesh, is at most
          // MaxDrift, and every ghost lies on a vertex or an edge of the mesh
@@ -273,7 +274,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              foreach (int t in Mesh.TriangleIndices()) {
                  Index3i tv = Mesh.GetTriangle(t);
-@@ -2267,7 +2372,16 @@ namespace g3
+@@ -2347,7 +2452,16 @@ namespace g3
  
          // the positions with vertices of different exact points (PointIdF), each as its vertices in id order; in order
          // of their smallest vertex id (deterministic)
@@ -291,7 +292,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              var groups = new List<List<int>>();
              foreach (List<int> list in atPosition.Values) {
-@@ -2298,7 +2412,16 @@ namespace g3
+@@ -2378,7 +2492,16 @@ namespace g3
          // eg an input point) is moved only as a fallback, where no vertex of the contact that is not fixed could be
          // moved (its double is then no longer its exact point, by a few units in the last place: a contact counts as a
          // defect, a moved input point does not). Returns the moves applied
@@ -309,7 +310,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              int moved = 0;
              // a vertex whose moves all failed is not tried again (a later move elsewhere rarely frees it, and each try
-@@ -2376,8 +2499,17 @@ namespace g3
+@@ -2456,8 +2579,17 @@ namespace g3
  
          // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
          // first vertex of valence 3 whose removal improves; repeated while it removes some (at most once per vertex)
@@ -328,7 +329,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              int removedNow = 0;
              for (bool again = true; again; ) {
-@@ -2704,8 +2836,17 @@ namespace g3
+@@ -2790,8 +2922,17 @@ namespace g3
          // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in
          // their order, each at its first triangle), the search at its corners; returns the moves made. A move is
          // accepted by improves like every edit, so it removes a defect and adds none
@@ -347,7 +348,7 @@ index 2acdd9aa..a5203e8c 100644
          {
              int before = PositionSearchMoves;
              searchFailed.Clear();
-@@ -2850,8 +2991,17 @@ namespace g3
+@@ -2936,8 +3077,17 @@ namespace g3
          }
  
          // components with a degenerate triangle or an edited vertex that are tiny or thin

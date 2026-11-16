@@ -263,7 +263,7 @@ Spread between runs: master about 1.5 %, the PR about 0.5 %. Phases at 12 thread
 
 Measurement only, no library change. Base: the head of PR #962 (`claude/parallel-assembly`, 3b52946, parallel assembly), `SafeRounding`, the T6 set (98 pairs, 294 booleans), warm,
 `profile --repeat 2` (best of two per boolean, sums over the 294), net10.0, 4 vCPU container (1 and 4 threads: `taskset` and `DOTNET_PROCESSOR_COUNT`). Two patches, each applies alone and
-both together to that head (`git apply`, checked): [`perf/pair_probe.patch`](../../benchmarks/BooleanComparison/perf/pair_probe.patch) (probe A) and
+both together to that head (`git apply`, checked; `rounding_probe.patch` was regenerated on master ff34857, which changed `MeshRoundingRepair.cs` after the measurement: the timers are the same, the numbers below were measured with the patch on 3b52946): [`perf/pair_probe.patch`](../../benchmarks/BooleanComparison/perf/pair_probe.patch) (probe A) and
 [`perf/rounding_probe.patch`](../../benchmarks/BooleanComparison/perf/rounding_probe.patch) (probe B). Reports: `perf/pair_probe_report.py`, `perf/rounding_probe_report.py`; raw rows (gzip, one line per boolean,
 cases numbered c00-c97 in the order of the manifest, no meshes): [`perf/probe_2026-11-16/`](../../benchmarks/BooleanComparison/perf/probe_2026-11-16/).
 **Gate: the `profile` hash of all 294 booleans is the same in all 23 runs (base, probe A in modes 1-3, probe B, the filter experiment; 1 and 4 threads), `scaling_report.py --hashes`: drift 0.**
