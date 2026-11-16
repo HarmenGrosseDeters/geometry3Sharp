@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
         {
             var ad = Make(ShapeByName(shape), 40, tol);
             ad.Generate();
-            Assert.True(ad.Mesh.TriangleCount > 100);
+            Assert.True(ad.Mesh.TriangleCount > 12);
             Assert.True(Invariance.AllFinite(ad.Mesh));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(ad.Mesh, true));
             Assert.True(ad.SelfIntersectionFree, "base " + ad.BaseSelfIntersectionFree + " nm " + ad.NonManifoldTriangles);

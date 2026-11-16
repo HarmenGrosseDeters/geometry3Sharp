@@ -10,7 +10,7 @@ namespace g3
     /// regions get large triangles and fine cells stay at edges, corners and curved parts. Opt-in; DualContouring
     /// itself is unchanged. Design, guarantees and limits: docs/design/DC_ADAPTIVE_SIMPLIFICATION.md.
     ///
-    /// The field is contoured on the uniform grid of CellSize (manifold dual contouring with exact Hermite data: the
+    /// The field is contoured on the uniform grid of CellSize (manifold dual contouring with the exact Hermite data of DualContouring.ExactHermite: the
     /// crossing of each grid edge is found by bisection and the normal is the gradient there), then the vertices are
     /// clustered bottom up by the octree of that grid (Ju et al. 2002; Schaefer, Ju, Warren 2007): a cluster merges
     /// the QEFs of its vertices (union of their Hermite crossings), is placed by the QEF solver inside its block, and
@@ -44,7 +44,7 @@ namespace g3
         /// <summary> largest merged block is 2^MaxLevel cells wide </summary>
         public int MaxLevel = 6;
         /// <summary> QEF eigenvalues below this fraction of the largest are ignored (as DualContouring.QEFEigenTolerance) </summary>
-        public double QEFEigenTolerance = 0.02;
+        public double QEFEigenTolerance = new DualContouring().QEFEigenTolerance;
         public bool ParallelCompute = true;
         public Func<bool> CancelF = () => { return false; };
 
@@ -80,7 +80,6 @@ namespace g3
                 QEFEigenTolerance = QEFEigenTolerance, ParallelCompute = ParallelCompute, CancelF = CancelF,
                 RecordVertexCrossings = true
             };
-            dc.HermiteF = HermiteData;
             dc.Generate();
             PhaseMilliseconds["contour"] = timer.ElapsedMilliseconds; timer.Restart();
             if (CancelF() || dc.Mesh == null) return;
@@ -96,30 +95,6 @@ namespace g3
             Mesh = new Simplifier(this, dc).Run();
             PhaseMilliseconds["simplify"] = timer.ElapsedMilliseconds;
         }
-
-        bool is_inside(double f) { return InsideIsLess ? f < IsoValue : f > IsoValue; }
-
-        // exact Hermite data: bisection to the crossing, gradient there
-        bool HermiteData(Vector3d a, Vector3d b, Vector3d crossing, out Vector3d point, out Vector3d normal)
-        {
-            double lo = 0, hi = 1;
-            for (int it = 0; it < 50; ++it) {
-                double mid = 0.5 * (lo + hi);
-                Vector3d m = Vector3d.Lerp(a, b, mid);
-                if (is_inside(Implicit.Value(ref m))) lo = mid; else hi = mid;
-            }
-            point = Vector3d.Lerp(a, b, 0.5 * (lo + hi));
-            double h = CellSize / 64;
-            Vector3d g = Vector3d.Zero;
-            for (int c = 0; c < 3; ++c) {
-                Vector3d d = Vector3d.Zero; d[c] = h;
-                Vector3d p0 = point + d, p1 = point - d;
-                g[c] = Implicit.Value(ref p0) - Implicit.Value(ref p1);
-            }
-            normal = g / (2 * h);       // (a gradient, not yet a unit vector: DualContouring normalizes; scaled so it does not vanish at tiny scales)
-            return g.LengthSquared > 0 && !double.IsNaN(g.LengthSquared) && !double.IsInfinity(g.LengthSquared);
-        }
-
 
         class Simplifier
         {
