@@ -161,7 +161,7 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   stale, exceeded the cap `64 (limit + slots) + 100000`, which counted dequeues. Fix (coordinator 2026-11-12): the cap counts split
   attempts; every other mesh stays the same bit for bit, the channel gives `Success` with `SteinerLimitReached` (split attempts at most
   13 (limit + slots) over w = 2^-20 .. 2^-39). A test hook (`StallForTests`) shows the cap still stops a livelock.
-  **Measured, not taken: deduplicating `Dirty` in `Collect`** (each rewritten triangle queued once). On the #638 input 611k -> 34k
+  **Measured, not taken: deduplicating `Dirty` in `Collect`** (re-measurement on Herne and the corpus under way, 2026-11-16, see Open) (each rewritten triangle queued once). On the #638 input 611k -> 34k
   dequeues (1.4 s -> 1.0 s; limit 3000 / 6000: 0.95 / 0.90 s -> 0.64 / 0.62 s), at most 8.2 dequeues per (limit + slots) over that
   family. Not taken because it changes the refinement order: the golden rows f-4/a, f-4/b, f-5, f-23/angle-20, f-23/angle-30 and f-34
   change (f-5 1047 -> 1058 vertices, f-4/b 2889 -> 2883; constrained f-4/a 1266 -> 1269, f-4/b 4649 -> 4648), four pinned counts change
@@ -261,7 +261,7 @@ Then lenses for Conforming=false (owner 2026-11-02: a second mode "constrained q
 
 **Merged 2026-11-02:** #328 (snap-path speed), #332 (lenses (B) in the constrained-quality mode: catalogue vertices −7.2 %, corpus 20° 116k → 94k vertices, Herne 373600 q20-snap 93 320 → 62 303 triangles; **intentional behaviour change: the default output of `QualityMesh2` with `Conforming = false` changes**), #334 (grid-hole vertex renumbering bugfix). #337 (grid reroute: retag the triangles a reroute sweeps, merged 2026-11-03). T14 (conforming hole seeding: constraints inside holes queued) merged in #340, T13 (the oracle tolerates hull corners within the tube; one verdict changes, robustness1 M3@0 constrained) in #342, docs #345 (2026-11-03).
 
-Done criterion (owner 2026-11-03): correctness, grading and speed at reference level; provisional targets: triangle count ≤ 1.25x triangle.c on f-11/a, f-11/b, f-40 and a corpus sample at the same bound, Herne snap runs ≤ 2x the fork's mesher-only time, no verdict worse.
+Done criterion (owner 2026-11-03): correctness, grading and speed at reference level; provisional targets: triangle count ≤ 1.25x triangle.c on f-11/a, f-11/b, f-40 and a corpus sample at the same bound, Herne snap runs ≤ 2x the fork's mesher-only time (closed 2026-11-16, see Open), no verdict worse.
 
 Order: oracle speed, vertex deletion + T15, Q17, lenses (A), grading, snap speed.
 
@@ -344,7 +344,7 @@ Follow-up: the corner choice in doubles (MinSin2) vs the oracle's exact shortest
 
 Owner 2026-11-06: build the Failed bugfix first, then A for cq / constrained mode only (design note first, with the termination argument). Default (conforming) mode needs a spec decision on O2 near small angles. #390 section 6 paired the modes crossed; the matched angle-variant recomputation keeps the outliers (stmlf/1461 25.1x constrained vs constrained), and a docs correction follows.
 
-Left, only for judging very large outputs of other producers (no verdict of ours affected): `Conformity`'s `OverlapPairs` sweep (f-16's triangle.c output 10-15 min: needle boxes keep the active list long; at most about 4x from a y-index, and any faster pair order changes which example violations an INVALID report names, golden rows included, so a deliberate report change) and `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min each).
+Left, only for judging very large outputs of other producers (no verdict of ours affected; closed by the owner 2026-11-16, see Open): `Conformity`'s `OverlapPairs` sweep (f-16's triangle.c output 10-15 min: needle boxes keep the active list long; at most about 4x from a y-index, and any faster pair order changes which example violations an INVALID report names, golden rows included, so a deliberate report change) and `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min each).
 
 Finish plan (owner 2026-11-04): grading step 2 (petal candidates, Erten and Üngör 2007, scored as in step 1) and the exact double filters in front of SnapGrid.Pixel / CrossesInterior in one PR (Herne mesher −11.9 % vs pre-grading with −26 % triangles; f-11/a 215, f-11/b 363, f-40 184), with Herne snap runs measured against the fork's mesher-only times; then one last grading step time-boxed to one day; target revised by the owner (2026-11-04): a short look whether 1.25x is cheap, otherwise triangle count <= 1.5x the reference (1.4x welcome) on f-11/a, f-11/b, f-40 and the corpus sample.
 
