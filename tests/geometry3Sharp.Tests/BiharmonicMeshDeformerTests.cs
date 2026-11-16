@@ -392,6 +392,64 @@ namespace geometry3Sharp.Tests
             Assert.True(result.Mesh.GetVertex(off + 2).Distance(big.GetVertex(2) + new Vector3d(0, 0, 0.75)) < 1e-9);
         }
         [Fact]
+        public void Cylinder_WithNearZeroCosinesAndSines_Succeeds()
+        {
+            // 40 slices x 100 rings with fan caps; cos(pi/2) and sin(pi) are ~1e-16 and are added to entries of order one.
+            const int slices = 40, rings = 100; const double radius = 0.25, height = 2.5;
+            var mesh = new DMesh3(MeshComponents.None);
+            for (int r = 0; r < rings; ++r) for (int i = 0; i < slices; ++i) {
+                double a = 2 * Math.PI * i / slices;
+                mesh.AppendVertex(new Vector3d(radius * Math.Cos(a), radius * Math.Sin(a), height * r / (rings - 1)));
+            }
+            int bottom = mesh.AppendVertex(new Vector3d(0, 0, 0)), top = mesh.AppendVertex(new Vector3d(0, 0, height));
+            for (int r = 0; r < rings - 1; ++r) for (int i = 0; i < slices; ++i) {
+                int a = r * slices + i, b = r * slices + (i + 1) % slices, c = a + slices, d = b + slices;
+                mesh.AppendTriangle(a, b, d); mesh.AppendTriangle(a, d, c);
+            }
+            for (int i = 0; i < slices; ++i) {
+                int j = (i + 1) % slices;
+                mesh.AppendTriangle(bottom, j, i); mesh.AppendTriangle(top, (rings - 1) * slices + i, (rings - 1) * slices + j);
+            }
+            var move = new Vector3d(0.3, -0.1, 0.2); var handles = new Dictionary<int, Vector3d>();
+            handles[bottom] = mesh.GetVertex(bottom);
+            handles[top] = mesh.GetVertex(top) + move;
+            for (int i = 0; i < slices; ++i) {
+                handles[i] = mesh.GetVertex(i);
+                int t = (rings - 1) * slices + i; handles[t] = mesh.GetVertex(t) + move;
+            }
+            var result = new BiharmonicMeshDeformer(mesh).Compute(handles);
+            Assert.True(result.Converged, $"{result.Status} {result.Residual:R}");
+            foreach (int v in result.Mesh.VertexIndices()) Assert.True(result.Mesh.GetVertex(v).IsFinite);
+            foreach (var h in handles) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
+            // The displacement grows from the fixed bottom to the moved top.
+            double mid = (result.Mesh.GetVertex(50 * slices) - mesh.GetVertex(50 * slices)).Length;
+            Assert.InRange(mid, 0.01, move.Length);
+        }
+        [Fact]
+        public void IrregularJitteredSurface_Succeeds()
+        {
+            // Deterministic jitter (LCG), random heights, so no angle is exactly a right angle.
+            const int n = 40; ulong state = 12345;
+            double Next() { state = state * 6364136223846793005UL + 1442695040888963407UL; return ((state >> 11) / (double)(1UL << 53)) - 0.5; }
+            var mesh = new DMesh3(MeshComponents.None);
+            for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+                bool border = x == 0 || y == 0 || x == n - 1 || y == n - 1; double j = border ? 0 : 0.6;
+                mesh.AppendVertex(new Vector3d(x + j * Next(), y + j * Next(), 0.5 * Next()));
+            }
+            for (int y = 0; y < n - 1; ++y) for (int x = 0; x < n - 1; ++x) {
+                int a = x + n * y, b = a + 1, d = a + n, c = d + 1;
+                if (((x + y) & 1) == 0) { mesh.AppendTriangle(a, b, c); mesh.AppendTriangle(a, c, d); }
+                else { mesh.AppendTriangle(a, b, d); mesh.AppendTriangle(b, c, d); }
+            }
+            var handles = ColumnHandles(mesh, n, new Vector3d(3, 0, 2));
+            var solver = new BiharmonicMeshDeformer(mesh);
+            var result = solver.Compute(handles);
+            Assert.True(result.Converged, $"{result.Status} {result.Residual:R}");
+            Assert.True(result.Residual <= solver.Options.RelativeTolerance);
+            foreach (int v in result.Mesh.VertexIndices()) Assert.True(result.Mesh.GetVertex(v).IsFinite);
+            foreach (var h in handles) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
+        }
+        [Fact]
         public void FullyConstrained_ExtremeFiniteTargets_AreCopiedExactly()
         {
             var mesh = new DMesh3(MeshComponents.None);
