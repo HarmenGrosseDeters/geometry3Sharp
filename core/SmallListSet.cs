@@ -454,10 +454,13 @@ namespace g3
 
 
         /// <summary>
-        /// Fills an empty set with the lists 0 .. count - 1, as if the values begin[i] .. begin[i + 1] - 1 of values had been Insert-ed
-        /// into list i one after the other (a list without values stays unallocated): the same lists in the same order, also those
-        /// that spill into the linked store (their values after the eighth in reverse, as the inserts leave them). The blocks and
-        /// the nodes are laid out in the order of the lists, each list written independently: in parallel over blocks of lists. Unused slots of a block are left 0 (the appends leave them 0 as well).
+        /// Fills an empty set with the lists 0 .. count - 1: the same logical lists, in the same iteration order, as if the values
+        /// begin[i] .. begin[i + 1] - 1 of values had been Insert-ed into list i one after the other (a list without values stays
+        /// unallocated); the later Remove / Insert / Clear behave the same. The values past the eighth of a list (its linked chain, newest
+        /// first) are the same, but the nodes of the chains are stored list by list, where serial Inserts interleave them in the order of
+        /// the inserts: the positions in the linked store and the chain heads in the blocks differ, which nothing reads outside this class.
+        /// The blocks and the nodes are laid out in the order of the lists, each list written independently: in parallel over blocks of lists.
+        /// Unused slots of a block are left 0 (the appends leave them 0 as well).
         /// </summary>
         internal void BuildFrom(int count, int[] begin, int[] values)
         {

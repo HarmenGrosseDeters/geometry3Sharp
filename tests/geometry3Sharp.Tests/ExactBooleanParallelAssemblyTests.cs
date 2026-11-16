@@ -581,6 +581,50 @@ namespace geometry3Sharp.Tests
             Assert.False(b.PhaseMilliseconds.ContainsKey("_us"));
         }
 
+        // every field of the mesh by reflection: DVectors by content, reference counts, edge lists; the overflow nodes of SmallListSet
+        // (linked_store, the chain heads in the blocks) are skipped, they are laid out in another order (SmallListSet.BuildFrom)
+        static void Walk(object a, object b, string path, List<string> differences)
+        {
+            if (a == null || b == null) {
+                if (a != b) differences.Add(path + ": null");
+                return;
+            }
+            Type t = a.GetType();
+            if (t.IsPrimitive || t == typeof(string) || t.IsEnum) {
+                if (a.Equals(b) == false) differences.Add(path + ": " + a + " vs " + b);
+                return;
+            }
+            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(DVector<>)) {
+                var ea = ((System.Collections.IEnumerable)a).Cast<object>().ToList();
+                var eb = ((System.Collections.IEnumerable)b).Cast<object>().ToList();
+                if (ea.Count != eb.Count) { differences.Add(path + ": length " + ea.Count + " vs " + eb.Count); return; }
+                bool blocks = path.EndsWith("block_store");
+                for (int i = 0; i < ea.Count; ++i) {
+                    if (blocks && i % 10 == 9) continue;      // (the chain head of each block of 8 values + count + link)
+                    if (ea[i].Equals(eb[i]) == false) { differences.Add(path + "[" + i + "]: " + ea[i] + " vs " + eb[i]); return; }
+                }
+                return;
+            }
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)) {
+                // (free_head_ptr points into linked_store, so it is part of the overflow layout; the free blocks and counts are compared)
+                if (f.Name == "linked_store" || f.Name == "Metadata" || f.Name == "free_head_ptr") continue;
+                Walk(f.GetValue(a), f.GetValue(b), path + "." + f.Name, differences);
+            }
+        }
+
+        [Theory]
+        [InlineData("box-cylinder union")]
+        [InlineData("box-sphere diff")]
+        [InlineData("open sphere - box")]
+        public void BuiltMesh_EveryContainerEqualsTheAppendedOne_ExceptTheOverflowNodes(string name)
+        {
+            var make = Case(name);
+            DMesh3 built = WithHooks(1 << 16, 1 << 13, false, make).Result, appended = WithHooks(1 << 16, 1 << 13, true, make).Result;
+            var differences = new List<string>();
+            Walk(built, appended, "mesh", differences);
+            Assert.True(differences.Count == 0, string.Join("; ", differences.Take(8)));
+        }
+
         public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }
