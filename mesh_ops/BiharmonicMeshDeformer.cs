@@ -39,9 +39,12 @@ namespace g3
 
         public BiharmonicMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
-        static double Stationarity(Dictionary<int,double>[] rows, double[] mass, int[] free, Vector3d[] displacement)
+        // Largest over free vertices of |gradient_i| / sum of the absolute contributions to gradient_i, with the
+        // gradient of 1/2 u^T L^T M^-1 L u. Normalized per vertex, so a coarse component is not judged against the
+        // contributions of a fine one. NaN if a quantity is not finite.
+        internal static double Stationarity(Dictionary<int,double>[] rows, double[] mass, int[] free, Vector3d[] displacement)
         {
-            var gradient = new Vector3d[displacement.Length]; double magnitude = 0;
+            var gradient = new Vector3d[displacement.Length]; var magnitude = new double[displacement.Length];
             for (int k = 0; k < displacement.Length; ++k) if (rows[k].Count > 0) {
                 Vector3d lap = Vector3d.Zero; double bound = 0;
                 foreach (var e in rows[k]) { lap += e.Value * displacement[e.Key]; bound += Math.Abs(e.Value) * MaxAbs(displacement[e.Key]); }
@@ -49,13 +52,17 @@ namespace g3
                 foreach (var e in rows[k]) if (free[e.Key] >= 0) {
                     Vector3d contribution = (e.Value / mass[k]) * lap;
                     if (!contribution.IsFinite) return double.NaN;
-                    gradient[e.Key] += contribution; magnitude = Math.Max(magnitude, Math.Abs(e.Value / mass[k]) * bound);
+                    gradient[e.Key] += contribution; magnitude[e.Key] += Math.Abs(e.Value / mass[k]) * bound;
                 }
             }
-            if (!MathUtil.IsFinite(magnitude)) return double.NaN;
             double maximum = 0;
-            for (int i = 0; i < displacement.Length; ++i) if (free[i] >= 0) maximum = Math.Max(maximum, MaxAbs(gradient[i]));
-            return magnitude == 0 ? maximum : maximum / magnitude;
+            for (int i = 0; i < displacement.Length; ++i) if (free[i] >= 0) {
+                double g = MaxAbs(gradient[i]);
+                if (!MathUtil.IsFinite(g) || !MathUtil.IsFinite(magnitude[i])) return double.NaN;
+                if (g == 0) continue;
+                maximum = Math.Max(maximum, magnitude[i] == 0 ? double.PositiveInfinity : g / magnitude[i]);
+            }
+            return maximum;
         }
 
         // Adds value to row[col]; fails when the sum is not finite. A term smaller than half an ulp of the entry
@@ -76,14 +83,6 @@ namespace g3
         }
 
         static double MaxAbs(Vector3d p) { return Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))); }
-
-        // True when the difference target - original lost a nonzero operand to rounding.
-        static bool LostDifference(Vector3d target, Vector3d original, Vector3d delta) {
-            for (int j = 0; j < 3; ++j)
-                if (target[j] != 0 && original[j] != 0 &&
-                    (delta[j] == target[j] || delta[j] == -original[j])) return true;
-            return false;
-        }
 
         static double Length(Vector3d p) {
             double m = MaxAbs(p); if (m == 0 || !MathUtil.IsFinite(m)) return m;
@@ -211,7 +210,7 @@ namespace g3
             foreach (var h in handles) {
                 int i = lookup[h.Key]; if (!active[i]) continue;
                 displacement[i] = h.Value - original[i];
-                if (!displacement[i].IsFinite || LostDifference(h.Value, original[i], displacement[i])) {
+                if (!displacement[i].IsFinite) {
                     result.Status = Status.NumericalRange; return result;
                 }
                 int root = componentRoot[i]; motionScale[root] = Math.Max(motionScale[root], MaxAbs(displacement[i]));

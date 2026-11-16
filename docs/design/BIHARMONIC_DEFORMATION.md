@@ -27,22 +27,28 @@ for the cotangent matrix, Meyer et al. for the lumped mass, Botsch and Sorkine f
 - Each component is normalized (rest radius, and the largest handle displacement) before assembly, so the result does
   not depend on the unit or on tiny motions of a huge mesh. Scaling by a power of two gives the same result bit for bit
   (`Similarity.All()` test).
-- A component where every vertex is a handle skips the solve (`Iterations = 0`, `Residual = NaN`), after an exact
-  check that no triangle is degenerate.
+- If every vertex of the mesh is a handle, the solve is skipped (`Iterations = 0`, `Residual = NaN`) after an exact
+  check that no triangle is degenerate. In a mixed mesh, a component whose vertices are all handles is not assembled, but
+  the other components are solved (`Iterations = 1`).
 - Translation of all handles by the same vector moves every vertex by it (to rounding). A rigid motion given on **all**
   vertices is reproduced exactly. A rigid rotation given on only a *subset* is not extended: the linear energy is not
   rotation-invariant, so the free vertices are not rotated rigidly with it. Use ARAP for that.
 - `Status`: `Success`; `InvalidInput` (null or empty mesh, null handles, unknown handle id, non-finite coordinates or
   settings); `UnanchoredComponent`; `DegenerateTriangle` (exact zero-area test); `NumericalRange` (overflow or underflow
-  of a weight, a product that underflows to zero, a handle difference lost to rounding, a non-finite intermediate);
+  of a weight, a dot product with a term that underflows to exactly zero, a handle motion that the normalization flushes to
+  zero, a non-finite intermediate);
   `LinearSolveFailed` (the factorization fails or the residual exceeds `RelativeTolerance`); `NonFiniteResult`;
   `ResourceLimit` (see below). `Mesh` is null unless `Success`.
-- `Residual` is the largest free-vertex gradient of the energy divided by an absolute bound of its contributions. It is a
+- `Residual` is the largest over free vertices of the energy gradient divided by the sum of the absolute contributions
+  to that gradient (normalized per vertex, so a coarse component is not judged against a fine one). It is a
   backward-error check against `RelativeTolerance` (default 1e-8), **not** a bound on the position error: for an
   ill-conditioned system (a very fine mesh with few handles) the positions can be less accurate than the residual suggests.
-- Terms below half an ulp of a matrix entry are rounded away like in any floating-point assembly. This matters for
-  rotated meshes, where the cotangent of a right angle is rounding noise of about 1e-17 added to entries of order one.
-  Genuine loss is still reported: a nonzero product that underflows to zero, an overflow, or `target - rest` losing an operand.
+- Terms below half an ulp of a matrix entry, and the part of `target - rest` below half an ulp of the target, are rounded
+  away like in any floating-point assembly. This matters for rotated meshes, where the cotangent of a right angle is
+  rounding noise of about 1e-17 added to entries of order one, and a coordinate that should be zero is noise. Rejected
+  instead, as `NumericalRange`, are losses that remove a whole quantity: a dot-product term that underflows to exactly zero
+  (so a coupling of 1e-150 is accepted and one of 1e-200 is not; the cut is the range of `double`, not a tolerance), a handle
+  motion that is flushed to zero when divided by the largest motion of its component (1e300 next to 1e-30), and overflow.
 - Limits: `MaxMatrixContributions` (default 10^7 uncompressed outer-product entries, computed from the topology before any
   weight) bounds the assembly, not the fill of the Cholesky factor or the total memory. The solver is serial, one
   `Compute` at a time per instance. Cost is dominated by the factorization: about 0.26 s for 10k and 4.5 s for 100k
@@ -54,8 +60,10 @@ for the cotangent matrix, Meyer et al. for the lumped mass, Botsch and Sorkine f
 (a split unit square with `z = 1` at vertex 1 and `0` at vertices 0 and 3 gives `3/4` at vertex 2; harmonic
 interpolation would give a different value, so it distinguishes the operator), the `Similarity.All()` invariance on a patch and a
 grid (power-of-two scales bit for bit), reuse on one instance, translation, all-vertex rigid motion, invalid, disconnected
-and degenerate inputs, the extreme-range cases and the assembly limit. Hand mutations that fail them: inverse masses
-replaced by 1, a flipped constraint sign, handles not imposed, the underflow guard removed.
+and degenerate inputs, the extreme-range cases and the assembly limit. A dense reference solve on a small irregular
+mesh with obtuse triangles, written independently in the test, checks the weights and masses. Hand mutations that fail them: inverse masses
+replaced by 1, a non-uniform mass, a flipped constraint sign, handles not imposed, the underflow guard removed, the residual
+gate removed, the per-vertex residual normalization replaced.
 
 ## Benchmark
 

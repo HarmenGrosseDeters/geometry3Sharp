@@ -250,21 +250,6 @@ namespace geometry3Sharp.Tests
             Assert.True(result.Converged, result.Status.ToString());
             Assert.True(Math.Abs(result.Mesh.GetVertex(2).z / 1e-300 + 0.5) < 1e-12);
         }
-        [Theory]
-        [InlineData(1e-200)]
-        [InlineData(1e-150)]
-        public void TinyCotanCouplingWithLargeMotion_DoesNotReportFalseSuccess(double tiny)
-        {
-            var mesh = new DMesh3(MeshComponents.None);
-            mesh.AppendVertex(Vector3d.Zero); mesh.AppendVertex(new Vector3d(1, tiny, 0));
-            mesh.AppendVertex(new Vector3d(0, tiny, 1)); mesh.AppendTriangle(0, 1, 2);
-            double d = Math.Pow(2, 1000);
-            var result = new BiharmonicMeshDeformer(mesh).Compute(new Dictionary<int, Vector3d> {
-                [0] = new Vector3d(0, d, 0), [1] = new Vector3d(1, 3 * d, 0)
-            });
-            Assert.Equal(BiharmonicMeshDeformer.Status.NumericalRange, result.Status);
-            Assert.Null(result.Mesh);
-        }
         static DMesh3 TinyCouplingTriangle(double tiny)
         {
             var mesh = new DMesh3(MeshComponents.None);
@@ -294,16 +279,117 @@ namespace geometry3Sharp.Tests
             Assert.True(a.Mesh.GetVertex(2).Distance(b.Mesh.GetVertex(2)) < 1e-12);
         }
         [Fact]
-        public void LostHandleDifference_DoesNotReportFalseSuccess()
+        public void HandleOriginLostToRounding_IsHarmless()
         {
-            var mesh = new DMesh3(MeshComponents.None);
-            mesh.AppendVertex(Vector3d.Zero); mesh.AppendVertex(Vector3d.AxisX);
-            mesh.AppendVertex(Vector3d.AxisZ); mesh.AppendTriangle(0, 1, 2);
-            double d = Math.Pow(2, 1000);
+            // After a rotation a coordinate that should be zero is rounding noise (6e-17); moving that handle to 0.5
+            // loses the noise in target - original, which is far below the accepted accuracy.
+            var mesh = Patch(); mesh.SetVertex(0, new Vector3d(6e-17, 0, 0));
             var result = new BiharmonicMeshDeformer(mesh).Compute(new Dictionary<int, Vector3d> {
-                [0] = new Vector3d(d, 0, 0), [1] = new Vector3d(3 * d, 0, 0)
-            });
+                [0] = new Vector3d(0.5, 0, 0), [1] = mesh.GetVertex(1), [3] = mesh.GetVertex(3) });
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.Equal(new Vector3d(0.5, 0, 0), result.Mesh.GetVertex(0));
+            foreach (int v in result.Mesh.VertexIndices()) Assert.True(result.Mesh.GetVertex(v).IsFinite);
+        }
+        [Fact]
+        public void NormalizationLosingASmallHandleMotion_IsNumericalRange()
+        {
+            // 1e300 and 1e-30 in one component: dividing by the largest motion flushes the small one to zero.
+            var mesh = Patch();
+            var result = new BiharmonicMeshDeformer(mesh).Compute(new Dictionary<int, Vector3d> {
+                [0] = new Vector3d(0, 0, 1e300), [1] = mesh.GetVertex(1) + new Vector3d(0, 0, 1e-30), [3] = mesh.GetVertex(3) });
             Assert.Equal(BiharmonicMeshDeformer.Status.NumericalRange, result.Status); Assert.Null(result.Mesh);
+        }
+        [Fact]
+        public void ImpossibleTolerance_ReportsLinearSolveFailed()
+        {
+            var solver = new BiharmonicMeshDeformer(Patch()); solver.Options.RelativeTolerance = 1e-300;
+            var result = solver.Compute(Targets(solver.Mesh));
+            Assert.Equal(BiharmonicMeshDeformer.Status.LinearSolveFailed, result.Status); Assert.Null(result.Mesh);
+            Assert.True(result.Residual > 1e-300);
+        }
+        [Fact]
+        public void Stationarity_IsNormalizedPerVertexNotByTheLargestComponent()
+        {
+            // Component A (vertices 0 fixed, 1 free) has unit weights; component B (2 fixed, 3 free) has weights 1e6 and is at
+            // its minimum (u = 1 everywhere). A is corrupted: u1 = 0.5 instead of 0. A global normalization by B's
+            // contributions would hide that (ratio 1e-12).
+            var rows = new Dictionary<int, double>[4];
+            for (int i = 0; i < 4; ++i) rows[i] = new Dictionary<int, double>();
+            rows[0][0] = 1; rows[0][1] = -1; rows[1][0] = -1; rows[1][1] = 1;
+            rows[2][2] = 1e6; rows[2][3] = -1e6; rows[3][2] = -1e6; rows[3][3] = 1e6;
+            var mass = new double[] { 1, 1, 1, 1 }; var free = new[] { -1, 0, -1, 1 };
+            var u = new[] { Vector3d.Zero, new Vector3d(0.5, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 0, 0) };
+            Assert.True(BiharmonicMeshDeformer.Stationarity(rows, mass, free, u) > 0.1);
+            u[1] = Vector3d.Zero;
+            Assert.Equal(0, BiharmonicMeshDeformer.Stationarity(rows, mass, free, u));
+        }
+        [Fact]
+        public void IrregularObtuseMesh_MatchesDenseReferenceSolve()
+        {
+            var p = new[] { new Vector3d(0, 0, 0), new Vector3d(2, 0, 0.1), new Vector3d(3, 1.5, 0), new Vector3d(1, 2.5, 0.3),
+                new Vector3d(-1, 1.2, 0.2), new Vector3d(1.1, 0.9, 0.5) };
+            var mesh = new DMesh3(MeshComponents.None); foreach (var v in p) mesh.AppendVertex(v);
+            var tris = new[] { new Index3i(0, 1, 5), new Index3i(1, 2, 5), new Index3i(2, 3, 5), new Index3i(3, 4, 5), new Index3i(4, 0, 5) };
+            foreach (var t in tris) Assert.True(mesh.AppendTriangle(t) >= 0);
+            var handles = new Dictionary<int, Vector3d> { [0] = p[0] + new Vector3d(0.3, -0.2, 0.5), [2] = p[2], [3] = p[3] + new Vector3d(0, 0.4, -0.6) };
+            var result = new BiharmonicMeshDeformer(mesh).Compute(handles);
+            Assert.True(result.Converged, result.Status.ToString());
+            // Independent reference: dense L (cotangent), diagonal barycentric M, Q = L^T M^-1 L, Gaussian elimination.
+            int n = 6; var L = new double[n, n]; var m = new double[n];
+            foreach (var t in tris) {
+                int[] v = { t.a, t.b, t.c }; double twiceArea = (p[v[1]] - p[v[0]]).Cross(p[v[2]] - p[v[0]]).Length;
+                for (int k = 0; k < 3; ++k) {
+                    int o = v[k], i = v[(k + 1) % 3], j = v[(k + 2) % 3];
+                    double w = 0.5 * (p[i] - p[o]).Dot(p[j] - p[o]) / twiceArea;
+                    L[i, i] += w; L[j, j] += w; L[i, j] -= w; L[j, i] -= w; m[o] += twiceArea / 6;
+                }
+            }
+            var Q = new double[n, n];
+            for (int r = 0; r < n; ++r) for (int a = 0; a < n; ++a) for (int b = 0; b < n; ++b) Q[a, b] += L[r, a] * L[r, b] / m[r];
+            int[] free = { 1, 4, 5 }; int[] fix = { 0, 2, 3 };
+            for (int axis = 0; axis < 3; ++axis) {
+                var A = new double[3, 4];
+                for (int a = 0; a < 3; ++a) {
+                    for (int b = 0; b < 3; ++b) A[a, b] = Q[free[a], free[b]];
+                    double rhs = 0; foreach (int c in fix) rhs -= Q[free[a], c] * (handles[c][axis] - p[c][axis]);
+                    A[a, 3] = rhs;
+                }
+                for (int c = 0; c < 3; ++c) {
+                    for (int r = c + 1; r < 3; ++r) { double f = A[r, c] / A[c, c]; for (int k = c; k < 4; ++k) A[r, k] -= f * A[c, k]; }
+                }
+                var x = new double[3];
+                for (int r = 2; r >= 0; --r) { double sum = A[r, 3]; for (int k = r + 1; k < 3; ++k) sum -= A[r, k] * x[k]; x[r] = sum / A[r, r]; }
+                for (int a = 0; a < 3; ++a)
+                    Assert.True(Math.Abs(result.Mesh.GetVertex(free[a])[axis] - (p[free[a]][axis] + x[a])) < 1e-10, $"axis {axis} vertex {free[a]}");
+            }
+        }
+        [Fact]
+        public void NonCompactIds_AreSupported()
+        {
+            var mesh = Patch(); int gone = mesh.AppendVertex(new Vector3d(5, 5, 5)); int a = mesh.AppendVertex(new Vector3d(2, 0, 0));
+            int b = mesh.AppendVertex(new Vector3d(2, 1, 0)); mesh.AppendTriangle(1, a, b); mesh.AppendTriangle(1, b, 2);
+            Assert.Equal(MeshResult.Ok, mesh.RemoveVertex(gone)); Assert.False(mesh.IsVertex(gone));
+            var move = new Vector3d(1, 2, 3);
+            var handles = new Dictionary<int, Vector3d>();
+            foreach (int v in new[] { 0, 3, a }) handles[v] = mesh.GetVertex(v) + move;
+            var result = new BiharmonicMeshDeformer(mesh).Compute(handles);
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.Equal(mesh.VertexCount, result.Mesh.VertexCount); Assert.False(result.Mesh.IsVertex(gone));
+            foreach (int v in mesh.VertexIndices()) Assert.True(result.Mesh.GetVertex(v).Distance(mesh.GetVertex(v) + move) < 1e-10, "vertex " + v);
+        }
+        [Fact]
+        public void TwoComponentsOfDifferentScaleAreSolvedIndependently()
+        {
+            var big = Patch(); foreach (int v in big.VertexIndices()) big.SetVertex(v, 1000 * big.GetVertex(v) + new Vector3d(50, 0, 0));
+            var mesh = Patch(); int off = mesh.VertexCount;
+            foreach (int v in big.VertexIndices()) mesh.AppendVertex(big.GetVertex(v));
+            mesh.AppendTriangle(off, off + 1, off + 2); mesh.AppendTriangle(off, off + 2, off + 3);
+            var handles = Targets(mesh);
+            foreach (var h in Targets(big)) handles[h.Key + off] = h.Value;
+            var result = new BiharmonicMeshDeformer(mesh).Compute(handles);
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.True(result.Mesh.GetVertex(2).Distance(new Vector3d(1, 1, 0.75)) < 1e-12);
+            Assert.True(result.Mesh.GetVertex(off + 2).Distance(big.GetVertex(2) + new Vector3d(0, 0, 0.75)) < 1e-9);
         }
         [Fact]
         public void FullyConstrained_ExtremeFiniteTargets_AreCopiedExactly()
