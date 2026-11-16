@@ -703,6 +703,56 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(result.Energy - expected) <= 1e-9 * expected, result.Energy.ToString("R") + " vs " + expected.ToString("R"));
         }
 
+        // The safeguard of the Anderson step: a candidate whose local step leaves the numerical range (energy overflow,
+        // non-finite coordinate) is rejected like one that raises the energy: the plain step is taken, the history is
+        // cleared, and neither the status nor the result is affected. Public input cannot make the extrapolation
+        // overshoot on demand (the overflow window of the energy is a few ulps wide and the extrapolation is damped),
+        // so the test corrupts the candidate through the internal CandidateProbe seam.
+        [Theory]
+        [InlineData(1e160)]          // finite candidate, energy overflows: LocalStep fails with NumericalRange
+        [InlineData(double.NaN)]     // non-finite candidate coordinate: LocalStep fails with NonFiniteResult
+        [InlineData(7.0)]            // finite and in range, but the energy rises
+        public void CorruptedAndersonCandidate_IsRejectedWithoutChangingTheResult(double corruption)
+        {
+            DMesh3 mesh = Moved(Cylinder(16, 7), Place(Frame, FrameShift));
+            Vector3d center = Frame * new Vector3d(0, 0, 1.8) + FrameShift;
+            var handles = RingHandles(mesh, 16, 7, BendMotion(35, center), p => p);
+            var reference = new ArapMeshDeformer(mesh).Compute(handles);
+            AssertSuccessPath(mesh, reference, handles);
+            const int corruptAt = 4;
+            Assert.True(reference.Iterations > corruptAt + 2, "the bend must still iterate after the corrupted step: " + reference.Iterations);
+
+            double previous = double.PositiveInfinity;
+            for (int budget = 1; budget <= reference.Iterations + 2; ++budget) {
+                int fired = 0, historyBefore = -1, historyAfter = -1;
+                var d = new ArapMeshDeformer(mesh);
+                d.Options.MaxIterations = budget;
+                d.CandidateProbe = (iter, history, candidate) => {
+                    if (iter == corruptAt) { ++fired; historyBefore = history; candidate[0] = corruption; }
+                    else if (iter == corruptAt + 1) historyAfter = history;
+                };
+                var r = d.Compute(handles);
+                Assert.NotNull(r.Mesh);
+                Assert.True(r.Mesh.CheckValidity());
+                foreach (int v in mesh.VertexIndices()) Assert.True(r.Mesh.GetVertex(v).IsFinite);
+                foreach (var h in handles) Assert.Equal(h.Value, r.Mesh.GetVertex(h.Key));
+                Assert.True(MathUtil.IsFinite(r.Energy) && r.Energy >= 0);
+                Assert.True(r.Energy <= previous, "budget " + budget + ": " + r.Energy.ToString("R") + " after " + previous.ToString("R"));
+                previous = r.Energy;
+                if (budget > corruptAt) {
+                    Assert.Equal(1, fired);
+                    // A rejection clears the history: the next candidate is built from the one difference of its own step.
+                    Assert.True(historyBefore > 1, "the rejected candidate used a history of " + historyBefore);
+                    if (budget > corruptAt + 1) Assert.Equal(1, historyAfter);
+                }
+                if (budget == reference.Iterations + 2) {
+                    // The rejected step costs at most a few iterations; the iteration still reaches the same minimum.
+                    Assert.Equal(ArapMeshDeformer.Status.Success, r.Status);
+                    Assert.True(Math.Abs(r.Energy - reference.Energy) <= 1e-6 * reference.Energy + 1e-12, r.Energy.ToString("R") + " vs " + reference.Energy.ToString("R"));
+                }
+            }
+        }
+
         [Fact]
         public void EnergyOverflowOnFiniteInput_IsNumericalRange()
         {
