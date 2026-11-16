@@ -265,6 +265,32 @@ namespace geometry3Sharp.Tests
             Assert.True(fastPath > 1000 && scaleBPath > 1000, $"paths {fastPath} / {scaleBPath}");
         }
 
+        // the documented scaling: p scales by 2^k exactly while the scaled direction and p stay normal; in the subnormal
+        // range it does not (the ray of scaled inputs is another ray)
+        [Fact]
+        public void SecondPoint_ScalesExactly_OutsideTheSubnormalRange()
+        {
+            Func<Vector3d, int, Vector3d> sc = (v, k) => new Vector3d(ExactPoint3.ScaleB(v.x, k), ExactPoint3.ScaleB(v.y, k), ExactPoint3.ScaleB(v.z, k));
+            Func<Vector3d, Vector3d, bool> same = (a, b) => BitConverter.DoubleToInt64Bits(a.x) == BitConverter.DoubleToInt64Bits(b.x)
+                && BitConverter.DoubleToInt64Bits(a.y) == BitConverter.DoubleToInt64Bits(b.y) && BitConverter.DoubleToInt64Bits(a.z) == BitConverter.DoubleToInt64Bits(b.z);
+            var rnd = new Random(37);
+            Func<int, double> val = (k) => (rnd.NextDouble() * 2 - 1) * Math.Pow(2, k);
+            for (int i = 0; i < 5000; ++i) {
+                int ko = rnd.Next(-800, 800), kd = ko - rnd.Next(-40, 40), k = rnd.Next(-150, 150);
+                var o = new Vector3d(val(ko), val(ko - rnd.Next(20)), val(ko - rnd.Next(20)));
+                var d = new Vector3d(val(kd), val(kd - rnd.Next(20)), val(kd - rnd.Next(20)));
+                Assert.True(same(sc(ExactRayTriangle.SecondPoint(o, d), k), ExactRayTriangle.SecondPoint(sc(o, k), sc(d, k))), $"set {i}");
+            }
+            int differ = 0;
+            for (int i = 0; i < 2000; ++i) {
+                var o = new Vector3d(val(-1060), val(-1060), val(-1060));
+                var d = new Vector3d(val(-1060), val(-1060), val(-1060)) - o;
+                if (!same(sc(ExactRayTriangle.SecondPoint(o, d), 1000), ExactRayTriangle.SecondPoint(sc(o, 1000), sc(d, 1000))))
+                    differ++;
+            }
+            Assert.True(differ > 0, "no subnormal set whose second point is not scale invariant");
+        }
+
         // ---- invariance ----
 
         /// <summary> a height field over [0,n]^2 with dyadic heights, two triangles per unit cell, alternating diagonals </summary>
