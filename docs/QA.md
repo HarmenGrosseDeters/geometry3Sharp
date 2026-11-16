@@ -391,7 +391,9 @@ the module outside the range, or "not guaranteed".
   Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; invariant guards are the
   exception, kept on purpose: the two in `ExactMeshBoolean.cs` (deleting them needs the exact-code review and the 6 h
   Boolean shards for no gain) and five in `DualContouring.cs` (a hot, subtle file where deleting a guard would turn a
-  broken invariant into a silent wrong result). An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
+  broken invariant into a silent wrong result), and, from #959 (owner 2026-11-16), the walk and insertion guards of `Delaunay3.cs`
+  (point location and the star-shape growth, which the exact predicates make unreachable) and the requeue and lemma-check
+  branches of the round carving in `MeshAlphaWrap.cs`, each with its reason in the list. An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
   text whose nearest previous non-blank lines are `after` (a list, nearest first), unique in the file, so a new line of
   the same text elsewhere cannot take its place and edits elsewhere do not matter; it excuses that one line only;
   `approved_in` is the PR (`#123`) whose review approved the entry. The list is checked on every run, not only for

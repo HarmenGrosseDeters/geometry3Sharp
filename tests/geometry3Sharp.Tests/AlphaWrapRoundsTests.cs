@@ -106,6 +106,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(hash, AlphaWrapManifoldStepTests.Hash(w.Result));
         }
 
+        // the round marks are an int counter that restarts at 1 after int.MaxValue (the arrays are cleared): a wrap in the first
+        // round gives the wrap of the unwrapped counter, bit for bit
+        [Fact]
+        public void Rounds_MarkCounterWrapAround_ChangesNothing()
+        {
+            var plain = new MeshAlphaWrap(Input()) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = 2 };
+            Assert.True(plain.Compute(), plain.Error);
+            var wrapped = new MeshAlphaWrap(Input()) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = 2 };
+            var field = typeof(MeshAlphaWrap).GetField("roundMarkValue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(field);
+            field.SetValue(wrapped, int.MaxValue - 1);
+            Assert.True(wrapped.Compute(), wrapped.Error);
+            Assert.True(plain.Counts["rounds"] > 1);
+            Assert.True((int)field.GetValue(wrapped) < int.MaxValue / 2, "the counter restarted");
+            Assert.Equal(Fingerprint(plain), Fingerprint(wrapped));
+        }
+
         // Compute twice on one instance: the same result
         [Fact]
         public void Rounds_Reuse_SameResult()
