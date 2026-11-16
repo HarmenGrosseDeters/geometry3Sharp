@@ -19,9 +19,6 @@ namespace geometry3Sharp.Tests
         /// </summary>
         public const int AnisotropicLimit = 46;
 
-        /// <summary> The exponents of A1 (not 0): the ends of the range in both directions. The PR tier runs these. </summary>
-        public static readonly int[] AnisotropicEnds = { -AnisotropicLimit, AnisotropicLimit };
-
         /// <summary> All exponents of A1 (not 0): the nightly sweep. </summary>
         public static IEnumerable<int> AnisotropicAll() =>
             Enumerable.Range(-AnisotropicLimit, 2 * AnisotropicLimit + 1).Where(e => e != 0);
@@ -94,10 +91,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// The exponents of P1: 2^-500 .. 2^-1000, the range of the #719 span (a coordinate that is 0 or tiny next to coordinates of 16).
-        /// The PR tier runs the two ends; the nightly sweep every 25th exponent.
+        /// The PR tier runs the two ends (literal InlineData); the nightly sweep every 25th exponent.
         /// </summary>
-        public static readonly int[] TinyEnds = { -500, -1000 };
-
         public static IEnumerable<int> TinyAll() => Enumerable.Range(0, 21).Select(i => -500 - 25 * i);
     }
 }

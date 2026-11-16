@@ -63,7 +63,7 @@ static class Relations
             bool ok = r.Apply();
             return (r.AlphaWrapTriangles, r.Mesh.TriangleCount, ok ? MeshRobustRepair.NotCleanReason(r.Mesh) : "Apply() false: " + r.ResultReason);
         };
-        foreach (int e in MetamorphicRelations.AnisotropicEnds) {
+        foreach (int e in new[] { -MetamorphicRelations.AnisotropicLimit, MetamorphicRelations.AnisotropicLimit }) {
             int ee = e;
             string v = Try(() => {
                 var ref0 = repairM(Mesh(unit, t)); var fl = repairM(MetamorphicRelations.Stretch(Mesh(unit, t), 0, ee));
@@ -86,7 +86,7 @@ static class Relations
             return (u.Result.TriangleCount, MeshMeasurements.AreaT(u.Result, u.Result.TriangleIndices()));
         };
         var unitU = Try(() => { var r = union(sphere); return r.tris + ":" + r.area.ToString("R"); });
-        foreach (int e in MetamorphicRelations.TinyEnds) {
+        foreach (int e in new[] { -500, -1000 }) {
             int ee = e;
             string v = Try(() => {
                 var u0 = union(sphere);
@@ -103,7 +103,7 @@ static class Relations
         DMesh3 s0 = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
         var rnd = new Random(7);
         var pts = Enumerable.Range(0, 200).Select(i => new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1).Normalized * (i % 2 == 0 ? 0.4 : 1.8)).ToList();
-        foreach (int e in MetamorphicRelations.TinyEnds) {
+        foreach (int e in new[] { -500, -1000 }) {
             int ee = e;
             string w = Try(() => {
                 var tree = new DMeshAABBTree3(s0, true); var treeP = new DMeshAABBTree3(MetamorphicRelations.SmallestCoordinate(s0, ee), true);

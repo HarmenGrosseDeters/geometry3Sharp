@@ -136,8 +136,10 @@ namespace geometry3Sharp.Tests
             foreach (Ops op in BooleanOracle.AllOps) {
                 DMesh3 r = BooleanOracle.Run(a, b, op, out string e1), rf = BooleanOracle.Run(fa, fb, op, out string e2);
                 if (e1 != "" || e2 != "") return $"{family} {op} axis {axis} 2^{e}: {e1}{e2}";
-                // validity: closed where the unflattened result is closed (an open reference is no claim)
+                // validity: closed and clean where the unflattened result is (an unclean reference is no claim)
                 if (r.IsClosed() && !rf.IsClosed()) return $"{family} {op} axis {axis} 2^{e}: the result is not closed, the unflattened one is";
+                if (BooleanOracle.CleanReason(r) == "" && BooleanOracle.CleanReason(rf) != "")
+                    return $"{family} {op} axis {axis} 2^{e}: not clean ({BooleanOracle.CleanReason(rf)}), the unflattened one is";
                 string c = MetamorphicRelations.CountBound($"{family} {op} axis {axis} 2^{e} triangles", r.TriangleCount, rf.TriangleCount, 0);
                 if (c != "") return c;
             }
@@ -159,17 +161,21 @@ namespace geometry3Sharp.Tests
         [Theory, MemberData(nameof(BooleanFamilyNearBoundary))]
         public void A1_ExactBoolean_CostAndValidityDoNotDependOnTheFlattening(string family, int e) => A1_Boolean(family, 0, e);
 
-        /// <summary> the families at the end of the range, for the pin </summary>
+        /// <summary> the families at both ends of the range, for the pin </summary>
         public static IEnumerable<object[]> BooleanFamilyAtEnd() =>
-            BooleanFamilies().Select(f => new object[] { f[0], -MetamorphicRelations.AnisotropicLimit });
+            BooleanFamilies().SelectMany(f => new[] { -MetamorphicRelations.AnisotropicLimit, MetamorphicRelations.AnisotropicLimit }.Select(e => new object[] { f[0], e }));
 
         /// <summary>
-        /// PR tier: the known defect #985 at the ends of the range, strict per row: each family must still fail at 2^-46 (flattened).
-        /// A fix makes this fail; then remove the pin and the census count (BooleanKnownDefectRows).
+        /// PR tier: the known defect #985 at the ends of the range, strict per row: each family must still show the defect (a union whose
+        /// result is open where the unflattened one is closed) at 2^-46 and 2^+46, flattened along x. Any other failure is not the pin. A fix
+        /// makes this fail; then remove the pin and update the census count (BooleanKnownDefectRows).
         /// </summary>
         [Theory, MemberData(nameof(BooleanFamilyAtEnd))]
-        public void A1_ExactBoolean_KnownDefect985_EndsStillViolate(string family, int e) =>
-            Assert.True(BooleanViolation(family, 0, e) != "", $"{family} at 2^{e} passes now: #985 is fixed, remove this pin and update BooleanKnownDefectRows");
+        public void A1_ExactBoolean_KnownDefect985_EndsStillViolate(string family, int e)
+        {
+            string v = BooleanViolation(family, 0, e);
+            Assert.True(v.Contains("the result is not closed"), $"{family} at 2^{e}: #985 does not show now (\"{v}\"): remove this pin and update BooleanKnownDefectRows");
+        }
 
         public static IEnumerable<object[]> BooleanFamilyAxisExponents() =>
             BooleanFamilies().SelectMany(f => Enumerable.Range(0, 3).SelectMany(axis => MetamorphicRelations.AnisotropicAll().Select(e => new object[] { f[0], axis, e })));
@@ -178,9 +184,10 @@ namespace geometry3Sharp.Tests
         public void A1_ExactBoolean_FullSweep(string family, int axis, int e) => A1_Boolean(family, axis, e);
 
         /// <summary>
-        /// Nightly: the whole sweep counted (strict in aggregate): the rows at or above the known defect that violate the relation must
-        /// be exactly BooleanKnownDefectRows (#985). A row below the boundary is asserted by FullSweep. A change of the count is a change of
-        /// the defect (a fix, or a new violation) and fails the test.
+        /// Nightly (Category=Nightly: the sweep is 1656 rows of 3 operations each, about 7 s on net10, so it is not a PR check): the rows at
+        /// or above the known defect that violate the relation must number exactly BooleanKnownDefectRows (#985). This is a count, not the
+        /// set of rows: a fix of one row together with a new violation in another keeps the count. The per-row pins in the PR tier and the
+        /// known-defect ends of FullSweep narrow that gap. A row below the boundary is asserted by FullSweep.
         /// </summary>
         [Fact, Trait("Category", "Nightly")]
         public void A1_ExactBoolean_KnownDefect_Census()
@@ -234,11 +241,13 @@ namespace geometry3Sharp.Tests
         {
             var input = new Mesh2Input {
                 X = new[] { 0, scaleX, scaleX, scaleX * 0.5, 0 }, Y = new[] { 0, 0, 0.6, 1, 1.0 },
-                MinAngleDeg = 20, ConstrainedQuality = true, SteinerLimit = 20000, SnapTolerance = 0,
+                MinAngleDeg = 20, ConstrainedQuality = true, SteinerLimit = PentagonSteinerLimit, SnapTolerance = 0,
             };
             input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
             return input;
         }
+
+        const int PentagonSteinerLimit = 20000;
 
         /// <summary>
         /// Known defect #986: the mesher returns Empty (0 triangles) for a valid pentagon at an aspect ratio of 2^41 or more, in both
@@ -258,9 +267,15 @@ namespace geometry3Sharp.Tests
             // rows of the known defect #986 are pinned by A1_QualityMesh2_KnownDefect986_RowsStillEmpty
             if (Math.Abs(e) >= MesherKnownDefectFrom) return;
             Assert.True(b.Status == Mesh2Status.Success, $"2^{e}: {b.Status} {b.FailureKind}");
-            if (b.SteinerLimitReached) return;
             long aspect = (long)Math.Pow(2, Math.Abs(e));
-            Assert.Equal("", MetamorphicRelations.CountBound($"2^{e} vertices", a.VertexCount * aspect, b.VertexCount, Floor));
+            long predicted = a.VertexCount * aspect;
+            if (b.SteinerLimitReached) {
+                // the documented cap of the input: legitimate only where the size law itself predicts more points than the limit
+                Assert.True(predicted * (long)MetamorphicRelations.CountFactor > PentagonSteinerLimit,
+                    $"2^{e}: the Steiner limit was reached, but the size law predicts {predicted} points");
+                return;
+            }
+            Assert.Equal("", MetamorphicRelations.CountBound($"2^{e} vertices", predicted, b.VertexCount, Floor));
         }
 
         [Theory]
@@ -295,6 +310,9 @@ namespace geometry3Sharp.Tests
         }
 
         // ---------------------------------------------------------------- P1: the classifiers
+        // The winding-number and IsInside samples lie at radius 0.4 and 1.8 of the unit sphere, far from the perturbed vertex: they check
+        // that the classification is independent of the span, a regression net. They do not detect the #719 defect, which is in the open-mesh
+        // Antipodal union below (validated on the #719 parent, see benchmarks/MetamorphicFalsification/results/relations.txt).
 
         static DMesh3 OpenSphere(Vector3d c, double r, int ev, Vector3d dir, double cut)
         {
