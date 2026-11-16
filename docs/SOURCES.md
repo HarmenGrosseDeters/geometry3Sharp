@@ -598,6 +598,18 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
 
+### Parallel edge groups, union-find and result builder of the boolean (`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`)
+
+Implemented from the papers; no code read. Levers 2 and 4 of [perf/BOOLEAN_THREAD_SCALING.md](perf/BOOLEAN_THREAD_SCALING.md): the
+result is the unique stable order / the connected components / the mesh that the serial code gives, whatever the schedule.
+
+| Part | Source |
+|---|---|
+| Stable parallel radix partition (a histogram per block, the offsets of every (digit, block) pair in digit-major, block-minor order, the scatter of each block to its own offsets), then cache-sized buckets sorted on their own | M. Zagha, G. E. Blelloch, *Radix sort for vector multiprocessors*, Supercomputing 1991; N. Satish, M. Harris, M. Garland, *Designing efficient sorting algorithms for manycore GPUs*, IPDPS 2009; O. Polychroniou, K. A. Ross, *A comprehensive study of main-memory partitioning and its application to large-scale comparison- and radix-sort*, SIGMOD 2014 (the partition then the cache-resident sorts); the bucket as a monotone scaling of the key's high part is an own choice |
+| Union-find with the larger root linked under the smaller one by compare-and-swap (the classes and their roots, the smallest members, do not depend on the order of the unions); path halving | R. J. Anderson, H. Woll, *Wait-free parallel algorithms for the union-find problem*, STOC 1991 (linking by index); S. V. Jayanti, R. E. Tarjan, *A randomized concurrent algorithm for disjoint set union*, PODC 2016; R. E. Tarjan, J. van Leeuwen, *Worst-case analysis of set union algorithms*, J. ACM 31(2), 1984 (path halving) |
+| Numbering by prefix sums over blocks (the vertices as the classes in the order of their smallest slots; the edges in the order of their first slots) | G. E. Blelloch, *Prefix sums and their applications*, CMU-CS-90-190, 1990 |
+| The mesh built in one go with the ids that appending gives (the edge ids by first appearance, the edges at a vertex in the order of the inserts, counts of the corners) | own derivation from `DMesh3.AppendVertex` / `AppendTriangle`; checked against the appended mesh in `ExactBooleanParallelAssemblyTests` |
+
 ## Text number parsing across frameworks (`ExactDecimal`, `MeshIOUtil.ParseDouble`; docs/design/DETERMINISM.md)
 
 | Method | Source |

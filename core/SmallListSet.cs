@@ -453,6 +453,63 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Fills an empty set with the lists 0 .. count - 1, as if the values begin[i] .. begin[i + 1] - 1 of values had been Insert-ed
+        /// into list i one after the other (a list without values stays unallocated): the same lists in the same order, also those
+        /// that spill into the linked store (their values after the eighth in reverse, as the inserts leave them). The blocks and
+        /// the nodes are laid out in the order of the lists, each list written independently: in parallel over blocks of lists. Unused slots of a block are left 0 (the appends leave them 0 as well).
+        /// </summary>
+        internal void BuildFrom(int count, int[] begin, int[] values)
+        {
+            if (list_heads.size != 0 || block_store.size != 0 || linked_store.size != 0 || free_blocks.size != 0 || free_head_ptr != Null)
+                throw new InvalidOperationException("SmallListSet.BuildFrom: the set is not empty");
+            // the block of a list with values, and the first node of a list with more than BLOCKSIZE values (prefix sums over the lists)
+            int[] block = new int[count + 1], node = new int[count + 1];
+            for (int i = 0; i < count; ++i) {
+                int c = begin[i + 1] - begin[i];
+                block[i + 1] = block[i] + ((c > 0) ? 1 : 0);
+                node[i + 1] = node[i] + ((c > BLOCKSIZE) ? c - BLOCKSIZE : 0);
+            }
+            int[] heads = new int[count], blocks = new int[block[count] * (BLOCKSIZE + 2)], nodes = new int[2 * node[count]];
+            int parts = (count + 4095) / 4096;
+            ExactMeshEdgeGroups.ForBlocks(parts, [MethodImpl(JitHints.Optimize)] (int b) => FillLists(heads, blocks, nodes, block, node, begin, values, b * 4096, Math.Min(count, (b + 1) * 4096)));
+            list_heads.ResizeLikePushBack(count);
+            list_heads.SetFirst(heads, count);
+            block_store.ResizeLikePushBack(blocks.Length);
+            block_store.SetFirst(blocks, blocks.Length);
+            linked_store.ResizeLikePushBack(nodes.Length);
+            linked_store.SetFirst(nodes, nodes.Length);
+            allocated_count = block[count];
+        }
+
+        // the lists lo .. hi - 1 of BuildFrom, each into its own part of the arrays
+        [MethodImpl(JitHints.Optimize)]
+        static void FillLists(int[] heads, int[] blocks, int[] nodes, int[] block, int[] node, int[] begin, int[] values, int lo, int hi)
+        {
+            for (int i = lo; i < hi; ++i) {
+                int c = begin[i + 1] - begin[i];
+                if (c == 0) {
+                    heads[i] = Null;
+                    continue;
+                }
+                int ptr = block[i] * (BLOCKSIZE + 2);
+                heads[i] = ptr;
+                blocks[ptr] = c;
+                int inBlock = Math.Min(c, BLOCKSIZE);
+                for (int k = 0; k < inBlock; ++k)
+                    blocks[ptr + 1 + k] = values[begin[i] + k];
+                int head = Null;
+                // (the values past the block: each pushed on the head of the chain, so the last one comes first)
+                for (int k = BLOCKSIZE; k < c; ++k) {
+                    int at = 2 * (node[i] + k - BLOCKSIZE);
+                    nodes[at] = values[begin[i] + k];
+                    nodes[at + 1] = head;
+                    head = at;
+                }
+                blocks[ptr + BLOCK_LIST_OFFSET] = head;
+            }
+        }
+
         // grab a block from the free list, or allocate a new one
         [MethodImpl(JitHints.Optimize)]
         protected int allocate_block()
