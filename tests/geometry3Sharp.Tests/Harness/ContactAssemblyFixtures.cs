@@ -246,7 +246,7 @@ namespace geometry3Sharp.Tests
             return asm;
         }
 
-        /// <summary> a thin plate standing on a base plate: its bottom face (8 x 1 units... 32 x 8 lattice) on the base's top face, inside it, or overhanging its edge (partial overlap) </summary>
+        /// <summary> a thin plate standing on a base plate: its bottom face (32 x 8 lattice units) on the base's top face, inside it, or overhanging its edge (partial overlap) </summary>
         public static ContactAssembly PlateOnPlate(bool overhang, Tess baseTess, Tess standing)
         {
             var asm = new ContactAssembly() { Name = "plate-on-plate-" + (overhang ? "overhang" : "inside") };

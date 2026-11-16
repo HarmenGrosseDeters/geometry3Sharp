@@ -156,6 +156,8 @@ namespace geometry3Sharp.Tests
             return r;
         }
 
+        // (ExactPoint3 is canonical: equal points have equal components; ToString() rounds to 8 decimals and is not a key)
+        static string ExactKey(ExactPoint3 p) => p.X + "," + p.Y + "," + p.Z + "," + p.W;
         static string Key(P2 p) => ContactTruth.Key(p);
         static string Key(P2 a, P2 b) => ContactTruth.Key(a, b);
 
@@ -290,7 +292,7 @@ namespace geometry3Sharp.Tests
                 var s = sides[i];
                 var fromImprint = new HashSet<string>();
                 foreach (long k in s.Imprint.CurveEdges) {
-                    string a = s.ExactOf((int)(k >> 32)).ToString(), b = s.ExactOf((int)(k & 0xFFFFFFFF)).ToString();
+                    string a = ExactKey(s.ExactOf((int)(k >> 32))), b = ExactKey(s.ExactOf((int)(k & 0xFFFFFFFF)));
                     fromImprint.Add(string.CompareOrdinal(a, b) < 0 ? a + "|" + b : b + "|" + a);
                 }
                 var meshes = new List<DMesh3> { asm.Parts[i].Mesh };
@@ -300,7 +302,7 @@ namespace geometry3Sharp.Tests
                 arr.Compute();
                 var fromArrangement = new HashSet<string>();
                 foreach (long k in arr.ConstraintEdges) {
-                    string a = arr.ToInputExact(arr.Exact((int)(k >> 32))).ToString(), b = arr.ToInputExact(arr.Exact((int)(k & 0xFFFFFFFF))).ToString();
+                    string a = ExactKey(arr.ToInputExact(arr.Exact((int)(k >> 32)))), b = ExactKey(arr.ToInputExact(arr.Exact((int)(k & 0xFFFFFFFF))));
                     fromArrangement.Add(string.CompareOrdinal(a, b) < 0 ? a + "|" + b : b + "|" + a);
                 }
                 Assert.NotEmpty(fromArrangement);
@@ -335,9 +337,9 @@ namespace geometry3Sharp.Tests
         public void RoundedOnACoarseGrid_KeepsTheCurvesOrCountsTheirContraction(string name, string frame)
         {
             var asm = ContactAssemblyFixtures.ByName(name);
-            Similarity Coarse = frame == "coarse" ? ExactImprintAssemblyTests.Coarse : Coarser;
+            Similarity grid = frame == "coarse" ? Coarse : Coarser;
             var moved = new ContactAssembly() { Name = name, Contacts = asm.Contacts };
-            for (int i = 0; i < asm.Parts.Count; ++i) moved.Parts.Add(new Part() { Index = i, Name = asm.Parts[i].Name, Mesh = Invariance.Transformed(asm.Parts[i].Mesh, Coarse) });
+            for (int i = 0; i < asm.Parts.Count; ++i) moved.Parts.Add(new Part() { Index = i, Name = asm.Parts[i].Name, Mesh = Invariance.Transformed(asm.Parts[i].Mesh, grid) });
             var exact = Sides(moved, rounding: false);
             var rounded = Sides(moved, rounding: true);
             for (int i = 0; i < rounded.Length; ++i) {
@@ -393,6 +395,7 @@ namespace geometry3Sharp.Tests
             var positions = new List<Dictionary<string, Vector3d>>();
             for (int i = 0; i < asm.Parts.Count; ++i) {
                 var r = rounded[i].Imprint;
+                // (a fixture expectation, not a guarantee: Success with RoundingClean false is allowed; these inputs are tame)
                 Assert.True(r.RoundingClean, asm.Parts[i].Name + ": rounding not clean");
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Result));
                 ExactMeshImprintTests.AssertKeepsTarget(asm.Parts[i].Mesh, r);
@@ -411,7 +414,7 @@ namespace geometry3Sharp.Tests
                     if (r.ResultExactVertices[v].W.IsZero) continue;
                     Vector3d pos = r.Result.GetVertex(v);
                     Assert.True(pos.Distance(r.ResultExactVertices[v].ApproxVector3d()) <= bound, "vertex " + v + " moved by the rounding");
-                    map[r.ResultExactVertices[v].ToString()] = pos;
+                    map[ExactKey(r.ResultExactVertices[v])] = pos;
                 }
                 positions.Add(map);
                 output.WriteLine(asm.Parts[i].Name + ": rounding edits " + r.Counts["rounding_edits"] + ", contracted " + contracted);
@@ -471,6 +474,7 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < reference.Length; ++i) {
                     Assert.True(SameMesh(reference[i].Imprint.Result, serial[i].Imprint.Result));
                     Assert.Equal(reference[i].Imprint.CurveEdges.OrderBy(x => x), serial[i].Imprint.CurveEdges.OrderBy(x => x));
+                    Assert.Equal(reference[i].Imprint.SourceTriangle, serial[i].Imprint.SourceTriangle);
                 }
             } finally {
                 gParallel.SerialOnThisThread = false;
@@ -505,6 +509,10 @@ namespace geometry3Sharp.Tests
                     foreach (string key in new[] { "pieces", "new_vertices", "curve_edges", "split_triangles", "points" })
                         Assert.Equal(a[i].Imprint.Counts[key], b[i].Imprint.Counts[key]);
                     Assert.Equal(a[i].Imprint.Result.TriangleCount, b[i].Imprint.Result.TriangleCount);
+                    // (the target's own vertices are the same bit for bit, scaled, for the powers of two)
+                    if (s.IsExact)
+                        foreach (int v in asm.Parts[i].Mesh.VertexIndices())
+                            Assert.Equal(s.Apply(a[i].Imprint.Result.GetVertex(v)), b[i].Imprint.Result.GetVertex(v));
                 }
                 else
                     Assert.True(b[i].Imprint.CurveEdges.Count > 0);
