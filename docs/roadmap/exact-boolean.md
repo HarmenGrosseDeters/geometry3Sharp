@@ -749,6 +749,17 @@ discards; an older probe found about a third of the 1-thread time there.
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.
 
+**Robustness round after 3.0 (owner 2026-11-16).** Before more boolean bug fixes, collect what the running campaigns find:
+the ABC chained-booleans runs, the thingi-contact runs (#993, #994) and the metamorphic findings (#985). Then the owner
+runs a long local campaign on the boolean:
+- CsCheck property campaigns (`ExactBooleanPropertyTests.CsCheck.cs` and the other `Category=Campaign` classes that call
+  the boolean or the rounding), with large sample counts (`G3_PROPERTY_SAMPLES`, `G3_PROPERTY_ALL=1`; QA.md, item 9);
+- fuzzing with `tools/MeshFuzzPilot` (`union`, `intersection`, `difference`, `rounding-repair`).
+
+All findings, old and new, are triaged together and fixed in one bugfix round, one PR per root cause. Until then #985 waits:
+its huge-coordinate case (x times 2^+46, empty result with `Success`) is a real bug, and its flattened case matches the
+thin-shell decision.
+
 ### Open for the future (2026-11-15)
 
 Superseded where it differs by [After 3.0](#after-30-owner-2026-11-16) (2026-11-16): #913 and #956 are merged, #858
