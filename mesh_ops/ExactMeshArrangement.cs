@@ -1215,7 +1215,7 @@ namespace g3
             var constraints = new List<long>[Triangles.Count];
             // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
             gParallel.ForRange(Triangles.Count, (ti) => {
-                if (Cancellation.IsCancellationRequested == false)
+                if (Cancellation.IsCancellationRequested == false && triangulated(Triangles[ti]))
                     triangulate(ti, out pieces[ti], out constraints[ti]);
             });
             touchedPoints = null;
@@ -1231,7 +1231,7 @@ namespace g3
             Output.Capacity = Math.Max(Output.Capacity, Output.Count + pieceCount);
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 InputTriangle t = Triangles[ti];
-                if (Culled[ti])
+                if (Culled[ti] || triangulated(t) == false)
                     continue;
                 if (pieces[ti] != null)
                     Output.AddRange(pieces[ti]);
@@ -1289,7 +1289,7 @@ namespace g3
         int predicted_pieces(int ti)
         {
             InputTriangle t = Triangles[ti];
-            if (Culled[ti] || t.Degenerate)
+            if (Culled[ti] || t.Degenerate || triangulated(t) == false)
                 return 0;
             if (t.Points.Count == 0 && t.Segments.Count == 0)
                 return 1;
@@ -1860,6 +1860,13 @@ namespace g3
         // per input triangle, after Compute: culled by the early-out; and their number
         internal bool[] Culled;
         internal int CulledCount;
+        // per mesh: whether Compute triangulates its triangles and outputs their pieces (null: all meshes, the default). A mesh that
+        // is not takes part in the intersections as usual (the segments and points it adds to the other meshes' triangles are
+        // the same), but its own triangles are neither triangulated nor output, and not counted in PredictedPieces. The pieces
+        // of the other meshes are the same as without the mask (the triangulation is per input triangle). The exact imprint
+        // (docs/design/EXACT_IMPRINT.md) triangulates its target only.
+        internal bool[] TriangulateMeshes;
+        bool triangulated(InputTriangle t) { return TriangulateMeshes == null || TriangulateMeshes[t.Mesh]; }
         public int SelfIntersectingPairs;
         /// <summary>
         /// for tests: the candidate pairs within a mesh by one self-join of its box tree (each pair once), else by a
