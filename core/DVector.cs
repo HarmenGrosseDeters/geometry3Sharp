@@ -186,6 +186,44 @@ namespace g3
         }
 
 
+        /// <summary> resize(count) that leaves the state that count push_backs leave (a full last block at a multiple of the block size, not an empty block after it) </summary>
+        internal void ResizeLikePushBack(int count)
+        {
+            resize(count);
+            if (count > 0 && count % nBlockSize == 0) {
+                // (resize adds a block for the next element: the pushes would not have added it yet)
+                Blocks.RemoveAt(Blocks.Count - 1);
+                iCurBlock = count / nBlockSize - 1;
+                iCurBlockUsed = nBlockSize;
+            }
+        }
+
+        /// <summary> sets the first count elements (the vector has at least that many) to those of src, block by block </summary>
+        internal void SetFirst(T[] src, int count)
+        {
+            for (int done = 0, block = 0; done < count; ++block) {
+                int n = Math.Min(nBlockSize, count - done);
+                Array.Copy(src, done, Blocks[block], 0, n);
+                done += n;
+            }
+        }
+
+        /// <summary> sets the first count elements (the vector has at least that many) to the pattern repeated from index 0: element i is pattern[i % pattern.Length] </summary>
+        internal void SetFirstRepeating(T[] pattern, int count)
+        {
+            for (int done = 0, block = 0; done < count; ++block) {
+                int n = Math.Min(nBlockSize, count - done);
+                T[] target = Blocks[block];
+                int j = done % pattern.Length;
+                for (int i = 0; i < n; ++i) {
+                    target[i] = pattern[j];
+                    if (++j == pattern.Length)
+                        j = 0;
+                }
+                done += n;
+            }
+        }
+
         public void copy(DVector<T> copyIn)
         {
             if (this.Blocks != null && copyIn.Blocks.Count == this.Blocks.Count) {

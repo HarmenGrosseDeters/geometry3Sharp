@@ -1049,9 +1049,11 @@ namespace g3
 
             // stacks: the input triangles that contain a piece (its source, and coplanar overlapping triangles);
             // the piece is output only from the stack's first triangle
+            var steps = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var stack = new List<int>[n];
             bool[] representative = new bool[n];
             gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], out stack[i]));
+            steps.LapMicroseconds("classification.stacks");
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
@@ -1062,45 +1064,14 @@ namespace g3
             // the exact ray at one piece, is right for all of it
             long[] edgeKeys; int[] edgeTri;
             group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
-            int[] parent = new int[n];
-            for (int i = 0; i < n; ++i)
-                parent[i] = i;
+            steps.LapMicroseconds("classification.edges");
+            int[] parent = ExactMeshEdgeGroups.NewForest(n);
             // (L1: the pairs of pieces without stacks joined across an edge, the adjacency of the patches)
             List<long> joins = PerPatchOpenWinding && TracedOpenWinding == false && ExactWinding != null && Array.IndexOf(ExactWinding, false) >= 0 ? new List<long>() : null;
+            join_pieces(output, stack, edgeKeys, edgeTri, parent, joins);
             Func<int, int> find = (x) => find_root(parent, x);
-            var atEdge = new List<int>();
-            for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
-                g1 = g0 + 1;
-                while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
-                if (arr.ConstraintEdges.Contains(edgeKeys[g0]))
-                    continue;
-                // the pieces at the edge by mesh (stable insertion sort, the groups are small)
-                atEdge.Clear();
-                for (int g = g0; g < g1; ++g) {
-                    int t = edgeTri[g], k = atEdge.Count;
-                    atEdge.Add(t);
-                    while (k > 0 && output[atEdge[k - 1]].Mesh > output[t].Mesh) {
-                        atEdge[k] = atEdge[k - 1];
-                        k--;
-                    }
-                    atEdge[k] = t;
-                }
-                for (int s0 = 0, s1 = 0; s0 < atEdge.Count; s0 = s1) {
-                    s1 = s0 + 1;
-                    while (s1 < atEdge.Count && output[atEdge[s1]].Mesh == output[atEdge[s0]].Mesh) s1++;
-                    if (s1 - s0 != 2)
-                        continue;
-                    int a = atEdge[s0], b = atEdge[s0 + 1];
-                    if (same_stack(stack[a], stack[b]) == false)
-                        continue;
-                    if (joins != null && stack[a] == null)
-                        joins.Add(((long)a << 32) | (uint)b);
-                    int ra = find(a), rb = find(b);
-                    if (ra != rb)
-                        parent[ra] = rb;
-                }
-            }
 
+            steps.LapMicroseconds("classification.patches");
             // winding numbers in front of each patch, sparse (the nonzero ones, as pairs mesh, winding number):
             // a closed mesh has winding number 0 outside its box, so only the meshes whose box contains the
             // piece are evaluated. Computed in parallel from the first representative piece of each patch (in the
@@ -1150,6 +1121,7 @@ namespace g3
             for (int k = 0; k < openMeshes.Count; ++k)
                 if (built[k] != null)
                     windingTrees[openMeshes[k]] = built[k];
+            steps.LapMicroseconds("classification.prep");
             var closedTree = new TriangleBoxTree(closedBoxes);
             var patchWinding = new int[n][];
             var firsts = new List<int>();
@@ -1163,6 +1135,7 @@ namespace g3
                 }
             }
             Patches = firsts.Count;
+            steps.LapMicroseconds("classification.firsts");
             // (the closed meshes per patch: their winding numbers are integers, the same in front of every piece of a
             // patch)
             var noOpen = new List<int>();
@@ -1174,6 +1147,7 @@ namespace g3
                 int i = firsts[k];
                 patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, noOpen, candidates);
             });
+            steps.LapMicroseconds("classification.winding");
             if (Cancellation.IsCancellationRequested)
                 return;
             // the open meshes per piece: their generalized winding numbers vary continuously, also within a patch (a
@@ -1198,6 +1172,7 @@ namespace g3
                     return;
             }
             OpenWindingPerPiece = RecordOpenWinding ? openWinding : null;
+            steps.LapMicroseconds("classification.open");
 
             int[] winding = new int[nm];
             bool[] isTouched = new bool[nm];
@@ -1243,6 +1218,7 @@ namespace g3
                 }
                 touched.Clear();
             }
+            steps.LapMicroseconds("classification.decisions");
         }
 
         // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
@@ -3193,29 +3169,15 @@ namespace g3
 
         // the undirected edges of n triangles, sorted: edgeKeys[k] is the edge, edgeTri[k] the triangle; equal
         // edges are adjacent
-        [MethodImpl(JitHints.Optimize)]
         static void group_edges(int n, Func<int, Index3i> tri, out long[] edgeKeys, out int[] edgeTri)
         {
-            edgeKeys = new long[3 * n];
-            edgeTri = new int[3 * n];
-            for (int i = 0; i < n; ++i) {
-                Index3i t = tri(i);
-                edgeKeys[3 * i] = ExactMeshArrangement.EdgeKey(t.a, t.b);
-                edgeKeys[3 * i + 1] = ExactMeshArrangement.EdgeKey(t.b, t.c);
-                edgeKeys[3 * i + 2] = ExactMeshArrangement.EdgeKey(t.c, t.a);
-                edgeTri[3 * i] = edgeTri[3 * i + 1] = edgeTri[3 * i + 2] = i;
-            }
-            sort_by_key(edgeKeys, edgeTri);
+            ExactMeshEdgeGroups.GroupEdges(n, tri, out edgeKeys, out edgeTri);
         }
 
         // the root of x in the union-find forest parent, halving the path
         static int find_root(int[] parent, int x)
         {
-            while (parent[x] != x) {
-                parent[x] = parent[parent[x]];
-                x = parent[x];
-            }
-            return x;
+            return ExactMeshEdgeGroups.Find(parent, x);
         }
 
         // the corner slot 3 t + k of point p in triangle t
@@ -3227,43 +3189,12 @@ namespace g3
 
         /// <summary>
         /// sorts keys (non-negative) and items by the keys, stably (equal keys keep the order of their items): a radix
-        /// sort by 11-bit digits (a small count array), skipping the digits that are the same in all keys. (Array.Sort of two arrays is
+        /// sort by 11-bit digits, in parallel for long arrays (ExactMeshEdgeGroups.SortByKey; Array.Sort of two arrays is
         /// not stable, and the runtime's generic sort over these types starts as unoptimized code.)
         /// </summary>
-        [MethodImpl(JitHints.Optimize)]
         internal static void sort_by_key(long[] keysIn, int[] itemsIn)
         {
-            long[] keys = keysIn;
-            int[] items = itemsIn;
-            int n = keys.Length;
-            long[] k2 = new long[n];
-            int[] i2 = new int[n];
-            const int Bits = 11, Digits = 1 << Bits, Mask = Digits - 1;
-            var count = new int[Digits + 1];
-            for (int shift = 0; shift < 64; shift += Bits) {
-                Array.Clear(count, 0, count.Length);
-                for (int i = 0; i < n; ++i)
-                    count[(int)((keys[i] >> shift) & Mask) + 1]++;
-                bool constant = false;
-                for (int d = 0; d < Digits && constant == false; ++d)
-                    constant = count[d + 1] == n;
-                if (constant)
-                    continue;
-                for (int d = 0; d < Digits; ++d)
-                    count[d + 1] += count[d];
-                for (int i = 0; i < n; ++i) {
-                    int at = count[(int)((keys[i] >> shift) & Mask)]++;
-                    k2[at] = keys[i];
-                    i2[at] = items[i];
-                }
-                long[] tk = keys; keys = k2; k2 = tk;
-                int[] ti = items; items = i2; i2 = ti;
-            }
-            // (after an odd number of passes the sorted data is in the other arrays)
-            if (keys != keysIn) {
-                Array.Copy(keys, keysIn, n);
-                Array.Copy(items, itemsIn, n);
-            }
+            ExactMeshEdgeGroups.SortByKey(keysIn, itemsIn);
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -4660,6 +4591,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
+            // (sub-steps in microseconds, "assembly.<step>_us" in PhaseMilliseconds)
+            var steps = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var tris = new List<Index3i>(arr.Output.Count);
             var source = new List<int>(arr.Output.Count);
             var flipped = new List<bool>(arr.Output.Count);
@@ -4676,6 +4609,7 @@ namespace g3
             for (int m = 0; m < arr.VertexPoints.Length; ++m)
                 foreach (int vid in arr.Meshes[m].VertexIndices())
                     inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
+            steps.LapMicroseconds("assembly.gather");
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -4684,92 +4618,52 @@ namespace g3
                 tris = simplify.Result();
                 RemovedVertices = simplify.Removed;
                 clock.Lap("simplify");
+                steps.LapMicroseconds("assembly.simplify");
             }
 
-            // corner slots (3 per triangle) joined across the edges where the triangles are neighbours
-            int[] parent = new int[3 * tris.Count];
-            for (int k = 0; k < parent.Length; ++k)
-                parent[k] = k;
-            Func<int, int> find = (x) => find_root(parent, x);
-            Action<int, int> join = (x, y) => {
-                int rx = find(x), ry = find(y);
-                if (rx != ry) parent[rx] = ry;
-            };
+            // corner slots (3 per triangle) joined across the edges where the triangles are neighbours (a forest whose roots
+            // are the smallest slots of their classes, whatever the order of the unions)
+            int[] parent = ExactMeshEdgeGroups.NewForest(3 * tris.Count);
             // slot of point p in triangle t
             Func<int, int, int> slot = (t, p) => slot_of(tris, t, p);
 
             long[] edgeKeys; int[] edgeTri;
-            group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
-            var list = new List<int>();
+            ExactMeshEdgeGroups.GroupEdges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
+            steps.LapMicroseconds("assembly.edges");
             // the pairs at the edges with more than two pieces
             var nonManifold = new List<KeyValuePair<long, List<KeyValuePair<int, int>>>>();
-            for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
-                g1 = g0 + 1;
-                while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
-                int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
-                if (g1 - g0 == 2) {
-                    // two pieces that run the edge the same way are not neighbours there (see ConflictEdges)
-                    if (runs(tris[edgeTri[g0]], u, v) != runs(tris[edgeTri[g0 + 1]], u, v)) {
-                        join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
-                        join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
-                    } else {
-                        ConflictEdges++;
-                    }
-                    continue;
-                }
-                list.Clear();
-                for (int g = g0; g < g1; ++g)
-                    list.Add(edgeTri[g]);
-                list.Sort();        // (the first triangle is the reference half-plane; sort_by_key keeps them in order already)
-                var pairs = pair_around_edge(tris, list, u, v);
-                foreach (var pair in pairs) {
-                    join(slot(pair.Key, u), slot(pair.Value, u));
-                    join(slot(pair.Key, v), slot(pair.Value, v));
-                }
-                // (pieces left without a neighbour: an odd number, or more running one way than the other)
-                if (g1 - g0 > 2 && 2 * pairs.Count < g1 - g0)
-                    ConflictEdges++;
-                if (g1 - g0 > 2) {
-                    NonManifoldEdges++;
-                    nonManifold.Add(new KeyValuePair<long, List<KeyValuePair<int, int>>>(edgeKeys[g0], pairs));
-                }
-            }
+            join_slots(tris, parent, edgeKeys, edgeTri, nonManifold);
+            steps.LapMicroseconds("assembly.pairing");
 
             // coordinates of the points used (rounded from the exact points, in parallel)
-            var used = new List<int>();
-            var usedIndex = new int[inputPoints.Length];
-            for (int k = 0; k < usedIndex.Length; ++k)
-                usedIndex[k] = -1;
-            foreach (Index3i t in tris)
-                for (int k = 0; k < 3; ++k)
-                    if (usedIndex[t[k]] < 0) {
-                        usedIndex[t[k]] = used.Count;
-                        used.Add(t[k]);
-                    }
+            int[] usedIndex;
+            List<int> used = ExactMeshEdgeGroups.UsedPoints(tris, inputPoints.Length, out usedIndex);
+            steps.LapMicroseconds("assembly.used");
             Vector3d[] coords = arr.PointsToVectors(used);
+            steps.LapMicroseconds("assembly.coords");
 
-            // vertices: one per class of corner slots
-            DMesh3 result = new DMesh3();
+            // vertices: one per class of corner slots, numbered in the order of their smallest slots
             // per vertex: its point, or for the split vertices -2 - their index into splitPoints (the edge's ends)
-            var vertexPoint = new List<int>();
+            int[] vids, rootSlot;
+            int vertexCount = ExactMeshEdgeGroups.NumberClasses(parent, out vids, out rootSlot);
+            var vertexPoint = new List<int>(vertexCount);
             var splitPoints = new List<Index2i>();
-            // (vertex of each class of corner slots, by its root slot; -1 before it has one)
-            int[] vmap = new int[3 * tris.Count];
-            for (int k = 0; k < vmap.Length; ++k)
-                vmap[k] = -1;
-            int[] vids = new int[3 * tris.Count];
-            for (int t = 0; t < tris.Count; ++t) {
-                for (int k = 0; k < 3; ++k) {
-                    int root = find(3 * t + k), vid = vmap[root];
-                    if (vid < 0) {
-                        vid = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
-                        vertexPoint.Add(tris[t][k]);
-                        vmap[root] = vid;
-                    }
-                    vids[3 * t + k] = vid;
-                }
+            for (int vid = 0; vid < vertexCount; ++vid)
+                vertexPoint.Add(tris[rootSlot[vid] / 3][rootSlot[vid] % 3]);
+            // Without edges of more than two pieces and without two pieces running an edge the same way, no triangle runs
+            // an edge of the mesh the same way as the triangle already there (the vertices of an edge are those of
+            // one pair of pieces), so append_triangle's checks before AppendTriangle cannot fail: skipped
+            bool simple = NonManifoldEdges == 0 && ConflictEdges == 0;
+            // (then the mesh is built in one go, with the ids that the appends below give)
+            DMesh3 result = simple ? ExactMeshResultBuilder.TryBuild(tris, vids, vertexPoint, coords, usedIndex, edgeKeys, edgeTri) : null;
+            bool built = result != null;
+            if (built == false) {
+                result = new DMesh3();
+                for (int vid = 0; vid < vertexCount; ++vid)
+                    result.AppendVertex(coords[usedIndex[vertexPoint[vid]]]);
             }
 
+            steps.LapMicroseconds("assembly.vertices");
             // where the solid touches itself along an edge and its surface is connected around both ends, the pairs
             // at the edge get the same two vertices (the ends cannot be duplicated), which would give an edge with
             // more than two triangles: then the edge is split for each pair at a new vertex of its own (at the
@@ -4823,12 +4717,9 @@ namespace g3
                 }
             }
 
-            // Without edges of more than two pieces and without two pieces running an edge the same way, no triangle runs
-            // an edge of the mesh the same way as the triangle already there (the vertices of an edge are those of
-            // one pair of pieces), so append_triangle's checks before AppendTriangle cannot fail: skipped
-            bool simple = NonManifoldEdges == 0 && ConflictEdges == 0;
+            steps.LapMicroseconds("assembly.split");
             var poly = new List<int>();
-            for (int t = 0; t < tris.Count; ++t) {
+            for (int t = 0; built == false && t < tris.Count; ++t) {
                 poly.Clear();
                 int first = -1;
                 for (int k = 0; k < 3; ++k) {
@@ -4850,6 +4741,7 @@ namespace g3
                     append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
             }
 
+            steps.LapMicroseconds("assembly.triangles");
             // with an open input, the per-piece classification (front_generalized_winding) can keep pieces whose fans
             // around a vertex meet only at the vertex (the kept region's boundary, {w = 1/2}, does not run along mesh
             // edges): each such vertex gets one copy per fan, so that the result is a valid mesh without bowties
@@ -4891,7 +4783,131 @@ namespace g3
                 }
                 ResultExactVertices = exact;
             }
+            steps.LapMicroseconds("assembly.rest");
             return result;
+        }
+
+        // Joins the corner slots of the kept pieces across the edges where they are neighbours (assemble). The edges with two
+        // pieces are decided in parallel, by blocks of the sorted edge list (a group belongs to the block it starts in): the union
+        // of corner slots is an order-independent forest (ExactMeshEdgeGroups.Union), and the count of conflicts is summed per
+        // block. The edges with more pieces (solids touching along an edge) are paired serially afterwards, in the order of the
+        // sorted edges, which gives their list as before.
+        [MethodImpl(JitHints.Optimize)]
+        void join_slots(List<Index3i> tris, int[] parent, long[] edgeKeys, int[] edgeTri, List<KeyValuePair<long, List<KeyValuePair<int, int>>>> nonManifold)
+        {
+            int m = edgeKeys.Length;
+            int blocks = ExactMeshEdgeGroups.Blocks(m), per = ExactMeshEdgeGroups.Per(m, blocks);
+            bool atomic = blocks > 1;
+            var conflicts = new int[blocks];
+            var large = new List<int>[blocks];      // per block: the first entries of its groups with more than two pieces
+            ExactMeshEdgeGroups.ForBlocks(blocks, [MethodImpl(JitHints.Optimize)] (int b) => {
+                int hi = Math.Min(m, (b + 1) * per), g0 = b * per;
+                // (the group that began in the block before is its)
+                while (g0 > 0 && g0 < hi && edgeKeys[g0] == edgeKeys[g0 - 1])
+                    g0++;
+                for (int g1; g0 < hi; g0 = g1) {
+                    g1 = g0 + 1;
+                    while (g1 < m && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                    if (g1 - g0 == 2) {
+                        int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
+                        // two pieces that run the edge the same way are not neighbours there (see ConflictEdges)
+                        if (runs(tris[edgeTri[g0]], u, v) != runs(tris[edgeTri[g0 + 1]], u, v)) {
+                            ExactMeshEdgeGroups.Union(parent, slot_of(tris, edgeTri[g0], u), slot_of(tris, edgeTri[g0 + 1], u), atomic);
+                            ExactMeshEdgeGroups.Union(parent, slot_of(tris, edgeTri[g0], v), slot_of(tris, edgeTri[g0 + 1], v), atomic);
+                        } else {
+                            conflicts[b]++;
+                        }
+                    } else if (g1 - g0 > 2) {
+                        if (large[b] == null)
+                            large[b] = new List<int>();
+                        large[b].Add(g0);
+                    }
+                }
+            });
+            var list = new List<int>();
+            for (int b = 0; b < blocks; ++b) {
+                ConflictEdges += conflicts[b];
+                if (large[b] == null)
+                    continue;
+                foreach (int g0 in large[b]) {
+                    int g1 = g0 + 1;
+                    while (g1 < m && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                    int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
+                    list.Clear();
+                    for (int g = g0; g < g1; ++g)
+                        list.Add(edgeTri[g]);
+                    list.Sort();        // (the first triangle is the reference half-plane; sort_by_key keeps them in order already)
+                    var pairs = pair_around_edge(tris, list, u, v);
+                    foreach (var pair in pairs) {
+                        ExactMeshEdgeGroups.Union(parent, slot_of(tris, pair.Key, u), slot_of(tris, pair.Value, u), false);
+                        ExactMeshEdgeGroups.Union(parent, slot_of(tris, pair.Key, v), slot_of(tris, pair.Value, v), false);
+                    }
+                    // (pieces left without a neighbour: an odd number, or more running one way than the other)
+                    if (2 * pairs.Count < g1 - g0)
+                        ConflictEdges++;
+                    NonManifoldEdges++;
+                    nonManifold.Add(new KeyValuePair<long, List<KeyValuePair<int, int>>>(edgeKeys[g0], pairs));
+                }
+            }
+        }
+
+        // The patches of classify: pieces of one mesh joined across the edges that are not on an intersection curve and have exactly
+        // two pieces of that mesh with the same stack. Each group of equal edges is decided on its own, so the groups run in parallel
+        // by blocks of the sorted edge list (a group belongs to the block it starts in), the pieces joined in an order-independent
+        // forest (ExactMeshEdgeGroups.Union: the classes and their roots do not depend on the order); the joins of the L1 list are
+        // collected per block and appended in block order, the order of the sorted edges as before.
+        [MethodImpl(JitHints.Optimize)]
+        void join_pieces(List<ExactMeshArrangement.OutputTriangle> output, List<int>[] stack, long[] edgeKeys, int[] edgeTri, int[] parent, List<long> joins)
+        {
+            int m = edgeKeys.Length;
+            int blocks = ExactMeshEdgeGroups.Blocks(m), per = ExactMeshEdgeGroups.Per(m, blocks);
+            bool atomic = blocks > 1;
+            var blockJoins = new List<long>[blocks];
+            ExactMeshEdgeGroups.ForBlocks(blocks, [MethodImpl(JitHints.Optimize)] (int b) => {
+                int hi = Math.Min(m, (b + 1) * per), g0 = b * per;
+                // (the group that began in the block before is its)
+                while (g0 > 0 && g0 < hi && edgeKeys[g0] == edgeKeys[g0 - 1])
+                    g0++;
+                var atEdge = new List<int>();
+                List<long> myJoins = null;
+                for (int g1; g0 < hi; g0 = g1) {
+                    g1 = g0 + 1;
+                    while (g1 < m && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                    if (arr.ConstraintEdges.Contains(edgeKeys[g0]))
+                        continue;
+                    // the pieces at the edge by mesh (stable insertion sort, the groups are small)
+                    atEdge.Clear();
+                    for (int g = g0; g < g1; ++g) {
+                        int t = edgeTri[g], k = atEdge.Count;
+                        atEdge.Add(t);
+                        while (k > 0 && output[atEdge[k - 1]].Mesh > output[t].Mesh) {
+                            atEdge[k] = atEdge[k - 1];
+                            k--;
+                        }
+                        atEdge[k] = t;
+                    }
+                    for (int s0 = 0, s1 = 0; s0 < atEdge.Count; s0 = s1) {
+                        s1 = s0 + 1;
+                        while (s1 < atEdge.Count && output[atEdge[s1]].Mesh == output[atEdge[s0]].Mesh) s1++;
+                        if (s1 - s0 != 2)
+                            continue;
+                        int a = atEdge[s0], bb = atEdge[s0 + 1];
+                        if (same_stack(stack[a], stack[bb]) == false)
+                            continue;
+                        if (joins != null && stack[a] == null) {
+                            if (myJoins == null)
+                                myJoins = new List<long>();
+                            myJoins.Add(((long)a << 32) | (uint)bb);
+                        }
+                        ExactMeshEdgeGroups.Union(parent, a, bb, atomic);
+                    }
+                }
+                blockJoins[b] = myJoins;
+            });
+            if (joins != null)
+                for (int b = 0; b < blocks; ++b)
+                    if (blockJoins[b] != null)
+                        joins.AddRange(blockJoins[b]);
         }
 
         // vertices with an open input whose fans were split (assemble): for tests

@@ -210,8 +210,14 @@ hard case, but not the coplanar one); `partial-overlap` with d = 1, 2 has `kind`
 **Oracle.** As in `thingi-pairs` (`eval`): `NotCleanReason` of every result, the volume identities, and `expected_error` for `face-contact`; the inputs
 are checked again after the transform (`inputs_clean` in the case). A result that self-intersects is not correct in this class
 (`analyze.py`, `thingi-contact` has the tolerance 1e-7 and `NO_SELFINT`). Two limits of the oracle: touching solids merged at a single vertex or edge (`kind` `bbox`)
-give a union with a non-manifold vertex or edge, which `NotCleanReason` reports (`bowties`, `non-manifold`) although the result is correct; and a sliver of
-one ulp has a volume far below the tolerance, so a method that drops it passes the identities (only the triangle counts in the raw rows tell).
+give a union with a non-manifold vertex or edge, which `NotCleanReason` reports (`bowties`, `non-manifold`) although the result is correct; and a shell
+one ulp thick has a volume far below the tolerance, so a method that drops it passes the identities. For `ours` the rounding stage
+(`SafeRounding`, on by default; owner decision 2026-11-16: the default stays, no new option, `SafeRounding = false` and
+`ComputeExactVertices` give such a shell to callers who need it) drops pieces that cannot survive the rounding to doubles
+(`ExactMeshBoolean.Rounding.RemovedComponents`). Each result of `ours` therefore records `removed_components` and `removed_triangles`
+(`<op>_removed_components` in the raw rows, from the `counts` of `BooleanComparison run`), and the summary tells an empty result that the
+rounding produced by removing components (`empty, removed by rounding`) from a really empty one (`empty (volume-consistent)`, nothing
+removed). Other methods have no such field (shown as `–`); the first run's rows have the number in `<op>_counts` only, and `summary` reads both.
 
 **Running** (from `benchmarks/BooleanComparison`; the tool and `cgal_bool` as for `thingi-pairs`):
 
@@ -231,25 +237,25 @@ ExactMeshImprint is not a method of this class yet. TODO: add it as a method onc
 
 **First run** (GitHub run [43949164518](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43949164518), 2026-11-16, master d5fb874a, `workflow_dispatch`, ubuntu-latest with 4 cores, `-j 1`, timeout 300 s; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the first 30 pairs of each variant; raw rows on the data branch `runs/thingi-contact`, folder `run-43949164518`):
 
-| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | unclean | max volume error | median ms | max ms |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| face-contact | cgal_epeck | 22 | 16 | 66 | 64 | 2 | 39 | 20 | bowties 1, not evaluated 4 | 1.19e-14 | 24 | 84 |
-| face-contact | manifold | 22 | 16 | 66 | 66 | 0 | 41 | 19 | empty (inconsistent) 3, not closed 2, self-intersections 1 | 5.46e-14 | 24 | 48 |
-| face-contact | ours | 22 | 16 | 66 | 66 | 0 | 41 | 20 | bowties 1, empty (inconsistent) 2, not closed 2 | 1.19e-14 | 112 | 335 |
-| partial-overlap | cgal_epeck | 24 | 5 | 72 | 72 | 0 | 61 | 4 | bowties 1, degenerate triangles 6 | 1.45e-14 | 24 | 385 |
-| partial-overlap | manifold | 24 | 5 | 72 | 72 | 0 | 41 | 4 | degenerate triangles 27 | 2.31e-14 | 29 | 48 |
-| partial-overlap | ours | 24 | 5 | 72 | 72 | 0 | 67 | 4 | bowties 1 | 9.61e-13 | 109 | 394 |
-| ulp-shift | cgal_epeck | 30 | 0 | 90 | 84 | 6 | 0 | 0 | degenerate triangles 10, not closed 74 | 1.12e-14 | 858 | 3054 |
-| ulp-shift | manifold | 30 | 0 | 90 | 90 | 0 | 67 | 4 | bowties 1, degenerate triangles 2, inside-out components 3, not closed 13 | 2.38e-13 | 45 | 179 |
-| ulp-shift | ours | 30 | 0 | 90 | 90 | 0 | 59 | 30 | degenerate triangles 1 | 2.59e-09 | 798 | 3435 |
-| ulp-shift-few | cgal_epeck | 30 | 0 | 90 | 87 | 3 | 0 | 0 | degenerate triangles 14, not closed 73 | 1.46e-14 | 625 | 93228 |
-| ulp-shift-few | manifold | 30 | 0 | 90 | 90 | 0 | 63 | 5 | bowties 1, degenerate triangles 4, inside-out components 1, not closed 15, self-intersections 1 | 5.27e-14 | 74 | 221 |
-| ulp-shift-few | ours | 30 | 0 | 90 | 90 | 0 | 60 | 30 | – | 4.97e-08 | 792 | 10702 |
-| mirror | cgal_epeck | 30 | 0 | 90 | 81 | 9 | 21 | 0 | bowties 15, degenerate triangles 45 | 2.14e-13 | 295 | 4416 |
-| mirror | manifold | 30 | 0 | 90 | 90 | 0 | 30 | 0 | bowties 16, degenerate triangles 34, not closed 9, self-intersections 1 | 1.51e-14 | 53 | 245 |
-| mirror | ours | 30 | 0 | 90 | 90 | 0 | 66 | 0 | bowties 15, not closed 9 | 9.38e-06 | 432 | 3216 |
+| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | empty, removed by rounding | unclean | max volume error | median ms | max ms | removed components |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| face-contact | cgal_epeck | 22 | 16 | 66 | 64 | 2 | 39 | 20 | 0 | bowties 1, not evaluated 4 | 1.19e-14 | 24 | 84 | – |
+| face-contact | manifold | 22 | 16 | 66 | 66 | 0 | 41 | 19 | 0 | empty (inconsistent) 3, not closed 2, self-intersections 1 | 5.46e-14 | 24 | 48 | – |
+| face-contact | ours | 22 | 16 | 66 | 66 | 0 | 41 | 20 | 0 | bowties 1, empty (inconsistent) 2, not closed 2 | 1.19e-14 | 112 | 335 | 0 |
+| partial-overlap | cgal_epeck | 24 | 5 | 72 | 72 | 0 | 61 | 4 | 0 | bowties 1, degenerate triangles 6 | 1.45e-14 | 24 | 385 | – |
+| partial-overlap | manifold | 24 | 5 | 72 | 72 | 0 | 41 | 4 | 0 | degenerate triangles 27 | 2.31e-14 | 29 | 48 | – |
+| partial-overlap | ours | 24 | 5 | 72 | 72 | 0 | 67 | 4 | 0 | bowties 1 | 9.61e-13 | 109 | 394 | 0 |
+| ulp-shift | cgal_epeck | 30 | 0 | 90 | 84 | 6 | 0 | 0 | 0 | degenerate triangles 10, not closed 74 | 1.12e-14 | 858 | 3054 | – |
+| ulp-shift | manifold | 30 | 0 | 90 | 90 | 0 | 67 | 4 | 0 | bowties 1, degenerate triangles 2, inside-out components 3, not closed 13 | 2.38e-13 | 45 | 179 | – |
+| ulp-shift | ours | 30 | 0 | 90 | 90 | 0 | 59 | 0 | 30 | degenerate triangles 1 | 2.59e-09 | 798 | 3435 | 1440 |
+| ulp-shift-few | cgal_epeck | 30 | 0 | 90 | 87 | 3 | 0 | 0 | 0 | degenerate triangles 14, not closed 73 | 1.46e-14 | 625 | 93228 | – |
+| ulp-shift-few | manifold | 30 | 0 | 90 | 90 | 0 | 63 | 5 | 0 | bowties 1, degenerate triangles 4, inside-out components 1, not closed 15, self-intersections 1 | 5.27e-14 | 74 | 221 | – |
+| ulp-shift-few | ours | 30 | 0 | 90 | 90 | 0 | 60 | 0 | 30 | – | 4.97e-08 | 792 | 10702 | 689 |
+| mirror | cgal_epeck | 30 | 0 | 90 | 81 | 9 | 21 | 0 | 0 | bowties 15, degenerate triangles 45 | 2.14e-13 | 295 | 4416 | – |
+| mirror | manifold | 30 | 0 | 90 | 90 | 0 | 30 | 0 | 0 | bowties 16, degenerate triangles 34, not closed 9, self-intersections 1 | 1.51e-14 | 53 | 245 | – |
+| mirror | ours | 30 | 0 | 90 | 90 | 0 | 66 | 0 | 0 | bowties 15, not closed 9 | 9.38e-06 | 432 | 3216 | 284 |
 
-`pairs` are the placements that were accepted (of 30 per variant), `face contact` those with `kind` `face`, the other columns count operations as in `thingi-pairs`. Times are the boolean alone, from one run on a shared runner (indicative only, no repeats).
+`pairs` are the placements that were accepted (of 30 per variant), `face contact` those with `kind` `face`, the other columns count operations as in `thingi-pairs`; `empty, removed by rounding` and `removed components` are explained in the oracle note (ours only). Times are the boolean alone, from one run on a shared runner (indicative only, no repeats).
 
 Placements refused as inexact or failed to load: 14 of 150 cases:
 - face-contact_p0000_88616+92837: RuntimeError('inexact transform: contact shift not exact')
@@ -272,7 +278,7 @@ What the run shows (all of it from the raw rows; causes marked *not diagnosed* w
 - **`face-contact`: 16 of 22 accepted pairs have planar faces on both sides** (`kind` `face`), 6 touch through vertices or edges (`bbox`). `partial-overlap`: 5 of 24 `face` (flush), the others `embedded` or `bbox`. In 4 of 24 `partial-overlap` pairs the intersection is empty although B was moved into A (no volume under B's footprint), which the oracle accepts as volume-consistent.
 - **ours, `face-contact`**: the union of 2 pairs is `not closed` (p0012, p0021; both `kind` `face`); manifold has 2 `not closed` results too (which cases was not compared). Volumes are right (expected_error 2.4e-15). Not diagnosed; issue filed.
 - **ours, `mirror`**: the difference A - mirror(A) is `not closed` for 8 of 30 pairs and `bowties` for 15 (bowties are plausible for pieces that meet on the mirror plane); the largest identity error is 9.4e-06 (p0024) and 5.2e-07 (p0001), above the class tolerance 1e-7. Issue filed (pair ids and parameters in it).
-- **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants and counted as volume-consistent; the exact result is a shell of volume about 1e-16 of the model. This is the behaviour of the rounding stage (pieces below the degenerate threshold are dropped), not necessarily a defect; the oracle cannot tell it from a correct empty result. Identity errors up to 5.0e-08 (`ulp-shift-few`).
+- **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants. All 60 of these empty results are `empty, removed by rounding` (1 to 733 removed components each; 1440 and 689 removed components over all operations of the two variants), none is really empty; the exact result is a shell of volume about 1e-16 of the model, which the identities cannot see. Intended behaviour of `SafeRounding` (owner decision 2026-11-16, see the oracle note above), not a defect. Identity errors up to 5.0e-08 (`ulp-shift-few`). In contrast the 26 empty intersections of `face-contact` and `partial-overlap` removed nothing: they are really empty.
 - **CGAL EPECK** failed or timed out on 18 operations (`ulp-shift` 6, `ulp-shift-few` 3, `mirror` 9; one `ulp-shift-few` case took 93 s) and its results are mostly `not closed` under our weld-by-position check for `ulp-shift` (74 of 90) and `ulp-shift-few` (73 of 90): not analysed whether that is CGAL's output after the conversion to double or the check. **manifold** is `not closed` or `self-intersections` in a few cases per variant, and `degenerate triangles` in 27 of 72 `partial-overlap` results.
 - Summary rows for results that `eval` could not read back were crashing `summary` (a result without a clean reason); fixed here (`not evaluated`), and the workflow's report steps now fail on a summary error (`set -o pipefail`; the run above shows an empty table in the step summary for that reason, the table here is computed from the raw rows).
 
@@ -932,6 +938,28 @@ At 1 thread the difference is noise (±3 %); at 4 threads the trees phase falls 
 is kept (smaller trees gain little from the parallel build). All 18 files give the same result hash for every one of the 294 booleans (1 and 4 threads, three thresholds).
 
 The re-check against #837's case set (37 unions of the extreme-runtime study, thresholds 262144 / 16384 / 8192, 4 and 1 threads, 3 interleaved rounds): rows `perf/tree_threshold_2026-11-15/rerun_837_variants_2026-11-15.jsonl.gz`, tables by `python3 perf/rerun_837_report.py <rows>` (classification does not slow down: −0.1 % at 8192, 4 threads; the details are in the PR body of #956).
+
+## Thread scaling: the parallel assembly and classification edge groups (November 2026)
+
+`ExactMeshBoolean.assemble` and the edge grouping / patch joins of `classify` run in parallel from 65 536 sorted edge entries on (levers 2 and 4 of
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md), section 6, with the upper bound, the building blocks and the
+literature): a stable blocked radix partition, an order-independent union-find, the vertices by a prefix sum, and a bulk builder for the result
+(`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`). Results are bit-identical: the `profile` hash of
+all 294 booleans of the T6 set equals master's at 1, 2 and 4 threads (2940 rows of 10 files, 0 differences). The sub-phases are the `assembly.*_us` and
+`classification.*_us` entries (microseconds) of `phases_ms`.
+
+T6 set, 4-vCPU container, 4 threads, `DOTNET_TieredPGO=0`, 3 interleaved rounds (base, candidate; candidate, base; base, candidate), sums over the 294 booleans of the faster of two runs, ms:
+
+| 4 threads | master, mean of 3 | candidate, mean of 3 | change |
+|---|---|---|---|
+| classification | 1345 | 938 | -30 % |
+| assembly (without simplify) | 2235 | 1373 | -39 % |
+| simplify, rounding (unchanged) | 942, 4320 | 941, 4329 | 0 % |
+| whole boolean | 19 416 | 18 084 | **-6.9 %** |
+
+1 thread: 35 712 → 35 561 ms (-0.4 %); 2 threads: 23 955 → 23 285 ms (-2.8 %), one run each. Raw rows: `perf/assembly_parallel_2026-11-16/`
+(`python3 perf/assembly_parallel_2026-11-16/subphases.py <label>=<file.jsonl.gz> ...` for the sub-phase table). The owner's i7-8700 (6 cores / 12 threads), T6 set, 3 rounds A B A B: 1 thread 43.8 → 42.2 s (-3.7 %), 4 threads 24.4 → 22.9 s (-6.2 %), 12 threads 17.0 → 15.4 s (-9.6 %; classification -37 %, assembly -34 %), hashes 294 of 294 equal
+(branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`). Not measured: net48.
 
 ## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
 
