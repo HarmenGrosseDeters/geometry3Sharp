@@ -51,9 +51,9 @@ Status on 2026-11-15 (late evening, Berlin). Each subpage ends with an "Open for
 by priority; this section names only what is in flight.
 
 - **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL), #953 (thread-scaling
-  analysis), #956 (`TriangleBoxTree` parallel build from 8192 boxes) and #963 (arrangement mutation filter) are merged;
+  analysis), #913 (7-part mutation split), #956 (`TriangleBoxTree` parallel build from 8192 boxes) and #963 (arrangement mutation filter) are merged;
   candidate C is a no-go (#915). Open: #962 (parallel assembly and classification edge groups; owner's machine
-  -3.7 / -6.2 / -9.6 % at 1 / 4 / 12 threads, bit-identical) and the touch_only / rounding probe. **Stopping rule (owner
+  -3.7 / -6.2 / -9.6 % at 1 / 4 / 12 threads, bit-identical) and the probe of the `touch_only` pair work (probe A) and the rounding sub-phases (probe B). **Stopping rule (owner
   2026-11-16):** at most one more speed lever, only if the probe shows a realistic gain of at least 10 % at low risk; then
   T6 closes with a report instead of the 2x target, and the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
 - **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
@@ -94,16 +94,16 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- Merge #913 and #956; then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
+- #962 and the probe (stopping rule, [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)); then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
 - The 800 runs for the alpha wrap default decisions (Haiku runner), then the owner decides.
-- Evaluate the owner's local run (#929, #858, the boolean candidate pairs) and write the finding into the boolean docs.
+- Write the owner's local runs (#929, #858, the boolean candidate pairs, the #962 A/B) into the boolean docs.
 - Review and merge #896 / #897 (ARAP, biharmonic).
 - Release preparation once the owner decides.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
 1. **Finish what runs.** Exact Boolean 3.0: T1b #843, the T6 check #922 and the thread-scaling analysis #953 are
-   merged; left are the mutation shards #913, lever 1 #956 and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
+   merged, and so are #913 and #956; left are #962, the probe and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
    deferred, owner 2026-11-15).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;

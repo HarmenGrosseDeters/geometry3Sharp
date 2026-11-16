@@ -696,6 +696,7 @@ exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and
 
 **Why stop here.** The 2x target against CGAL EPECK was set to drive the algorithm, not because the speed is
 insufficient. The rule is an 80 % approach: stop once the effort is out of proportion to the gain.
+
 - **Where we stand.** T6 run 43819984226 on master 414c6b5f, 4-core runner, our time divided by CGAL's single-threaded
   time:
   - all cores: 2.23x on the summed time, 2.91x median per operation;
@@ -721,7 +722,7 @@ insufficient. The rule is an 80 % approach: stop once the effort is out of propo
 
 These are past the 80 % point and are dropped unless a caller needs them.
 
-**The one open question: probe A.** It measures the pair work in `intersections.pairs` that `touch_only` later
+**The one open question: probe A.** (Probe B, run in the same session, splits the rounding into sub-phases.) Probe A measures the pair work in `intersections.pairs` that `touch_only` later
 discards; an older probe found about a third of the 1-thread time there.
 - If it shows a realistic gain of at least 10 % that stays bit-identical with no new exact arithmetic, that lever is the
   last speed PR of the boolean.
@@ -747,6 +748,10 @@ discards; an older probe found about a third of the 1-thread time there.
 stability, plus the exact imprint after the release.
 
 ### Open for the future (2026-11-15)
+
+Superseded where it differs by [After 3.0](#after-30-owner-2026-11-16) (2026-11-16): #913 and #956 are merged, #858
+is answered by the owner's 1 / 4 / 12-thread A/B of #962, the `rebuild_tree` reuse and S3 are dropped, and items 8 and 9
+are parked or dropped as the triage says.
 
 Done today and removed from this list: #883 (#882 race), #881 (lever 4), #893 (candidate D), #843 (T1b, SafeRounding
 outside the edits), #837 (rounding-search upper bound: lever 1 dropped, lever 2 parked), candidate C re-measured after
