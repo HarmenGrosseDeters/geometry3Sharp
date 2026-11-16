@@ -9,7 +9,9 @@ namespace g3
     /// Dual Contouring (Ju et al. 2002) of an implicit function on a uniform grid.
     /// One vertex per cell, placed by minimizing a QEF built from the surface points and normals
     /// ("Hermite data") on the cell's sign-changing edges, which reproduces sharp edges and corners.
-    /// Produces far fewer triangles than MarchingCubes at the same feature quality.
+    /// On the same grid it makes about as many triangles as MarchingCubes (two per sign-changing grid edge); because
+    /// it keeps sharp edges and corners, a coarser grid reaches the same accuracy there, so fewer triangles are needed
+    /// for a given accuracy on sharp features.
     ///
     /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh),
     /// otherwise from linear interpolation of the field and its central-difference gradient.
