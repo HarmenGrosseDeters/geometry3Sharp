@@ -461,6 +461,7 @@ class SelectShards(unittest.TestCase):
         self.assertIn("      - 'tests/mutation/local-results/**'", wf)        # (a result-only commit starts the check)
         self.assertIn("python3 test_local_result.py", wf)
         self.assertIn("python3 test_run_local.py", wf)
+        self.assertIn("python3 test_resplit.py", wf)
         step = wf[wf.index("Check the local results of this PR"):wf.index("# Runs once a day although")]
         self.assertIn("github.event_name == 'pull_request'", step)
         self.assertIn("local_result.py check", step)

@@ -178,6 +178,15 @@ check and says why. Attaching the JSON as a PR comment is fine for the reviewers
 checked. Tests: `test_local_result.py` (the validator, including mutants of its checks) and `test_run_local.py` (the script
 with a stub `dotnet`).
 
+### Splits that survive edits
+
+The offsets of a split file move with every edit before them, but the table `SplitMethod` in
+`tests/geometry3Sharp.Tests/MutationConfigTests.cs` names the method each split is at. `python3 tests/mutation/resplit.py
+check` says which configs' offsets are not at their method any more, `resplit.py apply` rewrites them (an offset that is
+anywhere from a method's first attribute or comment line to its signature stays as it is). A rewritten config has no baseline
+until the next scheduled run of its shard on master: re-split only when `check` asks for it. To add a part: add the method to
+`SplitMethod`, copy a neighbour's config (same test filter and break threshold), run `apply`. `test_resplit.py` tests the tool.
+
 ### Coverage pass: only the shard's files are mutated
 
 Stryker.NET 5.0 mutates and compiles EVERY source file of the library whatever `mutate` names; the patterns only mark the
