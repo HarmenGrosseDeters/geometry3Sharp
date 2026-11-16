@@ -51,8 +51,15 @@ namespace geometry3Sharp.Tests
                     for (int k = 0; k < 3; ++k)
                         if (U.Corners[k] == T.Corners[0] || U.Corners[k] == T.Corners[1] || U.Corners[k] == T.Corners[2])
                             shared++;
-                    if (shared == 3)
+                    if (shared == 3) {
+                        // (touch_only never sends these to the filter's decision: it must leave them to the exact test)
+                        var qa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]);
+                        var qb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
+                        var QA = new Triangle3d(T.V0, T.V1, T.V2); var QB = new Triangle3d(U.V0, U.V1, U.V2);
+                        if (TriangleTriangleFilter.BeyondShared(qa, ref QA, qb, ref QB) != TriangleTriangleFilter.Undecided)
+                            n.Contradicted++;
                         continue;
+                    }
                     if (shared == 0) n.Shared0++; else if (shared == 1) n.Shared1++; else n.Shared2++;
                     var pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]);
                     var pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
@@ -123,6 +130,7 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(reference, answers);
             }
             Assert.Equal(0, n0.Differ);
+            Assert.Equal(0, n0.Contradicted);
         }
     }
 }

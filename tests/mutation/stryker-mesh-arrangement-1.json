@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshArrangement.cs{0..72244}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactTouchOnlyFilterTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],
