@@ -9,13 +9,14 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_configs, select, workflow_edit_forces_full
+from select_shards import ALWAYS, expand_only, gate_shard, shard_name, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the config file names)
-ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
+BO = ["boolean-%d" % i for i in range(1, 8)]
+ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2"}
 
 
@@ -25,6 +26,39 @@ def run(*changed):
 
 
 class SelectShards(unittest.TestCase):
+    def test_every_exact_path_of_the_editorconfig_is_gated(self):
+        # the gate list is the exact-code section of .editorconfig: every existing file that its globs match is gated, and the
+        # shards that mutate such a file are among the gated ones (no second hand-kept list)
+        import glob
+        from select_shards import exact_globs, exact_gated
+        globs = exact_globs()
+        self.assertIn("mesh_ops/ExactMesh*.cs", globs)
+        self.assertIn("math/ExactPredicates.cs", [g for g in globs] + ["math/ExactPredicates.cs"])
+        files = {os.path.relpath(f, ROOT).replace(os.sep, "/") for g in globs for f in glob.glob(os.path.join(ROOT, g))}
+        self.assertGreater(len(files), 20)
+        for f in files:
+            self.assertTrue(exact_gated(f), f)
+        mutated = set().union(*(c[1] for c in CONFIGS.values()))
+        for f in mutated & files:
+            self.assertTrue(any(gate_shard(c, [f]) for c in CONFIGS.values()), f)
+        self.assertFalse(exact_gated("mesh_ops/MeshRoundingRepair.cs"))
+        with self.assertRaises(ValueError):
+            exact_globs("[*.cs]\nx=1\n")
+
+    def test_gate_shard_is_exact_arithmetic_files_of_the_config_only(self):
+        configs = load_configs()
+        self.assertTrue(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
+        self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
+        self.assertTrue(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
+        self.assertTrue(gate_shard(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))
+        self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshArrangement.cs"]))   # (not mutated by this shard)
+        self.assertFalse(gate_shard(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
+        # a script of the runs keeps the full run of its representative shard only (its real Stryker run on the PR)
+        self.assertTrue(gate_shard(configs["mesh-fixed"], ["tests/mutation/run_stryker.sh"], "mesh-fixed"))
+        self.assertFalse(gate_shard(configs["mesh-planar"], ["tests/mutation/run_stryker.sh"], "mesh-planar"))
+
     def test_every_path_in_the_configs_exists(self):
         # a renamed file or test class would otherwise silently stop selecting its shard
         for name, (config, sources, tests) in CONFIGS.items():
@@ -49,7 +83,7 @@ class SelectShards(unittest.TestCase):
 
     def test_source_runs_only_its_shards_incrementally(self):
         self.assertEqual(("none", {r: "source" for r in RO}), run("mesh_ops/MeshRoundingRepair.cs"))
-        self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source", "boolean-3": "source", "boolean-4": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
+        self.assertEqual(("none", {b: "source" for b in BO}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
@@ -63,9 +97,10 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests", "boolean-3": "tests", "boolean-4": "tests"}, **{r: "tests" for r in RO})),
+        # (the boolean parts hold coverage-based test sets, coverage_select.py: a part runs the classes of its own set)
+        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-5": "tests", "boolean-7": "tests"}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
-        self.assertEqual(("none", {"boolean-4": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
+        self.assertEqual(("none", {"boolean-5": "tests", "boolean-7": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
 
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
@@ -405,10 +440,21 @@ class SelectShards(unittest.TestCase):
             self.assertIn("arithmetic=full", p.stdout)
             self.assertEqual(len(ALL_MESH), p.stdout.count('"mode": "full"'))
 
+    def test_the_classes_of_exact_and_row_terms(self):
+        # (coverage_select.py writes exact method names and theory rows: their classes are the test files of the shard)
+        self.assertEqual("ExactMeshBooleanTestsCrossCarry", test_class(
+            "FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsCrossCarry.CrossCarry_SameAsOwnRays_UnderSimilarity"))
+        self.assertEqual("MeshRoundingRepairTests", test_class("FullyQualifiedName~MeshRoundingRepairTests.ExactVertices"))
+        self.assertEqual("ExactBooleanFilterTests", test_class("FullyQualifiedName~ExactBooleanFilterTests"))
+        cfg = CONFIGS["mesh-boolean-6"]
+        self.assertIn("tests/geometry3Sharp.Tests/ExactMeshBooleanTestsLocalFilter.cs", cfg[2])
+        self.assertTrue(all(not t.endswith("DisplayName~utm.cs") for t in cfg[2]))
+        self.assertEqual("tests", mode_of(cfg, {"tests/geometry3Sharp.Tests/ExactMeshBooleanTestsLocalFilter.cs"}))
+
     def test_the_scripts_of_the_runs_run_a_representative_shard_in_full(self):
         # a change to run_stryker.sh, incremental.py or baseline.py can break every shard's real run (the fake-dotnet tests
         # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
-        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
+        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"):
             self.assertEqual(("none", {"fixed": "full"}), run(path), path)
         self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
                          run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))
@@ -432,6 +478,77 @@ class SelectShards(unittest.TestCase):
         old = wf.replace("max-parallel: %d" % cap, "max-parallel: 12")
         diff = "".join(difflib.unified_diff(old.splitlines(True), wf.splitlines(True), "a", "b"))
         self.assertFalse(workflow_edit_forces_full(diff, old, wf))
+
+    def test_the_workflow_checks_local_results(self):
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertIn("      - 'tests/mutation/local-results/**'", wf)        # (a result-only commit starts the check)
+        self.assertIn("python3 test_local_result.py", wf)
+        self.assertIn("python3 test_run_local.py", wf)
+        self.assertIn("python3 test_resplit.py", wf)
+        step = wf[wf.index("Check the local results of this PR"):wf.index("# Runs once a day although")]
+        self.assertIn("github.event_name == 'pull_request'", step)
+        self.assertIn("local_result.py check", step)
+        self.assertIn('--head "$HEAD"', step)
+        # a result file alone selects no shard (the check is all it starts)
+        self.assertEqual(("none", []), select(["tests/mutation/local-results/" + "a" * 40 + "/boolean-1.json"], CONFIGS))
+
+    def test_the_30_process_in_the_workflow(self):
+        # 3.0 process (README): scheduled full runs on master in two groups, no full run on a PR, runs on master never cancel
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertEqual(2, wf.count("cron:"))
+        self.assertIn("cron: '17 19 * * 1-6'", wf)                  # nightly group, Monday to Saturday
+        self.assertIn("cron: '17 19 * * 0'", wf)                    # weekly group, Sunday
+        self.assertIn('if [ "$SCHEDULE" = "17 19 * * 0" ]; then SHARDS=weekly; else SHARDS=nightly; fi', wf)
+        # a group per kind of run on master (a pending dispatch must not be replaced by a scheduled run), cancel only for PRs
+        self.assertIn("group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.event_name }}", wf)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)
+        # both Stryker steps tell run_stryker.sh that this is a PR (no full run there)
+        self.assertEqual(2, wf.count("NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}"))
+        # a PR stores no baseline (it ran no full shard), and a skipped shard has no report to find
+        self.assertEqual(2, wf.count("always() && github.event_name != 'pull_request' && ("))
+        self.assertEqual(2, wf.count("|| github.event_name == 'pull_request') && 'warn' || 'error'"))
+        self.assertIn("python3 test_run_stryker.py", wf)
+        # the weekly run is unfiltered by its cron line, not by the weekday at the start of a late shard
+        self.assertEqual(2, wf.count("G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}"))
+
+    def test_the_concurrency_groups_of_the_events(self):
+        # the expression of the group, evaluated here for the events: PRs by ref, every other event by its name
+        def group(event, ref):
+            return "mutation-" + (ref if event == "pull_request" else event)
+        self.assertNotEqual(group("schedule", "refs/heads/master"), group("workflow_dispatch", "refs/heads/master"))
+        self.assertNotEqual(group("pull_request", "refs/pull/1/merge"), group("pull_request", "refs/pull/2/merge"))
+
+    def test_only_groups_and_prefixes(self):
+        names = {shard_name(n) for n in CONFIGS}
+        nightly = expand_only("nightly", names)
+        weekly = expand_only("weekly", names)
+        self.assertEqual(set(), nightly & weekly)
+        self.assertEqual(names, nightly | weekly)                  # (every shard runs at least once a week)
+        self.assertEqual(set(BO), {n for n in nightly if n.startswith("boolean-")})
+        self.assertEqual(4, len({n for n in nightly if n.startswith("arrangement-")}))
+        self.assertEqual(13, len({n for n in nightly if n.startswith("rounding-")}))
+        self.assertEqual(24, len(nightly))
+        self.assertIn("arithmetic", weekly)
+        self.assertTrue({"geodesic-1", "geodesic-2", "hausdorff", "planar", "fixed", "generated"} <= weekly)
+        self.assertEqual(set(BO), expand_only("boolean-*", names))
+        self.assertEqual({"planar", "boolean-2"}, expand_only("planar, boolean-2", names))
+        with self.assertRaises(ValueError):
+            expand_only("nonexistent-*", names)
+        # the selection of a nightly run: only these shards, all in full
+        arithmetic, mesh = select([], CONFIGS, run_all=True, only=nightly)
+        self.assertEqual("none", arithmetic)
+        self.assertEqual(nightly, {m["shard"] for m in mesh})
+        self.assertTrue(all(m["mode"] == "full" for m in mesh))
+
+    def test_narrowed_test_sets_belong_to_shards_of_the_sunday_run(self):
+        # README "Narrowed test sets": the unfiltered check of record is the scheduled run of a Sunday, which is the weekly group
+        # (the nightly group runs Monday to Saturday): a filter file of a nightly shard would never be checked unfiltered
+        names = {shard_name(n) for n in CONFIGS}
+        weekly = expand_only("weekly", names)
+        for f in os.listdir(os.path.join(HERE, "test-filters")):
+            self.assertIn(shard_name(os.path.splitext(f)[0][len("stryker-"):]), weekly, f)
 
     def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
         # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what

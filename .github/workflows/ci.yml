@@ -69,6 +69,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: No mutation marker in the sources
+        # (tests/mutation/exclude_other_sources.py marks the files a mutation shard does not mutate only while Stryker runs
+        # and run_stryker.sh takes the marks off again; a marked file must never reach a commit, the build or the pack)
+        run: python3 tests/mutation/exclude_other_sources.py check --root .
       - name: Build
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
