@@ -103,14 +103,14 @@ namespace gs
         }
         long cell_count(AxisAlignedBox3d b)
         {
-            long nx = (long)Math.Floor(b.Max.x / cell) - (long)Math.Floor(b.Min.x / cell) + 1, ny = (long)Math.Floor(b.Max.y / cell) - (long)Math.Floor(b.Min.y / cell) + 1,
-                nz = (long)Math.Floor(b.Max.z / cell) - (long)Math.Floor(b.Min.z / cell) + 1;
+            long nx = MathUtil.FloorToLongSaturating(b.Max.x / cell) - MathUtil.FloorToLongSaturating(b.Min.x / cell) + 1, ny = MathUtil.FloorToLongSaturating(b.Max.y / cell) - MathUtil.FloorToLongSaturating(b.Min.y / cell) + 1,
+                nz = MathUtil.FloorToLongSaturating(b.Max.z / cell) - MathUtil.FloorToLongSaturating(b.Min.z / cell) + 1;
             return nx * ny * nz;
         }
         IEnumerable<(long, long, long)> cells(AxisAlignedBox3d b)
         {
-            long x0 = (long)Math.Floor(b.Min.x / cell), x1 = (long)Math.Floor(b.Max.x / cell), y0 = (long)Math.Floor(b.Min.y / cell),
-                y1 = (long)Math.Floor(b.Max.y / cell), z0 = (long)Math.Floor(b.Min.z / cell), z1 = (long)Math.Floor(b.Max.z / cell);
+            long x0 = MathUtil.FloorToLongSaturating(b.Min.x / cell), x1 = MathUtil.FloorToLongSaturating(b.Max.x / cell), y0 = MathUtil.FloorToLongSaturating(b.Min.y / cell),
+                y1 = MathUtil.FloorToLongSaturating(b.Max.y / cell), z0 = MathUtil.FloorToLongSaturating(b.Min.z / cell), z1 = MathUtil.FloorToLongSaturating(b.Max.z / cell);
             for (long x = x0; x <= x1; ++x) for (long y = y0; y <= y1; ++y) for (long z = z0; z <= z1; ++z) yield return (x, y, z);
         }
 

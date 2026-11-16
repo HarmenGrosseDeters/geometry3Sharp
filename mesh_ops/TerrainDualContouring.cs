@@ -179,8 +179,8 @@ namespace gs
             // grid origin slightly below the bounds by an odd fraction of a cell, so that vertices and edges at
             // round coordinates do not land exactly on cell borders or sample rays
             origin = new Vector3d(bounds.Min.x - 0.1371 * cell, bounds.Min.y - 0.2713 * cell, bounds.Min.z);
-            NX = (int)Math.Ceiling((bounds.Max.x - origin.x) / cell) + 1;
-            NY = (int)Math.Ceiling((bounds.Max.y - origin.y) / cell) + 1;
+            NX = MathUtil.ToIntSaturating(Math.Ceiling((bounds.Max.x - origin.x) / cell)) + 1;
+            NY = MathUtil.ToIntSaturating(Math.Ceiling((bounds.Max.y - origin.y) / cell)) + 1;
             FinestCells = NX * NY;
 
             sample_cells();
@@ -331,13 +331,13 @@ namespace gs
             pointBinSize = pointRadius;
             while ((Math.Floor(bounds.Width / pointBinSize) + 1) * (Math.Floor(bounds.Height / pointBinSize) + 1) > 4.0 * n + 1024)
                 pointBinSize *= 2;
-            pbx = (int)(bounds.Width / pointBinSize) + 1;
-            pby = (int)(bounds.Height / pointBinSize) + 1;
+            pbx = MathUtil.ToIntSaturating(bounds.Width / pointBinSize) + 1;
+            pby = MathUtil.ToIntSaturating(bounds.Height / pointBinSize) + 1;
             int[] bin = new int[n];
             int[] count = new int[pbx * pby + 1];
             for (int k = 0; k < n; ++k) {
                 Vector3d p = points[k];
-                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointBinSize)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointBinSize));
+                int i = Math.Min(pbx - 1, MathUtil.ToIntSaturating((p.x - pointBinOrigin.x) / pointBinSize)), j = Math.Min(pby - 1, MathUtil.ToIntSaturating((p.y - pointBinOrigin.y) / pointBinSize));
                 bin[k] = i + pbx * j;
                 count[bin[k] + 1]++;
             }
@@ -370,8 +370,8 @@ namespace gs
         {
             p = n = Vector3d.Zero;
             double R = pointRadius * radiusFactor, R2 = R * R;
-            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointBinSize), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointBinSize);
-            int reach = (int)Math.Ceiling(R / pointBinSize);
+            int ci = MathUtil.FloorToIntSaturating((x - pointBinOrigin.x) / pointBinSize), cj = MathUtil.FloorToIntSaturating((y - pointBinOrigin.y) / pointBinSize);
+            int reach = MathUtil.ToIntSaturating(Math.Ceiling(R / pointBinSize));
             double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, r0 = 0, r1 = 0, r2 = 0, wsum = 0, mx = 0, my = 0;
             int count = 0;
             for (int j = cj - reach; j <= cj + reach; ++j) {
@@ -473,8 +473,8 @@ namespace gs
                 Vector3d a = bmesh.GetVertex(ev.a) - origin, b = bmesh.GetVertex(ev.b) - origin;
                 Vector2d d = b.xy - a.xy;
                 Vector2d n2 = new Vector2d(-d.y, d.x).Normalized;
-                int i0 = clampi((int)Math.Floor(Math.Min(a.x, b.x) / cell), NX), i1 = clampi((int)Math.Floor(Math.Max(a.x, b.x) / cell), NX);
-                int j0 = clampi((int)Math.Floor(Math.Min(a.y, b.y) / cell), NY), j1 = clampi((int)Math.Floor(Math.Max(a.y, b.y) / cell), NY);
+                int i0 = clampi(MathUtil.FloorToIntSaturating(Math.Min(a.x, b.x) / cell), NX), i1 = clampi(MathUtil.FloorToIntSaturating(Math.Max(a.x, b.x) / cell), NX);
+                int j0 = clampi(MathUtil.FloorToIntSaturating(Math.Min(a.y, b.y) / cell), NY), j1 = clampi(MathUtil.FloorToIntSaturating(Math.Max(a.y, b.y) / cell), NY);
                 for (int j = j0; j <= j1; ++j)
                     for (int i = i0; i <= i1; ++i) {
                         double t0, t1;

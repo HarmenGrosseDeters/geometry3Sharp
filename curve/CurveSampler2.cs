@@ -51,7 +51,7 @@ namespace g3 {
 		{
             double fLenT = curve.ParamLength;
 
-			int nSteps = Math.Max( (int)(fLenT / fSpacing)+1, 2 );
+			int nSteps = Math.Max( MathUtil.ToIntSaturating(fLenT / fSpacing)+1, 2 );
 
 			VectorArray2d vec = new VectorArray2d(nSteps);
 
@@ -78,7 +78,7 @@ namespace g3 {
                 degen[1] = curve.SampleArcLength(1);
                 return degen;
             }
-			int nSteps = Math.Max( (int)(fLen / fSpacing)+1, 2 );
+			int nSteps = Math.Max( MathUtil.ToIntSaturating(fLen / fSpacing)+1, 2 );
 
 			VectorArray2d vec = new VectorArray2d(nSteps);
 
@@ -117,7 +117,7 @@ namespace g3 {
 				double t1 = intervals[i+1];
 				double fLen = curve.GetLength(t0,t1);
 
-				int nSteps = Math.Max( (int)(fLen / fSpacing)+1, 2 );
+				int nSteps = Math.Max( MathUtil.ToIntSaturating(fLen / fSpacing)+1, 2 );
 				double div = 1.0 / nSteps;
 				if ( curve.IsClosed == false && i == N-1 ) {
 					nSteps++;

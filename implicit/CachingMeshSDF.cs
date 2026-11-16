@@ -284,10 +284,10 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // recompute j/k integer bounds of triangle w/o exact band
-                int j0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fjp, fjq, fjr)), 0, nj - 1);
-                int j1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fjp, fjq, fjr)), 0, nj - 1);
-                int k0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fkp, fkq, fkr)), 0, nk - 1);
-                int k1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fkp, fkq, fkr)), 0, nk - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fjp, fjq, fjr))), 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.FloorToIntSaturating(MathUtil.Max(fjp, fjq, fjr)), 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fkp, fkq, fkr))), 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.FloorToIntSaturating(MathUtil.Max(fkp, fkq, fkr)), 0, nk - 1);
 
                 // and do intersection counts
                 for (int k = k0; k <= k1; ++k) {
@@ -295,7 +295,7 @@ namespace g3
                         double a, b, c;
                         if (point_in_triangle_2d(j, k, fjp, fkp, fjq, fkq, fjr, fkr, out a, out b, out c)) {
                             double fi = a * fip + b * fiq + c * fir; // intersection i coordinate
-                            int i_interval = (int)(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval]
+                            int i_interval = MathUtil.ToIntSaturating(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval]
                             if (i_interval < 0) {
                                 intersection_count.atomic_incdec(0, j, k, neg_x);
                             } else if (i_interval < ni) {
@@ -464,14 +464,14 @@ namespace g3
                 ((pt.z - GridOrigin.z) / CellSize));
 
             // compute integer coordinates (floor, so points just below the origin are outside)
-            int x0 = (int)Math.Floor(gridPt.x);
-            int y0 = (int)Math.Floor(gridPt.y), y1 = y0 + 1;
-            int z0 = (int)Math.Floor(gridPt.z), z1 = z0 + 1;
+            int x0 = MathUtil.FloorToIntSaturating(gridPt.x);
+            int y0 = MathUtil.FloorToIntSaturating(gridPt.y), y1 = y0 + 1;
+            int z0 = MathUtil.FloorToIntSaturating(gridPt.z), z1 = z0 + 1;
 
-            // clamp to grid
-            if (x0 < 0 || (x0 + 1) >= SDF.Grid.ni ||
-                y0 < 0 || y1 >= SDF.Grid.nj ||
-                z0 < 0 || z1 >= SDF.Grid.nk)
+            // clamp to grid (compared without x0 + 1: a saturated int.MaxValue, from a huge coordinate, must not wrap around, #804)
+            if (x0 < 0 || x0 >= SDF.Grid.ni - 1 ||
+                y0 < 0 || y0 >= SDF.Grid.nj - 1 ||
+                z0 < 0 || z0 >= SDF.Grid.nk - 1)
                 return Outside;
 
             // convert double coords to [0,1] range
@@ -542,9 +542,9 @@ namespace g3
                 return Vector3d.Zero;
 
             // compute integer coordinates
-            int x0 = (int)gridPt.x;
-            int y0 = (int)gridPt.y, y1 = y0 + 1;
-            int z0 = (int)gridPt.z, z1 = z0 + 1;
+            int x0 = MathUtil.ToIntSaturating(gridPt.x);
+            int y0 = MathUtil.ToIntSaturating(gridPt.y), y1 = y0 + 1;
+            int z0 = MathUtil.ToIntSaturating(gridPt.z), z1 = z0 + 1;
 
             // convert double coords to [0,1] range
             double fAx = gridPt.x - (double)x0;

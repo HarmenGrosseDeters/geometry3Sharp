@@ -136,8 +136,8 @@ namespace g3
 			for (int i = 0; i < m_seedPoints.Count; ++i) {
 
 				SeedPoint p = (SeedPoint)m_seedPoints[i];
-				int xi = (int)(p.x / m_fCellSize);
-				int yi = (int)(p.y / m_fCellSize);
+				int xi = MathUtil.ToIntSaturating(p.x / m_fCellSize);
+				int yi = MathUtil.ToIntSaturating(p.y / m_fCellSize);
 
 				bool bFoundSurface = false;
 				while (!bFoundSurface && yi > 0 && yi < m_cells.Length-1 && xi > 0 && xi < m_cells[0].Length-1 ) {

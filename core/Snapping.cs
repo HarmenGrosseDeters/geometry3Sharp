@@ -12,7 +12,7 @@ namespace g3
             fValue -= offset;
             double sign = Math.Sign(fValue);
             fValue = Math.Abs(fValue);
-            int nInc = (int)(fValue / fIncrement);
+            int nInc = MathUtil.ToIntSaturating(fValue / fIncrement);
             double fRem = fValue % fIncrement;
             if (fRem > fIncrement / 2)
                 ++nInc;

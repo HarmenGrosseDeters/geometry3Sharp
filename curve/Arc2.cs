@@ -165,10 +165,10 @@ namespace g3 {
             get {
                 // extrema of arc are P0, P1, and any axis-crossings that lie in arc span.
                 // We can compute bounds of axis-crossings in normalized space and then scale/translate.
-                int k = (int)(AngleStartDeg / 90.0);
+                int k = MathUtil.ToIntSaturating(AngleStartDeg / 90.0);
                 if (k * 90 < AngleStartDeg) 
                     k++;
-                int stop_k = (int)(AngleEndDeg / 90);       
+                int stop_k = MathUtil.ToIntSaturating(AngleEndDeg / 90);       
                 if (stop_k * 90 > AngleEndDeg)
                     stop_k--;
                 // [TODO] we should only ever need to check at most 4 here, right? then we have gone a circle...

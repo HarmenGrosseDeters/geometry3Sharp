@@ -619,7 +619,7 @@ Done and removed from this list: #721 closed (the plateau variant of the positio
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: #804 (remaining casts), then the net48 / net10 measurement (#929, local).
+1. Hard problem 11, determinism proof: #804 (casts audited 2026-11-16), then the net48 / net10 measurement (#929, local).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
    exudation.
 3. #866 / #940: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule; the narrow phase is the serial
