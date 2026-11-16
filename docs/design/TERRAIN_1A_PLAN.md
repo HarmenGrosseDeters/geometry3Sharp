@@ -103,7 +103,7 @@ design area); continuous change of the slope along a segment and the three inter
    - **For 1b** (coordinator, 2026-11-01, within the owner's decision "λ only for the remainder"): 1b joins the design
      at the lowered toe and reports λ (`UsedToeLowering`); a new owner decision is needed only if 1b finds a reason it
      cannot.
-2. **No design TIN in 1a** (see Scope): `CrossDesignInfluence` comes with the design area.
+2. **No design TIN in 1a** (see Scope): `CrossDesignInfluence` comes with the design area (it was never built; 2026-11-16, [TERRAIN_SECTORS.md](TERRAIN_SECTORS.md#status-2026-11-16-parked-owner)).
 3. **`HeightLimit`** replaces `TargetHeights` and the terrain extent until 1b; it is one height, not a list.
 
 ## Look before you build (owner rule, AGENT_WORKFLOW 3)
