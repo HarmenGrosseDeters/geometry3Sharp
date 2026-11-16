@@ -579,6 +579,7 @@ Settled:
 - **Default-hashed `long` keys:** done in #431 (2026-11-08); [LongHashAudit](../../benchmarks/LongHashAudit/README.md).
 - **Thingi10K full-run findings** (draft #385): superseded by the WP2 triage and the sign-off run.
 - **`thingi-pairs` class:** done (#418, 2026-11-09); its baseline and final runs are queued behind 3.0 (owner 2026-11-12).
+- **`thingi-contact` class (owner 2026-11-16):** Thingi10K pairs with exact contact (face contact, partial overlap, ulp shift, mirror; translations, power-of-two scales and reflections only, every sum checked exact), the hard cases for the exact predicates and the use case of `ExactMeshImprint`; first run of 30 pairs per variant on a GitHub runner (`thingi-contact.yml`, `workflow_dispatch`); PR: PRNUMBER. Failures it finds are issues, not fixed in that PR.
 - **GPU / SIMD:** GPU not now (owner 2026-11-04; if ever, ILGPU in an add-on for the pair search only); SIMD for the
   `Orient3d` filter measured at 2-4 % ([research.md](research.md#later)).
 

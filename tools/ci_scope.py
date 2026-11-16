@@ -30,6 +30,7 @@ SHARED = (
     "benchmarks/Meshing2Benchmark/golden/",
     "benchmarks/TerrainBenchmark/ClosestFields.cs",
     "benchmarks/ReducerRemesherBaseline/Harness.cs",
+    "benchmarks/BooleanComparison/ContactTransforms.cs",       # ThingiContactTransformTests
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",
