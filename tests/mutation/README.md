@@ -97,6 +97,14 @@ arithmetic job and the selection job that is 8, which leaves 12 of the account's
 (1 to 5 hours) a full run needs about 17 hours of wall time. A concurrency group per slot does not work: a group keeps one running and
 one pending job and cancels every older pending one, so most shards would end as cancelled.
 
+The same rule applies to the workflow's own group (`mutation-<ref>`, `cancel-in-progress` only for pull requests): on master a group
+keeps one running run and one pending run, and a newer run replaces the pending one. A run that is replaced while it waits ends as
+cancelled with the annotation "Canceling since a higher priority waiting request for mutation-refs/heads/master exists"; it is no
+failure of the run and nothing in `mutation.yml` cancels it. So when the late cron run and the dispatcher's runs overlap, the
+older waiting one is shown as cancelled. A cancel with the annotation "The run was canceled by <user>" is a manual one (coordinator
+sessions cancel with the owner's token, so it shows as the owner). The cron is weekly (Mondays); the scheduled runs of 2026-11-02 and
+2026-11-09 are the only ones until the daily cron of #615 (the rounding and envelope shards of the first one ended at the 350 min job limit).
+
 ### Narrowed test sets
 
 A shard needs only the tests that kill its mutants. [narrow_tests.py](narrow_tests.py) turns the report of a full run
