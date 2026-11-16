@@ -400,6 +400,7 @@ Problems where the library already has a head start and that could be researched
   mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
   does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
   black-box part (needs a reference); stop rules in the note. Owner decision pending.
+  **A1 and P1 built 2026-11-16** (PR `claude/metamorphic-a1-p1`, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles), quiet on master. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,

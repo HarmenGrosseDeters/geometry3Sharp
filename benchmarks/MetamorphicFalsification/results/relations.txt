@@ -1,0 +1,41 @@
+######## relations (A1, P1), dotnet run --project benchmarks/MetamorphicFalsification -c Release -- relations
+######## master 097b33b (control, fixed code)
+== relations on 10.0.15 (A1 and P1 of docs/research/METAMORPHIC_TESTING.md, section 5)
+  A1 #712 repair (flattened vs unflattened)    not caught wrap 0 vs 94, result 4 vs 84 triangles
+  A1 unit tetrahedron, x by 2^-46              not caught wrap 0 vs 94
+  A1 unit tetrahedron, x by 2^46               not caught wrap 0 vs 52
+  P1 #719 open union, smallest coord 2^-500    not caught unit 402:3208.7229880566224 vs 2^-500 402:3208.7229880566224
+  P1 #719 open union, smallest coord 2^-1000   not caught unit 402:3208.7229880566224 vs 2^-1000 402:3208.7229880566224
+  P1 WindingNumber, smallest coord 2^-500      not caught 200 points
+  P1 IsInside, smallest coord 2^-500           not caught 200 points
+  P1 WindingNumber, smallest coord 2^-1000     not caught 200 points
+  P1 IsInside, smallest coord 2^-1000          not caught 200 points
+  (unit #719 union: 402:3208.7229880566224)
+
+######## parent cbf8b78 (the parent of the #712 fix)
+== relations on 10.0.15 (A1 and P1 of docs/research/METAMORPHIC_TESTING.md, section 5)
+  A1 #712 repair (flattened vs unflattened)    CAUGHT wrap 0 vs 136018, result 4 vs 7652 triangles | wrap triangles: 0 vs 136018 (more than 2 times the reference and above the floor 5000)
+  A1 unit tetrahedron, x by 2^-46              CAUGHT wrap 0 vs 136018 | wrap triangles: 0 vs 136018 (more than 2 times the reference and above the floor 5000)
+  A1 unit tetrahedron, x by 2^46               not caught wrap 0 vs 3548
+  P1 #719 open union, smallest coord 2^-500    CAUGHT unit 402:3208.7229880566224 vs 2^-500 408:3220.6092345991296 | triangles 402 vs 408; area: 3208.7229880566224 vs 3220.6092345991296 (more than 1E-09 apart)
+  P1 #719 open union, smallest coord 2^-1000   CAUGHT unit 402:3208.7229880566224 vs 2^-1000 408:3220.6092345991296 | triangles 402 vs 408; area: 3208.7229880566224 vs 3220.6092345991296 (more than 1E-09 apart)
+  P1 WindingNumber, smallest coord 2^-500      not caught 200 points
+  P1 IsInside, smallest coord 2^-500           not caught 200 points
+  P1 WindingNumber, smallest coord 2^-1000     not caught 200 points
+  P1 IsInside, smallest coord 2^-1000          not caught 200 points
+
+######## parent c677da7 (the parent of the #719 fix)
+== relations on 10.0.15 (A1 and P1 of docs/research/METAMORPHIC_TESTING.md, section 5)
+  A1 #712 repair (flattened vs unflattened)    not caught wrap 0 vs 94, result 4 vs 84 triangles
+  A1 unit tetrahedron, x by 2^-46              not caught wrap 0 vs 94
+  A1 unit tetrahedron, x by 2^46               not caught wrap 0 vs 52
+  P1 #719 open union, smallest coord 2^-500    CAUGHT unit 402:3208.7229880566224 vs 2^-500 408:3220.6092345991296 | triangles 402 vs 408; area: 3208.7229880566224 vs 3220.6092345991296 (more than 1E-09 apart)
+  P1 #719 open union, smallest coord 2^-1000   CAUGHT unit 402:3208.7229880566224 vs 2^-1000 408:3220.6092345991296 | triangles 402 vs 408; area: 3208.7229880566224 vs 3220.6092345991296 (more than 1E-09 apart)
+  P1 WindingNumber, smallest coord 2^-500      not caught 200 points
+  P1 IsInside, smallest coord 2^-500           not caught 200 points
+  P1 WindingNumber, smallest coord 2^-1000     not caught 200 points
+  P1 IsInside, smallest coord 2^-1000          not caught 200 points
+
+# Notes: the unflattened #712 reference is the same tetrahedron with its x extent equal to the others (wrap 0 on every commit).
+# A1 on the unit tetrahedron flattened by 2^-46 reproduces the #712 blow-up (136018 wrap triangles on the parent). P1 on the open
+# union reproduces #719 (402 vs 408 triangles). Master and the #719 parent are quiet for A1, master quiet for P1.

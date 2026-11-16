@@ -7,6 +7,10 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <!-- the relations A1 and P1 (Relations.cs): the same helper file as the tests, base API only -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\MetamorphicRelations.cs" Link="MetamorphicRelations.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
 </Project>

@@ -57,6 +57,7 @@ static class Program
 
     static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "relations") return Relations.Run();
         var cases = Cases.All();
         string only = args.Length > 0 ? args[0] : null;
         foreach (var c in cases) {
