@@ -1733,3 +1733,16 @@ On 860049 (the trial-heaviest tail mesh) the trials fall from 14.5 s to 6.9 s an
 0.55 s. Of the remaining trial time, about 3 s goes to the pocket searches, and the local trials with few seed vertices
 stay serial. A first version of the stars with atomic counters was no faster than serial (4.3 s either way, memory bound);
 the vertex-range version scans the cells once per part.
+
+## Alpha-wrap defaults on the 800-mesh sample (`alpha-defaults.yml`)
+
+The measurement behind the default decisions for the sharp-feature pass (#736) and the raw-size budget (#846): three
+configurations of `BENCH_REPAIR=wrappipe` (diagonal / 300, offset / 3000, full fidelity) over `cases/alpha_defaults_list800.txt`
+(the 800 ids of `sample800_2611`): A library defaults, B `BENCH_WRAP_FEATURES=1`, C `BENCH_WRAP_BUDGET=300000`. It runs as the
+manual workflow `.github/workflows/alpha-defaults.yml` (GitHub-hosted runners, at most 6 shards at a time, one run at a time):
+`alpha_defaults.py select` cuts a round robin shard, `fetch_data.py --ids` fetches only its models, `alpha_defaults.py run` runs
+the configurations interleaved per mesh (one process at a time, per-mesh timeout 400 s, resumable), and the last job merges the
+shards (`alpha_defaults.py merge`), writes `alpha_defaults_summary.py`'s table to the step summary and pushes the raw rows,
+`wall.tsv` and `summary.md` to `runs/alpha-defaults-800/run-<run id>`. `BENCH_WRAP_BUDGET` was read only by the robust mode until
+this workflow; the `wrappipe` mode now sets `MeshAlphaWrap.MaxEstimatedTriangles` from it and writes `wrap_estimate` and
+`wrap_coarsening` into the row (unset: the output is unchanged). Checks: `python3 test_alpha_defaults.py`.

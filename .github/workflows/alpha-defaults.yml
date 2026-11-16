@@ -1,0 +1,170 @@
+name: Alpha-wrap defaults (800 meshes)
+
+# The alpha-wrap defaults measurement (#736 sharp-feature pass, #846 raw-size budget): three configurations of the wrap
+# pipeline over the 800-mesh Thingi10K sample (benchmarks/MeshRepairBenchmark/alpha_defaults.py, cases/alpha_defaults_list800.txt):
+#   A library defaults, B A + BENCH_WRAP_FEATURES=1, C A + BENCH_WRAP_BUDGET=300000.
+# Manual only (workflow_dispatch, no other trigger). It moved here from a cloud session whose container restarts killed a
+# 9-13 h run. The shards are round robin slices of the mesh list; each shard fetches only its own models from huggingface at
+# run time (a PR-tier test never does), runs the three configurations one process at a time, and uploads its raw rows. The
+# final job merges them, writes the summary table to the step summary and pushes it with the raw rows to the data branch
+# runs/alpha-defaults-800 (directory run-<run id>). GitHub-hosted runners only; no mesh is committed.
+# Pipeline load: at most 6 shards at a time (PR CI needs the other concurrent jobs), and two runs never overlap.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref of the library, benchmark and scripts (must contain BENCH_WRAP_BUDGET in the wrappipe mode)'
+        default: 'master'
+      shards:
+        description: 'Number of shards (1 to 64); 16 shards of 50 meshes take about 40 min each'
+        default: '16'
+      mesh_range:
+        description: 'Range first:last of the 800-mesh list (0-based, last exclusive, either may be empty)'
+        default: '0:800'
+      configs:
+        description: 'Configurations to run (letters of ABC); the summary compares only meshes with all three'
+        default: 'ABC'
+      timeout_s:
+        description: 'Timeout per mesh and configuration in seconds'
+        default: '400'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-defaults
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.m.outputs.shards }}
+    steps:
+      - id: m
+        env:
+          SHARDS: ${{ inputs.shards }}
+          CONFIGS: ${{ inputs.configs }}
+          RANGE: ${{ inputs.mesh_range }}
+          TIMEOUT_S: ${{ inputs.timeout_s }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          e = os.environ
+          if not re.fullmatch(r"[1-9][0-9]?", e["SHARDS"]) or not 1 <= int(e["SHARDS"]) <= 64:
+              sys.exit("shards must be 1 to 64")
+          if not re.fullmatch(r"[ABC]{1,3}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]):
+              sys.exit("configs must be distinct letters of ABC")
+          if not re.fullmatch(r"[0-9]*:[0-9]*", e["RANGE"]):
+              sys.exit("mesh_range must be first:last")
+          if not re.fullmatch(r"[0-9]{1,4}", e["TIMEOUT_S"]):
+              sys.exit("timeout_s must be a number of seconds")
+          with open(e["GITHUB_OUTPUT"], "a") as f:
+              f.write("shards=" + json.dumps(list(range(int(e["SHARDS"])))) + "\n")
+          PY
+
+  measure:
+    needs: plan
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the benchmark
+        run: |
+          dotnet build benchmarks/MeshRepairBenchmark/MeshRepairBenchmark.csproj -c Release
+          { git rev-parse HEAD; nproc; dotnet --version; } > lib_sha.txt
+      - name: Select and fetch the shard's meshes
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ inputs.shards }}
+          RANGE: ${{ inputs.mesh_range }}
+        run: |
+          cd benchmarks/MeshRepairBenchmark
+          python3 alpha_defaults.py select cases/alpha_defaults_list800.txt "$SHARD" "$SHARDS" "$RANGE" > "$RUNNER_TEMP/ids.txt"
+          wc -l < "$RUNNER_TEMP/ids.txt"
+          python3 fetch_data.py --ids "$RUNNER_TEMP/ids.txt"
+      - name: Run the configurations
+        env:
+          SHARD: ${{ matrix.shard }}
+          CONFIGS: ${{ inputs.configs }}
+          TIMEOUT_S: ${{ inputs.timeout_s }}
+        run: |
+          # no new mesh after 270 min: a shard stays under the 6 h job limit even if many meshes time out
+          python3 benchmarks/MeshRepairBenchmark/alpha_defaults.py run "$RUNNER_TEMP/ids.txt" "$GITHUB_WORKSPACE/out" \
+            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min 270
+      - name: Shard summary
+        if: always()
+        run: |
+          {
+            echo "### Shard ${{ matrix.shard }}"
+            echo "meshes: $(wc -l < "$RUNNER_TEMP/ids.txt"), rows: $(cat out/raw/*.jsonl 2>/dev/null | wc -l), process wall (s): $(awk '{s+=$3} END {print s+0}' out/wall.tsv 2>/dev/null)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: |
+            out/
+            lib_sha.txt
+
+  publish:
+    needs: measure
+    if: ${{ !cancelled() && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # the data branch runs/alpha-defaults-800
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: shard-*
+      - name: Merge and summarize
+        run: |
+          set -o pipefail
+          B=benchmarks/MeshRepairBenchmark
+          python3 $B/alpha_defaults.py merge merged art/shard-*/out
+          cp art/shard-0/lib_sha.txt merged/lib_sha.txt 2>/dev/null || true
+          python3 -I $B/alpha_defaults_summary.py merged $B/cases/alpha_defaults_list800.txt | tee merged/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merged
+          path: merged/
+      - name: Raw rows and summary to runs/alpha-defaults-800
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cp -r merged "$RUNNER_TEMP/merged"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin runs/alpha-defaults-800 > /dev/null; then
+            git fetch -q --depth=1 origin runs/alpha-defaults-800:refs/remotes/origin/runs/alpha-defaults-800
+            git checkout -q -B runs/alpha-defaults-800 origin/runs/alpha-defaults-800
+          else
+            git checkout -q --orphan runs/alpha-defaults-800
+            git rm -rqf .
+          fi
+          mkdir -p "run-$GITHUB_RUN_ID"
+          cp -r "$RUNNER_TEMP"/merged/. "run-$GITHUB_RUN_ID"/
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -q -m "alpha-defaults: run $GITHUB_RUN_ID (raw rows and summary)"
+          git push origin runs/alpha-defaults-800

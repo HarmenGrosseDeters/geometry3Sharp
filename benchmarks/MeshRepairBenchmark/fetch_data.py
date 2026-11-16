@@ -1,6 +1,7 @@
 # Downloads a reproducible selection of Thingi10K meshes (https://huggingface.co/datasets/Thingi10K/Thingi10K).
 #   data/meshes:       6 defect categories x 60 broken meshes (<= 100k faces) + 40 clean controls
 #   data/meshes_large: 30 broken meshes with 100k..1M faces  (skip with --no-large)
+# --ids FILE: exactly the model ids listed in FILE (one per line) in data/ids/meshes (a shard of a sweep, eg alpha_defaults.py)
 # --holdout: a disjoint second selection of the same shape (other seeds, the default selection excluded)
 # --sample N [--seed S]: N random models with <= 100k faces (default seed 2611; the alpha wrap sample) in
 #   data/sample<N>_<S>/meshes (selection.csv); run it with BENCH_DATA=sample<N>_<S>
@@ -63,7 +64,20 @@ def arg(name, default):
 
 sel, large = select(42, 7)
 prefix, suffix = "", ""
-if "--sample" in sys.argv:
+if "--ids" in sys.argv:
+    # a given list of ids (one shard of a sweep): only these models are fetched
+    i = sys.argv.index("--ids") + 1
+    if i >= len(sys.argv):
+        sys.exit("--ids needs a file")
+    ids = [x.strip() for x in open(sys.argv[i]) if x.strip()]
+    missing = [k for k in ids if k not in files]
+    if missing:
+        sys.exit(f"ids not in the dataset: {missing[:5]}")
+    sel, large = {k: "ids" for k in ids}, {}
+    prefix, suffix = "ids/", ""
+    os.makedirs("data/ids", exist_ok=True)
+    sys.argv.append("--no-large")
+elif "--sample" in sys.argv:
     # plain random sample of the dataset (no category stratification), eg the 800 sample of the alpha wrap work
     n, seed = arg("--sample", 800), arg("--seed", 2611)
     random.seed(seed)
