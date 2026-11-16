@@ -456,7 +456,7 @@ namespace geometry3Sharp.Tests
             int abandoned = 0, same = 0;
             for (int i = 0; i < 1800; ++i) {
                 Query q = prefilterQuery(rnd, i);
-                var o = new CcdOptions { MinSeparation = ms, MaxIterations = i % 11 == 0 ? 40 : 1000000 };
+                var o = new CcdOptions { MinSeparation = ms, MaxIterations = i % 11 == 0 ? 40 : 1000000, TimeLimit = i % 3 == 0 ? 0.5 : 1, TimeTolerance = i % 4 == 0 ? 0.05 : 1e-6, Tolerance = i % 5 == 0 ? 1e-3 : double.NaN };
                 CcdResult free = Run(q, o, plain);
                 double[] bounds = { 0, 1e-3, 0.0625, 0.3, 0.5, 0.99, 1, free.TimeOfImpact, free.NearContactTime };
                 foreach (double bound in bounds) {

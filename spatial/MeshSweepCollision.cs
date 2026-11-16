@@ -256,8 +256,10 @@ namespace g3
                     Action<int, CcdSolver> solve = (k, solver) => { solver.AbandonAfter = PreFilter && CollectAll == false ? bound : double.PositiveInfinity; res[k] = solve_pair(f[k], solver); if (solver.Abandoned) System.Threading.Interlocked.Increment(ref abandoned); };
                     // in fixed chunks: the bound of a chunk is the smallest near contact time of the chunks before it
                     // (it depends only on the input), so every pair that is not abandoned has its own result
-                    for (int c0 = 0; c0 < total; c0 += AbandonChunk) {
-                        int c1 = Math.Min(total, c0 + AbandonChunk);
+                    int chunk = Math.Max(1, AbandonChunk);
+                    for (long c0l = 0; c0l < total; c0l += chunk) {
+                        int c0 = (int)c0l;
+                        int c1 = (int)Math.Min(total, c0l + chunk);
                         int cs = c0;
                         if (parallel && c1 - c0 > 1)
                             gParallel.ForRange(c1 - c0, () => new_solver(), (k, solver) => solve(cs + k, solver));
@@ -667,10 +669,10 @@ namespace g3
         /// discards are queried like any other, and no pair is abandoned (the results are the same either way) </summary>
         internal bool PreFilter = true;
 
-        /// <summary> the number of candidate pairs per fixed chunk of a batch after which the bound of the abandoned pairs is updated </summary>
         /// <summary> tests and benchmarks: the candidate pairs the pre-filter dropped before a query (the solver discards their first box) and those whose query stopped at the bound (no pair of either kind is a contact) </summary>
         internal long PairsSkipped, PairsAbandoned;
 
+        /// <summary> the number of candidate pairs per fixed chunk of a batch after which the bound of the abandoned pairs is updated </summary>
         internal int AbandonChunk = 1 << 16;
 
         CcdSolver new_solver() { return new CcdSolver { RootShortcut = PreFilter }; }
