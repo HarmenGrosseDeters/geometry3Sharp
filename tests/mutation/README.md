@@ -109,13 +109,15 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). An
   incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
   no baseline.
-- **The exact-arithmetic gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact arithmetic
-  (`math/Exact*.cs`, `AdaptivePredicates.cs`, implicit points, error bounds). Without a baseline such a PR would pass with no
-  check, so a shard that mutates one of these files (`EXACT_GATED` in `select_shards.py`: `math/Exact*.cs`,
-  `AdaptivePredicates.cs`, `FixedPoint3.cs`, `Generated/*.cs`) **and** whose file the PR changes keeps its full run on the
-  PR, also when its config changed in the same PR (`select_shards.py gate <config>`, called by `run_stryker.sh`). These are
-  the shards `arithmetic`, `fixed`, `generated`, `terrain-arith` and `terrain-kernel`, 50 minutes to a few hours. The
-  gate fails closed (a git or script error counts as gated). A change to one of the scripts of the runs (`SCRIPTS`) also keeps the
+- **The exact-code gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact code. Without a
+  baseline such a PR would pass with no check, so a shard that mutates a file of the exact-code section of `.editorconfig`
+  (`exact_gated` in `select_shards.py` reads its globs: `math/Exact*.cs`, `AdaptivePredicates.cs`, `FixedPoint3.cs`,
+  `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation and envelope files, ...; no second hand-kept list)
+  **and** whose file the PR changes keeps its full run on the PR, also when its config changed in the same PR. That includes the
+  boolean and arrangement shards when a PR changes `ExactMeshBoolean.cs` / `ExactMeshArrangement.cs` and a full run is needed
+  (a moved span alone is an incremental run). Only `rounding-*` and `hausdorff` mutate files that are
+  not in that section. A full shard is 1 to 6 hours; the cost applies only where a full run is needed anyway
+  (`select_shards.py gate <config>`, called by `run_stryker.sh`; `test_select_shards.py` checks every file of the section). The gate fails closed (a git or script error counts as gated). A change to one of the scripts of the runs (`SCRIPTS`) also keeps the
   full run of its representative shard `fixed`, so these tools get one real Stryker run on the PR. The weekly group refreshes the
   baselines only once a week, equal to the cache's eviction window: a baseline can be missing late in the week (a gated shard then
   runs in full on the PR, any other skips with "full run on master"). The

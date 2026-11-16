@@ -26,13 +26,34 @@ def run(*changed):
 
 
 class SelectShards(unittest.TestCase):
+    def test_every_exact_path_of_the_editorconfig_is_gated(self):
+        # the gate list is the exact-code section of .editorconfig: every existing file that its globs match is gated, and the
+        # shards that mutate such a file are among the gated ones (no second hand-kept list)
+        import glob
+        from select_shards import exact_globs, exact_gated
+        globs = exact_globs()
+        self.assertIn("mesh_ops/ExactMesh*.cs", globs)
+        self.assertIn("math/ExactPredicates.cs", [g for g in globs] + ["math/ExactPredicates.cs"])
+        files = {os.path.relpath(f, ROOT).replace(os.sep, "/") for g in globs for f in glob.glob(os.path.join(ROOT, g))}
+        self.assertGreater(len(files), 20)
+        for f in files:
+            self.assertTrue(exact_gated(f), f)
+        mutated = set().union(*(c[1] for c in CONFIGS.values()))
+        for f in mutated & files:
+            self.assertTrue(any(gate_shard(c, [f]) for c in CONFIGS.values()), f)
+        self.assertFalse(exact_gated("mesh_ops/MeshRoundingRepair.cs"))
+        with self.assertRaises(ValueError):
+            exact_globs("[*.cs]\nx=1\n")
+
     def test_gate_shard_is_exact_arithmetic_files_of_the_config_only(self):
         configs = load_configs()
         self.assertTrue(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))
         self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
         self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
-        self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))   # (reviewed, not gated)
+        self.assertTrue(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
+        self.assertTrue(gate_shard(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))
+        self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshArrangement.cs"]))   # (not mutated by this shard)
         self.assertFalse(gate_shard(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
         # a script of the runs keeps the full run of its representative shard only (its real Stryker run on the PR)
         self.assertTrue(gate_shard(configs["mesh-fixed"], ["tests/mutation/run_stryker.sh"], "mesh-fixed"))

@@ -16,7 +16,7 @@
 # run, because a full shard is a 3-6 hour runner slot. A shard that would run in full (its config or the tools changed, or
 # no baseline in the cache fits) runs nothing, says "full run on master" and why in the job summary, and succeeds; the
 # scheduled run on master measures it and seeds its baseline. Incremental (source) and --since (tests) runs are not
-# affected. One exception, the gate of CLAUDE.md ("Review before every merge"): a shard that mutates an exact-arithmetic
+# affected. One exception, the gate of CLAUDE.md ("Review before every merge"): a shard that mutates an exact-code
 # file that the PR changes (select_shards.py gate) keeps its full run, so such a PR is never merged without a threshold check.
 # Usage (in tests/mutation): MODE=... BASE=<base sha> [NO_FULL=1] [BASELINE_DIR=<dir>] bash run_stryker.sh <config file>
 set -euo pipefail
@@ -166,7 +166,7 @@ skip_full() {
   touch StrykerOutput/skipped-full
 }
 
-# does the PR change an exact-arithmetic file that this shard mutates, or a script of the runs while this is their
+# does the PR change an exact-code file that this shard mutates, or a script of the runs while this is their
 # representative shard (then its full run stays)? Fails closed: the full run is skipped only when select_shards.py answers
 # exactly `no`; a git or script error counts as gated. G3_CHANGED_PATHS_FILE (a list of paths) replaces the git diff, for the tests
 gated() {
@@ -184,7 +184,7 @@ gated() {
 full() {
   if [ "${NO_FULL:-}" = 1 ]; then
     if gated; then
-      echo "::notice::$config: full run on this PR although NO_FULL is set: the PR changes an exact-arithmetic file of this shard (gate)"
+      echo "::notice::$config: full run on this PR although NO_FULL is set: the PR changes an exact-code file of this shard (gate)"
     else
       skip_full "${1:-a full run is needed}"
       return 0

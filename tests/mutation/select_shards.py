@@ -24,6 +24,7 @@ With --all every config runs in full (schedule, workflow_dispatch); --all --only
 (workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards). --only also takes
 prefixes (`boolean-*`) and the groups `nightly` (boolean-*, arrangement-*, rounding-*) and `weekly` (everything else).
 """
+import fnmatch
 import glob
 import json
 import os
@@ -342,19 +343,37 @@ def shard_name(config_name):
 # the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
 # (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
 # the `changes` job of every workflow run (their paths are in the workflow's trigger).
-# Exact arithmetic for the merge gate (CLAUDE.md "Review before every merge"): a PR that changes one of these files gets the
-# threshold check of the shards that mutate them even where no full run is made on a PR (run_stryker.sh NO_FULL): the exact
-# predicates, the adaptive predicates, the implicit points, the fixed-width points and the generated predicates (error bounds).
-EXACT_GATED = re.compile(r"math/(Exact[^/]*|AdaptivePredicates|FixedPoint3|Generated/[^/]*)\.cs$")
+# Exact code for the merge gate (CLAUDE.md "Review before every merge"): a PR that changes one of these files gets the threshold
+# check of the shards that mutate them even where no full run is made on a PR (run_stryker.sh NO_FULL). The list is the section
+# of .editorconfig that holds the exact code (the source of truth: predicates, generated predicates, exact and fixed-width
+# points, mesh_ops/ExactMesh*, ...), found by the glob of the exact mesh pipeline; it is not a second list kept by hand.
+EDITORCONFIG = os.path.join(os.path.dirname(os.path.dirname(HERE)), ".editorconfig")
+EXACT_MARKER = "mesh_ops/ExactMesh*.cs"
+
+
+def exact_globs(text=None):
+    """the globs of the exact-code section of .editorconfig; ValueError when there is none (the gate must not go silent)"""
+    if text is None:
+        with open(EDITORCONFIG, encoding="utf-8") as f:
+            text = f.read()
+    for line in text.splitlines():
+        m = re.match(r"^\[\{(.*)\}\]\s*$", line.strip())
+        if m and EXACT_MARKER in m.group(1).split(","):
+            return m.group(1).split(",")
+    raise ValueError("no exact-code section with %s in .editorconfig" % EXACT_MARKER)
+
+
+def exact_gated(path):
+    return any(fnmatch.fnmatchcase(path, g) for g in exact_globs())
 
 
 def gate_shard(config, changed, name=None):
-    """True if a changed path is an exact-arithmetic file (EXACT_GATED) that this config mutates, or if a script of the runs
+    """True if a changed path is an exact-code file (exact_gated: the exact section of .editorconfig) that this config mutates, or if a script of the runs
     changed and this is the representative shard that smoke-tests them (SCRIPTS, SCRIPT_SHARD: the PR's only real Stryker run
     of the tools, which NO_FULL must not drop)"""
     if name == SCRIPT_SHARD and set(changed) & SCRIPTS:
         return True
-    return any(EXACT_GATED.search(p) for p in set(changed) & config[1])
+    return any(exact_gated(p) for p in set(changed) & config[1])
 
 
 SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}

@@ -125,9 +125,15 @@ class RunStryker(unittest.TestCase):
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)
 
-    def test_pull_request_that_changes_a_not_gated_file_of_the_shard_skips_the_full_run(self):
-        # (mesh_ops/ExactMesh*.cs is exact code with a review, but not exact arithmetic of the mutation gate)
+    def test_pull_request_that_changes_an_exact_mesh_file_of_the_shard_keeps_the_full_run(self):
+        # (mesh_ops/ExactMesh*.cs is exact code in .editorconfig: a boolean shard that must run in full on such a PR is gated)
         r, calls, summary = self.gated_run(["mesh_ops/ExactMeshBoolean.cs"], ["mesh_ops/ExactMeshBoolean.cs"])
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("stryker --log-to-file --config-file", calls)
+        self.assertNotIn("full run on master", summary)
+
+    def test_pull_request_that_changes_a_not_exact_file_of_the_shard_skips_the_full_run(self):
+        r, calls, summary = self.gated_run(["mesh_ops/MeshRoundingRepair.cs"], ["mesh_ops/MeshRoundingRepair.cs"])
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)

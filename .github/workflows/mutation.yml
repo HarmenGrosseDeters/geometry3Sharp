@@ -15,7 +15,7 @@ name: Mutation tests
 # incrementally too. Exact Boolean 3.0 (CLAUDE.md, tests/mutation/README.md "3.0 process"): a PR makes no full shard run (a full
 # shard is a 3-6 hour runner slot; NO_FULL=1 in run_stryker.sh): such a shard writes "full run on master" to its summary and
 # succeeds, and the scheduled run on master measures it and seeds the baseline. Exception, the merge gate: a shard that mutates
-# an exact-arithmetic file that the PR changes keeps its full run (select_shards.py gate). A shard of which only tests changed runs with --since and only reports. Every full run
+# an exact-code file (.editorconfig) that the PR changes keeps its full run (select_shards.py gate). A shard of which only tests changed runs with --since and only reports. Every full run
 # stores its report as the baseline. The reports list the surviving mutants.
 
 on:
