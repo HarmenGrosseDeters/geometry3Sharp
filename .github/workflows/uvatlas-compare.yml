@@ -1,0 +1,100 @@
+name: UV atlas comparison (UVAtlasGenerator vs xatlas)
+
+# UVAtlasGenerator (Method = Auto, defaults) and xatlas (default options) on the 250-mesh Thingi10K selection of
+# benchmarks/UVAtlasBenchmark (fetch_data.py --no-large). Both atlases are evaluated by the same code
+# (UVAtlasBenchmark evaluate, benchmarks/Shared/UvEvaluation.cs). Only the metrics are published (the job summary and
+# an artifact of JSON lines and the analysis); the meshes and the atlases stay on the runner.
+#
+# xatlas (https://github.com/jpcy/xatlas, MIT) is a black box: cloned and built here on the GitHub-hosted runner from
+# its public API through benchmarks/UVAtlasBenchmark/xatlas/xatlas_driver.cpp. Its source is not copied or ported into
+# this repository. Pinned commit: the xatlas_ref input (default below).
+# Thingi10K meshes are fetched at run time and never committed (individual licences, see fetch_data.py).
+# Runs on demand only (workflow_dispatch; runner budget, about 30 to 60 minutes expected).
+on:
+  workflow_dispatch:
+    inputs:
+      xatlas_ref:
+        description: xatlas commit to build (pinned)
+        default: f700c7790aaa030e794b52ba7791a05c085faf0c
+      jobs:
+        description: meshes in parallel on the runner (4 vCPU)
+        default: '3'
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+concurrency:
+  group: uvatlas-compare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch the Thingi10K selection (250 meshes, run time only)
+        working-directory: benchmarks/UVAtlasBenchmark
+        run: python3 fetch_data.py --no-large
+
+      - name: Build the benchmark (UVAtlasGenerator and evaluate)
+        run: dotnet build benchmarks/UVAtlasBenchmark/UVAtlasBenchmark.csproj -c Release -v q
+
+      - name: Build xatlas (black box, pinned commit) and the driver
+        id: xatlas
+        env:
+          XATLAS_REF: ${{ inputs.xatlas_ref }}
+        run: |
+          git clone -q https://github.com/jpcy/xatlas.git "$RUNNER_TEMP/xatlas"
+          git -C "$RUNNER_TEMP/xatlas" checkout -q "$XATLAS_REF"
+          echo "commit=$(git -C "$RUNNER_TEMP/xatlas" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          SRC=$(find "$RUNNER_TEMP/xatlas" -name xatlas.cpp -not -path '*/example*' | head -n 1)
+          test -n "$SRC"
+          g++ -std=c++17 -O2 -pthread -I "$(dirname "$SRC")" \
+            benchmarks/UVAtlasBenchmark/xatlas/xatlas_driver.cpp "$SRC" -o "$RUNNER_TEMP/xatlas_driver"
+
+      - name: Run both tools on every mesh and evaluate both outputs
+        working-directory: benchmarks/UVAtlasBenchmark
+        env:
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          python3 compare.py \
+            --dll "$GITHUB_WORKSPACE/benchmarks/UVAtlasBenchmark/bin/Release/net10.0/UVAtlasBenchmark.dll" \
+            --xatlas "$RUNNER_TEMP/xatlas_driver" \
+            --selection data/selection.csv --meshes data/meshes \
+            --work "$RUNNER_TEMP/uvcompare" --out results \
+            --jobs "$JOBS" --timeout 300
+
+      - name: Analyse
+        working-directory: benchmarks/UVAtlasBenchmark
+        env:
+          XATLAS_COMMIT: ${{ steps.xatlas.outputs.commit }}
+        run: |
+          python3 analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl \
+            --selection data/selection.csv | tee results/analysis.md
+          { echo "xatlas commit: $XATLAS_COMMIT"; echo; cat results/analysis.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the metrics (JSON lines and analysis, no meshes)
+        uses: actions/upload-artifact@v4
+        with:
+          name: uvatlas-compare-results
+          path: |
+            benchmarks/UVAtlasBenchmark/results/*.jsonl
+            benchmarks/UVAtlasBenchmark/results/analysis.md
+          if-no-files-found: error

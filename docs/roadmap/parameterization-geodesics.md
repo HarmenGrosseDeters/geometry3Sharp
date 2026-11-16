@@ -43,7 +43,7 @@ Part of the [roadmap](../ROADMAP.md).
   [FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12).
 - **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
   ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
-  conformal; foldover-free maps are a lead ([platform.md](platform.md#release-when-its-done)).
+  conformal; foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
 
 ### Done / history
 

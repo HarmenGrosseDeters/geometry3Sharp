@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 namespace g3
 {
     /// <summary>
+    /// For a robust cut use <see cref="ExactMeshImprint"/> (exact intersections, the target's vertices and orientation kept, contact and coplanar overlaps handled).
     /// Cuts the curves where CutMesh intersects Target into Target, in place (floating-point): Compute()
     /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
     /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
@@ -802,9 +803,7 @@ namespace g3
             // triangle (s[3..5], e.g. a grid cut by a plane through its vertices) is no contact: master cuts that class correctly (measured, issue 856)
             if (s[0] != 0 && s[1] != 0 && s[2] != 0)
                 return false;       // a transversal cut or disjoint (or only target vertices on the cut plane)
-            // separated by a plane (all on one strict side)? then they do not meet
-            if ((s[0] > 0 && s[1] > 0 && s[2] > 0) || (s[0] < 0 && s[1] < 0 && s[2] < 0))
-                return false;
+            // (some s[0..2] is zero here, so the cut triangle's vertices are not all strictly on one side of the target's plane)
             if ((s[3] > 0 && s[4] > 0 && s[5] > 0) || (s[3] < 0 && s[4] < 0 && s[5] < 0))
                 return false;
             for (int i = 0; i < 3; ++i)

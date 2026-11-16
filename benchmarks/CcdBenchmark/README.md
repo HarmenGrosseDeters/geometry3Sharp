@@ -165,3 +165,30 @@ old path (the container varies by about 15 %).
   there is none.
 - k = 8 with the tree (budget raised for the run): 8.4M candidates, 29.9 s serial and 9.8 s parallel; the pairs left
   are harder (about 1.65 µs per pair), so more sub-steps do not lower the serial floor.
+
+## Narrow-phase pre-filter (2026-11-16, CCD.md 10.12, #940)
+
+Raw: `results-sweep-prefilter-2026-11-16.csv`. One job, master at `6819dfe` (variant `master`) and this branch (`branch`) built
+side by side, run one after the other (round 1: all scenes; round 2: puffer-ball again), one `Compute` each after a warm-up,
+4 cores, SubSteps = 4, sub-step tree. `candidates_ms` of the branch includes the first-box test of each candidate (the pairs are
+dropped in the job that finds them); `pairs_ms` includes `candidates_ms`.
+
+| scene | candidates | serial master | serial branch | parallel master | parallel branch |
+|---|---|---|---|---|---|
+| armadillo-rollers | 1 127 562 | 4.44 s | 2.34 s | 1.35 s | 0.87 s |
+| cloth-ball | 2 450 850 | 20.7 s | 6.74 s | 5.48 s | 2.02 s |
+| cloth-funnel | 26 144 | 0.183 s | 0.166 s | 0.088 s | 0.084 s |
+| n-body-simulation | 4 832 461 | 9.36 s | 3.77 s | 2.75 s | 1.58 s |
+| rod-twist | 1 823 450 | 6.71 s | 4.03 s | 1.99 s | 1.47 s |
+| puffer-ball (round 1 / 2) | 24 953 688 | 33.9 / 34.9 s | 23.5 / 24.9 s | 11.0 / 11.4 s | 8.8 / 10.4 s |
+
+The candidate count, status, earliest time of impact and number of contacts are equal in every row (the CSV; the contacts
+and their results are compared by the tests). The container varies by about 10-15 % between runs.
+
+Where the puffer-ball time goes (serial, instrumented runs of the same code, timers inflate by about 1.5 s):
+- master: `Solve` 18.9 s, of which the 23.9M pairs that end at the first box 7.1 s (0.30 µs each) and the 458k pairs with seven or more boxes
+  11.1 s (24 µs each); the gathers of the points 1.7 s. A time limit at the earliest contact, as an experiment, took `Solve` to 9.9 s.
+- branch: preparation 3.5 s, candidates (tree search and first-box test) 14.1-14.9 s, of which the first-box test and the gathers about 3 s,
+  survivors (1.1M pairs) about 5 s.
+The serial sweep of the 1M-triangle frame stays above 20 s (23.5-24.9 s): #866 and #940 stay open.
+

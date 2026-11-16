@@ -77,7 +77,7 @@ namespace g3
         public int DiagonalLength
         {
             get {
-                return (int)Math.Sqrt((Max.x-Min.x)*(Max.x-Min.x) + (Max.y-Min.y)*(Max.y-Min.y));
+                return MathUtil.ToIntSaturating(Math.Sqrt((Max.x-Min.x)*(Max.x-Min.x) + (Max.y-Min.y)*(Max.y-Min.y)));
             }
         }
         public int MaxDim
@@ -235,7 +235,7 @@ namespace g3
         }
         public int Distance(Vector2i v)
         {
-            return (int)Math.Sqrt(DistanceSquared(v));
+            return MathUtil.ToIntSaturating(Math.Sqrt(DistanceSquared(v)));
         }
 
 

@@ -106,6 +106,19 @@ namespace geometry3Sharp.Tests
             Assert.True(SameVertices(before, target), name + ": Target was modified");
         }
 
+        // an empty mesh on either side has no triangle to touch: no contact, and nothing is cut
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void EmptyMesh_IsNoContact(bool emptyCut)
+        {
+            DMesh3 target = emptyCut ? Cube(0, 0, 0, 1) : new DMesh3();
+            DMesh3 cut = emptyCut ? new DMesh3() : Cube(0, 0, 0, 1);
+            var status = Status(target, cut, out DMesh3 before);
+            Assert.Equal(MeshMeshCut.CutStatus.Ok, status);
+            Assert.True(SameVertices(before, target));
+        }
+
         // ---- the case of the fuzz campaign (issue 856) at 13 powers of two: no exception, the same refusal at every scale ----
 
         [Fact]

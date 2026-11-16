@@ -193,7 +193,7 @@ namespace g3
 
         static byte to_byte(float f)
         {
-            return (byte)MathUtil.Clamp((int)Math.Round(f * 255.0f), 0, 255);
+            return (byte)MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Round(f * 255.0f)), 0, 255);
         }
     }
 }

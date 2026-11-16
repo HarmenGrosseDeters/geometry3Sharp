@@ -45,7 +45,7 @@ namespace g3
             float x = c * (1 - Math.Abs( ((h / 60.0f) % 2) - 1) );
             float m = v - c;
             float rp, gp, bp;
-            int a = (int)(h / 60.0f);
+            int a = MathUtil.ToIntSaturating(h / 60.0f);
 
             switch (a) {
                 case 0:

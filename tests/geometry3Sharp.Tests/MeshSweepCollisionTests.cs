@@ -639,6 +639,165 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // #940: the narrow phase's pre-filter (pairs the solver discards at its first box are dropped without a query,
+        // and a query stops once it cannot be the earliest contact) gives every result field of the sweep without it:
+        // the candidate count, status, times and the contacts with their results. A, B and the self sweep, minimum
+        // separations, a time limit, an iteration limit, small jobs and batches, small chunks of the bound, serial and parallel.
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void PreFilter_EqualsTheUnfilteredSweep(int mode)
+        {
+            var rnd = new Random(940 + mode);
+            int rounds = mode == 2 ? 2 : 4;
+            long skipped = 0, abandoned = 0;
+            for (int round = 0; round < rounds; ++round) {
+                DMesh3 a = sphere(Vector3d.Zero, 1, mode == 2 ? 3 : 4), b = sphere(new Vector3d(2.1, 0.3 * rnd.NextDouble(), 0.1), 1, 4);
+                Vector3d move = new Vector3d(0.5 + 0.9 * round / (rounds - 1.0), 0.3 * rnd.NextDouble(), 0.2 * rnd.NextDouble());
+                double twist = rnd.NextDouble();
+                Func<Vector3d, Vector3d> fa = x => x + move + twist * new Vector3d(0, 0.3 * x.z, -0.3 * x.y);
+                DMesh3 m = null;
+                Vector3d[] endM = null;
+                if (mode == 1) {
+                    m = new DMesh3(a);
+                    int n = m.MaxVertexID;
+                    new MeshEditor(m).AppendMesh(b);
+                    endM = new Vector3d[m.MaxVertexID];
+                    foreach (int v in m.VertexIndices()) endM[v] = v < n ? fa(m.GetVertex(v)) : m.GetVertex(v);
+                }
+                MeshSweepCollision make(bool filter, bool all, CcdOptions o, bool small, bool parallel)
+                {
+                    MeshSweepCollision sw = mode == 1 ? new MeshSweepCollision(m, endM)
+                        : mode == 2 ? new MeshSweepCollision(a, moved(a, fa), a, moved(a, x => x - 0.5 * move))
+                        : new MeshSweepCollision(a, moved(a, fa), b, moved(b, x => x));
+                    sw.PreFilter = filter; sw.CollectAll = all; sw.Options = o; sw.Parallel = parallel;
+                    if (small) { sw.BlockSize = 7; sw.SelfTasks = 9; sw.BatchPairs = 41; sw.AbandonChunk = 5; }
+                    sw.Compute();
+                    return sw;
+                }
+                foreach (var o in new[] {
+                    new CcdOptions { MinSeparation = (round % 3) * 0.004 },
+                    new CcdOptions { MinSeparation = 0.002, TimeLimit = 0.6 },
+                    new CcdOptions { MaxIterations = 6 } }) {
+                    foreach (bool all in new[] { true, false })
+                        foreach (bool small in new[] { false, true }) {
+                            var plain = make(false, all, o, small, false);
+                            string at = $"mode {mode} round {round} ms {o.MinSeparation} limit {o.TimeLimit} iterations {o.MaxIterations} all {all} small {small}";
+                            Assert.Equal(0, plain.PairsSkipped + plain.PairsAbandoned);
+                            foreach (bool parallel in mode == 2 ? new[] { false } : new[] { false, true }) {
+                                var filtered = make(true, all, o, small, parallel);
+                                Assert.True(plain.CandidatePairCount > 0, at);
+                                Assert.Equal(plain.CandidatePairCount, filtered.CandidatePairCount);
+                                Assert.Equal(plain.Status, filtered.Status);
+                                Assert.Equal(plain.EarliestTimeOfImpact, filtered.EarliestTimeOfImpact);
+                                Assert.Equal(plain.EarliestNearContactTime, filtered.EarliestNearContactTime);
+                                Assert.Equal(plain.Contacts, filtered.Contacts);
+                                if (all)
+                                    Assert.Equal(0, filtered.PairsSkipped + filtered.PairsAbandoned);
+                                else if (parallel == false) {
+                                    skipped += filtered.PairsSkipped;
+                                    abandoned += filtered.PairsAbandoned;
+                                }
+                            }
+                        }
+                }
+            }
+            Assert.True(abandoned > 0, $"abandoned {abandoned}: the bound never acted");
+            // (the pairs of A against B all pass close by; the self sweep has the pairs the first box discards)
+            if (mode == 1)
+                Assert.True(skipped > 0, $"skipped {skipped}: the first box never discarded");
+        }
+
+        // #940: faces that meet at one time: many pairs have a time of impact within the tolerance of the earliest near
+        // contact, and each of them is a contact. A bound smaller than the earliest near contact time (one chunk per pair,
+        // so that every pair sees the bound of the pairs before it) would drop some of them.
+        [Theory]
+        [InlineData(0.5, 0)]
+        [InlineData(1, 0)]
+        [InlineData(1, 0.01)]
+        [InlineData(2, 0.02)]
+        [InlineData(1, 0.01, 0.05)]
+        [InlineData(0.5, 0, 0.1)]
+        [InlineData(2, 0.02, 0.2)]
+        public void PreFilter_FaceContactKeepsEveryContact(double dx, double ms, double timeTolerance = 1e-6)
+        {
+            int contacts = 0;
+            foreach (int chunk in new[] { 1, 3, 1 << 16 }) {
+                MeshSweepCollision make(bool filter)
+                {
+                    var s = approach(dx, new CcdOptions { MinSeparation = ms, TimeTolerance = timeTolerance });
+                    s.PreFilter = filter; s.AbandonChunk = chunk; s.BlockSize = 5; s.BatchPairs = 11;
+                    Assert.Equal(MeshSweepStatus.Collision, s.Compute());
+                    return s;
+                }
+                var plain = make(false);
+                var filtered = make(true);
+                Assert.Equal(plain.CandidatePairCount, filtered.CandidatePairCount);
+                Assert.Equal(plain.EarliestTimeOfImpact, filtered.EarliestTimeOfImpact);
+                Assert.Equal(plain.EarliestNearContactTime, filtered.EarliestNearContactTime);
+                Assert.Equal(plain.Contacts, filtered.Contacts);
+                contacts = plain.Contacts.Count;
+            }
+            Assert.True(contacts >= 8, $"{contacts} contacts");
+        }
+
+        // #940: with small chunks of the bound, the pairs that are skipped and abandoned (and so the whole output) are the
+        // same on the calling thread, in parallel (repeated) and in any serial order of the parallel loops
+        [Fact]
+        public void PreFilter_ParallelEqualsSerial()
+        {
+            DMesh3 m = sphere(Vector3d.Zero, 1, 5);
+            DMesh3 b = sphere(new Vector3d(2.05, 0.2, 0.1), 1, 5);
+            int na = m.MaxVertexID;
+            new MeshEditor(m).AppendMesh(b);
+            Vector3d[] end = moved(m, x => x.x < 1.02 ? x + new Vector3d(0.9, 0.04 * x.y, 0.02 * x.z) : x - new Vector3d(0.1, 0, 0));
+            (List<SweepContact>, double, double, long, long, long) run(bool parallel, int? order)
+            {
+                var s = new MeshSweepCollision(m, end) { Parallel = parallel, BlockSize = 7, SelfTasks = 9, BatchPairs = 37, AbandonChunk = 5 };
+                s.Options = new CcdOptions { MinSeparation = 0.005 };
+                gParallel.SerialOnThisThread = order.HasValue;
+                gParallel.SerialOrderOnThisThread = order ?? 0;
+                try { s.Compute(); } finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+                Assert.Equal(MeshSweepStatus.Collision, s.Status);
+                return (s.Contacts, s.EarliestTimeOfImpact, s.EarliestNearContactTime, s.CandidatePairCount, s.PairsSkipped, s.PairsAbandoned);
+            }
+            var serial = run(false, null);
+            Assert.True(serial.Item5 > 0 && serial.Item6 > 0, $"skipped {serial.Item5}, abandoned {serial.Item6}");
+            foreach (var other in new[] { run(true, null), run(true, null), run(true, -1), run(true, 12345) }) {
+                Assert.Equal(serial.Item1, other.Item1);
+                Assert.Equal((serial.Item2, serial.Item3, serial.Item4, serial.Item5, serial.Item6), (other.Item2, other.Item3, other.Item4, other.Item5, other.Item6));
+            }
+        }
+
+        // #940: reuse (a second Compute on one instance, and after switching the pre-filter) gives the fresh results
+        [Fact]
+        public void PreFilter_Reuse()
+        {
+            DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.2, 0.1), 1, 4);
+            Vector3d[] ea = moved(a, x => x + new Vector3d(1.6, 0.4, 0)), eb = moved(b, x => x);
+            var sweep = new MeshSweepCollision(a, ea, b, eb) { AbandonChunk = 5 };
+            sweep.Compute();
+            var first = (sweep.Contacts, sweep.CandidatePairCount, sweep.PairsSkipped, sweep.PairsAbandoned, sweep.EarliestTimeOfImpact);
+            Assert.True(sweep.PairsAbandoned > 0);
+            sweep.Compute();
+            Assert.Equal(first.Item1, sweep.Contacts);
+            Assert.Equal((first.Item2, first.Item3, first.Item4, first.Item5), (sweep.CandidatePairCount, sweep.PairsSkipped, sweep.PairsAbandoned, sweep.EarliestTimeOfImpact));
+            sweep.PreFilter = false;
+            sweep.Compute();
+            Assert.Equal(0, sweep.PairsSkipped + sweep.PairsAbandoned);
+            Assert.Equal(first.Item1, sweep.Contacts);
+            Assert.Equal(first.Item2, sweep.CandidatePairCount);
+            sweep.PreFilter = true;
+            sweep.CollectAll = true;
+            sweep.Compute();
+            Assert.Equal(0, sweep.PairsSkipped + sweep.PairsAbandoned);
+            sweep.CollectAll = false;
+            sweep.Compute();
+            Assert.Equal(first.Item1, sweep.Contacts);
+            Assert.Equal((first.Item2, first.Item3, first.Item4, first.Item5), (sweep.CandidatePairCount, sweep.PairsSkipped, sweep.PairsAbandoned, sweep.EarliestTimeOfImpact));
+        }
+
         // #866: reuse of one instance across the paths: the tree budget and SubSteps changed between Computes give the
         // results of fresh instances
         [Fact]

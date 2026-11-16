@@ -813,7 +813,7 @@ namespace g3
         public Vector2d SampleT(double t)
         {
             int N = Polygon.VertexCount;
-            int i = (int)Math.Floor(t);
+            int i = MathUtil.FloorToIntSaturating(t);
             if (i < 0)
                 return Polygon[0];
             if (i >= N)
@@ -826,7 +826,7 @@ namespace g3
         public Vector2d TangentT(double t)
         {
             int N = Polygon.VertexCount;
-            int i = MathUtil.Clamp((int)Math.Floor(t), 0, N - 1);
+            int i = MathUtil.Clamp(MathUtil.FloorToIntSaturating(t), 0, N - 1);
             return (Polygon[(i + 1) % N] - Polygon[i]).Normalized;
         }
 

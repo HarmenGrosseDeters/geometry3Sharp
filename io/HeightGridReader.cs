@@ -175,7 +175,7 @@ namespace g3
             for (long k = 0; k < nodes; ++k) zs[k] = double.NaN;
             var seen = new BitArray((int)nodes);
             for (int k = 0; k < n; ++k) {
-                int i = (int)Math.Round((px[k] - x0) / dx), j = (int)Math.Round((py[k] - y0) / dy);
+                int i = MathUtil.ToIntSaturating(Math.Round((px[k] - x0) / dx)), j = MathUtil.ToIntSaturating(Math.Round((py[k] - y0) / dy));
                 int idx = i + nx * j;
                 if (seen[idx])
                     return HeightGridReadResult.Fail(HeightGridStatus.DuplicateNode, "two points at node (" + i + ", " + j + ")");
@@ -286,7 +286,7 @@ namespace g3
                 error = "values are not on a lattice of spacing " + step.ToString("R", CultureInfo.InvariantCulture) + " (deviation " + worst.ToString("R", CultureInfo.InvariantCulture) + ")";
                 return false;
             }
-            count = (int)cells + 1;
+            count = MathUtil.ToIntSaturating(cells) + 1;
             return true;
         }
 
@@ -355,7 +355,7 @@ namespace g3
                 return HeightGridReadResult.Fail(HeightGridStatus.BadHeader, "ncols / nrows missing");
             if (ncolsD < 1 || nrowsD < 1 || ncolsD != Math.Floor(ncolsD) || nrowsD != Math.Floor(nrowsD) || ncolsD > int.MaxValue || nrowsD > int.MaxValue)
                 return HeightGridReadResult.Fail(HeightGridStatus.BadHeader, "ncols / nrows must be positive integers");
-            int nx = (int)ncolsD, ny = (int)nrowsD;
+            int nx = MathUtil.ToIntSaturating(ncolsD), ny = MathUtil.ToIntSaturating(nrowsD);
             long nodes = (long)nx * ny;
             if (nodes > Math.Min(options.MaxNodes, 1L << 27))
                 return HeightGridReadResult.Fail(HeightGridStatus.TooLarge, nx + " x " + ny + " values exceed MaxNodes " + options.MaxNodes);

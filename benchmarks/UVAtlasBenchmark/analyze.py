@@ -1,8 +1,14 @@
 # Summary of a UV atlas benchmark run per category (data/selection*.csv):
+#   python3 analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl   (UVAtlasGenerator vs xatlas, compare_report.py)
 #   python3 analyze.py results/auto.jsonl [results/auto_large.jsonl ...]
 # Rows without a result (timeout, crash, exception) stay in the counts as failures. Time, charts, coverage and
 # seams are over all meshes with an atlas (also Failed ones); distortion over those with a distortion measure.
 import csv, json, os, statistics, sys
+
+# UVAtlasGenerator vs xatlas (compare.py): analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl
+if len(sys.argv) > 1 and sys.argv[1] == "--compare":
+    import compare_report
+    sys.exit(compare_report.main(sys.argv[2:]))
 
 here = os.path.dirname(os.path.abspath(__file__))
 cat = {}

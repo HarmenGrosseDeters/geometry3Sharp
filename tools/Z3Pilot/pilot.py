@@ -55,9 +55,10 @@ def source_contracts():
     bounds_expected = """public static bool Bounds(BigInteger n, BigInteger d, out double lo, out double hi) {
         double dn = (double)n, dd = (double)d;
         lo = hi = 0;
-        if (double.IsInfinity(dn) || double.IsInfinity(dd) || !(dd > 0)) return false;
-        double v = dn / dd, pad = Math.Abs(v) * 1e-13 + 1e-300;
+        if (d.Sign <= 0) return false;
+        double v = double.IsInfinity(dn) || double.IsInfinity(dd) ? Quotient(n, d) : dn / dd, pad;
         if (double.IsInfinity(v) || double.IsNaN(v)) return false;
+        pad = Math.Abs(v) * 1e-13 + 1e-300;
         lo = v - pad; hi = v + pad;
         return true; }"""
     if normalize(bounds) != normalize(bounds_expected):

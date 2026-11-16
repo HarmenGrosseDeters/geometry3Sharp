@@ -96,8 +96,8 @@ namespace gs
             // eg a 70 km corridor at 1 m: the cloth would not fit in memory (and nx * ny overflows int)
             if (!((Math.Ceiling(bounds.Width / r) + 2 * margin + 1) * (Math.Ceiling(bounds.Height / r) + 2 * margin + 1) <= MaxCells))
                 return false;
-            int nx = (int)Math.Ceiling(bounds.Width / r) + 2 * margin + 1;
-            int ny = (int)Math.Ceiling(bounds.Height / r) + 2 * margin + 1;
+            int nx = MathUtil.ToIntSaturating(Math.Ceiling(bounds.Width / r)) + 2 * margin + 1;
+            int ny = MathUtil.ToIntSaturating(Math.Ceiling(bounds.Height / r)) + 2 * margin + 1;
             double zref = bounds.Max.z;
 
             // inverted heights (z' = zref - z >= 0): the collision height of a particle is the highest
@@ -108,7 +108,7 @@ namespace gs
             for (int k = 0; k < n; ++k) {
                 if (valid[k] == false) continue;
                 Vector3d p = Points[k];
-                int i = clampi((int)Math.Round((p.x - ClothOrigin.x) / r), nx), j = clampi((int)Math.Round((p.y - ClothOrigin.y) / r), ny);
+                int i = clampi(MathUtil.ToIntSaturating(Math.Round((p.x - ClothOrigin.x) / r)), nx), j = clampi(MathUtil.ToIntSaturating(Math.Round((p.y - ClothOrigin.y) / r)), ny);
                 int c = i + nx * j;
                 double zi = zref - p.z;
                 if (double.IsNaN(collide[c]) || zi > collide[c])
@@ -134,7 +134,7 @@ namespace gs
             // plus the steps to fall from the start down to the lowest collision height (deep pits)
             double minCollide = double.MaxValue;
             foreach (double c in collide) minCollide = Math.Min(minCollide, c);
-            int maxIterations = MaxIterations + (int)((start - minCollide) / maxSpeed);
+            int maxIterations = MaxIterations + MathUtil.ToIntSaturating((start - minCollide) / maxSpeed);
 
             for (Iterations = 0; Iterations < maxIterations; ++Iterations) {
                 if (CancelF()) return false;
@@ -209,7 +209,7 @@ namespace gs
                 if (valid[k] == false) return;
                 Vector3d p = Points[k];
                 double fx = (p.x - ClothOrigin.x) / r, fy = (p.y - ClothOrigin.y) / r;
-                int i0 = clampi((int)Math.Floor(fx), nx - 1), j0 = clampi((int)Math.Floor(fy), ny - 1);
+                int i0 = clampi(MathUtil.FloorToIntSaturating(fx), nx - 1), j0 = clampi(MathUtil.FloorToIntSaturating(fy), ny - 1);
                 double tx = MathUtil.Clamp(fx - i0, 0, 1), ty = MathUtil.Clamp(fy - j0, 0, 1);
                 double c = (1 - tx) * (1 - ty) * ClothHeight[i0, j0] + tx * (1 - ty) * ClothHeight[i0 + 1, j0]
                          + (1 - tx) * ty * ClothHeight[i0, j0 + 1] + tx * ty * ClothHeight[i0 + 1, j0 + 1];

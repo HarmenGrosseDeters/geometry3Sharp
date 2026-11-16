@@ -199,6 +199,27 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // only a plan whose Result is Inserted can be given ids: an outside point or a repeated one throws and changes nothing
+        [Fact]
+        public void AssignInsertIds_RefusesAPlanThatIsNotAnInsertion()
+        {
+            var dt = new Delaunay3(Box());
+            var plan = new Delaunay3.InsertPlan();
+            dt.PlanInsert(new Vector3d(5, 5, 5), -1, 1e-12, plan, 3);
+            Assert.Equal(Delaunay3.InsertResult.Inserted, plan.Result);
+            dt.AssignInsertIds(plan);
+            dt.ApplyInsert(plan);
+            int vertices = dt.VertexCount;
+            dt.PlanInsert(new Vector3d(5, 5, 5), -1, 1e-12, plan, 3);
+            Assert.Equal(Delaunay3.InsertResult.TooClose, plan.Result);
+            Assert.Throws<InvalidOperationException>(() => dt.AssignInsertIds(plan));
+            dt.PlanInsert(new Vector3d(-100, 5, 5), -1, 1e-12, plan, 3);
+            Assert.Equal(Delaunay3.InsertResult.Outside, plan.Result);
+            Assert.Throws<InvalidOperationException>(() => dt.AssignInsertIds(plan));
+            Assert.Equal(vertices, dt.VertexCount);
+            Assert.Null(dt.Validate(true));
+        }
+
         // the round insertion does not keep RefinementSupport's bookkeeping (labels, incident cells, undo): refused with it on;
         // a Clone after round insertions is the same triangulation and accepts serial insertions with the support on
         [Fact]

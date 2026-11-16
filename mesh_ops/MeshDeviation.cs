@@ -488,7 +488,7 @@ namespace gs
             for (int i = 0; i < sortedValues.Length; ++i) {
                 double w = sortedValueWeights[i] - prev;
                 prev = sortedValueWeights[i];
-                int b = (max > min) ? (int)Math.Floor((sortedValues[i] - min) / (max - min) * h.Length) : 0;
+                int b = (max > min) ? MathUtil.FloorToIntSaturating((sortedValues[i] - min) / (max - min) * h.Length) : 0;
                 h[MathUtil.Clamp(b, 0, h.Length - 1)] += w;
             }
             return h;

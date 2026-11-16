@@ -216,7 +216,7 @@ namespace gs
             int AddPoint(double x, double y, int segA = -1, int segB = -1)
             {
                 double z = segA >= 0 ? SplitZ(pts, ptsZ, segA, segB, new Vector2d(x, y)) : double.NaN;
-                if (double.IsNaN(z) && x == Math.Floor(x) && y == Math.Floor(y) && x >= 0 && y >= 0 && x <= nx - 1 && y <= ny - 1) return AddNode((int)x, (int)y);
+                if (double.IsNaN(z) && x == Math.Floor(x) && y == Math.Floor(y) && x >= 0 && y >= 0 && x <= nx - 1 && y <= ny - 1) return AddNode(MathUtil.ToIntSaturating(x), MathUtil.ToIntSaturating(y));
                 pts.Add(new Vector2d(x, y)); ptsZ.Add(z); return pts.Count - 1;
             }
 
@@ -248,7 +248,7 @@ namespace gs
                     Index3i tr = m.Triangles[t];
                     Vector2d a = m.Vertices[tr.a], b = m.Vertices[tr.b], c = m.Vertices[tr.c];
                     double cx = (a.x + b.x + c.x) / 3, cy = (a.y + b.y + c.y) / 3;
-                    int ci = Math.Min((int)Math.Floor(cx), nx - 2), cj = Math.Min((int)Math.Floor(cy), ny - 2);
+                    int ci = Math.Min(MathUtil.FloorToIntSaturating(cx), nx - 2), cj = Math.Min(MathUtil.FloorToIntSaturating(cy), ny - 2);
                     if (!Ok(ci, cj)) continue;
                     kept.Add(t);
                     area += 0.5 * ((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
@@ -448,7 +448,7 @@ namespace gs
         static bool InCell(Vector2d p, int nx, int ny, Func<int, int, bool> ok)
         {
             if (!(p.x >= 0 && p.y >= 0 && p.x <= nx - 1 && p.y <= ny - 1)) return false;
-            int ci = Math.Min((int)Math.Floor(p.x), nx - 2), cj = Math.Min((int)Math.Floor(p.y), ny - 2);
+            int ci = Math.Min(MathUtil.FloorToIntSaturating(p.x), nx - 2), cj = Math.Min(MathUtil.FloorToIntSaturating(p.y), ny - 2);
             if (ok(ci, cj)) return true;
             // on a grid line shared with a cell with data
             if (p.x == ci && ok(ci - 1, cj)) return true;
@@ -479,14 +479,14 @@ namespace gs
         static double VertexZ(HeightGrid g, double x, double y)
         {
             bool xl = x == Math.Floor(x), yl = y == Math.Floor(y);
-            if (xl && yl) return g[(int)x, (int)y];
+            if (xl && yl) return g[MathUtil.ToIntSaturating(x), MathUtil.ToIntSaturating(y)];
             return SurfaceZ(g, x, y, xl, yl);
         }
 
         static double SurfaceZ(HeightGrid g, double x, double y, bool xIsLine, bool yIsLine)
         {
-            if (xIsLine) { int i = (int)x; int j = Math.Min((int)Math.Floor(y), g.NY - 2); double f = y - j; return g[i, j] + f * (g[i, j + 1] - g[i, j]); }
-            if (yIsLine) { int j = (int)y; int i = Math.Min((int)Math.Floor(x), g.NX - 2); double f = x - i; return g[i, j] + f * (g[i + 1, j] - g[i, j]); }
+            if (xIsLine) { int i = MathUtil.ToIntSaturating(x); int j = Math.Min(MathUtil.FloorToIntSaturating(y), g.NY - 2); double f = y - j; return g[i, j] + f * (g[i, j + 1] - g[i, j]); }
+            if (yIsLine) { int j = MathUtil.ToIntSaturating(y); int i = Math.Min(MathUtil.FloorToIntSaturating(x), g.NX - 2); double f = x - i; return g[i, j] + f * (g[i + 1, j] - g[i, j]); }
             return IndexHeight(g, x, y);
         }
 
@@ -494,7 +494,7 @@ namespace gs
         static double IndexHeight(HeightGrid g, double fx, double fy)
         {
             if (fx < 0 || fy < 0 || fx > g.NX - 1 || fy > g.NY - 1) return double.NaN;
-            int i = (int)Math.Floor(fx), j = (int)Math.Floor(fy);
+            int i = MathUtil.FloorToIntSaturating(fx), j = MathUtil.FloorToIntSaturating(fy);
             if (i == g.NX - 1) i--;
             if (j == g.NY - 1) j--;
             fx -= i; fy -= j;
@@ -520,8 +520,8 @@ namespace gs
             for (int si = 0; si < segs.Count; ++si) {
                 if (segKind[si] == KindCrease) continue;
                 Vector2d u = pts[segs[si].a], v = pts[segs[si].b];
-                int x0 = Math.Max(0, (int)Math.Floor(Math.Min(u.x, v.x) - 1e-9)), x1 = Math.Min(nx - 1, (int)Math.Floor(Math.Max(u.x, v.x) + 1e-9));
-                int y0 = Math.Max(0, (int)Math.Floor(Math.Min(u.y, v.y) - 1e-9)), y1 = Math.Min(ny - 1, (int)Math.Floor(Math.Max(u.y, v.y) + 1e-9));
+                int x0 = Math.Max(0, MathUtil.FloorToIntSaturating(Math.Min(u.x, v.x) - 1e-9)), x1 = Math.Min(nx - 1, MathUtil.FloorToIntSaturating(Math.Max(u.x, v.x) + 1e-9));
+                int y0 = Math.Max(0, MathUtil.FloorToIntSaturating(Math.Min(u.y, v.y) - 1e-9)), y1 = Math.Min(ny - 1, MathUtil.FloorToIntSaturating(Math.Max(u.y, v.y) + 1e-9));
                 for (int y = y0; y <= y1; ++y)
                     for (int x = x0; x <= x1; ++x) {
                         int key = x + nx * y;
@@ -544,9 +544,12 @@ namespace gs
             var seenVertex = new HashSet<int>(); var seenSeg = new HashSet<int>();
             double len2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y), len = Math.Sqrt(len2);
             double minx = Math.Min(p.x, q.x), maxx = Math.Max(p.x, q.x), miny = Math.Min(p.y, q.y), maxy = Math.Max(p.y, q.y);
+            // (a segment beyond 1e9 cells, or with a NaN coordinate, cannot cross a crease of the grid; without this test a saturated
+            // int.MaxValue bound would never end the loops below, #804)
+            if (!(minx > -1e9 && maxx < 1e9 && miny > -1e9 && maxy < 1e9)) return list;
             var cand = new List<int>();
-            for (int cy = (int)Math.Floor(miny); cy <= (int)Math.Floor(maxy); ++cy)
-                for (int cx = (int)Math.Floor(minx); cx <= (int)Math.Floor(maxx); ++cx)
+            for (int cy = MathUtil.FloorToIntSaturating(miny); cy <= MathUtil.FloorToIntSaturating(maxy); ++cy)
+                for (int cx = MathUtil.FloorToIntSaturating(minx); cx <= MathUtil.FloorToIntSaturating(maxx); ++cx)
                     if (buckets.TryGetValue(cx + nx * cy, out List<int> l))
                         foreach (int si in l) if (seenSeg.Add(si)) cand.Add(si);
             cand.Sort();
@@ -675,8 +678,8 @@ namespace gs
             }
             double gx = ((zb - za) * (c.y - a.y) - (zc - za) * (b.y - a.y)) / det;
             double gy = ((zc - za) * (b.x - a.x) - (zb - za) * (c.x - a.x)) / det;
-            int x0 = (int)Math.Ceiling(Math.Min(a.x, Math.Min(b.x, c.x))), x1 = (int)Math.Floor(Math.Max(a.x, Math.Max(b.x, c.x)));
-            int y0 = (int)Math.Ceiling(Math.Min(a.y, Math.Min(b.y, c.y))), y1 = (int)Math.Floor(Math.Max(a.y, Math.Max(b.y, c.y)));
+            int x0 = MathUtil.ToIntSaturating(Math.Ceiling(Math.Min(a.x, Math.Min(b.x, c.x)))), x1 = MathUtil.FloorToIntSaturating(Math.Max(a.x, Math.Max(b.x, c.x)));
+            int y0 = MathUtil.ToIntSaturating(Math.Ceiling(Math.Min(a.y, Math.Min(b.y, c.y)))), y1 = MathUtil.FloorToIntSaturating(Math.Max(a.y, Math.Max(b.y, c.y)));
             for (int j = y0; j <= y1; ++j)
                 for (int i = x0; i <= x1; ++i) {
                     double o1 = (b.x - a.x) * (j - a.y) - (b.y - a.y) * (i - a.x);
@@ -726,7 +729,7 @@ namespace gs
                         if (e > loopErr) loopErr = e;
                         if (!(e > act)) continue;
                         if (isLocked) { top.Offer(new Req { Kind = 2, Seg = segOfEdge, X = x, Y = y, Err = e }); continue; }
-                        int ci = Math.Min((int)Math.Floor(x), g.NX - 2), cj = Math.Min((int)Math.Floor(y), g.NY - 2);
+                        int ci = Math.Min(MathUtil.FloorToIntSaturating(x), g.NX - 2), cj = Math.Min(MathUtil.FloorToIntSaturating(y), g.NY - 2);
                         // a point on a grid line belongs to the cells on both sides
                         int cellsN = 1; int c2x = 0, c2y = 0;
                         if (kind == 0 && ci >= 1) { cellsN = 2; c2x = ci - 1; c2y = cj; }
@@ -745,8 +748,8 @@ namespace gs
                         if (cand >= 0) { top.Offer(new Req { Kind = 1, Node = cand, Err = e }); continue; }
                         int crease = -1;
                         if (kind == 2) crease = 3 * (ci + nx * cj);
-                        else if (kind == 0) { int jj = (int)Math.Floor(y); if (jj >= 0 && jj < g.NY - 1 && y != jj) crease = 3 * (ci + nx * jj) + 2; }
-                        else { int ii = (int)Math.Floor(x); if (ii >= 0 && ii < g.NX - 1 && x != ii) crease = 3 * (ii + nx * cj) + 1; }
+                        else if (kind == 0) { int jj = MathUtil.FloorToIntSaturating(y); if (jj >= 0 && jj < g.NY - 1 && y != jj) crease = 3 * (ci + nx * jj) + 2; }
+                        else { int ii = MathUtil.FloorToIntSaturating(x); if (ii >= 0 && ii < g.NX - 1 && x != ii) crease = 3 * (ii + nx * cj) + 1; }
                         if (crease >= 0 && !lockedSet.Contains(crease) && !chainSet.Contains(crease)) top.Offer(new Req { Kind = 3, Crease = crease, Err = e });
                     }
                 }

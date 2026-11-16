@@ -116,7 +116,7 @@ namespace g3
             int nt = triangles.Length;
             if (nt == 0) return false;
             // jump: the sampled triangle whose first vertex is closest (doubles decide only where the walk starts)
-            int samples = Math.Max(1, (int)Math.Pow(nt, 1.0 / 3.0));
+            int samples = Math.Max(1, MathUtil.ToIntSaturating(Math.Pow(nt, 1.0 / 3.0)));
             int t = 0;
             double best = double.MaxValue;
             for (int s = 0; s < samples; ++s) {

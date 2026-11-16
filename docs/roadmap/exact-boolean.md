@@ -239,7 +239,7 @@ fix is a narrower filter, applied in #883 and to the rounding shards of #843.
   operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
   (3) research.md problem 3 restated; (4) the plateau variant of (2), 2026-11-15 (the note's section 10: design,
   Z3 lemma, probe on what the rounding leaves today): it can gain 1 of the 16 239 cohort operations and no clean result
-  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go before the release, no
+  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go, no
   spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
@@ -579,6 +579,7 @@ Settled:
 - **Default-hashed `long` keys:** done in #431 (2026-11-08); [LongHashAudit](../../benchmarks/LongHashAudit/README.md).
 - **Thingi10K full-run findings** (draft #385): superseded by the WP2 triage and the sign-off run.
 - **`thingi-pairs` class:** done (#418, 2026-11-09); its baseline and final runs are queued behind 3.0 (owner 2026-11-12).
+- **`thingi-contact` class (owner 2026-11-16):** Thingi10K pairs with exact contact (face contact, partial overlap, ulp shift, mirror; translations, power-of-two scales and reflections only, every sum checked exact), the hard cases for the exact predicates and the use case of `ExactMeshImprint`; first run of 30 pairs per variant on a GitHub runner (`thingi-contact.yml`, `workflow_dispatch`); PR #982 (merged 2026-11-16); first run 2026-11-16 (30 pairs per variant, ours / manifold / CGAL EPECK, [results](../../benchmarks/BooleanComparison/README.md#thingi10k-pairs-with-exact-contact)): 14 of 150 placements refused as inexact, findings filed as issues, not fixed in that PR.
 - **GPU / SIMD:** GPU not now (owner 2026-11-04; if ever, ILGPU in an add-on for the pair search only); SIMD for the
   `Orient3d` filter measured at 2-4 % ([research.md](research.md#later)).
 
@@ -692,7 +693,67 @@ per-piece query work (the near-field triangle terms are 70-78 % of it; Exact Boo
 docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5, PR #532): not planned. The remaining lever is what is evaluated: (C), the
 exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and patent check), or fewer queries.
 
+### After 3.0 (owner 2026-11-16)
+
+**Why stop here.** The 2x target against CGAL EPECK was set to drive the algorithm, not because the speed is
+insufficient. The rule is an 80 % approach: stop once the effort is out of proportion to the gain.
+
+- **Where we stand.** T6 run 43819984226 on master 414c6b5f, 4-core runner, our time divided by CGAL's single-threaded
+  time:
+  - all cores: 2.23x on the summed time, 2.91x median per operation;
+  - 1 thread: 4.07x summed, 5.24x median.
+- **12 threads (extrapolated, not measured).** Scaled with the owner's 4 to 12 thread factor of #962 (1.49):
+  about 1.5x summed and about 1.95x median.
+- **Small and large inputs alike.** The median ratio is about the same in the 1k-10k and 10k-100k buckets (5.3x and
+  5.2x at 1 thread), so there is no large fixed cost for small inputs to remove.
+- **Rounding is work CGAL does not do.** It is 21-27 % of our time. CGAL's exact result has no guarantee once it is
+  converted to doubles: 49 of its 294 T6 results are unclean (degenerate triangles), while all of ours are clean.
+
+**What the last levers gained.**
+- #956: -5 to -7 % at 4 threads, for one changed constant.
+- #962: -6 % at 4 threads and -10 % at 12, at medium to large effort (a parallel sort, a union-find, a bulk mesh builder,
+  three rounds of mutation fixes).
+
+**The levers left, at 12 threads.** Each touches an exact file, so each brings an exact-code review and mutation work.
+- Parallel `ExactPlanarSimplify`: about -3 % (bound -6 %).
+- The rounding's serial setup and load balance: -3 to -5 %.
+- The builder's `vertices` step: -2 to -3 %.
+- `setup.points` and `merge.points`: -1 to -2 % each.
+- The rest of the classification: -1 %.
+
+These are past the 80 % point and are dropped unless a caller needs them.
+
+**The one open question: probe A.** (Probe B, run in the same session, splits the rounding into sub-phases.) Probe A measures the pair work in `intersections.pairs` that `touch_only` later
+discards; an older probe found about a third of the 1-thread time there.
+- If it shows a realistic gain of at least 10 % that stays bit-identical with no new exact arithmetic, that lever is the
+  last speed PR of the boolean.
+- Otherwise the speed work stops.
+- Either way T6 closes with a report: the measured 12-thread ratio on the owner's machine (median and summed, with and
+  without rounding) and the cleanliness of both sides.
+
+**Triage of the research ideas.**
+
+| idea | relevance | decision |
+|---|---|---|
+| Exact imprint on `ExactMeshArrangement` (a robust replacement for the float `MeshMeshCut`, whose failures are in ROBUSTNESS_SWEEP R6), then the deprecation decision for `MeshMeshCut` / `MeshBoolean` | high | the only new boolean feature: a design note first, then the code (not scheduled yet) |
+| The tail above 20 s (55928 and others) | medium ("always finishes" matters more than the mean) | only on a runtime-watch regression or an issue |
+| EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low: probe A (#967, 7.1) puts the operand self-join at 10.6 s of the 12.1 s pairs phase at 1 thread, so skipping it is at most about −15 % of the boolean at 12 threads (extrapolated), and 0 on single booleans of raw inputs such as T6; the clean flag would come only from the library's own results (`NotCleanReason == None`) or a prepared operand, never from the caller | parked until a caller chains booleans (re-confirmed by the owner 2026-11-16) |
+| Normal-cone patch certificate for the operand self-join (Volino and Magnenat-Thalmann 1994; [SELF_INTERSECTION_PATCH_CERTIFICATE.md](../design/SELF_INTERSECTION_PATCH_CERTIFICATE.md)) | low: estimated −7 to −10 % at 12 threads (not measured), at or below the 10 % bar of the stopping rule; needs new error bounds in exact code, and the same certificate was slower in the Reducer | parked (owner 2026-11-16) |
+| Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | parked until a concrete use case |
+| Plateau variant of 3D snap rounding | low | parked (no-go, owner 2026-11-15) |
+| Exact output coordinates of the coplanar 2D clipping | low | parked |
+| S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
+| Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
+| EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
+
+**After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
+stability, plus the exact imprint.
+
 ### Open for the future (2026-11-15)
+
+Superseded where it differs by [After 3.0](#after-30-owner-2026-11-16) (2026-11-16): #913 and #956 are merged, #858
+is answered by the owner's 1 / 4 / 12-thread A/B of #962, the `rebuild_tree` reuse and S3 are dropped, and items 8 and 9
+are parked or dropped as the triage says.
 
 Done today and removed from this list: #883 (#882 race), #881 (lever 4), #893 (candidate D), #843 (T1b, SafeRounding
 outside the edits), #837 (rounding-search upper bound: lever 1 dropped, lever 2 parked), candidate C re-measured after
@@ -712,8 +773,10 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    #913; #615 itself is then closed.
 7. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
-   2026-11-15). After the release.
-8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go before the release, owner
+   2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
+   mask, the `MeshRoundingRepair` locks, the class, tests, the `ExactImprint` benchmark: about half the time of the boolean on closed sphere pairs); the
+   deprecation decision for `MeshMeshCut` / `MeshBoolean` follows once the imprint has run in the nightly / corpus.
+8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi), EMBER lever 2, Exact Boolean 4.0 (exact output with
    provenance), mesh-kernel ideas.

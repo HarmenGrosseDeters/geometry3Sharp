@@ -32,8 +32,8 @@ rather than an app. That puts some things first:
    (options object, `Compute()`, result with status).
 3. **A headless layer.** A CLI / MCP server that exposes the operations on mesh files
    (repair, boolean, remesh, measure, convert).
-4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), CI. A public package
-   comes last (see Release).
+4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), CI. No public package is
+   planned (owner 2026-11-16).
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
@@ -50,17 +50,19 @@ selectively.
 Status on 2026-11-15 (late evening, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered
 by priority; this section names only what is in flight.
 
-- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL) and #953 (thread-scaling
-  analysis) are merged; candidate C is a no-go (#915). Open: the mutation shards #913 (7-part split, its last shards
-  running) and lever 1, `TriangleBoxTree` parallel build from 8192 boxes (#956, held until a re-run of #837's cases
-  explains its +7 % classification). Then the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL), #953 (thread-scaling
+  analysis), #913 (7-part mutation split), #956 (`TriangleBoxTree` parallel build from 8192 boxes) and #963 (arrangement mutation filter) are merged;
+  candidate C is a no-go (#915). Open: #962 (parallel assembly and classification edge groups; owner's machine
+  -3.7 / -6.2 / -9.6 % at 1 / 4 / 12 threads, bit-identical) and the probe of the `touch_only` pair work (probe A) and the rounding sub-phases (probe B). **Stopping rule (owner
+  2026-11-16):** at most one more speed lever, only if the probe shows a realistic gain of at least 10 % at low risk; then
+  T6 closes with a report instead of the 2x target, and the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
 - **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
   the default decisions for lever 6 K (#736) and the raw-size budget (#846). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
   hygiene session 2): the coverage gate (red since 2026-11-13), the scheduled mutation runs (every scheduled run
   since 2026-11-02 cancelled, none after 2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's remaining
-  casts are open. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's audit of every remaining
+  `double` to integer cast is done ([CAST_AUDIT_804.md](design/CAST_AUDIT_804.md), 2026-11-16, #973, #804 closed). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Local (owner machine, 2026-11-15/16):** the net48 vs net10 comparison (#929), the boolean candidate pairs and the
   thread scaling beyond 4 cores (#858). Finding so far: at 1 thread the boolean is about 45 % faster on 22370752 than
   on 2026-11-14's master (likely #769 and #881); #772 alone is neutral.
@@ -74,14 +76,12 @@ by priority; this section names only what is in flight.
 
 Checked on 2026-11-15 (late evening).
 
-- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); after Exact Boolean 3.0 is closed out.
-  [platform.md](roadmap/platform.md#open)
 - **Alpha wrap defaults:** lever 6 K (#736) and the raw-size budget (#846) on by default or not; an 800 run per lever
   first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
   delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15); first an exact imprint
-  on `ExactMeshArrangement` (after the release). [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+  on `ExactMeshArrangement` (not scheduled yet). [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Terrain:** the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
   [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 
@@ -92,25 +92,23 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- Merge #913 and #956; then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
+- #962 and the probe (stopping rule, [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)); then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
 - The 800 runs for the alpha wrap default decisions (Haiku runner), then the owner decides.
-- Evaluate the owner's local run (#929, #858, the boolean candidate pairs) and write the finding into the boolean docs.
+- Write the owner's local runs (#929, #858, the boolean candidate pairs, the #962 A/B) into the boolean docs.
 - Review and merge #896 / #897 (ARAP, biharmonic).
-- Release preparation once the owner decides.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
 1. **Finish what runs.** Exact Boolean 3.0: T1b #843, the T6 check #922 and the thread-scaling analysis #953 are
-   merged; left are the mutation shards #913, lever 1 #956 and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
+   merged, and so are #913 and #956; left are #962, the probe and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
    deferred, owner 2026-11-15).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
    certified runs 4 -> 10 of 14 at / 128, never wrong); refinement for thin features deferred (#944).
-3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go before the release
+3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go
    (owner 2026-11-15, no spike; #721 closed, it stays a design).
-4. **Scale-free robust repair** (hard problem 9): not before the release, since the rounding spike is a no-go.
-5. **Release** (owner decision): once the outputs are stable.
-6. **Tet meshing:** after the release; it builds on the alpha wrap and the rounding. Sharp features (hard problem 4)
+4. **Scale-free robust repair** (hard problem 9): not scheduled, since the rounding spike is a no-go.
+5. **Tet meshing:** not scheduled; it builds on the alpha wrap and the rounding. Sharp features (hard problem 4)
    only if CAD cases need them.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
@@ -120,12 +118,11 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
 ## Later / research
 
-- Exact booleans, not scheduled: EMBER lever 2 (skip self-pairs of results certified free of self-intersections in chained
-  booleans); levers 1 and 5 (quantized inputs, a new architecture): no rewrite (owner 2026-11-07), patent search done
-  2026-11-10 (nothing found); exact output coordinates of the coplanar 2D
-  clipping. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- Exact booleans after 3.0 (owner 2026-11-16): maintenance mode; the exact imprint is the only new
+  feature; everything else is parked or dropped, see the triage in [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16).
 - Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
-  matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
+  matched shells, the grading placement strategy, parked until a use case; the <= 2x fork speed target is closed (owner
+  2026-11-16). [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
   2026-11-12). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Later list (point clouds, offsets, quad remeshing, deformation, tetrahedral meshing,
@@ -160,7 +157,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Phase 3, parameterization and geodesics. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#done--history)
 - Phase 4, CLI / MCP, analysis building blocks, evaluation metrics; CLI / MCP docs for the new operations (2026-11-02). [platform.md](roadmap/platform.md#phase-4-items-cli--mcp-analysis-building-blocks-evaluation-metrics)
 - Boolean property tests, DAP audit (nothing to adopt), Clipper2 adapter (#243). [platform.md](roadmap/platform.md#stage-8-planned-follow-ups)
-- Issue-tracker fix list complete (2026-11-03). [platform.md](roadmap/platform.md#release-when-its-done)
+- Issue-tracker fix list complete (2026-11-03). [platform.md](roadmap/platform.md#quality-bar-when-its-done)
 - Meshing2D M2 (#233), M3 (#252), `m2.snap` (#277), provenance check 6b (#295, #296), Q17 (#358), fast oracle (#376,
   #379), grading (#375, #380), run A (#390), small-angle rule (#394). [meshing2d.md](roadmap/meshing2d.md#done--history)
 - Quadtree (#195, #266): owner-machine side-by-side comparison done (2026-11-08): always faster than or as fast as

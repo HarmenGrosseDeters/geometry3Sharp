@@ -112,7 +112,7 @@ namespace gs
             // line leaving the band and entering it again). Next to a high wall the exit can be the wall height away
             double zin = zs + dir * d, zout = double.NaN;
             double delta = distance(new Vector3d(x, y, zin), out c);
-            int maxSteps = (int)(depth / (0.25 * d)) + 10;
+            int maxSteps = MathUtil.ToIntSaturating(depth / (0.25 * d)) + 10;
             for (int k = 1; k <= maxSteps; ++k) {
                 double zk = zin + dir * Math.Max(0.25 * d, d - delta);
                 delta = distance(new Vector3d(x, y, zk), out c);

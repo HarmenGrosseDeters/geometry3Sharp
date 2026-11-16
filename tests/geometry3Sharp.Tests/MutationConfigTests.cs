@@ -120,6 +120,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ArrangementParts_ExactMeshBooleanTests_IsTheClassItself_WithThreeNamedExtrasInPart3()
+        {
+            // the term `ExactMeshBooleanTests` is a substring match and pulled in 11 classes named after it (about 131 s of
+            // 198 s): the coverage capture of the four parts never ended (350 min). The class itself, with the trailing dot;
+            // the three tests of those classes that kill survivors of arrangement-3 (measured) are named one by one
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            string[] extras = {
+                "FullyQualifiedName~ExactMeshBooleanTestsIssue710.TinyCubes_UnderSimilarity",
+                "FullyQualifiedName~ExactMeshBooleanTestsTraced.Traced_SameThresholdsAsOwnRays_ExceptWithinTheBoundOfAHalfInteger",
+                "FullyQualifiedName~ExactMeshBooleanTestsTraced.Traced_SerialEqualsParallel_RepeatedAndReused" };
+            for (int i = 1; i <= 4; ++i) {
+                var terms = Alternatives(filters["stryker-mesh-arrangement-" + i]).ToList();
+                Assert.Contains("FullyQualifiedName~ExactMeshBooleanTests.", terms);
+                Assert.DoesNotContain("FullyQualifiedName~ExactMeshBooleanTests", terms);
+                Assert.Equal(i == 3 ? 3 : 0, terms.Count(t => t.StartsWith("FullyQualifiedName~ExactMeshBooleanTests") && t != "FullyQualifiedName~ExactMeshBooleanTests."));
+                if (i == 3) foreach (string e in extras) Assert.Contains(e, terms);
+            }
+        }
+
+        [Fact]
+        public void Planar_ExactMeshBooleanTests_IsTheClassItself()
+        {
+            // the bare term matched the 11 classes named after it as well (as in the arrangement shards)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var terms = Alternatives(TestFilters(root)["stryker-mesh-planar"]).ToList();
+            Assert.Contains("FullyQualifiedName~ExactMeshBooleanTests.", terms);
+            Assert.DoesNotContain("FullyQualifiedName~ExactMeshBooleanTests", terms);
+        }
+
+        [Fact]
         public void RoundingParts_SharedTests_FewExtras()
         {
             // every part of the rounding shard runs the same tests; the coverage pass costs about 100-200 minutes per

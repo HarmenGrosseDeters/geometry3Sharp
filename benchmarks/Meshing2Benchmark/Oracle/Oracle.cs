@@ -4062,6 +4062,7 @@ namespace Meshing2Acceptance
             /// </summary>
             bool InTube(Pt a, Pt b, Pt p)
             {
+                ++r.TubeTests;
                 if (!e.Reference) {
                     if (double.IsNaN(tubeHi)) tubeHi = tube2.Bounds(out _, out double t2h) && !double.IsInfinity(t2h) ? Math.Sqrt(t2h) * (1 + 1e-12) : double.PositiveInfinity;
                     if (!double.IsInfinity(tubeHi)) {
@@ -4071,6 +4072,7 @@ namespace Meshing2Acceptance
                         if (!double.IsNaN(low) && FilterRange(mag) && low > tubeHi) return false;
                     }
                 }
+                ++r.TubeTestsExact;
                 return Exact.Dist2ToSegment(a, b, p) <= tube2;
             }
 
@@ -4217,38 +4219,73 @@ namespace Meshing2Acceptance
             bool SpansSmallInputAngle(int ip, int iq, Q sin2Low, bool nearMeet)
             {
                 Pt p = v[ip], q = v[iq];
-                var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
-                var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();
-                var hull = HullSources();
-                for (int k = 0; k < hull.Count; ++k) {
-                    // (a box filter in doubles first: a large hull is scanned per bad triangle; the exact test decides)
-                    if (NearHull(k, ip) && WithinTube(hull[k], p)) sp.Add(hull[k]);
-                    if (NearHull(k, iq) && WithinTube(hull[k], q)) sq.Add(hull[k]);
-                }
-                foreach (var a in sp)
-                    foreach (var c in sq) {
-                        if (a.sourceId == c.sourceId) continue;
-                        Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
-                        Q cross = d1x * d2y - d1y * d2x;
-                        if (cross.Sign == 0) continue;
-                        Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
-                        if (sin2 >= sin2Low) continue;
-                        Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
-                        bool onBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
-                        if (onBoth == nearMeet) continue;
-                        Pt apex;
-                        if (onBoth) apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
-                        else if (WithinTube(a, c.a)) apex = c.a;
-                        else if (WithinTube(a, c.b)) apex = c.b;
-                        else if (WithinTube(c, a.a)) apex = a.a;
-                        else if (WithinTube(c, a.b)) apex = a.b;
-                        else continue;
+                var sp = NearSourceIds(ip);
+                var sq = NearSourceIds(iq);
+                foreach (int ai in sp)
+                    foreach (int ci in sq) {
+                        var pair = SourcePair(ai, ci);
+                        if (pair.Skip) continue;
+                        if (pair.Sin2 >= sin2Low) continue;
+                        if (pair.OnBoth == nearMeet) continue;
+                        if (!pair.HasApex) continue;
+                        Pt apex = pair.Apex;
                         Q rp = Exact.Len2(apex, p), rq = Exact.Len2(apex, q);
                         if (rp.Sign == 0 || rq.Sign == 0 || rp * 4 > rq * 9 || rq * 4 > rp * 9) continue;
                         if (Dot(apex, p, q).Sign <= 0) continue;
                         return true;
                     }
                 return false;
+            }
+
+            // The sources (ids below sources.Count) and hull sources (above) within the tube of a vertex, in that order, once per vertex:
+            // a mesh below the angle bound all over (a fan of small input angles) asked for them again for every triangle, each an exact
+            // distance test, 4.3 s for 1650 triangles (#947)
+            Dictionary<int, List<int>> nearSourcesCache;
+            List<int> NearSourceIds(int vertex)
+            {
+                if (nearSourcesCache == null) nearSourcesCache = new Dictionary<int, List<int>>();
+                if (nearSourcesCache.TryGetValue(vertex, out var cached)) return cached;
+                Pt p = v[vertex];
+                var ids = new List<int>();
+                for (int k = 0; k < sources.Count; ++k)
+                    if (MayBeNear(k, vertex) && WithinTube(sources[k], p)) ids.Add(k);
+                var hull = HullSources();
+                // (a box filter in doubles first: a large hull is scanned per vertex; the exact test decides)
+                for (int k = 0; k < hull.Count; ++k)
+                    if (NearHull(k, vertex) && WithinTube(hull[k], p)) ids.Add(sources.Count + k);
+                nearSourcesCache.Add(vertex, ids);
+                return ids;
+            }
+
+            sealed class SourcePairInfo { public bool Skip, OnBoth, HasApex; public Q Sin2; public Pt Apex; }
+            Dictionary<long, SourcePairInfo> sourcePairCache;
+
+            /// <summary> what a triangle's test of two sources has in common for all triangles: the sine squared of their angle, whether
+            /// their segments meet, and the apex (the meeting point, or the end of one inside the tube of the other) </summary>
+            SourcePairInfo SourcePair(int ai, int ci)
+            {
+                if (sourcePairCache == null) sourcePairCache = new Dictionary<long, SourcePairInfo>();
+                long key = ((long)ai << 32) | (uint)ci;
+                if (sourcePairCache.TryGetValue(key, out var info)) return info;
+                var hull = HullSources();
+                var a = ai < sources.Count ? sources[ai] : hull[ai - sources.Count];
+                var c = ci < sources.Count ? sources[ci] : hull[ci - sources.Count];
+                info = new SourcePairInfo();
+                sourcePairCache.Add(key, info);
+                Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
+                Q cross = d1x * d2y - d1y * d2x;
+                if (a.sourceId == c.sourceId || cross.Sign == 0) { info.Skip = true; return info; }
+                info.Sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
+                Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
+                info.OnBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
+                info.HasApex = true;
+                if (info.OnBoth) info.Apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
+                else if (WithinTube(a, c.a)) info.Apex = c.a;
+                else if (WithinTube(a, c.b)) info.Apex = c.b;
+                else if (WithinTube(c, a.a)) info.Apex = a.a;
+                else if (WithinTube(c, a.b)) info.Apex = a.b;
+                else info.HasApex = false;
+                return info;
             }
 
             static Q Dot(Pt p, Pt a, Pt b) => (a.Qx - p.Qx) * (b.Qx - p.Qx) + (a.Qy - p.Qy) * (b.Qy - p.Qy);

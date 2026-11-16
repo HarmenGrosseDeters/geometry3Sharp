@@ -167,6 +167,7 @@ namespace g3
             Contacts = new List<SweepContact>();
             CandidatePairs = 0;
             CandidatePairCount = 0;
+            PairsSkipped = PairsAbandoned = 0;
             PrepareSeconds = PairsSeconds = CandidateSeconds = 0;
             EarliestTimeOfImpact = double.PositiveInfinity;
             EarliestNearContactTime = double.PositiveInfinity;
@@ -230,6 +231,9 @@ namespace g3
             var outputs = new JobOutput[jobs.Count];
             try {
                 var jobPairs = new List<PairRef>[jobs.Count];
+                double bound = double.PositiveInfinity;
+                var jobSkipped = new long[jobs.Count];
+                long abandoned = 0;
                 // the batch's pairs and results, grown once and reused (no new large arrays per batch)
                 var flat = new PairRef[0];
                 var results = new CcdResult[0];
@@ -249,18 +253,31 @@ namespace g3
                     }
                     PairRef[] f = flat;
                     CcdResult[] res = results;
-                    Action<int, CcdSolver> solve = (k, solver) => { res[k] = solve_pair(f[k], solver); };
-                    if (parallel && total > 1)
-                        gParallel.ForRange(total, () => new CcdSolver(), solve);
-                    else {
-                        var solver = new CcdSolver();
-                        for (int k = 0; k < total; ++k)
-                            solve(k, solver);
+                    Action<int, CcdSolver> solve = (k, solver) => { solver.AbandonAfter = PreFilter && CollectAll == false ? bound : double.PositiveInfinity; res[k] = solve_pair(f[k], solver); if (solver.Abandoned) System.Threading.Interlocked.Increment(ref abandoned); };
+                    // in fixed chunks: the bound of a chunk is the smallest near contact time of the chunks before it
+                    // (it depends only on the input), so every pair that is not abandoned has its own result
+                    int chunk = Math.Max(1, AbandonChunk);
+                    for (long c0l = 0; c0l < total; c0l += chunk) {
+                        int c0 = (int)c0l;
+                        int c1 = (int)Math.Min(total, c0l + chunk);
+                        int cs = c0;
+                        if (parallel && c1 - c0 > 1)
+                            gParallel.ForRange(c1 - c0, () => new_solver(), (k, solver) => solve(cs + k, solver));
+                        else {
+                            var solver = new_solver();
+                            for (int k = c0; k < c1; ++k)
+                                solve(k, solver);
+                        }
+                        if (CollectAll == false)
+                            for (int k = c0; k < c1; ++k)
+                                if (res[k].Status == CcdStatus.Collision)
+                                    bound = Math.Min(bound, res[k].NearContactTime);
                     }
                     // (3) the results recorded per job, in order
                     at = 0;
                     for (int jj = a; jj < b; ++jj) {
                         var o = new JobOutput();
+                        o.Candidates = jobSkipped[jj];
                         int n = jobPairs[jj].Count;
                         for (int k = at; k < at + n; ++k)
                             record(o, f[k], res[k]);
@@ -275,7 +292,9 @@ namespace g3
                     // (1) the candidates of a group of jobs, in parallel over its jobs
                     int ng = Math.Min(BatchJobs, jobs.Count - g0);
                     long c0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                    Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w); };
+                    Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w);
+                        if (PreFilter && CollectAll == false)
+                            jobSkipped[g0 + jj] = drop_root_discarded(jobPairs[g0 + jj], w); };
                     if (parallel && ng > 1)
                         gParallel.ForRange(ng, () => new Worker(), collect);
                     else {
@@ -295,6 +314,9 @@ namespace g3
                     }
                 }
                 flush(pending, jobs.Count);
+                PairsAbandoned = abandoned;
+                PairsSkipped = 0;
+                foreach (long n in jobSkipped) PairsSkipped += n;
             } finally {
                 hullsA = hullsB = null;
             }
@@ -412,6 +434,7 @@ namespace g3
             public readonly List<Index2i> Pairs = new List<Index2i>();
             public int[] Stack;                  // SubStepBoxTree.Query's stacks
             public ulong[] Masks;
+            public CcdSolver Solver;             // the pre-filter's
         }
 
         // the swept boxes of a mesh's triangles or edges, their tree, and the ids by box index
@@ -642,7 +665,20 @@ namespace g3
             public int First, Second;
         }
 
-        CcdResult solve_pair(PairRef p, CcdSolver solver)
+        /// <summary> tests: false switches the pre-filter of the narrow phase off: the pairs whose first box the solver
+        /// discards are queried like any other, and no pair is abandoned (the results are the same either way) </summary>
+        internal bool PreFilter = true;
+
+        /// <summary> tests and benchmarks: the candidate pairs the pre-filter dropped before a query (the solver discards their first box) and those whose query stopped at the bound (no pair of either kind is a contact) </summary>
+        internal long PairsSkipped, PairsAbandoned;
+
+        /// <summary> the number of candidate pairs per fixed chunk of a batch after which the bound of the abandoned pairs is updated </summary>
+        internal int AbandonChunk = 1 << 16;
+
+        CcdSolver new_solver() { return new CcdSolver { RootShortcut = PreFilter }; }
+
+        // the pair's points into the solver
+        void set_pair(PairRef p, CcdSolver solver)
         {
             DMesh3 m1 = p.OfA ? meshA : meshB, m2 = p.OfA ? meshB : meshA;
             Vector3d[] e1 = p.OfA ? endA : endB, e2 = p.OfA ? endB : endA;
@@ -650,12 +686,37 @@ namespace g3
                 Index3i t = m2.GetTriangle(p.Second);
                 solver.Set(m1.GetVertex(p.First), m2.GetVertex(t.a), m2.GetVertex(t.b), m2.GetVertex(t.c),
                            e1[p.First], e2[t.a], e2[t.b], e2[t.c]);
-                return solver.Solve(true, Options);
+                return;
             }
             Index2i ea = m1.GetEdgeV(p.First), eb = m2.GetEdgeV(p.Second);
             solver.Set(m1.GetVertex(ea.a), m1.GetVertex(ea.b), m2.GetVertex(eb.a), m2.GetVertex(eb.b),
                        e1[ea.a], e1[ea.b], e2[eb.a], e2[eb.b]);
-            return solver.Solve(false, Options);
+        }
+
+        CcdResult solve_pair(PairRef p, CcdSolver solver)
+        {
+            set_pair(p, solver);
+            return solver.Solve(p.Kind == SweepContactKind.VertexTriangle, Options);
+        }
+
+        // Drops from the job's pairs those that the solver discards at its first box (CollectAll false: a pair that is not
+        // a contact has no output but its count); returns how many.
+        int drop_root_discarded(List<PairRef> pairs, Worker w)
+        {
+            if (w.Solver == null)
+                w.Solver = new_solver();
+            CcdSolver solver = w.Solver;
+            int kept = 0;
+            for (int k = 0; k < pairs.Count; ++k) {
+                PairRef p = pairs[k];
+                set_pair(p, solver);
+                if (solver.RootDiscards(p.Kind == SweepContactKind.VertexTriangle, Options))
+                    continue;
+                pairs[kept++] = p;
+            }
+            int dropped = pairs.Count - kept;
+            pairs.RemoveRange(kept, dropped);
+            return dropped;
         }
 
         // record a solved pair in its job's output

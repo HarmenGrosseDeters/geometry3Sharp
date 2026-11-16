@@ -73,8 +73,8 @@ Part of the [roadmap](../ROADMAP.md).
      implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
      Stage 2 merged (#793, 2026-11-13): `ContinuousCollision` and `MeshSweepCollision`, with the bound review fixes.
      Follow-ups merged: nearly parallel edges (#845), a parallel fused broad and narrow phase (#857), sub-steps in the
-     broad phase (#872, 2026-11-14). Open: #866, the 1M-triangle ToI frame takes 41 s parallel / 121 s serial against the
-     20 s rule (still open after #872; current time unverified).
+     broad phase (#872, 2026-11-14). #866 / #940 (the 1M-triangle ToI frame against the 20 s rule): closed 2026-11-16 as a documented limit (owner),
+     serial 23.5-24.9 s and parallel 8.8-10.4 s after #945 and #977.
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -180,7 +180,11 @@ Part of the [roadmap](../ROADMAP.md).
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; issue #887 deferred (owner 2026-11-15: closed as not planned until a scan use case and a measured gap of C1 exist).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-     Issue #886 (codex, open): ARAP, optionally biharmonic.
+     Issue #886: biharmonic displacement done (2026-11-16, #897): `BiharmonicMeshDeformer`, numerical mode with status and
+     stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
+     `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
+     (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP: `ArapMeshDeformer` in #896 (design note [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md)).
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
@@ -230,7 +234,7 @@ Part of the [roadmap](../ROADMAP.md).
   items 1, 3 and 5.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
   ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
-  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
+  variant designed 2026-11-15; owner 2026-11-15: no-go, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -394,6 +398,13 @@ Problems where the library already has a head start and that could be researched
 - **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,
   the defect generators and the differential predicate tests into a method and benchmark, applicable to other
   kernels as black boxes (without porting their code).
+  **Study done 2026-11-16** ([research/METAMORPHIC_TESTING.md](../research/METAMORPHIC_TESTING.md), catalogue
+  [design/METAMORPHIC_RELATIONS.md](../design/METAMORPHIC_RELATIONS.md), harness `benchmarks/MetamorphicFalsification`): a
+  falsification run over the 83 issues and six executed repros on the fixing commits' parents. A relation was the finding
+  mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
+  does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
+  black-box part (needs a reference); stop rules in the note. Owner decision pending.
+  **A1 and P1 built 2026-11-16** (PR `claude/metamorphic-a1-p1`, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,
@@ -463,9 +474,9 @@ Ordered by expected value for the library.
      rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
      2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
      open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
-     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
-     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
-     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so nothing
+     depends on it). **Owner 2026-11-15 (through the coordinator): no-go, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -615,20 +626,19 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go before
-the release, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
+Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: #804 (remaining casts), then the net48 / net10 measurement (#929, local).
-2. Tet meshing (after the release): a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
+1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
    exudation.
-3. #866 / #940: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule; the narrow phase is the serial
-   floor.
+3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
+   pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
    Options B and C only after a reviewed proof.
-5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2).
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
-7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not before the release (the
+7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not scheduled (the
    rounding spike is a no-go).
 8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).

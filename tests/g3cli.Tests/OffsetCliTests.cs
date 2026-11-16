@@ -309,6 +309,16 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void MeshOffset_RefusesDistanceZero()
+        {
+            string never = m.Path_("mo_zero.obj");
+            var (exit, r) = Run("offset", m.Cube, never, "--distance", "0", "--cell-size", "0.1", "--method", "mesh_offset", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("nonzero distance", S(r["message"]));
+            Assert.False(File.Exists(never));
+        }
+
+        [Fact]
         public void MeshOffset_RefusesRootModeAndRootSteps()
         {
             var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rm.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--root-mode", "bisection", "--compact");

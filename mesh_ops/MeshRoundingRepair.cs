@@ -143,6 +143,44 @@ namespace g3
         /// <summary> vertices whose position is kept where possible (tried last as the moved vertex; a strip zip removes the inner vertices of its strip, fixed or not); null = none </summary>
         public Func<int, bool> FixedVertexF = null;
         /// <summary>
+        /// FixedVertexF as a hard constraint (the exact imprint, docs/design/EXACT_IMPRINT.md 4.2): a fixed vertex is never moved
+        /// and never removed (in no edit: a contraction keeps it at its position, a strip zip, a vertex removal and the separation
+        /// of false contacts leave it alone), also where the coordinates are coarse. Tiny components are not removed: set
+        /// RemoveTinyComponents to false with it (Apply does not remove any while FixedVertexF would lose a vertex). Without it
+        /// FixedVertexF is a preference. More defects can remain than without it (counted as usual).
+        /// </summary>
+        public bool FixedHard = false;
+        /// <summary>
+        /// edges that no edit removes or changes (undirected vertex pairs, key LockedKey): a flip, a zip and a strip zip leave their
+        /// triangles alone, a vertex removal does not remove a vertex at one. A contraction of a locked edge is made only with
+        /// AllowLockedContraction, and a contraction of another edge moves the lock of an edge at the vanishing vertex to the kept
+        /// one. Changed by Apply. null: none.
+        /// </summary>
+        public HashSet<long> LockedEdges = null;
+        /// <summary> edges that are locked by a rule, asked for every edit (eg the edges of the input between fixed vertices); null: none </summary>
+        public Func<int, int, bool> LockedEdgeF = null;
+        /// <summary> a locked edge may be contracted if the edit is within the bound (counted in LockedContractions) </summary>
+        public bool AllowLockedContraction = false;
+        /// <summary> edges of LockedEdges contracted by Apply </summary>
+        public int LockedContractions;
+        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        public int RuleLockedContractions;
+        /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
+        public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
+        bool locked(int a, int b)
+        {
+            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || (LockedEdgeF != null && LockedEdgeF(a, b));
+        }
+        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null; } }
+        bool hard_fixed(int v) { return FixedHard && FixedVertexF != null && FixedVertexF(v); }
+        // a triangle with a locked edge
+        bool triangle_locked(int t)
+        {
+            if (has_locks == false) return false;
+            Index3i tv = Mesh.GetTriangle(t);
+            return locked(tv.a, tv.b) || locked(tv.b, tv.c) || locked(tv.c, tv.a);
+        }
+        /// <summary>
         /// whether FixedVertexF applies also where the coordinates are coarse (see UlpFactor). True by default. There the
         /// fixed vertices carry rounding errors of the size of the bound themselves, and keeping them can make the edits
         /// on the others cascade beyond it; ExactMeshBoolean, whose fixed vertices are the rounded input vertices, sets
@@ -498,6 +536,7 @@ namespace g3
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+            LockedContractions = RuleLockedContractions = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
@@ -634,7 +673,7 @@ namespace g3
             }
             if (check)
                 check_all_bounds();
-            if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
+            if (RemoveTinyComponents && FixedHard == false && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
                 bad = degenerate_triangles();
                 if (pairs.Count > 0)
                     pairs = intersecting_pairs();
@@ -1775,6 +1814,18 @@ namespace g3
             int eid = Mesh.FindEdge(a, b);
             if (stopped || eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
                 return false;
+            if (FixedHard && (hard_fixed(a) || (hard_fixed(b) && p != Mesh.GetVertex(b))))
+                return false;
+            bool lockedEdge = has_locks && locked(a, b);
+            if (lockedEdge && AllowLockedContraction == false)
+                return false;
+            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost)
+            if (LockedEdgeF != null) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && LockedEdgeF(a, x) && LockedEdgeF(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
+                        return false;
+            }
+            bool setLocked = LockedEdges != null && LockedEdges.Contains(LockedKey(a, b));
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(a)) {
                 removed.Add(t);
@@ -1804,8 +1855,25 @@ namespace g3
             // (the triangles of a: removed or moved to b)
             foreach (int t in Mesh.VtxTrianglesItr(a))
                 pairsStale.Add(t);
+            // (the locks at a move to b; a locked edge that is contracted is gone)
+            List<int> lockedAtA = null;
+            if (LockedEdges != null && LockedEdges.Count > 0) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && LockedEdges.Contains(LockedKey(a, x))) (lockedAtA ?? (lockedAtA = new List<int>())).Add(x);
+            }
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
+            if (lockedAtA != null) {
+                foreach (int x in lockedAtA) {
+                    LockedEdges.Remove(LockedKey(a, x));
+                    LockedEdges.Add(LockedKey(b, x));
+                }
+            }
+            if (lockedEdge) {
+                LockedEdges?.Remove(LockedKey(a, b));
+                if (setLocked) LockedContractions++;
+                else RuleLockedContractions++;
+            }
             if (atPosition != null)
                 position_remove(a, pa);
             set_vertex(b, p);
@@ -1828,6 +1896,8 @@ namespace g3
             int c = IndexUtil.orient_tri_edge_and_find_other_vtx(ref a, ref b, t0v);
             int d = IndexUtil.find_tri_other_vtx(a, b, t1v);
             if (c < 0 || d < 0 || Mesh.FindEdge(c, d) >= 0)
+                return false;
+            if (has_locks && locked(a, b))
                 return false;
             begin_edit();
             removed.Add(et.a); removed.Add(et.b);
@@ -1886,6 +1956,8 @@ namespace g3
             int c = IndexUtil.orient_tri_edge_and_find_other_vtx(ref a, ref b, Mesh.GetTriangle(tT).array);
             int d = IndexUtil.find_tri_other_vtx(a, b, Mesh.GetTriangle(tU).array);
             if (c < 0 || d < 0 || c == d || Mesh.FindEdge(c, d) >= 0)
+                return false;
+            if (has_locks && (triangle_locked(tT) || triangle_locked(tU)))
                 return false;
             Vector3d pa = pos(a), ab = pos(b) - pa;
             double sc = (pos(c) - pa).Dot(ab) / ab.LengthSquared, sd = (pos(d) - pa).Dot(ab) / ab.LengthSquared;
@@ -2041,6 +2113,14 @@ namespace g3
         bool zip_strip(List<int> strip, out bool undone)
         {
             undone = false;
+            // (a strip zip removes vertices and edges of its triangles: not where one is fixed hard or locked)
+            if (FixedHard || has_locks) {
+                foreach (int t in strip) {
+                    Index3i stv = Mesh.GetTriangle(t);
+                    if (triangle_locked(t) || hard_fixed(stv.a) || hard_fixed(stv.b) || hard_fixed(stv.c))
+                        return false;
+                }
+            }
             var inStrip = new HashSet<int>(strip);
             // its boundary: the directed edges of the strip's triangles whose other side is outside it
             var next = new Dictionary<int, int>();
@@ -2409,6 +2489,12 @@ namespace g3
         {
             if (Mesh.GetVtxEdgeCount(u) != 3 || Mesh.IsBoundaryVertex(u) || EvaluationLimitReached)
                 return false;
+            if (hard_fixed(u))
+                return false;
+            if (has_locks) {
+                foreach (int x in Mesh.VtxVerticesItr(u))
+                    if (locked(u, x)) return false;
+            }
             int[] fan = new int[3];
             int nf = 0;
             foreach (int t in Mesh.VtxTrianglesItr(u)) {
@@ -2523,7 +2609,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool try_move(int v, Vector3d p, bool removesContact = false)
         {
-            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
+            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z) || hard_fixed(v))
                 return false;
             if (stopped)
                 return false;
