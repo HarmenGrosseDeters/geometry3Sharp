@@ -230,7 +230,7 @@ Part of the [roadmap](../ROADMAP.md).
   items 1, 3 and 5.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
   ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
-  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
+  variant designed 2026-11-15; owner 2026-11-15: no-go, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -463,9 +463,9 @@ Ordered by expected value for the library.
      rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
      2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
      open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
-     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
-     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
-     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so nothing
+     depends on it). **Owner 2026-11-15 (through the coordinator): no-go, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -615,13 +615,12 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go before
-the release, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
+Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
 1. Hard problem 11, determinism proof: #804 (remaining casts), then the net48 / net10 measurement (#929, local).
-2. Tet meshing (after the release): a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
    exudation.
 3. #866 / #940: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule; the narrow phase is the serial
    floor.
@@ -629,6 +628,6 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2).
 6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
-7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not before the release (the
+7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not scheduled (the
    rounding spike is a no-go).
 8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).

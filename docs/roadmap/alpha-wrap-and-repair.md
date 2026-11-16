@@ -391,7 +391,7 @@ better; 0.75 is 1.09-1.22x.
   upper bounds; the coplanar 2D shortcut and the clearance filter were measured and closed).
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
-- **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
+- **Issue-tracker follow-ups** ([platform.md](platform.md#quality-bar-when-its-done)): P2 (Disk iteration, parked as
   research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
   would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
