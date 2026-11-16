@@ -190,6 +190,38 @@ namespace g3
         /// <summary> tests: take the outward-rounded interval path even where the filter applies </summary>
         internal bool ForceIntervals;
 
+        /// <summary>
+        /// The sweep's pruning bound: the search stops (Abandoned) as soon as every box that is left starts after this
+        /// time while no near box is known, so the pair's time of impact would be above it. Everything else of the search
+        /// is unchanged, so a pair that is not abandoned has exactly the result it has without the bound. +infinity
+        /// (the default) never abandons.
+        /// </summary>
+        internal double AbandonAfter = double.PositiveInfinity;
+
+        /// <summary> tests: false skips the shortcut of the first box (Solve then evaluates it in the queue, as before) </summary>
+        internal bool RootShortcut = true;
+
+        /// <summary>
+        /// True if Solve would discard the first box [0, 1]^3 on an axis of the filter path (it then returns NoCollision
+        /// after one box; same corner values and comparisons). False says nothing. For the sweep's pairs that need no
+        /// result (CollectAll false): such a pair is dropped without a query.
+        /// </summary>
+        internal bool RootDiscards(bool vertexTriangle, CcdOptions o)
+        {
+            if (o.IsValid() == false)
+                return false;
+            for (int i = 0; i < 12; ++i)
+                if ((Math.Abs(start[i]) <= InputRange) == false || (Math.Abs(end[i]) <= InputRange) == false)
+                    return false;
+            vf = vertexTriangle;
+            ms = o.MinSeparation;
+            prepare_filter();
+            return useFilter && root_discarded();
+        }
+
+        /// <summary> true if the last Solve stopped at AbandonAfter (its result then is a bound of the time of impact only) </summary>
+        internal bool Abandoned;
+
         public void Set(Vector3d s0, Vector3d s1, Vector3d s2, Vector3d s3, Vector3d e0, Vector3d e1, Vector3d e2, Vector3d e3)
         {
             put(start, 0, s0); put(start, 1, s1); put(start, 2, s2); put(start, 3, s3);
@@ -202,6 +234,7 @@ namespace g3
         public CcdResult Solve(bool vertexTriangle, CcdOptions o)
         {
             var r = new CcdResult { Status = CcdStatus.InvalidInput, TimeOfImpact = double.PositiveInfinity, NearContactTime = double.PositiveInfinity };
+            Abandoned = false;
             if (o.IsValid() == false)
                 return r;
             // finite and at most InputRange in magnitude, so that no extent, difference or corner value overflows
@@ -214,6 +247,16 @@ namespace g3
             maxIterations = o.MaxIterations;
             iterations = 0;
             prepare_filter();
+            if (RootShortcut && useFilter && root_discarded()) {
+                // the first box is discarded on an axis: the search below would evaluate it once and end with
+                // NoCollision (the same corner values and tests, without the queue)
+                iterations = 1;
+                r.Status = CcdStatus.NoCollision;
+                r.TimeOfImpact = no_collision_time();
+                r.Iterations = 1;
+                r.ErrorBound = errorBound;
+                return r;
+            }
             delta = o.Tolerance;
             if (double.IsNaN(delta)) {
                 // relative to the extent, but not finer than the evaluation error M 2^-47 (the computed corner values
@@ -240,6 +283,8 @@ namespace g3
                     break;
                 if (haveNear == false && b.t0 > o.TimeLimit)
                     break;
+                if (haveNear == false && b.t0 > AbandonAfter)
+                    return abandon(ref r);
                 if (limit_reached())
                     return stop(ref r, b.t0, haveNear, ref near, nearWidth);
                 pop();
@@ -288,6 +333,8 @@ namespace g3
                         push(next);     // evaluated again when it comes up (and then stops the search)
                         break;
                     }
+                    if (next.t0 > AbandonAfter && (count == 0 || heap[0].t0 > AbandonAfter))
+                        return abandon(ref r);      // (every box that is left starts after the bound)
                     if (wNext <= delta) {
                         near = next; nearWidth = wNext; haveNear = true; nearAt = iterations;
                         break;
@@ -304,6 +351,16 @@ namespace g3
                 return finish(ref r, count > 0 ? Math.Min(heap[0].t0, near.t0) : near.t0, ref near, nearWidth);
             r.Status = CcdStatus.NoCollision;
             r.TimeOfImpact = no_collision_time();
+            r.Iterations = iterations;
+            r.ErrorBound = errorBound;
+            return r;
+        }
+
+        CcdResult abandon(ref CcdResult r)
+        {
+            Abandoned = true;
+            r.Status = CcdStatus.NoCollision;
+            r.TimeOfImpact = double.PositiveInfinity;
             r.Iterations = iterations;
             r.ErrorBound = errorBound;
             return r;
@@ -640,6 +697,41 @@ namespace g3
             }
             if (useFilter)
                 errorBound = Math.Max(errors[0], Math.Max(errors[1], errors[2]));
+        }
+
+        // The filter path's evaluation of the box [0, 1]^3 up to the axis tests: true if some axis discards it, with the
+        // corner values and the comparison of evaluate (the clipped vertex-triangle box has the corners (0, 0), (1, 0),
+        // (0, 1); its two crossing points are the last two of them). False says nothing (the normals are not tested).
+        [MethodImpl(JitHints.Optimize)]
+        bool root_discarded()
+        {
+            for (int axis = 0; axis < 3; ++axis) {
+                double s0 = start[axis], s1 = start[3 + axis], s2 = start[6 + axis], s3 = start[9 + axis];
+                double d0 = diff[axis], d1 = diff[3 + axis], d2 = diff[6 + axis], d3 = diff[9 + axis];
+                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                for (int kt = 0; kt < 2; ++kt) {
+                    double t = kt == 0 ? 0.0 : 1.0;
+                    double x0 = s0 + t * d0, x1 = s1 + t * d1, x2 = s2 + t * d2, x3 = s3 + t * d3;
+                    double e0, e1, e2;
+                    if (vf) { e0 = x0 - x1; e1 = x2 - x1; e2 = x3 - x1; }
+                    else { e0 = x0 - x2; e1 = x1 - x0; e2 = x3 - x2; }
+                    // (the same order of operations as corners_filter: (e0 -/+ u e1) - v e2)
+                    double a00 = vf ? (e0 - 0.0 * e1) - 0.0 * e2 : (e0 + 0.0 * e1) - 0.0 * e2;
+                    double a10 = vf ? (e0 - 1.0 * e1) - 0.0 * e2 : (e0 + 1.0 * e1) - 0.0 * e2;
+                    double a01 = vf ? (e0 - 0.0 * e1) - 1.0 * e2 : (e0 + 0.0 * e1) - 1.0 * e2;
+                    lo = Math.Min(lo, Math.Min(a00, Math.Min(a10, a01)));
+                    hi = Math.Max(hi, Math.Max(a00, Math.Max(a10, a01)));
+                    if (vf == false) {
+                        double a11 = (e0 + 1.0 * e1) - 1.0 * e2;
+                        lo = Math.Min(lo, a11);
+                        hi = Math.Max(hi, a11);
+                    }
+                }
+                double threshold = thresholds[axis];
+                if (lo > threshold || hi < -threshold)
+                    return true;
+            }
+            return false;
         }
 
         // the (u, v) corners inside the domain (bit kuv = u bit | v bit << 1) and, for a vertex-triangle box that
