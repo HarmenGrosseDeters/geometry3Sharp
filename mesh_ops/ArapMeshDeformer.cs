@@ -31,7 +31,7 @@ namespace g3
             public int Iterations;
             /// <summary>Maximum normalized vertex motion in the last iteration. This is a stopping heuristic, not a linear-system or energy-stationarity residual.</summary>
             public double Residual;
-            /// <summary>Energy of the last evaluated positions divided by twice the weighted sum of squared rest edge lengths (dimensionless, equal for all similarities); 0 for a rigid motion. NaN when no iteration ran.</summary>
+            /// <summary>Energy of the returned mesh divided by twice the weighted sum of squared rest edge lengths (dimensionless, equal for all similarities); 0 for a rigid motion. Both are evaluated in the coordinates of each connected component normalized by its own extent, so a mesh of components of different size weights them equally, not by area. NaN when no iteration ran (all vertices are handles).</summary>
             public double Energy = double.NaN;
             public bool Converged { get { return Status == Status.Success; } }
         }
@@ -231,11 +231,7 @@ namespace g3
             }
             var free = new int[n]; int count = 0;
             for (int i = 0; i < n; ++i) free[i] = fixedVertex[i] ? -1 : count++;
-            if (count == 0) {
-                result.Mesh = MakeMesh(ids, positions, origins, scales, handles);
-                result.Status = result.Mesh == null ? Status.NonFiniteResult : Status.Success;
-                return result;
-            }
+            // count > 0 here: all vertices being handles returned above.
             foreach (var h in handles) {
                 int i = toIndex[h.Key];
                 if (!activeComponent[i]) continue;
@@ -272,7 +268,7 @@ namespace g3
                 int k = free[i]; positions[i] = rest[i] + new Vector3d(dx[k], dy[k], dz[k]);
                 if (!positions[i].IsFinite) { result.Status = Status.NonFiniteResult; return result; }
             }
-            var rotations = new Matrix3d[n];
+            var rotations = new Matrix3d[n]; var trialRotations = new Matrix3d[n];
             for (int i = 0; i < n; ++i) rotations[i] = Matrix3d.Identity;
             var svd = new FastQuaternionSVD();
             var bx = new double[count]; var by = new double[count]; var bz = new double[count];
@@ -285,7 +281,7 @@ namespace g3
 
             // Local step: optimal proper rotation of every active vertex for the given positions, and the energy
             // E(p) = min_R E(p, R) they give. Returns false (and sets failure) when a quantity leaves the range.
-            bool LocalStep(Vector3d[] pos, out double energy)
+            bool LocalStep(Vector3d[] pos, Matrix3d[] rotations, out double energy)
             {
                 energy = double.NaN;
                 for (int i = 0; i < n; ++i) {
@@ -302,10 +298,8 @@ namespace g3
                         var edge = edges[e]; int j = edge.A == i ? edge.B : edge.A;
                         Vector3d dp = pos[i] - pos[j], dq = rest[i] - rest[j];
                         Vector3d p = dp / pScale, q = dq / qScale;
-                        // A component flushed to zero by the normalization changes the covariance and is rejected as in the
-                        // cotangent weights. A product that is merely rounded or flushed next to larger terms is not: the
-                        // covariance is normalized by its largest entry before the SVD.
-                        if (LostComponent(dp, p) || LostComponent(dq, q)) { failure = Status.NumericalRange; return false; }
+                        // A component flushed by the normalization is below 1e-300 of the vertex's largest edge, so it cannot
+                        // change the covariance, which is normalized by its largest entry before the SVD.
                         for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) {
                             double term = edge.Weight * (p[r] * q[c]);
                             if (!MathUtil.IsFinite(term)) { failure = Status.NumericalRange; return false; }
@@ -326,7 +320,7 @@ namespace g3
                     Vector3d pab = pos[edge.A] - pos[edge.B], qab = rest[edge.A] - rest[edge.B];
                     sum += edge.Weight * ((pab - rotations[edge.A] * qab).LengthSquared + (pab - rotations[edge.B] * qab).LengthSquared);
                 }
-                if (!MathUtil.IsFinite(sum)) { failure = Status.NonFiniteResult; return false; }
+                if (!MathUtil.IsFinite(sum)) { failure = Status.NumericalRange; return false; } // finite input whose energy overflows
                 energy = sum;
                 return true;
             }
@@ -371,7 +365,7 @@ namespace g3
             var previousF = new double[3 * count]; var previousG = new double[3 * count]; bool havePrevious = false;
             var candidate = new double[3 * count]; var trial = (Vector3d[])positions.Clone();
             double energyNow;
-            if (!LocalStep(positions, out energyNow)) { result.Status = failure; return result; }
+            if (!LocalStep(positions, rotations, out energyNow)) { result.Status = failure; return result; }
             for (int iter = 0; iter < Options.MaxIterations; ++iter) {
                 GlobalStep(plain);
                 double motion = 0;
@@ -399,9 +393,12 @@ namespace g3
                 if (historyF.Count > 0 && TryAndersonCandidate(historyF, historyG, residual, plain, candidate)) {
                     Store(candidate, trial);
                     double energyCandidate;
-                    if (!LocalStep(trial, out energyCandidate)) { result.Status = failure; return result; }
-                    if (energyCandidate <= energyNow) {
+                    // The trial gets its own rotations (a zero covariance keeps the accepted ones). A candidate that
+                    // leaves the numerical range is rejected like one that raises the energy; the plain step is safe.
+                    Array.Copy(rotations, trialRotations, n);
+                    if (LocalStep(trial, trialRotations, out energyCandidate) && energyCandidate <= energyNow) {
                         accelerated = true; energyNow = energyCandidate;
+                        var swap = rotations; rotations = trialRotations; trialRotations = swap;
                         Array.Copy(candidate, current, 3 * count);
                         Array.Copy(trial, positions, n);
                     }
@@ -410,7 +407,7 @@ namespace g3
                     if (historyF.Count > 0) { historyF.Clear(); historyG.Clear(); }
                     Array.Copy(plain, current, 3 * count);
                     Store(current, positions);
-                    if (!LocalStep(positions, out energyNow)) { result.Status = failure; return result; }
+                    if (!LocalStep(positions, rotations, out energyNow)) { result.Status = failure; return result; }
                 }
             }
             // A finite last iterate is useful to the caller even when the iteration budget is exhausted.

@@ -682,5 +682,35 @@ namespace geometry3Sharp.Tests
             AssertSuccessPath(mesh, result, handles);
             Assert.True(result.Mesh.GetVertex(a).Distance(Vector3d.Zero) < 1e-9);
         }
+
+        [Fact]
+        public void Energy_MatchesTheIndependentEnergy()
+        {
+            // Mesh and handles of the negative-cotangent test: ClampedEdgeEnergy uses the analytic clamped weights.
+            var mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(0, 0, 0)), b = mesh.AppendVertex(new Vector3d(1, 0, 0));
+            int c = mesh.AppendVertex(new Vector3d(0.5, 0.1, 0)), d = mesh.AppendVertex(new Vector3d(0.5, -0.1, 0));
+            mesh.AppendTriangle(a, b, c); mesh.AppendTriangle(b, a, d);
+            var handles = new Dictionary<int, Vector3d> { [b] = mesh.GetVertex(b), [c] = mesh.GetVertex(c) + new Vector3d(0.1, 0.02, 0), [d] = mesh.GetVertex(d) };
+            var deformer = new ArapMeshDeformer(mesh); deformer.Options.MaxIterations = 500;
+            var result = deformer.Compute(handles);
+            Assert.NotNull(result.Mesh);
+            var edges = new[] { new Index2i(0, 2), new Index2i(1, 2), new Index2i(0, 3), new Index2i(1, 3) };
+            double normalizer = 0;
+            foreach (var e in edges) normalizer += 2 * 2.5 * (mesh.GetVertex(e.a) - mesh.GetVertex(e.b)).LengthSquared;
+            double expected = ClampedEdgeEnergy(mesh, result.Mesh) / normalizer;
+            Assert.True(expected > 1e-4);
+            Assert.True(Math.Abs(result.Energy - expected) <= 1e-9 * expected, result.Energy.ToString("R") + " vs " + expected.ToString("R"));
+        }
+
+        [Fact]
+        public void EnergyOverflowOnFiniteInput_IsNumericalRange()
+        {
+            var mesh = Patch();
+            var handles = new Dictionary<int, Vector3d> { [0] = mesh.GetVertex(0), [1] = mesh.GetVertex(1), [3] = new Vector3d(0, 1e160, 0) };
+            var result = new ArapMeshDeformer(mesh).Compute(handles);
+            Assert.Equal(ArapMeshDeformer.Status.NumericalRange, result.Status);
+            Assert.Null(result.Mesh);
+        }
     }
 }
