@@ -1,6 +1,7 @@
 # A certified patch bound for `CertifiedUpper` (#848, design note)
 
-Status: design and upper-bound measurement only, no library code (2026-11-16). Follows #742 / #847
+Status: design and upper-bound measurement only, no library code (2026-11-16). **Parked (owner 2026-11-16) until a use case:**
+no library caller sets `CertifiedUpper` today; the spike of section 7 is the starting point when one comes. Follows #742 / #847
 ([HAUSDORFF_CERTIFIED_UPPER.md](HAUSDORFF_CERTIFIED_UPPER.md), "B1" to "B6" below mean its sections) and the
 bound-review finding M3.
 
