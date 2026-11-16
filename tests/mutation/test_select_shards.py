@@ -455,6 +455,19 @@ class SelectShards(unittest.TestCase):
         diff = "".join(difflib.unified_diff(old.splitlines(True), wf.splitlines(True), "a", "b"))
         self.assertFalse(workflow_edit_forces_full(diff, old, wf))
 
+    def test_the_workflow_checks_local_results(self):
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertIn("      - 'tests/mutation/local-results/**'", wf)        # (a result-only commit starts the check)
+        self.assertIn("python3 test_local_result.py", wf)
+        self.assertIn("python3 test_run_local.py", wf)
+        step = wf[wf.index("Check the local results of this PR"):wf.index("# Runs once a day although")]
+        self.assertIn("github.event_name == 'pull_request'", step)
+        self.assertIn("local_result.py check", step)
+        self.assertIn('--head "$HEAD"', step)
+        # a result file alone selects no shard (the check is all it starts)
+        self.assertEqual(("none", []), select(["tests/mutation/local-results/" + "a" * 40 + "/boolean-1.json"], CONFIGS))
+
     def test_the_30_process_in_the_workflow(self):
         # 3.0 process (README): scheduled full runs on master in two groups, no full run on a PR, runs on master never cancel
         with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:

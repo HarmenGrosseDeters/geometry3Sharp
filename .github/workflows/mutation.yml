@@ -86,6 +86,7 @@ on:
       - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
       - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
       - 'tests/mutation/*'
+      - 'tests/mutation/local-results/**'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
@@ -154,6 +155,20 @@ jobs:
           python3 test_exclude_other_sources.py
           python3 test_run_stryker_restore.py
           python3 test_run_stryker.py
+          python3 test_local_result.py
+          python3 test_run_local.py
+      - name: Check the local results of this PR
+        # (3.0 process, tests/mutation/README.md "Local runs": a full run of a shard by the owner, committed under
+        # tests/mutation/local-results/<sha>/; valid for the commit being gated, counts as the shard passing for the
+        # completion gate. Only the files this PR adds: results of earlier PRs stay in the tree for their own commits)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files="$(git diff --name-only --diff-filter=AM "$BASE...$HEAD" -- tests/mutation/local-results)"
+          if [ -z "$files" ]; then echo "no local results in this PR"; exit 0; fi
+          python3 tests/mutation/local_result.py check --root . --head "$HEAD" --summary "$GITHUB_STEP_SUMMARY" $files
       # Runs once a day although two things start it (docs/QA.md 2.12): the external dispatcher at a fixed time and the cron
       # line as the fallback (tools/schedule_guard.py). A step of this job, not a job of its own: select_shards.py takes a new
       # job or top key of this workflow as a reason to run every shard in full.

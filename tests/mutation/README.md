@@ -142,6 +142,42 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
 - **The 3.0 completion gate** is a full run of every touched shard above its break threshold on master, on GitHub or run
   locally by the owner.
 
+### Local runs
+
+`run_local.sh` (Linux, macOS, Git Bash) and `run_local.ps1` (Windows PowerShell or PowerShell 7) run one or more shards in
+full with the CI configuration: the Stryker version of `.config/dotnet-tools.json` (`dotnet tool restore`), the
+`stryker-*.json` of the shard (break threshold included) and the heap limit of the mesh shards. Unlike a scheduled run they
+always run the **whole test filter of the config** (`G3_FULL_TESTS=1`, no narrowed test set: the result is a check of record).
+They need the dotnet SDK, Python 3 and git, a **clean working tree** (the result is valid for one commit) and several hours per
+shard.
+
+```
+bash tests/mutation/run_local.sh boolean-3 boolean-4            # named shards
+bash tests/mutation/run_local.sh --touched origin/master        # the shards select_shards.py picks for the PR
+pwsh tests/mutation/run_local.ps1 -Touched origin/master        # the same on Windows
+```
+
+Each shard writes `tests/mutation/local-results/<head sha>/<shard>.json` (the exit code is 1 when a shard is below its break
+threshold: the file is written anyway). The fields: `sha` (HEAD), `shard`, `config` and `config_sha256` (the config file,
+LF line breaks), `stryker_version`, `mode` ("full"), `clean_tree`, `score`, `break`, `counts` (killed, timeout, survived,
+nocoverage), `survivors` (`Survived|NoCoverage File.cs:line Mutator`), `finished_utc`, `platform`.
+
+**Handing a result in:** commit the file(s) to the PR branch (a commit that adds only `local-results/` files; the code must
+not change after the run, or the result is for another commit). The `changes` job of the workflow checks the result files
+that the PR adds (`local_result.py check`; also runnable by hand: `python3 tests/mutation/local_result.py check --head <sha>
+<file>...`). A result is valid when
+
+- its `sha` is the head of the PR, or an ancestor of it from which the head differs only by files under
+  `tests/mutation/local-results/` (and its directory is named after the sha),
+- `config_sha256` and `break` are those of the shard's config at the head and `stryker_version` is the one of the tools file,
+- the counts give the `score` (killed and timeouts over killed, timeouts, survived and no coverage), and `score >= break`,
+- `mode` is "full" and the tree was clean.
+
+A valid result counts as the shard passing for the 3.0 completion gate (the job summary says so); an invalid one fails the
+check and says why. Attaching the JSON as a PR comment is fine for the reviewers to read, but only the committed file is
+checked. Tests: `test_local_result.py` (the validator, including mutants of its checks) and `test_run_local.py` (the script
+with a stub `dotnet`).
+
 ### Coverage pass: only the shard's files are mutated
 
 Stryker.NET 5.0 mutates and compiles EVERY source file of the library whatever `mutate` names; the patterns only mark the
