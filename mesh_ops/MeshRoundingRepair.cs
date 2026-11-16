@@ -2599,9 +2599,9 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool try_move(int v, Vector3d p, bool removesContact = false)
         {
-            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
+            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z) || hard_fixed(v))
                 return false;
-            if (stopped || hard_fixed(v))
+            if (stopped)
                 return false;
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(v)) {
