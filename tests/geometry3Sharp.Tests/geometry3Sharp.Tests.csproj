@@ -102,6 +102,8 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
     <Compile Remove="TerrainDistanceMetricTests.cs" />
+    <!-- the UV atlas evaluation (benchmarks/Shared/UvEvaluation.cs) is linked for net10.0 only; it uses .NET Core APIs -->
+    <Compile Remove="UVAtlasEvaluationTests.cs" />
   </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
