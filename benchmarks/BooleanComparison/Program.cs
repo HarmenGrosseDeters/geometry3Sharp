@@ -8,6 +8,11 @@
 //   thingi-contact <meshA> <meshB> <dir> <variant> <axis> <sign> <param>
 //                                        a pair of the thingi-contact class (ThingiContact.cs, ContactTransforms.cs): B placed
 //                                        against A by an exact translation or reflection (face contact, ulp shift, mirror)
+//   abc-chain-inputs <A> <B> <C> <dir> <variantB> <axisB> <signB> <paramB> <variantC> <axisC> <signC> <paramC>
+//                                        the inputs of a chain of the abc-chained class (AbcChained.cs): B and C placed against A
+//                                        by exact placements; A.off, B.off, C.off, chain.json
+//   chain-step <A.off> <B.off> <dir> <name>
+//                                        one step of a chain: A.off, B.off and info.json of the step's inputs (results of earlier steps)
 //   thingi-filter <out.csv> <mesh>...    id, triangles and MeshRobustRepair.NotCleanReason of each mesh (appends, skips ids
 //                                        that are in out.csv already)
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
@@ -57,6 +62,8 @@ static class Program
             case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
             case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
             case "thingi-contact": return ThingiContact.Pair(args.Skip(1).ToArray());
+            case "abc-chain-inputs": return AbcChained.Inputs(args.Skip(1).ToArray());
+            case "chain-step": return AbcChained.Step(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);

@@ -1,0 +1,307 @@
+# The abc-chained data class: chained booleans on models of the ABC dataset (Koch et al., CVPR 2019) placed with the exact
+# contact transforms of thingi-contact (README.md, "Chained booleans on ABC models"). No model, mesh or derived mesh is part
+# of the repository: the workflow `.github/workflows/abc-chained.yml` downloads one chunk of the dataset on a GitHub-hosted
+# runner, extracts a seeded sample of its files, filters them, runs the chains and keeps only result rows (and model ids).
+#
+#   python3 data/abc_chained.py select <listing.txt> <out.txt> [--count N] [--seed S]   candidates from `7z l -slt` output
+#   python3 data/abc_chained.py filter <dir> <out.csv>      NotCleanReason of every <dir>/meshes/*.obj -> id,triangles,reason
+#   python3 data/abc_chained.py generate <clean.csv> <out.csv> [--chains N]   the chain list from the clean models (no meshes)
+#   python3 data/abc_chained.py manifest <dir> <chains.csv> <out.jsonl> [--limit N] [--variants v1,v2]
+#   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S]   the chains
+#   python3 data/abc_chained.py summary results.jsonl...    per variant and method
+#
+# Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
+import csv, json, os, re, shutil, subprocess, sys, tempfile
+import statistics as st
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
+import thingi_pairs as tp   # noqa: E402
+import thingi_contact as tc   # noqa: E402
+
+CLASS = "abc-chained"
+SEED_SELECT, SEED_CHAINS = 20261116, 20261117
+OPS = ["union", "intersection", "difference"]
+# a chain: (operation, left, right); "A", "B", "C" are the placed inputs, "R" the result of the previous step of the same method
+PLANS = {
+    "ucd": [("union", "A", "B"), ("difference", "R", "C"), ("intersection", "R", "A")],
+    "dui": [("difference", "A", "B"), ("union", "R", "C"), ("intersection", "R", "A")],
+    "iud": [("intersection", "A", "B"), ("union", "R", "C"), ("difference", "R", "A")],
+}
+VARIANTS = list(PLANS)
+# the placements allowed per variant: iud starts with an intersection, so B must overlap A (an empty first result ends the chain)
+KINDS_B = {"ucd": ["face-contact", "partial-overlap"], "dui": ["face-contact", "partial-overlap"], "iud": ["partial-overlap"]}
+KINDS_C = ["face-contact", "partial-overlap", "ulp-shift", "mirror"]        # the last two use a copy of A: c == a
+CHAINS_PER_VARIANT = 100
+SELECT_BYTES = (60_000, 3_000_000)     # file size of a candidate obj: about 500-30000 triangles with normals
+CLEAN_TRIS = (500, 30000)
+HEADER = ["pair", "variant", "a", "b", "c", "kb", "axb", "sgb", "pb", "kc", "axc", "sgc", "pc"]
+
+# --- select: candidates from the listing of the archive
+
+def parse_listing(text):
+    """(path, size) of every file of the output of `7z l -slt <archive>`"""
+    out, cur = [], {}
+    for line in text.splitlines() + [""]:
+        if line.strip() == "":
+            if "Path" in cur and "Size" in cur and cur.get("Folder", "-") != "+" and cur["Size"].isdigit():
+                out.append((cur["Path"], int(cur["Size"])))
+            cur = {}
+        elif " = " in line:
+            k, _, v = line.partition(" = ")
+            cur[k.strip()] = v.strip()
+    return out
+
+def model_id(path):
+    return os.path.basename(path).split(".")[0]
+
+def select_candidates(files, count, seed, size_range=SELECT_BYTES):
+    """count obj files of the listing in a size range, chosen by a partial Fisher-Yates shuffle of the sorted paths (seeded)"""
+    pool = sorted(p for p, n in files if p.lower().endswith(".obj") and size_range[0] <= n <= size_range[1])
+    rng = tp.SplitMix64(seed)
+    for i in range(min(count, len(pool))):
+        j = i + rng.below(len(pool) - i)
+        pool[i], pool[j] = pool[j], pool[i]
+    return sorted(pool[:count])
+
+# --- filter
+
+def cmd_filter(d, out):
+    """thingi-filter of the tool on all <d>/meshes: id,triangles,reason (reason: NotCleanReason, '' = clean; positive volume)"""
+    meshes = sorted(os.path.join(d, "meshes", f) for f in os.listdir(os.path.join(d, "meshes")))
+    if os.path.exists(out):
+        os.remove(out)
+    for i in range(0, len(meshes), 100):
+        subprocess.run(tp.tool() + ["thingi-filter", out] + meshes[i:i + 100], check=True)
+    rows = [l.rstrip("\n").split(",") for l in open(out)]
+    clean = sorted(((k, int(n)) for k, n, r in rows if r == ""))
+    with open(out + ".clean", "w") as f:
+        f.write("id,tris\n" + "".join(f"{k},{n}\n" for k, n in clean))
+    reasons = {}
+    for _, _, r in rows:
+        reasons[r or "clean"] = reasons.get(r or "clean", 0) + 1
+    print("NotCleanReason of the candidates:", reasons)
+
+def read_clean(path):
+    with open(path) as f:
+        return [(r["id"], int(r["tris"])) for r in csv.DictReader(l for l in f if not l.startswith("#"))]
+
+# --- generate
+
+def chain_rows(models, variant, count, seed=SEED_CHAINS):
+    """count rows of a variant: three different models (a, b, c), the placement of B and of C against A. Independent of count (prefix)."""
+    rng = tp.SplitMix64(seed + 7919 * VARIANTS.index(variant))
+    rows = []
+    for i in range(count):
+        a = models[rng.below(len(models))]
+        b = a
+        while b == a:
+            b = models[rng.below(len(models))]
+        c = a
+        while c in (a, b):
+            c = models[rng.below(len(models))]
+        kb = KINDS_B[variant][rng.below(len(KINDS_B[variant]))]
+        axb, sgb, pb = rng.below(3), 1 if rng.below(2) == 0 else -1, rng.below(tc.PARAMS[kb])
+        kc = KINDS_C[rng.below(len(KINDS_C))]
+        axc, sgc, pc = rng.below(3), 1 if rng.below(2) == 0 else -1, rng.below(tc.PARAMS[kc])
+        if kc in tc.SAME_MODEL:
+            c = a
+        rows.append([f"{i:04d}", variant, a, b, c, kb, axb, sgb, pb, kc, axc, sgc, pc])
+    return rows
+
+def generate(clean, out, chains=CHAINS_PER_VARIANT):
+    lo, hi = CLEAN_TRIS
+    pool = sorted(k for k, n in clean if lo <= n <= hi)
+    if len(pool) < 3:
+        raise SystemExit(f"only {len(pool)} clean models with {lo}-{hi} triangles")
+    rows = [r for v in VARIANTS for r in chain_rows(pool, v, chains)]
+    with open(out, "w", newline="") as f:
+        f.write(f"# abc-chained: {chains} chains per variant, SplitMix64 seed {SEED_CHAINS} (+7919 x variant index), from {len(pool)} clean models with {lo}-{hi} triangles\n")
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(HEADER)
+        w.writerows(rows)
+
+def read_chains(path):
+    with open(path) as f:
+        return list(csv.DictReader(l for l in f if not l.startswith("#")))
+
+def mesh_file(d, k):
+    for e in (".obj", ".off", ".stl", ".ply"):
+        p = os.path.join(d, "meshes", k + e)
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(k)
+
+def cmd_manifest(d, chains, out, limit=None, variants=None):
+    rows = tc.select(read_chains(chains), limit, variants)
+    with open(out, "w") as f:
+        for r in rows:
+            f.write(json.dumps({"class": CLASS, "name": f"{r['variant']}_p{r['pair']}_{r['a']}+{r['b']}+{r['c']}", "variant": r["variant"],
+                                "chain": [mesh_file(d, r["a"]), mesh_file(d, r["b"]), mesh_file(d, r["c"]),
+                                          r["kb"], r["axb"], r["sgb"], r["pb"], r["kc"], r["axc"], r["sgc"], r["pc"]]}) + "\n")
+    print(len(rows), "chains ->", out)
+
+# --- run
+
+def off_triangles(path):
+    """triangle count of an OFF file (-1 if there is none / unreadable)"""
+    try:
+        with open(path) as f:
+            first = f.readline().strip()
+            counts = f.readline().split() if first == "OFF" else first[3:].split()
+            return int(counts[1])
+    except (OSError, ValueError, IndexError):
+        return -1
+
+def last_json(text):
+    for line in reversed(text.strip().splitlines()):
+        if line.startswith("{"):
+            return json.loads(line)
+    return {"error": "no output"}
+
+def run_chain(case, methods, timeout):
+    """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
+    results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's three
+    operations as in compare.py (identities of the step on the method's own inputs), `step`, `op` and `input.inputs_clean`."""
+    import compare
+    d0 = tempfile.mkdtemp(prefix="abcchain_")
+    try:
+        e = subprocess.run(compare.tool + ["abc-chain-inputs"] + case["chain"][:3] + [d0] + [str(x) for x in case["chain"][3:]],
+                           capture_output=True, text=True, timeout=3600)
+        info = last_json(e.stdout)
+        if "error" in info:
+            raise RuntimeError(info["error"])
+        plan = PLANS[case["variant"]]
+        rows = []
+        for m in methods:
+            files = {k: os.path.join(d0, k + ".off") for k in "ABC"}
+            prev = None
+            for k, (op, left, right) in enumerate(plan):
+                dk = os.path.join(d0, f"{m}_{k}")
+                lf, rf = (prev if left == "R" else files[left]), (prev if right == "R" else files[right])
+                s = subprocess.run(compare.tool + ["chain-step", lf, rf, dk, f"{case['name']}_s{k}"], capture_output=True, text=True, timeout=3600)
+                sinfo = last_json(s.stdout)
+                if "error" in sinfo:
+                    rows.append({"class": CLASS, "file": case["name"], "method": m, "step": k, "op": op, "error": sinfo["error"]})
+                    break
+                runs = {m: {o: compare.run_one(m, o, dk, timeout) for o in OPS}}
+                row = compare.evaluate(dk, [m], {"class": CLASS, "name": case["name"]}, sinfo, runs, OPS)[0]
+                row.update({"step": k, "op": op, "variant": case["variant"], "chain_inputs": info})
+                out = os.path.join(dk, f"{m}_{op}.off")
+                row["result_tris"] = off_triangles(out)
+                rows.append(row)
+                if row["result_tris"] <= 0:       # no result (failed, rejected) or an empty one: nothing to chain on
+                    break
+                prev = out
+        return rows
+    except Exception as ex:
+        return [{"class": CLASS, "file": case["name"], "method": "export", "error": repr(ex)}]
+    finally:
+        shutil.rmtree(d0, ignore_errors=True)
+
+def cmd_run(manifest, out, methods, timeout):
+    cases = [json.loads(l) for l in open(manifest) if l.strip()]
+    done = set()
+    if os.path.exists(out):
+        with open(out, "rb+") as f:
+            data = f.read()
+            if data and not data.endswith(b"\n"):
+                f.write(b"\n")
+        for l in open(out):
+            try:
+                r = json.loads(l)
+                done.add(r["file"])
+            except ValueError:
+                pass
+    todo = [c for c in cases if c["name"] not in done]
+    print(f"{len(cases) - len(todo)} chains finished, {len(todo)} to run", flush=True)
+    with open(out, "a") as f:
+        for c in todo:
+            for r in run_chain(c, methods, timeout):
+                f.write(json.dumps(r) + "\n")
+            f.flush()
+            print(c["name"], flush=True)
+
+# --- summary
+
+def removed(r, op):
+    """components that the rounding stage of ours removed from the result of op (None: not recorded, or another method); the field
+    `<op>_removed_components` of compare.py, or the `counts` of `BooleanComparison run`"""
+    v = r.get(f"{op}_removed_components")
+    if v is None:
+        v = (r.get(f"{op}_counts") or {}).get("rounding_removed_components")
+    return v
+
+def step_clean(r):
+    reason = r.get(f"{r['op']}_clean_reason")
+    return reason in ("", "empty")
+
+def slash(vals):
+    return "/".join(str(v) for v in vals)
+
+def cmd_summary(files):
+    rows = []
+    for f in files:
+        with open(f) as fh:
+            rows += [json.loads(l) for l in fh if l.strip()]
+    steps, refused = {}, {}
+    for r in rows:
+        if r.get("method") == "export":
+            refused[r["file"]] = r.get("error", "")
+        elif "step" in r:
+            steps[(r["file"], r["method"], r["step"])] = r       # the last row of a step wins
+    chains = {}
+    for (name, m, k), r in steps.items():
+        chains.setdefault((r.get("variant") or name.split("_p")[0], m), {}).setdefault(name, {})[k] = r
+    n_steps = max((len(p) for p in PLANS.values()), default=3)
+    print("| variant | method | chains | steps run (step 1/2/3) | chosen result clean or empty (step 1/2/3) | all steps clean | stopped early | unclean reasons of the chosen results | max identity error (step 1/2/3) | removed components | median ms of the chosen op (step 1/2/3) |")
+    print("|" + "---|" * 11)
+    for (variant, m), by_chain in sorted(chains.items(), key=lambda kv: (VARIANTS.index(kv[0][0]) if kv[0][0] in VARIANTS else 99, kv[0][1])):
+        ran = [0] * n_steps; clean = [0] * n_steps; err = [0.0] * n_steps; ms = [[] for _ in range(n_steps)]
+        reasons, removed_total, all_clean, early = {}, 0, 0, 0
+        for name, ks in by_chain.items():
+            for k, r in ks.items():
+                if k >= n_steps or "op" not in r:
+                    continue
+                ran[k] += 1
+                if "error" in r:
+                    reasons[r["error"][:30]] = reasons.get(r["error"][:30], 0) + 1
+                    continue
+                op = r["op"]
+                if r.get(f"{op}_status") != "ok":
+                    reasons[r.get(f"{op}_status") or "failed"] = reasons.get(r.get(f"{op}_status") or "failed", 0) + 1
+                elif step_clean(r):
+                    clean[k] += 1
+                else:
+                    reasons[r.get(f"{op}_clean_reason")] = reasons.get(r.get(f"{op}_clean_reason"), 0) + 1
+                err[k] = max([err[k]] + [r[e] for e in ("ie_error", "diff_error") if r.get(e) is not None])
+                ms[k].append(r.get(f"{op}_ms") or 0)
+                removed_total += sum(removed(r, o) or 0 for o in OPS)
+            if len(ks) == n_steps and all("op" in r and "error" not in r and r.get(f"{r['op']}_status") == "ok" and step_clean(r) for r in ks.values()):
+                all_clean += 1
+            if len(ks) < n_steps:
+                early += 1
+        print(f"| {variant} | {m} | {len(by_chain)} | {slash(ran)} | {slash(clean)} | {all_clean} | {early} | "
+              f"{', '.join(f'{k} {v}' for k, v in sorted(reasons.items(), key=lambda kv: str(kv[0]))) or '–'} | {slash(f'{e:.1e}' for e in err)} | "
+              f"{removed_total if m == 'ours' else '–'} | {slash(f'{st.median(x):.0f}' if x else '–' for x in ms)} |")
+    if refused:
+        print(f"\nChains refused (inexact placement) or failed to load: {len(refused)}:")
+        for k, v in sorted(refused.items()):
+            print(f"- {k}: {v}")
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    def opt(name, default=None, cast=str):
+        return cast(a[a.index(name) + 1]) if name in a else default
+    if a[:1] == ["select"]:
+        files = parse_listing(open(a[1]).read())
+        sel = select_candidates(files, opt("--count", 400, int), opt("--seed", SEED_SELECT, int))
+        open(a[2], "w").write("".join(p + "\n" for p in sel))
+        print(len(sel), "candidates of", len(files), "files")
+    elif a[:1] == ["filter"]: cmd_filter(a[1], a[2])
+    elif a[:1] == ["generate"]: generate(read_clean(a[1]), a[2], opt("--chains", CHAINS_PER_VARIANT, int))
+    elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], a[3], opt("--limit", None, int), opt("--variants", None, lambda s: s.split(",")))
+    elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int))
+    elif a[:1] == ["summary"]: cmd_summary(a[1:])
+    else: sys.exit(__doc__)
