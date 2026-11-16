@@ -180,7 +180,11 @@ Part of the [roadmap](../ROADMAP.md).
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; issue #887 deferred (owner 2026-11-15: closed as not planned until a scan use case and a measured gap of C1 exist).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-     Issue #886 (codex, open): ARAP, optionally biharmonic.
+     Issue #886: biharmonic displacement done (2026-11-16, #897): `BiharmonicMeshDeformer`, numerical mode with status and
+     stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
+     `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
+     (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP is tracked separately in #896.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
