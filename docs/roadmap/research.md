@@ -184,7 +184,7 @@ Part of the [roadmap](../ROADMAP.md).
      stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
      `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
      (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
-     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP is tracked separately in #896.
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP: `ArapMeshDeformer` in #896 (design note [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md)).
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
@@ -404,6 +404,7 @@ Problems where the library already has a head start and that could be researched
   mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
   does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
   black-box part (needs a reference); stop rules in the note. Owner decision pending.
+  **A1 and P1 built 2026-11-16** (PR `claude/metamorphic-a1-p1`, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,

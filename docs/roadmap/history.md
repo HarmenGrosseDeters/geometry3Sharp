@@ -94,3 +94,6 @@ Merge dates from `git log origin/master`. The details are on [platform.md](platf
 - 2026-11-14: Clipper2 NuGet package removed from the addon, addon 2.0.0 (#851); the #756 orientation guard (#874);
   determinism proof stage 0, analyzer rules G3D0001-9 (#871); `g3cli tpms` (#879).
 - 2026-11-15: exact fallback monomial kernels instead of BigInteger (#769, for #711).
+- 2026-11-16: `DualContouring` takes exact Hermite data by default (`ExactHermite`, `QEFEigenTolerance` 0.02; owner decision): the output of
+  a plain `DualContouring` changes (sharper creases, same triangle count); `ExactHermite = false` with tolerance 0.1 is the former output;
+  `WindingContouring`, `MeshWindingNumberSolidify` and `MeshOffset` keep tolerance 0.1 (they set `HermiteF`).

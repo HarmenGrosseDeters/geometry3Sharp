@@ -5,6 +5,9 @@
 //   thingi-pair <meshA> <meshB> <dir> <qx qy qz qw tx ty tz>
 //                                        a pair of the thingi-pairs class (ThingiPairs.cs): both meshes normalized to the unit
 //                                        box, B rotated by the quaternion and translated; A.off / B.off, info.json
+//   thingi-contact <meshA> <meshB> <dir> <variant> <axis> <sign> <param>
+//                                        a pair of the thingi-contact class (ThingiContact.cs, ContactTransforms.cs): B placed
+//                                        against A by an exact translation or reflection (face contact, ulp shift, mirror)
 //   thingi-filter <out.csv> <mesh>...    id, triangles and MeshRobustRepair.NotCleanReason of each mesh (appends, skips ids
 //                                        that are in out.csv already)
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
@@ -53,6 +56,7 @@ static class Program
             case "array": return ArrayCase(args[1], args[2], int.Parse(args[3]));
             case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
             case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
+            case "thingi-contact": return ThingiContact.Pair(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);

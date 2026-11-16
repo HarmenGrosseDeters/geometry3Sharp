@@ -57,6 +57,7 @@ static class Program
 
     static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "relations") return Relations.Run();
         if (args.Length > 0 && args[0] == "diagnose") { Diagnose.Run(); return 0; }
         var cases = Cases.All();
         string only = args.Length > 0 ? args[0] : null;

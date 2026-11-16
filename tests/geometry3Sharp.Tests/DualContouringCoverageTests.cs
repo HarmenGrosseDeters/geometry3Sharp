@@ -72,7 +72,8 @@ namespace geometry3Sharp.Tests
             Vector3d o = new Vector3d(org, org, org);
             var dc = new DualContouring() {
                 Implicit = new Fn() { F = p => g((p - o) / cs) }, InsideIsLess = true, CellSize = cs, ParallelCompute = false,
-                ResolveSelfIntersections = false, Bounds = new AxisAlignedBox3d(o, o + res * cs * Vector3d.One)
+                ResolveSelfIntersections = false, Bounds = new AxisAlignedBox3d(o, o + res * cs * Vector3d.One),
+                ExactHermite = false, QEFEigenTolerance = 0.1   // the seeds were searched for the interpolated Hermite data (a rare branch each)
             };
             dc.Generate();
             return dc;
@@ -80,7 +81,7 @@ namespace geometry3Sharp.Tests
 
         // the same with refinement: coarse cells of factor * 2^exp ulps, a pseudo random share `share` of them
         // replaced by factor^3 fine cells (so fine cells of 2^exp ulps next to coarse ones: the transitions)
-        internal static DualContouring Refined(int seed, double org, int exp, int factor, double share, int res)
+        internal static DualContouring Refined(int seed, double org, int exp, int factor, double share, int res, bool legacy = true)
         {
             double cs = factor * Ulp(org) * (1 << exp);
             Func<Vector3d, double> g = Bounded(Noise(seed), res, 0.4);
@@ -104,6 +105,7 @@ namespace geometry3Sharp.Tests
             var dc = new DualContouring() {
                 Implicit = new Fn() { F = p => g((p - o) / cs) }, InsideIsLess = true, CellSize = cs, ParallelCompute = false,
                 ResolveSelfIntersections = false, Bounds = new AxisAlignedBox3d(o, o + res * cs * Vector3d.One),
+                ExactHermite = !legacy, QEFEigenTolerance = legacy ? 0.1 : 0.02,   // the seeds were searched for the interpolated Hermite data (a rare branch each)
                 CandidateCells = all, NodeValueF = v => g(new Vector3d(v.x, v.y, v.z))
             };
             dc.SetRefinement(factor, refined, fine, v => g(new Vector3d(v.x, v.y, v.z) / factor));

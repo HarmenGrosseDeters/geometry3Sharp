@@ -340,6 +340,25 @@ bit), a reuse test, determinism, time limits (5 s per test; the corpus-like chec
     fixed-vertex mode soft (target vertex moved / removed), the group copy, `SourceTriangle` off by one, the seam join (join by position
     instead of by target edge), keeping degenerate target triangles.
 
+12. **Contact assemblies** (`ExactImprintAssemblyTests`, fixtures in `Harness/ContactAssemblies.cs` and `ContactAssemblyFixtures.cs`, owner-approved
+    instead of licence-restricted assembly datasets): closed parts on a 1/8 lattice (every coordinate an exact double) whose faces touch exactly, each
+    imprinted with its neighbours: stacked plates with matching and with offset bolt holes (partial overlap of the rims), a stepped shaft in a bore,
+    a through mortise with its tenon (flush and protruding), a plate standing on a plate (inside and overhanging), each with plain tessellations and with a
+    perturbed one (jittered Delaunay points, midpoints on the loops, the other diagonal, an extra height level) on one or both sides: 24 assemblies.
+    The cylinders are octagon prisms, so their walls are planar and touch exactly for any tessellation; a polygon inscribed in a circle has no exact
+    vertices and would touch only where both sides share them (not built). The loose shaft has a gap at the shank (no wall contact, no curve).
+    Asserted (and nothing beyond the guarantees): G1 per part; the contact face's area and its split regions against hand-derived values in exact
+    rational arithmetic (also against an independent triangle-pair clip of the two input faces); **the overlay**: both sides contain exactly the overlay of
+    the two parts' in-plane edges inside the closed contact region as vertices (no more, no fewer) and as mesh edges, and the outline of the region is a
+    chain of edges on both sides; G2 against the arrangement's constraint edges; no curve outside a contact; invariance, reuse and determinism; SafeRounding
+    (G3 bound, G5) also on grids so coarse (ulp 2^-14 and 2^-11 against a 2^-11 lattice) that the repair edits and contracts.
+    What the two sides do **not** share: the flagged `CurveEdges`. The imprint of A flags B's edges clipped to A's triangles (plus the contact lines where a
+    neighbouring face touches), so with different tessellations the flagged sets differ; they are equal exactly where the triangulations coincide. Each
+    flagged set contains every overlay piece that lies on an edge of the other part, and each side's own edges are mesh edges but not flagged. The two
+    results also triangulate a cell of the overlay with four or more corners independently (no equal triangles inside such a cell), which no guarantee
+    covers. G5's wording: a counted contraction of a *target edge part* (`target_edge_parts_contracted`) also re-points a curve edge's end vertex to the
+    kept one (the curve stays connected, the count of curve edges stays within `2 *` contractions); the tests allow that and say so.
+
 **Mutation shard plan:** a new shard `ExactImprint` (`tests/mutation`, config in `.github/workflows/mutation.yml` paths):
 mutated files: `mesh_ops/ExactMeshImprint.cs`, the new assembly code, and the locked-edge changes in `MeshRoundingRepair.cs` (the edit-selection code, joined with the
 existing rounding shard filter); tests: the classes above. The change to `ExactMeshArrangement` (the mask) is covered by the
