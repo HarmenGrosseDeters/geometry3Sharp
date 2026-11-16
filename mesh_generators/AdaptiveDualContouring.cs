@@ -415,6 +415,16 @@ namespace g3
                         foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
                         continue;
                     }
+                    // a triangle that turned over against the uniform contour's (a needle of nearly collinear cluster vertices can flip
+                    // without intersecting anything)
+                    if (anyCluster) {
+                        Vector3d n0 = (P0[it.b] - P0[it.a]).Cross(P0[it.c] - P0[it.a]);
+                        Vector3d n1 = (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a));
+                        if (!(n0.Dot(n1) > 0)) {
+                            foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
+                            continue;
+                        }
+                    }
                     // a triangle that would give an edge a third triangle is left out; the hole is found below (boundary edges at its vertices)
                     outMesh.AppendTriangle(a, b, c);
                 }

@@ -1,6 +1,6 @@
 # Adaptive simplification of dual contouring (`AdaptiveDualContouring`)
 
-Status: implemented with this note (tier M, additive API, no change for existing callers).
+Status: `AdaptiveDualContouring` merged in #995 (opt-in). Owner decision 2026-11-16: the simplification is the default of `DualContouring` (`Simplify`, opt-out); section 6.
 
 Goal: far fewer triangles than uniform dual contouring at the same accuracy. Where one vertex still fits the surface
 within a tolerance, the cells of an aligned 2^L block merge into one vertex, so flat regions get large triangles and
@@ -95,3 +95,31 @@ logic that `SetRefinement` does not have.
 `Tolerance` is in finest cells (scale invariant: a power-of-two scale of the input gives the same result bit for bit).
 Opt-in: `DualContouring` itself is unchanged except for an internal recording hook (`RecordVertexCrossings`) and
 `solve_qef` being internal.
+
+## 6. Default on (`DualContouring.Simplify`)
+
+`DualContouring.Generate` runs `AdaptiveDualContouring` (inner contour with `Simplify` false) when `Simplify` is true
+(default), and the uniform contour as before otherwise. It applies only to the dense mode with `Implicit`, `ExactHermite`,
+`ResolveSelfIntersections` and none of `HermiteF`, sparse mode (`CandidateCells`), refinement, hidden gap / wall functions or
+recording; so `MeshOffset`, `MeshWindingNumberSolidify`, `WindingContouring` (own Hermite data or sparse) and everything the
+command line reaches through them give the same output as before (they also set `Simplify = false` explicitly). With `Simplify`
+false the output is bit for bit the former one (digest test on four shapes, taken on master before the change).
+Tests that inspect the uniform contour (internal accessors, certificates, face vertices, accuracy of the unsimplified contour)
+set `Simplify = false`. `SimplifyTolerance` (0.25 finest cells) and `SimplifyMaxLevel` (6) are the two parameters.
+
+Cost. A sparse top-down construction was measured first (AGENT_WORKFLOW 3): at N = 256, tolerance 0.25, grid sampling and edge
+crossings are 8-15 % of the time, the vertex QEFs 36-40 %, the exact check of the uniform contour 17-24 %, the clustering 26-31 %.
+A sparse grid alone saves at most 8-15 %; skipping the fine cells of flat regions needs bounds on the implicit and is not part of
+this default (a possible opt-in, roadmap). What was done instead: the exact self-intersection check runs once on the (30x
+smaller) final mesh instead of on the uniform contour first; if it finds intersections that no merged vertex is part of (the
+uniform contour had its own), the uniform contour is repaired as before and the merge runs again, so a returned mesh is always
+the result of an exact check (measured: a gyroid at N = 48, test `Gyroid_ResultHasNoSelfIntersections`). The component setup of the
+clustering allocates lists only for components of several children. Time at N = 256: uniform plus 32-43 % (was 64-76 % in #995; benchmark README), N = 128: plus 7-85 %.
+
+Orientation. A needle of three nearly collinear cluster vertices can turn over without intersecting anything (six triangles on the
+sphere at cell 0.1, found by `DualContouringTests.Sphere_IsClosedManifoldAndOrientedOutwards`); the assembly rejects a triangle
+whose normal turns against the uniform contour's.
+
+Triangle quality is measured in the benchmark README (smallest angle: 1st percentile, mean, share below 5 and 10 degrees). The
+simplified contour has a lower mean smallest angle (about 35 against 41 degrees) and more slivers at creases (CSG part: 4.5 % of
+the triangles below 10 degrees at tolerance 0.25 against 0.4 %); smooth shapes are close to the uniform contour.

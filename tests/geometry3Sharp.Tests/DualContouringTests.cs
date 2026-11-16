@@ -26,7 +26,7 @@ namespace geometry3Sharp.Tests
         public void Sphere_IsClosedManifoldAndOrientedOutwards()
         {
             var dc = new DualContouring() {
-                Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1,
+                Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1, Simplify = false,   // (the uniform contour's accuracy; the simplified one may leave the sphere by its tolerance, see AdaptiveDualContouringTests)
                 Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3)
             };
             dc.Generate();
@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
             // set only by a pass that found nothing: no pass (as when the rounds run out with pairs left)
             var none = new DualContouring() {
                 Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1,
-                Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3), MaxResolveRounds = 0
+                Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3), MaxResolveRounds = 0, Simplify = false
             };
             none.Generate();
             Assert.False(none.SelfIntersectionFree);

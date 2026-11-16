@@ -104,6 +104,21 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // measured: with the default tolerance 0.25 the sphere had six needle triangles (nearly collinear cluster vertices) turned inward
+        // that intersected nothing; every triangle must face outward
+        [Fact]
+        public void Sphere_EveryTriangleFacesOutward()
+        {
+            var ad = new AdaptiveDualContouring() {
+                Implicit = new Fn(Sphere), InsideIsLess = true, CellSize = 0.1, Tolerance = 0.25, Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3)
+            };
+            ad.Generate();
+            Assert.True(ad.Clusters > 0);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(ad.Mesh, true));
+            foreach (int t in ad.Mesh.TriangleIndices())
+                Assert.True(ad.Mesh.GetTriNormal(t).Dot(ad.Mesh.GetTriCentroid(t)) > 0, "triangle " + t + " faces inward");
+        }
+
         [Fact]
         public void TwoSheetsInOneBlock_StayTwoClusters()
         {
@@ -134,7 +149,8 @@ namespace geometry3Sharp.Tests
             ad.Generate();
             Assert.True(ad.Clusters > 0);
             double worst = ad.Mesh.Vertices().Max(v => Math.Abs(RotatedBox(v)));
-            Assert.True(worst <= tol * ad.CellSize + 1e-9, "max |f| " + worst + " cells " + worst / ad.CellSize);
+            // (within tol of each Hermite plane; at a crease or corner outside the faces the distance to the surface is up to sqrt(2) or sqrt(3) times that)
+            Assert.True(worst <= Math.Sqrt(3) * tol * ad.CellSize + 1e-9, "max |f| " + worst + " cells " + worst / ad.CellSize);
         }
 
         [Fact]

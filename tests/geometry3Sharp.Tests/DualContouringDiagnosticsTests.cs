@@ -32,7 +32,7 @@ namespace geometry3Sharp.Tests
         {
             double cell = 2.2 / res;
             Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * new Vector3d(0.1371, 0.2713, 0.3891);
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Fn() { F = p => f(p / scale) }, InsideIsLess = true, CellSize = cell * scale,
                 Bounds = new AxisAlignedBox3d(scale * o, scale * (o + 2.2 * Vector3d.One))
             };
