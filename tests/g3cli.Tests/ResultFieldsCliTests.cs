@@ -153,6 +153,25 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Repair_ResultVolumeIoU_IsAnOptInDiagnostic_ThatChangesNoOtherField()
+        {
+            var (e0, off) = Run("repair", m.Overlapping, m.Path_("rep_iou_off.obj"), "--compact");
+            Assert.Equal(0, e0);
+            Assert.Equal("ExactResolve", S(off["result_path"]));
+            Assert.Null(off["result_volume_iou"]);                              // not measured: NaN is null
+            var (e1, on) = Run("repair", m.Overlapping, m.Path_("rep_iou_off.obj"), "--compact", "--measure-result-iou");
+            Assert.Equal(0, e1);
+            Assert.Equal("ExactResolve", S(on["result_path"]));
+            Assert.InRange(D(on["result_volume_iou"]), 0.99, 1.0001);
+            // every other field is the same (but the times, which vary between runs)
+            foreach (var kv in off.AsObject()) {
+                if (kv.Key == "result_volume_iou" || kv.Key == "phase_milliseconds" || kv.Key == "elapsed_ms")
+                    continue;
+                Assert.True(kv.Value?.ToJsonString() == on[kv.Key]?.ToJsonString(), kv.Key + ": " + kv.Value?.ToJsonString() + " against " + on[kv.Key]?.ToJsonString());
+            }
+        }
+
+        [Fact]
         public void Repair_PassThroughCleanParts_PassesAFarCleanCubeThrough()
         {
             // two overlapping cubes and a clean cube 10 away: the far cube is passed through untouched (12 triangles)

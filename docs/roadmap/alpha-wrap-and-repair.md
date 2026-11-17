@@ -602,7 +602,46 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    unchanged (upstream's, owner). The opt-in safe preset `Remesher.ApplySafePreset()` / `g3cli remesh --safe` (`MinTriangleQuality`
    0.2 + `PreventSelfIntersections`, 19x the plain default on Thingi10K) is merged (#1085; owner go, defaults unchanged).
    Alpha wrap, in progress (owner 2026-11-17): an opt-in target triangle count that keeps the guarantees, defaults unchanged, the budget
-   default stays off (PR #1106); the additive final-result volume IoU diagnostic of boolean result class E (`MeshRobustRepair`, `Apply()` unchanged) follows with #1096 after it.
+   default stays off (PR #1106); the additive final-result volume IoU diagnostic of boolean result class E (`MeshRobustRepair`, `Apply()` unchanged) is done with #1096 (below).
+   **Final-result volume IoU and the answer to #1096** (owner decision 2026-11-17, class E option (a); option (b), a guard that rejects a
+   result, is not taken: an open sheet has almost no reference volume, so a volume guard would reject every thin open sheet).
+   `MeshRobustRepair.MeasureResultVolumeIoU` (opt-in, default off) sets `ResultVolumeIoU`, the volume IoU of the final result in `Mesh`
+   against the input as given to `Apply()`, on every path (pass-through, repair, exact resolve, solidify, alpha wrap): the same
+   reference (the input's winding number solid), sampling and estimate as the volume checks (`MeshRepairMetrics.VolumeIoUAtLeast` at
+   `MinVolumeIoU`, 0.99 if the checks are off), so it equals `RepairVolumeIoU` where the repair result is the final one. NaN where it
+   is not computed (off, `Apply()` false, an input that encloses no volume, eg a single open sheet). `ResultPath` (always set) names the
+   stage that produced the result (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`; with passed-through parts the
+   stage of the rest). Nothing else changes: `Apply()`, `ResultReason`, `NotCleanReason` and every other output are the same with and
+   without it (a hash of the mesh bit for bit and of the outputs, `ResultVolumeIoUTests`). `g3cli repair` reports `result_path` and,
+   with `--measure-result-iou`, `result_volume_iou`. `ResultVolumeIoU` is an estimate that stops early where the sampling interval lies clearly on one side of `MinVolumeIoU`: a value far from it is good to a few hundredths only, so the IoU numbers below are approximate (author's runs, not all pinned by tests; the tests pin ranges). Cost, measured by the author (Release, median of 5, net10.0, cloud container): opt-in, because it
+   adds a copy of the input, the input's oriented copy and winding number tree, and one more IoU estimate: 14 % on a clean sphere
+   of 19k triangles (164 -> 187 ms), 24 % on one of 1.4k (139 -> 172 ms), 18 % on the exact resolve of two spheres (76 -> 90 ms),
+   within noise on a wrap (3.4 s, the wrap dominates). Always on would be cheap in absolute terms and would not change a result, but
+   measurable on the fast paths: not the default.
+   *#1096, is the wrap or the reference wrong? Neither: the two solids differ, for two reasons the IoU cannot tell apart.* Procedural
+   reproducers of open, not winding-closed, self-intersecting inputs that end in the wrap (default `MeshRobustRepair`; the exact resolve
+   fails with "not closed (winding number)", the solidify with self-intersections), each with the IoU against the input
+   (`ResultVolumeIoU`), the IoU against its outer faces (`OuterVolumeIoU`, `MeshFidelityMetrics`), and the wrap contract:
+   (1) *thin open walls*: two crossing flat ellipsoids with a hole, wall 0.004 against a diagonal of about 2.8: IoU 0.33 to 0.57 (the
+   value depends on the wrap's alpha and offset), extra above missing (0.67 / 0.16 at the defaults), wall 0.001: IoU 0.18. The wrap
+   encloses the surface at an offset of diagonal / 3000 on both sides (and alpha is diagonal / 300), so a wall thinner than a few
+   offsets comes back as a layer several times as thick: volume far above the input's solid, with the result within the wrap's bound
+   (alpha + offset) of the input and the input within it of the result. This is consistent with the three Thingi10K cases of #1096 (extra
+   0.69 to 3.5 of the input's volume, missing 0.1 to 0.69, result to input at most 0.44 % and input to result 2.5 to 6.3 % of the diagonal), but
+   not shown on them (see below).
+   (2) *open surface with holes far larger than alpha* (two overlapping unwelded spheres, holes of 60 degrees): the winding number solid
+   is the inside, but the wrap passes through the holes and is a layer around the surface: IoU 0.07, missing 0.94, extra 0.04. The repair
+   result before the exact stage (self-intersecting, not used) had IoU 0.98.
+   (3) *a single open sheet or no solid at all*: IoU NaN (the reference has no inside), the wrap is a slab; no number to compare.
+   In (1) and (2) the IoU against the outer faces agrees with the whole reference (0.5 against 0.57, 0.06 against 0.07), so interior
+   faces and nested shells are not what distorts the reference here (they do elsewhere, which is what `OuterVolumeIoU` is for). Reading
+   for the user: for an open or self-intersecting input the wrap result is a closed surface near the input's surface, not the input's
+   inside, and a low `ResultVolumeIoU` with a small Hausdorff distance in both directions means a wall thinner than the offset or a
+   hole far larger than alpha, not a defect of the reference; the diagnostic makes it visible, a result is not rejected on it.
+   Thingi10K (77958, 79136, 87345) was not run for this (no mesh in the repository, no network in a PR test); `BENCH_REPAIR=robust
+   BENCH_FIDELITY=0` on a runner can add `ResultVolumeIoU` and `fm_oviou` for them if the owner wants the numbers on the real meshes.
+   Also seen while building the reproducers: a 2.3k-triangle open soup of two spheres (holes of 60 degrees) took 21.9 s at the
+   defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.

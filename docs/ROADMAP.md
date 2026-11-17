@@ -63,7 +63,7 @@ the future" list, ordered by priority; this section names only what is in flight
   [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Boolean result classes** (owner 2026-11-17): issue #1104 with procedural cases of the solid workflow (PR #1105, in review: pins
   the classes and documents validating boolean results). Class E: option (a), an additive final-result volume IoU diagnostic in
-  `MeshRobustRepair` (`Apply()` unchanged), to be done with #1096 after the wrap target-count work. In progress: an opt-in helper
+  `MeshRobustRepair` (`ResultVolumeIoU`, opt-in, `Apply()` unchanged), done with the answer to #1096 (in review; [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md)). In progress: an opt-in helper
   for "exact boolean on triangle soups -> clean closed low-poly solid".
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
