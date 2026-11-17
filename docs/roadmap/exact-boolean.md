@@ -567,8 +567,8 @@ Settled:
   done by the owner 2026-11-10 (nothing found). Lever 3 went into T3a (#612), lever 4 into #633 L2.
 - **Exact arithmetic without `BigInteger`** (branches `claude/int256-spike`, `claude/collinear-shortcut`): superseded.
   The collinear idea is built in #633 step 2 (`CollinearByConstruction`); fixed width does not reach (three-plane points up
-  to 309 bits, centroids up to 807 bits; #633, 2026-11-12); the Int384 planes spike gave about 0 % in total. Deleting the
-  branches after #633 is an owner question.
+  to 309 bits, centroids up to 807 bits; #633, 2026-11-12); the Int384 planes spike gave about 0 % in total. The owner deletes the
+  branches (owner 2026-11-17).
 - **`coplanar_stack` worst-case latency:** not built, closed (owner 2026-11-01; CHEAPER_CONSTRUCTIONS.md section 10a).
 - **`ArrayPool`:** pooling was measured without gain; no new dependency. Memory went into 3.0 T2 (#619); server GC
   is the application's choice (OPERATIONS.md). Allocations as such were reopened as lever 4 (#768 and #881 merged).
@@ -659,7 +659,7 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
 - [x] (Superseded; see Settled: fixed width does not reach, P2 #769 and the limb kernels #772 / #893 replace the
   `BigInteger` stages.) Exact boolean performance, ranked ideas in [EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md), section 3. The first idea, exact
   arithmetic without `BigInteger`, starts from two unmerged branches: `claude/int256-spike` (`Int384` planes, not for merging as it is) and
-  `claude/collinear-shortcut` (reviewed, with tests, at most 2 % on the input classes, below the 10 % bar). Exact code, so it goes to the owner. Keep both branches.
+  `claude/collinear-shortcut` (reviewed, with tests, at most 2 % on the input classes, below the 10 % bar). Exact code, so it went to the owner; the owner deletes both branches (owner 2026-11-17).
 
 #### External boolean corpora (2026-11-04)
 

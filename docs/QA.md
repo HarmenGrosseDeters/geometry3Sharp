@@ -671,6 +671,30 @@ Not used: ShapeNet and ModelNet (non-commercial research licenses).
 This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
 `CompatibilitySuppressions.xml`, and changed results in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
 
+### 2.8a Gate-change check (owner 2026-11-17)
+
+A change must not modify the checks that judge it. `.github/workflows/gate-change.yml` (`pull_request_target`, so it runs
+from the base branch and never checks out or runs PR code; token `contents: read`, `pull-requests: read`) lists the PR's
+changed files through the REST API (`filename` and `previous_filename`, so a rename out of a gate path counts) and the live
+labels, reads the gate list `tools/gate_files.txt` from the base branch and applies it with `tools/gate_check.py` (unit tests:
+`tools/test_gate_check.py`, in the `linux` job and at the start of the workflow). A PR that changes a gate file fails
+unless it carries the label `gate-change` (in enforce mode, see below). The list holds globs with a reason each: the
+workflows, the analyzers and their lists (`BannedSymbols.txt`, `DeterministicApis.txt`, `core/ExactCodeAllowList.cs`,
+`.editorconfig`, `CompatibilitySuppressions.xml`), the time-rule inputs (`SLOW_BACKLOG.txt`, `tools/*.py`), the
+mutation configs, thresholds and test filters, the golden rows and ratchet limits of the 2D mesher, the design notes
+that tests check against generators, the rules (`CLAUDE.md`, `AGENTS.md`, `docs/AGENT_WORKFLOW.md`,
+`docs/REVIEW_CHECKLIST.md`) and the list and script themselves. A new gate input (a threshold, allow list or baseline
+file) is added to the list in the PR that introduces it.
+
+Limits of the label (a social rule, not a technical one): it approves the PR, not a diff, so the owner sets it after the last
+push (a later push keeps it); and nothing checks who set it (branch protection and the repository's permissions do). A broken
+`gate_files.txt` or a failing `test_gate_check.py` fails the job (a broken list must not pass silently; the unit-test step only
+in enforce mode). A PR against another base branch is judged by that branch's workflow and list.
+
+Observe mode is the current state: the job reports (step summary, one warning annotation per file) and passes. The owner
+switches to enforce mode with the repository variable `GATE_CHANGE_ENFORCE=1`; no PR is needed. A PR with 3000 or more changed
+files (the REST list is cut there) counts as a gate change. The workflow itself takes effect only once it is on master.
+
 ### 2.9 Minimizing a failure
 
 A failing defect or fuzz case (hundreds of triangles, kilobytes of a file) is reduced automatically to a small one

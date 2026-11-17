@@ -314,7 +314,8 @@ namespace g3
             foreach (long e in queue)
                 if (constrained.Contains(ukey((int)(e >> 32), (int)(e & 0xFFFFFFFF))))
                     throw new InvalidOperationException("ExactTriangulation2: constraint segments cross");
-            int guard = 0, limit = 100 + 50 * queue.Count * queue.Count;
+            // (long: the int product wraps once a constraint crosses about 6 500 edges)
+            long guard = 0, limit = 100L + 50L * queue.Count * queue.Count;
             while (queue.Count > 0) {
                 if (++guard > limit)
                     throw new InvalidOperationException("ExactTriangulation2: constraint insertion does not terminate");
@@ -416,7 +417,8 @@ namespace g3
                 for (int k = 0; k < 3; ++k)
                     stack.Push(dkey(t[k], t[(k + 1) % 3]));
             }
-            int guard = 0, limit = 1000 + 100 * stack.Count * Math.Max(1, (int)Math.Sqrt(stack.Count));
+            // (long: the int product wraps at about 26 000 triangles)
+            long guard = 0, limit = 1000L + 100L * stack.Count * Math.Max(1, (int)Math.Sqrt(stack.Count));
             while (stack.Count > 0) {
                 if (++guard > limit)
                     throw new InvalidOperationException("ExactTriangulation2: Delaunay flips do not terminate");
