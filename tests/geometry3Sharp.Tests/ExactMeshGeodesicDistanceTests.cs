@@ -167,7 +167,8 @@ namespace geometry3Sharp.Tests
             // Lower's re-emission margins
             AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 2 * half, 1e-7);
             // the window budget of the A6 rule (merge when at most one inner interval is nonempty): measured 10588; merging
-            // only windows without inner intervals costs 12821, the former merging (one inner interval dropped) 19594
+            // only windows without inner intervals costs 12821, the former merging (one inner interval dropped) 19594. A pruning
+            // change elsewhere may move the count: retune the bound between the measured count and 12821
             Assert.True(g.Windows <= 11500, $"windows {g.Windows}");
         }
 
@@ -691,6 +692,8 @@ namespace geometry3Sharp.Tests
                 // a real surface path is at least the 3D distance, and an edge path is a real path
                 Assert.True(g.Lower[v] >= Dist(s, m.GetVertex(v)).Lo * (1 - 1e-8) - slack, $"{what}: vertex {v}: Lower below the 3D distance");
                 Assert.True(g.Upper[v] <= dij[v] * (1 + 1e-12) + slack, $"{what}: vertex {v}: Upper above an edge path");
+                // and Upper is sound: never below the 3D distance (no relative tolerance; certified for every member)
+                Assert.True(g.Upper[v] >= Dist(s, m.GetVertex(v)).Lo - slack, $"{what}: vertex {v}: Upper below the 3D distance");
                 Assert.True(g.Upper[v] - g.Lower[v] <= width * g.Lower[v] + slack,
                     $"{what}: vertex {v}: (Upper - Lower) / Lower = {(g.Upper[v] - g.Lower[v]) / g.Lower[v]:E2}");
             }
@@ -739,7 +742,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(g0.Windows, g.Windows); Assert.Equal(g0.Merges, g.Merges);
             }
             // every frame, the far ones included (their rounding makes another, nearly flat surface): still tight
-            AssertNarrow(m, g, src, FamilyWidth, sim.Resolution(2) * 1e3, name);
+            AssertNarrow(m, g, src, FamilyWidth, sim.Scale * sim.Resolution(2) * 1e3, name);
             // reuse: a second Compute on the same instance gives the same bits
             double[] lo = (double[])g.Lower.Clone(), up = (double[])g.Upper.Clone(); long w = g.Windows;
             Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { src }));

@@ -39,7 +39,7 @@ namespace g3
         /// <summary> limit on the windows created; passing it ends Compute with WindowLimit (never with a wrong bound). The count
         /// is checked between propagation steps, so Windows can end somewhat above the limit (by the windows of one step). The default
         /// keeps one Compute below about 20 s (a flat plane of 101 x 101 vertices reaches it; a terrain of that size needs
-        /// about 130000 windows, 4 s) </summary>
+        /// about 125000 windows, 3 s; benchmarks/GeodesicOracleBenchmark) </summary>
         public int MaxWindows = 300_000;
 
         // the compaction of the dead (emptied) windows of a side list: speed only, the scan skips dead windows anyway.
