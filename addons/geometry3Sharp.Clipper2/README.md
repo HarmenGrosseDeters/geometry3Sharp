@@ -91,13 +91,17 @@ The remaining 82 failures have different causes:
 The exact area reference is correct for the snapped integer inputs. The 73 empty results are expected fixed-grid
 rounding, not an intrinsic engine limit. `Clipper2DegenerateUnionTests.Check` previously allowed only the returned
 perimeter plus one grid square: for an empty result this becomes one, ignoring the vanished boundary. The oracle
-now adds the L1 input perimeter as a grid-width boundary allowance, including when the output is empty. The output
-perimeter term still accounts for output rounding. This area allowance is not a topology certificate; the tests
+now adds the L1 input perimeter only when the output is empty. Nonempty results retain the original output-perimeter
+allowance, including conversion rounding; the coarse-grid checks likewise use only the returned boundary.
+Negative controls reject a completely dropped 9x9 region (area 81, allowance 73), and a lost 64x64 component
+beside a retained 1000x1000 square (loss 4096, allowance 4001). This area allowance is not a topology certificate; the tests
 separately require recovery of the lost regions at x65536, and still reject pair 399's much larger error.
 
 At x1024 all 73 lost regions return, but exact BigInteger output-area sums give up to 6.24% relative error
 (UTM pair 137: reference 62.0276790256776, recovered 65.89564275741577). The tests bound this by 7%,
 then require at most 0.5% at x65536. Thus the smaller scale is not claimed to recover every reference to 1e-3.
+At x65536 coordinates reach about 2^55 and double intersection arithmetic is inexact: recovery is empirical
+evidence, not the exact reference (which remains the independent rational-slab oracle).
 These integer-only refinements diagnose rounding; they do not bypass the adapter's world-coordinate clamp.
 
 The eight orientation failures depend on the adapter's grid choice. At the 40-bit default the integers are about

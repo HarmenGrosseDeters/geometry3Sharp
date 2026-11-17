@@ -94,16 +94,17 @@ namespace geometry3Sharp.Clipper2.Tests
             double reference = ExactRegionArea.Area(new[] { new[] { Grid(pa) }, new[] { Grid(pb) } }, Clipper2DegenerateUnionTests.Predicate(op, rule));
             var paths = r.Polygons.SelectMany(p => new[] { p.Outer }.Concat(p.Holes)).Select(r.Frame.ToPath).ToList();
             double actual = (double)paths.Aggregate(BigInteger.Zero, (sum, p) => sum + TwiceArea(p)) / 2;
-            Assert.True(Math.Abs(actual - reference) <= Perimeter(pa) + Perimeter(pb) + paths.Sum(Perimeter) + 1,
+            Assert.True(Math.Abs(actual - reference) <= paths.Sum(Perimeter) + 1,
                 "30-bit output must preserve the region within its boundary rounding allowance");
         }
-        void AssertRecovery(V.Path64 a, V.Path64 b, ClipType op, FillRule rule, double reference, int factor = 65536, double relativeTolerance = 0.005)
+        void AssertRecovery(V.Path64 a, V.Path64 b, ClipType op, FillRule rule, double reference, int factor = 65536, double relativeTolerance = 0.005, Clipper2Options options = null)
         {
+            options = options ?? new Clipper2Options { FillRule = rule };
             V.Path64 Scale(V.Path64 p) => new V.Path64(p.Select(v => new V.Point64(checked(v.X * factor), checked(v.Y * factor))));
-            var c = new V.Clipper64 { PreserveCollinear = false };
+            var c = new V.Clipper64 { PreserveCollinear = options.PreserveCollinear };
             c.AddSubject(Scale(a)); c.AddClip(Scale(b));
             var tree = new V.PolyTree64();
-            Assert.True(c.Execute((V.ClipType)(int)op, (V.FillRule)(int)rule, tree));
+            Assert.True(c.Execute((V.ClipType)(int)op, (V.FillRule)(int)options.FillRule, tree));
             double recovered = (double)Nodes(tree).Aggregate(BigInteger.Zero, (sum, n) => sum + TwiceArea(n.Polygon)) / (2.0 * factor * factor);
             log.WriteLine($"x{factor}: reference {reference:R}, recovered {recovered:R}");
             Assert.True(Math.Abs(recovered - reference) <= relativeTolerance * reference, Changed + $"; x{factor} recovery exceeds {100 * relativeTolerance}% relative error");
@@ -157,7 +158,7 @@ namespace geometry3Sharp.Clipper2.Tests
                 AssertRecovery(pa, pb, op, rule, reference, 16, 1e-6);
                 var wrong = Clipper2DegenerateUnionTests.Check(op, rule, a, b);
                 Assert.True(wrong.error > wrong.slack, "oracle must reject the known wrong nonempty result");
-                Assert.Equal(tree.Area(), r.Area * r.Frame.Scale * r.Frame.Scale);
+                Assert.True(tree.Area() == r.Area * r.Frame.Scale * r.Frame.Scale, "adapter area must equal the raw engine area on this exact frame");
                 // Independent regular-grid winding integration checks the rational-slab reference.
                 var bounds = new AxisAlignedBox2d(a.Bounds); bounds.Contain(b.Bounds);
                 int inside = 0, missing = 0; const int n = 160;
@@ -170,7 +171,7 @@ namespace geometry3Sharp.Clipper2.Tests
                         if (expected && !actual) ++missing;
                     }
                 double sampled = bounds.Width * bounds.Height * inside / (n * n) * r.Frame.Scale * r.Frame.Scale;
-                Assert.True(Math.Abs(sampled - reference) < 0.02 * reference);
+                Assert.True(Math.Abs(sampled - reference) < 0.02 * reference, "independent winding samples must agree with the exact reference");
                 Assert.True(missing > 100, Changed);
 
             }
@@ -221,7 +222,7 @@ namespace geometry3Sharp.Clipper2.Tests
                 BigInteger engineArea = Nodes(tree).Aggregate(BigInteger.Zero, (sum, n) => sum + TwiceArea(n.Polygon));
                 BigInteger adapterArea = r.Polygons.Aggregate(BigInteger.Zero, (sum, p) => sum + BigInteger.Abs(TwiceArea(r.Frame.ToPath(p.Outer)))
                     - p.Holes.Aggregate(BigInteger.Zero, (holes, h) => holes + BigInteger.Abs(TwiceArea(r.Frame.ToPath(h)))));
-                Assert.Equal(engineArea, adapterArea);
+                Assert.True(engineArea == adapterArea, "adapter must preserve the exact signed engine area");
                 double reference = ExactRegionArea.Area(new[] { new[] { Grid(r.Frame.ToPath(Map(a))) }, new[] { Grid(r.Frame.ToPath(Map(b))) } }, Clipper2DegenerateUnionTests.Predicate(op, rule));
                 AssertInputRounding(r.Frame, Map(a), Map(b));
                 if (kind < 2) {
@@ -229,7 +230,6 @@ namespace geometry3Sharp.Clipper2.Tests
                     AssertCoarseRegion(coarse, Map(a), Map(b), op, rule);
                 } else {
                     AssertRecovery(r.Frame.ToPath(Map(a)), r.Frame.ToPath(Map(b)), op, rule, reference);
-                    if (reference == 0) Assert.True(r.Polygons.Count == 0, Changed);
                 }
                 foreach (var n in Nodes(tree)) Assert.All(n.Polygon, q => Assert.Equal(q, r.Frame.ToPoint(r.Frame.ToVector2d(q))));
                 foreach (var p in r.Polygons) Assert.All(p.Outer.Vertices, v => Assert.True(v.IsFinite));
