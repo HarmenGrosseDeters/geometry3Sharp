@@ -200,6 +200,41 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [MemberData(nameof(SmoothCases))]
+        public void IterativeSmooth_NonFiniteVertex_WithProjection_FrozenVerticesAreNotProjected(MeshIterativeSmooth.SmoothTypes type, double bad)
+        {
+            // ProjectF runs for the vertices that smooth, not for the frozen ones (the bad vertex and its neighbours): they keep
+            // their position, the others get the projected one (here: a shift by +1 in z of the smoothed position)
+            DMesh3 m = Sphere();
+            int badV = m.VertexIndices().OrderBy(v => v).ElementAt(m.VertexCount / 3);
+            var ring = new HashSet<int>(m.VtxVerticesItr(badV)) { badV };
+            DMesh3 reference = new DMesh3(m);
+            int[] listed = m.VertexIndices().Where(v => ring.Contains(v) == false).ToArray();
+            var shift = new Vector3d(0, 0, 1);
+            new MeshIterativeSmooth(reference, listed) { Alpha = 0.5, Rounds = 1, SmoothType = type, ProjectF = (p, n, v) => p + shift }.Smooth();
+
+            m.SetVertex(badV, new Vector3d(bad, 0, 0));
+            Vector3d[] before = m.VertexIndices().Select(v => m.GetVertex(v)).ToArray();
+            var calls = new System.Collections.Concurrent.ConcurrentBag<int>();
+            var smooth = new MeshIterativeSmooth(m, m.VertexIndices().ToArray()) {
+                Alpha = 0.5, Rounds = 1, SmoothType = type,
+                ProjectF = (p, n, v) => { calls.Add(v); return p + shift; }
+            };
+            Assert.True(smooth.Smooth());
+
+            Assert.Equal(m.VertexCount - ring.Count, calls.Count);
+            Assert.DoesNotContain(calls, v => ring.Contains(v));
+            foreach (int v in m.VertexIndices()) {
+                if (ring.Contains(v)) {
+                    Assert.True(v == badV ? double.IsNaN(bad) ? double.IsNaN(m.GetVertex(v).x) : m.GetVertex(v).x == bad : m.GetVertex(v) == before[v], "frozen vertex " + v);
+                } else {
+                    Assert.True(m.GetVertex(v).IsFinite);
+                    Assert.True(m.GetVertex(v) == reference.GetVertex(v), "projected like the reference without the bad vertex");
+                }
+            }
+        }
+
         [Fact]
         public void IterativeSmooth_FiniteInput_MovesEveryListedVertex()
         {

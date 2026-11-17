@@ -238,9 +238,11 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
-  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)). A PR that changes a
-  mutated file runs incrementally: Stryker mutates only the changed lines, the other mutants keep their result from the
+- A workflow reports the mutation score and the surviving mutants. Since 2026-11-16 (#958, the Exact Boolean 3.0 process) it runs in full on
+  master Monday to Saturday for the nightly group (`boolean-*`, `arrangement-*`, `rounding-*`: 24 shards) and on Sunday for the weekly group (the
+  other shards and the arithmetic job), and on demand (`shards=all` or a list); on ready PRs only incrementally for the configs they touch, and a PR
+  makes no full shard run, except the merge gate of a PR that touches exact arithmetic ([tests/mutation/README.md](../tests/mutation/README.md), "3.0 process").
+  A PR that changes a mutated file runs incrementally: Stryker mutates only the changed lines, the other mutants keep their result from the
   baseline of the last full run (its report, kept in the Actions cache, matched by a line diff), and the break
   threshold applies to the combined score of the shard; without a baseline the shard runs in full.
 - A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
@@ -250,7 +252,7 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
   [tests/mutation/README.md](../tests/mutation/README.md).
 - **The exact mesh pipeline** (October 2026): a second job, `exact-mesh`, mutates `mesh_ops/ExactMeshBoolean.cs`,
   `ExactMeshArrangement.cs`, `ExactPlanarSimplify.cs`, `ExactTriangulation2.cs` and `MeshRoundingRepair.cs` in six
-  shards that run in parallel (1 to 5 hours each). The survivors led to three new test classes
+  shards that run in parallel (1 to 5 hours each; since then split further: `tests/mutation` has 45 mesh configs, `rounding-1` .. `-13` among them, #843, #1006). The survivors led to three new test classes
   (`MeshRoundingRepairStrategyTests`, `ExactTriangulation2Tests`, `ExactBooleanFilterTests`) and cases in
   `ExactPlanarSimplifyTests`: each edit of the rounding repair on its own, the triangulation against the definition
   of a constrained Delaunay triangulation, the boolean's own filters against exact signs. Scores per shard, break
@@ -556,8 +558,9 @@ is queued or running today (UTC date), or already succeeded. Rules:
   The dispatch rows above for `nightly.yml` and `coverage.yml` still apply.
 - Until 2026-11-16 the cron line was Monday only, so there was one schedule run per week; the Mon-Sat nightly lines were added on
   2026-11-16 (8f0c5c8e), so 44003452066 is the first run of the new lines and says nothing yet about the other days.
-- Not built: no guard or workflow change fixes a manual cancel. Proposals for the owner: (1) policy for late cron runs, eg the guard
-  skips a `schedule` run created more than N hours after its cron time; (2) a watch item, not a change: the slowest shards stay
+- Not built: no guard or workflow change fixes a manual cancel. (1) A policy for late cron runs (eg the guard
+  skips a `schedule` run created more than N hours after its cron time) is not built: late cron runs stay as they are,
+  since the cron lines are the only starter of `mutation.yml` (owner 2026-11-17). (2) A watch item, not a change: the slowest shards stay
   well under `timeout-minutes: 350` (watch any shard near 350 min).
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
@@ -581,8 +584,8 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
   11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
   visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
-  for a full run of all 25 shards (45 mesh shards since #1006) is not confirmed or refuted yet.
-- `coverage.yml` ended red in every run since 11-12 (the changed-line gate, a separate matter).
+  for a full run of all 25 shards (45 mesh shards plus the arithmetic job since #1006) was not confirmed or refuted by the 11-15 data. Since 2026-11-17 one full run exists, which does not settle it either (shards run at most 6 at a time and 5 failed): master run 44013112256 (dispatched 03:51 UTC, the Exact Boolean 3.0 gate), 35 shards green, 5 red.
+- `coverage.yml` ended red in every scheduled and dispatched run from 11-12 to 11-15 (the pull_request runs were green) (the changed-line gate, a separate matter); green on 11-16 (the 06:52 UTC dispatch and the 12:01 UTC cron run, after #959); red again on 11-17 (dispatch 03:47 UTC and cron 12:25 UTC, job `gate`, step "Changed-line coverage").
 - Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
   run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
   cancelling master group and the draft skip (15 Nov morning, two PR runs): `linux` 11 and 16 min, `isolated` 0.3 and 4.6 min,
@@ -667,6 +670,30 @@ Not used: ShapeNet and ModelNet (non-commercial research licenses).
 
 This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
 `CompatibilitySuppressions.xml`, and changed results in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
+
+### 2.8a Gate-change check (owner 2026-11-17)
+
+A change must not modify the checks that judge it. `.github/workflows/gate-change.yml` (`pull_request_target`, so it runs
+from the base branch and never checks out or runs PR code; token `contents: read`, `pull-requests: read`) lists the PR's
+changed files through the REST API (`filename` and `previous_filename`, so a rename out of a gate path counts) and the live
+labels, reads the gate list `tools/gate_files.txt` from the base branch and applies it with `tools/gate_check.py` (unit tests:
+`tools/test_gate_check.py`, in the `linux` job and at the start of the workflow). A PR that changes a gate file fails
+unless it carries the label `gate-change` (in enforce mode, see below). The list holds globs with a reason each: the
+workflows, the analyzers and their lists (`BannedSymbols.txt`, `DeterministicApis.txt`, `core/ExactCodeAllowList.cs`,
+`.editorconfig`, `CompatibilitySuppressions.xml`), the time-rule inputs (`SLOW_BACKLOG.txt`, `tools/*.py`), the
+mutation configs, thresholds and test filters, the golden rows and ratchet limits of the 2D mesher, the design notes
+that tests check against generators, the rules (`CLAUDE.md`, `AGENTS.md`, `docs/AGENT_WORKFLOW.md`,
+`docs/REVIEW_CHECKLIST.md`) and the list and script themselves. A new gate input (a threshold, allow list or baseline
+file) is added to the list in the PR that introduces it.
+
+Limits of the label (a social rule, not a technical one): it approves the PR, not a diff, so the owner sets it after the last
+push (a later push keeps it); and nothing checks who set it (branch protection and the repository's permissions do). A broken
+`gate_files.txt` or a failing `test_gate_check.py` fails the job (a broken list must not pass silently; the unit-test step only
+in enforce mode). A PR against another base branch is judged by that branch's workflow and list.
+
+Observe mode is the current state: the job reports (step summary, one warning annotation per file) and passes. The owner
+switches to enforce mode with the repository variable `GATE_CHANGE_ENFORCE=1`; no PR is needed. A PR with 3000 or more changed
+files (the REST list is cut there) counts as a gate change. The workflow itself takes effect only once it is on master.
 
 ### 2.9 Minimizing a failure
 

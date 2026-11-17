@@ -75,6 +75,20 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, ExactPredicates.VolumeSign(new double[0], new int[0]));
         }
 
+        [Fact]
+        public void ExactSign_WithoutATriangle_IsZero()
+        {
+            // no corners, fewer than three corners, and a null list: no solid, no sign (even for coordinates that would give one)
+            double[] xyz = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+            Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, null));
+            Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new int[0]));
+            Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new[] { 0, 1 }));
+            // a closed tetrahedron has a sign, so the zero above comes from the guard
+            int[] tet = { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 };
+            Assert.NotEqual(0, ExactPredicates.VolumeSignExact(xyz, tet));
+            Assert.Equal(ExactPredicates.VolumeSignExact(xyz, tet), ExactPredicates.VolumeSign(xyz, tet));
+        }
+
         /// <summary>
         /// The filter never decides wrong: on random slivers (volumes near the rounding of the sum, far from the origin and
         /// at extreme scales) and on fat solids, the filtered sign equals the integer sum's; a good share of the slivers needs

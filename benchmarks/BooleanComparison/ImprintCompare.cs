@@ -1,6 +1,7 @@
 // The imprint comparison (README.md, "Imprint: ExactMeshImprint against MeshMeshCut"): one method on one case directory
 // (A.off, B.off, info.json as written by thingi-pair / thingi-contact), one JSON line with the status, the time and the checks
 // of the result. compare.py --imprint runs it in one process per (method, operation), with a timeout, like the booleans.
+#pragma warning disable CS0618 // the comparison measures the deprecated float MeshMeshCut / MeshBoolean
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

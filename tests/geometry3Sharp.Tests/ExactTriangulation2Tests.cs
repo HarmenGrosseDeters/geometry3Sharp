@@ -188,6 +188,64 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, tr.LinearSearches);
         }
 
+        // decimal in-circle for the large inputs below (exact: coordinate differences stay below 2^17, so every term is below 2^96)
+        static Func<int, int, int, int, int> FastInCircle(Points pts) => (a, b, c, d) => {
+            var (dx, dy) = pts.P[d];
+            decimal[] r = new decimal[9];
+            int[] ids = { a, b, c };
+            for (int i = 0; i < 3; ++i) {
+                decimal x = pts.P[ids[i]].x - dx, y = pts.P[ids[i]].y - dy;
+                r[3 * i] = x; r[3 * i + 1] = y; r[3 * i + 2] = x * x + y * y;
+            }
+            decimal det = r[0] * (r[4] * r[8] - r[5] * r[7]) - r[1] * (r[3] * r[8] - r[5] * r[6]) + r[2] * (r[3] * r[7] - r[4] * r[6]);
+            return det == 0 ? 0 : (det > 0 ? 1 : -1);
+        };
+
+        static (Points pts, int[] outer, List<int> inner) ZigZagColumns(int columns)
+        {
+            // two points per column, above and below the line y = 0, so a segment along y = 0 crosses at least one edge per gap
+            var pts = new Points();
+            int[] outer = { pts.Add(-10, -100), pts.Add(8 * columns + 100, -100), pts.Add(-10, 8 * columns + 100) };
+            var inner = new List<int>();
+            for (int i = 1; i <= columns; ++i) {
+                inner.Add(pts.Add(4 * i, 1 + (i * 7) % 3));
+                inner.Add(pts.Add(4 * i + 1, -1 - (i * 5) % 3));
+            }
+            return (pts, outer, inner);
+        }
+
+        [Fact]
+        public void MakeDelaunay_MoreThan26000Triangles_Terminates()
+        {
+            // the guard limit of MakeDelaunay is 1000 + 100 * stack.Count * sqrt(stack.Count) with stack.Count = 3 * triangles:
+            // in int arithmetic it wraps negative at about 26 000 triangles and valid input threw "do not terminate"
+            var (pts, outer, inner) = ZigZagColumns(7000);
+            var tr = new ExactTriangulation2(outer[0], outer[1], outer[2], pts.Orient, FastInCircle(pts));
+            foreach (int p in inner)
+                tr.InsertPoint(p);
+            Assert.True(tr.Triangles().Count() > 26000);
+            tr.MakeDelaunay();
+            Assert.Equal(2 * inner.Count + 1, tr.Triangles().Count());
+        }
+
+        [Fact]
+        public void ConstraintAcrossMoreThan6554Edges_Inserted()
+        {
+            // the guard limit of InsertConstraint is 100 + 50 * q * q: in int arithmetic it wraps negative at q = 6554
+            // (4000 columns: the segment crosses about 8 000 edges, where 50 * q * q is negative in int arithmetic; beyond
+            // q = 9 266 it wraps back to a positive number)
+            const int Columns = 4000;
+            var (pts, outer, inner) = ZigZagColumns(Columns);
+            int u = pts.Add(0, 0), v = pts.Add(4 * Columns + 3, 0);
+            var tr = new ExactTriangulation2(outer[0], outer[1], outer[2], pts.Orient, FastInCircle(pts));
+            tr.InsertPoint(u); tr.InsertPoint(v);
+            foreach (int p in inner)
+                tr.InsertPoint(p);
+            tr.InsertConstraint(u, v);
+            // the constraint is an edge of the triangulation
+            Assert.Contains(tr.Triangles(), t => (t.a == u || t.b == u || t.c == u) && (t.a == v || t.b == v || t.c == v));
+        }
+
         static void AssertThrows(string reason, Action a)
         {
             var ex = Assert.Throws<InvalidOperationException>(a);

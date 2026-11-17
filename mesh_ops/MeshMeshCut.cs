@@ -41,6 +41,7 @@ namespace g3
     ///    - track descendant triangles of each input face
     ///    - for missing segments, can resolve in 2D in plane of face
     /// </summary>
+    [Obsolete("MeshMeshCut is floating-point and not robust (see docs/ROBUSTNESS_SWEEP.md R6). Use ExactMeshImprint to cut the intersection curves into a mesh, or ExactMeshBoolean for a boolean.")]
     public class MeshMeshCut
     {
         /// <summary> outcome of <see cref="MeshMeshCut.Compute"/> </summary>

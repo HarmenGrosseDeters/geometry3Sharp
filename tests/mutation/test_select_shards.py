@@ -111,7 +111,7 @@ class SelectShards(unittest.TestCase):
             self.assertEqual("tests", mesh[r])
 
     def test_filter_with_and_and_a_negated_term_maps_to_the_positive_class(self):
-        # terrain-overlay: "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains"
+        # terrain-overlay: "(FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains)|..."
         self.assertEqual(("none", {"terrain-overlay": "tests"}), run(TESTS + "TerrainSlopeCatchLineTests.cs"))
         self.assertEqual(("none", {"terrain-overlay": "source"}), run("mesh_ops/TerrainSlopeOverlay.cs"))
 

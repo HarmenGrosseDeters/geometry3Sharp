@@ -23,7 +23,7 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=3 qual
 `Remesher.PreventSelfIntersections` in the on runs, `si_from=<k>` only from pass k on (0-based), `pin=<deg>`
 `MeshConstraintUtil.PinSharpVertices` with that angle deficit in the on runs, `sizing=<f>`
 `Remesher.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, f)` in the on runs. The JSON has the volume of the
-result over the input's (`VolumeRatio`). One JSON line per case (off and on), then the summary
+result over the input's (`VolumeRatio`). `sweep=1` checks the motion of every buffered smoothing / projection pass with `MeshSweepCollision` (outside the reported time; see [REMESHER_PHASE2_MEASURED](../../docs/perf/REMESHER_PHASE2_MEASURED.md)). One JSON line per case (off and on), then the summary
 and the list of cases that get worse. No mesh files are committed.
 
 ## Inputs

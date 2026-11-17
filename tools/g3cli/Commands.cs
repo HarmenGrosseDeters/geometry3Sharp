@@ -242,7 +242,8 @@ namespace g3cli
                         RejectTopologyChange = args.Bool("reject_topology_change"),
                         RoundingMaxDisplacement = rounding.MaxDisplacement, RoundingUlpFactor = rounding.UlpFactor,
                         RoundingAbsoluteTolerance = rounding.AbsoluteTolerance, StrictRounding = rounding.Strict,
-                        RoundingMaxPairTests = rounding.MaxPairTests,
+                        RoundingMaxPairTests = rounding.MaxPairTests, RoundingPairTestsDefectScale = rounding.DefectScale,
+                        RoundingPairTestsMaxGrowth = rounding.MaxGrowth,
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
@@ -286,6 +287,8 @@ namespace g3cli
                         ["alpha_wrap_quality_pass"] = repair.AlphaWrapQualityPass,
                         ["passthrough_clean_parts"] = repair.PassThroughCleanParts,
                         ["separate_fraction"] = repair.SeparateFraction,
+                        ["rounding_defect_scale"] = repair.RoundingPairTestsDefectScale,
+                        ["rounding_max_growth"] = repair.RoundingPairTestsMaxGrowth,
                     };
                     o["exact_resolve_rounds_used"] = repair.ExactResolveRoundsUsed;
                     o["passed_through_triangles"] = repair.PassedThroughTriangles;
@@ -334,6 +337,8 @@ namespace g3cli
                 ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
                 ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
                 ["rounding_max_pair_tests"] = op.RoundingMaxPairTests,
+                ["rounding_defect_scale"] = op.RoundingPairTestsDefectScale,
+                ["rounding_max_growth"] = op.RoundingPairTestsMaxGrowth,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
                 // (the status of the exact operation, positions where the solid touches itself, reoriented input triangles, the library's counters)
@@ -430,6 +435,11 @@ namespace g3cli
             c.Params.Add(new Param("rounding_max_pair_tests", ParamType.Integer, prefix + "safe_rounding's effort budget: once the exact triangle pair " +
                 "tests of its evaluations exceed this (grown with the initial defects by up to 4 times), the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted; " +
                 "0 stops once one pair test was made (there is no 'no limit' value), at most 2147483647 (RoundingMaxPairTests; MeshRoundingRepair.MaxPairTests)") { Default = 5000000 });
+            c.Params.Add(new Param("rounding_defect_scale", ParamType.Number, prefix + "safe_rounding's growth of the effort budget with the initial " +
+                "defects: the budget is rounding_max_pair_tests times min(max(1, defects / this), rounding_max_growth); 0 = no growth, >= 0 " +
+                "(RoundingPairTestsDefectScale; MeshRoundingRepair.PairTestsDefectScale)") { Default = 50000.0 });
+            c.Params.Add(new Param("rounding_max_growth", ParamType.Number, prefix + "safe_rounding's ceiling of that growth, as a factor of " +
+                "rounding_max_pair_tests, >= 1 (1 = no growth) (RoundingPairTestsMaxGrowth; MeshRoundingRepair.PairTestsMaxGrowth)") { Default = 4.0 });
             c.Params.Add(new Param("strict_rounding", ParamType.Boolean, repair
                 ? "robust, exact stage: safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them): an " +
                   "exact resolve whose rounding is not clean is rejected (exact_resolve_reason 'rounding not clean (StrictRounding)') and the other stages " +
@@ -438,7 +448,7 @@ namespace g3cli
                   "fails with operation_failed (status RoundingNotClean) instead of being written with defects (ExactMeshBoolean.StrictRounding)") { Default = false });
         }
 
-        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; public long MaxPairTests; }
+        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; public long MaxPairTests; public double DefectScale, MaxGrowth; }
 
         static RoundingSettings RoundingTolerances(Args args)
         {
@@ -446,6 +456,7 @@ namespace g3cli
                 MaxDisplacement = args.Number("rounding_max_displacement"), UlpFactor = args.Number("rounding_ulp_factor"),
                 AbsoluteTolerance = args.Number("rounding_absolute_tolerance"), Strict = args.Bool("strict_rounding"),
                 MaxPairTests = args.Integer("rounding_max_pair_tests"),
+                DefectScale = args.Number("rounding_defect_scale"), MaxGrowth = args.Number("rounding_max_growth"),
             };
             // above 1e-2 of the diagonal the repair may contract whole components away; below 1e-16 it is a no-op (the ulp term dominates)
             if (!(r.MaxDisplacement >= 1e-16 && r.MaxDisplacement <= 1e-2))
@@ -456,6 +467,10 @@ namespace g3cli
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
             if (r.MaxPairTests < 0)
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_pair_tests' must be >= 0");
+            if (!(r.DefectScale >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_defect_scale' must be >= 0");
+            if (!(r.MaxGrowth >= 1))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_growth' must be >= 1");
             if (r.Strict && args.Bool("safe_rounding") == false)
                 throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
             // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
@@ -472,6 +487,8 @@ namespace g3cli
             op.RoundingAbsoluteTolerance = r.AbsoluteTolerance;
             op.StrictRounding = r.Strict;
             op.RoundingMaxPairTests = r.MaxPairTests;
+            op.RoundingPairTestsDefectScale = r.DefectScale;
+            op.RoundingPairTestsMaxGrowth = r.MaxGrowth;
         }
 
         static Param SimplifyFlatRegions() =>

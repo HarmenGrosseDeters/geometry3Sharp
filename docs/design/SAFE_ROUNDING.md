@@ -427,7 +427,9 @@ a vertex of valence 3 instead of the weld.
 - **The budget grows with the defects** (RC4a of docs/research/BOOLEAN_TRIAGE_2026-11.md, owner 2026-11-17;
   `PairTestsDefectScale`, `PairTestsMaxGrowth`; `RoundingPairTestsDefectScale`, `RoundingPairTestsMaxGrowth`): the
   effective budget is `MaxPairTests` times min(max(1, D / 50000), 4), D the initial defects (intersecting pairs,
-  degenerate triangles, contacts the rounding made), so min(max(5M, 100 D), 20M) with the defaults. It never lowers the
+  degenerate triangles, contacts the rounding made), so min(max(5M, 100 D), 20M) with the defaults. Both are settable on every caller:
+  `RoundingPairTestsDefectScale` / `RoundingPairTestsMaxGrowth` on `ExactMeshBoolean`, `MeshRobustRepair` and `ExactMeshImprint`,
+  `--rounding-defect-scale` / `--rounding-max-growth` in g3cli (`boolean`, `resolve`, `repair`). It never lowers the
   budget, and the budget is only compared with the count, so a repair that finished within `MaxPairTests` is unchanged,
   bit for bit. Measured (abc-chained run 44037809872, 4-core runner): the unions and intersections of an ABC model with its
   1-ulp copy (iud p0005 and p0021, 79k to 153k initial defects) stopped at 5M with tens of thousands of defects left; they

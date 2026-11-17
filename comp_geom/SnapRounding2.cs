@@ -295,18 +295,27 @@ namespace g3
                         foreach (var p in list)
                             if (p.Item1 >= lx && p.Item1 <= hx && p.Item2 >= ly && p.Item2 <= hy && seen.Add(p) && Meets(X[a], Y[a], X[b], Y[b], p, false))
                                 met.Add((Span(X[a], Y[a], X[b], Y[b], p), p));
-                met.Sort((u, v) => {
-                    int c = (u.t.entry.num * v.t.entry.den).CompareTo(v.t.entry.num * u.t.entry.den);
-                    if (c != 0) return c;
-                    c = (u.t.exit.num * v.t.exit.den).CompareTo(v.t.exit.num * u.t.exit.den);
-                    if (c != 0) return c;
-                    c = u.p.Item1.CompareTo(v.p.Item1);
-                    return c != 0 ? c : u.p.Item2.CompareTo(v.p.Item2);
-                });
+                met.Sort(CompareMet);
                 var chain = new List<(long, long)>();
                 foreach (var m in met) if (chain.Count == 0 || !chain[chain.Count - 1].Equals(m.p)) chain.Add(m.p);
                 chains.Add(chain);
             }
+        }
+
+        /// <summary>
+        /// the order in which the hot pixels a segment meets lie along it: by the entry parameter, then the exit parameter (exact fractions with
+        /// positive denominators, compared by cross-multiplication), then the pixel itself: 0 only for the same entry, exit and pixel, so for
+        /// distinct pixels a total order, and the sorted list does not depend on the order of the unstable sort (determinism proof, R11)
+        /// </summary>
+        internal static int CompareMet((((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p) u,
+            (((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p) v)
+        {
+            int c = (u.t.entry.num * v.t.entry.den).CompareTo(v.t.entry.num * u.t.entry.den);
+            if (c != 0) return c;
+            c = (u.t.exit.num * v.t.exit.den).CompareTo(v.t.exit.num * u.t.exit.den);
+            if (c != 0) return c;
+            c = u.p.Item1.CompareTo(v.p.Item1);
+            return c != 0 ? c : u.p.Item2.CompareTo(v.p.Item2);
         }
 
         /// <summary> critical pixels: a hot pixel whose interior an output edge crosses, the edge's ends outside it </summary>

@@ -427,4 +427,6 @@ triangle sphere): the guard is 9-13 % of the run, about 60 % of it the component
 area per component) and 40 % the mesh copy. The bit-identical parts: the square root in the area sum (an L1 bound with
 an exact fallback) measured no change; reusing the snapshot buffer can save at most the allocation share of the copy
 (at most 4-5 % of the run, about 2 % expected). **Not built** (owner 2026-11-12). A real saving needs component labels
-kept through the edge operations, which can change which pass is rolled back (section 12.4).
+kept through the edge operations, which change which pass is rolled back only if they are wrong (section 12.4).
+Follow-up 2026-11-17: closed, no single equivalent replacement reaches 10 %; labels plus an undo log or reused buffers are
+parked as owner options ([INVERSION_GUARD_SNAPSHOT.md](INVERSION_GUARD_SNAPSHOT.md)).

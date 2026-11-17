@@ -23,6 +23,79 @@ namespace geometry3Sharp.Tests
             return so;
         }
 
+        // Fallback coverage: force the existing face-vertex refusal seam. These are actual grid
+        // contours, but this is fault injection, not a naturally occurring refusal (#572).
+        static MeshWindingNumberSolidify RefusedFaces(DMesh3 input)
+        {
+            DualContouring.FailFaceVertexForTests = () => true;
+            try { return Run(input, 24); }
+            finally { DualContouring.FailFaceVertexForTests = null; }
+        }
+
+        [Theory]
+        [InlineData(1, 4, 0)]
+        [InlineData(3, 8, 41)]
+        public void RefusedFaceVertices_GridFillMatchesExactOutput(int seed, int dropped, int intersections)
+        {
+            var so = RefusedFaces(MeshRobustRepairTests.ThinPlates(seed));
+            Assert.Equal(dropped, so.NonManifoldTriangles);
+            Assert.True(so.NonManifoldTriangles > 0);
+            Assert.Equal(intersections, so.FillIntersections);
+            Assert.True(so.RawContour.IsClosed());
+            Assert.True(so.RawContour.CheckValidity());
+            Assert.Empty(MeshIterators.BowtieVertices(so.RawContour));
+            Assert.True(Invariance.AllFinite(so.RawContour));
+            int exact = MeshRepairMetrics.SelfIntersections(so.RawContour);
+            Assert.Equal(exact, so.FillIntersections);
+            Assert.Equal(exact > 0, so.StoppedOnSelfIntersections);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RefusedFaceVertices_Similarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 input = MeshRobustRepairTests.ThinPlates(3);
+            var baseline = RefusedFaces(input);
+            var result = RefusedFaces(Invariance.Transformed(input, sim));
+            // A rotation changes which grid faces are ambiguous; only the exact scales preserve refusals.
+            if (sim.IsExact) Assert.True(result.NonManifoldTriangles > 0);
+            Assert.True(result.RawContour.IsClosed());
+            Assert.True(result.RawContour.CheckValidity());
+            Assert.Empty(MeshIterators.BowtieVertices(result.RawContour));
+            Assert.True(Invariance.AllFinite(result.RawContour));
+            int exact = MeshRepairMetrics.SelfIntersections(result.RawContour);
+            Assert.Equal(exact, result.FillIntersections);
+            Assert.Equal(exact > 0, result.StoppedOnSelfIntersections);
+            if (sim.IsExact) {
+                Assert.Equal(baseline.NonManifoldTriangles, result.NonManifoldTriangles);
+                Assert.Equal(baseline.FillIntersections, result.FillIntersections);
+                Assert.Equal("", Invariance.Difference(baseline.RawContour, Invariance.MappedBack(result.RawContour, sim)));
+            }
+        }
+
+        [Fact]
+        public void RefusedFaceVertices_RepeatedAndReusedInstance()
+        {
+            DMesh3 input = MeshRobustRepairTests.ThinPlates(3);
+            var baseline = RefusedFaces(input);
+            var repeated = RefusedFaces(input);
+            Assert.Equal("", Invariance.Difference(baseline.RawContour, repeated.RawContour));
+            Assert.Equal(baseline.FillIntersections, repeated.FillIntersections);
+            repeated.Mesh = MeshRobustRepairTests.ThinPlates(1);
+            DualContouring.FailFaceVertexForTests = () => true;
+            try {
+                Assert.True(repeated.Compute());
+                Assert.Equal(0, repeated.FillIntersections);
+                repeated.Mesh = input;
+                Assert.True(repeated.Compute());
+            } finally { DualContouring.FailFaceVertexForTests = null; }
+            Assert.Equal(baseline.NonManifoldTriangles, repeated.NonManifoldTriangles);
+            Assert.Equal(baseline.FillIntersections, repeated.FillIntersections);
+            Assert.Equal(baseline.StoppedOnSelfIntersections, repeated.StoppedOnSelfIntersections);
+            Assert.Equal("", Invariance.Difference(baseline.RawContour, repeated.RawContour));
+        }
+
         // with StopIfSelfIntersecting, Compute() never hands back a contour with self-intersections as if it were finished: a stop has intersections
         // in the raw contour, a non-stop has none; intersections added by the fill are a stop
         [Fact]
