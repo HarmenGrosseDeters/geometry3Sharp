@@ -70,7 +70,8 @@ the future" list, ordered by priority; this section names only what is in flight
   1.30x time), PR #1073; the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is in review (#1085); the inversion guard study #1070 closed hard problem 14 (options
-  parked). A quad remeshing study runs (#1078).
+  parked). The quad remeshing study is merged (#1078); stage 5 (the `DPolyMesh` polygon type with OBJ / PLY
+  writers and readers, no `g3cli` command yet) is in review (owner 2026-11-17: stages 1, 2 and 5).
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9) runs (owner 2026-11-17, no PR yet).
 - **Alpha Wrap 3.0:** done. Lever 6 K stays opt-in (#736), the raw-size budget stays off with the opt-in

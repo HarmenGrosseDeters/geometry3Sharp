@@ -243,6 +243,35 @@ before it.
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |
 | **5. API and writers** | Additive and compatible with 1.0.324: a new polygon container (`DPolyMesh`: compact face offsets plus vertex lists, face groups, `ToDMesh3()` that triangulates and records the triangle-pair map), OBJ polygon faces and PLY `vertex_indices` lists for n-gons, and `SimpleQuadMesh` from a pure-quad result. A `g3cli quadremesh` command. No change to `DMesh3`. | **S-M** | low; `dotnet pack` API validation catches breaks | The API validation passes; a round trip of OBJ and PLY through the readers keeps the faces (the polygon reader paths are added to `ReaderFuzzTests` if a reader is added). |
 
+### 4.1 Stage 5 as built: `DPolyMesh` and `PolyMeshIO` (2026-11-17)
+
+Additive, nothing of `DMesh3`, `PLYWriter`, `OBJWriter` or the standard readers changes in behavior (the `PLYReader` gives faces
+whole to a builder that implements the new `IPolygonMeshBuilder`; every other builder gets the same fan triangles as before).
+The types live in `mesh/SimpleQuadMesh.cs` and `io/MeshIOUtil.cs`, so that no project file changes.
+
+- **`DPolyMesh`**: vertices as `x y z` doubles; faces as `FaceOffsets` (FaceCount + 1 entries), `FaceIndices` and one `FaceGroups`
+  int per face (default 0). Construction for a producer such as stage 2: `new DPolyMesh(vertexCap, faceCap, indexCap)`, then
+  `AppendVertices(xyz)` and `AppendFaces(counts, indices, groups)` (whole arrays, amortized O(1) per entry, no per-face allocation),
+  or `AppendTriangle`, `AppendQuad`, `AppendFace(list, group)` one at a time. Invalid input (fewer than 3 vertices, repeated or
+  out-of-range indices, non-finite coordinates) is never thrown for: `Validate()` returns a `PolyMeshReport`; the conversions and
+  writers skip the faces that cannot be used.
+- **Conversions**: `ToDMesh3(out triangleToFace, skippedFaces)` (all vertices keep their index as the `DMesh3` vertex id; triangle
+  groups = face groups; triangles in face order, so the map is non-decreasing), `DPolyMesh.FromDMesh3(mesh)`,
+  `TryToSimpleQuadMesh(out quads)` (all faces quads with valid indices; positions and face groups).
+- **Triangulation rule** (deterministic, documented on the class): a triangle is itself; larger faces are ear-clipped in the plane of
+  the Newell normal, scanning the corners 1, 2, ..., n-1, 0 and cutting the first convex corner whose triangle holds no other vertex
+  of the remaining ring (boundary counts as inside; vertices at the same position as an ear corner are ignored); no ear: corner 1 is
+  cut anyway; zero normal, or more than 256 vertices (bounds the work on hostile input): fan from vertex 0. A convex planar face is the fan from its vertex 0. The decisions are signs of sums of
+  products of coordinate differences, so a power-of-two scale of the vertices gives the same triangles bit for bit; other
+  similarities give the same triangles unless a corner is within rounding of straight.
+- **Writers** (`PolyMeshIO.WriteOBJ`, `WritePLY` ascii and binary little endian, `WriteFile`): doubles as shortest round-trip text
+  (PLY `float` with `doublePrecision: false`), faces whole, `g mmGroup<id>` lines / a `face_group` property only if some group is
+  not 0, PLY list count `uchar` or `int` for faces above 255 vertices.
+- **Readers** (`PolyMeshIO.ReadOBJ`, `ReadPLY`, `ReadFile`): the faces stay whole, so `read(write(mesh))` equals `mesh` bit for bit
+  (coordinates, face lists, groups). `ReadPLY` is `PLYReader` with a `DPolyMeshBuilder`; `ReadOBJ` is a small separate parser
+  (positions, faces, groups; the details are on `PolyMeshIO`). Both are in `ReaderFuzzTests` (`poly-obj`, `poly-ply`).
+- Not done (stage 2 and later): `g3cli quadremesh`, normals / UVs / colors on `DPolyMesh`, a polygon `StandardMeshReader` entry.
+
 Owner decisions (2026-11-17, after this study):
 1. **Scope:** quad-dominant, stages 1, 2 and 5 (about 4-6 sessions, one PR per stage). Pure quads (stage 3),
    features (stage 4), MIQ / QEx and QuadWild stay out.

@@ -935,3 +935,13 @@ Titles, authors, venues and DOIs verified by a search on 2026-11-16.
 | Equivalence modulo inputs | V. Le, M. Afshari, Z. Su, *Compiler validation via equivalence modulo inputs*, PLDI 2014, [doi:10.1145/2594291.2594334](https://doi.org/10.1145/2594291.2594334) |
 | Semantics-preserving transformations of shaders | A. F. Donaldson, H. Evrard, A. Lascu, P. Thomson, *Automated testing of graphics shader compilers*, OOPSLA 2017, [doi:10.1145/3133917](https://doi.org/10.1145/3133917) |
 | Evaluation of exact mesh Booleans (context only; the protocol itself was not read) | P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER: Exact Mesh Booleans via Efficient and Robust Local Arrangements*, ACM TOG 41(4), 2022; G. Cherchi, M. Livesu, R. Scateni, M. Attene, *Fast and Robust Mesh Arrangements using Floating-point Arithmetic*, ACM TOG 39(6), 2020, [doi:10.1145/3414685.3417818](https://doi.org/10.1145/3414685.3417818) |
+
+## Polygon mesh (`DPolyMesh`, `PolyMeshIO`; quad remeshing stage 5, [design/QUAD_REMESHING.md](design/QUAD_REMESHING.md))
+
+Written from the format descriptions and the textbook method; no code from any other library was read or taken.
+
+| Topic | Source |
+|---|---|
+| Face triangulation (`DPolyMesh.TriangulateFace`): ear clipping in the plane of the Newell normal; the existence of an ear in every simple polygon | G. H. Meisters, *Polygons have ears*, American Mathematical Monthly 82(6), 648-651, 1975; the Newell normal of a polygon (sum of cross products of its edge vectors) as in the standard computer graphics texts. The scan order, tie rules and fallbacks are our own and stated in the class remarks |
+| PLY with polygon faces (`list uchar int vertex_indices`, an extra `face_group` property) | G. Turk, *The PLY Polygon File Format*, Stanford University, 1994; P. Bourke, [PLY format notes](http://paulbourke.net/dataformats/ply/) |
+| OBJ polygon faces (`f` with 3 or more vertices, `v/vt/vn` forms, negative indices, `g` groups) | Wavefront OBJ format as described in P. Bourke, [OBJ notes](http://paulbourke.net/dataformats/obj/) |
