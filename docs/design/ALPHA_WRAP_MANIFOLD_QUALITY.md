@@ -1,7 +1,8 @@
 # Alpha wrap: a quality-aware manifold step (#919 follow-up)
 
 Roadmap: [alpha-wrap-and-repair.md](../roadmap/alpha-wrap-and-repair.md), "Open for the future", the item after "#919 closed
-(2026-11-15)". Status: design note, 2026-11-17; the recommendation waits for the coordinator's go before the build.
+(2026-11-15)". Status: P2 approved by the coordinator 2026-11-17 and built as the opt-in `MeshAlphaWrap.PullPinchPoints`, default off
+(tests: `AlphaWrapPullPinchTests`; 800-run gate: config F of `.github/workflows/alpha-defaults.yml`, table in #1045).
 
 ## 1. The defect
 
@@ -84,7 +85,7 @@ have a triangle below the bound on master:
     gives larger volumes, or "ε-deflate", without a proof. A literature search found no published fix of the pinches of
     the alpha wrap.
 
-## 3. Recommendation
+## 3. Recommendation (approved, built)
 
 Build P2 as an opt-in option, `MeshAlphaWrap.PullPinchPoints` (default off; the 2δ cap is a constant in the doc).
 Leave out A: it adds nothing on top of P (P + A has a larger vertex distance and the same angles). Tests:
@@ -97,3 +98,11 @@ Leave out A: it adds nothing on top of P (P + A has a larger vertex distance and
 The 800-run corpus gate compares default and option (angles, clean, separation, triangle counts, time, vertex and
 band distances). Whether the option becomes the default is the owner's decision; it relaxes the vertex-on-offset
 promise.
+
+## 4. Limit found in the build
+
+The option guarantees no angle bound. The flips the manifold step still makes have none, and a different rounding can leave
+such a flip. Soup 42 in the frame "rotated, scale 1e-3, utm" of `Similarity.All()`: 9 cells get no pulled point within the
+band, 2 flips remain, 1 triangle is below the bound (2.29°). The same frame without the option has 0 below. Over the 8
+frames, the count is 1 with the option against 24 without (`AlphaWrapPullPinchTests.Invariance_AllSimilarities` checks the
+angle count only in the frames without a rotation, which give the identity's triangulation).

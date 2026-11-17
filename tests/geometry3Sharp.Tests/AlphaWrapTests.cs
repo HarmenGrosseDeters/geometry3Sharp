@@ -317,7 +317,10 @@ namespace geometry3Sharp.Tests
         /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
         /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
-        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true, double bandFactor = 2)
+        // vertexBand > 0: the vertices lie between the offset and vertexBand offsets from the input (MeshAlphaWrap.PullPinchPoints),
+        // otherwise on the offset surface
+        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true, double bandFactor = 2,
+            double vertexBand = 0)
         {
             if (expectSuccess)
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
@@ -337,8 +340,13 @@ namespace geometry3Sharp.Tests
             // distances to the input, measured with an independent brute-force reference
             var oracle = Oracle(w);
             double off = w.UsedOffset, alpha = w.UsedAlpha;
-            foreach (int vid in r.VertexIndices())
-                Assert.Equal(off, oracle(r.GetVertex(vid)), off * 1e-6);
+            foreach (int vid in r.VertexIndices()) {
+                double d = oracle(r.GetVertex(vid));
+                if (vertexBand > 0)
+                    Assert.True(d >= off * (1 - 1e-6) && d <= vertexBand * off * (1 + 1e-6), $"vertex at {d / off} offsets");
+                else
+                    Assert.Equal(off, d, off * 1e-6);
+            }
             var rnd = new Random(7);
             foreach (int tid in r.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
