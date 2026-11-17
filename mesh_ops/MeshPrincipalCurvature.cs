@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Linq;
 using g3;
 
 namespace gs
@@ -51,20 +52,27 @@ namespace gs
             c.Normal = new Vector3d[nv]; c.Dir1 = new Vector3d[nv]; c.Dir2 = new Vector3d[nv];
             c.Valid = new bool[nv];
 
-            // angle weighted vertex normals
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i t = mesh.GetTriangle(tid);
+            // angle weighted vertex normals: the contribution of each triangle corner is computed in parallel (each triangle
+            // writes its own three slots) and added to the vertices serially in triangle order, so the sums are the serial ones
+            int[] tids = mesh.TriangleIndices().ToArray();
+            var cornerNormal = new Vector3d[3 * tids.Length];
+            gParallel.ForRange(tids.Length, ti => {
+                Index3i t = mesh.GetTriangle(tids[ti]);
                 Vector3d p0 = mesh.GetVertex(t.a), p1 = mesh.GetVertex(t.b), p2 = mesh.GetVertex(t.c);
                 Vector3d n = (p1 - p0).Cross(p2 - p0);
                 double nl = n.Length;
-                if (!(nl > 0) || double.IsInfinity(nl)) continue;
+                if (!(nl > 0) || double.IsInfinity(nl)) return;
                 n /= nl;
                 for (int k = 0; k < 3; ++k) {
                     Vector3d a = mesh.GetVertex(t[(k + 1) % 3]) - mesh.GetVertex(t[k]);
                     Vector3d b = mesh.GetVertex(t[(k + 2) % 3]) - mesh.GetVertex(t[k]);
                     double ang = Math.Atan2(a.Cross(b).Length, a.Dot(b));
-                    c.Normal[t[k]] += ang * n;
+                    cornerNormal[3 * ti + k] = ang * n;
                 }
+            });
+            for (int ti = 0; ti < tids.Length; ++ti) {
+                Index3i t = mesh.GetTriangle(tids[ti]);
+                for (int k = 0; k < 3; ++k) c.Normal[t[k]] += cornerNormal[3 * ti + k];
             }
             foreach (int v in mesh.VertexIndices()) {
                 double l = c.Normal[v].Length;
@@ -81,14 +89,15 @@ namespace gs
             }
 
             var kuu = new double[nv]; var kuv = new double[nv]; var kvv = new double[nv]; var wsum = new double[nv];
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i t = mesh.GetTriangle(tid);
+            var cIuu = new double[3 * tids.Length]; var cIuv = new double[3 * tids.Length]; var cIvv = new double[3 * tids.Length]; var cWt = new double[3 * tids.Length];
+            gParallel.ForRange(tids.Length, ti => {
+                Index3i t = mesh.GetTriangle(tids[ti]);
                 Vector3d[] p = { mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c) };
                 Vector3d[] n = { c.Normal[t.a], c.Normal[t.b], c.Normal[t.c] };
                 Vector3d fn = (p[1] - p[0]).Cross(p[2] - p[0]);
                 double area2 = fn.Length;
                 double longest = Math.Max((p[1] - p[0]).LengthSquared, Math.Max((p[2] - p[1]).LengthSquared, (p[0] - p[2]).LengthSquared));
-                if (!(area2 > 1e-12 * longest) || double.IsInfinity(area2)) continue;
+                if (!(area2 > 1e-12 * longest) || double.IsInfinity(area2)) return;
                 fn /= area2;
                 Vector3d fu = (p[1] - p[0]) / (p[1] - p[0]).Length, fv = fn.Cross(fu);
 
@@ -103,7 +112,7 @@ namespace gs
                     r0 += eu * du; r1 += ev * du + eu * dv; r2 += ev * dv;
                 }
                 double a, b, cc;
-                if (!Solve3(s00, s01, s02, s11, s12, s22, r0, r1, r2, out a, out b, out cc)) continue;
+                if (!Solve3(s00, s01, s02, s11, s12, s22, r0, r1, r2, out a, out b, out cc)) return;
 
                 // Voronoi corner areas
                 double[] cornerArea = CornerAreas(p, area2 * 0.5);
@@ -120,11 +129,20 @@ namespace gs
                     double ivv = a * wu * wu + 2 * b * wu * wv + cc * wv * wv;
                     double iuv = a * uu * wu + b * (uu * wv + uv * wu) + cc * uv * wv;
                     double wt = cornerArea[k];
-                    kuu[v] += wt * iuu; kuv[v] += wt * iuv; kvv[v] += wt * ivv; wsum[v] += wt;
+                    cIuu[3 * ti + k] = wt * iuu; cIuv[3 * ti + k] = wt * iuv; cIvv[3 * ti + k] = wt * ivv; cWt[3 * ti + k] = wt;
+                }
+            });
+            for (int ti = 0; ti < tids.Length; ++ti) {
+                Index3i t = mesh.GetTriangle(tids[ti]);
+                for (int k = 0; k < 3; ++k) {
+                    if (!(cWt[3 * ti + k] > 0)) continue;
+                    int v = t[k];
+                    kuu[v] += cIuu[3 * ti + k]; kuv[v] += cIuv[3 * ti + k]; kvv[v] += cIvv[3 * ti + k]; wsum[v] += cWt[3 * ti + k];
                 }
             }
             if (smoothingRounds > 0) {
                 // S = a u u^T + b (u w^T + w u^T) + d w w^T per vertex (6 entries xx yy zz xy xz yz), weighted by wsum
+                int[] vids = mesh.VertexIndices().ToArray();
                 var S = new double[6 * nv]; var S2 = new double[6 * nv]; var W = new double[nv];
                 foreach (int v in mesh.VertexIndices()) {
                     if (!(wsum[v] > 0)) continue;
@@ -139,39 +157,45 @@ namespace gs
                     W[v] = wsum[v];
                 }
                 for (int round = 0; round < smoothingRounds; ++round) {
-                    foreach (int v in mesh.VertexIndices()) {
+                    double[] src = S, dst = S2;
+                    gParallel.ForRange(vids.Length, vi => {       // each vertex writes its own six entries
+                        int v = vids[vi];
                         double ws = W[v];
-                        for (int k = 0; k < 6; ++k) S2[6 * v + k] = ws * S[6 * v + k];
+                        for (int k = 0; k < 6; ++k) dst[6 * v + k] = ws * src[6 * v + k];
                         foreach (int nb in mesh.VtxVerticesItr(v)) {
                             ws += W[nb];
-                            for (int k = 0; k < 6; ++k) S2[6 * v + k] += W[nb] * S[6 * nb + k];
+                            for (int k = 0; k < 6; ++k) dst[6 * v + k] += W[nb] * src[6 * nb + k];
                         }
-                        if (ws > 0) for (int k = 0; k < 6; ++k) S2[6 * v + k] /= ws;
-                    }
+                        if (ws > 0) for (int k = 0; k < 6; ++k) dst[6 * v + k] /= ws;
+                    });
                     var tS = S; S = S2; S2 = tS;
                     // the weights stay those of the vertices (not the growing sums): the average is of the tensors
                 }
-                foreach (int v in mesh.VertexIndices()) {
-                    if (!(wsum[v] > 0)) continue;
+                double[] Sf = S;
+                gParallel.ForRange(vids.Length, vi => {
+                    int v = vids[vi];
+                    if (!(wsum[v] > 0)) return;
                     Vector3d u = bu[v], w = bv[v];
-                    Func<Vector3d, Vector3d, double> q = (p, r) => p.x * (S[6 * v] * r.x + S[6 * v + 3] * r.y + S[6 * v + 4] * r.z)
-                        + p.y * (S[6 * v + 3] * r.x + S[6 * v + 1] * r.y + S[6 * v + 5] * r.z)
-                        + p.z * (S[6 * v + 4] * r.x + S[6 * v + 5] * r.y + S[6 * v + 2] * r.z);
+                    Func<Vector3d, Vector3d, double> q = (p, r) => p.x * (Sf[6 * v] * r.x + Sf[6 * v + 3] * r.y + Sf[6 * v + 4] * r.z)
+                        + p.y * (Sf[6 * v + 3] * r.x + Sf[6 * v + 1] * r.y + Sf[6 * v + 5] * r.z)
+                        + p.z * (Sf[6 * v + 4] * r.x + Sf[6 * v + 5] * r.y + Sf[6 * v + 2] * r.z);
                     kuu[v] = q(u, u) * wsum[v]; kuv[v] = q(u, w) * wsum[v]; kvv[v] = q(w, w) * wsum[v];
-                }
+                });
             }
-            foreach (int v in mesh.VertexIndices()) {
-                if (!(wsum[v] > 0)) continue;
+            int[] allV = mesh.VertexIndices().ToArray();
+            gParallel.ForRange(allV.Length, vi => {
+                int v = allV[vi];
+                if (!(wsum[v] > 0)) return;
                 double a = kuu[v] / wsum[v], b = kuv[v] / wsum[v], d = kvv[v] / wsum[v];
                 double mean = 0.5 * (a + d), diff = 0.5 * (a - d);
                 double root = Math.Sqrt(diff * diff + b * b);
                 double psi = 0.5 * Math.Atan2(b, diff);       // angle of the K1 direction in (bu, bv)
-                if (double.IsNaN(mean) || double.IsNaN(root) || double.IsNaN(psi)) continue;
+                if (double.IsNaN(mean) || double.IsNaN(root) || double.IsNaN(psi)) return;
                 c.K1[v] = mean + root; c.K2[v] = mean - root;
                 c.Dir1[v] = Math.Cos(psi) * bu[v] + Math.Sin(psi) * bv[v];
                 c.Dir2[v] = c.Normal[v].Cross(c.Dir1[v]);
                 c.Valid[v] = true;
-            }
+            });
             return c;
         }
 

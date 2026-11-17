@@ -227,11 +227,11 @@ namespace gs
                 vB[i] = nrm[i].Cross(vE_[i]);
             }
             var rho = new double[E];
-            for (int e = 0; e < E; ++e) {
+            gParallel.ForRange(E, e => {     // each edge writes only its own entry
                 int a = ea[e], b = eb[e];
                 Vector3d d = pm.Pos[b] - pm.Pos[a];
                 rho[e] = Math.Atan2(-d.Dot(vB[b]), -d.Dot(vE_[b])) + Math.PI - Math.Atan2(d.Dot(vB[a]), d.Dot(vE_[a]));
-            }
+            });
 
             // connected components of the vertices: each gets its own matrix and eigenproblem (local index loc)
             var comp = new int[N];
@@ -288,28 +288,27 @@ namespace gs
             for (int k = 0; k < termV.Count; ++k) mode[comp[termV[k]]] = Math.Max(mode[comp[termV[k]]], termHard[k] ? 2 : 1);
 
             // matrices: the connection energy + alignment terms + a small mass shift (interleaved re, im)
-            var chol = new SparseCholesky[Components];
-            for (int c = 0; c < Components; ++c) chol[c] = new SparseCholesky(2 * compSize[c], 2);
+            var chol = new SparseHermitianCholesky[Components];
+            for (int c = 0; c < Components; ++c) chol[c] = new SparseHermitianCholesky(compSize[c]);
             for (int e = 0; e < E; ++e) {
-                int c = comp[ea[e]], a = 2 * loc[ea[e]], b = 2 * loc[eb[e]]; double we = w[e];
+                int c = comp[ea[e]], a = loc[ea[e]], b = loc[eb[e]]; double we = w[e];
                 double r = Symmetry * rho[e], cr = Math.Cos(r), sr = Math.Sin(r);
-                SparseCholesky ch = chol[c];
-                ch.Add(a, a, we); ch.Add(a + 1, a + 1, we); ch.Add(b, b, we); ch.Add(b + 1, b + 1, we);
-                ch.Add(b, a, -we * cr); ch.Add(b + 1, a + 1, -we * cr);
-                ch.Add(b, a + 1, we * sr); ch.Add(b + 1, a, -we * sr);
+                SparseHermitianCholesky ch = chol[c];
+                ch.Add(a, a, we, 0); ch.Add(b, b, we, 0);
+                ch.Add(b, a, -we * cr, -we * sr);         // H[j,i] = -w exp(4 i rho_ij)
             }
             var compMeanMass = new double[Components];
             for (int i = 0; i < N; ++i) compMeanMass[comp[i]] += mass[i] / compSize[comp[i]];
-            for (int i = 0; i < N; ++i) { SparseCholesky ch = chol[comp[i]]; int a = 2 * loc[i]; double sh = 1e-8 * mass[i] / compMeanMass[comp[i]]; ch.Add(a, a, sh); ch.Add(a + 1, a + 1, sh); }
+            for (int i = 0; i < N; ++i) { SparseHermitianCholesky ch = chol[comp[i]]; int a = loc[i]; double sh = 1e-8 * mass[i] / compMeanMass[comp[i]]; ch.Add(a, a, sh, 0); }
             // omega |z_i - b|^2 = omega (|z_i|^2 - 2 Re(conj(b) z_i) + 1) in mode 2: the diagonal and the right hand side g = omega b;
             // omega |z_i - t b|^2 = omega (|z_i|^2 - 2 t Re(conj(b) z_i) + t^2) in mode 1: the diagonal, and t is eliminated (t = (g, z) / d,
             // d = sum of the omega): the matrix is the sparse one minus the rank one matrix g g^T / d, which the solves handle by the
             // Sherman-Morrison formula (a coupling row of t in the matrix would make the ordering quadratic)
             var dataRhs = new double[2 * N]; var tDiag = new double[Components];
             for (int k = 0; k < termV.Count; ++k) {
-                int i = termV[k]; int c = comp[i]; int a = 2 * loc[i]; double om = termW[k];
-                SparseCholesky ch = chol[c];
-                ch.Add(a, a, om); ch.Add(a + 1, a + 1, om);
+                int i = termV[k]; int c = comp[i]; int a = loc[i]; double om = termW[k];
+                SparseHermitianCholesky ch = chol[c];
+                ch.Add(a, a, om, 0);
                 dataRhs[2 * i] += om * termRe[k]; dataRhs[2 * i + 1] += om * termIm[k];
                 tDiag[c] += om;
             }
@@ -324,7 +323,7 @@ namespace gs
                 int n = compSize[c];
                 var g = new double[2 * n];
                 for (int l = 0; l < n; ++l) { g[2 * l] = dataRhs[2 * members[c][l]]; g[2 * l + 1] = dataRhs[2 * members[c][l] + 1]; }
-                SparseCholesky ch = chol[c];
+                SparseHermitianCholesky ch = chol[c];
                 double[] xc;
                 if (mode[c] == 2) {
                     xc = new double[2 * n];
@@ -382,8 +381,10 @@ namespace gs
 
             // per face: index and direction
             fIndex = new int[Mesh.MaxTriangleID]; fDir = new Vector3d[Mesh.MaxTriangleID];
-            int ti2 = 0;
-            foreach (int tid in Mesh.TriangleIndices()) {
+            // (in parallel: each face writes only its own entries; the lists are then built serially in face order)
+            int[] tidArr = System.Linq.Enumerable.ToArray(Mesh.TriangleIndices());
+            gParallel.ForRange(tidArr.Length, ti2 => {
+                int tid = tidArr[ti2];
                 Index3i t = pm.Tris[ti2];
                 double sd = 0, sr = 0;
                 for (int k = 0; k < 3; ++k) {
@@ -393,14 +394,14 @@ namespace gs
                     sr += r;
                     sd += Wrap(Math.Atan2(x[2 * j + 1], x[2 * j]) - Math.Atan2(x[2 * i + 1], x[2 * i]) - Symmetry * r);
                 }
-                int idx = (int)Math.Round((sd + Symmetry * Wrap(sr)) / (2 * Math.PI));
-                fIndex[tid] = idx;
-                if (idx != 0) {
-                    SingularFaces.Add(tid); IndexSum += idx / (double)Symmetry;
-                    int cnt; IndexHistogram.TryGetValue(idx, out cnt); IndexHistogram[idx] = cnt + 1;
-                }
+                fIndex[tid] = (int)Math.Round((sd + Symmetry * Wrap(sr)) / (2 * Math.PI));
                 fDir[tid] = FaceDirectionFrom(pm, ti2, t, nrm, vE_, vB, phi, mag);
-                ++ti2;
+            });
+            foreach (int tid in tidArr) {
+                int idx = fIndex[tid];
+                if (idx == 0) continue;
+                SingularFaces.Add(tid); IndexSum += idx / (double)Symmetry;
+                int cnt; IndexHistogram.TryGetValue(idx, out cnt); IndexHistogram[idx] = cnt + 1;
             }
             Status = CrossFieldStatus.Success;
             return Status;
