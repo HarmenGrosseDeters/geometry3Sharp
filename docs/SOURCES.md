@@ -293,6 +293,19 @@ code or any other implementation was read). Stage 1 of [design/QUAD_REMESHING.md
 | Principal curvatures and directions per vertex: the second fundamental form per triangle by least squares over the edges (differences of the vertex normals), rotated into the vertex frame, averaged with Voronoi corner areas | S. Rusinkiewicz, *Estimating Curvatures and Their Derivatives on Triangle Meshes*, 3DPVT 2004; M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Voronoi areas); N. Max, *Weights for Computing Vertex Normals from Facet Normals*, J. Graphics Tools 1999 (angle weighted normals) |
 | Smoothing of the curvature tensors over the one-ring (against noise) | own choice |
 
+## Position field and quad extraction (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`)
+
+Implemented from the paper only (owner 2026-11-17: the Instant Meshes code has an Enhancements clause in its licence that the owner
+did not accept; no code of Instant Meshes, QuadriFlow, QuadWild or libigl was read). Stage 2 of
+[design/QUAD_REMESHING.md](design/QUAD_REMESHING.md); the derivations and the own choices are in section 3.1 and 4.2 there.
+
+| Part | Source |
+|---|---|
+| Position field (a point per vertex that stands for a lattice with the orientation field), compatibility of two lattices (rotation of the 4-RoSy, the lattice points near a common point, rounding to the lattice of each vertex), Gauss-Seidel smoothing on a multiresolution hierarchy, extraction from the integer offsets of the edges (merge of equal lattice points, unit offsets are edges, faces traced in the tangent planes) and its cleanup | M. Jakob, M. Tarini, D. Panozzo, O. Sorkine-Hornung, *Instant Field-Aligned Meshes*, ACM TOG 34(6) 189, SIGGRAPH Asia 2015 |
+| The hierarchy (greedy matching of the closest neighbours, area weighted position, normal and orientation), the point closest to the edge midpoint on both tangent planes and its regularization, the mean misfit as the Gauss-Seidel step, boundary vertices on a lattice line and boundary corners as lattice points | own choices (QUAD_REMESHING.md 3.1) |
+| Deterministic parallel Gauss-Seidel: a fixed greedy colouring in vertex order, the colours one after the other, so that serial and parallel runs execute the same updates | multi-colour Gauss-Seidel, standard (eg Y. Saad, *Iterative Methods for Sparse Linear Systems*, 2nd ed. 2003, section 12.4) |
+| The quality numbers of `PolyMeshMetrics` (face mix, valence, corner angles, manifold polygon mesh) | QUAD_REMESHING.md section 1 |
+
 ## Parameterization (`LSCMParameterization`, `SpectralConformalParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.

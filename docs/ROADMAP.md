@@ -71,7 +71,9 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is in review (#1085); the inversion guard study #1070 closed hard problem 14 (options
   parked). The quad remeshing study is merged (#1078); stage 5 (the `DPolyMesh` polygon type with OBJ / PLY
-  writers and readers, no `g3cli` command yet) is in review (owner 2026-11-17: stages 1, 2 and 5).
+  writers and readers, no `g3cli` command yet) and stage 1 (`CrossField`, speed gate open) are merged; stage 2 (position field and
+  extraction, `QuadRemesher`) is built and measured: the irregular-vertex gate hits the no-go (6 to 12 x the singularities), the
+  decision on stage 3 is the owner's (owner 2026-11-17: stages 1, 2 and 5).
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9) runs (owner 2026-11-17, no PR yet).
 - **Alpha Wrap 3.0:** done. Lever 6 K stays opt-in (#736), the raw-size budget stays off with the opt-in

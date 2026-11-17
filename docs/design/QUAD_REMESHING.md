@@ -293,6 +293,54 @@ solves instead of 30 to 200 inverse iterations) is in; the factorization is the 
 it open. Levers, in this order: a parallel `SparseCholesky` (a separate PR, with an upper-bound measurement first), then the
 n x n complex Hermitian factorization in `CrossField` if still short.
 
+### 4.2 Stage 2 status (2026-11-17): built, the irregular-vertex gate is the no-go
+
+`gs.PositionField`, `gs.QuadRemesher` and `gs.PolyMeshMetrics` are in the library (`mesh_ops/`), with
+[benchmarks/QuadRemeshBenchmark](../../benchmarks/QuadRemeshBenchmark/README.md) (the table of numbers). Implemented from the
+Jakob et al. 2015 paper and the derivations of section 3.1 (no Instant Meshes, QuadriFlow or other code read; SOURCES.md).
+
+As built, beyond the spike:
+- **Hierarchy and solver:** greedy matching of the closest neighbours (ties by vertex id), coarse to fine, the Gauss-Seidel step of
+  section 3.1 with the per-edge middle point and compatible orientation precomputed (so a sweep is only the two roundings per edge).
+  **Parallel and deterministic:** a fixed greedy colouring in vertex order (6-7 colours); the colours run one after the other and
+  the vertices of one colour only read other colours, so serial and parallel execute the same updates (tests: bit for bit, with
+  work items of 3 to 512 vertices, repeated runs). The position field of 110k vertices takes 1.1 s on 4 cores (1.7 s serial).
+- **Boundaries:** a boundary vertex keeps a lattice line through it (its cross direction nearest to the boundary becomes
+  exactly the boundary direction, the position keeps zero offset across it), a corner (the boundary turns by more than 30 degrees,
+  or a vertex that is not a simple boundary vertex) is a lattice point itself. Boundary vertices merge in the hierarchy only along
+  boundary edges, corners never. In the extraction a cluster takes the position of its members of the highest kind. Own choices.
+  Measured on the open patch: the four corners are exact vertices and about half of the boundary vertices of the result are on
+  the boundary line (to 1e-3 s); the others are on rows up to 0.3 s inside (the boundary row and the next row of the lattice do
+  not always meet): a ragged boundary, an open item.
+- **Extraction:** union-find over the edges with the same lattice point (the two roundings less than `MismatchLimit` = 0.5 s
+  apart), unit offsets are edges, faces traced in the tangent planes, oriented by the normals; the outer loops of open meshes,
+  folded faces and faces above `MaxFaceSides` (6) are dropped. The cleanup: edges shorter than 0.4 s collapse (shortest first,
+  corners keep their position), valence 2 vertices off the boundary are removed, dangling edges are pruned.
+- **Result type:** `DPolyMesh`; `PolyMeshMetrics` is the gate checker (face mix, valence, corner angles, manifold: edges in at most
+  2 faces, consistent orientation, every vertex one fan).
+
+Measured gates (default options; the table is in the benchmark README):
+
+| gate | result |
+|---|---|
+| quads >= 95 % | 99.1 % filleted box, 98.6 % 100k sphere, 95.8 % patch, 95.9 % bumpy; **missed** 94.8 sphere, 94.9 torus, 93.2 noisy sphere, 91.4 sphere cap |
+| no face above 6 sides | met (faces above it are dropped: at most 1 per shape) |
+| irregular <= 2 x singularities + 4 | **missed**: filleted box 16 (limit 20); sphere 77 (limit 20), torus 76 (limit 28), bumpy 176 (36), noisy sphere 92 (20), sphere cap 96 (36), 100k sphere 354 (20) |
+| corner p95 <= 15 degrees | 4.9-14.5 on the closed shapes, 15.7 noisy sphere, 19.9 sphere cap |
+| Hausdorff <= 0.5 s | met (0.07-0.27 s one-sided) |
+| manifold polygon mesh | met on every shape |
+| <= 5 s per 100k vertices, 4 cores | met for stage 2 (1.2 s); the cross field alone takes 10.9 s there (stage 1 speed gate, open) |
+
+**No-go reached (section 4: irregular > 4 x singularities after the cleanup).** The sphere has 77 irregular vertices for 8
+singular faces (9.6 x), the torus 76 for 12, the bumpy sphere 176 for 16 (11 x), the noisy sphere 92 (11.5 x), the 100k sphere 354
+(44 x: the count grows with the number of faces, not with the singularities). They are triangles paired with valence 5 vertices
+(sphere: 66 triangles, 66 valence 5, 10 valence 3), the position-field singularities of spike finding 3. The paper's cleanup removes
+almost none of them (0 collapses and valence 2 removals on most shapes). Nothing in stage 2's reach moves them: 100 sweeps, the
+regularization 0.3, the mismatch limit 0.25 or 1.5, a finer input (`ratio=0.33`), a curvature aligned field (`align` 1 and 10) give
+70-82 irregular vertices on the sphere. By Euler (spike finding 3), a triangle and a valence 5 vertex are a dipole that only a
+change of topology removes: stage 3 (the flow of QuadriFlow, or the local topology cleanup of option C) is a prerequisite for the
+irregular-vertex gate, and the quad share of 95 % is borderline without it. Stage 3 was not started.
+
 ## 5. Limits and recommendation
 
 Limits:

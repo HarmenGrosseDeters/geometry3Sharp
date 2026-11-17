@@ -329,7 +329,8 @@ in the tool project.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021): study and plan in [QUAD_REMESHING.md](../design/QUAD_REMESHING.md).
   Owner 2026-11-17: quad-dominant stages 1, 2 and 5 (one PR per stage; pure quads, features, MIQ / QEx, QuadWild out);
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
-  OBJ / PLY writers and conversion to and from DMesh3
+  OBJ / PLY writers and conversion to and from DMesh3. Stage 2 built 2026-11-17 (`PositionField`, `QuadRemesher`): manifold, quad share
+  93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): stage 3 is the owner's call
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
