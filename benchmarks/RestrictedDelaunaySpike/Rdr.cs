@@ -174,6 +174,7 @@ namespace RestrictedDelaunaySpike
                 }
             refine();
             for (Rounds = 0; Rounds < 50; ++Rounds) {
+                BeforeRegionRound?.Invoke(Rounds);
                 var swr = Stopwatch.StartNew();
                 FarViolations = 0;
                 var fix = region_violations(out int nViol);
@@ -197,6 +198,13 @@ namespace RestrictedDelaunaySpike
         }
 
         public int Rounds, RegionViolations, FarViolations;
+        public Delaunay3 Dt => dt;
+        /// <summary> the proxy's verdict per sample (Delaunay vertex id) of the last region check: one disk, farthest input vertex within RMax </summary>
+        public readonly Dictionary<int, (bool disk, bool farOk)> ProxyVerdict = new Dictionary<int, (bool, bool)>();
+        /// <summary> called before each region round's check, with the round (measurement hook, item 3 of GEOGRAM_MEASUREMENTS_2026-11.md) </summary>
+        public Action<int> BeforeRegionRound;
+        /// <summary> the proxy check on the current state (fills ProxyVerdict) </summary>
+        public int ProxyCheck() { var fix = region_violations(out int c); return c; }
         public double RegionSeconds;
 
         // proxy for (C'): every sample's restricted Voronoi region, approximated by the input vertices nearest to it,
@@ -250,6 +258,7 @@ namespace RestrictedDelaunaySpike
             }
             var fix = new List<Vector3d>();
             count = 0;
+            ProxyVerdict.Clear();
             foreach (var kv in V) {
                 int k = kv.Key;
                 int chi = kv.Value - E.GetValueOrDefault(k) + T.GetValueOrDefault(k);
@@ -257,6 +266,7 @@ namespace RestrictedDelaunaySpike
                 foreach (int v in S.VertexIndices())
                     if (label[v] == k) { double d = S.GetVertex(v).DistanceSquared(p); if (d > fd) { fd = d; far = S.GetVertex(v); } }
                 bool disk = roots[k].Count == 1 && chi == 1;
+                ProxyVerdict[pts[k].id] = (disk, fd <= RMax * RMax);
                 // R2 for S -> D: the region's farthest point (here: input vertex) within RMax of its sample
                 if (disk && fd <= RMax * RMax) continue;
                 if (disk) FarViolations++; else count++;

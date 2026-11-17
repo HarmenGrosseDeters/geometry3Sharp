@@ -37,8 +37,16 @@ namespace gs
         /// </summary>
         public bool PerVertex = false;
 
-        /// <summary> we nudge points out along the normal by this amount to try to counteract numerical issues </summary>
-        public double NormalOffset = MathUtil.ZeroTolerance;
+        /// <summary>
+        /// we nudge points out along the normal by this amount to try to counteract numerical issues. A finite
+        /// value is an absolute distance. NaN (default): relative to the mesh, MathUtil.ZeroTolerance times the
+        /// diagonal of the bounds of its triangles (the 1.0.324 value 1e-8 for a mesh of diagonal 1), at least 16
+        /// rounding units of the largest coordinate; see EffectiveNormalOffset
+        /// </summary>
+        public double NormalOffset = double.NaN;
+
+        /// <summary> the normal offset the last Apply() used (model units) </summary>
+        public double EffectiveNormalOffset { get; private set; }
 
         /// <summary> a point is inside if its winding number is above this (winding number modes) </summary>
         public double WindingIsoValue = 0.5;
@@ -92,6 +100,8 @@ namespace gs
         /// <returns>false if cancelled (nothing is removed then), true otherwise</returns>
         public virtual bool Apply()
         {
+            EffectiveNormalOffset = double.IsNaN(NormalOffset)
+                ? MeshScaleTolerance.Relative(Mesh, MathUtil.ZeroTolerance) : NormalOffset;
             DMesh3 testAgainstMesh = Mesh;
             if (InsideMode == CalculationMode.RayParity) {
                 MeshBoundaryLoops loops = new MeshBoundaryLoops(testAgainstMesh);
@@ -167,7 +177,7 @@ namespace gs
 
                     Vector3d c = Mesh.GetVertex(vid);
                     Vector3d n = (normals == null) ? Mesh.GetVertexNormal(vid) : normals[vid];
-                    c += n * NormalOffset;
+                    c += n * EffectiveNormalOffset;
                     vertices[vid] = isOccludedF(c);
                 });
             }
@@ -189,7 +199,7 @@ namespace gs
                 } else {
                     Vector3d c = Mesh.GetTriCentroid(tid);
                     Vector3d n = Mesh.GetTriNormal(tid);
-                    c += n * NormalOffset;
+                    c += n * EffectiveNormalOffset;
                     inside = isOccludedF(c);
                 }
 

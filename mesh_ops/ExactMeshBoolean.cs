@@ -198,7 +198,8 @@ namespace g3
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
         /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents;
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents,
+        /// but not all of them where an exact input is itself that thin or tiny: then every one is kept, counted in Rounding.ScaleDisparity (#985);
         /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
         /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
@@ -230,10 +231,14 @@ namespace g3
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
         /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): no edit is evaluated once the exact triangle
-        /// pair tests of its evaluations exceed it. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
+        /// pair tests of its evaluations exceed it (grown with the initial defects by up to 4 times, RoundingPairTestsDefectScale / RoundingPairTestsMaxGrowth). Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
         /// defects left counted; it bounds the time on inputs it cannot repair. Default 5M
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary>
         /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
         /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
@@ -360,6 +365,15 @@ namespace g3
         internal bool LocalTriangulationFilters = true;
         // for tests: the arrangement of the last Compute
         internal ExactMeshArrangement Arrangement { get { return arr; } }
+        // for tests (the certifying checker, tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs): keep what the
+        // classification decided, per arrangement piece (Arrangement.Output): the winding numbers of all meshes in front of
+        // each piece it classified (dense, one entry per mesh; null for the pieces it did not: coplanar copies output from
+        // another triangle), keep and flip; and a copy of the result before SafeRounding (vertex ids as in Result then).
+        // Recording only: it changes no decision
+        internal bool RecordCertificate = false;
+        internal int[][] CertificateFront;
+        internal bool[] CertificateKeep, CertificateFlip;
+        internal DMesh3 CertificateAssembled;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
@@ -545,6 +559,9 @@ namespace g3
             segmentProjections.Clear();
             segmentL1.Clear();
             OpenWindingPerPiece = null;
+            CertificateFront = null;
+            CertificateKeep = CertificateFlip = null;
+            CertificateAssembled = null;
             antipodalUndecided = 0;
             antipodalSnapped = 0;
             hierUsed = hierFallbacks = 0;
@@ -631,6 +648,10 @@ namespace g3
             bool[] keep, flip;
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
+            if (RecordCertificate) {
+                CertificateKeep = (bool[])keep.Clone();
+                CertificateFlip = (bool[])flip.Clone();
+            }
             clock.Lap("classification");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -659,6 +680,8 @@ namespace g3
             Counts["antipodal_hierarchical"] = hierUsed;
             Counts["antipodal_hierarchical_fallbacks"] = hierFallbacks;
             Result = assemble(keep, flip);
+            if (RecordCertificate)
+                CertificateAssembled = new DMesh3(Result, false, MeshComponents.None);
             clock.Lap("assembly");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -673,7 +696,10 @@ namespace g3
                     // of them are exact triangles of the arrangement)
                     ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
+                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests, PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
+                    // (#985: where an exact input is itself thin or tiny, a result of thin pieces only is that input's
+                    // shape, not slivers of nearly coincident surfaces: it is kept, and counted)
+                    KeepWhenEmptied = inputs.Exists(m => MeshRoundingRepair.IsThinOrTiny(m, RoundingMaxDisplacement, 1e-12))
                 };
                 Rounding.Apply();
                 clock.Lap("rounding");
@@ -1175,6 +1201,7 @@ namespace g3
             steps.LapMicroseconds("classification.open");
 
             int[] winding = new int[nm];
+            int[][] front = RecordCertificate ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -1196,6 +1223,8 @@ namespace g3
                     for (int k = 0; k < w.Length; k += 2)
                         add(w[k], w[k + 1]);
                 }
+                if (front != null)
+                    front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
@@ -1218,6 +1247,7 @@ namespace g3
                 }
                 touched.Clear();
             }
+            CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
 

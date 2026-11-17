@@ -8,11 +8,19 @@
 //   thingi-contact <meshA> <meshB> <dir> <variant> <axis> <sign> <param>
 //                                        a pair of the thingi-contact class (ThingiContact.cs, ContactTransforms.cs): B placed
 //                                        against A by an exact translation or reflection (face contact, ulp shift, mirror)
+//   abc-chain-inputs <A> <B> <C> <dir> <variantB> <axisB> <signB> <paramB> <variantC> <axisC> <signC> <paramC>
+//                                        the inputs of a chain of the abc-chained class (AbcChained.cs): B and C placed against A
+//                                        by exact placements; A.off, B.off, C.off, chain.json
+//   chain-step <A.off> <B.off> <dir> <name>
+//                                        one step of a chain: A.off, B.off and info.json of the step's inputs (results of earlier steps)
 //   thingi-filter <out.csv> <mesh>...    id, triangles and MeshRobustRepair.NotCleanReason of each mesh (appends, skips ids
 //                                        that are in out.csv already)
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
 //                                        scale differences) and iterated sequences; writes <dir>/cases.jsonl
 //   run <A.off> <B.off> <op> <out.off>   ExactMeshBoolean; prints {"ms":..} (boolean only, without I/O)
+//   imprint <A.off> <B.off> <method> <op>
+//                                        the imprint comparison (ImprintCompare.cs): exact_imprint / float_cut with op a_by_b or b_by_a,
+//                                        exact_union / float_union with op union; prints one JSON line with the status, ms and checks
 //                                        (run and obb: BOOLCMP_SAFE_ROUNDING=0|1 sets ExactMeshBoolean.SafeRounding)
 //   obb --request <r.json> --result <r.json> [--write-last-only]
 //                                        runner for the Open Boolean Benchmark protocol (obb-runner/README.md)
@@ -44,6 +52,14 @@ static class Program
         string s = Environment.GetEnvironmentVariable("BOOLCMP_SAFE_ROUNDING");
         if (s == "0" || s == "1")
             boolean.SafeRounding = s == "1";
+        // BOOLCMP_ROUNDING_MAX_PAIR_TESTS=<n>: SafeRounding's effort budget (RC4a measurements)
+        string b = Environment.GetEnvironmentVariable("BOOLCMP_ROUNDING_MAX_PAIR_TESTS");
+        if (long.TryParse(b, NumberStyles.Integer, ci, out long budget) && budget >= 0)
+            boolean.RoundingMaxPairTests = budget;
+        // BOOLCMP_ROUNDING_DEFECT_SCALE=<x>: MeshRoundingRepair.PairTestsDefectScale (0: the fixed budget of before)
+        string ds = Environment.GetEnvironmentVariable("BOOLCMP_ROUNDING_DEFECT_SCALE");
+        if (double.TryParse(ds, NumberStyles.Float, ci, out double scale))
+            boolean.RoundingPairTestsDefectScale = scale;
         return boolean;
     }
 
@@ -57,6 +73,9 @@ static class Program
             case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
             case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
             case "thingi-contact": return ThingiContact.Pair(args.Skip(1).ToArray());
+            case "imprint": return ImprintCompare.Run(args.Skip(1).ToArray());
+            case "abc-chain-inputs": return AbcChained.Inputs(args.Skip(1).ToArray());
+            case "chain-step": return AbcChained.Step(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);
@@ -229,10 +248,27 @@ static class Program
             WriteOFF(boolean.Result, fout);
         var r = new Dictionary<string, object> { ["ms"] = ms, ["ok"] = ok, ["phases"] = boolean.PhaseMilliseconds, ["counts"] = boolean.Counts, ["gc"] = gc };
         if (!ok) r["error"] = boolean.Error;
-        if (boolean.Rounding != null) r["rounding_clean"] = boolean.RoundingClean;
+        if (boolean.Rounding != null) {
+            r["rounding_clean"] = boolean.RoundingClean;
+            // what the repair left and why it stopped (RC4 of docs/research/BOOLEAN_TRIAGE_2026-11.md)
+            MeshRoundingRepair rr = boolean.Rounding;
+            r["rounding"] = new Dictionary<string, object> {
+                ["remaining_intersections"] = rr.RemainingIntersections, ["remaining_degenerate"] = rr.RemainingDegenerate,
+                ["remaining_false_contacts"] = rr.RemainingFalseContacts, ["evaluation_limit_reached"] = rr.EvaluationLimitReached,
+                ["smallest_rejected_drift"] = Finite(rr.SmallestRejectedDrift),
+                ["max_drift"] = Finite(rr.MaxDrift), ["max_length"] = Finite(rr.MaxLength), ["scale_disparity"] = rr.ScaleDisparity,
+                ["removed_components"] = rr.RemovedComponents, ["edits"] = rr.Collapses + rr.Flips + rr.Moves + rr.Zips + rr.VertexRemovals,
+                ["pair_tests"] = rr.PairTests, ["evaluations"] = rr.Evaluations, ["max_evaluations"] = rr.MaxEvaluations,
+                ["max_pair_tests"] = rr.MaxPairTests, ["pair_budget"] = rr.PairBudget, ["stopped_by_pair_tests"] = rr.StoppedByPairTests,
+                ["triangles_in"] = boolean.Counts.TryGetValue("pieces", out long pc) ? pc : -1,
+            };
+        }
         Console.WriteLine(JsonSerializer.Serialize(r));
         return 0;
     }
+
+    // (JSON has no infinity or NaN: null)
+    static object Finite(double x) => double.IsNaN(x) || double.IsInfinity(x) ? null : (object)x;
 
     internal static void WriteOFF(DMesh3 mesh, string path)
     {
@@ -354,15 +390,12 @@ static class Program
                 }
                 bool wclosed = edgeUse.Values.All(c => (c & 0xFFFF) == (c >> 16));
                 bool manifold = edgeUse.Values.All(c => (c & 0xFFFF) == 1 && (c >> 16) == 1);
-                DMesh3 mesh = new DMesh3();
-                foreach (var kv in ids.OrderBy(kv => kv.Value)) mesh.AppendVertex(kv.Key);
-                int dup = 0;
-                foreach (Index3i g in tris) {
-                    if (mesh.AppendTriangle(g) < 0) {
-                        dup++;
-                        mesh.AppendTriangle(mesh.AppendVertex(mesh.GetVertex(g.a)), mesh.AppendVertex(mesh.GetVertex(g.b)), mesh.AppendVertex(mesh.GetVertex(g.c)));
-                    }
-                }
+                // the welded result split at its pinches (edges and vertices where the solid touches itself) into a manifold
+                // mesh with duplicated vertices, the representation of ExactMeshBoolean and Manifold (BoolCmp.Pinches; before,
+                // the triangles that did not fit at a pinch edge were appended on their own vertices: "not closed")
+                var welded = ids.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+                BoolCmp.Pinches.Split split = BoolCmp.Pinches.Build(welded, tris);
+                DMesh3 mesh = split.Mesh;
                 double volume = 0;
                 int zeroArea = 0;
                 foreach (Index3i g in tris) {
@@ -377,11 +410,20 @@ static class Program
                 r[op + "_manifold_closed"] = manifold;
                 r[op + "_degenerate"] = degenerate;
                 r[op + "_zero_area"] = zeroArea;
-                int selfint = mesh.TriangleCount <= 400000 || notClean ? MeshRepairMetrics.SelfIntersections(mesh) : -1;
+                r[op + "_pinch_edges"] = split.PinchEdges;
+                r[op + "_pinch_vertices"] = split.PinchVertices;
+                r[op + "_unpaired_edges"] = split.UnpairedEdges;
+                // intersecting pairs beyond the pinches: triangles that touch only at a position where both have a vertex
+                // (the duplicated vertices of a pinch) do not count (before: every pair touching at a pinch did)
+                int selfint = mesh.TriangleCount <= 400000 || notClean ? BoolCmp.Pinches.SelfIntersectionsBeyondContacts(mesh) : -1;
                 r[op + "_selfint"] = selfint;
                 if (notClean) {
                     string reason = MeshRobustRepair.NotCleanReason(mesh, false);
-                    r[op + "_clean_reason"] = reason == "" && selfint != 0 ? "self-intersections" : reason;
+                    if (reason == "" && selfint != 0) reason = "self-intersections";
+                    // clean except where the solid touches itself: a class of its own (owner 2026-11-17; NotCleanReason
+                    // itself is unchanged and calls the split mesh self-intersecting there)
+                    if (reason == "" && (split.PinchVertices > 0 || split.PinchEdges > 0)) reason = "pinches";
+                    r[op + "_clean_reason"] = reason;
                 }
                 r[op + "_volume"] = volume;
             }

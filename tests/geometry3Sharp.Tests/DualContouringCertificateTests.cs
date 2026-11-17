@@ -43,7 +43,7 @@ namespace geometry3Sharp.Tests
         {
             double cell = 2.2 / res;
             Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * new Vector3d(0.1371, 0.2713, 0.3891);
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Fn() { F = f }, InsideIsLess = true, CellSize = cell, Bounds = new AxisAlignedBox3d(o, o + 2.2 * Vector3d.One),
                 RecordCertificateData = record
             };
@@ -213,7 +213,7 @@ namespace geometry3Sharp.Tests
             // the self-intersections not checked (ResolveSelfIntersections off): not known to be free of them
             double cell = 2.2 / 32;
             Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * new Vector3d(0.1371, 0.2713, 0.3891);
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Fn() { F = p => p.Length - 0.7 }, InsideIsLess = true, CellSize = cell, Bounds = new AxisAlignedBox3d(o, o + 2.2 * Vector3d.One),
                 RecordCertificateData = true, ResolveSelfIntersections = false
             };

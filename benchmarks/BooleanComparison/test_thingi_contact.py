@@ -111,6 +111,18 @@ class OracleSettingsTests(unittest.TestCase):
         self.assertEqual(analyze.outcome(self.row(union_selfint=4, union_clean_reason="self-intersections")), "self-int.")
         self.assertFalse(analyze.correct(self.row(union_selfint=4, union_clean_reason="self-intersections")))
 
+    def test_pinches_are_their_own_correct_class(self):
+        # welded, a pinch edge is non-manifold; the eval's split mesh is clean there (clean_reason "pinches")
+        pinch = self.row(union_manifold_closed=False, union_clean_reason="pinches")
+        self.assertEqual(analyze.outcome(pinch), "pinches")
+        self.assertTrue(analyze.correct(pinch))
+        self.assertEqual(analyze.outcome(self.row(union_clean_reason="pinches")), "pinches")
+        # a pinch together with another defect is that defect
+        self.assertEqual(analyze.outcome(self.row(union_manifold_closed=False, union_clean_reason="pinches", difference_clean_reason="degenerate triangles")), "non-manif.")
+        self.assertEqual(analyze.outcome(self.row(union_clean_reason="pinches", difference_clean_reason="degenerate triangles")), "degenerate")
+        # a non-manifold result that the split did not make clean stays non-manifold
+        self.assertEqual(analyze.outcome(self.row(union_manifold_closed=False)), "non-manif.")
+
     def test_summary_groups_by_variant_and_counts_face_contacts_and_refusals(self):
         def r(name, kind, method="ours"):
             return dict(self.row(file=name, method=method, input={"kind": kind}), **{f"{op}_ms": 5 for op in analyze.OPS})

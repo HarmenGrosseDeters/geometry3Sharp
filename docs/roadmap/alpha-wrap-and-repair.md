@@ -157,7 +157,7 @@ rounds (`Delaunay3.PlanInsert` / `ApplyInsert`, `core/WorkerTeam.cs`, `MeshAlpha
 every thread count; on 4 cores the tail 20 pipeline 760 -> 603 s (1.26x, max 87.9 -> 81.5 s), main carving 1.53x, the
 normal 30 1.10x; p01 medians not lower, min angle per mesh both ways (not significant). Owner: `RoundWindow` = 256 is
 the default, `RoundWindow` = 0 (master's serial loop, bit for bit) the opt-out.
-The raw-size budget, built 2026-11-13 (#846, issue #694, closed): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
+The raw-size budget, built 2026-11-13 (#846, issue #694, closed): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; an optional limit on that factor, `MaxAlphaCoarsening` / `WrapMaxAlphaCoarsening` (0 = none, #1014, after the cliff of mesh 40118 in [ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md)); the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
 meshes). #692 (185k raw triangles from 144) is closed: #765 (2026-11-13) runs the tests on a coarser solidify and wrap of the
 same defect classes (32 s -> 8.7 s); #703 (2026-11-12) takes a small input's alpha from its edge length (#636, #712).
 #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) is fixed in #744 (2026-11-13; the
@@ -254,8 +254,8 @@ allocated per edge, because the closed-mesh hint was never set): fixed in PR 1, 
 already, the move check rebuilds because every vertex moves, #419's filter is in place, and `NearestPointBatch` is slower than the parallel loop on coherent vertex order. (4), slabs, not started: the plain profile has no serial share above 25 % left.
 **T4 closed 2026-11-09:** the remaining levers were measured and none pays (section 12.4: warm-started projection
 1-5 % overall, pair-test order, flip pre-test, guard arrays, `NearestPointBatch`, tree refit <= 2.5 % of `si`); only
-PR 1 (#484) is built. Left open: the `RejectInvertingPasses` snapshot (6-19 % of the run) needs component labels that
-survive the edge operations, i.e. a correctness argument (research). Crease-sliver probe (#492, docs and harness
+PR 1 (#484) is built. The `RejectInvertingPasses` snapshot: closed 2026-11-17, no single equivalent replacement saves
+10 % (the copy is at most 8.6 % of the run, about 10 % with its garbage collection; [INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)). Crease-sliver probe (#492, docs and harness
 only): 87 % of the slivers have two or more pinned vertices at the span ends and junctions of noisy crease networks;
 unpinning free ends gives p01 2.54° -> 3.41° (slivers -3 %, fidelity equal); dropping crease fragments shorter than
 4-16 edges removes 58 % of the slivers but drops F 0.67 -> 0.5 and doubles the outward Hausdorff (outside the T6 gate).
@@ -529,22 +529,36 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),
   and the benchmarks write them (eg RemeshBenchmark `not_clean`).
 
-- **Open: procedural coverage of `WindingContouring.FinishHoles`.** Since the dual contouring face vertices (#572) the non-adaptive solidify leaves no non-manifold quads on `ThinPlates` (seeds 1..8, resolution 24 and 40), so `SolidifyHoleFillTests` no longer exercises the fill on a real contour (the contract tests still do). Find a grid-path input with holes (a coarser resolution, an open input) or build the contour by hand.
+- **Done: procedural coverage of `WindingContouring.FinishHoles` (2026-11-17, #1069, hand-built fallback).** All 488 natural uniform-grid probes reported zero dropped triangles. An exhaustive 256-pattern local topology check explains why the face-vertex construction prevents the missing-quad state on ordinary normalized uniform grids when actual face/edge placement succeeds, with consistent signs and valid ids. The allowed hand-built fallback (box with a missing quad, with and without a crossing tetrahedron) checks the exact count and both verdicts across `Similarity.All()`, bit for bit at exact scales. Supplemental real grid contours use the existing face-refusal seam: ThinPlates seeds 1 and 3 at resolution 24 report 4 / 8 dropped triangles and 0 / 41 fill intersections; tests cover topology, finiteness, exact output checks, similarities, determinism and reuse. All three requested hand mutants fail. Search inputs/counts, the bounded unreachability explanation and its limits: [coverage report](../FINISH_HOLES_COVERAGE.md).
 
 ### Open for the future (2026-11-15)
 
 Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run passed, owner 2026-11-15), #747 (first-pass
-guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
+guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924), item 5,
+the `RejectInvertingPasses` snapshot (2026-11-17, [INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md):
+the copy is at most 8.6 % of the run, about 10 % with the garbage collection it causes, so no realistic replacement of
+it reaches the 10 % bar; a parallel bit-identical sign count gains nothing; an incremental volume is not
+decision-identical near the tolerance, where the rollbacks happen, 206 of 7700 passes, cones and thin tubes; parked as
+owner options: component labels plus an undo log in `DMesh3` or reused snapshot buffers, ceiling above 10 % in only 4
+of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to about 75k triangles, 9.9-10.6 % for
+`Remesher` on the fourth).
 
-1. Default decisions (owner) for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget
-   (#846). Both change outputs; each needs an 800 run with the lever on first (Haiku runner), then the owner decides.
+1. ~~Default decisions (owner) for the opt-in levers~~ decided 2026-11-17 after the 800 run
+   ([ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md), run 43972566855 and the cap run 44013288852): lever 6 K (`AlphaWrapFeaturePass`,
+   #736) stays opt-in; the raw-size budget (#846) stays off by default, with `MaxAlphaCoarsening` (#1014) opt-in; recipe for a
+   bounded tail: budget 300,000 with `MaxAlphaCoarsening = 1.2` (mesh 40118: a coarsening above about 1.2 fills a hollow behind a narrow
+   neck). Open only if the owner wants the budget on by default: one 800 run of that recipe first.
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).
-   Output-changing, gated by an 800 run.
+   Output-changing, gated by an 800 run. Built in #1045 as the opt-in `MeshAlphaWrap.PullPinchPoints`, default off
+   (design: [ALPHA_WRAP_MANIFOLD_QUALITY.md](../design/ALPHA_WRAP_MANIFOLD_QUALITY.md)). Where no point on the offset surface
+   keeps the separation, the pinch refinement uses the projected circumcenter pulled back to the separation depth, at most 2
+   offsets out, so the spots become manifold by carving. Relaxed promise: vertices in [offset, 2 offset]. 800-run table in
+   #1045. Switching it on by default is the owner's decision.
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363).
-5. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).
+5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Procedural coverage of `WindingContouring.FinishHoles`.
 7. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 8. Remove `external/cgal_wrap.cpp` once no comparison needs it.

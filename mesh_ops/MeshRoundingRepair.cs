@@ -46,7 +46,8 @@ namespace g3
     /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
     /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
-    /// RemoveTinyComponents, as Milenkovic and Sacks do. Open components are kept (they may close the rest of the
+    /// RemoveTinyComponents, as Milenkovic and Sacks do (not if that would leave nothing of a mesh whose input is itself
+    /// thin or tiny: KeepWhenEmptied, set by ExactMeshBoolean, #985). Open components are kept (they may close the rest of the
     /// mesh by position), so an isolated sliver that no edit can repair is left and counted in RemainingDegenerate.
     ///
     /// The degenerate test is the one of MeshRobustRepair.NotCleanReason (area below DegenerateArea times the
@@ -163,15 +164,40 @@ namespace g3
         public bool AllowLockedContraction = false;
         /// <summary> edges of LockedEdges contracted by Apply </summary>
         public int LockedContractions;
-        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        /// <summary> edges locked by LockedEdgeF or RuleLockedEdges (not LockedEdges) that were contracted by Apply </summary>
         public int RuleLockedContractions;
         /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
         public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
+        /// <summary>
+        /// edges locked by a rule, kept as a set (the exact imprint: the parts of the target's split edges, docs/design/IMPRINT_SLIVER_CLEANUP.md).
+        /// Locked as by LockedEdgeF while the passes and the position search run; a contraction at a vertex with such a lock
+        /// to a vertex without one is refused, as for LockedEdgeF. If RuleLocksFollow and they leave a defect, the passes and the
+        /// search run once more (before RemoveTinyComponents: with FixedHard, which keeps it off, only where the result is not clean without
+        /// the stage) with these locks following a contraction, as LockedEdges do (the lock of an edge at the vanishing vertex moves
+        /// to the kept one; a contracted one is gone, counted in RuleLockedContractions). Changed by Apply in that stage only. null: none.
+        /// </summary>
+        internal HashSet<long> RuleLockedEdges = null;
+        /// <summary> see RuleLockedEdges: the final stage where its locks follow the contractions; it runs where the passes and the search leave a defect </summary>
+        internal bool RuleLocksFollow = false;
+        /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
+        internal bool FollowStageRan;
+        /// <summary>
+        /// in that stage, the contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
+        /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex);
+        /// counted per contraction (an edge rerouted twice counts twice)
+        /// </summary>
+        internal int RuleLocksReroutedThroughFixed, RuleLocksReroutedThroughOther;
+        // (during the final stage of RuleLocksFollow)
+        bool followRuleLocks;
         bool locked(int a, int b)
         {
-            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || (LockedEdgeF != null && LockedEdgeF(a, b));
+            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || rule_locked(a, b);
         }
-        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null; } }
+        bool rule_locked(int a, int b)
+        {
+            return (LockedEdgeF != null && LockedEdgeF(a, b)) || (RuleLockedEdges != null && RuleLockedEdges.Contains(LockedKey(a, b)));
+        }
+        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null || (RuleLockedEdges != null && RuleLockedEdges.Count > 0); } }
         bool hard_fixed(int v) { return FixedHard && FixedVertexF != null && FixedVertexF(v); }
         // a triangle with a locked edge
         bool triangle_locked(int t)
@@ -198,13 +224,29 @@ namespace g3
         public int MaxEvaluationsPerDefect = 50;
         /// <summary>
         /// effort budget for hopeless inputs: no edit is evaluated once the exact triangle pair tests of the evaluations
-        /// exceed it (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
+        /// exceed it, grown with the initial defects by up to PairTestsMaxGrowth times (PairTestsDefectScale) (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
         /// MaxEvaluationsPerDefect). Measured (November 2026, after #327): 5M instead of 20M lost and gained no clean result
         /// (generated families 1340 of 1512 clean, Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of
         /// 18 at 5M to 80M) and cut the time of the cases that reach it (rounding of the rotated cases 193 to 96 s).
         /// ExactMeshBoolean.RoundingMaxPairTests and MeshRobustRepair.RoundingMaxPairTests pass it through
         /// </summary>
         public long MaxPairTests = 5000000;
+        /// <summary>
+        /// the budget grows with the work (RC4a, owner 2026-11-17): the effective budget is MaxPairTests times
+        /// min(max(1, D / PairTestsDefectScale), PairTestsMaxGrowth), D the initial defects (intersecting pairs, degenerate
+        /// triangles, contacts the rounding made). With the defaults: min(max(5M, 100 D), 20M). A repair that finished within
+        /// MaxPairTests is unchanged, bit for bit (the budget is only compared with the count). Measured on the abc-chained
+        /// cases that reached 5M: unions and intersections of a model with its 1-ulp copy needed 64 to 83 pair tests per
+        /// defect and at most 12.7M to finish clean (docs/research/BOOLEAN_TRIAGE_2026-11.md, RC4a). The ceiling bounds the time
+        /// where more pair tests buy nothing: unlimited, a difference that ends empty and clean at any budget took 112M pair
+        /// tests and 60 s. 0 or less: no growth
+        /// </summary>
+        public double PairTestsDefectScale = 50000;
+        /// <summary> the most the budget grows with the defects, as a factor of MaxPairTests (PairTestsDefectScale); 4: 20M </summary>
+        public double PairTestsMaxGrowth = 4;
+        // the effective budget of the last Apply
+        long pairBudget;
+        internal long PairBudget { get { return pairBudget; } }
         /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests: from there on no edit is proposed (see SmallestRejectedDrift) </summary>
         public bool EvaluationLimitReached;
         /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
@@ -298,9 +340,58 @@ namespace g3
         /// component's diagonal) but hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the
         /// result is not clean. Components removed as tiny (area below 1e4 DegenerateArea times the square of that
         /// diagonal) are not counted: they go, as SAFE_ROUNDING.md section 1 decides, also where a long thin component
-        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny)
+        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny). Also counted: the components kept because their
+        /// removal would have emptied a mesh whose input is itself thin or tiny (KeepWhenEmptied, #985)
         /// </summary>
         public int ScaleDisparity;
+        /// <summary>
+        /// set by ExactMeshBoolean where an exact input is itself thin or tiny by the tests of the component removal
+        /// (IsThinOrTiny): if the removal would leave nothing of a non-empty mesh, nothing is removed (#985, owner 2026-11-17)
+        /// </summary>
+        internal bool KeepWhenEmptied;
+        /// <summary> the components kept by KeepWhenEmptied (also counted in ScaleDisparity) </summary>
+        internal int KeptWhenEmptied;
+
+        /// <summary>
+        /// whether the mesh would be removed as tiny or thin by remove_tiny_components, judged as that judges it: by its
+        /// largest connected component (the largest diagonal of a component's triangle box, which sets the scale) against
+        /// that diagonal and maxDisplacement of it: area below 1e4 degenerateArea diagonal^2, or closed with 2 |V| below
+        /// maxDisplacement diagonal area and |V| below 1e-3 area^1.5 (a flattened or needle-like solid). Without the ulp and
+        /// absolute terms of the removal's bound: where they would widen it, this says false, which keeps the removal as it was
+        /// </summary>
+        internal static bool IsThinOrTiny(DMesh3 mesh, double maxDisplacement, double degenerateArea)
+        {
+            if (mesh == null || mesh.TriangleCount == 0)
+                return false;
+            double bestDiag = -1, bestArea = 0, bestVolume = 0;
+            bool bestClosed = false;
+            foreach (List<int> comp in connected_components(mesh)) {
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                double area = 0, volume = 0;
+                bool closed = true;
+                // (the volume relative to a point of the component, against cancellation far from the origin)
+                Vector3d o = mesh.GetVertex(mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                    box.Contain(a); box.Contain(b); box.Contain(c);
+                    area += 0.5 * (b - a).Cross(c - a).Length;
+                    volume += (a - o).Dot((b - o).Cross(c - o)) / 6;
+                    Index3i te = mesh.GetTriEdges(t);
+                    closed &= mesh.IsBoundaryEdge(te.a) == false && mesh.IsBoundaryEdge(te.b) == false && mesh.IsBoundaryEdge(te.c) == false;
+                }
+                double diag = box.DiagonalLength;
+                if (diag > bestDiag) {
+                    bestDiag = diag; bestArea = area; bestVolume = volume; bestClosed = closed;
+                }
+            }
+            if (!(bestDiag > 0) || double.IsInfinity(bestDiag) || double.IsNaN(bestArea))
+                return false;
+            if (bestArea < 1e4 * degenerateArea * bestDiag * bestDiag)
+                return true;
+            return bestClosed && 2 * Math.Abs(bestVolume) < maxDisplacement * bestDiag * bestArea
+                && Math.Abs(bestVolume) < 1e-3 * bestArea * Math.Sqrt(bestArea);
+        }
         /// <summary>
         /// a component's diagonal is not finite (coordinates that are not finite, or finite ones whose extent overflows,
         /// beyond about 1e154): the tolerances are NaN, every edit is rejected, nothing is removed, degenerate triangles are
@@ -535,8 +626,10 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             LockedContractions = RuleLockedContractions = 0;
+            FollowStageRan = followRuleLocks = false;
+            RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
@@ -567,6 +660,9 @@ namespace g3
             OutsideRange = false;
             InitialFalseContacts = RemainingFalseContacts = 0;
             EvaluationLimitReached = false;
+            StoppedByPairTests = false;
+            pairBudget = MaxPairTests;      // (until the defects are counted; also where Apply returns before)
+            evaluations = pairTests = 0;
             if (SharedPositionsTouch == false)
                 atPosition = null;
             // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
@@ -643,6 +739,7 @@ namespace g3
                 InitialFalseContacts = false_contacts().Count;
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
+            pairBudget = pair_budget(MaxPairTests, PairTestsDefectScale, PairTestsMaxGrowth, pairs.Count + bad.Count + InitialFalseContacts);
             repair_passes(ref pairs, ref bad);
             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
             // passes again where the moves changed the mesh)
@@ -670,6 +767,18 @@ namespace g3
                 bad = degenerate_triangles();
                 pairs = intersecting_pairs();
                 repair_passes(ref pairs, ref bad);
+            }
+            // RuleLocksFollow: what is left, once more with the rule locks following the contractions (only here, so that a
+            // result that is clean without it is the same as without it)
+            if (RuleLocksFollow && RuleLockedEdges != null && MaxPasses > 0 && (bad.Count > 0 || pairs.Count > 0) && stopped == false) {
+                FollowStageRan = followRuleLocks = true;
+                repair_passes(ref pairs, ref bad);
+                for (int round = 0; round < MaxSearchRounds && (bad.Count > 0 || pairs.Count > 0) && stopped == false && position_search(bad, pairs) > 0; ++round) {
+                    bad = degenerate_triangles();
+                    pairs = intersecting_pairs();
+                    repair_passes(ref pairs, ref bad);
+                }
+                followRuleLocks = false;
             }
             if (check)
                 check_all_bounds();
@@ -1263,6 +1372,22 @@ namespace g3
         readonly List<int> cacheRemoved = new List<int>();
 
         long evaluations, maxEvaluations, pairTests;
+        // (diagnostics of the effort limit, RC4a of docs/research/BOOLEAN_TRIAGE_2026-11.md: the evaluations and exact pair
+        // tests of the last Apply, the evaluation cap, and which of the two limits stopped the repair)
+        internal long Evaluations { get { return evaluations; } }
+
+        // MaxPairTests times min(max(1, defects / scale), maxGrowth), at most long.MaxValue; MaxPairTests where scale is not
+        // positive or maxGrowth not above 1
+        internal static long pair_budget(long maxPairTests, double scale, double maxGrowth, long defects)
+        {
+            if (!(scale > 0) || !(maxGrowth > 1) || defects <= scale || maxPairTests <= 0)
+                return maxPairTests;
+            double b = maxPairTests * Math.Min(defects / scale, maxGrowth);
+            return b >= long.MaxValue ? long.MaxValue : Math.Max(maxPairTests, (long)b);
+        }
+        internal long MaxEvaluations { get { return maxEvaluations; } }
+        internal long PairTests { get { return pairTests; } }
+        internal bool StoppedByPairTests;
         // editDrift = drift; false (and the smallest rejected drift updated) if it is beyond the bound or not a number
         bool within_bound(double drift, double bound)
         {
@@ -1407,7 +1532,9 @@ namespace g3
             // (for tests: a proposal within the bound that arrives after the limit; none with the stop)
             if (EvaluationLimitReached)
                 ProposalsPastTheLimit++;
-            if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
+            if (++evaluations > maxEvaluations || pairTests > pairBudget) {
+                if (EvaluationLimitReached == false)
+                    StoppedByPairTests = pairTests > pairBudget;
                 EvaluationLimitReached = true;
                 return false;
             }
@@ -1819,11 +1946,16 @@ namespace g3
             bool lockedEdge = has_locks && locked(a, b);
             if (lockedEdge && AllowLockedContraction == false)
                 return false;
-            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost)
-            if (LockedEdgeF != null) {
-                foreach (int x in Mesh.VtxVerticesItr(a))
-                    if (x != b && LockedEdgeF(a, x) && LockedEdgeF(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
+            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost;
+            // in the final stage of RuleLocksFollow a lock of RuleLockedEdges moves with it instead)
+            if (LockedEdgeF != null || RuleLockedEdges != null) {
+                foreach (int x in Mesh.VtxVerticesItr(a)) {
+                    if (x == b || rule_locked(a, x) == false)
+                        continue;
+                    bool follows = followRuleLocks && RuleLockedEdges.Contains(LockedKey(a, x)) && (LockedEdgeF == null || LockedEdgeF(a, x) == false);
+                    if (follows == false && rule_locked(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
                         return false;
+                }
             }
             bool setLocked = LockedEdges != null && LockedEdges.Contains(LockedKey(a, b));
             begin_edit();
@@ -1861,8 +1993,23 @@ namespace g3
                 foreach (int x in Mesh.VtxVerticesItr(a))
                     if (x != b && LockedEdges.Contains(LockedKey(a, x))) (lockedAtA ?? (lockedAtA = new List<int>())).Add(x);
             }
+            List<int> ruleLockedAtA = null;
+            if (followRuleLocks) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && RuleLockedEdges.Contains(LockedKey(a, x))) (ruleLockedAtA ?? (ruleLockedAtA = new List<int>())).Add(x);
+            }
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
+            if (ruleLockedAtA != null) {
+                if (RuleLockedEdges.Contains(LockedKey(a, b)) == false) {
+                    if (FixedVertexF != null && FixedVertexF(b)) RuleLocksReroutedThroughFixed++;
+                    else RuleLocksReroutedThroughOther++;
+                }
+                foreach (int x in ruleLockedAtA) {
+                    RuleLockedEdges.Remove(LockedKey(a, x));
+                    RuleLockedEdges.Add(LockedKey(b, x));
+                }
+            }
             if (lockedAtA != null) {
                 foreach (int x in lockedAtA) {
                     LockedEdges.Remove(LockedKey(a, x));
@@ -1871,6 +2018,7 @@ namespace g3
             }
             if (lockedEdge) {
                 LockedEdges?.Remove(LockedKey(a, b));
+                if (followRuleLocks) RuleLockedEdges.Remove(LockedKey(a, b));
                 if (setLocked) LockedContractions++;
                 else RuleLockedContractions++;
             }
@@ -2949,6 +3097,10 @@ namespace g3
             foreach (int v in touched)
                 isTouched[v] = true;
             int count = 0;
+            // the components to remove, decided first and removed after the loop: removing a closed component changes no
+            // other component, so the decisions are the same as when removing on the way (and in the same order)
+            var remove = new List<int[]>();
+            int removeTriangles = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
                 double sum = 0, volume = 0;
@@ -2981,9 +3133,23 @@ namespace g3
                     ScaleDisparity++;
                     continue;
                 }
+                remove.Add(comp.ToArray());
+                removeTriangles += comp.Count;
+            }
+            // never all of a non-empty mesh whose input was itself thin or tiny (#985, KeepWhenEmptied): the scale is that
+            // of the largest component, so a flattened or long thin solid is thin or tiny by its own diagonal. Then nothing
+            // is removed (every component stays, so that no cavity is lost) and each is counted as ScaleDisparity: the
+            // repair is not clean. Without KeepWhenEmptied a result of thin pieces only goes (the slivers of A - A',
+            // owner 2026-11-16)
+            if (KeepWhenEmptied && remove.Count > 0 && removeTriangles == Mesh.TriangleCount) {
+                ScaleDisparity += remove.Count;
+                KeptWhenEmptied += remove.Count;
+                remove.Clear();
+            }
+            foreach (int[] comp in remove) {
                 foreach (int t in comp)
                     remove_triangle(t, true);
-                count += comp.Count;
+                count += comp.Length;
                 RemovedComponents++;
             }
             if (count > 0) {

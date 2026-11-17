@@ -59,7 +59,17 @@ from the rest (a unit tetrahedron 1e8 away from two unit spheres) made the diago
 degenerate, the bound 1732, and the union came out empty, reported clean. Edits stay within one component, so the drift
 bound is checked with the edit's component and the theorem below holds per component. Tiny components are still
 removed relative to the largest one (as decided above); the limit of this: a long thin component still sets the
-diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. A diagonal that is
+diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. **Not all of a thin
+input's result (#985, owner 2026-11-17, option a):** where an exact input of `ExactMeshBoolean` is itself thin or tiny by
+these tests (`IsThinOrTiny`: a flattened or needle-like solid, thin or tiny by its own diagonal) and every component of the
+result would be removed, nothing is removed (`KeepWhenEmptied`): every component stays, so no cavity is lost, each is
+counted in `ScaleDisparity` and `KeptWhenEmptied`, and the repair is not clean. The edits before the removal stay applied:
+within the isotropic bound they can change such a slab far beyond its thickness, or turn it inside out, which
+`NotCleanReason` then reports. Fat inputs whose result is only thin pieces (the slivers of nearly coincident surfaces,
+A - A') are removed as before: an empty result, clean. The input test judges each input by its largest component, as the removal judges
+the result (two fat parts far apart are not tiny). With `StrictRounding` a kept result fails (`RoundingNotClean`), where
+the empty result succeeded before. `MeshRobustRepair` sends a resolve that kept components this way to
+its wrap fallback, as it did with the empty result. Before, the result was empty and reported clean. A diagonal that is
 not finite (coordinates that are not, or finite ones whose extent overflows, beyond about 1e154) makes the size NaN
 whatever the order of the components: every edit is rejected, nothing is removed as tiny or thin (an infinite size would
 remove every closed component as tiny), and the repair is not clean (`ScaleNotFinite`). A closed component that the bound takes as thin but that holds
@@ -414,6 +424,25 @@ a vertex of valence 3 instead of the weld.
   Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of 18 at 5M to 80M), and less time where the
   budget is reached (families 241 to 145 s, self-unions 1925 to 1774 s, rounding of the rotated cases 193 to 96 s). The
   hash gate (`profile --repeat 1 --safe-rounding`, 263 runs) reaches it nowhere and stays identical.
+- **The budget grows with the defects** (RC4a of docs/research/BOOLEAN_TRIAGE_2026-11.md, owner 2026-11-17;
+  `PairTestsDefectScale`, `PairTestsMaxGrowth`; `RoundingPairTestsDefectScale`, `RoundingPairTestsMaxGrowth`): the
+  effective budget is `MaxPairTests` times min(max(1, D / 50000), 4), D the initial defects (intersecting pairs,
+  degenerate triangles, contacts the rounding made), so min(max(5M, 100 D), 20M) with the defaults. It never lowers the
+  budget, and the budget is only compared with the count, so a repair that finished within `MaxPairTests` is unchanged,
+  bit for bit. Measured (abc-chained run 44037809872, 4-core runner): the unions and intersections of an ABC model with its
+  1-ulp copy (iud p0005 and p0021, 79k to 153k initial defects) stopped at 5M with tens of thousands of defects left; they
+  need 64 to 83 pair tests per defect, at most 12.7M, and finish clean (rounding 5 to 14 s, the slowest boolean 17.5 s).
+  The cap that binds there was `MaxPairTests`; the evaluation cap (`MaxEvaluationsPerDefect`) was not reached. The
+  differences of the same chains end empty and clean at any budget; with an unlimited budget they took up to 112M pair
+  tests and 60 s, the law gives them 11.1M to 17.1M (at most about 17 s, as at a fixed 20M). The ceiling of 20M binds
+  only where 100 D is above it, of the measured cases only the union of 1368057 below (22.5M without it); it bounds the
+  time of inputs with still more defects, where more pair tests buy little. On the 11 rotated Thingi10K cases of
+  SNAP_ROUNDING_3D.md section 4 (33 operations, 12 of them at the limit), 31 results are bit-identical; the unions of
+  42327 and 1368057 get 13.3M and 20M, end with 4.4 and 1.5 % fewer defects (still not clean), and their rounding takes
+  1.0 and 2.4 s more (1368057 without the ceiling: 22.5M, 1.9 % fewer, 2.6 s more).
+- **The drift bound is a documented limit** (RC4b, owner 2026-11-17): where the smallest edit that would repair a defect
+  needs more than `MaxLength`, or the edits have used the drift up to it, the defect stays, counted, and the result is
+  not clean (abc-chained ucd p0007 and iud p0020: the next edit 1.04 to 1.12 times the bound). The bound is kept.
 
 **Result on the 114 UTM cases** (`SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance_WithinIt`):
 

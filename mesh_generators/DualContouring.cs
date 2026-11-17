@@ -228,7 +228,60 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Adaptive simplification (default on, opt-out): where one vertex still fits the Hermite data of a block of 2^L
+        /// cells within SimplifyTolerance finest cells, the block's vertices merge, so flat and smooth regions get large
+        /// triangles (see AdaptiveDualContouring and docs/design/DC_ADAPTIVE_SIMPLIFICATION.md; the result stays closed,
+        /// manifold and, with ResolveSelfIntersections, free of self-intersections). Applies only to the dense mode with
+        /// Implicit, ExactHermite and ResolveSelfIntersections, no HermiteF, no sparse mode, refinement, hidden gap / wall
+        /// functions or recording; otherwise, and with Simplify false, Generate gives the uniform contour as before. The
+        /// internal inspection members (ContourCells and the like) describe the uniform contour only if it is not simplified.
+        /// </summary>
+        public bool Simplify = true;
+        /// <summary> Simplify: largest distance of a merged vertex to the Hermite planes of its cells, in finest cells (relative, so scale invariant) </summary>
+        public double SimplifyTolerance = 0.25;
+        /// <summary> Simplify: the largest merged block is 2^SimplifyMaxLevel cells wide </summary>
+        public int SimplifyMaxLevel = 6;
+
+        bool simplify_applies()
+        {
+            return Simplify && SimplifyTolerance > 0 && SimplifyMaxLevel >= 1 && Implicit != null && HermiteF == null && ExactHermite
+                && ResolveSelfIntersections && CandidateCells == null && NodeValueF == null && F == 1 && refined == null && crossings == null
+                && HiddenGapF == null && HiddenWallF == null && !RecordCertificateData && !CollectDiagnostics && GenerateFinished == null
+                && !RecordVertexCrossings && !SkipResolveForTests;
+        }
+
         public void Generate()
+        {
+            if (simplify_applies()) generate_simplified();
+            else generate_uniform();
+        }
+
+        void generate_simplified()
+        {
+            var ad = new AdaptiveDualContouring() {
+                Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
+                Tolerance = SimplifyTolerance, MaxLevel = SimplifyMaxLevel, QEFEigenTolerance = QEFEigenTolerance, QEFCellMargin = QEFCellMargin,
+                ParallelCompute = ParallelCompute, CancelF = CancelF
+            };
+            ad.Generate();
+            Mesh = ad.Mesh;
+            NonManifoldTriangles = ad.NonManifoldTriangles;
+            SelfIntersectionFree = ad.SelfIntersectionFree;
+            PhaseMilliseconds = new Dictionary<string, long>(ad.BasePhaseMilliseconds);
+            if (ad.PhaseMilliseconds.ContainsKey("simplify")) PhaseMilliseconds["simplify"] = ad.PhaseMilliseconds["simplify"];
+            DualContouring b = ad.BaseContour;
+            if (b != null) {
+                CornerDimensions = b.CornerDimensions;
+                FaceVertices = b.FaceVertices; ClampedFaceVertices = b.ClampedFaceVertices; EdgeVertices = b.EdgeVertices;
+                ForcedDiagonals = b.ForcedDiagonals; DegenerateSplitsAvoided = b.DegenerateSplitsAvoided;
+                SelfIntersectionsFound = b.SelfIntersectionsFound; SelfIntersectionsLeft = b.SelfIntersectionsLeft;
+                CoveredTriangles = b.CoveredTriangles; CheckedTriangles = b.CheckedTriangles; TransitionErrors = b.TransitionErrors;
+                NonManifoldCells = b.NonManifoldCells; ResolveMilliseconds = b.ResolveMilliseconds;
+            }
+        }
+
+        void generate_uniform()
         {
             SelfIntersectionFree = false;
             Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;
@@ -327,9 +380,10 @@ namespace g3
             Vector3d[][] cellGroupMass = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupPlane = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupCentroid = new Vector3d[cellList.Length][];
+            int[][][] cellGroupCrossings = RecordVertexCrossings ? new int[cellList.Length][][] : null;
             bool[][] cellGroupFeature = new bool[cellList.Length][];
             int transitionErrors = 0;
-            Action<int> place_vertices = (idx) => {
+            Action<int, SymmetricEigenSolver> place_vertices = (idx, qefSolver) => {
                 CellCrossings cc = cellCrossings[cellList[idx]];
                 int[] groups, parent;
                 List<int> keys;
@@ -364,10 +418,23 @@ namespace g3
                         for (int i = 0; i < faceGroups.Length; ++i)
                             if (faceGroups[i] == g)
                                 edges.Add(cc.FaceCrossings[i]);
-                    pos[g] = solve_qef(cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
+                    pos[g] = solve_qef(qefSolver, cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
                     foreach (int ci in edges)
                         centroid[g] += hpoints[ci];
                     centroid[g] /= Math.Max(edges.Count, 1);
+                }
+                if (cellGroupCrossings != null) {
+                    var lists = new int[nGroups][];
+                    for (int g = 0; g < nGroups; ++g) {
+                        var l = new List<int>();
+                        for (int le = 0; le < 12; ++le)
+                            if (cc.Edges[le] >= 0 && groups[le] == g) l.Add(cc.Edges[le]);
+                        if (faceGroups != null)
+                            for (int i = 0; i < faceGroups.Length; ++i)
+                                if (faceGroups[i] == g) l.Add(cc.FaceCrossings[i]);
+                        lists[g] = l.ToArray();
+                    }
+                    cellGroupCrossings[idx] = lists;
                 }
                 cellEdgeGroup[idx] = groups;
                 cellFaceGroup[idx] = faceGroups;
@@ -378,9 +445,11 @@ namespace g3
                 cellGroupFeature[idx] = feature;
             };
             if (ParallelCompute)
-                gParallel.ForEach(Interval1i.Range(cellList.Length), place_vertices);
-            else
-                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx);
+                gParallel.ForRange(cellList.Length, () => new SymmetricEigenSolver(3, 64), place_vertices);
+            else {
+                var qefSolver = new SymmetricEigenSolver(3, 64);   // (one solver for all cells: Solve resets its state)
+                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx, qefSolver);
+            }
             TransitionErrors += transitionErrors;
             phase("vertices");
             if (CancelF()) return;
@@ -391,6 +460,7 @@ namespace g3
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
             var vertexPatches = new List<int>();
+            VertexCrossings = RecordVertexCrossings ? new List<int[]>() : null;
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -398,6 +468,7 @@ namespace g3
                 for (int g = 0; g < groupVertex.Length; ++g) {
                     groupVertex[g] = Mesh.AppendVertex(cellGroupPos[idx][g]);
                     vertexMass.Add(cellGroupMass[idx][g]);
+                    if (VertexCrossings != null) VertexCrossings.Add(cellGroupCrossings[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
                     vertexPatches.Add(groupVertex.Length);
@@ -1520,7 +1591,20 @@ namespace g3
             return diagnosticMs;
         }
 
-        Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        /// <summary> recording for AdaptiveDualContouring: the crossing indices (into the Hermite arrays) of each cell vertex, by vertex id (face and edge vertices have no entry) </summary>
+        internal bool RecordVertexCrossings;
+        internal List<int[]> VertexCrossings;
+        internal Vector3d[] HermitePoints { get { return genPoints; } }
+        internal Vector3d[] HermiteNormals { get { return genNormals; } }
+        internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
+
+        internal Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        {
+            return solve_qef(new SymmetricEigenSolver(3, 64), cellMin, cellSize, edges, points, normals, out massPoint, out planeNormal, out isFeature);
+        }
+
+        /// <summary> as above, with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
         {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
@@ -1538,7 +1622,6 @@ namespace g3
                 b += d * n;
             }
 
-            SymmetricEigenSolver solver = new SymmetricEigenSolver(3, 64);
             solver.Solve(A, SymmetricEigenSolver.SortType.Decreasing);
             double[] evals = solver.GetEigenvalues();
             Vector3d x = Vector3d.Zero;

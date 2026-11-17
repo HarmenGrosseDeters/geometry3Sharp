@@ -100,6 +100,9 @@ Part of the [roadmap](../ROADMAP.md).
      black-box comparison is TET_MESHING.md section 12 (#885, 2026-11-14). On the 40 meshes: ours stage 2 40 valid (our
      definition), 16 with every tet >= 10°, p01 >= 10° on all 40; fTetWild 33 valid, 34 with every tet >= 10°. The
      target (every tet >= 10° on 100 %) is not reached; see hard problem 5.
+     Production quality (owner 2026-11-17): gap study and staged plan P1-P5 in TET_MESHING.md section 17 (surface fidelity
+     first; at alpha = diagonal / 40 or / 80 every tet >= 10° on 40 of 40; stage P1 = finer default alpha + a runner sample,
+     go / no-go fixed in 17.5; owner decisions 17.7).
   4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: the next
      Phase 5 item, ahead of items 1-3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
@@ -415,9 +418,11 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
-  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). Later item (coordinator 2026-11-13): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
-  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
-  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
+  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). **Done (coordinator task 2026-11-17, owner approved):** `CoreMath.Acos` and
+  `CoreMath.Tan`, correctly rounded, ported from CORE-MATH through CoreMathSharp (MIT, `docs/SOURCES.md`); verified bit for bit against the
+  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. **Switched (owner 2026-11-17):** `TerrainSlopeDesign` calls `CoreMath.Acos` instead of the composed `CoreMath.AcosByAtan2`
+  (within about 1.6 ulps, not monotone in the last ulp for |c| < 1/2; it differed from `Acos` by one ulp in about 12 % of the test arguments, `CoreMathAcosTanTests`);
+  `Acos` is cheaper (`benchmarks/CoreMathBenchmark`). `AcosByAtan2` stays for tests and the benchmark only.
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
@@ -564,6 +569,11 @@ Ordered by expected value for the library.
    - [design/TET_MESHING.md](../design/TET_MESHING.md).
    - Status 2026-11-15: stages 1 and 2 merged (#775, #821); on the 40 Thingi10K meshes 16 have every tet >= 10° and all 40
      have p01 >= 10° (section 12, #885). The floor on 100 % is still open.
+   - 2026-11-17 (TET_MESHING.md section 16): diagnosis of the tets left (all touch the boundary; needles and wedges on short wrap
+     edges, local optima, not the exact checks) and the lever, edge splits with roll-back (boundary edges in place) and interior
+     edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690). Exudation not needed.
+   - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
+     (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -618,9 +628,12 @@ Ordered by expected value for the library.
     Papers to start from: Ju & Udeshi 2006 (intersection-free contouring on an octree grid), Schaefer, Ju & Warren
     2007 (manifold DC), Nielson 2004 (dual marching cubes), and newer DC variants (papers only, licences as usual).
     Serves B above, `WindingContouring`'s repair use and later TPMS / implicit inputs.
-14. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
-    form needs component labels that survive the edge operations, with a correctness argument
-    ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
+14. ~~**Remesher: a cheaper exact `RejectInvertingPasses`.**~~ Closed 2026-11-17
+    ([INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)): the copy is at most 8.6 % of the run (about 10 %
+    with its garbage collection), so no realistic replacement of it reaches 10 %; the combinations with a higher
+    ceiling (component labels kept through the edge operations, plus an undo log in `DMesh3` or reused snapshot
+    buffers; above 10 % in only 4 of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to about
+    75k triangles) are parked as owner options.
 
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
 
@@ -631,8 +644,8 @@ Done and removed from this list: #721 closed (the plateau variant of the positio
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
 1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
-2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
-   exudation.
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (36 of 40 with the edge splits of TET_MESHING.md section 16;
+   839690, 120628, 46460, 113956 left); sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).

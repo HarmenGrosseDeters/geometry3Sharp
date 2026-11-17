@@ -114,7 +114,9 @@ namespace g3.Tests
                         r.Add(i % 4 == 0 ? U(h, -745.2, 709.8) : i % 4 == 1 ? U(h, -2, 2) : i % 4 == 2 ? U(h, -1e-3, 1e-3) : U(h, -746, -700)); break;
                     case "log":
                         r.Add(i % 4 == 0 ? Math.Abs(AnyFinite(seed + h, ref k)) : i % 4 == 1 ? U(h, 0.5, 2) : i % 4 == 2 ? 1.0 + (double)(long)(h % 4001 - 2000) * Math.Pow(2, -52) : U(h, 1e-3, 1e3)); break;
-                    default:        // sin, cos
+                    case "acos":
+                        r.Add(i % 4 == 0 ? U(h, -1, 1) : i % 4 == 1 ? 1 - Math.Pow(2, -(int)(h % 53)) * U(SplitMix(h), 0, 1) : i % 4 == 2 ? -1 + Math.Pow(2, -(int)(h % 53)) * U(SplitMix(h), 0, 1) : U(h, -1e-3, 1e-3)); break;
+                    default:        // sin, cos, tan
                         r.Add(i % 4 == 0 ? U(h, -50, 50) : i % 4 == 1 ? U(h, -1e-3, 1e-3) : i % 4 == 2 ? AnyFinite(seed + h, ref k) : U(h, -1e6, 1e6)); break;
                 }
             }
@@ -127,10 +129,12 @@ namespace g3.Tests
         [InlineData("log")]
         [InlineData("sin")]
         [InlineData("cos")]
+        [InlineData("tan")]
+        [InlineData("acos")]
         public void Unary_RandomAndWorstCaseArguments_AreCorrectlyRounded(string fn)
         {
-            Func<double, double> f = fn == "exp" ? (Func<double, double>)CoreMath.Exp : fn == "log" ? CoreMath.Log : fn == "sin" ? (Func<double, double>)CoreMath.Sin : CoreMath.Cos;
-            Func<double, double> reference = fn == "exp" ? (Func<double, double>)CoreMathReference.Exp : fn == "log" ? CoreMathReference.Log : fn == "sin" ? (Func<double, double>)CoreMathReference.Sin : CoreMathReference.Cos;
+            Func<double, double> f = fn == "exp" ? (Func<double, double>)CoreMath.Exp : fn == "log" ? CoreMath.Log : fn == "sin" ? (Func<double, double>)CoreMath.Sin : fn == "tan" ? CoreMath.Tan : fn == "acos" ? CoreMath.Acos : CoreMath.Cos;
+            Func<double, double> reference = fn == "exp" ? (Func<double, double>)CoreMathReference.Exp : fn == "log" ? CoreMathReference.Log : fn == "sin" ? (Func<double, double>)CoreMathReference.Sin : fn == "tan" ? CoreMathReference.Tan : fn == "acos" ? CoreMathReference.Acos : CoreMathReference.Cos;
             Run(fn, f, reference, RandomArgs(fn, EnvInt("CORE_MATH_N", 20000), 0xC0DEUL + (ulong)fn.Length));
             string dir = Environment.GetEnvironmentVariable("CORE_MATH_WC");
             if (!string.IsNullOrEmpty(dir)) {

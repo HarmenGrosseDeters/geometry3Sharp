@@ -222,6 +222,24 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
   first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
   seams, overlaps, distortion), total time 1116 s against 1114 s.
+- Near-collapse (#1049, fixed 2026-11-17): on the open cylinder 48 x 12 of height 3.6 LSCM squeezed the far ring to a
+  near-segment (UV shape ratios down to 1e-11 of the surface triangle's, mean conformal distortion 1.5e8, max 9.8e10)
+  without a flipped triangle, and above the 1e-12 rule because the surface triangles are fat: `Success`. Fix (owner
+  2026-11-17: such inputs report a failure status): a UV triangle whose shape ratio (twice the area over the longest
+  edge squared) is below 1e-8 of its surface triangle's also counts as degenerate (`DegenerateUVTriangles`, whatever
+  its own ratio; scale-free, a quasi-conformal distortion of about 1e8), so LSCM and ARAP say `FlippedTriangles`;
+  FoldoverFree, which reports through the same check, also does for a fixed boundary that forces such an anisotropy.
+  Tests: `ParameterizationTests.LSCM_NearCollapsedRing_IsNotSuccess_InvariantUnderSimilarities` (every similarity; 2^k
+  scales bit for bit; reuse; the frustum stays a success) and `ParameterizationDistortion_NearCollapsedFatTriangle_IsDegenerate`
+  (the rule alone, squeezes 1e-9 and 0.5e-8 against 2e-8 and 1e-7, at scales 2^-240 to 2^240). Both fail on the old rule and with the bound at 1e-12; the second also
+  with it at 1e-6. Corpus (`UVAtlasBenchmark`, the 250 meshes): LSCM and ARAP run on each of the 18,861 charts of the
+  atlases (master 40583f8d) change status on none: the smallest shape ratio of a successful map is 3e-4 of the
+  surface's (LSCM; ARAP 3.3e-4), four orders above the bound.
+  The atlas itself calls LSCM only where BFF fails: once on the 250 meshes (a 58-triangle chart of 191072.stl,
+  `SolverFailed`, unaffected); with the fix its results are those of the table in benchmarks/UVAtlasBenchmark/README.md
+  (159 / 79 / 12, charts by method bff 16460, tutte 878, slim 824, cones 698, point 1).
+  The jittered 24 x 6 cylinder of the issue (max conformal 36.5, shape ratio 0.028) stays a success: a distorted but
+  valid map, not a collapse.
 - Closed as a limitation (2026-11-12): LSCM and ARAP on a low-poly open cylinder (a non-flat annulus) report
   `FlippedTriangles`; the flat annulus is fine (`LSCM_Annulus_TwoBoundaries`). The workaround is a seam cut (the atlas does
   this); SLIM, Tutte and BFF return `InvalidTopology` on the annulus. The real fix stays in research (the options below).

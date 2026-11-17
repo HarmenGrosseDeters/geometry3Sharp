@@ -172,6 +172,7 @@ namespace gs
                 Implicit = new FieldImplicit() { Owner = this },
                 IsoValue = Iso, CellSize = octree.LeafCellSize, CancelF = CancelF,
                 QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                Simplify = false,   // pinned: uniform output
                 Bounds = new AxisAlignedBox3d(octree.Origin, octree.Origin + octree.LeafCount * octree.LeafCellSize * Vector3d.One),
                 CandidateCells = octree.SurfaceCells,
                 NodeValueF = octree.NodeValue

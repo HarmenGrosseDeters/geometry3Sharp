@@ -1,0 +1,369 @@
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 2ff95842..5c4af2ac 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -677,6 +677,7 @@ namespace g3
+                 };
+                 Rounding.Apply();
+                 clock.Lap("rounding");
++                Rounding.StepTimes(PhaseMilliseconds);      // PROBE
+                 if (Cancellation.IsCancellationRequested)
+                     return cancelled();
+                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
+@@ -702,7 +703,9 @@ namespace g3
+                     return false;
+                 }
+             }
++            long pcc2 = System.Diagnostics.Stopwatch.GetTimestamp();
+             Contacts = count_contacts(Result);
++            PhaseMilliseconds["rounding.count_contacts_us"] = (System.Diagnostics.Stopwatch.GetTimestamp() - pcc2) * 1000000 / System.Diagnostics.Stopwatch.Frequency;      // PROBE
+             Counts["contacts"] = Contacts;
+             Status = BooleanStatus.Success;
+             return true;
+diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
+index 728cc91c..2e235f62 100644
+--- a/mesh_ops/MeshRoundingRepair.cs
++++ b/mesh_ops/MeshRoundingRepair.cs
+@@ -1,6 +1,7 @@
+ // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+ using System;
+ using System.Collections.Generic;
++using System.Diagnostics;
+ using System.Runtime.CompilerServices;
+ 
+ namespace g3
+@@ -532,20 +533,32 @@ namespace g3
+         }
+ 
+         /// <summary> repair (see class comment); returns IsClean </summary>
+-        [MethodImpl(JitHints.Optimize)]
+         public bool Apply()
++        {
++            Array.Clear(stepTicks, 0, stepTicks.Length);
++            Array.Clear(stepCalls, 0, stepCalls.Length);
++            ctx = 0;
++            long t0 = Stopwatch.GetTimestamp();
++            try { return apply_probed(); } finally { StepEnd(Step.Apply, t0); }
++        }
++
++        [MethodImpl(JitHints.Optimize)]
++        bool apply_probed()
+         {
+             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             LockedContractions = RuleLockedContractions = 0;
+             PositionSearchMoves = 0;
+             PositionSearchProposals = 0;
+             MaxDrift = 0;
++            long pt = Stopwatch.GetTimestamp();
+             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
+             refCarry = new double[Mesh.MaxTriangleID];
+             for_triangles(Mesh, (t) => {
+                 Index3i tv = Mesh.GetTriangle(t);
+                 refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
+             });
++            StepEnd(Step.Anchors, pt);
++            pt = Stopwatch.GetTimestamp();
+             ghostsAt = new Dictionary<int, List<Ghost>>();
+             GhostsMade = GhostsLost = 0;
+             touched.Clear();
+@@ -558,6 +571,7 @@ namespace g3
+                 inputBoundary[ev.a] = Mesh.GetVertex(ev.a);
+                 inputBoundary[ev.b] = Mesh.GetVertex(ev.b);
+             }
++            StepEnd(Step.Boundary, pt);
+             changed.Clear();
+             SmallestRejectedDrift = double.PositiveInfinity;
+             RemainingDefectAt = Vector3d.Zero;
+@@ -586,23 +600,29 @@ namespace g3
+             // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
+             // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
+             // (per block: one flag)
++            pt = Stopwatch.GetTimestamp();
+             var notFiniteIn = new bool[triangle_blocks(Mesh)];
+             for_triangles(Mesh, (tid) => {
+                 Index3i tv = Mesh.GetTriangle(tid);
+                 if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false)
+                     notFiniteIn[tid / TriangleBlock] = true;
+             });
++            StepEnd(Step.FiniteScan, pt);
+             if (Array.IndexOf(notFiniteIn, true) >= 0) {
+                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                 ScaleNotFinite = true;
+                 return false;
+             }
+             // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
+-            if (coordinates_in_range(Mesh) == false) {
++            pt = Stopwatch.GetTimestamp();
++            bool inRange = coordinates_in_range(Mesh);
++            StepEnd(Step.Range, pt);
++            if (inRange == false) {
+                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                 OutsideRange = true;
+                 return false;
+             }
++            pt = Stopwatch.GetTimestamp();
+             if (SharedPositionsTouch) {
+                 // (sized for the vertices: no rehash while it fills; the capacity does not change the order of its entries)
+                 atPosition = new Dictionary<Vector3d, List<int>>(Mesh.VertexCount);
+@@ -610,6 +630,8 @@ namespace g3
+                 foreach (int vid in Mesh.VertexIndices())
+                     position_add(vid, Mesh.GetVertex(vid));
+             }
++            StepEnd(Step.AtPosition, pt);
++            pt = Stopwatch.GetTimestamp();
+             SkippedExactQueries = 0;
+             if (exactF != null) {
+                 exactAtStart = new Index3i[Mesh.MaxTriangleID];
+@@ -618,6 +640,7 @@ namespace g3
+                     exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
+                 }
+             }
++            StepEnd(Step.ExactAtStart, pt);
+             rebuild_tree();
+             lastPairs = null;
+             check = CheckOnThisThread;
+@@ -692,8 +715,15 @@ namespace g3
+ 
+ 
+         // the passes over the defects (see Apply), until one changes nothing
++        void repair_passes(ref List<Index2i> pairs, ref List<int> bad)  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int savedCtx = ctx; ctx = (int)Step.RepairPasses; try { repair_passes_probed(ref pairs, ref bad); } finally { ctx = savedCtx; }
++            StepEnd(Step.RepairPasses, t0);
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        void repair_passes(ref List<Index2i> pairs, ref List<int> bad)
++        void repair_passes_probed(ref List<Index2i> pairs, ref List<int> bad)
+         {
+             for (int pass = 0; pass < MaxPasses && SearchWithoutPasses == false && (pairs.Count > 0 || bad.Count > 0); ++pass) {
+                 int edits = Collapses + Flips + Moves + Zips;
+@@ -774,7 +804,14 @@ namespace g3
+         // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
+         // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
+         // component
+-        void component_scales()
++        void component_scales()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            component_scales_probed();
++            StepEnd(Step.ComponentScales, t0);
++        }
++
++        void component_scales_probed()
+         {
+             List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
+             int n = Math.Max(boxes.Count, 1);
+@@ -956,10 +993,44 @@ namespace g3
+         }
+ 
+ 
++        // ---- PROBE: sub-phase timers of Apply (inclusive, main thread only). A step called from inside one of the outer steps (repair_passes,
++        // separate_false_contacts, remove_contact_vertices, position_search, remove_tiny_components, check_all_bounds) is booked apart
++        // ("rounding.<step>.in_<outer>"), so that the steps at the top level of Apply and those inside the outer ones do not overlap ----
++        internal enum Step { Apply, Anchors, Boundary, ComponentScales, FiniteScan, Range, AtPosition, ExactAtStart, RebuildTree, PairsAll, PairsChanged,
++            DegenerateTriangles, FalseContacts, RepairPasses, SeparateFalseContacts, RemoveContactVertices, PositionSearch, CheckBounds, RemoveTiny, Count }
++        const int StepCount = (int)Step.Count;
++        readonly long[] stepTicks = new long[StepCount * StepCount], stepCalls = new long[StepCount * StepCount];
++        int ctx;      // the outer step we are in (0: none, the top level of Apply)
++        void StepEnd(Step s, long t0)
++        {
++            long d = Stopwatch.GetTimestamp() - t0;
++            int i = ctx * StepCount + (int)s;
++            stepTicks[i] += d;
++            stepCalls[i]++;
++        }
++        /// <summary> the step times in microseconds ("rounding.&lt;step&gt;_us") and the number of calls ("_n"), by the outer step they were called from ("rounding.&lt;step&gt;.in_&lt;outer&gt;") </summary>
++        internal void StepTimes(Dictionary<string, long> into)
++        {
++            for (int i = 0; i < stepTicks.Length; ++i) {
++                if (stepCalls[i] == 0)
++                    continue;
++                string name = "rounding." + ((Step)(i % StepCount)).ToString() + (i < StepCount ? "" : ".in_" + ((Step)(i / StepCount)).ToString());
++                into[name + "_us"] = stepTicks[i] * 1000000 / Stopwatch.Frequency;
++                into[name + "_n"] = stepCalls[i];
++            }
++        }
++
+         // ---- spatial queries ----
+ 
++        void rebuild_tree()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            rebuild_tree_probed();
++            StepEnd(Step.RebuildTree, t0);
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        void rebuild_tree()
++        void rebuild_tree_probed()
+         {
+             treeTids = new List<int>(Mesh.TriangleCount);
+             foreach (int tid in Mesh.TriangleIndices())
+@@ -1128,8 +1199,17 @@ namespace g3
+         // the intersecting pairs of the whole mesh (ta < tb, sorted); with skipExact, the pairs of two exact triangles of
+         // the start are not tested: they do not intersect beyond what they share (docs/design/ROUNDING_EXACT_PAIRS.md),
+         // so the result is the same
++        List<Index2i> intersecting_pairs_all(bool skipExact = true)  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            List<Index2i> r;
++            r = intersecting_pairs_all_probed(skipExact);
++            StepEnd(Step.PairsAll, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        List<Index2i> intersecting_pairs_all(bool skipExact = true)
++        List<Index2i> intersecting_pairs_all_probed(bool skipExact = true)
+         {
+             int[] tris = treeTids.ToArray();
+             bool skip = skipExact && exactAtStart != null;
+@@ -1174,8 +1254,17 @@ namespace g3
+             return pairs;
+         }
+ 
++        List<Index2i> intersecting_pairs_of_changed()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            List<Index2i> r;
++            r = intersecting_pairs_of_changed_probed();
++            StepEnd(Step.PairsChanged, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        List<Index2i> intersecting_pairs_of_changed()
++        List<Index2i> intersecting_pairs_of_changed_probed()
+         {
+             var pairs = new List<Index2i>();
+             foreach (Index2i p in lastPairs)
+@@ -1218,8 +1307,17 @@ namespace g3
+             return pairs;
+         }
+ 
++        List<int> degenerate_triangles()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            List<int> r;
++            r = degenerate_triangles_probed();
++            StepEnd(Step.DegenerateTriangles, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        List<int> degenerate_triangles()
++        List<int> degenerate_triangles_probed()
+         {
+             // (one block: a serial scan, without the marks)
+             if (triangle_blocks(Mesh) <= 1) {
+@@ -1702,7 +1800,14 @@ namespace g3
+ 
+         // (check mode, after the edits) every bound of a triangle and of a ghost, recomputed from the mesh, is at most
+         // MaxDrift, and every ghost lies on a vertex or an edge of the mesh
+-        void check_all_bounds()
++        void check_all_bounds()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int savedCtx = ctx; ctx = (int)Step.CheckBounds; try { check_all_bounds_probed(); } finally { ctx = savedCtx; }
++            StepEnd(Step.CheckBounds, t0);
++        }
++
++        void check_all_bounds_probed()
+         {
+             foreach (int t in Mesh.TriangleIndices()) {
+                 Index3i tv = Mesh.GetTriangle(t);
+@@ -2347,7 +2452,16 @@ namespace g3
+ 
+         // the positions with vertices of different exact points (PointIdF), each as its vertices in id order; in order
+         // of their smallest vertex id (deterministic)
+-        List<List<int>> false_contacts()
++        List<List<int>> false_contacts()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            List<List<int>> r;
++            r = false_contacts_probed();
++            StepEnd(Step.FalseContacts, t0);
++            return r;
++        }
++
++        List<List<int>> false_contacts_probed()
+         {
+             var groups = new List<List<int>>();
+             foreach (List<int> list in atPosition.Values) {
+@@ -2378,7 +2492,16 @@ namespace g3
+         // eg an input point) is moved only as a fallback, where no vertex of the contact that is not fixed could be
+         // moved (its double is then no longer its exact point, by a few units in the last place: a contact counts as a
+         // defect, a moved input point does not). Returns the moves applied
+-        int separate_false_contacts()
++        int separate_false_contacts()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int r;
++            int savedCtx = ctx; ctx = (int)Step.SeparateFalseContacts; try { r = separate_false_contacts_probed(); } finally { ctx = savedCtx; }
++            StepEnd(Step.SeparateFalseContacts, t0);
++            return r;
++        }
++
++        int separate_false_contacts_probed()
+         {
+             int moved = 0;
+             // a vertex whose moves all failed is not tried again (a later move elsewhere rarely frees it, and each try
+@@ -2456,8 +2579,17 @@ namespace g3
+ 
+         // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
+         // first vertex of valence 3 whose removal improves; repeated while it removes some (at most once per vertex)
++        int remove_contact_vertices()  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int r;
++            int savedCtx = ctx; ctx = (int)Step.RemoveContactVertices; try { r = remove_contact_vertices_probed(); } finally { ctx = savedCtx; }
++            StepEnd(Step.RemoveContactVertices, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        int remove_contact_vertices()
++        int remove_contact_vertices_probed()
+         {
+             int removedNow = 0;
+             for (bool again = true; again; ) {
+@@ -2790,8 +2922,17 @@ namespace g3
+         // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in
+         // their order, each at its first triangle), the search at its corners; returns the moves made. A move is
+         // accepted by improves like every edit, so it removes a defect and adds none
++        int position_search(List<int> bad, List<Index2i> pairs)  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int r;
++            int savedCtx = ctx; ctx = (int)Step.PositionSearch; try { r = position_search_probed(bad, pairs); } finally { ctx = savedCtx; }
++            StepEnd(Step.PositionSearch, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        int position_search(List<int> bad, List<Index2i> pairs)
++        int position_search_probed(List<int> bad, List<Index2i> pairs)
+         {
+             int before = PositionSearchMoves;
+             searchFailed.Clear();
+@@ -2936,8 +3077,17 @@ namespace g3
+         }
+ 
+         // components with a degenerate triangle or an edited vertex that are tiny or thin
++        int remove_tiny_components(List<int> bad)  // PROBE wrapper
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            int r;
++            int savedCtx = ctx; ctx = (int)Step.RemoveTiny; try { r = remove_tiny_components_probed(bad); } finally { ctx = savedCtx; }
++            StepEnd(Step.RemoveTiny, t0);
++            return r;
++        }
++
+         [MethodImpl(JitHints.Optimize)]
+-        int remove_tiny_components(List<int> bad)
++        int remove_tiny_components_probed(List<int> bad)
+         {
+             // (marks instead of hash sets; the components in the order of MeshConnectedComponents.FindConnectedT, each
+             // in its order, so the sums below are the same, bit for bit)

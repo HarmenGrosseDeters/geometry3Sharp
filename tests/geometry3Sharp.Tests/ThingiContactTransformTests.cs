@@ -4,6 +4,7 @@ using System.Linq;
 using BoolCmp;
 using g3;
 using Xunit;
+using ChainResultT = BoolCmp.ContactTransforms.ChainResult;
 
 namespace geometry3Sharp.Tests
 {
@@ -267,6 +268,76 @@ namespace geometry3Sharp.Tests
             DMesh3 a = A(), b = B(), a0 = A(), b0 = B();
             ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0);
             Assert.True(BitEqual(a, a0) && BitEqual(b, b0));
+        }
+
+        // C: a box on the other side; the chain of the abc-chained class places B and C against A
+        static DMesh3 C() => Box(0, 0, 0, 0.625, 0.5, 0.75);
+
+        [Fact]
+        public void BuildChain_PlacesBAndCInTheFrameOfA_Exactly()
+        {
+            ChainResultT r = ContactTransforms.BuildChain(A(), B(), C(), ContactVariant.FaceContact, 2, 1, 0, ContactVariant.FaceContact, 2, -1, 0);
+            Assert.Null(r.Error);
+            Assert.True(BitEqual(r.A, A()));                                                  // A is already normalized: unchanged
+            // B on the +z side, C on the -z side of A, both touching in the plane of a face of A
+            Assert.Equal(Max(r.A, 2), Min(r.B, 2));
+            Assert.Equal(Min(r.A, 2), Max(r.C, 2));
+            Assert.Equal("face", r.Info["b_kind"]);
+            Assert.Equal("face", r.Info["c_kind"]);
+            Assert.Equal(1, r.Info["b_contact_sign"]);
+            Assert.Equal(-1, r.Info["c_contact_sign"]);
+            Assert.True(Min(r.B, 2) >= Max(r.A, 2) && Max(r.C, 2) <= Min(r.A, 2));            // B and C touch A only
+            // the single placements give the same meshes (the second one does not change the frame)
+            Assert.True(BitEqual(r.B, ContactTransforms.Build(A(), B(), ContactVariant.FaceContact, 2, 1, 0).B));
+            Assert.True(BitEqual(r.C, ContactTransforms.Build(A(), C(), ContactVariant.FaceContact, 2, -1, 0).B));
+        }
+
+        [Fact]
+        public void BuildChain_NormalizesAnyFrameOfA_AndKeepsIt()
+        {
+            // A far from the origin and not unit sized: the first placement normalizes it, the second must not change it again
+            DMesh3 a = Box(3, -5, 2.5, 6, 4, 3);
+            ChainResultT r = ContactTransforms.BuildChain(a, B(), C(), ContactVariant.PartialOverlap, 0, 1, 1, ContactVariant.FaceContact, 1, -1, 0);
+            Assert.Null(r.Error);
+            Assert.True(ContactTransforms.SameVertices(r.A, ContactTransforms.Build(a, B(), ContactVariant.PartialOverlap, 0, 1, 1).A));
+            Assert.Equal("embedded", r.Info["b_kind"]);
+        }
+
+        [Fact]
+        public void BuildChain_SingleVariantsOfTheSecondPlacementAreOffsetsOfA()
+        {
+            // the model C has another vertex count than A: the second placement must be built from a copy of A, bit for bit
+            DMesh3 sphereC = new Sphere3Generator_NormalizedCube { Radius = 0.375, EdgeVertices = 6 }.Generate().MakeDMesh();
+            Assert.NotEqual(A().VertexCount, sphereC.VertexCount);
+            foreach (ContactVariant v in new[] { ContactVariant.UlpShift, ContactVariant.UlpShiftFew, ContactVariant.Mirror }) {
+                ChainResultT r = ContactTransforms.BuildChain(A(), B(), sphereC, ContactVariant.FaceContact, 0, 1, 0, v, 1, 1, 1);
+                Assert.Null(r.Error);
+                Assert.True(BitEqual(r.C, ContactTransforms.Build(A(), A(), v, 1, 1, 1).B), v.ToString());
+                Assert.Equal(A().VertexCount, r.C.VertexCount);
+            }
+        }
+
+        [Fact]
+        public void BuildChain_ReportsWhichPlacementIsInexact()
+        {
+            DMesh3 tiny = B();
+            tiny.SetVertex(tiny.VertexIndices().First(), new Vector3d(1e-30, 1e-30, 1e-30));
+            ChainResultT r = ContactTransforms.BuildChain(A(), tiny, C(), ContactVariant.FaceContact, 2, 1, 0, ContactVariant.FaceContact, 2, -1, 0);
+            Assert.StartsWith("B: ", r.Error);
+            Assert.Null(r.B);
+            ChainResultT r2 = ContactTransforms.BuildChain(A(), B(), tiny, ContactVariant.FaceContact, 2, 1, 0, ContactVariant.FaceContact, 2, -1, 0);
+            Assert.StartsWith("C: ", r2.Error);
+        }
+
+        [Fact]
+        public void BuildChain_IsDeterministicAndDoesNotModifyTheInputs()
+        {
+            DMesh3 a = A(), b = B(), c = C();
+            ChainResultT x = ContactTransforms.BuildChain(a, b, c, ContactVariant.PartialOverlap, 1, 1, 0, ContactVariant.Mirror, 0, 1, 2);
+            ChainResultT y = ContactTransforms.BuildChain(a, b, c, ContactVariant.PartialOverlap, 1, 1, 0, ContactVariant.Mirror, 0, 1, 2);
+            Assert.Null(x.Error);
+            Assert.True(BitEqual(x.A, y.A) && BitEqual(x.B, y.B) && BitEqual(x.C, y.C));
+            Assert.True(BitEqual(a, A()) && BitEqual(b, B()) && BitEqual(c, C()));
         }
 
         [Fact]

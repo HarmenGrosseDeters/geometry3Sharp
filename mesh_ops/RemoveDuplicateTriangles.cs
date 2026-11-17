@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
+// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
@@ -17,8 +17,15 @@ namespace gs
 	{
 		public DMesh3 Mesh;
 
-		/// <summary> maximum distance between corresponding vertices of duplicate triangles </summary>
-		public double VertexTolerance = MathUtil.ZeroTolerancef;
+		/// <summary>
+		/// maximum distance between corresponding vertices of duplicate triangles. A finite value is an absolute
+		/// distance. NaN (default): relative to the mesh, MathUtil.ZeroTolerancef times the diagonal of the
+		/// bounds of its triangles (the 1.0.324 value 1e-6 for a mesh of diagonal 1); see EffectiveVertexTolerance
+		/// </summary>
+		public double VertexTolerance = double.NaN;
+
+		/// <summary> the vertex tolerance the last Apply() used (model units) </summary>
+		public double EffectiveVertexTolerance { get; private set; }
         /// <summary> if true, only remove duplicates whose normals agree (dot &gt;= 0.99) </summary>
         public bool CheckOrientation = true;
 
@@ -35,6 +42,9 @@ namespace gs
 		public virtual bool Apply() {
             Removed = 0;
 
+            double VertexTolerance = double.IsNaN(this.VertexTolerance)
+                ? MeshScaleTolerance.Relative(Mesh, MathUtil.ZeroTolerancef) : this.VertexTolerance;
+            EffectiveVertexTolerance = VertexTolerance;
             double merge_r2 = VertexTolerance * VertexTolerance;
 
             // construct hash table for edge midpoints
@@ -42,7 +52,7 @@ namespace gs
 			PointSetHashtable hash = new PointSetHashtable(pointset);
             int hashN = (Mesh.TriangleCount > 100000) ? 128 : 64;
             // FindInBall needs cells at least VertexTolerance wide: duplicates in a small region have centroids
-            // that span far less than hashN * VertexTolerance (written so that a NaN tolerance keeps the grid's cell size)
+            // that span far less than hashN * VertexTolerance
             AxisAlignedBox3d bounds = BoundsUtil.Bounds(pointset);
             double cellSize = bounds.MaxDim / hashN;
             if (VertexTolerance > cellSize) cellSize = VertexTolerance;

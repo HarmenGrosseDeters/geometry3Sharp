@@ -202,7 +202,7 @@ class Program
         // grid offset by an odd fraction, so faces do not sit on grid nodes
         double cell = 2.2 / res;
         Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * shift;
-        var dc = new DualContouring() {
+        var dc = new DualContouring() { Simplify = false,
             Implicit = new Fn() { F = f }, InsideIsLess = true, IsoValue = 0, CellSize = cell,
             Bounds = new AxisAlignedBox3d(o, o + 2.2 * Vector3d.One)
         };

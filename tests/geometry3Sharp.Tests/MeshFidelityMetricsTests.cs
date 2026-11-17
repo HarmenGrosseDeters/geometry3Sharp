@@ -874,6 +874,198 @@ namespace geometry3Sharp.Tests
             Assert.True(f.VolumeIoU < 0.99);
         }
 
+        // a finely tessellated box with N stacked interior layers of 1 triangle each: a round removes about 1 face of
+        // about 4.8k, so the rounds stall (4 rounds remove less than 0.1 % of the faces left)
+        static DMesh3 StalledReference(int layers, out DMesh3 box, int side = 20)
+        {
+            box = new DMesh3();
+            Vector3d[] axes = { Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ };
+            for (int a = 0; a < 3; ++a)
+                for (int sd = 0; sd < 2; ++sd) {
+                    Vector3d u = axes[(a + 1) % 3], v = axes[(a + 2) % 3], o = axes[a] * sd;
+                    MeshEditor.Append(box, Quad(o, sd == 0 ? v : u, sd == 0 ? u : v, side, false));
+                }
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < layers; ++l)
+            {
+                // one triangle per layer, facing down as the quads of the other tests
+                var tri = new DMesh3();
+                double z = 0.1 + 0.8 * l / layers;
+                tri.AppendTriangle(tri.AppendVertex(new Vector3d(0.1, 0.1, z)), tri.AppendVertex(new Vector3d(0.1, 0.9, z)), tri.AppendVertex(new Vector3d(0.9, 0.9, z)));
+                MeshEditor.Append(reference, tri);
+            }
+            return reference;
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_StalledRounds_StopEarlyNotConverged()
+        {
+            // 60 layers need about 90 rounds (more than MaxOuterFaceRounds) at about 1 face of 4.8k per round: the
+            // classification stops after the 4 rounds of the stall window (OuterFaceStallRounds) instead of running to the cap
+            DMesh3 reference = StalledReference(60, out DMesh3 box);
+            var f = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.False(f.OuterFacesConverged);
+            Assert.InRange(f.OuterFaceRounds, 4, 8);
+            Assert.True(double.IsNaN(f.OuterVolumeIoU) && double.IsNaN(f.OuterVolumeMissing) && double.IsNaN(f.OuterVolumeExtra));
+            Assert.InRange(f.OuterFaceShare, 0.9, 1.0);
+            // reuse: the second computation gives the same
+            int rounds = f.OuterFaceRounds;
+            double share = f.OuterFaceShare;
+            Assert.True(f.Compute());
+            Assert.Equal(rounds, f.OuterFaceRounds);
+            Assert.Equal(share, f.OuterFaceShare);
+            Assert.False(f.OuterFacesConverged);
+            // determinism: serial equals parallel
+            var serial = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false, Parallel = false };
+            Assert.True(serial.Compute());
+            Assert.Equal(rounds, serial.OuterFaceRounds);
+            Assert.Equal(share, serial.OuterFaceShare);
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_BelowTheStallShare_RunsOn()
+        {
+            // the same layers on a box of 2352 faces: 4 rounds of 1 face are 0.17 % of the faces left, above the share of
+            // 0.1 %, so the rounds go on (here to the cap)
+            DMesh3 reference = StalledReference(60, out DMesh3 box, 14);
+            var f = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.True(f.OuterFaceRounds > 8, $"{f.OuterFaceRounds}");
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_LargeReferenceWithBigLayers_Converges()
+        {
+            // 4800 box faces and 10 layers of 200 faces: a round removes about 4 % of the faces left, no stall
+            DMesh3 box = new DMesh3();
+            Vector3d[] axes = { Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ };
+            for (int a = 0; a < 3; ++a)
+                for (int sd = 0; sd < 2; ++sd)
+                    MeshEditor.Append(box, Quad(axes[a] * sd, sd == 0 ? axes[(a + 2) % 3] : axes[(a + 1) % 3], sd == 0 ? axes[(a + 1) % 3] : axes[(a + 2) % 3], 20, false));
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 10; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 10), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 10, false));
+            var f = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.True(f.OuterFacesConverged, $"{f.OuterFaceRounds} rounds");
+            Assert.Equal(1.0, f.OuterVolumeIoU);
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_StalledRounds_InvariantUnderSimilarityAll()
+        {
+            DMesh3 reference = StalledReference(60, out DMesh3 box);
+            var baseF = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(baseF.Compute());
+            Assert.False(baseF.OuterFacesConverged);
+            foreach (Similarity s in Similarity.All()) {
+                var f = new MeshFidelityMetrics(Invariance.Transformed(reference, s), Invariance.Transformed(box, s)) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                Assert.True(f.Compute(), s.Name);
+                Assert.False(f.OuterFacesConverged, s.Name);
+                Assert.True(double.IsNaN(f.OuterVolumeIoU), s.Name);
+                if (s.IsExact) {
+                    Assert.Equal(baseF.OuterFaceRounds, f.OuterFaceRounds);
+                    Assert.Equal(baseF.OuterFaceShare, f.OuterFaceShare);
+                } else {
+                    // rounding can move a face between rounds
+                    Assert.InRange(f.OuterFaceRounds, 4, 8);
+                    Assert.Equal(baseF.OuterFaceShare, f.OuterFaceShare, 2);
+                }
+            }
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_SlowButFinishingRounds_StillConverge()
+        {
+            // 40 layers of 2 faces on a box of 12 faces: a round removes 2 of about 90 faces left, far above the stall
+            // share, and the rounds end by themselves (the 60 layers of the stall test, on the same box, would not)
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 40; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 40), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 1, false));
+            var f = Run(reference, box);
+            Assert.True(f.OuterFacesConverged);
+            Assert.True(f.OuterFaceRounds > 4);
+            Assert.Equal(1.0, f.OuterVolumeIoU);
+        }
+
+        [Fact]
+        public void OuterFaceIncremental_SameFacesAsTheDefault_FewerJudgements()
+        {
+            // stacked interior layers (many rounds): the incremental update keeps the faces of the default, and the faces
+            // judged again after the first round are fewer than the face-rounds of the default
+            foreach (int n in new[] { 5, 40 }) {
+                DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+                DMesh3 reference = new DMesh3(box);
+                for (int l = 0; l < n; ++l)
+                    MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / n), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+                var d = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                Assert.True(d.Compute());
+                var inc = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                Assert.True(inc.Compute());
+                Assert.Equal(d.OuterFaceRemovedIds, inc.OuterFaceRemovedIds);
+                Assert.Equal(d.OuterFaceRounds, inc.OuterFaceRounds);
+                Assert.Equal(d.OuterFaceShare, inc.OuterFaceShare);
+                Assert.Equal(d.OuterVolumeIoU, inc.OuterVolumeIoU);
+                Assert.True(d.OuterFacesConverged && inc.OuterFacesConverged);
+                Assert.True(d.OuterFaceRemovedIds.Length >= 8 * n);
+                if (n == 40)
+                    Assert.True(inc.OuterFaceRedoFaces < inc.OuterFaceRounds * reference.TriangleCount / 2, $"{inc.OuterFaceRedoFaces}");
+                // reuse
+                Assert.True(inc.Compute());
+                Assert.Equal(d.OuterFaceRemovedIds, inc.OuterFaceRemovedIds);
+            }
+        }
+
+        [Fact]
+        public void OuterFaceIncremental_SerialEqualsParallel_RepeatedRuns()
+        {
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 24; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 24), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+            MeshFidelityMetrics Make(bool parallel) => new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, Parallel = parallel, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            var p0 = Make(true); Assert.True(p0.Compute());
+            var s0 = Make(false); Assert.True(s0.Compute());
+            Assert.Equal(p0.OuterFaceRemovedIds, s0.OuterFaceRemovedIds);
+            Assert.Equal(p0.OuterFaceRounds, s0.OuterFaceRounds);
+            Assert.Equal(p0.OuterFaceRedoFaces, s0.OuterFaceRedoFaces);
+            Assert.Equal(p0.OuterFaceShare, s0.OuterFaceShare);
+            for (int k = 0; k < 3; ++k) {
+                var r = Make(true); Assert.True(r.Compute());
+                Assert.Equal(p0.OuterFaceRemovedIds, r.OuterFaceRemovedIds);
+                Assert.Equal(p0.OuterFaceRedoFaces, r.OuterFaceRedoFaces);
+            }
+            Assert.True(p0.OuterFaceRemovedIds.SequenceEqual(p0.OuterFaceRemovedIds.OrderBy(x => x)));
+            var off = new MeshFidelityMetrics(reference, box) { OuterSurface = false };
+            Assert.True(off.Compute());
+            Assert.Null(off.OuterFaceRemovedIds);
+        }
+
+        [Fact]
+        public void OuterFaceIncremental_DefaultIsOff_AndInvariantUnderSimilarityAll()
+        {
+            Assert.False(new MeshFidelityMetrics(new DMesh3(), new DMesh3()).OuterFaceIncremental);
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 12; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 12), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+            var baseF = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(baseF.Compute());
+            Assert.True(baseF.OuterFacesConverged);
+            foreach (Similarity s in Similarity.All()) {
+                var f = new MeshFidelityMetrics(Invariance.Transformed(reference, s), Invariance.Transformed(box, s)) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                Assert.True(f.Compute(), s.Name);
+                Assert.Equal(baseF.OuterFaceRemovedIds, f.OuterFaceRemovedIds);
+                if (s.IsExact) {
+                    Assert.Equal(baseF.OuterFaceRounds, f.OuterFaceRounds);
+                    Assert.Equal(baseF.OuterFaceShare, f.OuterFaceShare);
+                    Assert.Equal(baseF.OuterFaceRedoFaces, f.OuterFaceRedoFaces);
+                }
+            }
+        }
+
         [Fact]
         public void VolumeIoU_InsideOutReference_Oriented()
         {

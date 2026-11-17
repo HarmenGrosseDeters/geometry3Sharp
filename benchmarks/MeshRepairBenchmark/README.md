@@ -1733,3 +1733,48 @@ On 860049 (the trial-heaviest tail mesh) the trials fall from 14.5 s to 6.9 s an
 0.55 s. Of the remaining trial time, about 3 s goes to the pocket searches, and the local trials with few seed vertices
 stay serial. A first version of the stars with atomic counters was no faster than serial (4.3 s either way, memory bound);
 the vertex-range version scans the cells once per part.
+
+## Alpha-wrap defaults on the 800-mesh sample (`alpha-defaults.yml`)
+
+The measurement behind the default decisions for the sharp-feature pass (#736) and the raw-size budget (#846): three
+configurations of `BENCH_REPAIR=wrappipe` (diagonal / 300, offset / 3000, full fidelity) over `cases/alpha_defaults_list800.txt`
+(the 800 ids of `sample800_2611`): A library defaults, B `BENCH_WRAP_FEATURES=1`, C `BENCH_WRAP_BUDGET=300000`. It runs as the
+manual workflow `.github/workflows/alpha-defaults.yml` (GitHub-hosted runners, at most 6 shards at a time, one run at a time):
+`alpha_defaults.py select` cuts a round robin shard, `fetch_data.py --ids` fetches only its models, `alpha_defaults.py run` runs
+the configurations interleaved per mesh (one process at a time, per-mesh timeout 400 s, resumable), and the last job merges the
+shards (`alpha_defaults.py merge`), writes `alpha_defaults_summary.py`'s table to the step summary and pushes the raw rows,
+`wall.tsv` and `summary.md` to `runs/alpha-defaults-800/run-<run id>`. `BENCH_WRAP_BUDGET` was read only by the robust mode until
+this workflow; the `wrappipe` mode now sets `MeshAlphaWrap.MaxEstimatedTriangles` from it and writes `wrap_estimate` and
+`wrap_coarsening` into the row (unset: the output is unchanged). Checks: `python3 test_alpha_defaults.py`.
+
+Limit on the budget's coarsening (`MeshAlphaWrap.MaxAlphaCoarsening`, `MeshRobustRepair.WrapMaxAlphaCoarsening`; off by default;
+`BENCH_WRAP_COARSEN_CAP=f` in `wrappipe` and `robust`): with a budget, the factor by which alpha and offset grow is at most `f`
+(then the result can be above the budget). Configurations `D` (budget 300000, cap 1.5) and `E` (cap 1.2) of `alpha_defaults.py`;
+`alpha-defaults.yml` takes an `ids` input (space-separated mesh ids of the list) for a run on a few meshes.
+
+### Outer face classification: stall stop and incremental rounds (#1009)
+
+`fm_ms` of single meshes of the alpha-defaults run was dominated by `MeshFidelityMetrics.OuterFaces` (rounds of 8 fast winding
+numbers per face; on a self-intersecting mesh a query sums hundreds of triangles exactly). #1023 stops rounds that stall
+(`OuterFaceStallRounds`, `OuterFaceStallShare`). `BENCH_OUTER_INCREMENTAL=1` runs the measures a second time with
+`OuterFaceIncremental = true` (`fm_inc_*` fields: time, rounds, faces judged again, faces whose verdict differs from the
+default `fm_inc_changed`, outer face share and outer IoU). Rounds after the first update each face's stored winding numbers
+by subtracting the winding number of the faces the last round removed (a tree of those only) and judge a face again with the
+big tree only if a stored value is within `OuterFaceIncrementalMargin` (0.2) of a decision boundary.
+
+Thingi10K, std mode, net10.0 Release, 4 cores, one mesh at a time, the default measures first and the incremental ones second
+in one process (the second run has warm JIT and caches, which flatters it by a few hundred ms on small meshes); `fm_ms` is all
+`MeshFidelityMetrics` measures:
+
+| mesh | rounds | fm_ms default | fm_ms incremental | faces judged again | changed verdicts | outer face share, outer IoU |
+|---|---:|---:|---:|---:|---:|---|
+| 55928 (88k faces, stalls, not converged) | 5 | 12.5 s | 6.2 s | 13,040 | 0 | identical |
+| 318843 | 4 | 36.9 s | 20.5 s | 6,847 | 0 | identical |
+| 1514905 | 3 | 20.9 s | 16.1 s | 7 | 0 | identical |
+| 498456 (55 rounds) | 55 | 67.2 s | 46.7 s | 731,646 | 0 | identical |
+
+Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run; rounds, shares and IoU identical, 0 changed verdicts on all):
+37111 (88k faces, 4 rounds) 7.7 s to 4.2 s with 272 faces judged again; 37275, 37329, 37331, 37731, 37788, 37215 and 36075 (1 to 2
+rounds, 0 to 0 faces judged again after the first round) 0.2 to 1.9 s faster, the difference of the warm second run.
+Stacked interior layers (unit tests): with margin 0.1 the stack of 40 layers (60 rounds) differed in 2 of 320 faces from the
+default; from margin 0.15 on none did (5, 20, 40 layers), so the default is 0.2.

@@ -339,7 +339,11 @@ pass:
   and stage 2 is needed for sharper creases and for corners (not tested).
 
 Open from the spike for stage 1b: the exact counting checks replace the proxies (the region proxy sees nothing smaller
-than the input's edges), the predicates of 14.4, SoS, and a corner test set.
+than the input's edges), the predicates of 14.4, SoS, and a corner test set. Measured 2026-11-17
+([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md), item 3): true restricted Voronoi cells
+(float, `RestrictedDelaunaySpike rvc`) against the region proxy: the proxy let 2 marginal R2 violations through on 31
+final states, does not check cells without an input vertex (up to 97 % on coarse inputs) and raised false alarms that
+cost extra samples; the float cells cost 0.003-0.28 s per check. So stage 1b checks (C') / R2 on true cells.
 
 ## 12. Risks
 

@@ -33,9 +33,10 @@ namespace gs
     ///     on 20 Thingi10K meshes), and the vertices keep the Offset from it (minimum 1.000 Offset measured);
     ///     MeshRobustRepair's simplification (SimplifyAlphaWrap) and quality pass keep the first part (they skip an operation
     ///     whose new triangles touch the input), their vertices stay at least about 0.35 Offset away (measured);
-    ///   - the vertices lie on the offset surface (up to rounding), so between them the result can come closer
-    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
-    ///     where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
+    ///   - the vertices lie on the offset surface (up to rounding; with the opt-in PullPinchPoints between Offset and 2 Offset
+    ///     from the input), so between them the result can come closer
+    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha (2 Offset + Alpha
+    ///     with PullPinchPoints) where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
     ///     up to 8.8 (Offset + Alpha) without RefineNonManifold, 1.1 with it, on an 800 mesh Thingi10K sample).
     /// Alpha controls the detail: cavities and gaps narrower than about 2 * Alpha are not entered (they are
     /// wrapped over), and the result has triangles with a circumradius of at most about Alpha. Smaller Alpha =
@@ -127,6 +128,14 @@ namespace gs
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
+        /// Upper limit of the coarsening that MaxEstimatedTriangles applies (0 or less = no limit, the default; a value below 1 counts as 1,
+        /// no coarsening): AlphaCoarsening is at most this, so alpha and offset are at most this many times the requested ones, and the
+        /// result can be above the budget. Without it a small budget can multiply alpha by any factor, and the coarser wrap closes every
+        /// cavity whose opening is narrower than about 2 * UsedAlpha: a hollow part behind a narrow neck is filled once alpha passes the
+        /// neck (mesh 40118 of the 800 sample: coarsening 1.22 keeps the neck, 1.5 and above fill 34 % of the volume). Only with a budget.
+        /// </summary>
+        public double MaxAlphaCoarsening = 0;
+        /// <summary>
         /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles) / Alpha^2. Measured (issue #694;
         /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
         /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
@@ -149,6 +158,28 @@ namespace gs
         /// </summary>
         public bool RefineNonManifold = true;
         const int MaxNonManifoldRounds = 10;
+
+        /// <summary>
+        /// Opt-in (default false): a third kind of Steiner point for the refinement at non-manifold spots (RefineNonManifold), for the
+        /// outside cells for which neither point on the offset surface keeps the separation of the class doc. The projection of the
+        /// cell's circumcenter onto the offset surface is moved back along the line to the circumcenter until it lies
+        /// min(Offset, Alpha - Offset) inside the circumsphere. Such a point keeps the separation, but it is not on the offset surface:
+        /// it is used only if it is at most 2 Offset from the input.
+        /// With it, most spots become manifold by carving instead of being left to the manifold step. The manifold step put large
+        /// facets on the result there, with no angle bound and far from the input: those were the result triangles below the angle
+        /// bound (docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md; 480 procedural wraps: 78 such triangles on 43 wraps, 0 on those with
+        /// the option, +0.55 % triangles, about the same time). This is a measurement, not a bound: the remaining flips can still
+        /// expose such facets (section 4 of the note: 1 triangle in one rotated frame, 0 there without the option).
+        /// Counts["pinch_pulled_points"]: the pulled points inserted.
+        /// <para>Relaxed promise: with this option the result vertices lie between Offset and 2 Offset from the input (up to
+        /// rounding), not on the offset surface. All other guarantees of the class doc are the same: closed, manifold, the input
+        /// strictly inside, the separation and the angle bound on triangles with a circumradius of at most Alpha. The facets the
+        /// manifold step still moves have no bound, as without the option. Without RefineNonManifold (and outside the retry after
+        /// box corners) it does nothing. Whether it becomes the default is an owner decision (800-run gate in the PR).</para>
+        /// </summary>
+        public bool PullPinchPoints = false;
+        /// <summary> the band of PullPinchPoints: a pulled point at most this many offsets from the input </summary>
+        internal const double PullMaxOffsets = 2.0;
 
         /// <summary>
         /// Refine result facets whose smallest angle is below this (degrees; 0 = off) before the manifold step: such a
@@ -502,8 +533,15 @@ namespace gs
             if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
                 // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
                 double coarse = Math.Sqrt(EstimateDensity * area / MaxEstimatedTriangles);
-                AlphaCoarsening = coarse / alpha;
-                alpha = coarse;
+                double cap = MaxAlphaCoarsening > 0 ? Math.Max(1.0, MaxAlphaCoarsening) : double.PositiveInfinity;
+                if (coarse / alpha > cap) {
+                    // (limited: the requested alpha times the cap, so the result follows the requested alpha, not only the area)
+                    AlphaCoarsening = cap;
+                    alpha *= cap;
+                } else {
+                    AlphaCoarsening = coarse / alpha;
+                    alpha = coarse;
+                }
                 offset *= AlphaCoarsening;
             }
             UsedAlpha = alpha; UsedOffset = offset;
@@ -1378,7 +1416,7 @@ namespace gs
 
         WrapStatus refine_non_manifold(bool confirm = true)
         {
-            long rounds = 0, points = 0, cells = 0, skipped = 0;
+            long rounds = 0, points = 0, cells = 0, skipped = 0, pulled = 0;
             var pinch = new List<int>();
             var stamps = new List<int>();
             WrapStatus status = WrapStatus.Success;
@@ -1426,8 +1464,10 @@ namespace gs
                         status = WrapStatus.PointLimitReached;
                         break;
                     }
-                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3))
+                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3)) {
                         inserted++;
+                        if (lastPinchPulled) pulled++;
+                    }
                     else
                         skipped++;
                 }
@@ -1447,6 +1487,8 @@ namespace gs
             add_count("pinch_cells", cells);
             // cells without a qualifying point (or whose point the triangulation rejected): left to the manifold step
             add_count("pinch_skipped", skipped);
+            // (PullPinchPoints: the inserted points of those, not on the offset surface)
+            if (PullPinchPoints) add_count("pinch_pulled_points", pulled);
             return status;
         }
 
@@ -1645,8 +1687,12 @@ namespace gs
         }
 
         // a Steiner point for the outside cell c at a pinch (see refine_non_manifold), false if neither candidate qualifies
+        // (the last pinch_point returned a pulled point: refine_non_manifold counts it once it is inserted)
+        bool lastPinchPulled;
+
         bool pinch_point(int c, out Vector3d p)
         {
+            lastPinchPulled = false;
             double depth = Math.Min(offset, alpha - offset);
             Vector3d cc = circumcenter(c);
             if (MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)) {
@@ -1665,6 +1711,12 @@ namespace gs
                 if (rule_intersection(from, to, out p))
                     return true;
             }
+            // PullPinchPoints: the projected center pulled back towards the center until it lies the depth inside the
+            // circumsphere, if that point is at most PullMaxOffsets offsets from the input (see the option)
+            if (PullPinchPoints && pulled_pinch_point(c, cc, depth, out p)) {
+                lastPinchPulled = true;
+                return true;
+            }
             // on the retry only, a cell with a box corner (flat input: the huge cells above and below a plane of Steiner points) that neither
             // candidate qualifies for: the projected center only has to lie strictly inside the circumsphere (exactly), without
             // the depth. The point can be closer to a vertex than the separation, but the manifold step would move the
@@ -1678,6 +1730,40 @@ namespace gs
             return false;
         }
 
+
+        // the point x = cc + (q - cc) (r - depth) / |q - cc| on the segment from the circumcenter cc of the outside cell c (radius r)
+        // to the point q of the offset surface closest to cc, used where q lies less than the depth inside the circumsphere:
+        //   - separation: the circumsphere is empty, so every vertex is at least r from cc, and at least r - |x - cc| = depth
+        //     from x (in floating point, as the depth test of the first candidate: cc is rounded, for a sliver by more than an
+        //     ulp, so r is the smallest distance from cc to the cell's four vertices; x inside the sphere exactly);
+        //   - offset: where d(cc) > offset (an outside cell's circumcenter normally is: a gate whose dual edge crosses the offset
+        //     surface gets a rule 1 point instead), the distance to the input falls linearly along the segment towards the closest
+        //     input point, so d(x) = d(cc) - (r - depth) > d(q) = offset. Not assumed: d(x) is checked;
+        //   - band: x is used only if offset <= d(x) <= PullMaxOffsets * offset.
+        bool pulled_pinch_point(int c, Vector3d cc, double depth, out Vector3d p)
+        {
+            p = Vector3d.Zero;
+            if (!(MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)))
+                return false;
+            double r = double.MaxValue;
+            for (int j = 0; j < 4; ++j)
+                r = Math.Min(r, cc.Distance(dt.GetVertex(dt.CellVertex(c, j))));
+            if (!(r > depth) || !project_to_offset(c, 0, cc, out Vector3d q))
+                return false;
+            double len = cc.Distance(q);
+            // (len <= r - depth: q itself qualified, the first candidate; that test failed when it gets here, unless InCircumsphere
+            // rejected q, and then x would be q)
+            if (!(len > r - depth))
+                return false;
+            Vector3d x = cc + (q - cc) * ((r - depth) / len);
+            if (!(dt.InCircumsphere(c, x) > 0))
+                return false;
+            double dx = oracle.Distance(x);
+            if (!(dx >= offset && dx <= PullMaxOffsets * offset))
+                return false;
+            p = x;
+            return true;
+        }
 
         // outside cells not connected to the box boundary (enclosed by an insertion) become inside
         // (reached: pocketStamp[c] == pocketStampValue; the arrays are kept between the calls)

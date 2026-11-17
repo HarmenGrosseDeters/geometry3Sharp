@@ -2278,6 +2278,12 @@ namespace g3
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
             Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
+            // the projection filter first: it answers only where the exact test's answer is known (TriangleTriangleFilter, it
+            // never changes a decision of IntersectsBeyondShared), and decides 96 % of the pairs that reach here
+            // (docs/perf/BOOLEAN_THREAD_SCALING.md, section 7.1)
+            int decided = TriangleTriangleFilter.BeyondShared(pa, ref A, pb, ref B);
+            if (decided != TriangleTriangleFilter.Undecided)
+                return decided != TriangleTriangleFilter.Intersecting;
             // (all non-shared corners of U in T's plane: the coplanar branches of IntersectsBeyondShared without their
             // Orient3d, which are 0; docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1)
             if (st == 0 && shared > 0)

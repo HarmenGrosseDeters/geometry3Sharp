@@ -129,7 +129,8 @@ namespace gs
         public double RoundingMaxDisplacement = 1e-5, RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's effort budget, passed to the exact resolve (ExactMeshBoolean.RoundingMaxPairTests) and to the
-        /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M
+        /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M; both grow it with the initial
+        /// defects by up to 4 times (MeshRoundingRepair.PairTestsDefectScale, PairTestsMaxGrowth, at their defaults)
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
         /// <summary>
@@ -177,6 +178,8 @@ namespace gs
         /// triangle count (issue #694: 260 triangles of a flattened sphere wrapped to 211,614 triangles, about 6 s per Apply).
         /// </summary>
         public int WrapMaxEstimatedTriangles = 0;
+        /// <summary> alpha wrap fallback: the limit of the coarsening that WrapMaxEstimatedTriangles applies (MeshAlphaWrap.MaxAlphaCoarsening; 0 = no limit, the default) </summary>
+        public double WrapMaxAlphaCoarsening = 0;
         /// <summary> threads of the alpha wrap's carving (MeshAlphaWrap.MaxThreads: 0 = all cores, 1 = one thread); the result is the same for every value </summary>
         public int WrapMaxThreads = 0;
         /// <summary>
@@ -793,7 +796,7 @@ namespace gs
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
                 AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
-                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxThreads = WrapMaxThreads };
+                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxAlphaCoarsening = WrapMaxAlphaCoarsening, MaxThreads = WrapMaxThreads };
                 AlphaWrap.Compute();
                 AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
                 end_phase("wrap");
@@ -1303,7 +1306,9 @@ namespace gs
                 SeparatedRounding = null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
-                if (res == null || res.TriangleCount == 0) {
+                // (a rounding that kept components only because their removal would have emptied a thin input's result,
+                // #985: not clean, as an empty result was before; the wrap fallback takes it, as it did then)
+                if (res == null || res.TriangleCount == 0 || (resolve.Rounding != null && resolve.Rounding.KeptWhenEmptied > 0)) {
                     ExactResolveReason = resolve.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean
                         ? "rounding not clean (StrictRounding)" : "resolve failed";
                     return null;

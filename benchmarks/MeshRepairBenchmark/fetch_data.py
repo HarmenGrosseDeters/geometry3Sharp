@@ -1,12 +1,13 @@
 # Downloads a reproducible selection of Thingi10K meshes (https://huggingface.co/datasets/Thingi10K/Thingi10K).
 #   data/meshes:       6 defect categories x 60 broken meshes (<= 100k faces) + 40 clean controls
 #   data/meshes_large: 30 broken meshes with 100k..1M faces  (skip with --no-large)
+# --ids FILE: exactly the model ids listed in FILE (one per line) in data/ids/meshes (a shard of a sweep, eg alpha_defaults.py)
 # --holdout: a disjoint second selection of the same shape (other seeds, the default selection excluded)
 # --sample N [--seed S]: N random models with <= 100k faces (default seed 2611; the alpha wrap sample) in
 #   data/sample<N>_<S>/meshes (selection.csv); run it with BENCH_DATA=sample<N>_<S>
 #   in data/holdout/ (selection_holdout.csv, selection_large_holdout.csv, meshes, meshes_large)
 # Thingi10K models carry individual licenses (mostly Creative Commons), see data/input_summary.csv.
-import csv, json, os, random, re, sys, urllib.request
+import csv, json, os, random, re, sys, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = "https://huggingface.co/datasets/Thingi10K/Thingi10K"
@@ -15,7 +16,17 @@ os.makedirs("data", exist_ok=True)
 
 def fetch(url, path):
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url, path)
+        for attempt in range(5):  # retry with backoff; a partial download never gets the final name
+            try:
+                with urllib.request.urlopen(url, timeout=120) as r, open(path + ".part", "wb") as w:
+                    while chunk := r.read(1 << 20):
+                        w.write(chunk)
+                os.replace(path + ".part", path)
+                return
+            except Exception:
+                if attempt == 4:
+                    raise
+                time.sleep(2 ** attempt * 5)
 
 for f in ["geometry_data.csv", "input_summary.csv"]:
     fetch(f"{BASE}/resolve/main/metadata/{f}", f"data/{f}")
@@ -63,7 +74,20 @@ def arg(name, default):
 
 sel, large = select(42, 7)
 prefix, suffix = "", ""
-if "--sample" in sys.argv:
+if "--ids" in sys.argv:
+    # a given list of ids (one shard of a sweep): only these models are fetched
+    i = sys.argv.index("--ids") + 1
+    if i >= len(sys.argv):
+        sys.exit("--ids needs a file")
+    ids = [x.strip() for x in open(sys.argv[i]) if x.strip()]
+    missing = [k for k in ids if k not in files]
+    if missing:
+        sys.exit(f"ids not in the dataset: {missing[:5]}")
+    sel, large = {k: "ids" for k in ids}, {}
+    prefix, suffix = "ids/", ""
+    os.makedirs("data/ids", exist_ok=True)
+    sys.argv.append("--no-large")
+elif "--sample" in sys.argv:
     # plain random sample of the dataset (no category stratification), eg the 800 sample of the alpha wrap work
     n, seed = arg("--sample", 800), arg("--seed", 2611)
     random.seed(seed)

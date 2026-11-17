@@ -310,6 +310,48 @@ namespace BoolCmp
             return b;
         }
 
+        public sealed class ChainResult
+        {
+            public DMesh3 A, B, C;
+            public Dictionary<string, object> Info = new Dictionary<string, object>();
+            public string Error;                 // null if both placements are exact
+        }
+
+        /// <summary>
+        /// The inputs of a chain of booleans (abc-chained class): B and C are each placed against A by a placement of
+        /// Build (the second has A already normalized, so both are in the frame of A; normalizing is idempotent for the
+        /// result of NormalizeExact, which is checked bit for bit). Info has the keys of both placements prefixed "b_" and "c_".
+        /// </summary>
+        public static ChainResult BuildChain(DMesh3 a, DMesh3 b, DMesh3 c, ContactVariant vb, int axisB, int signB, int paramB,
+                                             ContactVariant vc, int axisC, int signC, int paramC)
+        {
+            var r = new ChainResult();
+            ContactResult r1 = Build(a, b, vb, axisB, signB, paramB);
+            if (r1.Error != null) { r.Error = "B: " + r1.Error; return r; }
+            ContactResult r2 = Build(r1.A, c, vc, axisC, signC, paramC);
+            if (r2.Error != null) { r.Error = "C: " + r2.Error; return r; }
+            if (!SameVertices(r1.A, r2.A)) { r.Error = "the frame of A changed between the two placements"; return r; }
+            r.A = r1.A; r.B = r1.B; r.C = r2.B;
+            foreach (var kv in r1.Info) r.Info["b_" + kv.Key] = kv.Value;
+            foreach (var kv in r2.Info) r.Info["c_" + kv.Key] = kv.Value;
+            return r;
+        }
+
+        /// <summary> True if both meshes have the same vertices, bit for bit, in the same order (and the same triangles). </summary>
+        public static bool SameVertices(DMesh3 a, DMesh3 b)
+        {
+            int[] va = a.VertexIndices().ToArray(), vb = b.VertexIndices().ToArray();
+            if (va.Length != vb.Length || a.TriangleCount != b.TriangleCount)
+                return false;
+            for (int i = 0; i < va.Length; ++i) {
+                Vector3d p = a.GetVertex(va[i]), q = b.GetVertex(vb[i]);
+                if (BitConverter.DoubleToInt64Bits(p.x) != BitConverter.DoubleToInt64Bits(q.x) || BitConverter.DoubleToInt64Bits(p.y) != BitConverter.DoubleToInt64Bits(q.y)
+                    || BitConverter.DoubleToInt64Bits(p.z) != BitConverter.DoubleToInt64Bits(q.z))
+                    return false;
+            }
+            return a.Triangles().SequenceEqual(b.Triangles());
+        }
+
         /// <summary> Signed volume of a closed mesh (divergence theorem, relative to its first vertex). </summary>
         public static double Volume(DMesh3 m)
         {
