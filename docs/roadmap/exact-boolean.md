@@ -732,6 +732,31 @@ discards; an older probe found about a third of the 1-thread time there.
 - Either way T6 closes with a report: the measured 12-thread ratio on the owner's machine (median and summed, with and
   without rounding) and the cleanliness of both sides.
 
+**T6 closing report (2026-11-17).** The owner's 12-thread data: i7-8700, 6 cores / 12 threads, net10.0, 3 rounds per
+side, `thread_scaling.ps1`, branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/` (master 414c6b5f and
+#962 head bf34eff7). CGAL runs on GitHub-hosted runners only, so its time on the owner's machine is estimated per
+operation: CGAL's single-threaded time from T6 run 43819984226 (the same master 414c6b5f, 4-core runner), times the
+ratio of our 1-thread time on the owner's machine to our 1-thread time on the runner for the same operation (summed
+factor 0.56). Ours is the median of the three rounds per operation; "without rounding" subtracts the `rounding` phase.
+
+| code | threads | summed ratio | summed, without rounding | median ratio | median, without rounding |
+|---|---|---|---|---|---|
+| master 414c6b5f | 1 | 4.07x | 3.25x | 5.24x | 4.24x |
+| master 414c6b5f | 12 | 1.59x | 1.30x | 2.18x | 1.86x |
+| #962 bf34eff7 | 1 | 3.95x | 3.12x | 4.93x | 4.01x |
+| #962 bf34eff7 | 4 | 2.14x | 1.71x | 2.84x | 2.33x |
+| #962 bf34eff7 | 12 | **1.43x** | **1.14x** | **2.05x** | **1.70x** |
+
+- The earlier extrapolation for master at 12 threads (about 1.5x summed, 1.95x median) was slightly optimistic: measured
+  1.59x and 2.18x.
+- After #962, the boolean probes (#967) and the touch_only filter (#1002) come on top, the last two without a new
+  12-thread run.
+- **Cleanliness:** ours 294 of 294 clean or correctly empty (T6 run 43819984226); the result hashes on the owner's
+  machine are equal across all rounds and thread counts on both sides. CGAL: 49 of its 294 results are unclean
+  after the conversion to doubles (degenerate triangles).
+- **T6 is closed.** The remaining gap at 12 threads, about 1.4x summed, is in the range of the rounding, which CGAL
+  does not do (without it, 1.14x).
+
 **Triage of the research ideas.**
 
 | idea | relevance | decision |
