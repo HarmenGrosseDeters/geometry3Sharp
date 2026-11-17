@@ -107,7 +107,7 @@ their own class); the cleanup never empties a non-empty result (RC1); the inside
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
 step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
 (with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text becomes culture-invariant (O1); tet 16.2: the boundary
-bound is restated against the peeled surface (no code change, P1 494/500 kept).
+bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label: the coordinator sets it for a change that keeps or tightens the checks, the owner for one that loosens a check or changes the gate list or the rules ([QA.md](QA.md) 2.8a).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B

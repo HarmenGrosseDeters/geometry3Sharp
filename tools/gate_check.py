@@ -120,13 +120,13 @@ def judge(gates, files, labels, enforce, file_count=None):
         for f, glob, reason in hits:
             annotations.append(f"::warning::{escape_annotation(f'gate file changed: {f} ({reason})')}")
     if labelled:
-        lines.append(f"The label `{LABEL}` is set: the owner approved this change of the checks.")
+        lines.append(f"The label `{LABEL}` is set: this change of the checks is approved (docs/QA.md 2.8a).")
         return 0, "\n".join(lines) + "\n", annotations
     if enforce:
-        lines.append(f"**Failed**: a PR that changes gate files needs the label `{LABEL}` (set by the owner).")
+        lines.append(f"**Failed**: a PR that changes gate files needs the label `{LABEL}` (docs/QA.md 2.8a).")
         annotations.append(f"::error::{escape_annotation(f'gate files changed without the label {LABEL}')}")
         return 1, "\n".join(lines) + "\n", annotations
-    lines.append(f"Observe mode: not failing. In enforce mode this PR would need the label `{LABEL}` (set by the owner).")
+    lines.append(f"Observe mode: not failing. In enforce mode this PR would need the label `{LABEL}` (docs/QA.md 2.8a).")
     return 0, "\n".join(lines) + "\n", annotations
 
 

@@ -2,7 +2,7 @@ name: gate-change
 
 # A change must not modify the checks that judge it. This workflow flags a PR that changes a gate file (tools/gate_files.txt:
 # workflows, analyzer and ratchet lists, mutation configs, CI scripts, the rules) unless the PR carries the label `gate-change`,
-# which only the owner sets. docs/QA.md, "Gate-change check".
+# which the owner sets (the coordinator for a change that keeps or tightens the checks). docs/QA.md, "Gate-change check".
 #
 # Observe mode (GATE_ENFORCE unset or 0): the job reports (step summary, one warning annotation per file) and passes.
 # Enforce mode: set the repository variable GATE_CHANGE_ENFORCE to 1 (Settings > Variables); a flagged PR without the label then fails.
