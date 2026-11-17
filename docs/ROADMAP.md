@@ -77,8 +77,8 @@ the future" list, ordered by priority; this section names only what is in flight
   `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
-- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 decided (owner 2026-11-17:
-  the `SnapRounding2.Diagnostics` text becomes culture-invariant, PR in flight); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
+- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 done (owner 2026-11-17:
+  the `SnapRounding2.Diagnostics` text is culture-invariant); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
 - **Platform and CI:** #999 (xatlas report) in review; the UV parameterization mutation shards are merged (#1006); the
   nightly changed-line coverage gate is red since 2026-11-17 (16 uncovered changed lines), a fix session runs; flaky
   allocation test #1074; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
@@ -106,7 +106,7 @@ their own class); the cleanup never empties a non-empty result (RC1); the inside
 (RC3); #846 stays off; #986 option (A); `Obsolete` on `MeshMeshCut` / `MeshBoolean`; tet P1 default diag/40; the
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
 step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
-(with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text becomes culture-invariant (O1); tet 16.2: the boundary
+(with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text is culture-invariant (O1, done); tet 16.2: the boundary
 bound is restated against the peeled surface (no code change, P1 494/500 kept).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
