@@ -53,7 +53,8 @@ class PathGuardTests(unittest.TestCase):
         block = re.search(r"EXCLUDED=\((.*?)\)", text, re.S).group(1)
         pats = re.findall(r"'([^']+)'", block)
         self.assertEqual(sorted(pats), sorted(["/src/lib/geogram/third_party/triangle/", "/src/lib/geogram/third_party/tetgen/",
-                                               "/src/lib/geogram/delaunay/delaunay_triangle.*", "/src/lib/geogram/delaunay/delaunay_tetgen.*"]))
+                                               "/src/lib/geogram/delaunay/delaunay_triangle.*", "/src/lib/geogram/delaunay/delaunay_tetgen.*",
+                                               "/src/lib/geogram/mesh/mesh_tetrahedralize.cpp"]))
         for flag in ("-DGEOGRAM_WITH_TRIANGLE=OFF", "-DGEOGRAM_WITH_TETGEN=OFF", "--filter=blob:none", "core.sparseCheckoutCone false"):
             self.assertIn(flag, text)
 

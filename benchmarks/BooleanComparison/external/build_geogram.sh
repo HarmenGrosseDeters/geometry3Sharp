@@ -17,12 +17,16 @@ GEOGRAM_REPO=https://github.com/BrunoLevy/geogram.git
 GEOGRAM_SHA=16440c45c6ec5015b50f4a430c5ea1a300c2542f   # the commit of docs/research/GEOGRAM_SURVEY_2026-11.md
 here=$(cd "$(dirname "$0")" && pwd)
 
-# the paths that must never be on the runner (sparse-checkout patterns, non-cone mode)
+# the paths that must never be on the runner (sparse-checkout patterns, non-cone mode). mesh_tetrahedralize.cpp is geogram's own
+# file, but it includes delaunay/delaunay_tetgen.h unconditionally, so it cannot be compiled without a TetGen path; the boolean
+# does not use it (a tet mesher; nothing else in the library calls it, which the link of geogram_bool checks: an undefined
+# symbol of libgeogram.so fails it)
 EXCLUDED=(
   '/src/lib/geogram/third_party/triangle/'
   '/src/lib/geogram/third_party/tetgen/'
   '/src/lib/geogram/delaunay/delaunay_triangle.*'
   '/src/lib/geogram/delaunay/delaunay_tetgen.*'
+  '/src/lib/geogram/mesh/mesh_tetrahedralize.cpp'
 )
 
 forbidden_paths() {   # prints every path below $1 that is Triangle or TetGen (case-insensitive)
@@ -56,7 +60,7 @@ echo "checkout: no Triangle or TetGen path"
 
 cmake -S "$src" -B "$work/geogram-build" -DCMAKE_BUILD_TYPE=Release -DVORPALINE_PLATFORM=Linux64-gcc-dynamic \
   -DGEOGRAM_LIB_ONLY=ON -DGEOGRAM_WITH_GRAPHICS=OFF -DGEOGRAM_WITH_TRIANGLE=OFF -DGEOGRAM_WITH_TETGEN=OFF \
-  -DGEOGRAM_WITH_LUA=OFF -DGEOGRAM_WITH_HLBFGS=OFF -DGEOGRAM_WITH_LEGACY_NUMERICS=OFF -DGEOGRAM_WITH_EXPLORAGRAM=OFF \
+  -DGEOGRAM_WITH_LUA=OFF -DGEOGRAM_WITH_HLBFGS=OFF -DGEOGRAM_WITH_LEGACY_NUMERICS=OFF \
   -DGEOGRAM_WITH_FPG=OFF -DGEOGRAM_WITH_TBB=OFF > "$work/geogram-cmake.log" || { tail -n 40 "$work/geogram-cmake.log"; exit 1; }
 cmake --build "$work/geogram-build" --target geogram -j "$(nproc)" > "$work/geogram-build.log" || { tail -n 60 "$work/geogram-build.log"; exit 1; }
 bad=$(forbidden_paths "$work/geogram-build")
@@ -70,7 +74,7 @@ echo "library: no Triangle or TetGen object or symbol ($(basename "$lib"))"
 
 libdir=$(dirname "$lib")
 g++ -O3 -DNDEBUG -std=c++17 -fopenmp -ffp-contract=off "$here/geogram_bool.cpp" -o "$work/geogram_bool" \
-  -I "$src/src/lib" -I "$work/geogram-build/src/lib" -L "$libdir" -Wl,-rpath,"$libdir" -lgeogram -lpthread -ldl
+  -I "$src/src/lib" -I "$work/geogram-build/src/lib" -L "$libdir" -Wl,-rpath,"$libdir" -Wl,--no-allow-shlib-undefined -lgeogram -lpthread -ldl
 ver=$(sed -n 's/^set(VORPALINE_VERSION_\(MAJOR\|MINOR\|PATCH\) \([0-9]*\))/\2/p' "$src/CMakeLists.txt" | paste -sd.)
 echo "geogram $ver commit $GEOGRAM_SHA, built with GEOGRAM_WITH_TRIANGLE=OFF GEOGRAM_WITH_TETGEN=OFF, threads $(nproc)" > "$work/geogram_version.txt"
 cat "$work/geogram_version.txt"
