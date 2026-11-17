@@ -29,7 +29,7 @@ class PilotTests(unittest.TestCase):
             corpus = Path(tmp) / 'corpus'
             self.assertEqual(run('write-seeds', str(corpus)).returncode, 0)
             seeds = sorted(corpus.iterdir())
-            self.assertEqual(len(seeds), 132)
+            self.assertEqual(len(seeds), 162)   # 27 operations x 6 shapes (the five Exact Boolean 3.0 targets added 30)
             before = {p.name: p.read_bytes() for p in seeds}
             # a directory that is not empty is refused and left as it is
             self.assertNotEqual(run('write-seeds', str(corpus)).returncode, 0)

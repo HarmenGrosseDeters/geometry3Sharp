@@ -33,7 +33,8 @@ public static partial class Program
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
         "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
-        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop" };
+        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop",
+        "nary", "determinism", "reuse", "open-antipodal", "rounding-equivalence" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -474,8 +475,20 @@ public static partial class Program
             RunMeshCut(c, what);
         } else if (c.Op == 20) {
             RunInsertPolygon(c, what);
-        } else {
+        } else if (c.Op == 21) {
             RunTrimLoop(c, what);
+        } else if (c.Op == 22) {
+            RunNary(c, what);
+        } else if (c.Op == 23) {
+            RunDeterminism(c, what);
+        } else if (c.Op == 24) {
+            RunReuse(c, what);
+        } else if (c.Op == 25) {
+            RunOpenAntipodal(c, what);
+        } else if (c.Op == 26) {
+            RunRoundingEquivalence(c, what);
+        } else {
+            throw new InvalidOperationException($"unknown operation {c.Op}");
         }
     }
 
