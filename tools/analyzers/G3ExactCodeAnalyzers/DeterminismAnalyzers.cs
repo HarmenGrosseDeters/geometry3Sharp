@@ -148,7 +148,7 @@ namespace G3ExactCodeAnalyzers
         /// a string concatenation (the text of exception messages and diagnostics) </summary>
         public static bool Countable(string pseudo)
         {
-            return pseudo == "construct:delegate-invocation" || pseudo == "construct:string-concatenation";
+            return pseudo == "construct:delegate-invocation" || pseudo == "construct:string-concatenation" || pseudo == "construct:interface-invocation";
         }
 
         static bool IsDocId(string id)
@@ -273,7 +273,7 @@ namespace G3ExactCodeAnalyzers
                 OperationKind.DynamicInvocation, OperationKind.DynamicMemberReference, OperationKind.DynamicObjectCreation,
                 OperationKind.DynamicIndexerAccess, OperationKind.Range, OperationKind.UsingDeclaration, OperationKind.RecursivePattern,
                 OperationKind.ListPattern, OperationKind.SlicePattern, OperationKind.TypeParameterObjectCreation,
-                OperationKind.FunctionPointerInvocation);
+                OperationKind.FunctionPointerInvocation, OperationKind.TupleBinary);
             ctx.RegisterOperationAction(c => OnFunction(c, s), OperationKind.LocalFunction, OperationKind.AnonymousFunction);
             ctx.RegisterOperationBlockStartAction(c => OnBlockStart(c, s));
             ctx.RegisterSemanticModelAction(c => OnModel(c, s));
@@ -306,6 +306,20 @@ namespace G3ExactCodeAnalyzers
                 return true;
             foreach (TextSpan t in TypeSpansOf(s, tree, types))
                 if (t.Contains(span.Start))
+                    return true;
+            return false;
+        }
+
+        /// <summary> a span of a scope file that touches the scope: inside it, or (for a directive block) overlapping one of the named types </summary>
+        static bool TouchesScope(State s, SyntaxTree tree, TextSpan span)
+        {
+            if (!InScope(s, tree))
+                return false;
+            List<DeterministicApiList.Registration> types;
+            if (!s.TypeScopes.TryGetValue(System.IO.Path.GetFileName(tree.FilePath), out types))
+                return true;
+            foreach (TextSpan t in TypeSpansOf(s, tree, types))
+                if (t.OverlapsWith(span) || t.Contains(span.Start))
                     return true;
             return false;
         }
@@ -410,6 +424,12 @@ namespace G3ExactCodeAnalyzers
                 // (the target is chosen at run time: what it computes is not visible here)
                 case IFunctionPointerInvocationOperation _: return "construct:function-pointer-call";
                 case IInvocationOperation di when di.TargetMethod.MethodKind == MethodKind.DelegateInvoke: return "construct:delegate-invocation";
+                // a call of a member of an interface declared in this assembly (a struct visitor of a generic method, say): the
+                // implementation is chosen by the caller and may lie outside the scope, so it is registered by count, like a delegate
+                case IInvocationOperation ii when ii.TargetMethod.ContainingType?.TypeKind == TypeKind.Interface
+                    && SymbolEqualityComparer.Default.Equals(ii.TargetMethod.ContainingAssembly, ii.SemanticModel?.Compilation.Assembly):
+                    return "construct:interface-invocation";
+                case ITupleBinaryOperation _: return "construct:tuple-equality";
                 case ISlicePatternOperation _: return "construct:slice-pattern";
                 case IBinaryOperation b when b.OperatorMethod == null && (b.OperatorKind == BinaryOperatorKind.Equals || b.OperatorKind == BinaryOperatorKind.NotEquals)
                     && b.LeftOperand.Type?.SpecialType == SpecialType.System_String && b.RightOperand.Type?.SpecialType == SpecialType.System_String:
@@ -621,7 +641,7 @@ namespace G3ExactCodeAnalyzers
                     DeterministicApiList.Registration cr = s.List.Find("construct", hid, g.Key);
                     if (cr != null)
                         s.UsedLines[cr.Line] = true;
-                    if (cr != null && g.Key == "construct:delegate-invocation" && !DeterminismScopeAnalyzer.FormReason.IsMatch(cr.Reason))
+                    if (cr != null && (g.Key == "construct:delegate-invocation" || g.Key == "construct:interface-invocation") && !DeterminismScopeAnalyzer.FormReason.IsMatch(cr.Reason))
                         ec.ReportDiagnostic(Diagnostic.Create(ApiRule, g.First().Value.Syntax.GetLocation(), Props(g.Key, hid, g.Count()),
                             g.Key + " in '" + hid + "': the line needs an argument form and its tests: 'P1' to 'P5', then '[Class.Test, ...]', then the reason"));
                     if (cr != null && cr.Count == g.Count())
@@ -716,7 +736,14 @@ namespace G3ExactCodeAnalyzers
                     continue;
                 // (the forbidden directives above are checked in the whole file, also outside the scope's types: a pragma
                 // or #define there reaches into them)
-                if (!InScopeAt(s, tree, new TextSpan(tr.SpanStart, 0)))
+                // (an #if ... #endif block that surrounds the type, its attributes or one of two versions of it is in the scope
+                // although its #if line lies before the type's span)
+                TextSpan block = new TextSpan(tr.SpanStart, 0);
+                if (tr.GetStructure() is DirectiveTriviaSyntax bd) {
+                    DirectiveTriviaSyntax lastd = bd.GetRelatedDirectives().LastOrDefault();
+                    if (lastd != null && lastd.Span.End > tr.SpanStart) block = TextSpan.FromBounds(tr.SpanStart, lastd.Span.End);
+                }
+                if (!TouchesScope(s, tree, block))
                     continue;
                 // by position, the same whatever the #if disables (the token that carries the trivia is not: it depends
                 // on the target framework): the innermost member whose span holds the directive; else, for an #if around

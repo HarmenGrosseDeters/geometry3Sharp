@@ -402,12 +402,12 @@ unused line (G3D0009). No line of `ExactMeshArrangement.cs` changed.
 | tag `[form]` on an entry: every site line (and every delegate-invocation line) must start with `P0` to `P5`, the tests in brackets, then the reason; `DeterminismScopeAnalyzerTests` checks that the tests exist | an entry names its argument form (section 4.3) and the tests that attack it. `P0` is not a form of 4.3: the source is a list or an array in index order, and the argument is its type |
 | tag `[assumed]` on an entry for a member of this assembly outside the scope: the signature is listed, the body is neither pinned nor analyzed | the calls of `ExactPlanarSimplify` and `ExactTriangulation2` into the rest of `ExactMeshArrangement` (`ComparePoints`, `Orient`, `InCircleFiltered`, the input triangles): pinning those bodies would fail the build at every change of the 3.0 work, and they are stage 2 obligations anyway (S2-1 to S2-5 below) |
 
-**How the rules R7 to R15 stand in these four pieces** (the 154 external members that the first build reported are on the list; the
+**How the rules R7 to R15 stand in these four pieces** (the 153 external members that the first build reported are on the list; the
 rest of this table is what the registrations argue):
 
 | rule | finding | discharge |
 |---|---|---|
-| R7 hash values | the containers of `SnapRounding2` are keyed by value tuples, whose hash is seeded per process on .NET; the other three use `int` and `long` keys (unseeded, `EdgeKeyComparer`). No `GetHashCode` call is in the scope (G3D0002) | a hash value only places an entry; every enumeration is registered (R8). Cross-process evidence: the harness cases `stage1.snaprounding.*` |
+| R7 hash values | the containers of `SnapRounding2` are keyed by value tuples, whose hash is seeded per process on .NET; `ExactTriangulation2` and `ExactPlanarSimplify` use `int` and `long` keys (unseeded, `EdgeKeyComparer`), except the `BigInteger`-tuple dictionaries `groups` and `planes` of `ExactPlanarSimplify`, which are seeded but only looked up (ids are handed out by `Count`). No `GetHashCode` call is in the scope (G3D0002) | a hash value only places an entry; every enumeration is registered (R8). Cross-process evidence: the harness cases `stage1.snaprounding.*` |
 | R8 enumeration | five members enumerate a hash container: `AddCrossings`, `IndexHot` and `Build` (`OrderBy` / `ThenBy` over unique tuple keys, a total order, **P3**), `Collapsed` and `ExactPlanarSimplify.fan` (an and-fold over the elements, **P2**) | `DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels` renumbers the points and reorders the segments (another insertion order into every container) and requires the same extra hot pixels, in the same order, and the same edges; the analyzer rejects a bare `source.Keys` (hand mutant: it fails the build with the unlisted `KeyCollection.GetEnumerator`), and the test fails on an `OrderBy` without its second key |
 | R9 clock, environment, `Random` | none in the four pieces, but one test hook: `TriangleBoxTree.permute_for_tests` uses `Random(seed)` when `PermutationSeedForTests` is not 0 (a static that only tests write) | registered as a test hook; `BoxTreeOrderTests` show that no result depends on the permutation it makes |
 | R11 sorts | `SnapRounding2.RouteAll` (`CompareMet`: entry, exit, then the pixel, a total order), `ExactPlanarSimplify.Run` (`ComparePoints`), `TriangleBoxTree` (`sort_codes`, `fix_ties`, `sort_codes_parallel`, `ranks`) | `CompareMet` was a lambda; it is now an `internal static` method with the same text (the one code change of the stage, output unchanged) so that `SnapRounding2_RouteOrder_IsATotalOrder` can test totality and sort-order invariance; the box tree sorts end in the order (code, box index) by `fix_ties`, `ranks` gives equal centres one rank (`BoxTreeParallelBuildTests`); `ComparePoints` is S2-1 |
@@ -415,8 +415,9 @@ rest of this table is what the registrations argue):
 | R13 ids | `TriangleBoxTree` uses box indices; `ExactTriangulation2` and `ExactPlanarSimplify` receive point ids, which the arrangement assigns in schedule order | no ordered use of an id in the three pieces (read: no `<`, `Min`, `Max` or sort on an id; the removal order is `ComparePoints`; `EdgeKey` puts the smaller id first but is a set key only; the flip queue keeps the direction of the triangle, not of the key). **P5** holds there by reading; attacked by `OrderAdversaryTests.ExactBoolean_*` and `ExactBooleanDeterminismTests`; the adversary of the ids themselves is stage 2 |
 | R14 state | 5 `[ThreadStatic]` fields of the box tree (a test counter, the traversal stacks and the pool of result lists) | registered with the argument that each is cleared or bounded before it is read (R14) |
 | R4 `Math.Min` / `Max` | 7 site lines | each registered: compared only, or operands that are never `-0` (`MaxDisplacement`, `segment_hits`) |
-| R5, R6 | 8 `double` to integer conversions in 6 members; one `#if NETSTANDARD2_0` block (a capacity hint) | `cast` and `if` lines with the guard; `ExactTriangulation2_CapacityHint_ChangesNothing` |
-| P4 delegates | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
+| R5, R6 | 6 `double` to integer conversions in 5 members (the ledger's 8 in 6 include 2 of stage 0); one `#if NETSTANDARD2_0` block (a capacity hint) | `cast` and `if` lines with the guard; `ExactTriangulation2_CapacityHint_ChangesNothing` |
+| P4 delegates and interface calls | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers, as delegates (`ActionVisitor`, `FuncVisitor`, `Query`) and through the struct visitors of its generic methods (`IIndexVisitor`, `IPairVisitor`: a call of a member of an interface declared in this assembly is a counted `construct:interface-invocation`, since its implementations, eg `ExactMeshBoolean.CrossVisit`, lie outside the scope) | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
+
 
 **Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 269 external members (91 of them geometry3Sharp members declared outside the scope: 82 pinned, 6 assumed as obligations of stage 2; 12 only on the `#if NET` side), 36 restricted to registered sites (81 sites, 46 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 37 conditional-compilation blocks in 31 members; 8 `double` to integer conversions in 6 member(s); 18 `[SkipLocalsInit]` members; 21 delegate calls in 10 members and 25 string concatenations in 4 members, registered; 1 file restricted to a named type.
 
@@ -425,13 +426,13 @@ compute functions of their arguments (and, for the first two, of the values of t
 below) alone: no result depends on the schedule, the process, a hash seed, the order of a hash container, the order of equal
 keys in a sort, the platform's libm or the clock, and the parallel build of the box tree equals the serial one node for node.
 Checked: the allow list, the registered sites, constructs, casts and `#if` block, and the test named in each site line.
-Assumed: T1 to T5; the reasons of the geometry3Sharp members outside the scope (82 pinned declarations); the six assumed stage 2
+Assumed: T1 to T5; the reasons of the geometry3Sharp members outside the scope (82 pinned declarations, and 3 implicit constructors that have no declaration to pin); the six assumed stage 2
 members (S2-1 `ComparePoints` is a total order on the distinct points of an arrangement, S2-2 `Orient` and S2-3 `InCircleFiltered`
 return the exact signs, S2-4 `InputTriangle.P` is the exact plane (lazily cached, the same value on every thread), S2-5 the input
 triangle lookups, S2-6 the callbacks that callers pass to the box tree queries compute what the caller's own argument says).
 
 **Open items.**
-- *O1, the text of `SnapRounding2.Diagnostics`.* The messages concatenate a `Vector2d`, a tuple of `long` or a `double` with the
+- *O1, the text of `SnapRounding2.Diagnostics`.* The messages (and the exception messages of `Restore`, which print a `Vector2d`) concatenate a `Vector2d`, a tuple of `long` or a `double` with the
   current culture, so a decimal separator or a minus sign follows the process's culture (the same input gives other text under
   `de-DE`). They are diagnostic by section 2 and registered as such; which lines are added is deterministic. Fixing the text (invariant
   formatting) changes the messages under non-invariant cultures only: an output change, so an owner decision.
@@ -444,6 +445,11 @@ triangle lookups, S2-6 the callbacks that callers pass to the box tree queries c
 - *O4, an equivalent mutant.* In `merge_runs` the index tie-break `o[j] < o[i]` can be removed without a test failing: the runs are
   ranges of box indices, so the left run holds the smaller ones. It stays as a guard; the order of the whole sort is attacked at
   `fix_ties` instead (removing it fails 8 of the 12 cases of `ParallelTree_SameAsSerialTree_NodeForNode`).
+- *O6, element equality inside generic containers.* `Dictionary`, `HashSet` and `List.Contains` call `Equals` and `GetHashCode` of the key or element
+  type, which the analyzer does not see (eg `List<(Vector2d, Vector2d)>.Contains` in `SnapRounding2.Build` runs `Vector2d.Equals`; the `Origin`
+  keys are `Vector2d` pairs, and on .NET Framework `double.GetHashCode` differs for -0 and +0 although they are equal; the keys are `long * w`,
+  never -0). Hashes only place entries; `Equals` of the used types is a field comparison. Also: `TypeScopes` is keyed by the file name (a second
+  scope file with the same name would be restricted too), and `[assumed]` is not tied to a stage 2 file; both are reviewed by the list diff.
 - *O5, runs on the other platforms.* The 12 harness cases `stage1.*` (`tools/DeterminismHarness/Stage1.cs`) are in the
   workflow `determinism.yml`, which runs every case; its first result for these cases (Windows, net48, arm64) is not part of this
   note. On linux x64, net10.0 locally: the parallel run equals the serial run and a second process (other hash seeds) on all 12, and

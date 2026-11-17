@@ -622,6 +622,38 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InterfaceCalls_OfTheAssembly_MustBeRegistered_WithTheirCountAndForm()
+        {
+            // a struct visitor of a generic method: the implementation is chosen by the caller and may lie outside the scope
+            string source = Usings + "interface IV { void Visit(int i); } static class C { static void M<T>(ref T v) where T : struct, IV { v.Visit(1); v.Visit(2); } }";
+            const string member = "M:C.M``1(``0@)";
+            Assert.Equal(2, Ids(Analyze(source, ""), DeterminismScopeAnalyzer.ApiId).Count(x => x == "construct:interface-invocation"));
+            Assert.Empty(Analyze(source, "construct " + member + " ; interface-invocation ; 2 ; P4 [T.M] the visitor is the caller's"));
+            Assert.NotEmpty(Analyze(source, "construct " + member + " ; interface-invocation ; 1 ; P4 [T.M] x"));
+            Assert.NotEmpty(Analyze(source, "construct " + member + " ; interface-invocation ; 2 ; the visitor is the caller's"));
+            // an interface of the framework is a listed member, not a construct
+            Assert.DoesNotContain("construct:interface-invocation", Ids(Analyze(Usings + "static class C { static void M(IDisposable d) { d.Dispose(); } }", ""), DeterminismScopeAnalyzer.ApiId));
+        }
+
+        [Fact]
+        public void TupleEquality_IsReported()
+        {
+            var d = Analyze(Usings + "static class C { static bool M(int a, int b) { return (a, b) == (b, a); } }", "");
+            Assert.Contains("construct:tuple-equality", Ids(d, DeterminismScopeAnalyzer.ApiId));
+        }
+
+        [Fact]
+        public void TypeScope_ConditionalBlocksAroundTheType_AreCounted()
+        {
+            // two versions of the type, chosen by #if: the block lies before the type's span, and is registered like any other
+            string source = Usings + "\n#if NET\nstatic class A { static int M() { return 1; } }\n#else\nstatic class A { static int M() { return 2; } }\n#endif\nstatic class B { }";
+            Assert.Contains(Analyze(source, "type Kernel.cs ; A"), x => x.Id == DeterminismScopeAnalyzer.ConditionalId);
+            // a block that touches only the other type is not
+            string other = Usings + "static class A { }\n#if NET\nstatic class B { }\n#endif";
+            Assert.DoesNotContain(Analyze(other, "type Kernel.cs ; A"), x => x.Id == DeterminismScopeAnalyzer.ConditionalId);
+        }
+
+        [Fact]
         public void StringConcatenations_MustBeRegistered_WithTheirCount()
         {
             string source = Usings + "static class C { static string M(int a) { string s = \"a\" + a; s += \"b\"; return s; } }";

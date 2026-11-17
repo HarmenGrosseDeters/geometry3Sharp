@@ -19,7 +19,7 @@ namespace geometry3Sharp.Tests
 
         static Vector2d Pt(int i, Random rnd) { return new Vector2d(rnd.Next(0, 64) / 8.0, rnd.Next(0, 64) / 8.0); }
 
-        static ConstrainedMesh2Input SnapInput(int seed, int n, int segments)
+        static ConstrainedMesh2Input SnapInput(int seed, int n, int segments, bool rings = false)
         {
             var rnd = new Random(seed);
             var input = new ConstrainedMesh2Input();
@@ -29,6 +29,20 @@ namespace geometry3Sharp.Tests
                 int a = rnd.Next(n), b = rnd.Next(n);
                 if (a != b)
                     input.Segments.Add(new Mesh2Segment(a, b));
+            }
+            if (rings) {
+                // rings (some collapse to a line at this tolerance), region rings and seeds, hole seeds and heights: the sites of
+                // Collapsed, Swept, ChainPoints and the heights part of Build
+                for (int r = 0; r < 4; ++r) {
+                    int a = rnd.Next(n), b = rnd.Next(n), c = rnd.Next(n);
+                    if (a != b && b != c && a != c) input.Rings.Add(new Mesh2Ring(new[] { a, b, c }, r % 2 == 1));
+                }
+                input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 0 }, false));
+                input.Regions.Add(Mesh2Region.ByRing(new[] { 0, 1, 2 }, 7));
+                input.Regions.Add(Mesh2Region.BySeed(Pt(0, rnd), 8));
+                input.HoleSeeds.Add(Pt(0, rnd));
+                input.Heights = new List<double>();
+                for (int i = 0; i < n; ++i) input.Heights.Add(i * 0.25);
             }
             return input;
         }
@@ -47,6 +61,15 @@ namespace geometry3Sharp.Tests
                 result.Points[map[i]] = input.Points[i];
             foreach (Mesh2Segment s in input.Segments.OrderBy(s => rnd.Next()))
                 result.Segments.Add(new Mesh2Segment(map[s.A], map[s.B]));
+            foreach (Mesh2Ring r in input.Rings.OrderBy(r => rnd.Next()))
+                result.Rings.Add(new Mesh2Ring(r.Vertices.Select(v => map[v]).ToArray(), r.Hole, r.Marker));
+            foreach (Mesh2Region g in input.Regions)
+                result.Regions.Add(g.Ring == null ? g : Mesh2Region.ByRing(g.Ring.Select(v => map[v]).ToArray(), g.Label, g.MaxArea));
+            result.HoleSeeds.AddRange(input.HoleSeeds);
+            if (input.Heights != null) {
+                result.Heights = new List<double>(new double[n]);
+                for (int i = 0; i < n; ++i) result.Heights[map[i]] = input.Heights[i];
+            }
             return result;
         }
 
@@ -65,10 +88,16 @@ namespace geometry3Sharp.Tests
         [InlineData(4, 40, 30)]
         [InlineData(5, 12, 20)]
         [InlineData(6, 60, 45)]
-        public void SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels(int seed, int n, int segments)
+        [InlineData(7, 24, 14, true)]
+        [InlineData(8, 40, 30, true)]
+        [InlineData(9, 60, 45, true)]
+        public void SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels(int seed, int n, int segments, bool rings = false)
         {
-            ConstrainedMesh2Input input = SnapInput(seed, n, segments);
+            ConstrainedMesh2Input input = SnapInput(seed, n, segments, rings);
             SnapRounding2 reference = SnapRounding2.Apply(input, 0.5);
+            // not vacuous: the input makes the snap do something (crossings, restore) so that the sites run
+            Assert.True(reference.Crossings + reference.Spread + reference.Widened + reference.ForcedSpread + reference.Result.Points.Count - reference.InputCount > 0);
+            if (rings) Assert.NotEmpty(reference.Result.Rings);
             // the hot pixels the snap added after the input points come in the order of their sorted pixels (the keys of a
             // dictionary, sorted by OrderBy), not in the order of the dictionary's enumeration, which is unspecified
             string[] extra = reference.Result.Points.Skip(reference.InputCount).Select(Bits).ToArray();
@@ -78,6 +107,8 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(extra, other.Result.Points.Skip(other.InputCount).Select(Bits).ToArray());
                 Assert.Equal(edges, other.Result.Segments.Select(e => EdgeKey(other, e)).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray());
                 Assert.Equal(reference.Crossings, other.Crossings);
+                Assert.Equal(reference.CollapsedRings, other.CollapsedRings);
+                Assert.Equal(reference.Result.Rings.Count, other.Result.Rings.Count);
             }
             // the same input again gives the same bits (no state left behind), also from two threads at once
             SnapRounding2 again = SnapRounding2.Apply(input, 0.5);
