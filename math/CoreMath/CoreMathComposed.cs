@@ -18,8 +18,9 @@ namespace g3.CoreMathPort
         /// root, then half an ulp of Atan2), and it is not monotone in the last ulp for |c| &lt; 1/2 (1 + c and 1 - c
         /// round at different arguments: 0.23144537602828275 and the next double give 1.3372331895174001 and
         /// 1.3372331895174003): do not use it where the order of two results of neighbouring arguments decides. The
-        /// correctly rounded CoreMath.Acos (a port from CORE-MATH) exists and is cheaper; the callers are not switched
-        /// because that changes output bits (a swap changed 12.4 % of 100000 test arguments, by one ulp each: CoreMathAcosTanTests).
+        /// correctly rounded CoreMath.Acos (a port from CORE-MATH) is cheaper and monotone; the terrain slope design switched to it
+        /// (owner 2026-11-17), so no library code calls this any more: it stays as the comparison of CoreMathAcosTanTests,
+        /// CoreMathComposedTests and CoreMathBenchmark.
         /// </summary>
         internal static double AcosByAtan2(double c)
         {

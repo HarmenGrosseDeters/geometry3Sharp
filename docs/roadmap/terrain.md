@@ -5,14 +5,16 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** slope construction and daylighting on TINs (open-pit mining): slope surface, overlay with the terrain,
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
-- **Status (2026-11-15):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). Done: slope construction
+- **Status (2026-11-17):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). **Terrain plan parked
+  (owner 2026-11-17): further terrain work (berms, GeoTIFF reader, showcase) later, no use case now.** Done: slope construction
   phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
   #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
   `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Close-out
   resumed 2026-11-12 (owner): the two safe-failure classes (#752), the proven tan bound (#757), the catch-line bound (#761),
-  ramps R1 (#841, with #861 fixed in #878), the facet bound per turn (#850, #808) and CoreMath in `TerrainSlope*` (#836,
-  #802) are merged. Open: the two `TerrainGreedyTIN` bugfixes (#855, #854; drafts #889, #890), sector polygons E1; the
-  rest waits for a use case or an owner decision.
+  ramps R1 (#841, with #861 fixed in #878), the facet bound per turn (#850, #808), CoreMath in `TerrainSlope*` (#836,
+  #802; `CoreMath.Acos` instead of the composed `AcosByAtan2`, #1066, merged 2026-11-17) and the two `TerrainGreedyTIN`
+  bugfixes (#855 by #889, #854 by #890, merged 2026-11-15) are merged. Nothing is scheduled: the sector polygons E1 are
+  parked (owner 2026-11-16), the rest waits for a use case or an owner decision.
 - **Related:** [design/TERRAIN.md](../design/TERRAIN.md) (§11 holds the follow-ups),
   [TERRAIN_1A_PLAN.md](../design/TERRAIN_1A_PLAN.md), [TERRAIN_1B_PLAN.md](../design/TERRAIN_1B_PLAN.md),
   [TERRAIN_1C_PLAN.md](../design/TERRAIN_1C_PLAN.md), [TERRAIN_ROUND_TO_GRID.md](../design/TERRAIN_ROUND_TO_GRID.md),
@@ -21,10 +23,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **`TerrainGreedyTIN` with `MaxError = 0` never ends (#855, bugfix):** `Compute()` runs out of memory for a height of
-  -2.87e-223 with the default `MaxVertices`. Fixed by #889 (merged 2026-11-15).
-- **`TerrainGreedyTIN.RemoveVertices` ear choice (#854, bugfix):** an absolute 1e-12 tolerance, so the result is not
-  invariant under 2^k scaling. Fixed by #890 (merged 2026-11-15).
+- **`TerrainGreedyTIN` bugfixes: done (merged 2026-11-15).** `MaxError = 0` never ended (#855, memory for a height of -2.87e-223
+  at the default `MaxVertices`; fixed by #889); the `RemoveVertices` ear choice used an absolute 1e-12 and was not invariant under 2^k
+  scaling (#854; fixed by #890). Both are in [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md).
 - **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
   #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
   designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:
@@ -36,11 +37,11 @@ Part of the [roadmap](../ROADMAP.md).
 - **Terrain Slope rows in the rotated / 1e-3 / utm frame (owner 2026-11-12): no library change.** A first-δ shortcut was
   approved, then withdrawn (the formula gives no fraction, so it would be a constant tuned on one design); TERRAIN.md 5.8.1
   states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
-  limit, #696, still open; two theories moved to Nightly in #706).
+  limit, #696, closed 2026-11-15, the extreme frame runs in Nightly; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
 distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). Still owner decisions: the slope-envelope construction,
-berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+3D blocks; berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): done (#752, merged 2026-11-13; resumed by
   the owner 2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
@@ -69,7 +70,8 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
   ε-approximation within the Tolerance budget). **Parked (owner 2026-11-16): E1, S1 and R2 are not built and no behaviour changes.**
   The E1 session found that the note's premises (`Modes`, a `NotImplemented` rejection, `CrossDesignInfluence`) are not in the code and
   that the work is 2-3 times 1b; findings and options A/B/C: [TERRAIN_SECTORS.md, status 2026-11-16](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
-- **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
+- **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today). **Later (owner
+  2026-11-17), not scheduled.**
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
   realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
@@ -88,10 +90,10 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
   re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
-- **GeoTIFF reader:** the owner decides (own implementation, or LibTiff.Net, BSD, in an optional package); XYZ ASCII and ESRI
-  ASCII Grid are in.
+- **GeoTIFF reader:** later (owner 2026-11-17), not scheduled. When it comes: own implementation, or LibTiff.Net (BSD) in an
+  optional package, the owner decides; XYZ ASCII and ESRI ASCII Grid are in.
 - **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): the 2D columns are done, the z-extent waits for a use case.
-- **Biomedical / orthotics** showcase: no work recorded.
+- **Biomedical / orthotics** showcase: no work recorded; showcase work is later (owner 2026-11-17).
 
 ### Closed in the close-out (2026-11-09 / 10)
 
@@ -106,13 +108,13 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
 #### Phase 4 items: showcase domain, slope construction, 2D spatial index
 
 - A showcase domain: terrain / GIS (closed out, owner 2026-11-09) and biomedical / orthotics
-  - [ ] Slope construction and daylighting on TINs (open-pit mining; design in
+  - [x] Slope construction and daylighting on TINs (open-pit mining; design in
     [design/TERRAIN.md](../design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per
     triangle), catch line with the terrain, cut / fill volumes. Phase 1 in three PRs, each usable and tested on its
     own: **1a** the slope surface from the cone envelope plus the "never steeper" verification oracle (usable on its
-    own to check existing results); **1b** the overlay with the terrain and the connected catch line; **1c**
-    volumes, failure kinds, accuracy reporting, km-scale benchmarks. Berms after phase 1. Priority: before the
-    planned remesher work; starts after the `ExactMeshBoolean` work that is being scoped now.
+    own to check existing results); **1b** the overlay with the terrain and the connected catch line (#285); **1c**
+    volumes, failure kinds, accuracy reporting, km-scale benchmarks (#297, #314). Phase 1 done (#357, 2026-11-03), closed out
+    2026-11-09; berms later (owner 2026-11-17).
   - [x] 2D spatial index: a loose quadtree over AABBs (TIN triangles, edges, points) with insert / remove, height
     queries and nearest-neighbour queries, complementing the existing hash grids. Clean-room from the behavioural
     spec [design/QUADTREE2D_SPEC.md](../design/QUADTREE2D_SPEC.md) (owner decisions in its §7) and the literature only;
@@ -184,10 +186,20 @@ Plan fact-checked on 2026-10-30 (see [platform.md](platform.md#plans-fact-checke
 
 ### Open for the future (2026-11-15)
 
-Done and removed from this list: #855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15:
-the extreme frame runs in Nightly; its cost is correct behaviour), terrain mutation survivors (#908).
+Status 2026-11-17 (the heading keeps its date: ROADMAP.md links to it).
+
+Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, showcase) later. Done and removed from this list:
+#855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15: the extreme frame runs in Nightly; its cost
+is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
 1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
-2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), berms and
-   inter-ramp checks, the GeoTIFF reader, 3D blocks.
+2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks. Berms and
+   inter-ramp checks and the GeoTIFF reader: later (owner 2026-11-17).
 3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
+4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes): (1) `TerrainSafety`'s
+   segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
+   `TerrainVolumeDifference`'s height check (`DMeshAABBTree3`) to `TriangleQuadtree2d`. First step when terrain resumes: an
+   upper-bound measurement on procedural inputs, including a long-segment worst case; a PR only above the 10 % bar. Not now:
+   `Arrangement2d.find_intersecting_edges` (linear scan, TODO; no internal caller) and the bin grid of `MeshInsertUVPolyCurve` (minor).
+5. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 are being fixed in #1077 (open, with the
+   `rounding-4` and `rounding-7` ones; Exact Boolean 3.0 gate).

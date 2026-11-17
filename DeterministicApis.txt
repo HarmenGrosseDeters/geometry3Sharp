@@ -1,18 +1,23 @@
-// The allow list of the determinism proof scope, stage 0: the exact kernel (docs/design/DETERMINISM_PROOF.md section 6.1,
-// issue 859). Read by the analyzers G3D0001-9 (tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs) for the files
+// The allow list of the determinism proof scope, stages 0 and 1: the exact kernel and the exact building blocks (docs/design/DETERMINISM_PROOF.md
+// sections 6.1 and 5.4, issue 859). Read by the analyzers G3D0001-9 (tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs) for the files
 // that .editorconfig names. Every member of another assembly that the kernel uses is listed with the reason why its result
 // is specified on every runtime (assumptions T1 to T3 of the note, section 4.1); the build fails on an unlisted member and
 // on an entry the kernel no longer uses (G3D0009), so the list is exactly the kernel's external surface.
-// Every change of this file also changes the generated ledger line in docs/design/DETERMINISM_PROOF.md section 5.2
+// Every change of this file also changes the generated ledger line in docs/design/DETERMINISM_PROOF.md section 5.4
 // (DeterminismScopeAnalyzerTests.DesignNote_StatesTheGeneratedLedger prints the line to paste).
 //
 //   <doc id> ; [tags] reason                    tags: [NET] used only on one side of an #if NET block;
 //                                               [sites] every member that uses it has a site line; [hash] only inside a GetHashCode
+//                                               [form] the reason of each site line starts "P<0-5> [Class.Test, ...] why" (the argument form
+//                                               of DETERMINISM_PROOF.md 4.3 and the tests that attack it; P0: an ordered source)
 //                                               [body:h] the reviewed declaration of a geometry3Sharp member (required for them)
+//                                               [assumed] instead of [body:h]: an obligation of a later stage (stage 1: ExactMeshArrangement)
 //   site <api> @ <member> ; why                 a member allowed to use a [sites] entry
 //   if <member> ; n ; test ; why                the n #if / #elif blocks of a member, and the test that checks their branches
 //   cast <member> ; n ; guard                   the n conversions of a double to an integer type in a member, and their guard
 //   skiplocalsinit <member> ; argument          a [SkipLocalsInit] member: every element is written before it is read
+//   construct <member> ; <pseudo> ; n ; why     the n delegate calls or calls of an interface of this assembly (P<n> [tests] why) or string concatenations of a member
+//   type <file name> ; <type name>              the scope is only that type of the file (stage 1: TriangleBoxTree in ExactMeshArrangement.cs)
 
 // ---- constants (IEEE 754 binary64 and two's complement values, fixed by the standards) ----
 F:System.Double.Epsilon ; constant 2^-1074
@@ -225,3 +230,252 @@ skiplocalsinit M:g3.ExactLimbSigns.InCircle(g3.ExactPoint3,g3.ExactPoint3,g3.Exa
 skiplocalsinit M:g3.DoublePredicates.Orient2d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated (tools/PredicateCompiler, the monomial pass): load writes m[i] and e[i] of every input before a monomial reads them; the accumulators p and q are zeroed by the loop that follows their stackalloc, and add2 / compare read only those limbs; checked by SkipLocalsInitKernelTests
 skiplocalsinit M:g3.DoublePredicates.Orient3d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add3)
 skiplocalsinit M:g3.DoublePredicates.InCircle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add4)
+
+// ---- stage 1: BCL members (the exact building blocks: ExactTriangulation2, ExactPlanarSimplify, SnapRounding2, TriangleBoxTree) ----
+F:System.ValueTuple`2.Item1 ; a field of a ValueTuple: stored value, exact
+F:System.ValueTuple`2.Item2 ; a field of a ValueTuple: stored value, exact
+M:System.Action`1.Invoke(`0) ; a delegate call: its callee is chosen by the caller of the member; each member that calls one is registered by count (construct line)
+M:System.Action`2.Invoke(`0,`1) ; a delegate call: its callee is chosen by the caller of the member; each member that calls one is registered by count (construct line)
+M:System.Array.Clone ; array operation, exact
+M:System.Array.Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32) ; array operation, exact
+M:System.Array.IndexOf``1(``0[],``0) ; array operation, exact
+M:System.Array.Sort``1(``0[],System.Int32,System.Int32) ; [sites][form] unstable sort (order of equal keys differs between runtimes: R11)
+M:System.Array.Sort``2(``0[],``1[]) ; [sites][form] unstable sort (order of equal keys differs between runtimes: R11)
+M:System.Array.Sort``2(``0[],``1[],System.Int32,System.Int32) ; [sites][form] unstable sort (order of equal keys differs between runtimes: R11)
+M:System.Collections.Generic.Dictionary`2.#ctor ; container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.Dictionary`2.#ctor(System.Int32) ; container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.Dictionary`2.#ctor(System.Int32,System.Collections.Generic.IEqualityComparer{`0}) ; container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.Dictionary`2.Add(`0,`1) ; lookup, insert and remove by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.Dictionary`2.ContainsKey(`0) ; lookup, insert and remove by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.Dictionary`2.Remove(`0) ; lookup, insert and remove by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.HashSet`1.#ctor ; container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.HashSet`1.#ctor(System.Collections.Generic.IEqualityComparer{`0}) ; container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.HashSet`1.#ctor(System.Int32) ; [NET] container construction; capacity and comparer change no result (a comparer is registered where it is passed)
+M:System.Collections.Generic.HashSet`1.Add(`0) ; membership by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.HashSet`1.Contains(`0) ; membership by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.HashSet`1.Enumerator.MoveNext ; [sites][form] enumerates a hash container (as GetEnumerator)
+M:System.Collections.Generic.HashSet`1.GetEnumerator ; [sites][form] enumerates a hash container: the order is unspecified (insertion order until a removal, not promised: R8)
+M:System.Collections.Generic.HashSet`1.Remove(`0) ; membership by key: the answer is a function of the keys stored (the hash only places the entry)
+M:System.Collections.Generic.IEnumerable`1.GetEnumerator ; [sites][form] enumerates a sequence whose static type hides what it is (a hash container, an ordered query, an iterator): each member that does it is registered with the argument for its sequences (R8)
+M:System.Collections.Generic.List`1.#ctor(System.Collections.Generic.IEnumerable{`0}) ; [sites][form] copies a sequence in its enumeration order (a hash container as the argument is a registered enumeration at the call site, R8)
+M:System.Collections.Generic.List`1.#ctor(System.Int32) ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.Clear ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.Contains(`0) ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.Enumerator.MoveNext ; enumerates a list: its elements in index order, a function of the list
+M:System.Collections.Generic.List`1.GetEnumerator ; enumerates a list: its elements in index order, a function of the list
+M:System.Collections.Generic.List`1.Remove(`0) ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.RemoveAt(System.Int32) ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.Reverse ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.List`1.Sort(System.Comparison{`0}) ; [sites][form] unstable sort (order of equal elements differs between runtimes: R11)
+M:System.Collections.Generic.List`1.ToArray ; list operation, in index order and exact: the result is a function of the list
+M:System.Collections.Generic.Queue`1.#ctor ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Queue`1.#ctor(System.Collections.Generic.IEnumerable{`0}) ; [sites][form] copies a sequence in its enumeration order (a hash container as the argument is a registered enumeration at the call site, R8)
+M:System.Collections.Generic.Queue`1.Clear ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Queue`1.Dequeue ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Queue`1.Enqueue(`0) ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Queue`1.Enumerator.MoveNext ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Queue`1.GetEnumerator ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Stack`1.#ctor ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Stack`1.#ctor(System.Int32) ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Stack`1.Clear ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Stack`1.Pop ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.Generic.Stack`1.Push(`0) ; FIFO / LIFO container: the order is that of the (sequential) calls
+M:System.Collections.IEnumerator.MoveNext ; steps an enumerator of a sequence (as IEnumerable.GetEnumerator, which is registered)
+M:System.Double.CompareTo(System.Double) ; total order of doubles (NaN first, -0 equal to +0): a value comparison, exact
+M:System.Func`3.Invoke(`0,`1) ; a delegate call: its callee is chosen by the caller of the member; each member that calls one is registered by count (construct line)
+M:System.Func`4.Invoke(`0,`1,`2) ; a delegate call: its callee is chosen by the caller of the member; each member that calls one is registered by count (construct line)
+M:System.Func`5.Invoke(`0,`1,`2,`3) ; a delegate call: its callee is chosen by the caller of the member; each member that calls one is registered by count (construct line)
+M:System.IDisposable.Dispose ; releases an enumerator or a using resource: no value
+M:System.Int64.CompareTo(System.Int64) ; integer comparison, exact
+M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Distinct``1(System.Collections.Generic.IEnumerable{``0}) ; [sites][form] removes duplicates; in practice in the order of first occurrence, which the documentation does not promise (R8): only counts or sets are taken from it
+M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) ; [sites][form] stable sort by key (LINQ documents a stable ordering): equal keys keep the order of the source, which is the enumeration order of the source (R8, R11)
+M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1}) ; [sites][form] stable sort by key (LINQ documents a stable ordering): equal keys keep the order of the source, which is the enumeration order of the source (R8, R11)
+M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) ; [sites][form] LINQ operator over a sequence in its enumeration order: the result is a function of the sequence (a sequence from a hash container is a registered enumeration, R8); Min / Max / Count / Any / All are folds of exact values (P2)
+M:System.Math.Abs(System.Int64) ; integer abs / min / max, exact (Abs(long.MinValue) throws on both runtimes)
+M:System.Math.Floor(System.Double) ; IEEE 754 roundToIntegralTowardNegative: exact, the same on every runtime
+M:System.Math.Max(System.Int64,System.Int64) ; integer abs / min / max, exact (Abs(long.MinValue) throws on both runtimes)
+M:System.Math.Min(System.Int64,System.Int64) ; integer abs / min / max, exact (Abs(long.MinValue) throws on both runtimes)
+M:System.Math.Round(System.Double) ; round half to even (the default of .NET Core 3.0 and later and of .NET Framework): exact, the same on every runtime
+M:System.Numerics.BigInteger.Max(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer min / max, exact
+M:System.Numerics.BigInteger.Min(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer min / max, exact
+M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Int64 ; conversion that throws OverflowException when out of range, on both runtimes (never a wrapped value)
+M:System.Numerics.BigInteger.op_GreaterThan(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer comparison, exact
+M:System.Numerics.BigInteger.op_GreaterThanOrEqual(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer comparison, exact
+M:System.Numerics.BigInteger.op_LessThan(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer comparison, exact
+M:System.Numerics.BigInteger.op_LessThanOrEqual(System.Numerics.BigInteger,System.Numerics.BigInteger) ; integer comparison, exact
+M:System.Random.#ctor(System.Int32) ; [sites] the sequence of a seeded Random is reserved to change between versions (R10): used by a test hook only, off in production
+M:System.Random.Next(System.Int32) ; [sites] as Random(int): test hook only
+M:System.Threading.CancellationToken.ThrowIfCancellationRequested ; cancellation only throws: a cancelled run has no result (outside the claim, section 2)
+M:System.ValueTuple`2.#ctor(`0,`1) ; a tuple literal: stores its elements, no computation
+M:System.ValueTuple`2.Equals(System.ValueTuple{`0,`1}) ; element-wise equality of long / int / BigInteger components (exact); no hash involved
+M:System.ValueTuple`3.#ctor(`0,`1,`2) ; a tuple literal: stores its elements, no computation
+M:System.ValueTuple`4.#ctor(`0,`1,`2,`3) ; a tuple literal: stores its elements, no computation
+P:System.Collections.Generic.Dictionary`2.Count ; the number of entries, exact
+P:System.Collections.Generic.Dictionary`2.Keys ; [sites][form] the keys or values of a dictionary, in the unspecified enumeration order of a hash container (R8)
+P:System.Collections.Generic.Dictionary`2.Values ; [sites][form] the keys or values of a dictionary, in the unspecified enumeration order of a hash container (R8)
+P:System.Collections.Generic.HashSet`1.Count ; the number of entries, exact
+P:System.Collections.Generic.HashSet`1.Enumerator.Current ; [sites][form] enumerates a hash container (as GetEnumerator)
+P:System.Collections.Generic.IEnumerator`1.Current ; the element of an enumerator of a sequence (as IEnumerable.GetEnumerator, which is registered)
+P:System.Collections.Generic.IReadOnlyCollection`1.Count ; read of a collection by index or count, exact
+P:System.Collections.Generic.IReadOnlyList`1.Item(System.Int32) ; read of a collection by index or count, exact
+P:System.Collections.Generic.List`1.Capacity ; the capacity of a list: read only to decide whether a pooled list is kept (TriangleBoxTree.Query), which changes allocation, not a value
+P:System.Collections.Generic.List`1.Enumerator.Current ; the element of a list enumerator, in index order
+P:System.Collections.Generic.Queue`1.Count ; FIFO / LIFO container: the order is that of the (sequential) calls
+P:System.Collections.Generic.Queue`1.Enumerator.Current ; FIFO / LIFO container: the order is that of the (sequential) calls
+P:System.Collections.Generic.Stack`1.Count ; FIFO / LIFO container: the order is that of the (sequential) calls
+
+// ---- stage 1: members of geometry3Sharp declared outside the scope (pinned declarations) ----
+F:g3.AxisAlignedBox3d.Min ; [body:f138936301d45395] a field: storage
+F:g3.AxisAlignedBox3d.Max ; [body:acbf4b62db4724ff] a field: storage
+F:g3.AxisAlignedBox3d.Empty ; [body:58ad66c5058a84e1] constant: the inverted box (Min = double.MaxValue, Max = double.MinValue), which Contain turns into the union
+M:g3.AxisAlignedBox3d.#ctor(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; [body:8f4c20baf60a766e] stores the six values as given
+P:g3.AxisAlignedBox3d.Center ; [body:b457c47be161ccfe] 0.5 * (Min + Max) per axis: one rounding of the sum, the scaling by 0.5 is exact (T1)
+P:g3.AxisAlignedBox3d.Diagonal ; [body:9016dfea72990ad4] Max - Min per axis, one rounding each (T1)
+M:g3.AxisAlignedBox3d.Contain(g3.Vector3d) ; [body:0632d93546810aff] per axis MathUtil.MinExact / MaxExact (the sign of a zero is fixed, issue 803): the box of the union, a function of the operands
+M:g3.AxisAlignedBox3d.Contain(g3.AxisAlignedBox3d) ; [body:5627a56bb656cf8b] per axis MathUtil.MinExact / MaxExact, as Contain(Vector3d)
+M:g3.MathUtil.MinExact(System.Double,System.Double) ; [body:a58e5b28d0e80400] the smaller value; -0 if either of two zeros is -0, NaN if either is NaN: one result on every runtime (issue 803, probe.minmax-zero)
+M:g3.MathUtil.MaxExact(System.Double,System.Double) ; [body:774d0603914c48c1] the larger value; +0 if either of two zeros is +0, NaN if either is NaN: one result on every runtime
+F:g3.Index2i.a ; [body:becce43a54f402c7] a field: storage
+F:g3.Index2i.b ; [body:bec95c3a54f0e5d8] a field: storage
+M:g3.Index2i.#ctor(System.Int32,System.Int32) ; [body:ab6fe2ba773ac185] stores the two values
+F:g3.ConstrainedMesh2Input.Points ; [body:fdb3384200887cf6] a field: storage (the input of the mesher, read in index order)
+F:g3.ConstrainedMesh2Input.Segments ; [body:ce98a834e51ff22f] a field: storage
+F:g3.ConstrainedMesh2Input.Rings ; [body:b7bc6b65b8752e7e] a field: storage
+F:g3.ConstrainedMesh2Input.HoleSeeds ; [body:9c630e4be4a5b223] a field: storage
+F:g3.ConstrainedMesh2Input.Regions ; [body:106a82f4cd5cc66c] a field: storage
+F:g3.ConstrainedMesh2Input.Heights ; [body:ad3feddb0024665e] a field: storage
+M:g3.ConstrainedMesh2Input.#ctor ; empty lists (an implicit constructor: the list initializers are the pinned field declarations)
+F:g3.Mesh2Segment.A ; [body:ace84a41e662e129] a field: storage
+F:g3.Mesh2Segment.B ; [body:ace84a41e662e129] a field: storage
+F:g3.Mesh2Segment.Marker ; [body:0a021a69d2a258ce] a field: storage
+F:g3.Mesh2Segment.Locked ; [body:f9499bc5db281f87] a field: storage
+M:g3.Mesh2Segment.#ctor(System.Int32,System.Int32,System.Int32,System.Boolean) ; [body:6e05f290d25975be] stores the four values
+F:g3.Mesh2Ring.Vertices ; [body:9e96f720f75f7c1d] a field: storage
+F:g3.Mesh2Ring.Hole ; [body:ebb7dcdc11605df3] a field: storage
+F:g3.Mesh2Ring.Marker ; [body:0a021a69d2a258ce] a field: storage
+M:g3.Mesh2Ring.#ctor(System.Int32[],System.Boolean,System.Int32) ; [body:efa26a40e71aa31e] stores the three values
+F:g3.Mesh2Region.Ring ; [body:ed5641f3d6023162] a field: storage
+F:g3.Mesh2Region.Seed ; [body:01cf9be0039fbfc7] a field: storage
+F:g3.Mesh2Region.Label ; [body:b8d9786ba248d190] a field: storage
+F:g3.Mesh2Region.MaxArea ; [body:6427d068b864cbca] a field: storage
+M:g3.Mesh2Region.ByRing(System.Int32[],System.Int32,System.Nullable{System.Double}) ; [body:b2a230edf3e30c0a] a region with the three values
+M:g3.gParallel.ForRange(System.Int32,System.Action{System.Int32}) ; [sites][form][body:b7edc979518d0929] runs body(i) once for every i in [0, count), on any thread in any order (Parallel.For; serially in a test order under SerialOnThisThread); a body exception is rethrown as it is. A caller is registered with the argument form of its body (P1 to P5) and the tests that attack it
+// ---- stage 1: members of ExactMeshArrangement (a stage 2 file) that the scope calls ----
+F:g3.ExactMeshArrangement.Plane.A ; [body:d8beb15587b3c729] a field: storage (an exact plane coefficient)
+F:g3.ExactMeshArrangement.Plane.B ; [body:d8beb15587b3c729] a field: storage
+F:g3.ExactMeshArrangement.Plane.C ; [body:d8beb15587b3c729] a field: storage
+F:g3.ExactMeshArrangement.Plane.D ; [body:d8beb15587b3c729] a field: storage
+P:g3.ExactMeshArrangement.InputTriangle.P ; [assumed] the exact plane of an input triangle, computed on first use and cached (the same value on any thread: P4; a benign race); stage 2 obligation S2-4: not analyzed here
+F:g3.ExactMeshArrangement.Triangles ; [assumed] the input triangles of the arrangement, in the order the caller gave (storage); stage 2 obligation S2-5: not analyzed here
+P:g3.ExactMeshArrangement.TriangleList.Item(System.Int32) ; [assumed] the input triangle by index (a lookup); stage 2 obligation S2-5: not analyzed here
+M:g3.ExactMeshArrangement.EdgeKey(System.Int32,System.Int32) ; [body:05de47449ac398ec] the undirected edge as one long (smaller id in the high half): integer arithmetic, exact
+F:g3.EdgeKeyComparer.Instance ; [body:051377b5e431d174] the comparer of long edge keys: Equals is ==, GetHashCode a fixed integer mix (no seed); used only for lookup, whatever the hash values the order of a Dictionary or HashSet does not depend on them (5.1, R8)
+M:g3.ExactMeshArrangement.ComparePoints(System.Int32,System.Int32) ; [assumed] the order of two arrangement points by their exact coordinates (a total order on content: P4); stage 2 obligation S2-1: it is not analyzed here, its point cache and ids are the stage 2 P5 obligations
+M:g3.ExactMeshArrangement.Orient(g3.ExactMeshArrangement.InputTriangle,System.Int32,System.Int32,System.Int32) ; [assumed] the exact orientation sign of three points in the plane of an input triangle (P4: defined by the points); stage 2 obligation S2-2: not analyzed here
+M:g3.ExactMeshArrangement.InCircleFiltered(g3.ExactMeshArrangement.InputTriangle,System.Int32,System.Int32,System.Int32,System.Int32) ; [assumed] the exact incircle sign of four points in the plane of an input triangle, a double filter first and the exact test where the filter cannot decide (P4: defined by the points); stage 2 obligation S2-3: not analyzed here
+
+M:g3.AxisAlignedBox3d.#ctor(System.Boolean) ; [body:140fb276f2d143aa] the inverted box Empty: Min = double.MaxValue, Max = double.MinValue per axis
+M:g3.EdgeKeyComparer.#ctor ; the implicit constructor of the comparer (no state)
+M:g3.Mesh2Region.#ctor ; the implicit constructor of a region (its fields are the pinned declarations)
+F:g3.gParallel.SerialOnThisThread ; [body:eaf1dc040e645b08] a test hook (ThreadStatic, false unless a test sets it): serial execution of ForRange in a test order; the production path is Parallel.For
+M:g3.gParallel.serial_order(System.Int32) ; [body:22eda4689f60a116] the order of the items under SerialOnThisThread (a test hook: seed 0 gives the order as it is, the production path never reaches it)
+
+F:g3.gParallel.serialOrderSeed ; [body:72b0f1fbbe5019a4] a test hook (ThreadStatic, 0 unless a test sets it): the seed of the test order under SerialOnThisThread
+F:g3.gParallel.serialOrderState ; [body:6ccc067e82eef6e8] a test hook (ThreadStatic): the SplitMix64 state of the test order under SerialOnThisThread
+
+// ---- stage 1: sites, constructs, casts and conditional compilation of the exact building blocks ----
+// site lines of [form] entries: 'P<n> [tests] why' (the argument form of docs/design/DETERMINISM_PROOF.md 4.3 and the tests that attack it)
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.TriangleBoxTree.ParallelBuildsOnThisThread ; a counter for tests (parallel builds started on this thread); nothing reads it for a result
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.TriangleBoxTree.queryDepth ; the nesting depth of Query(box, Action) on this thread, restored in finally: indexes the pool above (R14)
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.TriangleBoxTree.queryLists ; per-thread pool of result lists of Query(box, Action), one per nesting depth: each list is cleared before it is filled (R14); a list that grew large is dropped (List.Capacity decides that, performance only)
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.TriangleBoxTree.queryStack ; per-thread traversal stack of Query and Any: entries are written before the top index passes them and read only below it (R14); Query(box, Action) finishes its traversal before it calls f, so no callback sees the stack in use
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.TriangleBoxTree.segmentStack ; per-thread reuse of the traversal stack of QuerySegment: set to null while a query uses it (a nested query gets its own) and cleared before it is read (R14); the query is a function of the tree and its arguments
+site M:System.Collections.Generic.List`1.#ctor(System.Collections.Generic.IEnumerable{`0}) @ M:g3.ExactPlanarSimplify.#ctor(g3.ExactMeshArrangement,System.Collections.Generic.List{g3.Index3i},System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{System.Boolean}) ; P0 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical] copies the List of triangles it was given, in index order
+site M:System.Collections.Generic.List`1.Sort(System.Comparison{`0}) @ M:g3.ExactPlanarSimplify.Run(System.Boolean[]) ; P3 [ExactBooleanDeterminismTests.SerialEqualsParallel_BitIdentical, OrderAdversaryTests.ExactBoolean_CoplanarBoxes_AnyLoopOrder_BitIdentical] candidates (point ids) sorted by ExactPlanarSimplify's arr.ComparePoints, a total order on the exact points that is 0 only for equal points (stage 2 obligation S2-1); the points of one arrangement are distinct (merge_points), so the order is unique and does not depend on the ids, which are schedule-assigned (P5)
+site M:System.Collections.Generic.Queue`1.#ctor(System.Collections.Generic.IEnumerable{`0}) @ M:g3.ExactPlanarSimplify.delaunay(System.Collections.Generic.List{System.Int64}) ; P0 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical] copies a List of directed edges in index order
+site M:System.Collections.Generic.List`1.#ctor(System.Collections.Generic.IEnumerable{`0}) @ M:g3.ExactPlanarSimplify.ear_clip(System.Int32,System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{g3.Index3i}) ; P0 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical] copies a List of ring vertices in index order
+site M:System.Collections.Generic.HashSet`1.Enumerator.MoveNext @ M:g3.ExactPlanarSimplify.fan(System.Int32) ; P2 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical, OrderAdversaryTests.ExactBoolean_CoplanarBoxes_AnyLoopOrder_BitIdentical] the loop over the set of link ends only tests that each end is a key of next and returns null otherwise: an and-fold over the elements, whose value does not depend on the order
+site M:System.Collections.Generic.HashSet`1.GetEnumerator @ M:g3.ExactPlanarSimplify.fan(System.Int32) ; P2 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical, OrderAdversaryTests.ExactBoolean_CoplanarBoxes_AnyLoopOrder_BitIdentical] the loop over the set of link ends only tests that each end is a key of next and returns null otherwise: an and-fold over the elements, whose value does not depend on the order
+site P:System.Collections.Generic.HashSet`1.Enumerator.Current @ M:g3.ExactPlanarSimplify.fan(System.Int32) ; P2 [ExactBooleanDeterminismTests.CoplanarBoxes_RepeatedRuns_BitIdentical, OrderAdversaryTests.ExactBoolean_CoplanarBoxes_AnyLoopOrder_BitIdentical] the loop over the set of link ends only tests that each end is a key of next and returns null otherwise: an and-fold over the elements, whose value does not depend on the order
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.SnapGrid.CrossesInteriorFilter(g3.Vector2d,g3.Vector2d,System.Int64,System.Int64) ; compared only (ax < x0, ax == x0): a signed zero is equal to the other; the filter answers -1 or 1 only where its bound proves it, else 0 and the exact test runs (SnapGridPixelFilterTests.CrossesInteriorFilter_AgreesWithTheExactTest)
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.SnapGrid.CrossesInteriorFilter(g3.Vector2d,g3.Vector2d,System.Int64,System.Int64) ; compared only, as Math.Max here
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.AddCrossings ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequences are the ordered keys of byBucket (OrderBy, a total order) and Buckets(), whose pixels come from arithmetic in a fixed order (its HashSet only drops repeats)
+site M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.AddCrossings ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] sorts the unique keys of byBucket by (Item1, Item2): a total order
+site M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.AddCrossings ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] second key of the total order of OrderBy here
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.SnapRounding2.AddCrossings ; a box test of two segments: compared only (<): equal zeros compare equal; a pair that passes is re-tested exactly (Orient)
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.SnapRounding2.AddCrossings ; compared only, as Math.Max here
+site P:System.Collections.Generic.Dictionary`2.Keys @ M:g3.SnapRounding2.AddCrossings ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the keys of byBucket are unique tuples: the OrderBy on (Item1, Item2) is a total order on them, whatever the enumeration order of the dictionary
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.Build ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequences are lists in index order and the keys of source sorted by OrderBy, a total order
+site M:System.Collections.Generic.List`1.#ctor(System.Collections.Generic.IEnumerable{`0}) @ M:g3.SnapRounding2.Build ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] copies the List of heights, in index order
+site M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) @ M:g3.SnapRounding2.Build ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] an or-fold over a list of rings
+site M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Build ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the number of distinct elements: independent of their order
+site M:System.Linq.Enumerable.Distinct``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Build ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] only the number of its elements is taken (Distinct().Count()), which does not depend on the order of the sequence
+site M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.Build ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] sorts the unique keys of source by (Item2, Item1): a total order; the extra hot pixels are appended to the points in this order
+site M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.Build ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] maps a list in index order
+site M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.Build ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] second key of the total order of OrderBy here
+site M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Build ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] materializes a list in the order of its source (a list)
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.SnapRounding2.Build ; MaxDisplacement = max(MaxDisplacement, max(|dx|, |dy|)): operands are Math.Abs values or the initial +0, never -0, and NaN agrees on both runtimes; the result is a documented measure (at most half a pixel per axis)
+site P:System.Collections.Generic.Dictionary`2.Keys @ M:g3.SnapRounding2.Build ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the keys of source are unique tuples: OrderBy (Item2, Item1) is a total order on them, whatever the enumeration order of the dictionary
+site M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.ChainPoints(System.Int32,System.Int32) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] maps a chain (a list) in index order
+site M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.ChainPoints(System.Int32,System.Int32) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] materializes a list in the order of its source (a list)
+site M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) @ M:g3.SnapRounding2.Collapsed(System.Collections.Generic.List{System.Int32}) ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] an and-fold over the counts, independent of the order
+site P:System.Collections.Generic.Dictionary`2.Values @ M:g3.SnapRounding2.Collapsed(System.Collections.Generic.List{System.Int32}) ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] count.Values.All(c => c % 2 == 0): an and-fold over integers, independent of the order
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.Critical ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequence is Buckets(), generated by arithmetic in a fixed order (its HashSet only drops repeats)
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.IndexHot ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequence is hot sorted by OrderBy, a total order
+site M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.IndexHot ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] sorts the elements of the set hot (unique pixel tuples) by (Item1, Item2): a total order, so the buckets of hotByBucket list their pixels in a fixed order whatever the enumeration order of the set
+site M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1}) @ M:g3.SnapRounding2.IndexHot ; P3 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] second key of the total order of OrderBy here
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.Nearest(System.Collections.Generic.List{System.ValueTuple{System.Int64,System.Int64}},System.Int32,System.Int32) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequence is pixels.Skip(1) of a List in index order; ties of the distance are decided by the pixel coordinates in the loop
+site M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32) @ M:g3.SnapRounding2.Nearest(System.Collections.Generic.List{System.ValueTuple{System.Int64,System.Int64}},System.Int32,System.Int32) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] skips the first element of a list
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.Restore(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int64,System.Int64},System.Int32,System.Int32}}) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequences are lists in index order (useful.Where(Free), the buckets' edge lists) and Buckets()
+site M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Restore(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int64,System.Int64},System.Int32,System.Int32}}) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] materializes useful.Where(Free), a list in index order
+site M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean}) @ M:g3.SnapRounding2.Restore(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int64,System.Int64},System.Int32,System.Int32}}) ; P0 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] filters a list in index order
+site M:System.Collections.Generic.IEnumerable`1.GetEnumerator @ M:g3.SnapRounding2.RouteAll ; P3 [DeterminismStage1Tests.SnapRounding2_RouteOrder_IsATotalOrder, DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the sequences are Buckets() (arithmetic order) and the lists of hotByBucket (filled in the sorted order of IndexHot)
+site M:System.Collections.Generic.List`1.Sort(System.Comparison{`0}) @ M:g3.SnapRounding2.RouteAll ; P3 [DeterminismStage1Tests.SnapRounding2_RouteOrder_IsATotalOrder] sorts the pixels a segment meets along it by (entry, exit, pixel): the entry and exit are exact fractions, compared by cross-multiplication (positive denominators), and the last keys are the pixel itself, unique in the list (seen); a total order, tested as such
+site M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Swept(g3.Vector2d) ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the maximum of exact BigIntegers (a total order): independent of the order
+site M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0}) @ M:g3.SnapRounding2.Swept(g3.Vector2d) ; P2 [DeterminismStage1Tests.SnapRounding2_InsertionOrder_DoesNotChangeTheHotPixels] the minimum of exact BigIntegers: independent of the order
+site M:g3.gParallel.ForRange(System.Int32,System.Action{System.Int32}) @ M:g3.TriangleBoxTree.#ctor(System.Collections.Generic.List{g3.AxisAlignedBox3d}) ; P1 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] leaf boxes: iteration b writes the slots of its own block [b * BlockSize, (b + 1) * BlockSize) of leafBox and reads boxes and order, which nothing writes in the loop; the serial loop writes the same slots
+site M:g3.gParallel.ForRange(System.Int32,System.Action{System.Int32}) @ M:g3.TriangleBoxTree.build_parallel(System.Int32) ; P1 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] subtree i of the fixed top of the tree is built into its own Nodes arrays parts[i] from the ranges of tasks[i] (read-only order and boxes); renumbering in assign() is serial, in the order of the serial build
+site M:System.Array.Sort``1(``0[],System.Int32,System.Int32) @ M:g3.TriangleBoxTree.fix_ties(System.Int64[],System.Int32,System.Int32) ; P3 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] sorts a run of the permutation order by value: its elements are distinct box indices, so the order is unique
+site M:g3.gParallel.ForRange(System.Int32,System.Action{System.Int32}) @ M:g3.TriangleBoxTree.morton_order(System.Int32) ; P1 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] one Morton code per box into codes[i] of the iteration's own block; the box over all centres and lo, ext are computed before the loop and only read in it
+site M:System.Random.#ctor(System.Int32) @ M:g3.TriangleBoxTree.permute_for_tests(System.Int32) ; a test hook: PermutationSeedForTests is 0 in production (a volatile static that only tests write), and then nothing runs here; with a seed the order array is permuted after sorting, and BoxTreeOrderTests show that no query, pair or Boolean result changes. The sequence of Random(seed) is not promised across versions (R10): it only changes which permutation a test tries
+site M:System.Random.Next(System.Int32) @ M:g3.TriangleBoxTree.permute_for_tests(System.Int32) ; as Random(int): a test hook
+site M:System.Array.Sort``2(``0[],``1[]) @ M:g3.TriangleBoxTree.ranks(System.Int32,System.Int32) ; P3 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode, BoxTreeOrderTests.OneFarBox_TreeStaysLocal] the order among equal centre values is unspecified, and no result depends on it: equal values (CompareTo == 0, -0 and +0 too, NaN with NaN) get the rank of the first of their run, so the rank vector is a function of the multiset of centres
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.TriangleBoxTree.segment_hits(System.Double[],System.Int32,g3.Vector3d,g3.Vector3d,System.Double) ; t0 = max(t0, ta - slack) is only compared (t0 > t1): slack > 0, so ta - slack is never -0, and t0 starts at +0; the filter is conservative (pad, slack) and its hits are all re-tested exactly by the caller
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.TriangleBoxTree.segment_hits(System.Double[],System.Int32,g3.Vector3d,g3.Vector3d,System.Double) ; t1 = min(t1, tb + slack): compared only; tb + slack is never -0 (slack > 0)
+site M:System.Array.Sort``2(``0[],``1[]) @ M:g3.TriangleBoxTree.sort_codes(System.Int64[],System.Int32) ; P3 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] Array.Sort(codes, order) orders the equal codes unspecified; fix_ties then sorts every run of equal codes by box index, so the order is by (code, box index), a total order on distinct boxes
+site M:System.Array.Sort``2(``0[],``1[],System.Int32,System.Int32) @ M:g3.TriangleBoxTree.sort_codes_parallel(System.Int64[],System.Int32) ; P3 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] sorts a run of fixed range by code, then fix_ties repairs the equal codes by box index (total order, as in sort_codes)
+site M:g3.gParallel.ForRange(System.Int32,System.Action{System.Int32}) @ M:g3.TriangleBoxTree.sort_codes_parallel(System.Int64[],System.Int32) ; P3 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] runs of fixed ranges sorted apart (disjoint slices of codes and order) and then fix_ties; the merge passes write disjoint ranges of the other buffer and compare by (code, box index), a total order on distinct boxes: the merged sequence is the unique sorted one, whatever the schedule or the cut of the runs
+construct M:g3.ExactTriangulation2.InsertConstraint(System.Int32,System.Int32) ; delegate-invocation ; 3 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.ExactTriangulation2.InsertConstraint(System.Int32,System.Int32) ; string-concatenation ; 4 ; exception messages of a failure path (no result: outside the claim, section 2); they print ints, longs, tuples of longs and, in Restore, a Vector2d (formatted with the current culture, open item O1); nothing reads the text
+construct M:g3.ExactTriangulation2.MakeDelaunay ; delegate-invocation ; 1 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.ExactTriangulation2.crosses(System.Int32,System.Int32,System.Int32,System.Int32) ; delegate-invocation ; 4 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.ExactTriangulation2.legalize(System.Int32,System.Int32) ; delegate-invocation ; 1 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.ExactTriangulation2.locate(System.Int32,System.Int32@,System.Int32@,System.Int32@) ; delegate-invocation ; 4 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.ExactTriangulation2.walk_crossings(System.Int32,System.Int32,System.Collections.Generic.Queue{System.Int64}) ; delegate-invocation ; 3 ; P4 [DeterminismStage1Tests.ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation] calls the predicate callbacks orient / incircle of the constructor: the sign they return is defined by the exact points (callers: ExactMeshArrangement, whose predicates are the stage 2 obligations S2-2 and S2-3, and TerrainSlopeMap / TerrainSlopeComposite, outside the scope); the triangulation is a function of these values, whichever way they are computed
+construct M:g3.SnapRounding2.Build ; string-concatenation ; 13 ; Diagnostics lines and exception messages: text for people, diagnostic by section 2 (not part of the claim); which lines are added is deterministic, the number formatting of a double or a negative long follows the current culture (stage 1 open item O1)
+construct M:g3.SnapRounding2.Compute ; string-concatenation ; 2 ; exception messages of a failure path (no result: outside the claim, section 2); they print ints, longs, tuples of longs and, in Restore, a Vector2d (formatted with the current culture, open item O1); nothing reads the text
+construct M:g3.SnapRounding2.Restore(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int64,System.Int64},System.Int32,System.Int32}}) ; string-concatenation ; 6 ; exception messages of a failure path (no result: outside the claim, section 2); they print ints, longs, tuples of longs and, in Restore, a Vector2d (formatted with the current culture, open item O1); nothing reads the text
+construct M:g3.TriangleBoxTree.ActionVisitor.Visit(System.Int32) ; delegate-invocation ; 1 ; P4 [BoxTreeOrderTests.RandomOrders_SameQueriesPairsAndSegments] calls the callback or visitor that the caller of the query gave, once per box or pair in the tree's order (a function of the tree); what the callback computes is the caller's obligation (stage 2, S2-6)
+construct M:g3.TriangleBoxTree.FuncVisitor.Visit(System.Int32,System.Int32) ; delegate-invocation ; 1 ; P4 [BoxTreeOrderTests.RandomOrders_SameQueriesPairsAndSegments] calls the callback or visitor that the caller of the query gave, once per box or pair in the tree's order (a function of the tree); what the callback computes is the caller's obligation (stage 2, S2-6)
+construct M:g3.TriangleBoxTree.Query(g3.AxisAlignedBox3d,System.Action{System.Int32}) ; delegate-invocation ; 1 ; P4 [BoxTreeOrderTests.RandomOrders_SameQueriesPairsAndSegments] calls the callback or visitor that the caller of the query gave, once per box or pair in the tree's order (a function of the tree); what the callback computes is the caller's obligation (stage 2, S2-6)
+construct M:g3.TriangleBoxTree.morton_order(System.Int32) ; delegate-invocation ; 2 ; P1 [BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode] calls encode, a lambda of this member (not chosen by a caller), once per block or for the whole range: it writes codes[i] of its own range
+cast M:g3.ExactTriangulation2.MakeDelaunay ; 1 ; (int)Math.Sqrt(stack.Count): the square root of a non-negative int is at most 46341, in range, never NaN
+cast M:g3.ExactTriangulation2.locate(System.Int32,System.Int32@,System.Int32@,System.Int32@) ; 1 ; (int)Math.Sqrt(tris.Count): the square root of a non-negative int is at most 46341, in range, never NaN
+cast M:g3.SnapGrid.Pixel(System.Double) ; 1 ; (long)f only where f < r, which excludes an integer r and so a r of 2^52 or more, infinity and NaN (the comment above the member proves it); every other case takes PixelExact (BigInteger)
+cast M:g3.SnapRounding2.Buckets(System.ValueTuple{System.Int64,System.Int64},System.ValueTuple{System.Int64,System.Int64}) ; 2 ; (long)Math.Round(dx * i / steps) twice, with 0 <= i <= steps and |dx| <= 2^41 (pixel indices lie within 2^40 of the origin, PixelOf throws beyond): |value| <= |dx|, finite and in range
+cast M:g3.TriangleBoxTree.quantize(System.Double) ; 1 ; (uint)t only where 0 <= t < 2097151 (the comparisons exclude NaN and the rest); NaN and negative give 0, larger values 2097151
+if M:g3.ExactTriangulation2.#ctor(System.Int32,System.Int32,System.Int32,System.Func{System.Int32,System.Int32,System.Int32,System.Int32},System.Func{System.Int32,System.Int32,System.Int32,System.Int32,System.Int32},System.Int32) ; 1 ; DeterminismStage1Tests.ExactTriangulation2_CapacityHint_ChangesNothing ; NETSTANDARD2_0 has no HashSet capacity constructor: the branches differ in the initial capacity of one set, which changes no result (the test compares a hint of 0, the exact size and a wrong size)
+
+construct M:g3.TriangleBoxTree.QuerySegment``1(g3.Vector3d,g3.Vector3d,System.Double,``0@) ; interface-invocation ; 1 ; P4 [BoxTreeOrderTests.RandomOrders_SameQueriesPairsAndSegments] calls Visit of the struct visitor of the caller (IIndexVisitor: ActionVisitor in this class, ExactMeshBoolean's visitors outside the scope), once per box the segment meets, in the tree's order (a function of the tree); what the visitor computes is the caller's obligation (stage 2, S2-6)
+construct M:g3.TriangleBoxTree.SelfPairs``1(g3.Index2i,``0@) ; interface-invocation ; 2 ; P4 [BoxTreeOrderTests.RandomOrders_SameQueriesPairsAndSegments] calls Visit of the struct visitor of the caller (IPairVisitor: ListCollector and FuncVisitor in this class, others outside the scope), once per overlapping pair, in the tree's order; what the visitor computes is the caller's obligation (stage 2, S2-6)
+
+// ---- stage 1 scope ----
+type ExactMeshArrangement.cs ; TriangleBoxTree

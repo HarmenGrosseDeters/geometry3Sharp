@@ -245,7 +245,10 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   this); SLIM, Tutte and BFF return `InvalidTopology` on the annulus. The real fix stays in research (the options below).
 - Research (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
   loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
-  conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
+  conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost. Update 2026-11-17: the
+  spectral map was measured and built as an opt-in for disc charts (`SpectralConformalParameterization`, #1057, LSCM's default
+  unchanged): it is no fix for this collapse (it folds on nearly symmetric annuli, where its eigenvalue pair is nearly
+  double; it refuses those); it removes the P3 pin asymmetry.
 
 ### P2 (open, decided: kept): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
@@ -326,7 +329,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 - Cause: `farBoundaryPair` (parameterization/LSCMParameterization.cs:127) picks two far vertices by farthest-point
   passes from `loop[0]`, which is not a mirrored pair; on a non-developable surface the minimizer of E_C with two pins
   depends on the pins beyond a similarity (a known property of LSCM).
-- Fix ideas: pin-free spectral conformal parameterization (Mullen et al. 2008; an eigenvector solve, medium cost), or
+- Fix ideas: pin-free spectral conformal parameterization (Mullen et al. 2008; an eigenvector solve, medium cost; built 2026-11-17 as the opt-in `SpectralConformalParameterization`, #1057: asymmetry 1.1e-13 of the UV size on this input), or
   natural boundary conditions with a symmetric choice of pins (cheap but only helps symmetric inputs). Expected
   effect small (1e-4); low priority.
 - Reclassified as by design (November 2026, `claude/fix-p3`): no small deterministic pin rule is symmetric on this
