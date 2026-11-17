@@ -12,7 +12,7 @@ namespace geometry3Sharp.Tests
     /// PlanarHoleFiller / PlanarSpansFiller are relative to the input (ROBUSTNESS_SWEEP.md S11, S12, S13, S16): the
     /// same decisions under every similarity, at scales far from 1, and an explicit (absolute) value keeps its meaning.
     /// </summary>
-    public class ScaleRelativeToleranceTests
+    public partial class ScaleRelativeToleranceTests
     {
         // scales beyond Similarity.All(): where the old absolute 1e-6 / 1e-8 constants are the size of the input or
         // below the rounding of its coordinates
@@ -31,12 +31,11 @@ namespace geometry3Sharp.Tests
 
         // ---- S13: MergeCoincidentEdges ----
 
-        static bool CrackCloses(double gap, Similarity s, out DMesh3 mesh, out double effective)
+        static bool CrackCloses(double gap, Similarity s, out DMesh3 mesh)
         {
             mesh = Invariance.Transformed(MeshTestUtil.CubeWithShortCrack(0.01, gap), s);
             var merge = new MergeCoincidentEdges(mesh);       // the default distance
             merge.Apply();
-            effective = merge.EffectiveMergeDistance;
             return mesh.IsClosed();
         }
 
@@ -46,7 +45,7 @@ namespace geometry3Sharp.Tests
         {
             // a crack of 3e-7 of the size (the old absolute 1e-6 only closed it at scale 1 and below)
             Similarity s = Of(name);
-            Assert.True(CrackCloses(3e-7, s, out DMesh3 m, out double eff), name + ": not closed, distance " + eff);
+            Assert.True(CrackCloses(3e-7, s, out DMesh3 m), name + ": not closed");
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
             Assert.Equal(12, m.VertexCount);
             Assert.Equal(20, m.TriangleCount);
@@ -58,51 +57,20 @@ namespace geometry3Sharp.Tests
         {
             // a crack of 1e-4 of the size is a distinct edge: the old absolute 1e-6 welded it below scale 1e-2
             Similarity s = Of(name);
-            Assert.False(CrackCloses(1e-4, s, out DMesh3 m, out double eff), name + ": welded, distance " + eff);
+            Assert.False(CrackCloses(1e-4, s, out DMesh3 m), name + ": welded");
             Assert.Equal(16, m.VertexCount);
             Assert.Equal(20, m.TriangleCount);
         }
 
         [Theory]
         [MemberData(nameof(AllAndExtreme))]
-        public void MergeCoincidentEdges_DefaultDistance_ScalesWithTheMesh(string name)
+        public void MergeCoincidentEdges_DefaultDistance_ExactScalesGiveTheSameMesh(string name)
         {
             Similarity s = Of(name);
-            CrackCloses(3e-7, Similarity.Identity, out DMesh3 m0, out double e0);
-            CrackCloses(3e-7, s, out DMesh3 m, out double e);
-            Assert.Equal(Math.Sqrt(3) * (double)MathUtil.ZeroTolerancef, e0, 1e-12);      // diagonal sqrt(3) of the unit cube
-            if (s.IsExact)
-                Assert.Equal(s.Scale * e0, e);
-            else    // a rotation changes the axis-aligned bounds, a translation adds the rounding floor: bounded, not equal
-                Assert.True(e >= 0.5 * s.Scale * e0, $"{name}: {e} against {s.Scale * e0}");
-            if (s.IsExact)
-                Assert.Equal("", Invariance.Difference(m0, Invariance.MappedBack(m, s)));
-        }
-
-        [Fact]
-        public void MergeCoincidentEdges_ExplicitDistance_KeepsItsAbsoluteMeaning()
-        {
-            DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 3e-7);
-            var merge = new MergeCoincidentEdges(m) { MergeDistance = 1e-8 };
-            merge.Apply();
-            Assert.Equal(1e-8, merge.EffectiveMergeDistance);
-            Assert.False(m.IsClosed());
-            merge = new MergeCoincidentEdges(m) { MergeDistance = 1e-6 };
-            merge.Apply();
-            Assert.True(m.IsClosed());
-        }
-
-        [Fact]
-        public void MergeCoincidentEdges_DefaultDistance_Reuse()
-        {
-            var m = MeshTestUtil.CubeWithShortCrack(0.01, 3e-7);
-            var merge = new MergeCoincidentEdges(m);
-            merge.Apply();
-            double e = merge.EffectiveMergeDistance;
-            Assert.True(m.IsClosed());
-            Assert.True(merge.Apply());                 // second run on the closed mesh: nothing to do
-            Assert.Equal(e, merge.EffectiveMergeDistance);
-            Assert.Equal(20, m.TriangleCount);
+            if (!s.IsExact) return;
+            CrackCloses(3e-7, Similarity.Identity, out DMesh3 m0);
+            CrackCloses(3e-7, s, out DMesh3 m);
+            Assert.Equal("", Invariance.Difference(m0, Invariance.MappedBack(m, s)));
         }
 
         // ---- S13: RemoveDuplicateTriangles ----
@@ -139,34 +107,6 @@ namespace geometry3Sharp.Tests
             d.Apply();
             Assert.Equal(0, d.Removed);
             Assert.Equal(2, m.TriangleCount);
-        }
-
-        [Fact]
-        public void RemoveDuplicateTriangles_ExplicitTolerance_KeepsItsAbsoluteMeaning()
-        {
-            DMesh3 m = TrianglePair(3e-7, Similarity.Identity);
-            var d = new RemoveDuplicateTriangles(m) { VertexTolerance = 1e-8 };
-            d.Apply();
-            Assert.Equal(1e-8, d.EffectiveVertexTolerance);
-            Assert.Equal(0, d.Removed);
-            d = new RemoveDuplicateTriangles(m) { VertexTolerance = 1e-6 };
-            d.Apply();
-            Assert.Equal(1, d.Removed);
-        }
-
-        [Fact]
-        public void RemoveDuplicateTriangles_DefaultTolerance_ReuseAndEmptyMesh()
-        {
-            DMesh3 m = TrianglePair(3e-7, Similarity.Identity);
-            var d = new RemoveDuplicateTriangles(m);
-            d.Apply();
-            double e = d.EffectiveVertexTolerance;
-            Assert.Equal(1, d.Removed);
-            d.Apply();
-            Assert.Equal(0, d.Removed);
-            Assert.Equal(e, d.EffectiveVertexTolerance, 1e-12);   // the bounds of one triangle of the pair
-            Assert.True(new RemoveDuplicateTriangles(new DMesh3()).Apply());
-            Assert.True(new MergeCoincidentEdges(new DMesh3()).Apply());
         }
 
         // ---- S11, S12: PlanarHoleFiller ----
@@ -242,18 +182,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(16, MeshTestUtil.BoundaryEdgeCount(m));
         }
 
-        [Fact]
-        public void DefaultTolerances_MeshAtOnePoint_FallBackToTheAbsoluteValue()
-        {
-            // diagonal 0: a tolerance of 0 would not match exact duplicates
-            var m = new DMesh3();
-            for (int k = 0; k < 2; ++k)
-                m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero));
-            var d = new RemoveDuplicateTriangles(m) { CheckOrientation = false };
-            d.Apply();
-            Assert.Equal((double)MathUtil.ZeroTolerancef, d.EffectiveVertexTolerance);
-        }
-
         // ---- S16: RemoveOccludedTriangles ----
 
         // a unit sphere (outer shell) and a concentric shell of radius 1 - gap, both with outward normals
@@ -295,24 +223,6 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(nOuter, remove.RemovedT.Count);
                 Assert.True(remove.RemovedT.All(t => t >= nOuter), $"{name} {mode}");
             }
-        }
-
-        [Fact]
-        public void RemoveOccludedTriangles_ExplicitOffset_KeepsItsAbsoluteMeaning_DefaultIsRelative()
-        {
-            DMesh3 m = TwoShells(1e-4, Similarity.Identity);
-            var remove = new RemoveOccludedTriangles(m) { NormalOffset = 0.5 };      // pushes every test point out of both shells
-            remove.Apply();
-            Assert.Equal(0.5, remove.EffectiveNormalOffset);
-            Assert.Empty(remove.RemovedT);
-
-            var def = new RemoveOccludedTriangles(TwoShells(1e-4, Similarity.Identity));
-            def.Apply();
-            Assert.InRange(def.EffectiveNormalOffset, MathUtil.ZeroTolerance * 3.3, MathUtil.ZeroTolerance * 2 * Math.Sqrt(3));   // the diagonal of the sphere polyhedron inside [-1, 1]^3
-            double e = def.EffectiveNormalOffset;
-            def.Apply();                                                              // reuse: same offset, same result
-            Assert.Equal(e, def.EffectiveNormalOffset);
-            Assert.Empty(def.RemovedT);
         }
     }
 }
