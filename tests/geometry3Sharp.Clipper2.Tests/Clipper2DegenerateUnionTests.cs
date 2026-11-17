@@ -25,7 +25,8 @@ namespace geometry3Sharp.Clipper2.Tests
     /// triangle as a path of its own if it lies inside the rest of the path.
     /// The oracle is the exact area of the region by its definition (ExactRegionArea: winding numbers, rational slabs),
     /// on the grid integers the adapter feeds to Clipper2; Clipper2 rounds its intersection points to the grid, so its
-    /// area may differ from the exact one by the rounding: less than the perimeter of the result in grid units.
+    /// area may differ from the exact one by rounding. Nonempty results use the output-perimeter allowance;
+    /// only an empty result retains the input-boundary allowance for vanished regions.
     /// </summary>
     public class Clipper2DegenerateUnionTests
     {
@@ -40,15 +41,21 @@ namespace geometry3Sharp.Clipper2.Tests
         static (long x, long y)[] Grid(Path64 path) => path.Select(q => (q.X, q.Y)).ToArray();
 
         /// <summary>
-        /// |result area - exact area| in grid units, and the allowed rounding, for BooleanPaths(op) of one ring each, on
-        /// the grid the call used. The rounding: Clipper2 rounds intersection points to the grid (half a unit per
-        /// coordinate), and the result's double vertices map back to the grid only up to their own rounding far from
-        /// the origin (an ulp of the coordinate in grid units, eg 16 units at UTM coordinates on the default grid);
-        /// each moves an edge by at most that much, so the area by at most perimeter times the sum, plus 1.
+        /// |result area - exact area| in grid units, and its rounding allowance. Nonempty output retains the
+        /// original output-perimeter allowance, including conversion back to doubles. Only empty output gets
+        /// an input-boundary allowance, because its vanished region has no returned perimeter.
+        /// This area allowance is not a topology certificate. Recovery checks independently test the lost slivers.
         /// </summary>
         internal static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
         {
             Clipper2Result r = Clipper2Polygons.BooleanPaths(op, new[] { a }, new[] { b }, new Clipper2Options { FillRule = rule });
+            return CheckResult(op, rule, a, b, r, samples);
+        }
+
+        // Also accepts deliberately wrong results, so negative controls exercise the actual oracle.
+        internal static (double error, double slack, Clipper2Result result) CheckResult(ClipType op, FillRule rule,
+            Polygon2d a, Polygon2d b, Clipper2Result r, Random samples = null)
+        {
             Assert.True(r.Ok, r.ToString());
             // well-formed: orientation, holes inside their outer ring, no two result polygons overlap (a hole put at the
             // wrong level of the tree comes out as an extra outer polygon on top of its holder)
@@ -69,12 +76,39 @@ namespace geometry3Sharp.Clipper2.Tests
                 }
             double far = r.Polygons.SelectMany(g => new[] { g.Outer }.Concat(g.Holes)).SelectMany(q => q.Vertices)
                 .Select(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y))).DefaultIfEmpty(0).Max();
+            double inputBoundary = 0;
+            if (r.Polygons.Count == 0) {
+                foreach (Path64 path in new[] { f.ToPath64(a), f.ToPath64(b) })
+                    for (int i = 0; i < path.Count; ++i) {
+                        Point64 u = path[i], v = path[(i + 1) % path.Count];
+                        inputBoundary += Math.Abs((double)v.X - u.X) + Math.Abs((double)v.Y - u.Y);
+                    }
+            }
             double backRounding = Ulp(far) * f.Scale;
-            return (Math.Abs(area - exact), perimeter * (1 + 2 * backRounding) + 1, r);
+            return (Math.Abs(area - exact), inputBoundary + perimeter * (1 + 2 * backRounding) + 1, r);
         }
 
         static Polygon2d Lattice(Random rand, int n, int range)
             => new Polygon2d(Enumerable.Range(0, n).Select(_ => new Vector2d(rand.Next(-range, range + 1), rand.Next(-range, range + 1))));
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void AreaAllowance_RejectsDroppedCompactRegion(bool empty)
+        {
+            Polygon2d Square(double x, double side) => Ring(x, 0, x + side, 0, x + side, side, x, side);
+            // Empty: area 81 is just above input perimeter 72 + 1.
+            // Nonempty: losing a 64x64 square costs 4096, just above returned perimeter 4000 + 1.
+            // Unconditionally adding the input perimeter would incorrectly accept the nonempty loss.
+            var a = Square(0, empty ? 9 : 1000);
+            var b = empty ? Square(0, 9) : Square(2000, 64);
+            var wrong = new Clipper2Result { Status = Clipper2Status.Success, Frame = new ClipperFrame(Vector2d.Zero, 1) };
+            if (!empty) wrong.Polygons.Add(new GeneralPolygon2d(a));
+            var check = CheckResult(ClipType.Union, FillRule.NonZero, a, b, wrong);
+            Assert.True(check.error > check.slack, "oracle must reject a dropped compact region just above its allowance");
+            Assert.Equal(empty ? 73d : 4001d, check.slack, 8);
+            Assert.Equal(empty ? 81 : 4096, check.error);
+        }
 
         // ---- the oracle ----
 
