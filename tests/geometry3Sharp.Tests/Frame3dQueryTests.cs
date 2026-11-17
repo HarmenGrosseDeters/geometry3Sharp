@@ -193,6 +193,30 @@ namespace geometry3Sharp.Tests
                 }
         }
 
+        // #1029: the float NTMesh3.GetTriFrame built a reflection that Matrix3f.ToQuaternion turned into a wrong frame
+        // (Z was the face normal for 4 of 300 sphere triangles). It must be a rotation with Z the face normal, equal to DMesh3's.
+        [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NTMesh3_GetTriFrame_Float_IsRightHandedFaceNormalAndInvariant(string name)
+        {
+            Similarity s = S(name);
+            DMesh3 d = Sphere();
+            DMesh3 dt = Invariance.Transformed(d, s);
+            var m = new NTMesh3(d); var mt = new NTMesh3(dt);
+            Assert.Equal(300, d.TriangleCount);
+            foreach (int tid in m.TriangleIndices())
+                for (int e = 0; e < 3; e++) {
+                    Frame3f f = m.GetTriFrame(tid, e), ft = mt.GetTriFrame(tid, e);
+                    Assert.True(((Vector3d)f.Z - m.GetTriNormal(tid)).Length < 1e-4, "z is the face normal");
+                    Assert.True(((Vector3d)f.X.Cross(f.Y) - (Vector3d)f.Z).Length < 1e-4, "right-handed");
+                    Assert.True(((Vector3d)ft.Z - mt.GetTriNormal(tid)).Length < 1e-4, "z is the face normal (transformed)");
+                    Assert.True(((Vector3d)ft.Z - s.ApplyDirection((Vector3d)f.Z)).Length < 1e-4, "z axis follows the transform");
+                    if (name == "identity") {
+                        Frame3f g = d.GetTriFrame(tid, e);
+                        Assert.True(((Vector3d)f.X - (Vector3d)g.X).Length < 1e-4 && ((Vector3d)f.Y - (Vector3d)g.Y).Length < 1e-4 && ((Vector3d)f.Z - (Vector3d)g.Z).Length < 1e-4);
+                    }
+                }
+        }
+
         [Fact]
         public void SurfaceFrameD_InvalidTriangleThrows_AndFaceNormalWithoutVertexNormals()
         {
