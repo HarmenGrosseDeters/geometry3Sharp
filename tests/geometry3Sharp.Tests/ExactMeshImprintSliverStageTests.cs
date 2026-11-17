@@ -93,6 +93,39 @@ namespace geometry3Sharp.Tests
             Assert.Equal(old.Counts.OrderBy(kv => kv.Key), now.Counts.OrderBy(kv => kv.Key));
         }
 
+        [Fact]
+        public void ExactMeshBoolean_DoesNotSetTheRuleLocks_TheStageCannotRun()
+        {
+            // the documented unclean case of the boolean (RoundingExactPairsTests: FoldedCluster stays unclean): defects are left,
+            // so the stage would run if the boolean enabled it; it sets no RuleLockedEdges, so its outputs are those of before #1034
+            DMesh3 m = SafeRoundingDegenerateInputTests.Make(SafeRoundingDegenerateInputTests.Family.FoldedCluster, 36, 1);
+            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.True(b.Compute(), b.Error);
+            Assert.False(b.RoundingClean);
+            Assert.True(b.Rounding.RemainingDegenerate + b.Rounding.RemainingIntersections > 0);
+            Assert.Null(b.Rounding.RuleLockedEdges);
+            Assert.False(b.Rounding.RuleLocksFollow);
+            Assert.False(b.Rounding.FollowStageRan);
+            Assert.Equal(0, b.Rounding.RuleLocksReroutedThroughFixed + b.Rounding.RuleLocksReroutedThroughOther);
+        }
+
+        [Fact]
+        public void Counts_ReportTheStage_TheReroutes_AndTheDriftWithinTheBound()
+        {
+            // the cylinder: a curve vertex on a split edge 1e-16 from a target vertex that is not on the edge, so the edge's
+            // chain of parts passes through that target vertex after the stage
+            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, 1);
+            ExactMeshImprint now = Run(b, a, true);
+            Assert.Equal(1, now.Counts["sliver_cleanup_stage"]);
+            Assert.True(now.Counts["split_edges_through_target_vertex"] > 0);
+            Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edges_through_target_vertex"]);
+            Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edges_through_new_vertex"]);
+            Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
+            ExactMeshImprint old = Run(b, a, false);
+            Assert.Equal(0, old.Counts["sliver_cleanup_stage"]);
+            Assert.Equal(0, old.Counts["split_edges_through_target_vertex"] + old.Counts["split_edges_through_new_vertex"]);
+        }
+
         // ---- MeshRoundingRepair alone ----
 
         // two triangles on edge (p, q), split at v 1e-14 from p: the triangles (p, v, r) and (v, p, s) are degenerate; the

@@ -478,6 +478,11 @@ namespace g3
             Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
             Counts["curve_edges_contracted"] = Rounding.LockedContractions;
             Counts["target_edge_parts_contracted"] = Rounding.RuleLockedContractions;
+            // (the final stage of SliverCleanup: whether it ran, and the split edges whose chain of parts now passes through a
+            // vertex off the edge, a target vertex or a new one)
+            Counts["sliver_cleanup_stage"] = Rounding.FollowStageRan ? 1 : 0;
+            Counts["split_edges_through_target_vertex"] = Rounding.RuleLocksReroutedThroughFixed;
+            Counts["split_edges_through_new_vertex"] = Rounding.RuleLocksReroutedThroughOther;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)

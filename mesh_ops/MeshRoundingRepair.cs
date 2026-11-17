@@ -180,6 +180,11 @@ namespace g3
         internal bool RuleLocksFollow = false;
         /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
         internal bool FollowStageRan;
+        /// <summary>
+        /// in that stage, contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
+        /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex)
+        /// </summary>
+        internal int RuleLocksReroutedThroughFixed, RuleLocksReroutedThroughOther;
         // (during the final stage of RuleLocksFollow)
         bool followRuleLocks;
         bool locked(int a, int b)
@@ -606,6 +611,7 @@ namespace g3
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             LockedContractions = RuleLockedContractions = 0;
             FollowStageRan = followRuleLocks = false;
+            RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
@@ -1955,6 +1961,10 @@ namespace g3
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
             if (ruleLockedAtA != null) {
+                if (RuleLockedEdges.Contains(LockedKey(a, b)) == false) {
+                    if (FixedVertexF != null && FixedVertexF(b)) RuleLocksReroutedThroughFixed++;
+                    else RuleLocksReroutedThroughOther++;
+                }
                 foreach (int x in ruleLockedAtA) {
                     RuleLockedEdges.Remove(LockedKey(a, x));
                     RuleLockedEdges.Add(LockedKey(b, x));
