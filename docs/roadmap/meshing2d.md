@@ -110,6 +110,18 @@ Research or not scheduled (not built without a new decision):
 
 #### Settled 2026-11-12 to 2026-11-15
 
+- **#986, `QualityMesh2` Empty at an aspect ratio of 2^±41 (found by the metamorphic relation A1): settled 2026-11-17 as a documented
+  limit (owner decision 2026-11-17, option A).** Cause: the automatic tolerance of O11 (`ConstrainedDelaunayMesh2.AutoToleranceFactor`,
+  2^-41 of the larger of the largest coordinate and the extent) merges the pentagon's points across its narrow axis (in x at 2^-e, in y at
+  2^+e) and moves points onto segments within it, so the ring's edges overlap and the domain is empty (`Builder.Output`, count 0; the
+  triangulation itself keeps area); a thin rectangle merges to two points and ends at the kernel's no-area exit (`Builder.Run`). The limit is
+  inclusive (a domain exactly 2^-41 wide merges). Kept: the status `Empty`, the output and the O11 tolerance (rejected: (B) `Failed` with a new failure
+  kind, a status change; (C) a per-axis or smallest-extent tolerance, an O11 output change for every anisotropic input). Added: the
+  diagnostic "no triangle is left, though the input is not on one line: ..." at both exits whenever the result is empty, the input is not on
+  one line and no snap tolerance is set (also for a domain that holes remove, and the message names both causes; on the grid the snap lines report the collapse), the limit in the `Triangulation2Status.Empty` doc and the
+  scale table of [QA.md](../QA.md); the oracle already excuses the Empty (O11: a domain within the tube of its perimeter may vanish),
+  `QualityMesh2ToleranceLimitTests` checks that, the exponent sweep 2^±36 .. 2^±52 (pentagon and rectangle), and the A1 rows from |e| = 41 assert the
+  documented Empty instead of pinning a defect.
 - **#870, oracle O11 excuse (#880, merged 2026-11-14):** the excuse for O11-unsplittable pieces now models the mesher's
   split point; 10 of the 11 dumps fixed; the last one is open (see Open).
 - **#864, NotDelaunayGlobal on projected polyhedra (fuzz #624, group f): closed 2026-11-15.** Part A fixed in #876 (merged
