@@ -93,5 +93,5 @@ Part of the [roadmap](../ROADMAP.md).
 1. #869 (draft): `ExactMeshGeodesicDistance` as a certified test oracle; reviews before ready; reach on flat / aligned inputs below 10^4 vertices.
 2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b), after #869; then a public class for 10^5 vertices (no issue).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
-4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): an opt-in for disc charts is an owner decision with an atlas A/B ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
+4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts, to be built with an atlas A/B ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

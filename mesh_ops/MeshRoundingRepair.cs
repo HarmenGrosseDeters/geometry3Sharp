@@ -164,15 +164,40 @@ namespace g3
         public bool AllowLockedContraction = false;
         /// <summary> edges of LockedEdges contracted by Apply </summary>
         public int LockedContractions;
-        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        /// <summary> edges locked by LockedEdgeF or RuleLockedEdges (not LockedEdges) that were contracted by Apply </summary>
         public int RuleLockedContractions;
         /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
         public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
+        /// <summary>
+        /// edges locked by a rule, kept as a set (the exact imprint: the parts of the target's split edges, docs/design/IMPRINT_SLIVER_CLEANUP.md).
+        /// Locked as by LockedEdgeF while the passes and the position search run; a contraction at a vertex with such a lock
+        /// to a vertex without one is refused, as for LockedEdgeF. If RuleLocksFollow and they leave a defect, the passes and the
+        /// search run once more (before RemoveTinyComponents: with FixedHard, which keeps it off, only where the result is not clean without
+        /// the stage) with these locks following a contraction, as LockedEdges do (the lock of an edge at the vanishing vertex moves
+        /// to the kept one; a contracted one is gone, counted in RuleLockedContractions). Changed by Apply in that stage only. null: none.
+        /// </summary>
+        internal HashSet<long> RuleLockedEdges = null;
+        /// <summary> see RuleLockedEdges: the final stage where its locks follow the contractions; it runs where the passes and the search leave a defect </summary>
+        internal bool RuleLocksFollow = false;
+        /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
+        internal bool FollowStageRan;
+        /// <summary>
+        /// in that stage, the contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
+        /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex);
+        /// counted per contraction (an edge rerouted twice counts twice)
+        /// </summary>
+        internal int RuleLocksReroutedThroughFixed, RuleLocksReroutedThroughOther;
+        // (during the final stage of RuleLocksFollow)
+        bool followRuleLocks;
         bool locked(int a, int b)
         {
-            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || (LockedEdgeF != null && LockedEdgeF(a, b));
+            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || rule_locked(a, b);
         }
-        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null; } }
+        bool rule_locked(int a, int b)
+        {
+            return (LockedEdgeF != null && LockedEdgeF(a, b)) || (RuleLockedEdges != null && RuleLockedEdges.Contains(LockedKey(a, b)));
+        }
+        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null || (RuleLockedEdges != null && RuleLockedEdges.Count > 0); } }
         bool hard_fixed(int v) { return FixedHard && FixedVertexF != null && FixedVertexF(v); }
         // a triangle with a locked edge
         bool triangle_locked(int t)
@@ -603,6 +628,8 @@ namespace g3
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             LockedContractions = RuleLockedContractions = 0;
+            FollowStageRan = followRuleLocks = false;
+            RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
@@ -740,6 +767,18 @@ namespace g3
                 bad = degenerate_triangles();
                 pairs = intersecting_pairs();
                 repair_passes(ref pairs, ref bad);
+            }
+            // RuleLocksFollow: what is left, once more with the rule locks following the contractions (only here, so that a
+            // result that is clean without it is the same as without it)
+            if (RuleLocksFollow && RuleLockedEdges != null && MaxPasses > 0 && (bad.Count > 0 || pairs.Count > 0) && stopped == false) {
+                FollowStageRan = followRuleLocks = true;
+                repair_passes(ref pairs, ref bad);
+                for (int round = 0; round < MaxSearchRounds && (bad.Count > 0 || pairs.Count > 0) && stopped == false && position_search(bad, pairs) > 0; ++round) {
+                    bad = degenerate_triangles();
+                    pairs = intersecting_pairs();
+                    repair_passes(ref pairs, ref bad);
+                }
+                followRuleLocks = false;
             }
             if (check)
                 check_all_bounds();
@@ -1907,11 +1946,16 @@ namespace g3
             bool lockedEdge = has_locks && locked(a, b);
             if (lockedEdge && AllowLockedContraction == false)
                 return false;
-            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost)
-            if (LockedEdgeF != null) {
-                foreach (int x in Mesh.VtxVerticesItr(a))
-                    if (x != b && LockedEdgeF(a, x) && LockedEdgeF(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
+            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost;
+            // in the final stage of RuleLocksFollow a lock of RuleLockedEdges moves with it instead)
+            if (LockedEdgeF != null || RuleLockedEdges != null) {
+                foreach (int x in Mesh.VtxVerticesItr(a)) {
+                    if (x == b || rule_locked(a, x) == false)
+                        continue;
+                    bool follows = followRuleLocks && RuleLockedEdges.Contains(LockedKey(a, x)) && (LockedEdgeF == null || LockedEdgeF(a, x) == false);
+                    if (follows == false && rule_locked(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
                         return false;
+                }
             }
             bool setLocked = LockedEdges != null && LockedEdges.Contains(LockedKey(a, b));
             begin_edit();
@@ -1949,8 +1993,23 @@ namespace g3
                 foreach (int x in Mesh.VtxVerticesItr(a))
                     if (x != b && LockedEdges.Contains(LockedKey(a, x))) (lockedAtA ?? (lockedAtA = new List<int>())).Add(x);
             }
+            List<int> ruleLockedAtA = null;
+            if (followRuleLocks) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && RuleLockedEdges.Contains(LockedKey(a, x))) (ruleLockedAtA ?? (ruleLockedAtA = new List<int>())).Add(x);
+            }
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
+            if (ruleLockedAtA != null) {
+                if (RuleLockedEdges.Contains(LockedKey(a, b)) == false) {
+                    if (FixedVertexF != null && FixedVertexF(b)) RuleLocksReroutedThroughFixed++;
+                    else RuleLocksReroutedThroughOther++;
+                }
+                foreach (int x in ruleLockedAtA) {
+                    RuleLockedEdges.Remove(LockedKey(a, x));
+                    RuleLockedEdges.Add(LockedKey(b, x));
+                }
+            }
             if (lockedAtA != null) {
                 foreach (int x in lockedAtA) {
                     LockedEdges.Remove(LockedKey(a, x));
@@ -1959,6 +2018,7 @@ namespace g3
             }
             if (lockedEdge) {
                 LockedEdges?.Remove(LockedKey(a, b));
+                if (followRuleLocks) RuleLockedEdges.Remove(LockedKey(a, b));
                 if (setLocked) LockedContractions++;
                 else RuleLockedContractions++;
             }
