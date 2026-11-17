@@ -390,7 +390,7 @@ namespace gs
             // (a tiny extent far from the origin).
             double s = RepairF == null && NoWorkingFrame == false && Mesh.TriangleCount > 0 && repair_settings_allow_frame() ? MeshRepairMetrics.unit_scale_for_mesh(Mesh, false, 0, 0) : 1;
             if (s == 1)
-                return apply_checked();
+                return apply_reported();
             frameScale = s;
             double roundingAbsolute = RoundingAbsoluteTolerance;
             DMesh3 callersMesh = Mesh;
@@ -398,7 +398,7 @@ namespace gs
             RoundingAbsoluteTolerance = roundingAbsolute * s;
             bool ok = false;
             try {
-                ok = apply_checked();
+                ok = apply_reported();
             } finally {
                 RoundingAbsoluteTolerance = roundingAbsolute;
                 map_back(1 / s, callersMesh);
@@ -473,6 +473,23 @@ namespace gs
         /// <summary> (tests) called with the result of the others before it is checked against the passed parts (the geometry of the solidify and the wrap grows by about a cell) </summary>
         internal Action<DMesh3> PassThroughTestHook;
         bool passThroughOff;
+
+        /// <summary> (tests, benchmarks: an A/B in one build) Apply() without the final lost-part check (MeshRobustRepairLostParts) </summary>
+        internal bool NoLostPartCheck;
+        // apply_checked, then the final lost-part check (MeshRobustRepairLostParts, F1 of docs/design/ROBUST_REPAIR_SCALE_FREE_STUDY.md): a
+        // separable part of the input that the result does not reach, judged against the part's own size, makes Apply() false with LostFarPart
+        // (the earlier cleanups and checks judge sizes against the scene or the largest component, so a small part far away could be lost with
+        // true). The parts are taken before the repair, which changes the mesh in place
+        bool apply_reported()
+        {
+            List<MeshRobustRepairLostParts.Part> parts = Mesh.TriangleCount > 0 && NoLostPartCheck == false ? MeshRobustRepairLostParts.Parts(Mesh) : null;
+            bool ok = apply_checked();
+            if (ok && MeshRobustRepairLostParts.AnyLost(parts, Mesh)) {
+                ResultReason = LostFarPart;
+                ok = false;
+            }
+            return ok;
+        }
 
         bool apply_checked()
         {
@@ -889,7 +906,12 @@ namespace gs
         }
 
         const string PartsLostFarReason = "a part of the input lost (components far apart compared to their size)";
-        /// <summary> ResultReason of an Apply() that is false because a closed part of the input is not in the result, where components lie far apart compared to their size </summary>
+        /// <summary>
+        /// ResultReason of an Apply() that is false because a part of the input is not in the result, where parts lie apart: a closed part
+        /// where components lie far apart compared to their size, or any separable part (closed or open; components whose bounding boxes,
+        /// padded by 1e-3 of their own diagonals, meet no other part's) that the result does not reach within a quarter of the part's own
+        /// diagonal. The result stays in Mesh.
+        /// </summary>
         public const string LostFarPart = "scale disparity: a part of the input is lost (components far apart compared to their size)";
         /// <summary>
         /// ResultReason when Apply() returns false because the input's diagonal is not finite: an extent above about
