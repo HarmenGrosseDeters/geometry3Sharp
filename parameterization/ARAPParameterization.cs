@@ -13,8 +13,8 @@ namespace g3
     /// cotangents.
     ///
     /// Starts from LSCM (or InitialUV). Works on any connected mesh with a boundary. Does not guarantee
-    /// a flip-free result (use SLIM for that): a map with flipped, zero-area or degenerate UV triangles is reported as
-    /// ParameterizationStatus.FlippedTriangles, not as a success.
+    /// a flip-free result (use SLIM for that): a map with flipped, zero-area or degenerate (also nearly collapsed) UV
+    /// triangles is reported as ParameterizationStatus.FlippedTriangles, not as a success.
     /// </summary>
     public class ARAPParameterization
     {
