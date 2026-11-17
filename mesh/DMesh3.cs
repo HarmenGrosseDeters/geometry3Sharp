@@ -819,6 +819,58 @@ namespace g3
 
 
         /// <summary>
+        /// Double-precision <see cref="GetVertexFrame"/>: origin and axes keep double precision.
+        /// </summary>
+        public Frame3d GetVertexFrameD(int vID, bool bFrameNormalY = false)
+        {
+            Debug.Assert(HasVertexNormals);
+
+            int vi = 3 * vID;
+            Vector3d v = new Vector3d(vertices[vi], vertices[vi + 1], vertices[vi + 2]);
+            Vector3d normal = new Vector3d(normals[vi], normals[vi + 1], normals[vi + 2]);
+            int eid = vertex_edges.First(vID);
+            int ovi = 3 * edge_other_v(eid, vID);
+            Vector3d ov = new Vector3d(vertices[ovi], vertices[ovi + 1], vertices[ovi + 2]);
+            Vector3d edge = (ov - v);
+            edge.Normalize();
+
+            // orthonormal frame (the float method leaves the axes unnormalized: edge and normal are not orthogonal)
+            normal.Normalize();
+            Vector3d other = normal.Cross(edge);
+            other.Normalize();
+            edge = other.Cross(normal);
+            if (bFrameNormalY)
+                return new Frame3d(v, edge, normal, -other);
+            else
+                return new Frame3d(v, edge, other, normal);
+        }
+
+
+        /// <summary>
+        /// Double-precision <see cref="GetTriFrame"/>: the centroid origin and the axes keep double precision.
+        /// </summary>
+        public Frame3d GetTriFrameD(int tID, int nEdge = 0)
+        {
+            int ti = 3 * tID;
+            int a = 3 * triangles[ti + (nEdge % 3)];
+            int b = 3 * triangles[ti + ((nEdge + 1) % 3)];
+            int c = 3 * triangles[ti + ((nEdge + 2) % 3)];
+            Vector3d v1 = new Vector3d(vertices[a], vertices[a + 1], vertices[a + 2]);
+            Vector3d v2 = new Vector3d(vertices[b], vertices[b + 1], vertices[b + 2]);
+            Vector3d v3 = new Vector3d(vertices[c], vertices[c + 1], vertices[c + 2]);
+
+            Vector3d edge1 = v2 - v1; edge1.Normalize();
+            Vector3d edge2 = v3 - v2; edge2.Normalize();
+            Vector3d normal = edge1.Cross(edge2); normal.Normalize();
+
+            Vector3d other = normal.Cross(edge1);
+
+            Vector3d center = (v1 + v2 + v3) / 3;
+            return new Frame3d(center, edge1, other, normal);
+        }
+
+
+        /// <summary>
         /// Construct stable frame at triangle centroid, where frame.Z is face normal,
         /// and frame.X is aligned with edge nEdge of triangle.
         /// </summary>
