@@ -47,7 +47,7 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-17 (evening, Berlin), after the docs freshness audit (#1079-#1082). Each subpage ends with an "Open for
+Status on 2026-11-17 (evening, Berlin), after the docs freshness audit (#1079-#1083). Each subpage ends with an "Open for
 the future" list, ordered by priority; this section names only what is in flight.
 
 - **Exact Boolean 3.0** (closing): the functional and speed work is done; speed work has stopped (owner 2026-11-16; the
@@ -69,7 +69,7 @@ the future" list, ordered by priority; this section names only what is in flight
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
   1.30x time), PR #1073; the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
-  defaults unchanged, owner 2026-11-17) is in flight; the inversion guard study #1070 closed hard problem 14 (options
+  defaults unchanged, owner 2026-11-17) is in review (#1085); the inversion guard study #1070 closed hard problem 14 (options
   parked). A quad remeshing study runs (#1078).
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9) runs (owner 2026-11-17, no PR yet).
@@ -77,10 +77,12 @@ the future" list, ordered by priority; this section names only what is in flight
   `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
-- **Determinism:** stage 1 (the exact building blocks as a closed world) PR #1076 in review.
+- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); open: O1 (the culture of
+  `SnapRounding2.Diagnostics` text, owner decision) and the guard-limit int overflow in `ExactTriangulation2` (#1086).
 - **Platform and CI:** #999 (xatlas report) in review; the UV parameterization mutation shards are merged (#1006); the
   nightly changed-line coverage gate is red since 2026-11-17 (16 uncovered changed lines), a fix session runs; flaky
-  allocation test #1074; #1009 open. Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
+  allocation test #1074; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
+  (extreme field values) partly fixed, S10 deferred ([ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md)). Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
 - **Parameterization:** spectral conformal parameterization opt-in (#1057); RDR stage 1b not now (owner 2026-11-17).
@@ -94,8 +96,8 @@ Checked on 2026-11-17 (evening).
 
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`,
   `claude/geogram-boolean-comparison-wip`); sessions cannot delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Terrain:** the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks: "later"
-  (owner 2026-11-17). [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
+- **Terrain:** berms and inter-ramp checks, the GeoTIFF reader and the showcase are "later" (owner 2026-11-17); the
+  slope envelope construction and 3D blocks are still open owner decisions. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 - **#1064 levers** (if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
   `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop.
 
@@ -103,7 +105,7 @@ Decided on 2026-11-17 (owner): split pinches stay "not clean" in `NotCleanReason
 their own class); the cleanup never empties a non-empty result (RC1); the inside-out check gets an exact volume sign
 (RC3); #846 stays off; #986 option (A); `Obsolete` on `MeshMeshCut` / `MeshBoolean`; tet P1 default diag/40; the
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
-step-3 lead; hard problem 4 is answered (lever 6 K, #736), hard problem 8 is fixed (#528), only speed remains there.
+step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there.
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -113,10 +115,10 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 In order:
 - The 3.0 completion gate: #1077 and the reruns of envelope-3, rounding-4, rounding-7, terrain-overlay (and the
-  terrain-kernel / terrain-arith shards shifted by #1066); then the roadmap status "3.0 complete".
+  terrain-kernel / terrain-arith shards, re-selected by #1066 through their `TerrainSlope*.cs` trigger paths); then the roadmap status "3.0 complete".
 - Tet P2 (output / API) after #1073.
 - After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
-- Merge in flight: #1064, #1068, #1073, #1076, #1037, #999 and the coverage fix.
+- Merge in flight: #1064, #1068, #1073, #1037, #999, #1085 and the coverage fix.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
@@ -129,10 +131,10 @@ In order:
    (owner 2026-11-15, no spike; #721 closed, it stays a design).
 4. **Scale-free robust repair** (hard problem 9): a study runs (owner 2026-11-17).
 5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 in #1073. Sharp
-   features (hard problem 4) are answered by lever 6 K (#736, opt-in).
+   features (hard problem 4): lever 6 K (#736, opt-in); a provably valid feature recovery stays open.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
-measurement; stage 1, the exact building blocks, in review: DETERMINISM_PROOF.md 5.4); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
+measurement; stage 1, the exact building blocks, merged in #1076: DETERMINISM_PROOF.md 5.4); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
 output). Last, by "depth over breadth" (owner 2026-11-10):
 CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
@@ -144,7 +146,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
   matched shells, the grading placement strategy, parked until a use case; the <= 2x fork speed target is closed (owner
   2026-11-16). [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: Reducer / Remesher 2.0 and its follow-ups are closed (owner 2026-11-12); the Phase 2 study (#1075) and the
-  opt-in safe preset followed (2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
+  opt-in safe preset followed (2026-11-17); thin walls (walls folding, 135363) stay open. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Later list (point clouds, offsets, quad remeshing, deformation, tetrahedral meshing,
   TPMS, sparse SDF grids, batch ray queries, AI bridges): [research.md](roadmap/research.md#later)
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)

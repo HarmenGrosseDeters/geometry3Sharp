@@ -199,13 +199,13 @@ Part of the [roadmap](../ROADMAP.md).
 - **Determinism proof, option A ([design/DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md)):** stage 0 is merged
   (#871, task brief #859: the closed-world analyzer rules G3D0001-9 over the exact kernel, with a generated ledger
   checked by `DeterminismScopeAnalyzerTests`). Stage 1 (owner 2026-11-17: `ExactTriangulation2`, `ExactPlanarSimplify`,
-  `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is in review: type-level scope, tuples, counted
+  `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is merged (#1076, 2026-11-17): type-level scope, tuples, counted
   delegate calls, argument forms with their tests on every sort, enumeration and parallel site; open items O1 to O5 there
   (O1, the culture of `SnapRounding2.Diagnostics` text, is an owner decision). Stage 2 (`ExactMeshArrangement`,
-  `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Open:
-  two codex drafts, reviewed as correct, which the determinism session takes over: #891 (#804, saturating double-to-int
-  casts in the grid indexers) and #892 (#803, sign-of-zero consistent Min / Max in `AxisAlignedBox3d`); and #789
-  (ExactPoint3 hash values are seeded per process; a test that the shard choice does not change results).
+  `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Closed:
+  #891 (saturating double-to-int casts in the grid indexers) and #892 (sign-of-zero consistent Min / Max in
+  `AxisAlignedBox3d`), both 2026-11-15, and #789 (the shard-choice test, #934). Open: the guard-limit int overflow in
+  `ExactTriangulation2` (#1086, found in stage 1).
 - **CI: net48 intermittent hang (#824): closed 2026-11-16.** Shard b of the net48 tests hung until the job timeout. #828 (and #844) run
   the net48 test steps under blame-hang, so a hang names its test. The hang seen was the `patch_winding` race
   #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no recurrence was reported when it was closed (the closing comment
