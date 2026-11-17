@@ -271,7 +271,8 @@ one ulp: a curve vertex on a split edge 1e-16 to 3e-11 from a target vertex). A 
   intersection curves of target and cutter (the boolean's `ConstraintEdges` restricted to the target's triangles).
 - G3 Geometric: with rounding, every result point is within `max(MaxDisplacement * diagonal, UlpFactor * ulp)` of the target's
   surface (the same bound as SafeRounding); with `FixedHard` only new vertices move (tiny moves within the bound, or the
-  contractions of curve edges); target vertices never move. For results where no edit was made the distance is at most a rounding unit.
+  contractions of curve edges and, since #1034, of the parts of split edges, whose chain may then pass through a vertex off the
+  edge within the bound, `IMPRINT_SLIVER_CLEANUP.md`); target vertices never move. For results where no edit was made the distance is at most a rounding unit.
 - G4 Verified: with `SafeRounding`, if `RoundingClean`, no pair with a piece triangle (these are all the pairs that can be new)
   self-intersects unless its source triangles intersect in the target, and no piece is degenerate unless its source is (exact check on the doubles).
 - G5 Curve edges: every curve edge of the exact imprint is an edge of `Result`, or was contracted by a counted edit

@@ -47,7 +47,16 @@ after the repair, so every listed curve edge is an edge of `Result` (G5 of `EXAC
 defect lists after the search, which are what `RemainingDegenerate` and `RemainingIntersections` count, `RemoveTinyComponents`
 being off with `FixedHard`). Before the stage, the new set gives the same answers as the old rule (the parts of split edges,
 asked by the same contractions, flips, zips and vertex removals), so every result that is clean today is bit for bit the same.
-The internal switch `ExactMeshImprint.SliverCleanup` (default on) gives the repair without the stage, for the tests.
+The internal switch `ExactMeshImprint.SliverCleanup` (default on) gives the repair without the stage, for the tests;
+`LegacyPartLocks` gives the locks of before the change (one `LockedEdgeF` over the fixed set), and a test checks that the repair without
+the stage equals it bit for bit. A target with defects of its own near the cut (a degenerate triangle or a self-intersection that a
+piece touches) leaves a defect in every run, so the stage runs there each time: more passes from the same evaluation budget, and a
+result that was not clean may change (it stays within the bound and the accept rule).
+
+Counts (`ExactMeshImprint.Counts`): `sliver_cleanup_stage` (1 if the stage ran), `split_edge_reroutes_through_target_vertex` and
+`split_edge_reroutes_through_new_vertex` (the stage's contractions that moved a part's lock to a kept vertex off its edge, per
+contraction), and as before `target_edge_parts_contracted` and `curve_edges_contracted`. The drift used is `Rounding.MaxDrift`
+against `Rounding.MaxLength`.
 `ExactMeshBoolean` does not set `RuleLockedEdges`: its outputs do not change. No exact file, predicate or error bound changes.
 
 ## 3. Prior art (papers only)

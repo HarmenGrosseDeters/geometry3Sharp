@@ -66,7 +66,7 @@ static class ImprintCompare
                         r["cracks"] = imprint.HasCracks;
                         r["rounding_clean"] = imprint.Rounding == null || imprint.RoundingClean;
                         // (#1034: the sliver cleanup stage, the split edges rerouted through a vertex, the drift used against the bound)
-                        foreach (string k in new[] { "sliver_cleanup_stage", "split_edges_through_target_vertex", "split_edges_through_new_vertex",
+                        foreach (string k in new[] { "sliver_cleanup_stage", "split_edge_reroutes_through_target_vertex", "split_edge_reroutes_through_new_vertex",
                                 "curve_edges_contracted", "target_edge_parts_contracted" })
                             if (imprint.Counts.TryGetValue(k, out long n)) r[k] = n;
                         if (imprint.Rounding != null) {

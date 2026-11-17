@@ -164,7 +164,7 @@ namespace g3
         public bool AllowLockedContraction = false;
         /// <summary> edges of LockedEdges contracted by Apply </summary>
         public int LockedContractions;
-        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        /// <summary> edges locked by LockedEdgeF or RuleLockedEdges (not LockedEdges) that were contracted by Apply </summary>
         public int RuleLockedContractions;
         /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
         public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
@@ -172,17 +172,19 @@ namespace g3
         /// edges locked by a rule, kept as a set (the exact imprint: the parts of the target's split edges, docs/design/IMPRINT_SLIVER_CLEANUP.md).
         /// Locked as by LockedEdgeF while the passes and the position search run; a contraction at a vertex with such a lock
         /// to a vertex without one is refused, as for LockedEdgeF. If RuleLocksFollow and they leave a defect, the passes and the
-        /// search run once more with these locks following a contraction, as LockedEdges do (the lock of an edge at the vanishing vertex moves
+        /// search run once more (before RemoveTinyComponents: with FixedHard, which keeps it off, only where the result is not clean without
+        /// the stage) with these locks following a contraction, as LockedEdges do (the lock of an edge at the vanishing vertex moves
         /// to the kept one; a contracted one is gone, counted in RuleLockedContractions). Changed by Apply in that stage only. null: none.
         /// </summary>
         internal HashSet<long> RuleLockedEdges = null;
-        /// <summary> see RuleLockedEdges: the final stage where its locks follow the contractions; it runs only where the result is not clean without it </summary>
+        /// <summary> see RuleLockedEdges: the final stage where its locks follow the contractions; it runs where the passes and the search leave a defect </summary>
         internal bool RuleLocksFollow = false;
         /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
         internal bool FollowStageRan;
         /// <summary>
-        /// in that stage, contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
-        /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex)
+        /// in that stage, the contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
+        /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex);
+        /// counted per contraction (an edge rerouted twice counts twice)
         /// </summary>
         internal int RuleLocksReroutedThroughFixed, RuleLocksReroutedThroughOther;
         // (during the final stage of RuleLocksFollow)

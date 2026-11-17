@@ -93,6 +93,39 @@ namespace geometry3Sharp.Tests
             Assert.Equal(old.Counts.OrderBy(kv => kv.Key), now.Counts.OrderBy(kv => kv.Key));
         }
 
+        // before the stage the lock set answers as the old rule did (one LockedEdgeF over the fixed set of parts): the repair without
+        // the stage equals the repair with the old locks bit for bit, on inputs it leaves unclean and on inputs it cleans
+        public static IEnumerable<object[]> AllPairs()
+        {
+            foreach (object[] c in ExactMeshImprintSliverTests.Cases()) yield return new object[] { (string)c[0] + "," + c[1] + "," + c[2] };
+            foreach (object[] c in CleanToday()) yield return c;
+        }
+
+        [Theory]
+        [MemberData(nameof(AllPairs))]
+        public void BeforeTheStage_TheLockSetEqualsTheOldRule_BitForBit(string name)
+        {
+            DMesh3 target, cutter;
+            string[] f = name.Split(',');
+            if (f.Length == 3) {
+                target = ExactMeshImprintSliverTests.Shape(f[0]);
+                cutter = ExactMeshImprintSliverTests.Shifted(target, int.Parse(f[1]), int.Parse(f[2]));
+            } else
+                CleanTodayPair(name, out target, out cutter);
+            foreach (var (t, c) in new[] { (target, cutter), (cutter, target) }) {
+                ExactMeshImprint now = Run(t, c, false);
+                var legacy = new ExactMeshImprint() { Target = t, Cutter = c, LegacyPartLocks = true };
+                Assert.True(legacy.Compute(), legacy.Error);
+                Assert.Null(legacy.Rounding.RuleLockedEdges);
+                Assert.True(Same(legacy.Result, now.Result));
+                Assert.Equal(legacy.CurveEdges.OrderBy(x => x), now.CurveEdges.OrderBy(x => x));
+                Assert.Equal(legacy.SourceTriangle, now.SourceTriangle);
+                Assert.Equal(legacy.Counts.OrderBy(kv => kv.Key), now.Counts.OrderBy(kv => kv.Key));
+                Assert.Equal(legacy.RoundingClean, now.RoundingClean);
+                Assert.Equal(legacy.Rounding.RemainingDegenerate, now.Rounding.RemainingDegenerate);
+            }
+        }
+
         [Fact]
         public void ExactMeshBoolean_DoesNotSetTheRuleLocks_TheStageCannotRun()
         {
@@ -117,13 +150,15 @@ namespace geometry3Sharp.Tests
             DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, 1);
             ExactMeshImprint now = Run(b, a, true);
             Assert.Equal(1, now.Counts["sliver_cleanup_stage"]);
-            Assert.True(now.Counts["split_edges_through_target_vertex"] > 0);
-            Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edges_through_target_vertex"]);
-            Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edges_through_new_vertex"]);
+            // (measured: one reroute through a target vertex, three through new vertices; deterministic)
+            Assert.Equal(1, now.Counts["split_edge_reroutes_through_target_vertex"]);
+            Assert.Equal(3, now.Counts["split_edge_reroutes_through_new_vertex"]);
+            Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edge_reroutes_through_target_vertex"]);
+            Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
             ExactMeshImprint old = Run(b, a, false);
             Assert.Equal(0, old.Counts["sliver_cleanup_stage"]);
-            Assert.Equal(0, old.Counts["split_edges_through_target_vertex"] + old.Counts["split_edges_through_new_vertex"]);
+            Assert.Equal(0, old.Counts["split_edge_reroutes_through_target_vertex"] + old.Counts["split_edge_reroutes_through_new_vertex"]);
         }
 
         // ---- MeshRoundingRepair alone ----
@@ -189,6 +224,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new HashSet<long>() { MeshRoundingRepair.LockedKey(p, q) }, repair.RuleLockedEdges);
             Assert.Equal(1, repair.RuleLockedContractions);
             Assert.Equal(0, repair.LockedContractions);
+            // (a contraction along a part, into the edge's own end: no reroute)
+            Assert.Equal(0, repair.RuleLocksReroutedThroughFixed + repair.RuleLocksReroutedThroughOther);
             // (a locked edge is not flipped: the edge p-q stays)
             Assert.True(repair.Mesh.FindEdge(p, q) >= 0);
         }
