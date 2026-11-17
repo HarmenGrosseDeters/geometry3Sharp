@@ -792,6 +792,7 @@ runs a long local campaign on the boolean:
 All findings, old and new, are triaged together and fixed in one bugfix round, one PR per root cause. Until then #985 waits:
 its huge-coordinate case (x times 2^+46, empty result with `Success`) is a real bug, and its flattened case matches the
 thin-shell decision.
+Triage of #985, #993, #994, #1010, #1011 by root cause (2026-11-17): [BOOLEAN_TRIAGE_2026-11.md](../research/BOOLEAN_TRIAGE_2026-11.md).
 
 ### Open for the future (2026-11-15)
 
