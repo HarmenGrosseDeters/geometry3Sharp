@@ -56,7 +56,7 @@ Sums over the group; "cases" = results with the defect. Pairs = self-intersectin
 - **135363 at full size** (the mesh as fetched, 2612 triangles; `RemeshSizing.FromWallThickness(input, 1)`, `q` 0.2, no `si`,
   this run): 1,159,814 triangles in 321.5 s, volume ratio 1.0008, Hausdorff 0.041 target, **17,916 pairs**, 400,598 poor and
   174,753 flat triangles, not clean (degenerate triangles, self-intersections). Without the sizing: 502 triangles, volume 0.055,
-  180 pairs. The sizing keeps the wall and still leaves 18k pairs;.
+  180 pairs. The sizing keeps the wall and still leaves 18k pairs.
   The roadmap's earlier figure for this case with `si` (more than 90 minutes) was not repeated here; the unguarded result is not clean.
 
 ## Result 2: where the cost of `si` is, and whether existing blocks cut it
