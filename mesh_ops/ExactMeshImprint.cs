@@ -83,7 +83,7 @@ namespace g3
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxDisplacement"/> </summary>
         public double RoundingMaxDisplacement = 1e-5;
-        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> (grown with the defects at the defaults of MeshRoundingRepair.PairTestsDefectScale) </summary>
+        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> (grown with the defects by RoundingPairTestsDefectScale / RoundingPairTestsMaxGrowth) </summary>
         public long RoundingMaxPairTests = 5000000;
         /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
         public double RoundingPairTestsDefectScale = 50000;

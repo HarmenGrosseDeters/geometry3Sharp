@@ -130,7 +130,7 @@ namespace gs
         /// <summary>
         /// SafeRounding's effort budget, passed to the exact resolve (ExactMeshBoolean.RoundingMaxPairTests) and to the
         /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M; both grow it with the initial
-        /// defects by up to 4 times (MeshRoundingRepair.PairTestsDefectScale, PairTestsMaxGrowth, at their defaults)
+        /// defects (RoundingPairTestsDefectScale, RoundingPairTestsMaxGrowth; by up to 4 times at their defaults)
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
         /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale), passed to the exact resolve and to the repair after SeparateTouchingVertices </summary>
