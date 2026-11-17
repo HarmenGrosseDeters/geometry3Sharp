@@ -204,8 +204,8 @@ Part of the [roadmap](../ROADMAP.md).
   (O1: done 2026-11-17, #1092, the `SnapRounding2.Diagnostics` text is culture-invariant). Stage 2 (`ExactMeshArrangement`,
   `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Closed:
   #891 (saturating double-to-int casts in the grid indexers) and #892 (sign-of-zero consistent Min / Max in
-  `AxisAlignedBox3d`), both 2026-11-15, and #789 (the shard-choice test, #934). Open: the guard-limit int overflow in
-  `ExactTriangulation2` (#1086, found in stage 1).
+  `AxisAlignedBox3d`), both 2026-11-15, and #789 (the shard-choice test, #934). Fixed: the guard-limit int overflow in
+  `ExactTriangulation2` (#1086, found in stage 1, merged 2026-11-17).
 - **CI: net48 intermittent hang (#824): closed 2026-11-16.** Shard b of the net48 tests hung until the job timeout. #828 (and #844) run
   the net48 test steps under blame-hang, so a hang names its test. The hang seen was the `patch_winding` race
   #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no recurrence was reported when it was closed (the closing comment
@@ -215,8 +215,12 @@ Part of the [roadmap](../ROADMAP.md).
   (`ExactMeshBooleanTests.`: `~` is a substring match, so it also selected other classes whose names contain it) and split the rounding
   shards; `tests/mutation` has 45 mesh configs now (`rounding-1` .. `-13`, `boolean-1` .. `-7`, `arrangement-1` .. `-4`, `envelope-1` .. `-4`, uv, terrain, geodesic and others)
   next to the arithmetic job. Exact Boolean 3.0 gate (owner 2026-11-11: a full run of every touched shard above its threshold on master): master run 44013112256
-  (dispatched 2026-11-17) had 35 shards green and 5 red (`envelope-3`, `geodesic-1`, `rounding-4`, `rounding-7`, `terrain-overlay`); a fix for three of them
-  (`rounding-4`, `rounding-7`, `terrain-overlay`) is in review (#1077). The gate is pending.
+  (dispatched 2026-11-17) had 35 shards green and 5 red (`envelope-3`, `geodesic-1`, `rounding-4`, `rounding-7`, `terrain-overlay`); the fix for three of them
+  (`rounding-4`, `rounding-7`, `terrain-overlay`) is merged (#1077) and `envelope-3` / `geodesic-1` got tests (#1051); the reruns are pending, so the gate is still open.
+- **Gate-change check (owner 2026-11-17):** #1087 (observe mode) flags a PR that changes a file of `tools/gate_files.txt`; the label `gate-change` is set by the coordinator
+  for a change that keeps or tightens a check, after it reviewed the gate-file diff, and by the owner for a loosening or a change to the gate check or the rule files; workers
+  never set it; a push after the label needs a fresh review (#1094, [QA.md](../QA.md) 2.8a). #1088: diff triggers for the review checklist (`tools/review_triggers.py`).
+  Also merged 2026-11-17: the changed-line coverage fix (#1089), the `DoNotAllocate` diagnostics of the flaky test #1074 (#1090).
 - **Public package:** none planned (owner 2026-11-16); `dotnet pack`, the API check against 1.0.324 and the package
   smoke tests stay in CI.
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
