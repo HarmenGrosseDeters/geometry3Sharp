@@ -5,13 +5,13 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** the CLI / MCP server `g3cli`, analysis building blocks and evaluation metrics, verifiable agent work
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
   the DAP audit and the test suite on other locales. No public package is planned (owner 2026-11-16).
-- **Status (2026-11-15):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299; the update
+- **Status (2026-11-17):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299; the update
   closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 merged); the issue-tracker fix list is complete
   (2026-11-03). QA 2.0 rollout continuing (status table [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the
-  mutation 3.0 process and coverage-pass fix are in #615 (open). Determinism stage 0 (#871) and the exact fallback
-  monomial kernels (#769) are merged. The Clipper2 vendoring line is done (#751, #826, #851, #874); Clipper2's
-  triangulation is not offered (owner decision). Open: the net48 hang (#824; fix #883 merged, close if it does not come back), the open fuzz
-  campaigns, a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-15).
+  mutation 3.0 process is on master (#615 closed, #913 and #958 merged 2026-11-16). Determinism stage 0 (#871) and the exact fallback
+  monomial kernels (#769) are merged; stage 1 is PR #1076 (open). The Clipper2 vendoring line is done (#751, #826, #851, #874, #914; the final precision work #955 closed with #1059, 2026-11-17); Clipper2's
+  triangulation is not offered (owner decision). The net48 hang #824 is closed (2026-11-16, no recurrence after #883), the fuzz
+  campaigns #623 and #624 are closed (2026-11-15). Open: a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-17).
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
@@ -79,12 +79,12 @@ Part of the [roadmap](../ROADMAP.md).
   reason; ClippedRegion, BandRepair and EarlyRegionCheck move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
-  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame; closed 2026-11-16 as a documented limit (owner), serial 23.5-24.9 s after #977)
-  is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue is #888 (28 outliers of 35 cases on
+  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three; closed 2026-11-15) is closed too; #698 (full-run-only starvation list) is open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame; closed 2026-11-16 as a documented limit (owner), serial 23.5-24.9 s after #977)
+  is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue was #888 (closed 2026-11-16; 28 outliers of 35 cases on
   master e741c130; the cases over 20 s include `boolean-thingi-55928-union` at 481 s and two alpha wrap pipes at 56-78 s).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
-  #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
+  #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate (as of 2026-11-09; since 2026-11-15 there are 13 rounding parts, #843, and the shared filter is the class itself): all
   7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
   touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
   decision, not needed for the gate).
@@ -96,7 +96,7 @@ Part of the [roadmap](../ROADMAP.md).
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
   section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
   and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702) are merged; `query3d --camera` (#707), the last PR, is merged; G is without `voxelize` as in its section 10 (dropped by the owner).
-  Later commands: `tpms` (#879, merged 2026-11-14). `offset --method mesh_offset` (#868, open): opt-in `MeshOffset`,
+  Later commands: `tpms` (#879, merged 2026-11-14). `offset --method mesh_offset` (#868, merged 2026-11-15): opt-in `MeshOffset`,
   default `sdf_mc` unchanged; owner decision: the default cell for `mesh_offset` is |d| / 4, `max_cells` is unchanged.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
@@ -125,10 +125,12 @@ Part of the [roadmap](../ROADMAP.md).
   and 2026-11-15, both green, and the cron runs still come about 7 h late; `coverage.yml` was dispatched on both days;
   its runs of 2026-11-13 and 2026-11-14 (scheduled and dispatched) failed (cause unverified), the 2026-11-15 run was still
   running. The firing problem is
-  solved; the failing coverage run is open.
-- **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-12: option (b), vendor the C# 2.0.0
+  solved. **Status 2026-11-17 (Actions run list):** `coverage.yml` was red on 2026-11-15, green on 2026-11-16 (dispatch 03:45 failed,
+  then the 06:52 dispatch and the 12:01 cron run passed, after #959), and red again on 2026-11-17 (dispatch 03:47 UTC and cron 12:25 UTC, both in the
+  job `gate`, step "Changed-line coverage"); `nightly.yml` ran green on every day 2026-11-14 to 2026-11-17 (dispatch and cron).
+- **Clipper2 C# sources: integrate or keep the NuGet package? Done (vendored, package removed; status lines below).** (owner 2026-11-12: option (b), vendor the C# 2.0.0
   sources and fix item 5; own session; in work: PR 1 #751 vendors the sources behaviour-identical, PR 2 fixes item 5
-  (`bugfix`; cause: `DoSplitOp` dropped a hole touching its path; one rarer Intersection case open, FINDINGS item 5)) AngusJohnson/Clipper2 was
+  (`bugfix`; cause: `DoSplitOp` dropped a hole touching its path; one rarer Intersection case open, FINDINGS item 5); all done, see the status lines below) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
   frozen NuGet package Clipper2 2.0.0, so the known Union limitation (FINDINGS item 5, wrong area on degenerate
@@ -143,7 +145,7 @@ Part of the [roadmap](../ROADMAP.md).
   the four enums move to `g3.Clipper2` with the same names and values, the integer `ClipperFrame` conversions become
   internal, addon version 2.0.0; the test project keeps the package for the differential test); the remaining
   Intersection case #756 gets option (c), an own narrower fix of the "micro self-intersection" branch (prior-art check
-  first). Order: #751, the item 5 PR, the package removal, #756 (c).
+  first). Order: #751, the item 5 PR, the package removal, #756 (c) (all done, see below).
   Status 2026-11-13: #751 (vendoring) and #826 (item 5) merged; the package removal is #851 (addon 2.0.0, no
   dependency on the Clipper2 package); #756: the orientation guard of the micro branch (owner 2026-11-13, option
   "c-guard"; 4da1564 not adopted). Status 2026-11-15: the rest of that class (about 3 per 100 000 results on degenerate
@@ -164,6 +166,8 @@ Part of the [roadmap](../ROADMAP.md).
   **Owner decision: Clipper2's triangulation is not offered** through the `geometry3Sharp.Clipper2` adapter.
   `Clipper.Triangulation.cs` is vendored only because `Clipper.cs` refers to it and stays unused; upstream's later
   triangulation fixes (`6a36be1`) are not included (`Clipper2Lib/README.md`).
+  **Status 2026-11-17:** the final precision work, #955 (remaining failures after #949), is closed with #1059 (merged 2026-11-17): 73 grid-rounding
+  losses (oracle allowance), 1 resolution-dependent engine error, 8 zero-area rings at the 40-bit default; no engine port or frame change.
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
@@ -198,14 +202,17 @@ Part of the [roadmap](../ROADMAP.md).
   two codex drafts, reviewed as correct, which the determinism session takes over: #891 (#804, saturating double-to-int
   casts in the grid indexers) and #892 (#803, sign-of-zero consistent Min / Max in `AxisAlignedBox3d`); and #789
   (ExactPoint3 hash values are seeded per process; a test that the shard choice does not change results).
-- **CI: net48 intermittent hang (#824):** shard b of the net48 tests hung until the job timeout. #828 (and #844) run
-  the net48 test steps under blame-hang, so a hang names its test. The hang seen recently is the `patch_winding` race
-  #882 (`ExactMeshBoolean`, coordinates near 1e308); #883 fixes it (open). Close #824 once #883 is merged and the hang
-  does not come back. #823 (FastWinding 800 ms bound on net48) is closed, fixed by #831.
-- **Mutation shards (status 2026-11-15):** #615 (the 3.0 process and the coverage-pass fix) is open. #884 adds the
-  `hausdorff` shard (green run; thresholds being set). On #843 the rounding shards time out in the coverage pass; the
-  fix is to narrow the test filter `FullyQualifiedName~ExactMeshBooleanTests` to that class itself (`~` is a substring
-  match, so it also selects the other classes whose names contain it).
+- **CI: net48 intermittent hang (#824): closed 2026-11-16.** Shard b of the net48 tests hung until the job timeout. #828 (and #844) run
+  the net48 test steps under blame-hang, so a hang names its test. The hang seen was the `patch_winding` race
+  #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no net48 job hung in the 194 CI runs
+  after it. Reopen if one hangs again. #823 (FastWinding 800 ms bound on net48) is closed, fixed by #831.
+- **Mutation shards (status 2026-11-17):** #615 (the 3.0 process and the coverage-pass fix) is closed, merged in #913 and #958
+  (2026-11-16). #884 (the `hausdorff` shard) is merged. #843 (merged 2026-11-15) narrowed the shared test filter to the class itself
+  (`ExactMeshBooleanTests.`: `~` is a substring match, so it also selected other classes whose names contain it) and split the rounding
+  shards; `tests/mutation` has 45 mesh configs now (`rounding-1` .. `-13`, `boolean-1` .. `-7`, `arrangement-1` .. `-4`, `envelope-1` .. `-4`, uv, terrain, geodesic and others)
+  next to the arithmetic job. Exact Boolean 3.0 gate (owner 2026-11-11: a full run of every touched shard above its threshold on master): master run 44013112256
+  (dispatched 2026-11-17) had 35 shards green and 5 red (`envelope-3`, `geodesic-1`, `rounding-4`, `rounding-7`, `terrain-overlay`); a fix is in
+  review (#1077). The gate is pending.
 - **Public package:** none planned (owner 2026-11-16); `dotnet pack`, the API check against 1.0.324 and the package
   smoke tests stay in CI.
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
@@ -325,7 +332,7 @@ Tier: S, M. Parallel: up to 2 sessions
        `Simplify` also the other way (every input vertex within 3 epsilon of the result: SimplifyPaths measures against the neighbours' line, so removals drift, 1.04 epsilon seen), `ClipPolyLines` (intersection and difference: the pieces lie on the input lines on the kept side, no kept part missing), a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 8 000 samples: no finding. (Minkowski sums
        and polyline offsets are not covered yet.)
     8. Fuzz targets, second wave (QA 2.0 T13; targets done 2026-11-10; the libFuzzer campaigns are #624, groups (a) and (b)
-       done 2026-11-12, see the rollout status below; the third wave is draft #686): `tools/MeshFuzzPilot` got `remesher`, `reducer`,
+       done 2026-11-12, see the rollout status below; the third wave #686 is merged, 2026-11-15): `tools/MeshFuzzPilot` got `remesher`, `reducer`,
        `quality-mesh2` (judged by the acceptance oracle of the mesher) and `clipper2` (Boolean on raw rings against a winding check, offset,
        simplify), each with self-test contradictions (the branch each check takes), seeds, the replay tests, option bytes after the queries, and a
        `random <n> <seed>` smoke command that needs no libFuzzer; `run.sh` also instruments the Clipper2 dlls. Smoke runs after the independent
@@ -349,7 +356,7 @@ Tier: S, M. Parallel: up to 2 sessions
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
       long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
       STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); the campaigns for the
-      other readers are the open `local` issue #623.
+      other readers were the `local` issue #623 (closed 2026-11-15).
     - Coverage-guided fuzzing of the mesh operations (owner 2026-11-09): [MeshFuzzPilot](../../tools/MeshFuzzPilot/README.md)
       decodes bytes into small closed meshes at every binary scale and runs ExactMeshBoolean, MeshRobustRepair and
       MeshRoundingRepair; a finding is an exception, a timeout or a result that contradicts its own claim, and becomes
@@ -381,7 +388,7 @@ and the test tiers and time limit (#447, the backlog program).
   `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
   `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
   triangle inputs through the wrap / solidify fallbacks (performance, not a hang). Later state (QA20_STATUS.md): the
-  ray / inside failure is fixed (#493); the repair time is bugfix issue #636 (open).
+  ray / inside failure is fixed (#493); the repair time was bugfix issue #636 (closed, fixed by #703).
 - **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
   tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
   (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
@@ -401,19 +408,19 @@ and the test tiers and time limit (#447, the backlog program).
   `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
   two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
   message), and #682 (37ee4a57, `Similarity.All2D()`: the 2D tests use the similarities of the plane, see QA.md,
-  "Similarities"). #627 (T12 FPTaylor) is merged; #686 (MeshFuzzPilot third wave) is still a draft.
+  "Similarities"). #627 (T12 FPTaylor) is merged; #686 (MeshFuzzPilot third wave) was merged on 2026-11-15.
   The `local` issues #636 (repair time, F2), #637 (F5) and #638 (F7) are closed, fixed by #703, #687 and #688. #628 was fixed by #634 (merged).
   MeshFuzzPilot overnight campaigns (#624, `local`, owner's machine): groups (a) boolean and (b) repair done
   2026-11-12 (raw output on branch `runs/mesh-fuzz`); filed #710 and #711 (Exact Boolean 3.0 queue, exact-boolean.md) and
   #712 (`MeshRobustRepair` 5-52 s on 4-20 vertex inputs inside its range; same cause as #636, fixed by #703: 50.6 -> 2.9 s and
   6.5 -> 1.0 s; optional lever: the remaining 2.5 s of the soup case are the solidify contour of a 1e-23 input, not profiled).
-  Groups (c) to (f) still to run (#624 open); #710, #711 and #712 are closed (#711 on 2026-11-15, after #769), so a
+  #624 is closed (2026-11-15); #710, #711 and #712 are closed (#711 on 2026-11-15, after #769), so a
   second round of (a)/(b) is now up to the owner.
   Tests above 20 s (#692-#698): #692 and #693 in the AW3 tail report; #694, #695, #696 (#691, #704, #706), #697 and #698
   with the backlog session (#694 split into 13 parts, #715; #695 Nightly plus a reduced PR test, #714; #697 FoldedCluster
   row Nightly, base plus one frame in the PR tier); CoreMath coverage round 2 (#716) found #718 (`CoreMath.Exp(2^-53)`
   returns 1.0, port error in the tiny-argument check; closed 2026-11-12); the flaky net48 tests #671 and #676 are
-  closed (#683, #684). Status 2026-11-15: #692-#695 and #697 closed, #696 and #698 open.
+  closed (#683, #684). Status 2026-11-17: #692-#697 closed (#696 on 2026-11-15), #698 open.
 
 #### Test suite on German Windows
 
@@ -446,21 +453,21 @@ cinolib, geometry-central, Manifold) on the operations it shares with them.
 
 - [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing. Booleans done (`ExactBooleanIssueCasesTests`); repair and alpha wrap merged in #326 (24 failure modes, MinimalHoleFill fix); groups 2-4 merged in #330 (2026-11-02); P3 by design (#349); Q2/Q3 (watertight exact ray-triangle: repair CPU +0.9 %, tree queries +2-29 %, single Intersects 4.2x, 260/260 boolean hashes) in #341 G3 (relative path-trace tolerance) in #343 and P1 (FlippedTriangles status, degenerate-UV rule relative to the surface triangle; UVAtlas A/B identical) in #346 and G2 in #347 (2026-11-03). **The fix list is complete** (2026-11-03): fixed R1, S1, G1-G3, P1, P4, Q1-Q3 and the Reducer and constraint bowties; P3 by design; R2 a limitation; P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept, OPERATIONS.md recommends the guards) open, pinned and documented as decided. Follow-ups: the ray batch API (Later), the P1 collapse itself (closed 2026-11-12 as a limitation; the real fix, virtual fan vertices or spectral conformal, is research); the flip-guard follow-up (the regressions a remesher flip-guard default would cause) is closed: the Remesher defaults stay upstream's (owner November 2026); the other operations started 2026-11-02 in a QA session (repair and alpha wrap, Reducer / Remesher, geodesics and parameterization, queries; mesher and terrain failure modes collected only). Findings in [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); owner 2026-11-02: every finding is fixed (correct first, then fast), distributed: QA session Q2+Q3 (exact ray/triangle crossings, IsInside), G3, P1, then G2, P2, S2, S3, P3; 7b session R1 (orientation rule for crossing components; merged in #333 on 2026-11-03: crossing components keep their orientation, A/B 3 inputs now accepted exactly instead of falling back, controls 1.008×), then S1 merged in #336 (2026-11-03; Reducer fold-over guard from area-weighted original normals plus a boundary ear rule, owner: PreventFoldOver default on, UPSTREAM_CHANGES row; noisy terrains 20/110 → 7/0 folds/walls, time on/off 1.00-1.14x, with MaxDeviation 1.01-1.02x)
 
-### Open for the future (2026-11-15)
+### Open for the future (2026-11-17)
 
-Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
+Done and removed from this list: #824 (closed 2026-11-16), #858 (closed 2026-11-17, answered by the owner's thread A/B of #962), #866, #888 and #947 (closed 2026-11-16), #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
 (hausdorff shard), #868 (`g3cli offset --method mesh_offset`), the fuzz campaigns #623 / #624 and wave 3 #686, #756,
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
-1. Coverage gate red on master since 2026-11-13 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
+1. Coverage gate (`coverage.yml`): red 2026-11-13 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run).
 2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. Open: owner decision on the late-cron proposal there.
-3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
-   regression rule only, once a baseline exists: same session.
+3. Runtime watch rule (#888, owner 2026-11-15; #888 closed 2026-11-16): the 20 s hard limit is for tests; tail cases are judged by the
+   regression rule only, once a baseline exists ([QA.md 3.3](../QA.md#33-runtime-watch-extreme-cases-nightly)).
 4. Done: #913 and the rest of #615 (#958) are merged.
-5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
+5. Tests and CI: #698 (full-run starvation; open), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed, closed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
    short and shard b stays the critical path (check 2026-11-16).
 6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); #804 closed; the sizes that are still too large after saturation are a documented limit (owner 2026-11-16; the same on every runtime).
-7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).
-8. Clipper2: #955 (remaining failures after #949): diagnosed, in review 2026-11-17: 73 grid-rounding losses (oracle allowance), 1 resolution-dependent engine error, 8 zero-area rings at the 40-bit default; all 82 reproduced and pinned. No engine port or frame change.
-9. Thingi10K full corpus: draft #385.
+7. net48 vs net10 comparison #929 (open): the owner's local run (2026-11-15/16). Thread scaling #858 is closed (2026-11-17).
+8. Clipper2: #955 (remaining failures after #949) is closed with #1059 (merged 2026-11-17): 73 grid-rounding losses (oracle allowance), 1 resolution-dependent engine error, 8 zero-area rings at the 40-bit default; all 82 reproduced and pinned. No engine port or frame change.
+9. Thingi10K full corpus: the draft PR #385 was closed unmerged on 2026-11-16 (its final results, 10 000 models per mode, are in its description).
 10. .NET 11 migration (not scheduled).
