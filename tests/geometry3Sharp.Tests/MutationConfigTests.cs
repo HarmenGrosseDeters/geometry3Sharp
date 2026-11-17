@@ -180,10 +180,14 @@ namespace geometry3Sharp.Tests
                     serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock",
                     // (IsThinOrTiny, the input test of KeepWhenEmptied, #985)
                     "FullyQualifiedName~SafeRoundingLastComponentTests" },
-                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel" },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel",
+                    // (the pair budget's growth with the defects, RC4a)
+                    "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
-                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
+                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
+                    // (pair_budget, RC4a)
+                    "FullyQualifiedName~SafeRoundingBudgetTests" },
                 // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
