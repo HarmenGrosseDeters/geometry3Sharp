@@ -120,18 +120,40 @@ namespace geometry3Sharp.Tests
         // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
         // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
-        // (one row per family: 108 and 90 Booleans, about 7 s each alone, instead of 15 s in one test; each family keeps its own count)
+        // (#698: the rows of a family split its ks; one row per family took up to 9.8 s alone and 21.6 s in the full run. Cluster is three
+        // rows of two k, 36 Booleans each, about 3 s; 93 of the 108 were clean (34, 29 and 30 by row), and the rows' minima 33 + 28 + 28
+        // keep the old 89. FoldedCluster (no k = 0) is two rows: 84 of 90 were clean (51 and 33), and 49 + 31 keep the old 80;
+        // DenseClusterRows_AreAllTheCases checks the union of the ks and the sums)
+        public static IEnumerable<object[]> DenseClusterRows() => new[] {
+            new object[] { Family.Cluster, new[] { 0, 44 }, 36, 33 },
+            new object[] { Family.Cluster, new[] { 30, 52 }, 36, 28 },
+            new object[] { Family.Cluster, new[] { 36, 40 }, 36, 28 },
+            new object[] { Family.FoldedCluster, new[] { 30, 40, 44 }, 54, 49 },
+            new object[] { Family.FoldedCluster, new[] { 36, 52 }, 36, 31 },
+        };
+
+        [Fact]
+        public void DenseClusterRows_AreAllTheCases()
+        {
+            var rows = DenseClusterRows().ToList();
+            foreach (var (family, ks, total, minClean) in new[] { (Family.Cluster, new[] { 0, 30, 36, 40, 44, 52 }, 108, 89), (Family.FoldedCluster, new[] { 30, 36, 40, 44, 52 }, 90, 80) }) {
+                var mine = rows.Where(r => (Family)r[0] == family).ToList();
+                Assert.Equal(ks, mine.SelectMany(r => (int[])r[1]).OrderBy(k => k));
+                Assert.Equal(total, mine.Sum(r => (int)r[2]));
+                Assert.Equal(minClean, mine.Sum(r => (int)r[3]));
+            }
+        }
+
         [Trait("Category", "Slow")]
         [Theory]
-        [InlineData(Family.Cluster, 108, 89)]
-        [InlineData(Family.FoldedCluster, 90, 80)]
-        public void DenseClusters_WithinTheBound_MostlyClean(Family family, int total, int minClean)
+        [MemberData(nameof(DenseClusterRows))]
+        public void DenseClusters_WithinTheBound_MostlyClean(Family family, int[] ks, int total, int minClean)
         {
             DMesh3 sphere = Sphere(6);
             var failures = new List<string>();
             int clean = 0, n = 0;
             foreach (Family f in new[] { family })
-                foreach (int k in new[] { 0, 30, 36, 40, 44, 52 })
+                foreach (int k in ks)
                     foreach (int count in new[] { 2, 4, 8 })
                         for (int seed = 0; seed < 6; seed++) {
                             if (f == Family.FoldedCluster && k == 0) continue;     // (the same as Cluster)

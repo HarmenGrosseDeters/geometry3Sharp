@@ -194,10 +194,26 @@ namespace geometry3Sharp.Tests
             Assert.True(full > 12, $"no search ran again in full ({full} full searches in 12 runs)");
         }
 
+        // the frames of Similarity.All() by index, in three rows (#698: Cluster's base and 8 frames in one row took up to 9.4 s alone and
+        // 19.5 s in the full run; its "rotated, scale 1e-3, utm" frame alone takes about 4.5 s); each row runs the base, and the rows
+        // together are all the frames (FrameRows_AreAllTheFramesOnce)
+        static readonly int[][] FrameRows = { new[] { 7 }, new[] { 0, 1, 2, 5 }, new[] { 3, 4, 6 } };
+
+        public static IEnumerable<object[]> CasesExceptFoldedClusterAndFrameRows() =>
+            CasesExceptFoldedCluster().SelectMany(c => Enumerable.Range(0, FrameRows.Length).Select(r => new object[] { c[0], r }));
+
+        [Fact]
+        public void FrameRows_AreAllTheFramesOnce() =>
+            Assert.Equal(Enumerable.Range(0, Similarity.All().Count()), FrameRows.SelectMany(r => r).OrderBy(i => i));
+
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(CasesExceptFoldedCluster))]
-        public void Similarities_SameResult_Pow2BitIdentical(string name) => SameUnderSimilarities(name, Similarity.All());
+        [MemberData(nameof(CasesExceptFoldedClusterAndFrameRows))]
+        public void Similarities_SameResult_Pow2BitIdentical(string name, int row)
+        {
+            var all = Similarity.All().ToList();
+            SameUnderSimilarities(name, FrameRows[row].Select(i => all[i]));
+        }
 
         // FoldedCluster (36, seed 1) is the case that stays unclean (the documented path): 1.5-2.7 s a run with the check, 13.5 s for the
         // base and the 8 frames. All 8 frames are Nightly (the run is the check); the PR tier keeps the base and one 2^k scale frame, so
@@ -229,19 +245,28 @@ namespace geometry3Sharp.Tests
             return b0;
         }
 
+        public static IEnumerable<object[]> CasesAndParts() =>
+            Cases().SelectMany(c => new[] { new object[] { c[0], "parallel runs" }, new object[] { c[0], "compute twice" } });
+
+        // the serial run against three parallel runs, and against one instance computed twice (two rows, #698: the six Booleans of
+        // FoldedCluster in one row took up to 7.2 s alone and 20.4 s in the full run)
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(Cases))]
-        public void SerialEqualsParallel_ComputeTwice(string name)
+        [MemberData(nameof(CasesAndParts))]
+        public void SerialEqualsParallel_ComputeTwice(string name, string part)
         {
             (DMesh3 a, DMesh3 b, Ops op) = Inputs(name);
             string serial = Print(Run(a, b, op, serial: true).Result);
-            for (int run = 0; run < 3; ++run)
-                Assert.True(serial == Print(Run(a, b, op).Result), $"{name}: parallel run {run} differs from the serial run");
-            var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
-            Assert.True(boolean.Compute(), boolean.Error);
-            Assert.True(boolean.Compute(), boolean.Error);
-            Assert.Equal(serial, Print(boolean.Result));
+            if (part == "parallel runs") {
+                for (int run = 0; run < 3; ++run)
+                    Assert.True(serial == Print(Run(a, b, op).Result), $"{name}: parallel run {run} differs from the serial run");
+            } else {
+                Assert.Equal("compute twice", part);
+                var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+                Assert.True(boolean.Compute(), boolean.Error);
+                Assert.True(boolean.Compute(), boolean.Error);
+                Assert.Equal(serial, Print(boolean.Result));
+            }
         }
     }
 }
