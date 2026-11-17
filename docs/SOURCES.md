@@ -294,6 +294,19 @@ code or any other implementation was read). Stage 1 of [design/QUAD_REMESHING.md
 | Smoothing of the curvature tensors over the one-ring (against noise) | own choice |
 | `SparseHermitianCholesky` (the field matrix as a complex Hermitian system of n unknowns): the analysis of `SparseCholesky` (approximate minimum degree, elimination tree, relaxed supernodes) and a left-looking supernodal Cholesky in complex arithmetic | A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989; P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; E. Ng, B. Peyton, *Block sparse Cholesky algorithms on advanced uniprocessor computers*, SIAM J. Sci. Comput. 1993; C. Ashcraft, R. Grimes, *The influence of relaxed supernode partitions on the multifrontal method*, ACM TOMS 1989. No CHOLMOD / SuiteSparse / Eigen / MUMPS / PARDISO code read or taken over |
 
+## Position field and quad extraction (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`)
+
+Implemented from the paper only (owner 2026-11-17: the Instant Meshes code has an Enhancements clause in its licence that the owner
+did not accept; no code of Instant Meshes, QuadriFlow, QuadWild or libigl was read). Stage 2 of
+[design/QUAD_REMESHING.md](design/QUAD_REMESHING.md); the derivations and the own choices are in section 3.1 and 4.2 there.
+
+| Part | Source |
+|---|---|
+| Position field (a point per vertex that stands for a lattice with the orientation field), compatibility of two lattices (rotation of the 4-RoSy, the lattice points near a common point, rounding to the lattice of each vertex), Gauss-Seidel smoothing on a multiresolution hierarchy, extraction from the integer offsets of the edges (merge of equal lattice points, unit offsets are edges, faces traced in the tangent planes) and its cleanup | M. Jakob, M. Tarini, D. Panozzo, O. Sorkine-Hornung, *Instant Field-Aligned Meshes*, ACM TOG 34(6) 189, SIGGRAPH Asia 2015 |
+| The hierarchy (greedy matching of the closest neighbours, area weighted position, normal and orientation), the point closest to the edge midpoint on both tangent planes and its regularization, the mean misfit as the Gauss-Seidel step, boundary vertices on a lattice line and boundary corners as lattice points | own choices (QUAD_REMESHING.md 3.1) |
+| Deterministic parallel Gauss-Seidel: a fixed greedy colouring in vertex order, the colours one after the other, so that serial and parallel runs execute the same updates | multi-colour Gauss-Seidel, standard (eg Y. Saad, *Iterative Methods for Sparse Linear Systems*, 2nd ed. 2003, section 12.4) |
+| The quality numbers of `PolyMeshMetrics` (face mix, valence, corner angles, manifold polygon mesh) | QUAD_REMESHING.md section 1 |
+
 ## Parameterization (`LSCMParameterization`, `SpectralConformalParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.

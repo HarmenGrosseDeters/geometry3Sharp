@@ -1,0 +1,173 @@
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+//
+// Quad remeshing stage 2 benchmark (docs/design/QUAD_REMESHING.md section 4): gs.CrossField, gs.PositionField and gs.QuadRemesher on
+// procedural shapes (MarchingCubes, then 20 Remesher passes at edge h = ratio * s) and open shapes. One Markdown table row per shape
+// with the stage 2 gate numbers: quads %, faces above 6 sides (always 0: MaxFaceSides), irregular vertices against the field's
+// singularities, corner deviation p95, one-sided Hausdorff (output to input) over s, manifold, and the times of the stages.
+//
+//   dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [big=<n>] [align=<s>]
+//
+// align is CrossField.CurvatureAlignment (default 0: the smoothest field); scale multiplies every s; serial=1 runs the position field without parallel loops; big=<n> adds a sphere of about n input vertices
+// (the speed gate: at most 5 s of position field and extraction per 100k input vertices on 4 cores).
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
+using g3;
+using gs;
+
+static class Program
+{
+    class Fn : BoundedImplicitFunction3d
+    {
+        public Func<Vector3d, double> F; public AxisAlignedBox3d B;
+        public double Value(ref Vector3d p) { return F(p); }
+        public AxisAlignedBox3d Bounds() { return B; }
+    }
+
+    class Shape { public string Name; public Func<Vector3d, double> F; public double S; public double Noise; public Func<DMesh3, DMesh3> Post; public double Radius = 1; }
+
+    static string F(double x, string fmt) { return x.ToString(fmt, CultureInfo.InvariantCulture); }
+
+    static int Main(string[] args)
+    {
+        var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
+        var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
+        double ratio = A.ContainsKey("ratio") ? double.Parse(A["ratio"], CultureInfo.InvariantCulture) : 0.5;
+        int sweeps = A.ContainsKey("sweeps") ? int.Parse(A["sweeps"]) : 20;
+        double scaleMul = A.ContainsKey("scale") ? double.Parse(A["scale"], CultureInfo.InvariantCulture) : 1.0;
+        bool serial = A.ContainsKey("serial") && A["serial"] == "1";
+        bool cleanup = !(A.ContainsKey("cleanup") && A["cleanup"] == "0");
+        double mm = A.ContainsKey("mm") ? double.Parse(A["mm"], CultureInfo.InvariantCulture) : 0.5;
+        double align = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : 0;
+        double eps = A.ContainsKey("eps") ? double.Parse(A["eps"], CultureInfo.InvariantCulture) : 0.05;
+
+        Func<Vector3d, double> sphere = p => p.Length - 1;
+        Func<Vector3d, double> torus = p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 1; return Math.Sqrt(q * q + p.z * p.z) - 0.35; };
+        Func<Vector3d, double> bumpy = p => p.Length - 1 - 0.08 * Math.Sin(4 * p.x) * Math.Sin(4 * p.y) * Math.Sin(4 * p.z);
+        Vector3d ext = new Vector3d(1, 0.7, 0.5); double fr = 0.15;
+        Func<Vector3d, double> rbox = p => {
+            Vector3d q = new Vector3d(Math.Abs(p.x) - (ext.x - fr), Math.Abs(p.y) - (ext.y - fr), Math.Abs(p.z) - (ext.z - fr));
+            Vector3d qp = new Vector3d(Math.Max(q.x, 0), Math.Max(q.y, 0), Math.Max(q.z, 0));
+            return qp.Length + Math.Min(Math.Max(q.x, Math.Max(q.y, q.z)), 0) - fr;
+        };
+        Func<DMesh3, DMesh3> cap = m => {
+            var remove = new List<int>();
+            foreach (int t in m.TriangleIndices()) if (m.GetTriCentroid(t).z > 0.5) remove.Add(t);
+            MeshEditor.RemoveTriangles(m, remove, true);
+            return m;
+        };
+        var shapes = new List<Shape> {
+            new Shape { Name = "sphere", F = sphere, S = 0.1 },
+            new Shape { Name = "torus", F = torus, S = 0.1 },
+            new Shape { Name = "bumpy", F = bumpy, S = 0.06 },
+            new Shape { Name = "filleted-box", F = rbox, S = 0.08 },
+            new Shape { Name = "noisy-sphere", F = sphere, S = 0.1, Noise = 0.2 },
+            new Shape { Name = "sphere-cap", F = sphere, S = 0.1, Post = cap },
+            new Shape { Name = "open-patch", F = null, S = 0.04 },
+        };
+        if (A.ContainsKey("big")) {
+            // about n vertices: a sphere with edge h gives 4 pi / (0.866 h^2) / 2 vertices
+            double n = double.Parse(A["big"], CultureInfo.InvariantCulture);
+            double h = Math.Sqrt(2 * Math.PI / (0.866 * n) * 2) ;
+            shapes.Add(new Shape { Name = "big-sphere", F = sphere, S = 2 * h });
+        }
+
+        Console.WriteLine("| shape | input V | s | singular faces | faces | quads % | tris | 5-6 | irreg. V | irreg / sing. | boundary V | manifold | corner dev p50 / p95 (deg) | aspect p95 | Hausdorff out->in / s | t field (s) | t position (s) | t extract (s) | levels / colours / sweeps | collapsed / valence 2 / dropped |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        {   // warm-up
+            var w = MakeInput(shapes[0], 0.2, 0);
+            var wf = new CrossField(w); wf.Compute();
+            new QuadRemesher(w) { Field = wf, TargetEdgeLength = 0.4 }.Compute();
+        }
+        foreach (var sh in shapes) {
+            if (only != null && !only.IsMatch(sh.Name)) continue;
+            double s = sh.S * scaleMul;
+            DMesh3 input = sh.Name == "open-patch" ? OpenPatch((int)Math.Round(1.0 / (s * ratio))) : MakeInput(sh, s * ratio, sh.Noise);
+            
+
+            var sw = Stopwatch.StartNew();
+            var cf = new CrossField(input) { CurvatureAlignment = align }; cf.Compute();
+            double tField = sw.Elapsed.TotalSeconds;
+            if (!cf.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | cross field " + cf.Status + " |"); continue; }
+
+            var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps };
+            qr.Compute();
+            double tPos = qr.PositionSeconds, tExt = qr.ExtractSeconds;
+            if (!qr.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | quad remesh " + qr.Status + " " + qr.Error + " |"); continue; }
+            PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
+            int[] map; var skipped = new List<int>();
+            DMesh3 tri = qr.Result.ToDMesh3(out map, skipped);
+            double haus = double.NaN;
+            if (tri.TriangleCount > 0) {
+                var hd = new MeshHausdorffDistance(tri, input) { Symmetric = false, RelativeTolerance = 1e-3 };
+                hd.Compute();
+                haus = hd.UpperBound / s;
+            }
+            if (A.ContainsKey("diag")) Diag(qr.Result, s);
+            string sing = cf.SingularFaces.Count.ToString(CultureInfo.InvariantCulture);
+            Console.WriteLine($"| {sh.Name} | {input.VertexCount} | {F(s, "G3")} | {sing} | {m.Faces} | {F(100.0 * m.QuadFraction, "F1")} | {m.Triangles} | {m.Pentagons + m.Hexagons} | {m.IrregularVertices} | {(cf.SingularFaces.Count == 0 ? "-" : F((double)m.IrregularVertices / cf.SingularFaces.Count, "F1"))} | {m.BoundaryVertices} | {(m.IsManifold ? "yes" : "NO (" + m.NonManifoldEdges + "e " + m.InconsistentEdges + "i " + m.NonManifoldVertices + "v)")} | {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.5), "F1")} / {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")} | {F(PolyMeshMetrics.Percentile(m.Aspects, 0.95), "F2")} | {F(haus, "F2")} | {F(tField, "F2")} | {F(tPos, "F2")} | {F(tExt, "F2")} | {qr.Positions.Levels} / {qr.Positions.Colors} / {qr.Positions.SweepsRun} | {qr.CollapsedEdges} / {qr.RemovedValence2} / {qr.DroppedFaces} |");
+        }
+        return 0;
+    }
+
+    static void Diag(DPolyMesh r, double s)
+    {
+        var val = new Dictionary<int, int>(); var edges = new HashSet<long>(); var len = new List<double>();
+        int nv = r.VertexCount;
+        for (int f = 0; f < r.FaceCount; ++f) {
+            int[] fv = r.GetFace(f);
+            for (int k = 0; k < fv.Length; ++k) {
+                int a = fv[k], b = fv[(k + 1) % fv.Length];
+                long key = a < b ? (long)a * nv + b : (long)b * nv + a;
+                if (edges.Add(key)) { len.Add((r.GetVertex(a) - r.GetVertex(b)).Length / s); val.TryGetValue(a, out int ca); val[a] = ca + 1; val.TryGetValue(b, out int cb); val[b] = cb + 1; }
+            }
+        }
+        len.Sort();
+        Console.WriteLine("  valence: " + string.Join(" ", val.Values.GroupBy(x => x).OrderBy(g => g.Key).Select(g => g.Key + ":" + g.Count())));
+        Console.WriteLine("  edge/s p1 p5 p50 p95 p99 max: " + string.Join(" ", new[] { 0.01, 0.05, 0.5, 0.95, 0.99, 1.0 }.Select(q => F(len[Math.Min(len.Count - 1, (int)(q * len.Count))], "F2"))));
+    }
+
+    static DMesh3 OpenPatch(int n)
+    {
+        var m = new DMesh3();
+        int[,] ids = new int[n + 1, n + 1];
+        for (int j = 0; j <= n; ++j)
+            for (int i = 0; i <= n; ++i) {
+                double x = (double)i / n, y = (double)j / n;
+                ids[i, j] = m.AppendVertex(new Vector3d(x, y, 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y)));
+            }
+        for (int j = 0; j < n; ++j)
+            for (int i = 0; i < n; ++i) {
+                m.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                m.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+            }
+        return m;
+    }
+
+    static DMesh3 MakeInput(Shape sh, double h, double noise)
+    {
+        var B = new AxisAlignedBox3d(new Vector3d(-1.6, -1.6, -1.6), new Vector3d(1.6, 1.6, 1.6));
+        var mc = new MarchingCubes { Implicit = new Fn { F = sh.F, B = B }, Bounds = B, CubeSize = h * 0.5, ParallelCompute = false, RootMode = MarchingCubes.RootfindingModes.Bisection };
+        mc.Generate();
+        DMesh3 m = mc.Mesh;
+        DMesh3 src = new DMesh3(m);
+        var r = new Remesher(m) { SmoothSpeedT = 0.5 };
+        r.SetProjectionTarget(MeshProjectionTarget.Auto(src));
+        r.SetTargetEdgeLength(h);
+        for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+        m = new DMesh3(m, true);
+        if (noise > 0) {
+            var rnd = new Random(1);
+            MeshNormals.QuickCompute(m);
+            foreach (int v in m.VertexIndices()) {
+                Vector3d n = (Vector3d)m.GetVertexNormal(v);
+                m.SetVertex(v, m.GetVertex(v) + n * ((rnd.NextDouble() * 2 - 1) * noise * h));
+            }
+        }
+        if (sh.Post != null) m = sh.Post(m);
+        return m;
+    }
+}
