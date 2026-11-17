@@ -171,6 +171,9 @@ from secret tests, which a public repository cannot keep.
   4-5 h): while one runs on your PR, collect fixes and push once, and merge master only when needed (a conflict,
   or once before ready), not after every merge on master. Hand mutants of generators and rules stay (fast and
   targeted).
+- Gate-change label (owner 2026-11-17): a PR that the gate-change check flags (it changes a file of `tools/gate_files.txt`:
+  workflows, thresholds, allow lists, CI scripts, the rules) needs the owner's label `gate-change` before the merge;
+  the coordinator never sets it ([QA.md](QA.md) 2.8a).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
