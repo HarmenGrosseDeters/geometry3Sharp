@@ -21,38 +21,50 @@ Consumers: chained booleans with exact intermediate results (the use case), then
    points with one closed, manifold fan) and (C4) the contact split of the assembly does not put new midpoints into the
    exact result ([section 2](#2-bit-length-bounds)). Without (C2), as nested constructions, the degree grows by a factor of
    5 to 9 per step.
-2. **Measured: consistent with the bounds.** In the exact chain results of 480 procedural steps (k = 1..8) and ABC_SUMMARY_BITS
-   no vertex is beyond the TPI(F, F, F) envelope, and the largest numerator stays flat along the chain (generic procedural
-   chains: 195 bits at step 1, 314 at step 2, then 369-378 from step 3 to step 8). The proxy is the one-pass n-ary boolean
-   over the original operands, which gives the same solid as an exact chain
-   ([section 4](#4-measurements-the-upper-bound-before-any-build)). By construction its points are single-level constructions
-   over the originals, so it cannot exceed 10B+20 / 9B+18 anyway: it shows how large the values get, not that a
-   step-by-step 4.0 meets (C2)-(C4). Those conditions are derived, not measured.
-3. **The quality gain on the clean metric is not there.** On the procedural chains with exact contacts (1-ulp copies,
-   mirrors, face contacts) exact intermediates with one final rounding are **less** often clean than today's
-   round-each-step: 3 results become clean, 21 become unclean, 6 are unclean either way (of 228). The exact chain carries
-   every sub-ulp slab forward to the final rounding, which then hits its effort limit (RC4a), while today each step's
-   rounding removes or merges the slab where it appears. On generic chains (no exact contacts) both are clean on all 240
-   results. ABC_SUMMARY_CLEAN
-4. **What exact intermediates do give:** exact volumes and identities along the chain (today's chained volume differs from
-   the once-rounded exact one by a median of 1e-16 to 1e-11 relative per step, and by up to 4.8e-4 where a step removed
-   components); fewer triangles on generic chains (today's chained results have 1.01-1.28 times the exact triangles, median
-   per step, up to 1.76 at step 8, because coplanar faces stay mergeable), but not on contact chains (0.84-1.20, the exact
-   results keep the slabs); and a cost saving of at most the k − 1 roundings, 11-30 % of a step on generic chains and
-   23-81 % on the contact chains (upper bound, before the cost of implicit inputs, which is not measured).
+2. **Measured: consistent with the bounds.** In the exact chain results of 480 procedural steps (k = 1..8) and 266 ABC
+   steps (abc-chained, 3 steps, B = 37-59) no vertex is beyond the TPI(F, F, F) envelope. The largest numerator stays flat
+   along the chain (generic procedural chains: 195 bits at step 1, 314 at step 2, then 369-378 from step 3 to step 8; ABC:
+   at most 196 bits). The proxy is the one-pass n-ary boolean over the original operands, which gives the same solid as an
+   exact chain ([section 4](#4-measurements-the-upper-bound-before-any-build)). By construction its points are single-level
+   constructions over the originals, so it cannot exceed 10B+20 / 9B+18 anyway: it shows how large the values get, not that
+   a step-by-step 4.0 meets (C2)-(C4). Those conditions are derived, not measured.
+3. **Quality: a real gain on short chains, a regression on long contact chains.**
+   - **ABC (abc-chained, 3 steps):** today 6 of 266 results are unclean, all at step 3. Exact intermediates with one final
+     rounding make all 6 clean, and no result gets worse. Three of the 6 are the RC4b differences of the triage (iud p0020,
+     p0022 and p0029), so these came from **intermediate** rounding, not from the final one. The other three are two ucd
+     step-3 intersections (rounding not clean) and iud p0008 (inside-out).
+   - **Procedural chains, up to step 4:** the same picture. 3 results are fixed (unclean only chained), 4 are unclean either
+     way, and none gets worse (of 240).
+   - **Procedural contact chains, steps 5-8** (1-ulp copies, mirrors, face contacts): exact intermediates are **worse**.
+     21 results become unclean and none is fixed (of 108). The exact chain carries every sub-ulp slab forward, and the final
+     rounding then reaches its effort limit (RC4a) on all of them at once. Today each step's rounding removes or merges a
+     slab where it appears.
+   - **Generic chains** (no exact contacts): clean either way on all 240 results.
+   - The RC4a cases of the triage (iud p0005 / p0021 step-3 union and intersection) are side operations, not the plan's
+     operation, so this measurement does not cover them. Their plan operation (the difference) is empty and clean either
+     way.
+4. **What exact intermediates also give:** exact volumes and identities along the chain. Today's chained volume differs
+   from the once-rounded exact one by a median of 1e-16 to 1e-11 relative per step, and by up to 1.3e-3 (ABC) or 4.8e-4
+   (procedural) where a step removed components. Fewer triangles on long generic chains: today's chained results have
+   1.01-1.28 times the exact triangles (median per step), up to 1.76 at step 8, because coplanar faces stay mergeable. On
+   ABC (median 1.00, up to 1.99) and on contact chains (0.84-1.20) there is no such gain. A cost saving of at most the
+   k − 1 roundings: 11-30 % of a step on generic chains, 23-81 % on contact chains and 9-44 % on ABC (upper bound, before
+   the cost of implicit inputs, which is not measured).
 5. **A cheap form exists already.** For a chain whose operations are known before the result is needed, the one-pass n-ary
    boolean (`ExactMeshBoolean(meshes, windingPredicate)`) *is* the exact chain with one rounding. A lazy `ExactMesh` as a
-   CSG expression over double sources costs effort S. On these small chains the one pass for the final result took 0.3-0.8
-   of the summed chained time (median per k), with a long tail up to 8x on contact chains, and it loses on long, dense
-   trees (pre-study section 3, from n = 16 on).
+   CSG expression over double sources costs effort S. On ABC the one pass for the step-3 result took ABC_RATIO of the
+   summed chained time of steps 1-3. On the small procedural chains it took 0.3-0.8 (median per k), with a long tail of up
+   to 8x on contact chains. It loses on long, dense trees (pre-study section 3, from n = 16 on).
 
-**Verdict: no-go for the full 4.0 build (effort L) now; go for stage 1 only (lazy expression, effort S), if the owner wants
-exact chain results as an API, with the known regression that its single rounding is less often clean on contact chains
-until stage 1b (slab removal) exists.** ABC_VERDICT_NOTE The full build would buy exactness and size, not cleanness. Its use cases are a consumer
-that stays exact between steps without knowing the next operation (interactive or persistent modelling) and the tet mesher
-on exact input. Neither is a current request. Re-open the full build when such a consumer exists, after the slab removal
-before the repair (the RC4a lever, `SAFE_ROUNDING.md`). That removal is what decides whether the single final rounding
-can be clean on contact chains ([section 6](#6-stage-plan)).
+**Verdict: go for stage 1 (lazy expression, effort S); no-go for the full 4.0 build (stages 2-4, effort L) now.**
+- **Why stage 1:** it captures the measured gain at low risk. It brings exact chain results and fixes every unclean ABC
+  result (6 of 266, among them the three RC4b iud differences), with no exact-code change.
+- **What the full build adds:** only materialized exact intermediates for a consumer that does not know its next operation
+  (interactive or persistent modelling) and the tet mesher on exact input. Neither is a current request. Re-open it when
+  such a consumer exists.
+- **Known limitation:** on long contact chains (5 or more steps with 1-ulp copies) the single final rounding regresses
+  until stage 1b, the slab removal before the repair (the RC4a lever, `SAFE_ROUNDING.md`). Stage 1 can expose that choice:
+  round each step or once ([section 6](#6-stage-plan)).
 
 ## 1. Representation options
 
@@ -319,14 +331,51 @@ realistic sizes.
 ### 4.2 abc-chained
 
 Workflow `abc-chained.yml` with `methods=ours_exact` (GitHub-hosted runner, one job), 30 chains per variant (ucd, dui, iud),
-three steps each; rows on `runs/abc-chained`, folder `run-<id>`. Results: ABC_RESULTS_PENDING
+three steps each, only the plan's operation per step (abc-chained also computes the two other operations of a step for its
+identities; those are not part of a chain). Run [44130237776](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/44130237776)
+(commit a233ad78, which classified with the looser envelope 12B+22; the maxima below are also below 10B+20), rows on
+`runs/abc-chained`, folder `run-44130237776`; table by `chain_exact.py summary`. 90 chains, 266 steps with both variants
+(iud p0000 and p0013 end at step 2 today: their rounded step-2 result was empty or failed, the exact chain goes on).
+ABC_TIMING_NOTE
+
+| variant | step | op | chained clean | one pass clean | unclean only chained / both / only one pass | median tris chained / exact | median ms chained (rounding) / one pass | max X / W bits | mean bits / vertex | vertices: double coords / ≤LPI / ≤TPI(F,F,F) / beyond | volume deviation median (max) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ucd | 1 | union | 30/30 | 30/30 | 0 / 0 / 0 | 29107 / 29107 | 607 (114) / 232 | 106 / 111 | 102 | 450445/2730/0/0 | 0.0e+00 (0.0e+00) |
+| ucd | 2 | difference | 30/30 | 30/30 | 0 / 0 / 0 | 28228 / 29094 | 380 (78) / 464 | 122 / 124 | 106 | 428306/40361/0/0 | 0.0e+00 (1.2e-13) |
+| ucd | 3 | intersection | 28/30 | 30/30 | 2 / 0 / 0 | 15378 / 15473 | 1347 (38) / 285 | 122 / 124 | 105 | 219217/35901/0/0 | 5.0e-16 (1.3e-03) |
+| dui | 1 | difference | 30/30 | 30/30 | 0 / 0 / 0 | 19430 / 19430 | 532 (100) / 174 | 104 / 105 | 102 | 265611/4129/0/0 | 0.0e+00 (0.0e+00) |
+| dui | 2 | union | 30/30 | 30/30 | 0 / 0 / 0 | 27843 / 34430 | 422 (127) / 406 | 189 / 192 | 118 | 472379/47540/0/0 | 3.6e-16 (1.8e-11) |
+| dui | 3 | intersection | 30/30 | 30/30 | 0 / 0 / 0 | 20086 / 20353 | 1840 (128) / 316 | 189 / 192 | 105 | 317579/4506/0/0 | 2.3e-15 (1.4e-09) |
+| iud | 1 | intersection | 30/30 | 30/30 | 0 / 0 / 0 | 1590 / 1590 | 444 (58) / 138 | 114 / 115 | 127 | 57422/15085/0/0 | 0.0e+00 (0.0e+00) |
+| iud | 2 | union | 28/28 | 28/28 | 0 / 0 / 0 | 18531 / 21934 | 216 (65) / 1506 | 192 / 196 | 118 | 325922/25823/0/0 | 1.2e-15 (1.3e-09) |
+| iud | 3 | difference | 24/28 | 28/28 | 4 / 0 / 0 | 10543 / 15817 | 1494 (656) / 1149 | 143 / 145 | 111 | 191762/143679/0/0 | 3.7e-16 (4.6e-09) |
+
+- **Cleanness.** Today's chain: 260 of 266 clean. One pass (exact intermediates, one rounding): 266 of 266. All six
+  unclean results are fixed and none is new:
+  - **iud p0020, p0022, p0029 (step-3 difference):** the RC4b cases of the triage. Today: degenerate triangles, degenerate
+    triangles at the evaluation limit, and inside-out at the evaluation limit (24 triangles left). Exact: clean, clean, and
+    empty (the exact result is a 1-ulp slab of 43k triangles that the rounding removes, as decided for slabs on 2026-11-16).
+  - **iud p0008 (step-3 difference):** inside-out today, empty and clean exact.
+  - **ucd p0001 and p0022 (step-3 intersection):** `RoundingClean` false today, clean exact.
+
+  So on these chains the unclean results come from **intermediate** rounding: the step-2 union rounds R ∪ C, where C is a
+  1-ulp copy or the mirror of A, and step 3 then subtracts or intersects A against a surface that is near A but not on it.
+  With exact intermediates R2's faces lie exactly in A's planes, and the coplanar handling resolves them.
+- **Bits.** At most 196 / 196 bits (B up to 59); no vertex beyond the LPI envelope (value classes). 57-99 % of the
+  vertices have double coordinates (57 % in the iud step-3 slabs).
+- **Size.** Median triangles equal (ucd, dui) or larger exact (iud step 3: 15817 exact against 10543 today, the slabs).
+- **Time.** ABC_TIME_TEXT
+
 
 ### 4.3 What quality gain is realistic
 
-- **Cleanness:** none on generic chains (all clean either way). Negative on contact chains as long as the final rounding
-  is today's: exact intermediates move the RC4a / RC4b cases from "repaired at the step where they appear" to "all at once
-  at the end". A gain needs the slab removal before the repair first (SAFE_ROUNDING.md, the thin-component rule with RC1);
-  with it, the measured worse cases are the lever.
+- **Cleanness:**
+  - **ABC chains:** every unclean result of the 3-step chains is fixed (6 of 266, 2.3 %), among them three of the RC4b cases.
+  - **Procedural chains up to step 4:** 3 fixed, none worse.
+  - **Generic chains:** nothing to gain, all clean either way.
+  - **Long contact chains (steps 5-8):** worse as long as the final rounding is today's. Exact intermediates move the slabs
+    from "rounded away at the step where they appear" to "all at once at the end" (21 of 108 newly unclean). The slab
+    removal before the repair (SAFE_ROUNDING.md, the thin-component rule with RC1) is the lever for that regression.
 - **Exactness:** volume identities exact along the chain (today up to 4.8e-4 relative after a removal). Coplanar merging
   keeps the exact results smaller on generic chains (today's carry 1.01-1.28x their triangles, median, up to 1.76x), not on
   contact chains. Fixes today's "unclean only chained" class (3 of 228 contact results, 0 of 240 generic).
@@ -335,8 +384,10 @@ three steps each; rows on `runs/abc-chained`, folder `run-<id>`. Results: ABC_RE
 
 ## 5. Honest limits
 
-- The final rounding keeps RC4a (the effort limit on 1-ulp slabs) and RC4b (the drift bound): an exact chain ends with
-  today's rounding, and on contact chains it gives it more to do, not less (section 4.1).
+- The final rounding keeps RC4a (the effort limit on 1-ulp slabs) and RC4b (the drift bound) as limits. An exact chain
+  ends with today's rounding, and on long contact chains it gives it more to do, not less (section 4.1). The RC4b cases
+  measured here (iud p0020 / p0022 / p0029) came from intermediate rounding and are fixed (section 4.2). The RC4a cases of
+  the triage are side operations and not measured; a single boolean's RC4a / RC4b are unchanged.
 - Consumers that need doubles (STL, the remesher, the tet mesher, every `DMesh3` API) gain only inside a chain: one
   rounding instead of k. A single boolean gains nothing.
 - The tet mesher on exact input needs predicates on implicit points everywhere (`Orient3dLPI` / `TPI` exist, the rest does
@@ -351,8 +402,8 @@ three steps each; rows on `runs/abc-chained`, folder `run-<id>`. Results: ABC_RE
 
 | stage | content | effort | risk | go / no-go gate | owner decisions |
 |---|---|---|---|---|---|
-| 0 | this note: options, bounds, measurement | done | | **no-go for the full build now** (sections 4-5); go for stage 1 only on request | whether exact chain results are wanted as an API at all |
-| 1 | lazy `ExactMesh`: a CSG expression over double sources, `Round()` = one n-ary `ExactMeshBoolean` (exists); invariance over `Similarity.All()`, reuse and determinism tests; benchmark against chained | S (3-5 days) | low: no exact code changes; known regression: `Round()` is less often clean than a chain on contact chains (21 vs 3 of 228) until 1b | the median of one pass / summed chained time ≤ 1 and its p90 ≤ 2 per k on the abc-chained and procedural chains; exact volumes; the cleanness regression documented | the API name and shape (additive); whether `Round` may differ from the chained result (it does: exact, other triangles); whether stage 1 may ship before 1b |
+| 0 | this note: options, bounds, measurement | done | | **go for stage 1; no-go for stages 2-4 now** (sections 4-5) | whether exact chain results are wanted as an API (stage 1) |
+| 1 | lazy `ExactMesh`: a CSG expression over double sources, `Round()` = one n-ary `ExactMeshBoolean` (exists); invariance over `Similarity.All()`, reuse and determinism tests; benchmark against chained | S (3-5 days) | low: no exact code changes; known regression: on contact chains of 5+ steps `Round()` is less often clean than a chain (21 newly unclean of 108) until 1b | on abc-chained no newly unclean result against today's chain (measured: 0 of 266, 6 fixed); the median of one pass / summed chained time ≤ 1 and its p90 ≤ 2 per k; exact volumes; the long-chain regression documented | the API name and shape (additive); whether `Round` may differ from the chained result (it does: exact, other triangles); whether stage 1 may ship before 1b |
 | 1b | prerequisite for any cleanness gain: thin-slab removal before the repair (the RC4a lever; RC1 rule) | M | medium: changes rounding outputs | the mixed chains of 4.1: one pass clean at least as often as chained | changes SafeRounding's outputs (owner decision) |
 | 2 | materialized provenance: exact result stored as (a) + carrier planes; canonicalization after each step; arrangement input path from provenance (source-plane table, grid from sources) | M-L (3-5 weeks) | high: new keys in the exact code, new filters | per-step time ≤ today's step without its rounding × 1.5 on abc-chained; all values within the bounds of 2.2 (test); no new unclean result | only if a consumer needs exact intermediates without knowing the next operation (interactive or persistent modelling) |
 | 3 | nested diagonal crossings (or polygon input) and classification on implicit operands (winding of the original operands, or a new ray predicate) | M | high: new error bounds, exact review and mutation gate | the incremental mutation run above its threshold; every new bound reviewed | |
