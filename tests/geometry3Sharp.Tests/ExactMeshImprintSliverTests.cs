@@ -14,19 +14,42 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactMeshImprintSliverTests
     {
-        static Matrix3d Rot() => Matrix3d.AxisAngleD(Vector3d.AxisZ, 29) * Matrix3d.AxisAngleD(Vector3d.AxisX, 17);
+        // the box (1, 0.7, 0.4) rotated by 29 degrees about z and 17 about x, as doubles: the rotation would use Math.Sin / Cos, which
+        // differ in the last bit between runtimes (docs/design/DETERMINISM.md C1), so the corners are given as the literals that
+        // Matrix3d.AxisAngleD gives on net10 (the box whose 1-ulp shifts left slivers before #1034)
+        static readonly double[] BoxCorners = {
+            -0.6067795312896138, -0.9680060882596397, -0.58718209569113,
+            1.1424598829891777, 0.0016131522330344594, -0.58718209569113,
+            0.4933838391796905, 1.1725773320679964, -0.1778617090792985,
+            -1.255855575099101, 0.20295809157532227, -0.1778617090792985,
+            -0.4933838391796905, -1.1725773320679964, 0.1778617090792985,
+            1.255855575099101, -0.20295809157532227, 0.1778617090792985,
+            0.6067795312896138, 0.9680060882596397, 0.58718209569113,
+            -1.1424598829891777, -0.0016131522330344594, 0.58718209569113 };
 
         // a box rotated off the axes, and a capped cone frustum (fan caps: many target edges meet at the rim and the centres)
         internal static DMesh3 Shape(string kind)
         {
             if (kind == "box") {
                 DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)) }.Generate().MakeDMesh();
-                Matrix3d r = Rot();
+                Assert.Equal(8, m.MaxVertexID);
                 foreach (int v in m.VertexIndices().ToArray())
-                    m.SetVertex(v, r * m.GetVertex(v));
+                    m.SetVertex(v, new Vector3d(BoxCorners[3 * v], BoxCorners[3 * v + 1], BoxCorners[3 * v + 2]));
                 return m;
             }
-            return new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 12 }.Generate().MakeDMesh();
+            return Snapped(new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 12 }.Generate().MakeDMesh());
+        }
+
+        // the generator uses Math.Sin / Cos, which differ in the last bit between runtimes (docs/design/DETERMINISM.md C1): the
+        // vertices are snapped to a grid of 2^-24, exactly, so that the input is the same on net48 and net10
+        static DMesh3 Snapped(DMesh3 m)
+        {
+            const double grid = 1.0 / (1 << 24);
+            foreach (int v in m.VertexIndices().ToArray()) {
+                Vector3d p = m.GetVertex(v);
+                m.SetVertex(v, new Vector3d(Math.Round(p.x / grid) * grid, Math.Round(p.y / grid) * grid, Math.Round(p.z / grid) * grid));
+            }
+            return m;
         }
 
         static double NextUp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1);
@@ -83,7 +106,7 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "cylinder", 0, 1 };
             yield return new object[] { "cylinder", 0, -4 };
             yield return new object[] { "cylinder", 2, 1 };
-            yield return new object[] { "cylinder", 2, -1 };
+            yield return new object[] { "cylinder", 2, -2 };
             yield return new object[] { "cylinder", 2, 5 };
         }
 

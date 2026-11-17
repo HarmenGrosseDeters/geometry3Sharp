@@ -145,20 +145,43 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Counts_ReportTheStage_TheReroutes_AndTheDriftWithinTheBound()
         {
-            // the cylinder: a curve vertex on a split edge 1e-16 from a target vertex that is not on the edge, so the edge's
-            // chain of parts passes through that target vertex after the stage
-            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, 1);
-            ExactMeshImprint now = Run(b, a, true);
+            // the cylinder shifted by -1 ulp along x: curve vertices on split edges next to vertices off those edges, so chains of
+            // parts pass through them after the stage (through target vertices and through new ones)
+            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, -1);
+            ExactMeshImprint now = Run(a, b, true);
             Assert.Equal(1, now.Counts["sliver_cleanup_stage"]);
-            // (measured: one reroute through a target vertex, four through new vertices; deterministic)
-            Assert.Equal(1, now.Counts["split_edge_reroutes_through_target_vertex"]);
-            Assert.Equal(4, now.Counts["split_edge_reroutes_through_new_vertex"]);
+            // (measured: two reroutes through target vertices, one through a new vertex; the input is libm-free, the same on every runtime)
+            Assert.Equal(2, now.Counts["split_edge_reroutes_through_target_vertex"]);
+            Assert.Equal(1, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edge_reroutes_through_target_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
-            ExactMeshImprint old = Run(b, a, false);
+            ExactMeshImprint old = Run(a, b, false);
             Assert.Equal(0, old.Counts["sliver_cleanup_stage"]);
             Assert.Equal(0, old.Counts["split_edge_reroutes_through_target_vertex"] + old.Counts["split_edge_reroutes_through_new_vertex"]);
+        }
+
+        [Fact]
+        public void KnownLimit_ALinkConditionLeavesOneSliver_TheResultStaysClosedAndCarriesTheCurve()
+        {
+            // the cylinder shifted by -1 ulp along z, cut into the shifted copy: one sliver is left. Its short edge (1.4e-11, a curve
+            // edge and a part of a split edge) cannot be contracted: the contraction breaks the link condition (DMesh3.CollapseEdge
+            // refuses it), and the other edits at the sliver add a degenerate triangle or an intersection, or improve nothing
+            // (docs/design/IMPRINT_SLIVER_CLEANUP.md, section 5). Not clean, as before the stage; the rest of the guarantees hold
+            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 2, -1);
+            ExactMeshImprint now = Run(b, a, true);
+            Assert.True(now.Rounding.FollowStageRan);
+            Assert.False(now.RoundingClean);
+            Assert.Equal(1, now.Rounding.RemainingDegenerate);
+            Assert.Equal(0, now.Rounding.RemainingIntersections);
+            Assert.False(now.Rounding.EvaluationLimitReached);
+            Assert.True(now.Result.IsClosed());
+            foreach (int v in b.VertexIndices())
+                Assert.Equal(b.GetVertex(v), now.Result.GetVertex(v));
+            Assert.NotEmpty(now.CurveEdges);
+            foreach (long k in now.CurveEdges)
+                Assert.True(now.Result.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0);
+            Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
         }
 
         // ---- MeshRoundingRepair alone ----

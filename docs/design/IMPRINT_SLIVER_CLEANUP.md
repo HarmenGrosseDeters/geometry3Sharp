@@ -86,7 +86,18 @@ predicates, `ExactMeshImprint`'s assembly. No new predicate is needed; the fix i
 - Snapping the curve onto the target's edges before the rounding (an exact pre-pass): new exact code and a new bound for a case
   the rounding already handles once the lock can follow.
 
-## 5. Tests and numbers
+## 5. Tests, numbers and the known limit
+
+**Known limit.** The stage removes slivers only where an edit the repair already has can remove them once the locks follow.
+On the capped cylinder snapped to a grid of 2^-24 (procedural, libm-free), 39 of the 40 operations that are not clean without the
+stage become clean; the one left (shifted by -1 ulp along z, the copy cut by the original) has one sliver whose short edge
+(1.4e-11, a curve edge and a part of a split edge) cannot be contracted: `DMesh3.CollapseEdge` refuses it (the link condition),
+and the other edits at the sliver add a degenerate triangle or an intersection or improve nothing. The result stays closed, carries
+the curve and is reported not clean, as before (test `KnownLimit_ALinkConditionLeavesOneSliver_...`). Removing such a sliver needs
+an edit the repair does not have (eg a flip of the long edge, which is a locked part of a split target edge).
+
+The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
+box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.
 
 Procedural 1-ulp and few-ulp shifted pairs (rotated box, capped cylinder): clean per `NotCleanReason`, closed, every `CurveEdges`
 entry an edge of `Result`, target vertices bit for bit; fail with `SliverCleanup = false` (the old repair). Invariance over
