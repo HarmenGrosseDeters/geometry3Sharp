@@ -47,43 +47,57 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-15 (late evening, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered
-by priority; this section names only what is in flight.
+Status on 2026-11-17 (morning, Berlin). Each subpage ends with an "Open for the future" list, ordered by priority;
+this section names only what is in flight.
 
-- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL), #953 (thread-scaling
-  analysis), #913 (7-part mutation split), #956 (`TriangleBoxTree` parallel build from 8192 boxes) and #963 (arrangement mutation filter) are merged;
-  candidate C is a no-go (#915). Open: #962 (parallel assembly and classification edge groups; owner's machine
-  -3.7 / -6.2 / -9.6 % at 1 / 4 / 12 threads, bit-identical) and the probe of the `touch_only` pair work (probe A) and the rounding sub-phases (probe B). **Stopping rule (owner
-  2026-11-16):** at most one more speed lever, only if the probe shows a realistic gain of at least 10 % at low risk; then
-  T6 closes with a report instead of the 2x target, and the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
-- **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
-  the default decisions for lever 6 K (#736) and the raw-size budget (#846). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
-- **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
-  hygiene session 2): the coverage gate (red since 2026-11-13), the scheduled mutation runs (every scheduled run
-  since 2026-11-02 cancelled, none after 2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's audit of every remaining
-  `double` to integer cast is done ([CAST_AUDIT_804.md](design/CAST_AUDIT_804.md), 2026-11-16, #973, #804 closed). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Local (owner machine, 2026-11-15/16):** the net48 vs net10 comparison (#929), the boolean candidate pairs and the
-  thread scaling beyond 4 cores (#858). Finding so far: at 1 thread the boolean is about 45 % faster on 22370752 than
-  on 2026-11-14's master (likely #769 and #881); #772 alone is neutral.
-- **Research:** ARAP / biharmonic deformation #896 / #897 (owner, ready 2026-11-16); contouring certificate stage 3
-  merged (#946), refinement deferred (#944). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
-- **Meshing2D, terrain, Clipper2:** nothing in flight; #870, #855, #854 closed; Clipper2 #955 deferred (owner
-  2026-11-15). [meshing2d.md](roadmap/meshing2d.md#open-for-the-future-2026-11-15),
-  [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
+- **Exact Boolean 3.0** (closing): the functional and speed work is done. #962 (parallel assembly), the probes #967 and
+  the last speed PR #1002 (`touch_only` asks `TriangleTriangleFilter.BeyondShared` first, bit-identical) are merged;
+  speed work has stopped (owner 2026-11-16). T6 is closed with the owner's 12-thread data (#1013: 1.43x CGAL summed,
+  2.05x median; 1.14x / 1.70x without the rounding). Left: the completion gate, a full mutation run of every shard on
+  master 6117a866 (run 44013112256, dispatched 2026-11-17). [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
+- **Boolean robustness round** (owner 2026-11-16/17): the triage of #985, #993, #994, #1010 and #1011 is merged
+  ([BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md), #1015): one library defect (RC1, an emptied result),
+  one oracle false positive (RC3), the benchmark's re-welding of split pinches (RC2) and near-coincident surfaces (RC4).
+  The bugfix PRs run (RC1, RC3, the benchmark, then an RC4 rerun); the owner's local CsCheck / MeshFuzzPilot campaigns
+  add their findings later. [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
+- **Exact imprint:** `ExactMeshImprint` merged (#981, #990). In flight: the corpus run against `MeshMeshCut`, the
+  evidence for the deprecation decision. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Alpha Wrap 3.0:** done. Defaults decided: lever 6 K stays opt-in (#736); the raw-size budget stays off, with the
+  opt-in `MaxAlphaCoarsening` (#1014; recipe budget 300 000 + cap 1.2; owner 2026-11-17). The 800 run of the default
+  candidates is merged (#1008). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
+- **Dual contouring:** exact Hermite data by default (#991), octree simplification on by default with tolerance 0.25
+  (#995, #1003). A faster QEF solver is below the bar (3-6 %, 2026-11-17); the solver's per-call allocation is not
+  (pooling it: -17 to -20 % at 4 threads on two of three shapes), its library fix is in flight. The 2026-11-12 drop of
+  "DualContouring allocations" (bound 4 %) measured the solidify's contour, not this one.
+- **Deformation:** ARAP #896 and biharmonic #897 merged; ARAP initial positions and `Prepare` / `Solve` (#1004).
+- **2D mesher:** #986 (Empty at an aspect ratio of 2^41 and more) is the documented automatic merge tolerance; it gets
+  an explicit diagnostic and the documented limit, no status change (owner 2026-11-17). [meshing2d.md](roadmap/meshing2d.md#open-for-the-future-2026-11-15)
+- **Corpora:** ABC chained booleans (#1001, #1005, #1007, #1012: ours clean through all steps in 75 of 90 chains,
+  Manifold 34, CGAL 4) and thingi-contact (#982, #992, #997) run on GitHub runners.
+- **Platform and CI:** coverage gate fixed (#959), runtime watch baseline (#960), the mutation process port (#958) and
+  the 7-part split (#913). In flight: #999 (xatlas report), #1006 (UV parameterization mutation shards), #1009
+  (benchmark `fm_ms` above 20 s). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Determinism:** stage 0 and its obligations are merged; the cast audit is done (#973). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Research:** contouring certificate stage 3 (growth of failing blocks) merged; uncertified cells at /128 651 -> 381,
+  no wrong run certified. Refinement and transitions are not built under the stop rule; #944 closed, the surviving
+  mutant M16 is #1016. Metamorphic testing (#983, #984, #988). A Geogram survey for the open items is in review (#1017)
+  ([sources-surveys.md](roadmap/sources-surveys.md)). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
+- **Terrain, Clipper2:** nothing in flight; Clipper2 #955 deferred (owner 2026-11-15).
 
 ## Open decisions (owner)
 
-Checked on 2026-11-15 (late evening).
+Checked on 2026-11-17.
 
-- **Alpha wrap defaults:** lever 6 K (#736) and the raw-size budget (#846) on by default or not; an 800 run per lever
-  first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
+- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** after the imprint corpus run (in flight).
+  [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
   delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15); first an exact imprint
-  on `ExactMeshArrangement` (not scheduled yet). [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Terrain:** the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
   [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
+
+Decided on 2026-11-17 (owner): split pinches stay "not clean" in `NotCleanReason` (only the benchmark reports them as
+their own class); the cleanup never empties a non-empty result (RC1); the inside-out check gets an exact volume sign
+(RC3); #846 stays off; #986 option (A).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -92,15 +106,15 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- #962 and the probe (stopping rule, [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)); then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
-- The 800 runs for the alpha wrap default decisions (Haiku runner), then the owner decides.
-- Write the owner's local runs (#929, #858, the boolean candidate pairs, the #962 A/B) into the boolean docs.
-- Review and merge #896 / #897 (ARAP, biharmonic).
+- The 3.0 completion gate (run 44013112256); then the roadmap status "3.0 complete".
+- The boolean bugfix round (RC1, RC3, the benchmark pinch class, the RC4 rerun), then the owner's campaign findings.
+- The imprint corpus run, then the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean`.
+- The Geogram survey, then the owner picks what to adopt.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
-1. **Finish what runs.** Exact Boolean 3.0: T1b #843, the T6 check #922 and the thread-scaling analysis #953 are
-   merged, and so are #913 and #956; left are #962, the probe and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
+1. **Finish what runs.** Exact Boolean 3.0: everything but the completion gate is merged (#962, #967, #1002, T6
+   closed in #1013). Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
    deferred, owner 2026-11-15).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
