@@ -99,14 +99,20 @@ namespace geometry3Sharp.Tests
                 run();
                 long again = 0; foreach (long b in perCall) again += b;
                 sb.Append("; a third run allocates ").Append(again).Append(" bytes");
-                Assert.True(false, sb.ToString());
+                Assert.Fail(sb.ToString());
             }
             Assert.Equal(0, allocated);
         }
 
         static bool HasCoverletTracker(System.Reflection.Assembly a)
         {
-            return a.GetType("Coverlet.Core.Instrumentation.Tracker") != null;
+            // (coverlet injects a type Coverlet.Core.Instrumentation.Tracker.<assembly>_<id> into an instrumented module)
+            Type[] types;
+            try { types = a.GetTypes(); } catch (System.Reflection.ReflectionTypeLoadException e) { types = e.Types; }
+            foreach (Type t in types)
+                if (t != null && t.Namespace != null && t.Namespace.StartsWith("Coverlet.Core.Instrumentation.Tracker", StringComparison.Ordinal))
+                    return true;
+            return false;
         }
 
         // slow-unit-89209633... of the campaign grp-a (runs/mesh-fuzz; union of a 16-vertex and a 6-vertex shape, decoded
