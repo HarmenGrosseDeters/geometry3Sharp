@@ -111,7 +111,10 @@ Switches from the environment (benchmark only): `G3_TET_SPLIT=0`, `G3_TET_CONTRA
 
 ### Rescue phase (TET_MESHING.md section 17, 2026-11-17)
 
-`G3_TET_RESCUE=<n>` sets `RescuePasses` (default 150, 0 = off). Rescue off and on interleaved per mesh, one process at a time
-(`results/thingi10k-subset-stage2-norescue-2026-11-17.csv`, `results/thingi10k-subset-stage2-rescue-2026-11-17.csv`): every tet
->= 10 degrees on 36 / 40 -> 39 / 40, worst 6.11 -> 7.67 degrees (839690), time sum 49.1 s -> 50.3 s; the 36 meshes that reach the
-target without it are identical.
+`G3_TET_RESCUE=<n>` sets `RescuePasses` (default 150, 0 = off). Five variants interleaved per mesh, one process at a time
+(`results/thingi10k-subset-stage2-ab-{a20_off,a20_on,a20_p200,a40_off,a40_on}-2026-11-17.csv`; `a40` = `refine <mesh> 40 600`):
+
+| | every tet >= 10 degrees | worst | time sum |
+|---|---|---|---|
+| alpha 20, rescue off / on / off with 200 passes | 36 / 38 / 37 | 6.11 / 7.67 / 6.11 | 47.5 / 48.5 / 53.3 s |
+| alpha 40, rescue off / on | 40 / 40 (identical) | 10.00 / 10.00 | 41.6 / 42.5 s |

@@ -854,27 +854,34 @@ and Shewchuk 2007): the steepest ascent direction of the smallest angle is the p
 gradients of the active (near-worst) tets. Library search first: no least-norm, active-set or max-min smoothing code
 exists in the library; the step is a few lines (Gilbert's iteration).
 
-Built (`TetMeshImprover`): a **rescue phase** after the main passes, run **only if tets below the target are left** (so the 36
-meshes that reach it are bit for bit unchanged, test `Rescue_LeavesAMeshThatReachedTheTarget_BitForBit` and the rows below):
-up to `RescuePasses` (150) more passes in which the smoothing of interior vertices also tries the active-set direction (tets
-within `ActiveBand` = 1 degree of the star's worst, six step sizes). Every move is still kept only if the star's worst angle
-rises, with the exact checks of section 15 unchanged; boundary moves are as before (an active-set direction for them was tried
-and changed nothing on the subset, so it is not in the code).
+Built (`TetMeshImprover`): a **rescue phase** after the main passes, run only if tets below the target are left: up to
+`RescuePasses` (150) more passes in which the smoothing of interior vertices, after the worst tet's gradient steps fail, also tries
+the active-set direction (tets within `ActiveBand` = 1 degree of the star's worst, six step sizes; no direction when the least-norm
+point is below 1e-9 of the longest gradient). Every move is still kept only if the star's worst angle rises, with the exact checks
+of section 15 unchanged; boundary moves are as before (an active-set direction for them was tried and changed nothing on the
+subset). A mesh that reaches the target in the main passes is unchanged (as it would be with more passes alone: a pass without a
+bad tet changes nothing), test `Rescue_LeavesAMeshThatReachedTheTarget_BitForBit`.
 
-Result (one process at a time, rescue off and on interleaved per mesh; rows `results/thingi10k-subset-stage2-{norescue,rescue}-2026-11-17.csv`):
+Result: 40 meshes, one process at a time, all variants interleaved per mesh, rows `results/thingi10k-subset-stage2-ab-*-2026-11-17.csv`
+(`a20` = the default relative alpha 20, `a40` = 40, i.e. alpha = diagonal / 40, at the request of the coordinator after the tet
+production study found 40 of 40 there):
 
-| Measure (40 meshes) | section 16 (rescue off) | with the rescue phase (default) |
-|---|---|---|
-| valid (exact), boundary without self-intersection | 40 / 40, 40 / 40 | 40 / 40, 40 / 40 |
-| **every tet >= 10 degrees** | 36 | **39** |
-| worst smallest dihedral | 6.11 (839690) | 7.67 (839690) |
-| meshes with a different result | | 4 (the four above; the other 36 identical) |
-| time median / max / sum | 0.73 s / 12.9 s / 49.1 s | 0.75 s / 12.7 s / 50.3 s (+2.4 %) |
-| rescue passes | | 113956: 3, 120628: 16, 46460: 120, 839690: 42 |
+| Variant | valid, boundary without self-intersection | every tet >= 10 degrees | worst | tets, median | time median / sum |
+|---|---|---|---|---|---|
+| a20, rescue off (section 16) | 40, 40 | 36 | 6.11 | 4.4k | 0.75 s / 47.5 s |
+| **a20, rescue on (default)** | 40, 40 | **38** | 7.67 | 4.4k | 0.75 s / 48.5 s (+2 %) |
+| a20, rescue off, 200 main passes (ablation: passes alone) | 40, 40 | 37 | 6.11 | 4.4k | 0.73 s / 53.3 s |
+| a40, rescue off | 40, 40 | **40** | 10.00 | 7.1k | 0.81 s / 41.6 s |
+| a40, rescue on | 40, 40 | 40 (no mesh changed) | 10.00 | 7.1k | 0.82 s / 42.5 s |
 
-**Left: 839690**, 13 tets below 10 degrees (7.67 at worst). They are wedges and needles whose four vertices all lie on the
-boundary, in a thin part where the two sides of the wrap are one tet apart, with long edges of about 57 offsets: no interior
-vertex to move, their boundary vertices pinned by the slide cap (0.5 offsets) or with no better step, their short boundary edges
-1.4-10 offsets long, beyond what a contraction may move the boundary. Reaching 10 degrees there needs a change of the boundary
-beyond the cap (owner: `BoundarySlideFactor`), or interior vertices in that thin part, which the fixed surface of stage 1 refuses
-(section 16.1). Not pursued: it is one mesh of 40 and either way changes what the boundary guarantees.
+Per mesh at a20: 120628 is fixed by the extra passes alone (10.00 either way); 113956 only by the active-set direction (9.57 with
+200 plain passes, 10.00 with it); 46460 creeps to 9.20 either way (an earlier version without the 1e-9 cut reached 10.00 there,
+by an arbitrary step along a near-zero least-norm point, so that is not counted); 839690 rises from 6.11 to 7.67 and stays below.
+At a40 the rescue phase never runs (every mesh reaches the target in the main passes).
+
+**So the lever matters only at the current default alpha (diagonal / 20)**: +2 meshes for +2 % time. A relative alpha of 40 alone
+gives 40 of 40 with 1.6 times the tets (and less time on the subset); that is a default change and the owner's call, not made here.
+At a20, 839690 is left, 13 tets below 10 degrees (7.67 at worst): wedges and needles whose four vertices all lie on the boundary, in
+a thin part where the two sides of the wrap are one tet apart, long edges of about 57 offsets; no interior vertex to move, their
+boundary vertices pinned by the slide cap (0.5 offsets) or with no better step, their short boundary edges 1.4-10 offsets long,
+beyond what a contraction may move the boundary. The finer wrap of a40 resolves that part.
