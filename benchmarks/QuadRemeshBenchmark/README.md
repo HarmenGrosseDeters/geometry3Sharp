@@ -14,17 +14,17 @@ dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>]
 `serial=1` runs the position field without parallel loops (the result is the same bit for bit), `big=<n>` adds a sphere of about
 `n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths.
 
-## Results (2026-11-17, net10.0 Release, 4-core Xeon at 2.1 GHz in a cloud container, default options)
+## Results (2026-11-17, net10.0 Release, 4-core Xeon at 2.1 GHz in a cloud container, default options, master with the Hermitian CrossField of #1099)
 
 | shape | input V | s | singular faces | faces | quads % | tris | 5-6 | irreg. V | irreg / sing. | boundary V | manifold | corner dev p50 / p95 (deg) | aspect p95 | Hausdorff out->in / s | t field (s) | t position (s) | t extract (s) | levels / colours / sweeps | collapsed / valence 2 / dropped |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| sphere | 6390 | 0.1 | 8 | 1275 | 94.8 | 66 | 0 | 77 | 9.6 | 0 | yes | 2.5 / 14.5 | 1.38 | 0.07 | 0.24 | 0.24 | 0.01 | 9 / 7 / 180 | 0 / 0 / 0 |
-| torus | 7026 | 0.1 | 12 | 1413 | 94.9 | 71 | 1 | 76 | 6.3 | 0 | yes | 2.4 / 12.7 | 1.36 | 0.16 | 0.23 | 0.21 | 0.03 | 9 / 6 / 180 | 0 / 0 / 0 |
-| bumpy | 17918 | 0.06 | 16 | 3533 | 95.9 | 137 | 7 | 176 | 11.0 | 6 | yes | 1.7 / 10.8 | 1.36 | 0.10 | 0.81 | 0.14 | 0.01 | 11 / 6 / 220 | 0 / 1 / 1 |
-| filleted-box | 9092 | 0.08 | 8 | 1732 | 99.1 | 14 | 2 | 16 | 2.0 | 0 | yes | 1.4 / 4.9 | 1.13 | 0.19 | 0.26 | 0.06 | 0.00 | 9 / 6 / 180 | 0 / 0 / 0 |
-| noisy-sphere | 6390 | 0.1 | 8 | 1272 | 93.2 | 78 | 8 | 92 | 11.5 | 6 | yes | 2.7 / 15.7 | 1.42 | 0.21 | 0.19 | 0.07 | 0.00 | 9 / 7 / 180 | 0 / 0 / 1 |
-| sphere-cap | 4860 | 0.1 | 16 | 950 | 91.4 | 81 | 1 | 96 | 6.0 | 42 | yes | 2.6 / 19.9 | 1.49 | 0.27 | 0.08 | 0.05 | 0.00 | 9 / 7 / 180 | 0 / 1 / 1 |
-| open-patch | 2601 | 0.04 | 0 | 659 | 95.8 | 27 | 1 | 32 | - | 118 | yes | 0.7 / 8.6 | 1.33 | 0.15 | 0.03 | 0.02 | 0.00 | 7 / 4 / 140 | 0 / 0 / 0 |
+| sphere | 6390 | 0.1 | 8 | 1275 | 94.8 | 66 | 0 | 77 | 9.6 | 0 | yes | 2.5 / 14.5 | 1.38 | 0.07 | 0.25 | 0.19 | 0.01 | 9 / 7 / 180 | 0 / 0 / 0 |
+| torus | 7026 | 0.1 | 12 | 1413 | 94.9 | 71 | 1 | 76 | 6.3 | 0 | yes | 2.4 / 12.7 | 1.36 | 0.16 | 0.16 | 0.09 | 0.02 | 9 / 6 / 180 | 0 / 0 / 0 |
+| bumpy | 17918 | 0.06 | 16 | 3533 | 95.9 | 137 | 7 | 176 | 11.0 | 6 | yes | 1.7 / 10.8 | 1.36 | 0.10 | 0.31 | 0.14 | 0.01 | 11 / 6 / 220 | 0 / 1 / 1 |
+| filleted-box | 9092 | 0.08 | 8 | 1732 | 99.1 | 14 | 2 | 16 | 2.0 | 0 | yes | 1.4 / 4.9 | 1.13 | 0.19 | 0.10 | 0.06 | 0.00 | 9 / 6 / 180 | 0 / 0 / 0 |
+| noisy-sphere | 6390 | 0.1 | 8 | 1272 | 93.2 | 78 | 8 | 92 | 11.5 | 6 | yes | 2.7 / 15.7 | 1.42 | 0.21 | 0.10 | 0.06 | 0.00 | 9 / 7 / 180 | 0 / 0 / 1 |
+| sphere-cap | 4860 | 0.1 | 16 | 950 | 91.4 | 81 | 1 | 96 | 6.0 | 42 | yes | 2.6 / 19.9 | 1.49 | 0.27 | 0.03 | 0.03 | 0.00 | 9 / 7 / 180 | 0 / 1 / 1 |
+| open-patch | 2601 | 0.04 | 0 | 659 | 95.8 | 27 | 1 | 32 | - | 118 | yes | 0.7 / 8.6 | 1.33 | 0.15 | 0.02 | 0.02 | 0.00 | 7 / 4 / 140 | 0 / 0 / 0 |
 
 Gates of stage 2 (QUAD_REMESHING.md section 4) against these numbers:
 
@@ -36,9 +36,9 @@ Gates of stage 2 (QUAD_REMESHING.md section 4) against these numbers:
 | corner deviation p95 at most 15 degrees | met on the closed shapes except the noisy sphere (15.7); 19.9 on the sphere cap (ragged boundary) |
 | Hausdorff at most 0.5 s | met: 0.07-0.27 s (one-sided, output to input) |
 | a manifold polygon mesh | met on every row (`PolyMeshMetrics.IsManifold`) |
-| at most 5 s per 100k input vertices on 4 cores | met for the position field and the extraction: 1.1 s + 0.07 s at 110k vertices (1.7 s serial); the cross field (stage 1) takes 10.9 s there and is the open speed gate of stage 1 |
+| at most 5 s per 100k input vertices on 4 cores | met for the position field and the extraction: 0.92 s + 0.07 s at 110k vertices (1.4 s serial); the cross field (stage 1, #1099) takes 3.6 s there |
 
-Speed at 109761 input vertices, `big=100000`: parallel 1.10 s position field and 0.07 s extraction, serial 1.72 s and 0.07 s.
+Speed at 109761 input vertices, `big=100000`: parallel 0.92 s position field and 0.07 s extraction, serial 1.44 s and 0.07 s.
 
 The cleanup of the paper (collapse of near-coincident points, valence 2 vertices, dangling edges) hardly fires on these shapes
 (the last column). The defects are triangles paired with valence 5 vertices: on the sphere 66 triangles and 66 valence 5 vertices,
