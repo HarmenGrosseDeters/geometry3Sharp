@@ -433,7 +433,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; design note 2026-11-10, study
-2026-11-17: no-go for a larger effort, bugfix F open), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
+2026-11-17: no-go for a larger effort, bugfix F1 open), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
 proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
 Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
 Not now: 1 alone, 4, 5 (tet), 7, 14.
@@ -596,12 +596,14 @@ Ordered by expected value for the library.
      [ROBUST_REPAIR_SCALE_FREE.md](../design/ROBUST_REPAIR_SCALE_FREE.md) (#547); option A with guard G merged in #560,
      B stage 0 in #578.
    - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
-     effort**. On 800 Thingi10K meshes, perfect part-wise repair gains at most 5 strict misses (13 lost) and local or translated
-     tolerances gain none. The separable parts of real inputs are all at least 8 % of the scene. Open: bugfix F (no silent loss of a
-     small part: 29 of 54 procedural scenes lose one with `Apply()` true, through the safe rounding's bound relative to the largest
-     component).
+     effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
+     component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
+     No input has a small separable part (box rule: all at least 8.4 % of the scene). Open: bugfix F1, report the loss (29 of 54
+     procedural scenes lose a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
+     for open inputs, the post-resolve cleanup).
    - The earlier pointer to "183 `robust` misses" is stale: on master 86e94029 the strict misses are 252 of 800 (first 123, holdout
-     129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs.
+     129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 was an older holdout run, before the exact
+     resolve stage.)
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
@@ -649,7 +651,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
-7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F open
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 open
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17). Hard problem 8 (Lévy-style
    propagation for open operands): not scheduled (the rounding spike is a no-go).
 8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
