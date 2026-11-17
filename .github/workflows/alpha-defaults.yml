@@ -1,42 +1,31 @@
-name: Alpha-wrap defaults (800 meshes)
+name: Scale-free repair study, F1 A/B (runs/scale-free-f1 only)
 
-# The alpha-wrap defaults measurement (#736 sharp-feature pass, #846 raw-size budget): three configurations of the wrap
-# pipeline over the 800-mesh Thingi10K sample (benchmarks/MeshRepairBenchmark/alpha_defaults.py, cases/alpha_defaults_list800.txt):
-#   A library defaults, B A + BENCH_WRAP_FEATURES=1, C A + BENCH_WRAP_BUDGET=300000 (D, E: coarsening caps; F: A +
-#   BENCH_WRAP_PULL=1, MeshAlphaWrap.PullPinchPoints).
-# Manual only (workflow_dispatch, no other trigger). It moved here from a cloud session whose container restarts killed a
-# 9-13 h run. The shards are round robin slices of the mesh list; each shard fetches only its own models from huggingface at
-# run time (a PR-tier test never does), runs the three configurations one process at a time, and uploads its raw rows. The
-# final job merges them, writes the summary table to the step summary and pushes it with the raw rows to the data branch
-# runs/alpha-defaults-800 (directory run-<run id>). GitHub-hosted runners only; no mesh is committed.
-# Pipeline load: at most 6 shards at a time (PR CI needs the other concurrent jobs), and two runs never overlap.
+# This file replaces alpha-defaults.yml on the data branch runs/scale-free-study only (the dispatch needs a workflow file of that
+# name on master; a run dispatched on this branch uses this content). It is never merged. Hard problem 9 study: MeshRobustRepair in
+# the configurations of benchmarks/MeshRepairBenchmark/scale_free_study.py over the first and the holdout selection (800 meshes,
+# cases/scale_free_list800.tsv). Each shard fetches only its own Thingi10K models at run time; no mesh is committed. GitHub-hosted
+# runners only. Results (raw rows, summary) are pushed to runs/scale-free-study under results/run-<run id>.
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: 'Ref of the library, benchmark and scripts (must contain BENCH_WRAP_BUDGET in the wrappipe mode)'
-        default: 'master'
       shards:
-        description: 'Number of shards (1 to 64); 16 shards of 50 meshes take about 40 min each'
-        default: '16'
-      mesh_range:
-        description: 'Range first:last of the 800-mesh list (0-based, last exclusive, either may be empty)'
-        default: '0:800'
-      ids:
-        description: 'Space-separated mesh ids of the list (overrides mesh_range; empty: the range)'
-        default: ''
+        description: 'Number of shards (1 to 64)'
+        default: '24'
       configs:
-        description: 'Configurations to run (distinct letters of ABCDEF: A defaults, B features, C budget 300k, D C + coarsening cap 1.5, E C + cap 1.2, F A + PullPinchPoints); the summary compares only meshes with all of them'
-        default: 'ABC'
+        description: 'Configurations (R first; letters of RPQSLGT)'
+        default: 'RN'
+      ids:
+        description: 'Space-separated mesh ids (empty: the whole list)'
+        default: ''
       timeout_s:
         description: 'Timeout per mesh and configuration in seconds'
-        default: '400'
+        default: '600'
 
 permissions:
   contents: read
 
 concurrency:
-  group: alpha-defaults
+  group: scale-free-study
   cancel-in-progress: false
 
 jobs:
@@ -51,7 +40,6 @@ jobs:
         env:
           SHARDS: ${{ inputs.shards }}
           CONFIGS: ${{ inputs.configs }}
-          RANGE: ${{ inputs.mesh_range }}
           IDS: ${{ inputs.ids }}
           TIMEOUT_S: ${{ inputs.timeout_s }}
         run: |
@@ -60,17 +48,12 @@ jobs:
           e = os.environ
           if not re.fullmatch(r"[1-9][0-9]?", e["SHARDS"]) or not 1 <= int(e["SHARDS"]) <= 64:
               sys.exit("shards must be 1 to 64")
-          if not re.fullmatch(r"[ABCDEF]{1,6}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]) or "A" not in e["CONFIGS"]:
-              sys.exit("configs must be distinct letters of ABCDEF and include A, the reference of the summary")
+          if not re.fullmatch(r"R[PQSLGTN]{0,7}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]):
+              sys.exit("configs must start with R, distinct letters of RPQSLGT")
           if not re.fullmatch(r"[0-9 ]*", e["IDS"]):
               sys.exit("ids must be numbers separated by spaces")
-          if not re.fullmatch(r"[0-9]*:[0-9]*", e["RANGE"]):
-              sys.exit("mesh_range must be first:last")
           if not re.fullmatch(r"[0-9]{2,3}", e["TIMEOUT_S"]) or not 30 <= int(e["TIMEOUT_S"]) <= 900:
               sys.exit("timeout_s must be 30 to 900 seconds")
-          a, b = e["RANGE"].split(":")
-          if a and b and int(a) > int(b):
-              sys.exit("mesh_range first must not exceed last")
           with open(e["GITHUB_OUTPUT"], "a") as f:
               f.write("shards=" + json.dumps(list(range(int(e["SHARDS"])))) + "\n")
           PY
@@ -87,18 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Check that the ref reads BENCH_WRAP_BUDGET in the wrappipe mode (and BENCH_WRAP_COARSEN_CAP for D and E, BENCH_WRAP_PULL for F)
-        env:
-          CONFIGS: ${{ inputs.configs }}
-        run: |
-          grep -q 'wrap_estimate' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks the BENCH_WRAP_BUDGET fix, config C would equal A"; exit 1; }
-          case "$CONFIGS" in *D*|*E*) grep -q 'BENCH_WRAP_COARSEN_CAP' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks BENCH_WRAP_COARSEN_CAP, configs D and E would equal C"; exit 1; } ;; esac
-          case "$CONFIGS" in *F*) grep -q 'BENCH_WRAP_PULL' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks BENCH_WRAP_PULL, config F would equal A"; exit 1; } ;; esac
       - name: Build the benchmark
         run: |
           dotnet build benchmarks/MeshRepairBenchmark/MeshRepairBenchmark.csproj -c Release
@@ -107,33 +82,27 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ inputs.shards }}
-          RANGE: ${{ inputs.mesh_range }}
           IDS: ${{ inputs.ids }}
         run: |
           cd benchmarks/MeshRepairBenchmark
-          LIST=cases/alpha_defaults_list800.txt
-          if [ -n "${IDS// /}" ]; then printf '%s\n' $IDS > "$RUNNER_TEMP/list.txt"; LIST="$RUNNER_TEMP/list.txt"; RANGE=; fi
-          python3 alpha_defaults.py select "$LIST" "$SHARD" "$SHARDS" "$RANGE" > "$RUNNER_TEMP/ids.txt"
+          LIST=cases/scale_free_list800.tsv
+          if [ -n "${IDS// /}" ]; then printf '%s\tids\tids\n' $IDS > "$RUNNER_TEMP/list.tsv"; LIST="$RUNNER_TEMP/list.tsv"; fi
+          python3 scale_free_study.py select "$LIST" "$SHARD" "$SHARDS" > "$RUNNER_TEMP/ids.txt"
           wc -l < "$RUNNER_TEMP/ids.txt"
+          [ -s "$RUNNER_TEMP/ids.txt" ] || exit 0
           python3 fetch_data.py --ids "$RUNNER_TEMP/ids.txt"
       - name: Run the configurations
         env:
-          SHARD: ${{ matrix.shard }}
           CONFIGS: ${{ inputs.configs }}
           TIMEOUT_S: ${{ inputs.timeout_s }}
         run: |
-          # no new mesh after 310 min minus the worst case of one mesh (one timeout per configuration): the shard ends before the
-          # 345 min job limit
           [ -s "$RUNNER_TEMP/ids.txt" ] || { echo "empty shard"; exit 0; }
-          python3 benchmarks/MeshRepairBenchmark/alpha_defaults.py run "$RUNNER_TEMP/ids.txt" "$GITHUB_WORKSPACE/out" \
-            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((310 - ${#CONFIGS} * TIMEOUT_S / 60))"
+          python3 benchmarks/MeshRepairBenchmark/scale_free_study.py run "$RUNNER_TEMP/ids.txt" "$GITHUB_WORKSPACE/out" \
+            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((320 - ${#CONFIGS} * TIMEOUT_S / 60))"
       - name: Shard summary
         if: always()
         run: |
-          {
-            echo "### Shard ${{ matrix.shard }}"
-            echo "meshes: $(wc -l < "$RUNNER_TEMP/ids.txt"), rows: $(cat out/raw/*.jsonl 2>/dev/null | wc -l), process wall (s): $(awk '{s+=$3} END {print s+0}' out/wall.tsv 2>/dev/null)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "### Shard ${{ matrix.shard }}: meshes $(wc -l < "$RUNNER_TEMP/ids.txt"), rows $(cat out/raw/*.jsonl 2>/dev/null | wc -l), wall $(awk '{s+=$3} END {print s+0}' out/wall.tsv 2>/dev/null) s" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -148,54 +117,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write   # the data branch runs/alpha-defaults-800
+      contents: write   # results on runs/scale-free-study
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false   # the scripts of the ref run in this job; the push step gets the token itself
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: art
           pattern: shard-*
       - name: Merge and summarize
-        env:
-          TIMEOUT_S: ${{ inputs.timeout_s }}
-          IDS: ${{ inputs.ids }}
         run: |
           B=benchmarks/MeshRepairBenchmark
-          ls -d art/shard-*/out > /dev/null   # no shard artifact: fail
-          LIST=$B/cases/alpha_defaults_list800.txt
-          if [ -n "${IDS// /}" ]; then printf '%s\n' $IDS > "$RUNNER_TEMP/list.txt"; LIST="$RUNNER_TEMP/list.txt"; fi
-          python3 $B/alpha_defaults.py merge merged art/shard-*/out
+          ls -d art/shard-*/out > /dev/null
+          python3 $B/scale_free_study.py merge merged art/shard-*/out
           cp art/shard-0/lib_sha.txt merged/lib_sha.txt 2>/dev/null || true
-          # a failing summary must not lose the merged rows: they are pushed below either way
-          python3 -I $B/alpha_defaults_summary.py merged "$LIST" > merged/summary.md || echo "summary failed (see log)" > merged/summary.md
+          { python3 -I $B/scale_free_study.py f1 merged; echo; python3 -I $B/scale_free_study.py analyze merged $B/cases/scale_free_list800.tsv; } > merged/summary.md || echo "summary failed (see log)" > merged/summary.md
           cat merged/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: merged
           path: merged/
-      - name: Raw rows and summary to runs/alpha-defaults-800
+      - name: Raw rows and summary to runs/scale-free-study
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           d=$(mktemp -d)
-          git worktree add -q --detach "$d"
           cp -r merged "$RUNNER_TEMP/merged"
+          git clone -q --depth=1 --branch runs/scale-free-f1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$d"
           cd "$d"
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          if git ls-remote --exit-code --heads "https://github.com/${GITHUB_REPOSITORY}.git" runs/alpha-defaults-800 > /dev/null; then
-            git fetch -q --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" runs/alpha-defaults-800:refs/remotes/data/alpha-defaults-800
-            git checkout -q -B runs/alpha-defaults-800 refs/remotes/data/alpha-defaults-800
-          else
-            git checkout -q --orphan runs/alpha-defaults-800
-            git rm -rqf .
-          fi
-          mkdir -p "run-$GITHUB_RUN_ID"
-          cp -r "$RUNNER_TEMP"/merged/. "run-$GITHUB_RUN_ID"/
-          git add .
+          mkdir -p "results/run-$GITHUB_RUN_ID"
+          cp -r "$RUNNER_TEMP"/merged/. "results/run-$GITHUB_RUN_ID"/
+          git add results
           git diff --cached --quiet && exit 0
-          git commit -q -m "alpha-defaults: run $GITHUB_RUN_ID (raw rows and summary)"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" runs/alpha-defaults-800
+          git commit -q -m "scale-free study: run $GITHUB_RUN_ID (raw rows and summary)"
+          for i in 1 2 3 4; do git push -q origin HEAD:runs/scale-free-f1 && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/scale-free-f1; done
+          exit 1

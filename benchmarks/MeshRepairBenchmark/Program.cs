@@ -163,11 +163,17 @@ class Program
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
                 var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
-                    if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
+                    if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; }
+                    // (scale-free study probe) BENCH_TOL_SCALE: the relative tolerances of the repair stage times this factor
+                    string tsc = Environment.GetEnvironmentVariable("BENCH_TOL_SCALE");
+                    if (tsc != null) { double x = double.Parse(tsc, System.Globalization.CultureInfo.InvariantCulture); rep.RelativeRepairTolerance *= x; rep.RelativeMinEdgeLength *= x; } } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
+                string tsc0 = Environment.GetEnvironmentVariable("BENCH_TOL_SCALE");
                 // BENCH_PASSTHROUGH=0: without stage 0 of the part handling (A/B)
                 robust.PassThroughCleanParts = Environment.GetEnvironmentVariable("BENCH_PASSTHROUGH") != "0";
+                // (F1 A/B) BENCH_NO_F1=1: without the final lost-part check
+                robust.NoLostPartCheck = Environment.GetEnvironmentVariable("BENCH_NO_F1") == "1";
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
@@ -241,8 +247,20 @@ class Program
                 robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
                 string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
                 if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
-                ok = robust.Apply();
-                result = robust.Mesh;
+                // (scale-free study probe) BENCH_PARTS=box|all: every part repaired alone (ScaleFreeProbe.RepairByParts); one part: as usual
+                string partsRule = Environment.GetEnvironmentVariable("BENCH_PARTS");
+                DMesh3 byParts = null;
+                ok = false;
+                if (partsRule == "box" || partsRule == "all")
+                    byParts = ScaleFreeProbe.RepairByParts(mesh, partsRule, robust, r, out ok);
+                r["parts_used"] = byParts != null;
+                if (byParts == null) {
+                    ok = robust.Apply();
+                    result = robust.Mesh;
+                } else
+                    result = byParts;
+                if (tsc0 != null) r["tol_scale"] = tsc0;
+                r["robust_far_parts"] = robust.FarPartsHandled;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
                 r["hybrid_reason"] = robust.FallbackReason;
                 r["robust_used_solidify"] = robust.UsedSolidify;
@@ -372,6 +390,14 @@ class Program
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
+            // (scale-free study probe) the part structure of the input and the deviations relative to each component
+            if (repairMode == "robust" && Environment.GetEnvironmentVariable("BENCH_PROBE") != "0") {
+                stage = "probe";
+                var swp = Stopwatch.StartNew();
+                ScaleFreeProbe.SceneStats(original, r);
+                ScaleFreeProbe.PartFidelity(original, result, r);
+                r["probe_ms"] = swp.ElapsedMilliseconds;
+            }
             bool valid = true;
             try { valid = result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
