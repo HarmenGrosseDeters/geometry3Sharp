@@ -245,6 +245,59 @@ namespace geometry3Sharp.Tests
             AssertClean(dc, "margin 0");
         }
 
+        // Exhaustive local topology lemma for the uniform grid. Build connectivity by graph
+        // transitive closure, independently of DualContouring's union-find implementation.
+        [Fact]
+        public void UniformCornerPatterns_JoinedAmbiguousCornersHaveOnePatch()
+        {
+            int checkedFaces = 0;
+            for (int mask = 0; mask < 256; ++mask) {
+                var inside = new bool[8];
+                var connected = new bool[8, 8];
+                for (int i = 0; i < 8; ++i) {
+                    inside[i] = (mask & (1 << i)) != 0;
+                    connected[i, i] = true;
+                }
+                for (int i = 0; i < 8; ++i)
+                    for (int axis = 0; axis < 3; ++axis) {
+                        int j = i ^ (1 << axis);
+                        if (inside[i] == inside[j]) connected[i, j] = true;
+                    }
+                var ambiguous = new List<Index2i>();
+                for (int axis = 0; axis < 3; ++axis)
+                    for (int side = 0; side < 2; ++side) {
+                        int a = side << axis, b = a | (1 << ((axis + 1) % 3));
+                        int d = a | (1 << ((axis + 2) % 3)), c = b | d;
+                        if (inside[a] != inside[c] || inside[b] != inside[d] || inside[a] == inside[b]) continue;
+                        int o0 = inside[a] ? b : a, o1 = inside[a] ? d : c;
+                        connected[o0, o1] = connected[o1, o0] = true;
+                        ambiguous.Add(inside[a] ? new Index2i(a, c) : new Index2i(b, d));
+                    }
+                for (int k = 0; k < 8; ++k)
+                    for (int i = 0; i < 8; ++i)
+                        for (int j = 0; j < 8; ++j)
+                            connected[i, j] |= connected[i, k] && connected[k, j];
+                int[] component = new int[8];
+                for (int i = 0; i < 8; ++i) {
+                    component[i] = i;
+                    for (int j = 0; j < i; ++j)
+                        if (connected[i, j]) { component[i] = j; break; }
+                }
+                var patches = new HashSet<Index2i>();
+                for (int i = 0; i < 8; ++i)
+                    for (int axis = 0; axis < 3; ++axis) {
+                        int j = i ^ (1 << axis);
+                        if (inside[i] && !inside[j]) patches.Add(new Index2i(component[i], component[j]));
+                    }
+                foreach (Index2i pair in ambiguous)
+                    if (connected[pair.a, pair.b]) {
+                        Assert.Single(patches);
+                        checkedFaces++;
+                    }
+            }
+            Assert.Equal(36, checkedFaces);
+        }
+
         // Hand-built fallback: a missing quad (two omitted contour triangles), with and without
         // a closed component crossing the patch. Unlike the grid caller, this checks the bool verdict.
         [Theory]
