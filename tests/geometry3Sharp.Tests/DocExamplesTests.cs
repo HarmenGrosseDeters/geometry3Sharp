@@ -150,6 +150,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void LazyExactMeshExample_ExactVolumeAndClean()
+        {
+            // the cube minus the part of the hole inside it: 1 - 0.25 * 0.25 * 1
+            string error;
+            DMesh3 result = LazyExactMeshExample.Run(out error);
+            Assert.True(result != null, error);
+            Assert.Null(error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+            Assert.Equal(1 - 0.0625, Volume(result), 12);
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_ExactVolumesAndClosedResults()
         {
             // cube 1, bar 0.5 x 0.5 x 2 of which 0.25 lies inside the cube

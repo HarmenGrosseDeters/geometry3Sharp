@@ -11,10 +11,10 @@ Part of the [roadmap](../ROADMAP.md).
   assembly, #967, the `touch_only` filter #1002; speed work stopped, owner 2026-11-16), T6 is closed (#1013) and
   `ExactMeshImprint` is merged (#981, #990). Left for "3.0 complete": the full mutation run of every touched shard on
   master. The gate run 44013112256 (master 6117a866, 2026-11-17) had 35 shards green and 5 red: envelope-3 and
-  geodesic-1 are fixed (#1051, merged); rounding-4, rounding-7 and terrain-overlay are in PR #1077 (open; its terrain-overlay
-  break is an owner decision). The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
-  RC4a #1040 merged, the pass-through of RC4a's parameters #1068 open; see [After 3.0](#after-30-owner-2026-11-16)).
-  Exact Boolean 4.0 stage 0 (design analysis) started 2026-11-17 (owner), no PR yet. Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
+  geodesic-1 are fixed (#1051, merged); rounding-4, rounding-7 and terrain-overlay got tests and filters in #1077 (merged; the
+  terrain-overlay break 75 with honest timeouts, owner 2026-11-17); their reruns are pending. The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
+  RC4a #1040 merged, the pass-through of RC4a's parameters #1068 merged; see [After 3.0](#after-30-owner-2026-11-16)).
+  Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 goes ahead as option A, an opt-in API (owner 2026-11-17, in progress, PR #1107). Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -259,6 +259,12 @@ n-ary boolean, effort S, no exact-code change; the cull by the expression is a s
 an order-balanced time measurement); no-go for
 the materialized provenance build (stages 2-4) until a consumer needs exact intermediates without knowing the next
 operation.
+**Stage 1 built** (owner 2026-11-17, option A, opt-in): `ExactMesh` (`mesh_ops/LazyExactMesh.cs`), a lazy boolean
+expression over double meshes computed as one n-ary `ExactMeshBoolean` (built-in shapes keep the built-in operations, bit
+for bit); [design note section 8](../design/EXACT_BOOLEAN_40_DESIGN.md#8-stage-1-as-built). The long-chain regression on
+contact chains is the drift bound (RC4b), not the effort budget (the same 21 results stay unclean at 16x the budget); a fix
+is an output change (stage 1b, owner). Order-randomized timing: median ExactMesh / chain 0.53-1.01 (generic) and 0.60-0.89 (contact) per k on procedural
+chains, a tail up to 21x on contact chains; on ABC the step-3 results take 0.17-0.50 of the chain (median), iud step 2 up to 68x (the one pass arranges A with its copy in full; stage 1c, the cull by the expression, is the lever).
 
 **T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
 2026-11-13, option 1; #843, merged 2026-11-15): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %
@@ -801,7 +807,7 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 
 | idea | relevance | decision |
 |---|---|---|
-| Exact imprint on `ExactMeshArrangement` (a robust replacement for the float `MeshMeshCut`, whose failures are in ROBUSTNESS_SWEEP R6), then the deprecation decision for `MeshMeshCut` / `MeshBoolean` | high | the only new boolean feature: done, design note [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (#979) and `ExactMeshImprint` (#981, #990, merged 2026-11-16; sliver cleanup at near contact #1050); the deprecation decision follows in the list at the end of this page |
+| Exact imprint on `ExactMeshArrangement` (a robust replacement for the float `MeshMeshCut`, whose failures are in ROBUSTNESS_SWEEP R6), then the deprecation decision for `MeshMeshCut` / `MeshBoolean` | high | the only new boolean feature: done, design note [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (#979) and `ExactMeshImprint` (#981, #990, merged 2026-11-16; sliver cleanup at near contact #1050); the deprecation is done (`Obsolete`, #1037, owner 2026-11-17) |
 | The tail above 20 s (55928 and others) | medium ("always finishes" matters more than the mean) | only on a runtime-watch regression or an issue |
 | EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low: probe A (#967, 7.1) puts the operand self-join at 10.6 s of the 12.1 s pairs phase at 1 thread, so skipping it is at most about −15 % of the boolean at 12 threads (extrapolated), and 0 on single booleans of raw inputs such as T6; the clean flag would come only from the library's own results (`NotCleanReason == None`) or a prepared operand, never from the caller | parked until a caller chains booleans (re-confirmed by the owner 2026-11-16) |
 | Normal-cone patch certificate for the operand self-join (Volino and Magnenat-Thalmann 1994; [SELF_INTERSECTION_PATCH_CERTIFICATE.md](../design/SELF_INTERSECTION_PATCH_CERTIFICATE.md)) | low: estimated −7 to −10 % at 12 threads (not measured), at or below the 10 % bar of the stopping rule; needs new error bounds in exact code, and the same certificate was slower in the Reducer | parked (owner 2026-11-16) |
@@ -852,7 +858,7 @@ Triage of #985, #993, #994, #1010, #1011 by root cause (2026-11-17, merged as #1
   #1021 and #1063. `NotCleanReason` is unchanged; split pinches stay "not clean" (owner 2026-11-17).
 - RC3 (inside-out from a floating-point volume sign): an exact (filtered) volume sign in `FindInvertedComponents`, #1031.
 - RC4a (effort limit): the pair-test budget grows with the initial defects, #1040; the pass-through of its parameters to
-  `MeshRobustRepair`, `ExactMeshImprint` and g3cli is PR #1068 (open). No budget raise below D = 50000 (owner 2026-11-17).
+  `MeshRobustRepair`, `ExactMeshImprint` and g3cli is merged (#1068). No budget raise below D = 50000 (owner 2026-11-17).
 - RC4b (the drift bound `MaxLength`): kept as a documented limit (owner 2026-11-17).
 - Left: the iud p0008 step-2 residue of 34 near-zero-volume triangles is #1067 (open); the CsCheck / fuzz campaign plan is #1038 (open).
 
@@ -869,12 +875,12 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 
 1. Close out Exact Boolean 3.0: the mutation shards #913 and lever 1 of #953 (#956) are merged; what is left is the full
    mutation run of every touched shard on master (gate run 44013112256: 35 green, 5 red; envelope-3 and geodesic-1 fixed in
-   #1051, rounding-4, rounding-7 and terrain-overlay in PR #1077, open; see the status at the top).
+   #1051, rounding-4, rounding-7 and terrain-overlay in #1077, merged; their reruns are pending, see the status at the top).
 2. The thingi-pairs baseline and final runs, after 1 (owner 2026-11-12; a Haiku runner): not run yet.
 3. The tail above 20 s: #888 is closed (#960, 2026-11-16); tail cases are judged by the regression rule only. #1047 (42327
-   with its rotated copy, 18-26 s, the time is in the classification) is open; PR #1064 (box prefilter for the coplanar stacks,
+   with its rotated copy, 18-26 s, the time is in the classification) is reduced by PR #1064 (merged; box prefilter for the coplanar stacks,
    memo of L2's exact sides, -7 to -14 % on 42327, bit-identical; 19.5 s median for the union, still above 20 s in one of 10
-   processes) is in review.
+   processes); the further levers are not built under the speed stop.
 4. Rounding: the `rebuild_tree` reuse is dropped (see [After 3.0](#after-30-owner-2026-11-16)); lever 2 of #837 parked for the
    rotated-CAD class.
 5. Thread scaling beyond 4 cores (#858): answered and closed 2026-11-17 by the owner's 1 / 4 / 12-thread A/B of #962 (T6 closing
@@ -887,10 +893,12 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
    mask, the `MeshRoundingRepair` locks, the class, tests, the `ExactImprint` benchmark: about half the time of the boolean on closed sphere pairs); the
    deprecation decision for `MeshMeshCut` / `MeshBoolean` followed the imprint corpus run (run 44017929170,
-   [IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md)): **decided, owner 2026-11-17**, both are `[Obsolete]` warnings (no error, no API break)
+   [IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md)): **decided, owner 2026-11-17, done (#1037, merged)**: both are `[Obsolete]` warnings (no error, no API break)
    pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16), mesh-kernel ideas.
-   Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, started 2026-11-17 (owner), no PR yet; later stages parked until
-   a concrete use case.
+   Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
+   exact pass) is option A, an opt-in API (owner 2026-11-17, in progress, PR #1107); the materialized provenance stages are parked until
+   a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups
+   to a clean closed low-poly solid is in progress.

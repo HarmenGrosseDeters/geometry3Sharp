@@ -238,7 +238,7 @@ before it.
 |---|---|---|---|---|
 | **0. Decisions** | The owner decisions below. | - | - | Decided 2026-11-17. |
 | **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 3.7 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
-| **2. Position field and extraction (quad-dominant)** | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
+| **2. Position field and extraction (quad-dominant)** (built; merged with the irregular-vertex and 95 % quad gates open, owner 2026-11-17: [4.2](#42-stage-2-status-2026-11-17-built-the-irregular-vertex-gate-is-the-no-go)) | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
 | **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within 2 x stage 2's time. |
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |
 | **5. API and writers** | Additive and compatible with 1.0.324: a new polygon container (`DPolyMesh`: compact face offsets plus vertex lists, face groups, `ToDMesh3()` that triangulates and records the triangle-pair map), OBJ polygon faces and PLY `vertex_indices` lists for n-gons, and `SimpleQuadMesh` from a pure-quad result. A `g3cli quadremesh` command. No change to `DMesh3`. | **S-M** | low; `dotnet pack` API validation catches breaks | The API validation passes; a round trip of OBJ and PLY through the readers keeps the faces (the polygon reader paths are added to `ReaderFuzzTests` if a reader is added). |
@@ -293,6 +293,91 @@ the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit 
 (`SparseHermitianCholesky`) and the parallel pre/post loops it takes 1.5-2.1 s (1.3-1.7 s per 50k) on the sphere and the
 torus, and 2.7 s per 50k on the noisy torus without alignment (34 solves); see the benchmark README. The index histograms
 are unchanged.
+
+### 4.2 Stage 2 status (2026-11-17): built, the irregular-vertex gate is the no-go
+
+`gs.PositionField`, `gs.QuadRemesher` and `gs.PolyMeshMetrics` are in the library (`mesh_ops/`), with
+[benchmarks/QuadRemeshBenchmark](../../benchmarks/QuadRemeshBenchmark/README.md) (the table of numbers). Implemented from the
+Jakob et al. 2015 paper and the derivations of section 3.1 (no Instant Meshes, QuadriFlow or other code read; SOURCES.md).
+
+As built, beyond the spike:
+- **Hierarchy and solver:** greedy matching of the closest neighbours (ties by vertex id), coarse to fine, the Gauss-Seidel step of
+  section 3.1 with the per-edge middle point and compatible orientation precomputed (so a sweep is only the two roundings per edge).
+  **Parallel and deterministic:** a fixed greedy colouring in vertex order (6-7 colours); the colours run one after the other and
+  the vertices of one colour only read other colours, so serial and parallel execute the same updates (tests: bit for bit, with
+  work items of 3 to 512 vertices, repeated runs). The position field of 110k vertices takes 0.9 s on 4 cores (1.4 s serial).
+- **Boundaries:** a boundary vertex keeps a lattice line through it (its cross direction nearest to the boundary becomes
+  exactly the boundary direction, the position keeps zero offset across it), a corner (the boundary turns by more than 30 degrees,
+  or a vertex that is not a simple boundary vertex) is a lattice point itself. Boundary vertices merge in the hierarchy only along
+  boundary edges, corners never. In the extraction a cluster takes the position of its members of the highest kind. Own choices.
+  Measured on the open patch: the four corners are exact vertices and about half of the boundary vertices of the result are on
+  the boundary line (to 1e-3 s); the others are on rows up to 0.3 s inside (the boundary row and the next row of the lattice do
+  not always meet): a ragged boundary, an open item.
+- **Extraction:** union-find over the edges with the same lattice point (the two roundings less than `MismatchLimit` = 0.5 s
+  apart), unit offsets are edges, faces traced in the tangent planes, oriented by the normals; the outer loops of open meshes,
+  folded faces and faces above `MaxFaceSides` (6) are dropped. The cleanup: edges shorter than 0.4 s collapse (shortest first,
+  corners keep their position), valence 2 vertices off the boundary are removed, dangling edges are pruned.
+- **Result type:** `DPolyMesh`; `PolyMeshMetrics` is the gate checker (face mix, valence, corner angles, manifold: edges in at most
+  2 faces, consistent orientation, every vertex one fan).
+
+Measured gates (default options; the table is in the benchmark README):
+
+| gate | result |
+|---|---|
+| quads >= 95 % | 99.1 % filleted box, 98.6 % 100k sphere, 95.8 % patch, 95.9 % bumpy; **missed** 94.8 sphere, 94.9 torus, 93.2 noisy sphere, 91.4 sphere cap |
+| no face above 6 sides | met (faces above it are dropped: at most 1 per shape) |
+| irregular <= 2 x singularities + 4 | **missed**: filleted box 16 (limit 20); sphere 77 (limit 20), torus 76 (limit 28), bumpy 176 (36), noisy sphere 92 (20), sphere cap 96 (36), 100k sphere 354 (20) |
+| corner p95 <= 15 degrees | 4.9-14.5 on the closed shapes, 15.7 noisy sphere, 19.9 sphere cap |
+| Hausdorff <= 0.5 s | met (0.07-0.27 s one-sided) |
+| manifold polygon mesh | met on every shape |
+| <= 5 s per 100k vertices, 4 cores | met for stage 2 (1.0 s); the cross field alone takes 3.6 s there (with #1099) |
+
+**No-go reached (section 4: irregular > 4 x singularities after the cleanup).** The sphere has 77 irregular vertices for 8
+singular faces (9.6 x), the torus 76 for 12, the bumpy sphere 176 for 16 (11 x), the noisy sphere 92 (11.5 x), the 100k sphere 354
+(44 x: the count grows with the number of faces, not with the singularities). They are triangles paired with valence 5 vertices
+(sphere: 66 triangles, 66 valence 5, 10 valence 3), the position-field singularities of spike finding 3. The paper's cleanup removes
+almost none of them (0 collapses and valence 2 removals on most shapes). Nothing in stage 2's reach moves them: 100 sweeps, the
+regularization 0.3, the mismatch limit 0.25 or 1.5, a finer input (`ratio=0.33`), a curvature aligned field (`align` 1 and 10) give
+70-82 irregular vertices on the sphere. By Euler (spike finding 3), a triangle and a valence 5 vertex are a dipole that only a
+change of topology removes: stage 3 (the flow of QuadriFlow, or the local topology cleanup of option C) is a prerequisite for the
+irregular-vertex gate, and the quad share of 95 % is borderline without it. Stage 3 was not started.
+
+**Owner decision 2026-11-17:** stage 2 merges as quad-dominant remeshing with the missed gates recorded as open (irregular vertices 6 to 12 x the field singularities; quads below 95 % on 4 of the 8 shapes). Next is stage 3B (the QuadriFlow min-cost flow, from the paper only: Huang et al. 2018), starting with a small upper-bound measurement of how far the flow cuts the irregular count on the sphere and torus.
+
+### 4.3 Stage 3B upper bound (2026-11-17)
+
+**Status: parked, not a verdict on option B.** The measurement below used a formulation written from memory of the QuadriFlow
+paper's structure plus own derivations (no QuadriFlow, Instant Meshes or other code read). A second, bounded measurement from the
+paper itself could not be done: the paper was not reachable from the worker session (the fetch host was outside the network
+allowlist, a direct download was denied, and the formulation is not reconstructed from memory again). Option B resumes when the
+papers (Huang et al. 2018; for option C Bommes, Lempfer, Kobbelt, "Global Structure Optimization of Quadrilateral Meshes", CGF 30(2),
+2011; Tarini et al., "Simple Quad Domains for Field Aligned Mesh Parametrization", TOG 30(6), 2011) are available to a session.
+
+Prototype (a throwaway, not committed): per mesh edge an integer diff in the frame of its lower vertex, target = the difference of the two
+vertices' position field lattice points in lattice units, rounded. Constraint: the (frame-rotated) diffs sum to zero around every
+face; the three edges of a face whose frame holonomy is not the identity are fixed to 0. Cost: L1 distance to the real target, two
+tiers per direction, |diff| <= 1. The constraint rows were signed by a BFS so that the matrix is a network matrix; the columns that
+stay unbalanced (they close around the singularities, 340-1250 arcs) were frozen. Solver: successive shortest paths with
+potentials and Dijkstra (Ahuja, Magnanti, Orlin, Network Flows, 9.7). Extraction: the stage 2 extraction and cleanup on the repaired
+diffs (zero diff merges, unit diff links).
+
+| shape (s = 0.1, ratio 0.5) | field singularities | stage 2 irregular | extraction, unrepaired diffs | after the flow | gate (singularities + 10 % of stage 2) |
+|---|---|---|---|---|---|
+| sphere | 8 | 77 | 80 | 127 (triangles 70 to 156, quads 94.5 to 87.5 %) | about 16 |
+| torus | 12 | 76 | 77 | 85 (triangles 71 to 98, quads 94.9 to 92.9 %) | about 20 |
+| torus, `align` 10 (0 singularities) | 0 | 108 | 108 | 175, not manifold | about 11 |
+
+- The flow removes the face violations (sphere 79 to 6 faces, torus 85 to 2, aligned torus 95 to 0) but not the irregular vertices.
+  The aligned torus has no frozen column: the diffs are fully consistent and the extraction is still worse.
+- Finer input does not help (ratio 0.25 / 0.17): sphere 72 / 75 to 101 / 149, torus 64 / 65 to 95 / 96.
+- Cause seen: the repairs relabel thin strings of vertices (clusters of at most 2 vertices: about 1 to 24-290), so extra valence 5
+  and 6 vertices appear. The excess to route is about 45 units whatever the resolution, and a unit travels 20-70 edges.
+- Time: 0.15-0.25 s for the flow at 6-7k vertices (stage 2: 0.3 s), 1.2 s at 55k vertices: time is not the blocker.
+
+Not measured, so open: the paper's exact flow network and its handling of the unbalanced columns (SAT step), the global position
+solve, flip and fragment removal, and a compactness term in the cost. The share of the irregular vertices that the frozen columns
+explain was not isolated (the aligned torus shows the inconsistency is not only theirs). Next: B again from the paper, or option C
+(local cleanup of the valence 5 / triangle dipoles) with an upper bound first.
 
 ## 5. Limits and recommendation
 

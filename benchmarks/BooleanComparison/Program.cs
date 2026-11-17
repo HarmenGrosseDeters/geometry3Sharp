@@ -78,6 +78,10 @@ static class Program
             case "chain-step": return AbcChained.Step(args.Skip(1).ToArray());
             case "chain-exact": return ChainExact.Abc(args.Skip(1).ToArray());
             case "chain-exact-proc": return ChainExact.Procedural(args.Skip(1).ToArray());
+            case "chain-exact-diag": return ChainExact.Abc(args.Skip(1).ToArray(), "diag");
+            case "chain-exact-diag-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "diag");
+            case "chain-exact-time": return ChainExact.Abc(args.Skip(1).ToArray(), "time");
+            case "chain-exact-time-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "time");
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);

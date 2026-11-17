@@ -201,5 +201,5 @@ is correct behaviour), terrain mutation survivors (#908), the `Acos` of `Terrain
    `TerrainVolumeDifference`'s height check (`DMeshAABBTree3`) to `TriangleQuadtree2d`. First step when terrain resumes: an
    upper-bound measurement on procedural inputs, including a long-segment worst case; a PR only above the 10 % bar. Not now:
    `Arrangement2d.find_intersecting_edges` (linear scan, TODO; no internal caller) and the bin grid of `MeshInsertUVPolyCurve` (minor).
-5. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 are being fixed in #1077 (open, with the
+5. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 were fixed in #1077 (merged, with the
    `rounding-4` and `rounding-7` ones; Exact Boolean 3.0 gate).

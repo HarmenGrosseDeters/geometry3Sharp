@@ -94,7 +94,7 @@ changed key can only lose baselines, and a shard without a baseline runs in full
 comment or blank line counts with its neighbours. A workflow that uses YAML anchors, aliases or merge keys is not
 classified: any edit of it runs everything (the real one has none; `test_select_shards` checks that). The shards themselves come from the configs (the matrix is
 `fromJSON` of the selection), so a new or changed shard runs in full through its own config file, and the others do not.
-`max-parallel` is 6 (owner 2026-11-13, it was 12): a full run has 45 mesh shards (25 when this was measured; the table below), at most 6 of them at a time; with the
+`max-parallel` is 6 (owner 2026-11-13, it was 12): a full run has 45 mesh shards plus the arithmetic job (the table below was measured when there were 25), at most 6 of them at a time; with the
 arithmetic job and the selection job that is 8, which leaves 12 of the account's 20 concurrent jobs for CI. At about 4 hours a shard
 (1 to 5 hours) a full run needs about 17 hours of wall time. A concurrency group per slot does not work: a group keeps one running and
 one pending job and cancels every older pending one, so most shards would end as cancelled.
@@ -125,8 +125,8 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   or the scheduled one on master.
 
 - **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 24
-  of the 38 configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, arithmetic, 14
-  configs), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
+  of the 45 mesh configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, uv, imprint, arithmetic: 21
+  mesh configs and the arithmetic job), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
   the baselines of the incremental PR runs; survivors are tasks of the area's next PR. Every shard runs at least once a week
   (`test_select_shards.py`). Timing is an **estimate, not a measurement**: a shard takes 1 to 6 hours and 6 run at a time
   (`max-parallel`), so the 24 nightly shards need about 12 to 16 hours, from 19:17 UTC to between 07:00 and 11:00 UTC, partly
@@ -134,7 +134,7 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   weekly group only (the weekly run is their unfiltered check, set by its cron line: `G3_FULL_TESTS` in the workflow, not by the weekday when a late shard starts; `test_select_shards.py` checks that no nightly shard gets a
   filter file).
 - **The schedule and the daily dispatch** (docs/QA.md 2.12): the two cron lines are the fallback of an external dispatcher.
-  A plain `workflow_dispatch` (`shards=all`) that ran on a day is a full run of all 38 shards (more than a day of runner time,
+  A plain `workflow_dispatch` (`shards=all`) that ran on a day is a full run of all 46 shards (45 mesh configs and the arithmetic job) (more than a day of runner time,
   so a daily `shards=all` dispatcher queues the next day's run behind it: change the dispatcher to `nightly` / `weekly`, or retire
   it) and makes the schedule guard skip that evening's cron run (a plain dispatch after the cron run of the same UTC day is
   skipped too, as the day's run: use `force`); without the dispatcher the cron lines are the only starter (GitHub has started them up to 8 hours
