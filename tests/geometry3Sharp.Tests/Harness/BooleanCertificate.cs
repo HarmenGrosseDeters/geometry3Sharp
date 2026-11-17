@@ -78,14 +78,24 @@ namespace geometry3Sharp.Tests
         /// <summary> the result before rounding with exact vertices (input coordinates), and the result </summary>
         public DMesh3 Assembled, Result;
         public ExactPoint3[] AssembledExact;
-        public double Delta;
+        /// <summary> the caller's input meshes (null: not checked against arrangement's), and how many triangles were reoriented </summary>
+        public List<DMesh3> Inputs;
+        public int ReorientedTriangles;
+        /// <summary>
+        /// the coverage distance: the rounding's bound (MeshRoundingRepair.MaxLength) plus a few ulps; checked against
+        /// the documented bound from the boolean's settings (MaxLengthBound)
+        /// </summary>
+        public double Delta, MaxLength, MaxLengthBound;
+        /// <summary> components the rounding removed (tiny or thin): the coverage of the result before rounding by the result is skipped then </summary>
+        public int RemovedComponents;
 
         /// <summary> sub-triangle splits tried where no single triangle covers one (C5) </summary>
         public int SplitDepth = 3;
 
         // ------------------------------------------------------------------ results of the last Check
 
-        public int Anchors, CoverageTests, Uncovered;
+        public int Anchors, CoverageTests, Uncovered, CulledSets;
+        public bool CoverageOfExactSkipped;
 
         /// <summary>
         /// Runs a boolean with the recording on (and exact vertices) and returns it with its certificate data. configure
@@ -97,7 +107,9 @@ namespace geometry3Sharp.Tests
             configure?.Invoke(boolean);
             if (boolean.Compute() == false)
                 throw new InvalidOperationException("boolean failed: " + boolean.Error);
-            return From(boolean);
+            BooleanCertificate c = From(boolean);
+            c.Inputs = new List<DMesh3> { a, b };
+            return c;
         }
 
         /// <summary>
@@ -146,15 +158,38 @@ namespace geometry3Sharp.Tests
                 else
                     c.CullMesh = arr.CullOutsideOf[0];
             }
+            c.ReorientedTriangles = b.ReorientedTriangles;
             double maxAbs = 0;
-            if (b.Result != null)
-                foreach (Vector3d v in b.Result.Vertices())
-                    maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
-            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: under ulp(maxAbs)
+            var box = AxisAlignedBox3d.Empty;
+            foreach (DMesh3 m in new[] { b.Result, b.CertificateAssembled })
+                if (m != null)
+                    foreach (Vector3d v in m.Vertices()) {
+                        maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                        box.Contain(v);
+                    }
+            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
             // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)
-            double ulp = maxAbs > 0 ? Math.Pow(2, Math.Floor(Math.Log(maxAbs, 2)) - 52) : double.Epsilon;
-            c.Delta = (b.Rounding != null ? b.Rounding.MaxLength : 0) + 4 * ulp;
+            double ulp = Ulp(maxAbs);
+            c.MaxLength = b.Rounding != null ? b.Rounding.MaxLength : 0;
+            c.Delta = c.MaxLength + 4 * ulp;
+            // the documented bound (MeshRoundingRepair: max(MaxDisplacement times the largest component's diagonal,
+            // UlpFactor ulps of its largest coordinate, AbsoluteTolerance); StrictRounding without the last two), from the
+            // settings: the diagonal of all vertices is at least the largest component's, maxAbs at least its coordinates
+            bool strict = b.StrictRounding;
+            c.MaxLengthBound = b.Rounding == null ? 0 : Math.Max(b.RoundingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
+                strict ? 0 : Math.Max(b.RoundingUlpFactor * ulp, b.RoundingAbsoluteTolerance));
+            c.RemovedComponents = b.Rounding != null ? b.Rounding.RemovedComponents : 0;
             return c;
+        }
+
+        // the distance between x and the next double away from 0 (2^-1074 at 0)
+        static double Ulp(double x)
+        {
+            x = Math.Abs(x);
+            if (x == 0) return double.Epsilon;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            return e == 0 ? double.Epsilon : ExactPoint3.ScaleB(1.0, e - 1075);
         }
 
         /// <summary> the checker's own predicate of a built-in operation (as documented on ExactMeshBoolean.Operations) </summary>
@@ -172,7 +207,9 @@ namespace geometry3Sharp.Tests
         {
             if (NotApplicableReason != null)
                 return "n/a: " + NotApplicableReason;
-            string r = CheckPieces();
+            string r = CheckInputs();
+            if (r != "") return "C0: " + r;
+            r = CheckPieces();
             if (r != "") return "C1: " + r;
             r = CheckClassification();
             if (r != "") return "C3/C4: " + r;
@@ -303,6 +340,101 @@ namespace geometry3Sharp.Tests
                 if (s == 0) zero = true;
             }
             return zero ? 0 : 1;
+        }
+
+        // ------------------------------------------------------------------ C0: the inputs, the culled triangles, the bound
+
+        /// <summary>
+        /// C0: the meshes the arrangement used are the caller's (the same corners per triangle, in the same order, or
+        /// reversed for exactly ReorientedTriangles of them); every non-degenerate input triangle is an input triangle of
+        /// the arrangement exactly once; every culled triangle lies outside the culling mesh (it meets none of that mesh's
+        /// triangles, exact test, and an exact ray per connected set of culled triangles gives a winding number <= 0
+        /// there); the rounding's bound is at most the documented one. "" or the reason
+        /// </summary>
+        public string CheckInputs()
+        {
+            try { return check_inputs(); }
+            catch (CertificateException e) { return e.Message; }
+        }
+
+        string check_inputs()
+        {
+            PrepareInputs();
+            if (Inputs != null) {
+                if (Inputs.Count != Meshes.Count) return "a different number of meshes";
+                int reversed = 0;
+                for (int m = 0; m < Meshes.Count; ++m) {
+                    DMesh3 x = Inputs[m], y = Meshes[m];
+                    if (x.TriangleCount != y.TriangleCount) return $"mesh {m}: a different number of triangles";
+                    foreach (int t in x.TriangleIndices()) {
+                        if (y.IsTriangle(t) == false) return $"mesh {m}: triangle {t} missing";
+                        Index3i a = x.GetTriangle(t), b = y.GetTriangle(t);
+                        Vector3d[] pa = { x.GetVertex(a.a), x.GetVertex(a.b), x.GetVertex(a.c) }, pb = { y.GetVertex(b.a), y.GetVertex(b.b), y.GetVertex(b.c) };
+                        bool same = false, rev = false;
+                        for (int k = 0; k < 3; ++k) {
+                            same |= pa[0] == pb[k] && pa[1] == pb[(k + 1) % 3] && pa[2] == pb[(k + 2) % 3];
+                            rev |= pa[0] == pb[k] && pa[1] == pb[(k + 2) % 3] && pa[2] == pb[(k + 1) % 3];
+                        }
+                        if (same == false && rev == false) return $"mesh {m}: triangle {t} has other corners";
+                        if (same == false) reversed++;
+                    }
+                }
+                if (reversed != ReorientedTriangles) return $"{reversed} triangles reversed, {ReorientedTriangles} reported";
+            }
+            var seen = new HashSet<(int, int)>();
+            for (int t = 0; t < TriMesh.Length; ++t)
+                if (seen.Add((TriMesh[t], TriTid[t])) == false) return $"input triangle {TriMesh[t]}:{TriTid[t]} twice in the arrangement";
+            for (int m = 0; m < Meshes.Count; ++m)
+                foreach (int t in Meshes[m].TriangleIndices()) {
+                    if (seen.Contains((m, t))) continue;
+                    Index3i tri = Meshes[m].GetTriangle(t);
+                    if (IsZero(Normal(ToGrid(Meshes[m].GetVertex(tri.a)), ToGrid(Meshes[m].GetVertex(tri.b)), ToGrid(Meshes[m].GetVertex(tri.c)))) == false)
+                        return $"input triangle {m}:{t} is not in the arrangement";
+                }
+            if (MaxLength > MaxLengthBound) return $"the rounding's bound {MaxLength:R} is above the documented {MaxLengthBound:R}";
+            return CheckCulled();
+        }
+
+        string CheckCulled()
+        {
+            CulledSets = 0;
+            var culled = Enumerable.Range(0, TriMesh.Length).Where(t => TriCulled[t] && IsZero(triNormal[t]) == false).ToList();
+            if (culled.Count == 0) return "";
+            if (CullMesh < 0) return "triangles culled without a culling mesh";
+            // the culling mesh's triangles, as doubles, with their boxes
+            var cTris = Enumerable.Range(0, TriMesh.Length).Where(t => TriMesh[t] == CullMesh && IsZero(triNormal[t]) == false).Select(t => {
+                DMesh3 m = Meshes[CullMesh]; Index3i i = m.GetTriangle(TriTid[t]);
+                var tri = new Triangle3d(m.GetVertex(i.a), m.GetVertex(i.b), m.GetVertex(i.c));
+                var bx = new AxisAlignedBox3d(tri.V0); bx.Contain(tri.V1); bx.Contain(tri.V2);
+                return (tri, bx);
+            }).ToList();
+            // connected sets of culled triangles (shared vertices of their mesh)
+            var parent = culled.ToDictionary(t => t, t => t);
+            int Root(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
+            var byVertex = new Dictionary<(int, int), int>();
+            foreach (int t in culled) {
+                if (TriMesh[t] == CullMesh) return $"input triangle {t} of the culling mesh is culled";
+                DMesh3 m = Meshes[TriMesh[t]]; Index3i i = m.GetTriangle(TriTid[t]);
+                var tri = new Triangle3d(m.GetVertex(i.a), m.GetVertex(i.b), m.GetVertex(i.c));
+                var bx = new AxisAlignedBox3d(tri.V0); bx.Contain(tri.V1); bx.Contain(tri.V2);
+                foreach (var (ct, cb) in cTris) {
+                    // (closed boxes of doubles: exact; a contact counts)
+                    if (cb.Max.x < bx.Min.x || bx.Max.x < cb.Min.x || cb.Max.y < bx.Min.y || bx.Max.y < cb.Min.y || cb.Max.z < bx.Min.z || bx.Max.z < cb.Min.z) continue;
+                    Triangle3d u = tri, v = ct;
+                    if (ExactTriangleIntersection.Intersects(ref u, ref v)) return $"culled input triangle {t} meets the culling mesh";
+                }
+                foreach (int vid in new[] { i.a, i.b, i.c }) {
+                    if (byVertex.TryGetValue((TriMesh[t], vid), out int o)) { int ra = Root(t), rb = Root(o); if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb); }
+                    else byVertex[(TriMesh[t], vid)] = t;
+                }
+            }
+            foreach (int t in culled.Where(t => Root(t) == t)) {
+                ExactPoint3[] c = triCorners[t];
+                int[] w = RayWindingAt(Centroid(c), triNormal[t], triPlane[t], CullMesh, 7919 * t + 3, true, $"culled input triangle {t}");
+                CulledSets++;
+                if (w[CullMesh] > 0) return $"culled input triangle {t} lies inside the culling mesh (winding number {w[CullMesh]})";
+            }
+            return "";
         }
 
         // ------------------------------------------------------------------ C1: the pieces tile their sources
@@ -609,14 +741,19 @@ namespace geometry3Sharp.Tests
 
         // the exact winding numbers just in front of (or behind) piece i: a ray from its centroid, signed crossings with
         // every input triangle (culled ones too); a ray that meets an edge or a vertex is replaced by another
-        int[] RayWinding(int i, bool front)
+        int[] RayWinding(int i, bool front) =>
+            RayWindingAt(Centroid(PieceCorners[i]), Normal(PieceCorners[i][0], PieceCorners[i][1], PieceCorners[i][2]), triPlane[PieceSource[i]],
+                -1, 1000003 * i + (front ? 1 : 2), front, $"piece {i}");
+
+        // the exact winding numbers at o + epsilon dir for directions near +-np: a ray, signed crossings with every input
+        // triangle (of mesh onlyMesh only, if >= 0; culled ones too); triangles through o in plane `plane` are skipped,
+        // another one through o (of a counted mesh) is reported (C2); a ray that meets an edge or a vertex is replaced
+        int[] RayWindingAt(ExactPoint3 o, BigInteger[] np, string plane, int onlyMesh, int seed, bool front, string what)
         {
-            ExactPoint3 o = Centroid(PieceCorners[i]);
-            BigInteger[] np = Normal(PieceCorners[i][0], PieceCorners[i][1], PieceCorners[i][2]);
             // a direction close to the normal (its scale: the normal reduced, times 4096, plus at most 1024 per coordinate)
             BigInteger g = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(np[0], np[1]), np[2]);
             BigInteger[] nr = np.Select(x => x / g).ToArray();
-            var rng = new Random(1000003 * i + (front ? 1 : 2));
+            var rng = new Random(seed);
             for (int attempt = 0; attempt < 64; ++attempt) {
                 BigInteger[] dir = new BigInteger[3];
                 // (4096 |n|^2 > 1024 |n|_1 for an integer n != 0: the perturbation keeps the side; checked below anyway)
@@ -625,19 +762,19 @@ namespace geometry3Sharp.Tests
                 int[] w = new int[Meshes.Count];
                 bool degenerate = false;
                 for (int t = 0; t < TriMesh.Length && degenerate == false; ++t) {
-                    if (IsZero(triNormal[t])) continue;
+                    if (IsZero(triNormal[t]) || (onlyMesh >= 0 && TriMesh[t] != onlyMesh)) continue;
                     int hit = Crossing(o, dir, t, out degenerate);
                     if (degenerate) break;
                     if (hit == 2) {
-                        if (triPlane[t] != triPlane[PieceSource[i]])
-                            throw new CertificateException($"piece {i}: input triangle {t} passes through its centroid (C2)");
+                        if (triPlane[t] != plane)
+                            throw new CertificateException($"{what}: input triangle {t} passes through its centroid (C2)");
                         continue;
                     }
                     w[TriMesh[t]] += hit;
                 }
                 if (degenerate == false) return w;
             }
-            throw new CertificateException($"piece {i}: no non-degenerate ray");
+            throw new CertificateException($"{what}: no non-degenerate ray");
         }
 
         // ray o + s dir (s > 0) against input triangle t: +1 / -1 crossing from its back to its front / front to back, 0 none,
@@ -666,6 +803,12 @@ namespace geometry3Sharp.Tests
         // ------------------------------------------------------------------ C5: the result
 
         public string CheckResult()
+        {
+            try { return check_result(); }
+            catch (DivideByZeroException e) { return "a degenerate configuration: " + e.Message; }
+        }
+
+        string check_result()
         {
             PreparePieces();
             if (Result == null || Assembled == null || AssembledExact == null) return "no result, result before rounding, or exact vertices";
@@ -698,9 +841,20 @@ namespace geometry3Sharp.Tests
         {
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
-            void AddTriangle(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int w)
+            // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
+            var areas = new Dictionary<string, (BigInteger en, BigInteger ed, BigInteger sn, BigInteger sd)>();
+            bool AddTriangle(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int w)
             {
+                BigInteger[] n = Normal(a, b, c);
+                if (IsZero(n)) return false;
                 string plane = PlaneKeyOf(a, b, c);
+                int axis = BigInteger.Abs(n[0]) >= BigInteger.Abs(n[1]) && BigInteger.Abs(n[0]) >= BigInteger.Abs(n[2]) ? 0 : BigInteger.Abs(n[1]) >= BigInteger.Abs(n[2]) ? 1 : 2;
+                // (the normal numerator is scaled by (a.W b.W)(a.W c.W) > 0)
+                BigInteger an = BigInteger.Abs(n[axis]), ad = a.W * b.W * a.W * c.W;
+                var ar = areas.TryGetValue(plane, out var v) ? v : (BigInteger.Zero, BigInteger.One, BigInteger.Zero, BigInteger.One);
+                if (w > 0) ar = (ar.Item1 * ad + an * ar.Item2, ar.Item2 * ad, ar.Item3, ar.Item4);
+                else ar = (ar.Item1, ar.Item2, ar.Item3 * ad + an * ar.Item4, ar.Item4 * ad);
+                areas[plane] = ar;
                 var t = new[] { a, b, c };
                 for (int k = 0; k < 3; ++k) {
                     ExactPoint3 p = t[k], q = t[(k + 1) % 3];
@@ -717,15 +871,17 @@ namespace geometry3Sharp.Tests
                     l.Add((p, dr, w, true));
                     l.Add((q, dr, w, false));
                 }
+                return true;
             }
             for (int i = 0; i < PieceCorners.Length; ++i) {
                 if (Keep[i] == false) continue;
                 ExactPoint3[] c = PieceCorners[i].Select(ToInput).ToArray();
-                if (Flip[i]) AddTriangle(c[0], c[2], c[1], 1); else AddTriangle(c[0], c[1], c[2], 1);
+                if ((Flip[i] ? AddTriangle(c[0], c[2], c[1], 1) : AddTriangle(c[0], c[1], c[2], 1)) == false) return $"kept piece {i} is degenerate";
             }
             foreach (int t in Assembled.TriangleIndices()) {
                 Index3i tri = Assembled.GetTriangle(t);
-                AddTriangle(AssembledExact[tri.a], AssembledExact[tri.b], AssembledExact[tri.c], -1);
+                if (AddTriangle(AssembledExact[tri.a], AssembledExact[tri.b], AssembledExact[tri.c], -1) == false)
+                    return $"triangle {t} of the result before rounding is degenerate";
             }
             foreach (var kv in lines) {
                 // position along dir: (p . dir) / p.W; an interval from its start to its end adds w (start < end) or -w
@@ -746,6 +902,11 @@ namespace geometry3Sharp.Tests
                     if (last && acc != 0) return "the result before rounding differs from the kept pieces (a plane's boundary is not zero)";
                 }
             }
+            // (equal chains, and E of density at most 1 (copies are never kept): an unsigned area of E_s above E's is a
+            // pair of opposite coincident triangles, which the chain cancels)
+            foreach (var kv in areas)
+                if (kv.Value.Item1 * kv.Value.Item4 != kv.Value.Item3 * kv.Value.Item2)
+                    return "the result before rounding has another area than the kept pieces in a plane (coincident opposite triangles)";
             return "";
         }
 
@@ -755,7 +916,12 @@ namespace geometry3Sharp.Tests
         struct Q
         {
             public BigInteger N, D;     // D > 0
-            public Q(BigInteger n, BigInteger d) { if (d.Sign < 0) { n = -n; d = -d; } N = n; D = d; }
+            public Q(BigInteger n, BigInteger d)
+            {
+                if (d.IsZero) throw new DivideByZeroException("rational with denominator 0");
+                if (d.Sign < 0) { n = -n; d = -d; }
+                N = n; D = d;
+            }
             public static Q operator +(Q a, Q b) => new Q(a.N * b.D + b.N * a.D, a.D * b.D);
             public static Q operator -(Q a, Q b) => new Q(a.N * b.D - b.N * a.D, a.D * b.D);
             public static Q operator *(Q a, Q b) => new Q(a.N * b.N, a.D * b.D);
@@ -854,6 +1020,10 @@ namespace geometry3Sharp.Tests
             var rBoxes = Result.TriangleIndices().Select(t => Result.GetTriBounds(t)).ToList();
             string r = Cover(rTris, rBoxes, eTris, eBoxes, "result", "result before rounding");
             if (r != "") return r;
+            // (the rounding removes tiny and thin components (MeshRoundingRepair.RemovedComponents, a documented decision):
+            // then the exact result is not within the bound of the result, and that direction is skipped)
+            CoverageOfExactSkipped = RemovedComponents > 0;
+            if (CoverageOfExactSkipped) return "";
             return Cover(eTris, eBoxes, rTris, rBoxes, "result before rounding", "result");
         }
 
@@ -894,11 +1064,38 @@ namespace geometry3Sharp.Tests
         // ulps), else by the exact squared distance to the triangle
         static bool Near(Q[] p, Q[][] t, Q delta2)
         {
-            foreach (Q[] v in t) {
-                Q[] d = VSub(p, v);
+            foreach (Q[] corner in t) {
+                Q[] d = VSub(p, corner);
                 if (Q.Compare(VDot(d, d), delta2) <= 0) return true;
             }
+            Q[] u = VSub(t[1], t[0]), v = VSub(t[2], t[0]);
+            Q[] n = { (u[1] * v[2] - u[2] * v[1]).Reduce(), (u[2] * v[0] - u[0] * v[2]).Reduce(), (u[0] * v[1] - u[1] * v[0]).Reduce() };
+            if (n[0].Sign == 0 && n[1].Sign == 0 && n[2].Sign == 0) {
+                // a degenerate triangle (corners on a line or equal): the distance to its three edges
+                for (int k = 0; k < 3; ++k)
+                    if (Q.Compare(SegmentSquaredDistance(p, t[k], t[(k + 1) % 3]), delta2) <= 0) return true;
+                return false;
+            }
             return Q.Compare(SquaredDistance(p, t[0], t[1], t[2]), delta2) <= 0;
+        }
+
+        /// <summary> for tests: Near on exact points (p within delta of the closed triangle t) </summary>
+        public static bool PointNearTriangle(ExactPoint3 p, ExactPoint3[] t, double delta)
+        {
+            ExactPoint3 d = FromDouble(new Vector3d(delta, 0, 0));
+            Q q = new Q(d.X, d.W);
+            return Near(Vec(p), t.Select(Vec).ToArray(), (q * q).Reduce());
+        }
+
+        static Q SegmentSquaredDistance(Q[] p, Q[] a, Q[] b)
+        {
+            Q[] ab = VSub(b, a), ap = VSub(p, a);
+            Q l2 = VDot(ab, ab);
+            if (l2.Sign == 0) return VDot(ap, ap);
+            Q t = VDot(ap, ab);
+            if (t.Sign <= 0) return VDot(ap, ap);
+            if (Q.Compare(t, l2) >= 0) { Q[] bp = VSub(p, b); return VDot(bp, bp); }
+            return PointOnSegment(p, a, ab, (t / l2).Reduce());
         }
 
         bool Covered(Q[][] t, List<int> cand, List<Q[][]> to, Q delta2, int depth)

@@ -13,8 +13,8 @@ namespace geometry3Sharp.Tests
     /// The certifying checker of ExactMeshBoolean (Harness/BooleanCertificate.cs, docs/QA.md "Certifying checker of the
     /// exact boolean"): it certifies the results of the fixed boolean corpus (the box and tetrahedron families of
     /// ExactBooleanMetamorphicTests, their representation changes, spheres, nested and self-intersecting solids), and it
-    /// has teeth: every mutation of the witness (winding numbers with a consistent selection, so that only C3 can see it),
-    /// of the selection, of the pieces and of the result is caught.
+    /// has teeth: every mutation of the witness (winding numbers with a consistent selection, so that C4 does not see it
+    /// and C3, which runs before C5, must), of the selection, of the culling, of the pieces and of the result is caught.
     /// </summary>
     public class BooleanCertificateTests
     {
@@ -152,7 +152,8 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Map(a0), b = Map(b0);
             foreach (Ops op in BooleanOracle.AllOps) {
                 BooleanCertificate c = Certify(a, b, op, out _);
-                Assert.True(c.Check() == "", $"{name} {op}: {c.Check()}");
+                string r = c.Check();
+                Assert.True(r == "", $"{name} {op}: {r}");
                 Assert.Equal(0, c.Uncovered);
                 if (s.IsExact && s != Similarity.Identity) {
                     BooleanCertificate c0 = Certify(a0, b0, op, out _);
@@ -192,7 +193,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// The heavier corpus (Nightly: the run is the check, about a minute): random sphere pairs (rotated, various
+        /// The heavier corpus (Nightly: the run is the check, about 20 s here): random sphere pairs (rotated, various
         /// resolutions), random integer tetrahedra and random small boxes (many shared planes), every operation, each
         /// certified with every triangle covered.
         /// </summary>
@@ -301,7 +302,8 @@ namespace geometry3Sharp.Tests
                             }, IsC3Failure);
                             mutations++;
                         }
-                // two patches that meet at an edge, their winding numbers swapped (a wrong radial order in a propagation)
+                // two patches (consecutive in piece order, often neighbours), their winding numbers swapped (what a wrong
+                // radial order in a propagation gives)
                 for (int p = 0; p + 1 < patches.Count; ++p) {
                     int q = p + 1;
                     if (patches[p].Select(i => probe.Front[i]).First().SequenceEqual(probe.Front[patches[q][0]])) continue;
@@ -444,6 +446,98 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WronglyCulledComponent_IsCaught()
+        {
+            // B inside A, Difference: as if the early-out had culled all of B (its pieces gone, the selection made to
+            // agree). Locally everything is consistent (A's pieces see w_B = 0, which is true at A's surface); only the
+            // check of the culled triangles sees it
+            DMesh3 a = Box(Bx(0, 0, 0, 6, 6, 6)), b = Box(Bx(1, 1, 1, 2, 2, 2));
+            Certify(a, b, Ops.Difference, out ExactMeshBoolean eb);
+            Assert.Equal("", BooleanCertificate.From(eb).Check());
+            BooleanCertificate c = BooleanCertificate.From(eb);
+            c.Inputs = new List<DMesh3> { a, b };
+            int[] keep = Enumerable.Range(0, c.PieceMesh.Length).Where(i => c.PieceMesh[i] == 0).ToArray();
+            c.PieceMesh = keep.Select(i => c.PieceMesh[i]).ToArray();
+            c.PieceSource = keep.Select(i => c.PieceSource[i]).ToArray();
+            c.PieceCorners = keep.Select(i => c.PieceCorners[i]).ToArray();
+            c.Front = keep.Select(i => c.Front[i]).ToArray();
+            c.Keep = new bool[keep.Length]; c.Flip = new bool[keep.Length];
+            for (int t = 0; t < c.TriMesh.Length; ++t) if (c.TriMesh[t] == 1) c.TriCulled[t] = true;
+            c.CullMesh = 0;
+            c.SelectFromWitness();
+            Assert.Equal("", c.CheckPieces());
+            Assert.Equal("", c.CheckClassification());
+            string r = c.Check();
+            Assert.True(r.StartsWith("C0: ") && r.Contains("inside the culling mesh"), r);
+            // and a culled triangle that touches the culling mesh
+            var (sa, sb) = Solids["spheres overlapping"]();
+            Certify(sa, sb, Ops.Difference, out eb);
+            c = BooleanCertificate.From(eb);
+            Assert.True(c.TriCulled.Any(x => x));
+            int crossing = Enumerable.Range(0, c.TriMesh.Length).First(t => c.TriMesh[t] == 1 && c.TriCulled[t] == false
+                && c.PieceSource.Count(s => s == t) > 1);
+            c.TriCulled[crossing] = true;
+            Assert.Contains("meets the culling mesh", c.CheckInputs());
+        }
+
+        [Fact]
+        public void InputAndBoundMutations_AreCaughtByC0()
+        {
+            var (a, b) = Solids["hollow box"]();
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            BooleanCertificate Fresh() { var c = BooleanCertificate.From(eb); c.Inputs = new List<DMesh3> { a, b }; return c; }
+            Assert.Equal("", Fresh().Check());
+            BooleanCertificate m = Fresh();
+            m.Inputs = new List<DMesh3> { Reversed(a), b };
+            Assert.Contains("reversed", m.CheckInputs());
+            m = Fresh();
+            m.TriTid[1] = m.TriTid[0];
+            m.TriMesh[1] = m.TriMesh[0];
+            Assert.Contains("twice in the arrangement", m.CheckInputs());
+            m = Fresh();
+            int last = m.TriMesh.Length - 1;
+            m.TriMesh = m.TriMesh.Take(last).ToArray(); m.TriTid = m.TriTid.Take(last).ToArray(); m.TriCulled = m.TriCulled.Take(last).ToArray();
+            Assert.Contains("is not in the arrangement", m.CheckInputs());
+            m = Fresh();
+            m.MaxLength = 2 * m.MaxLengthBound + 1;
+            Assert.Contains("above the documented", m.CheckInputs());
+        }
+
+        [Fact]
+        public void RecordingChangesNothing_AndIsClearedWhenOff()
+        {
+            var (a, b) = Solids["self-intersecting"]();
+            foreach (Ops op in BooleanOracle.AllOps) {
+                var plain = new ExactMeshBoolean(a, b, op);
+                Assert.True(plain.Compute());
+                var rec = new ExactMeshBoolean(a, b, op) { RecordCertificate = true };
+                Assert.True(rec.Compute());
+                Assert.Equal(plain.Result.TriangleCount, rec.Result.TriangleCount);
+                Assert.Equal(plain.Result.VertexCount, rec.Result.VertexCount);
+                foreach (int v in plain.Result.VertexIndices()) Assert.Equal(plain.Result.GetVertex(v), rec.Result.GetVertex(v));
+                foreach (int t in plain.Result.TriangleIndices()) Assert.Equal(plain.Result.GetTriangle(t), rec.Result.GetTriangle(t));
+                Assert.NotNull(rec.CertificateFront); Assert.NotNull(rec.CertificateKeep); Assert.NotNull(rec.CertificateFlip); Assert.NotNull(rec.CertificateAssembled);
+                Assert.Equal(rec.Arrangement.Output.Count, rec.CertificateFront.Length);
+                rec.RecordCertificate = false;
+                Assert.True(rec.Compute());
+                Assert.Null(rec.CertificateFront); Assert.Null(rec.CertificateKeep); Assert.Null(rec.CertificateFlip); Assert.Null(rec.CertificateAssembled);
+            }
+        }
+
+        [Fact]
+        public void Coverage_OfDegenerateTriangles_IsTheDistanceToTheirEdges()
+        {
+            ExactPoint3 o = G(0, 0), x = G(4, 0);
+            Assert.True(BooleanCertificate.PointNearTriangle(G(2, 1), new[] { o, o, x }, 1.0));
+            Assert.False(BooleanCertificate.PointNearTriangle(G(2, 2), new[] { o, o, x }, 1.0));
+            Assert.False(BooleanCertificate.PointNearTriangle(G(2, 2), new[] { o, G(2, 0), x }, 1.0));
+            Assert.True(BooleanCertificate.PointNearTriangle(G(6, 0), new[] { o, G(2, 0), x }, 2.0));
+            Assert.False(BooleanCertificate.PointNearTriangle(G(7, 0), new[] { x, x, x }, 2.0));
+            Assert.True(BooleanCertificate.PointNearTriangle(G(1, 1, 1), new[] { o, x, G(0, 4) }, 1.0));
+            Assert.False(BooleanCertificate.PointNearTriangle(G(1, 1, 2), new[] { o, x, G(0, 4) }, 1.0));
+        }
+
+        [Fact]
         public void ResultMutations_AreCaughtByC5()
         {
             var (a, b) = Solids["spheres overlapping"]();
@@ -459,6 +553,21 @@ namespace geometry3Sharp.Tests
                 int v = c.Result.VertexIndices().First();
                 c.Result.SetVertex(v, c.Result.GetVertex(v) + new Vector3d(10 * c.Delta, 0, 0));
             }, c5);
+            {
+                // (a triangle and its reverse on top of the result before rounding: the chains are equal, the areas are not)
+                BooleanCertificate sheet = BooleanCertificate.From(eb);
+                sheet.Assembled = Copy(sheet.Assembled);
+                Index3i t = sheet.Assembled.GetTriangle(sheet.Assembled.TriangleIndices().First());
+                // (vertex copies, so that the mesh accepts the reversed triangle next to the original)
+                int va = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.a)), vb = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.b)), vc = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.c));
+                int vd = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.a)), ve = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.b)), vf = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.c));
+                sheet.Assembled.AppendTriangle(va, vb, vc); sheet.Assembled.AppendTriangle(vd, vf, ve);
+                var ex = sheet.AssembledExact.ToList();
+                while (ex.Count < sheet.Assembled.MaxVertexID) ex.Add(default(ExactPoint3));
+                ex[va] = ex[vd] = sheet.AssembledExact[t.a]; ex[vb] = ex[ve] = sheet.AssembledExact[t.b]; ex[vc] = ex[vf] = sheet.AssembledExact[t.c];
+                sheet.AssembledExact = ex.ToArray();
+                Assert.Contains("another area than the kept pieces", sheet.CheckResult());
+            }
             Caught("result before rounding: a triangle removed", eb, c => {
                 c.Assembled = Copy(c.Assembled); c.Assembled.RemoveTriangle(c.Assembled.TriangleIndices().First(), false, false);
             }, c5);
