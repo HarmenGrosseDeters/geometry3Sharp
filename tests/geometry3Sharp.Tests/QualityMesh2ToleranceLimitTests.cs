@@ -56,28 +56,58 @@ namespace geometry3Sharp.Tests
             Assert.Contains(r.Diagnostics, d => d.StartsWith(Marker, StringComparison.Ordinal) && d.Contains(" " + tol + " "));
         }
 
+        /// <summary> a thin rectangle: its points merge to two (the kernel's no-area exit), unlike the pentagon's, which keep three </summary>
+        static ConstrainedMesh2Input Rectangle(double sx)
+        {
+            var input = new ConstrainedMesh2Input();
+            input.Points.Add(new Vector2d(0, 0)); input.Points.Add(new Vector2d(sx, 0)); input.Points.Add(new Vector2d(sx, 1)); input.Points.Add(new Vector2d(0, 1));
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+            return input;
+        }
+
+        static double Area(IList<Vector2d> p)
+        {
+            double a = 0;
+            for (int i = 0; i < p.Count; ++i) a += p[i].x * p[(i + 1) % p.Count].y - p[(i + 1) % p.Count].x * p[i].y;
+            return a / 2;
+        }
+
+        /// <summary> the mesh itself: every triangle positive (exact), finite vertices, and the area of the domain (within the merges) </summary>
+        static void AssertMesh(ConstrainedTriangulation2Result r, double area, double relative, string what)
+        {
+            Assert.True(r.Status == Triangulation2Status.Success, what + ": " + r.Status + " " + r.FailureKind);
+            Assert.True(r.Mesh.TriangleCount > 0, what);
+            Assert.False(HasMarker(r), what + ": the collapse diagnostic on a mesh");
+            double sum = 0;
+            foreach (var t in r.Mesh.Triangles) {
+                Vector2d a = r.Mesh.Vertices[t.a], b = r.Mesh.Vertices[t.b], c = r.Mesh.Vertices[t.c];
+                Assert.True(a.IsFinite && b.IsFinite && c.IsFinite, what);
+                Assert.True(ExactPredicates.Orient2d(a, b, c) > 0, what + ": a triangle not positive");
+                sum += ((b - a).x * (c - a).y - (b - a).y * (c - a).x) / 2;
+            }
+            Assert.True(Math.Abs(sum - area) <= relative * area, $"{what}: area {sum} for the domain's {area}");
+        }
+
         /// <summary>
-        /// the sweep of exponents around the limit, both meshers, both directions: a mesh (and no such diagnostic) up to 2^40, the documented
-        /// Empty from 2^41 on (the merge is at a distance of at most the tolerance, so 2^-41 itself merges)
+        /// the sweep of exponents around the limit, both meshers, both directions, the pentagon and the rectangle: a mesh (and no such
+        /// diagnostic) up to 2^40, the documented Empty from 2^41 on (the merge is at a distance of at most the tolerance, so 2^-41 itself merges)
         /// </summary>
         [Fact]
-        public void Pentagon_SweepOfExponents_MeshesUpTo2Pow40_AndIsTheDocumentedEmptyFrom2Pow41()
+        public void SweepOfExponents_MeshesUpTo2Pow40_AndIsTheDocumentedEmptyFrom2Pow41()
         {
-            foreach (int sign in new[] { -1, 1 })
-                for (int a = 36; a <= 52; ++a) {
-                    int e = sign * a;
-                    var input = Pentagon(Math.Pow(2, e));
-                    var quality = Mesher().Compute(input);
-                    var cdt = new ConstrainedDelaunayMesh2().Compute(input);
-                    foreach (var (name, r) in new[] { ("QualityMesh2", quality), ("ConstrainedDelaunayMesh2", cdt) }) {
-                        if (a <= 40) {
-                            Assert.True(r.Status == Triangulation2Status.Success, $"{name} 2^{e}: {r.Status} {r.FailureKind}");
-                            Assert.True(r.Mesh.TriangleCount > 0);
-                            Assert.False(HasMarker(r), $"{name} 2^{e}: the collapse diagnostic on a mesh");
+            foreach (bool rectangle in new[] { false, true })
+                foreach (int sign in new[] { -1, 1 })
+                    for (int a = 36; a <= 52; ++a) {
+                        int e = sign * a;
+                        var input = rectangle ? Rectangle(Math.Pow(2, e)) : Pentagon(Math.Pow(2, e));
+                        double area = Math.Abs(Area(input.Points));
+                        foreach (var (name, r) in new[] { ("QualityMesh2", Mesher().Compute(input)), ("ConstrainedDelaunayMesh2", new ConstrainedDelaunayMesh2().Compute(input)) }) {
+                            string what = $"{(rectangle ? "rectangle" : "pentagon")}, {name}, 2^{e}";
+                            // (at 2^40 the pentagon's apex is 2^-41 from a corner and merges: its area changes by an eighth)
+                            if (a <= 40) AssertMesh(r, area, !rectangle && a == 40 ? 0.25 : 1e-12, what);
+                            else AssertDocumentedEmpty(r, what);
                         }
-                        else AssertDocumentedEmpty(r, $"{name} 2^{e}");
                     }
-                }
         }
 
         /// <summary>
@@ -160,7 +190,14 @@ namespace geometry3Sharp.Tests
                     var r0 = Mesher().Compute(flat);
                     // (far from the origin, the UTM translation rounds the 2^-46 offsets away: the mapped input is on one line, a plain Empty)
                     if (OnOneLine(flat.Points)) { Assert.Equal(Triangulation2Status.Empty, r0.Status); Assert.False(HasMarker(r0)); }
-                    else { AssertDocumentedEmpty(r0, s.Name + ", 2^-46"); ++marked; }
+                    else {
+                        AssertDocumentedEmpty(r0, s.Name + ", 2^-46"); ++marked;
+                        // under a 2^k scale the tolerance in the diagnostic is the scaled one, exactly (the magnitude is 1 before it)
+                        if (s.IsExact) {
+                            string tol = (s.Scale * ConstrainedDelaunayMesh2.AutoToleranceFactor).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                            Assert.Contains(r0.Diagnostics, d => d.StartsWith(Marker, StringComparison.Ordinal) && d.Contains(" " + tol + " "));
+                        }
+                    }
                 }
                 if (!s.IsExact || s.Translation != Vector3d.Zero) continue;
                 var r = Mesher().Compute(Pentagon(Math.Pow(2, -20), 1, s.Apply2d));
@@ -191,21 +228,24 @@ namespace geometry3Sharp.Tests
             AssertDocumentedEmpty(second[0], "reused");
         }
 
-        /// <summary> the oracle of the 2D meshers accepts the documented Empty (O11: a domain narrower than the tube may vanish) </summary>
+        /// <summary> the oracle of the 2D meshers accepts the documented Empty of the rectangle and the sliver (O11: a domain within the
+        /// tube of its perimeter may vanish); the pentagon's rows are checked by MetamorphicRelationTests.A1 </summary>
         [Fact]
         public void Oracle_AcceptsTheDocumentedEmpty()
         {
             foreach (int e in new[] { -46, -41, 41, 46 }) {
                 double s = Math.Pow(2, e);
-                var input = new Mesh2Input {
-                    X = new[] { 0, s, s, s * 0.5, 0 }, Y = new[] { 0, 0, 0.6, 1, 1.0 },
-                    MinAngleDeg = 20, ConstrainedQuality = true, SteinerLimit = 300, SnapTolerance = 0,
-                };
-                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
-                Mesh2Output o = new QualityMesh2Candidate().Run(input);
-                Assert.Equal(Mesh2Status.Empty, o.Status);
-                OracleReport report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-                Assert.True(report.Ok, $"2^{e}: " + report);
+                foreach (bool sliver in new[] { false, true }) {
+                    var input = sliver
+                        ? new Mesh2Input { X = new[] { 0, 1, 0.5 }, Y = new[] { 0, 0, Math.Pow(2, -Math.Abs(e)) } }
+                        : new Mesh2Input { X = new[] { 0, s, s, 0 }, Y = new[] { 0, 0, 1, 1.0 } };
+                    input.MinAngleDeg = 20; input.ConstrainedQuality = true; input.SteinerLimit = 300; input.SnapTolerance = 0;
+                    input.Rings.Add(new RingInput(Enumerable.Range(0, input.X.Length).ToArray(), false));
+                    Mesh2Output o = new QualityMesh2Candidate().Run(input);
+                    Assert.Equal(Mesh2Status.Empty, o.Status);
+                    OracleReport report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    Assert.True(report.Ok, $"{(sliver ? "sliver" : "rectangle")} 2^{e}: " + report);
+                }
             }
         }
     }

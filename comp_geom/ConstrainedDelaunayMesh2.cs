@@ -102,10 +102,10 @@ namespace g3
 
         /// <summary> the diagnostic of an empty domain whose input is not on one line (off the snap grid), with the automatic tolerance used </summary>
         internal static string EmptyDomainDiagnostic(double tolerance) =>
-            "no triangle is left, though the input is not on one line: its domain is removed by holes, or narrower than the automatic tolerance "
+            "no triangle is left, though the input is not on one line: its domain is removed by holes, or no wider than the automatic tolerance "
             + tolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-            + " (2^-41 of the larger of the largest coordinate and the extent), within which points and segments merge (spec O11); "
-            + "an input narrower than 2^-41 of its largest coordinate, eg an aspect ratio of 2^41 or more, is empty";
+            + " (2^-41 of the larger of the largest coordinate and the extent), within which points and segments merge, so that such a domain "
+            + "may vanish (spec O11; eg an input at an aspect ratio of 2^41 or more)";
 
         /// <summary>
         /// the input has no area, exactly: a hull domain (no outer ring) whose points are all on one line, or whose outer rings each have
@@ -248,6 +248,8 @@ namespace g3
                     }
                     var empty = new ConstrainedMesh2(vertices, n, mapping, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
                         input.Heights == null ? null : input.Heights.ToArray(), new int[0], new int[0], new int[0], new Vector2d[0], 0);
+                    // the merges left the points on one line, though the input is not (#986: a thin rectangle merges to two points)
+                    if (!SnapRounded && !HullHasNoArea(input)) diagnostics.Add(EmptyDomainDiagnostic(tolerance));
                     return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, diagnostics);
                 }
                 for (int i = 0; i < n; ++i) mapping[i] = k.Representative[k.Vertex[rank[i]]];
@@ -1081,7 +1083,7 @@ namespace g3
                 for (int j = 0; j < extraKernel.Count; ++j) before[n + j] = extraKernel[j] < RefinementStart;
                 mesh.ExistedBeforeRefinement = before;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
-                // an empty domain although the input is not on one line: either its holes remove it, or it is narrower than the automatic
+                // an empty domain although the input is not on one line: either its holes remove it, or it is no wider than the automatic
                 // tolerance, whose merges of points and of points onto segments (O11) collapsed it (#986: a pentagon at an aspect ratio of
                 // 2^41 or more relative to its largest coordinate); on the snap grid the snap lines report collapsed parts instead
                 if (count == 0 && !SnapRounded && !HullHasNoArea(input))

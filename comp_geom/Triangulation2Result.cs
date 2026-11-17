@@ -8,8 +8,9 @@ namespace g3
         Success,
         /// <summary>
         /// A mesh without triangles: fewer than three distinct points, or all collinear. For the constrained meshers also a domain that
-        /// holes remove, or that is narrower than the automatic tolerance (2^-41 of the larger of the largest coordinate and the extent;
-        /// eg an input at an aspect ratio of 2^41 or more), whose points merge (spec O11); a diagnostic then says so.
+        /// holes remove, or one no wider than the automatic tolerance (2^-41 of the larger of the largest coordinate and the extent; eg an
+        /// input at an aspect ratio of 2^41 or more), which may vanish as its points merge (spec O11); without a snap tolerance a
+        /// diagnostic then says so (with one, the snap diagnostics report collapsed parts).
         /// </summary>
         Empty,
         /// <summary> No mesh is published; see <see cref="Triangulation2Result.FailureKind"/>. </summary>
