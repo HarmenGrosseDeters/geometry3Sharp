@@ -5,15 +5,13 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `ExactMeshBoolean` / `ExactMeshArrangement`, SafeRounding, boolean performance (fixed-width points,
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
-- **Status (2026-11-15):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
-  reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full
-  rounding mutation shards passed; the sign-off run below was made on its head. Exact Boolean 3.0 in progress (see
-  [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2, T1, the 55928 tail-case stage (#633) and T5 PR 2
-  (#675, 2026-11-12) merged; option (A) merged (#766, 2026-11-13); the fuzz fixes #732 (#710) and #759 (#719) merged;
-  lever 1, the hierarchical Antipodal sum, merged (#813, 2026-11-14); kernel P2 merged (#769, 2026-11-15) and
-  candidate B (#772, 2026-11-14). The race fix #883 (#882), lever 4 #881, candidate D #893,
-  T1b's closing PR #843 and the rounding-search bound #837 merged on 2026-11-15; open: see the
-  [list at the end of this page](#open-for-the-future-2026-11-15).
+- **Status (2026-11-17):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01, "Exact Boolean 2.0" on 2026-11-11
+  (D1 #513, counted as 2.1, merged as 69f13be3 after its 8 full rounding mutation shards passed). Exact Boolean 3.0:
+  all functional and speed work is merged (see [3.0 progress](#exact-boolean-30-progress); last: #962 parallel
+  assembly, #967, the `touch_only` filter #1002; speed work stopped, owner 2026-11-16), T6 is closed (#1013) and
+  `ExactMeshImprint` is merged (#981, #990). Left for "3.0 complete": the full mutation run of every touched shard on
+  master (run 44013112256 on 6117a866). After 3.0: the robustness round from the triage #1015 (see
+  [After 3.0](#after-30-owner-2026-11-16)); open items in the [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -814,8 +812,8 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 5. Thread scaling beyond 4 cores (#858): the owner's local run of 2026-11-15/16 (`after_reboot.ps1`, step 6).
    Levers 2 and 4 of #953 (parallel assembly and classification edge groups, bit-identical, 4 threads -6.9 % on T6) are built in one PR
    (2026-11-16; [perf/BOOLEAN_THREAD_SCALING.md](../perf/BOOLEAN_THREAD_SCALING.md) section 6); levers 3, 5, 6 remain.
-6. The rest of the #615 mutation process (no full shard on PRs, local runs with a result check, `resplit.py`) after
-   #913; #615 itself is then closed.
+6. Done: the rest of the #615 mutation process (no full shard on PRs, local runs with a result check, `resplit.py`)
+   merged as #958 after #913; #615 is closed.
 7. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
    2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
