@@ -370,7 +370,7 @@ better; 0.75 is 1.09-1.22x.
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, opt-in safe preset (owner 2026-11-17):** `Remesher.ApplySafePreset()` / `g3cli remesh --safe` = `MinTriangleQuality` 0.2
-  + `PreventSelfIntersections`, the only measured combination with no new pairs (about 19x the default on Thingi10K, 1108 pairs left, all
+  + `PreventSelfIntersections`, the only measured combination with no new pairs and few flat triangles (`si` alone: no new pairs, 42x, 7x the flat triangles; about 19x the default on Thingi10K, 1108 pairs left, all
   from 5 inputs that had them; [measurement](../perf/REMESHER_PHASE2_MEASURED.md)); defaults unchanged.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of

@@ -455,18 +455,53 @@ namespace g3cli.Tests
             AssertError(exit, r, "invalid_arguments", 2);
         }
 
-        [Fact]
-        public void Remesh_Safe_SetsThePresetAndKeepsTheDefaultsOtherwise()
+        // closed thin-walled tube (outer radius 1, wall 0.05, 16 slices, 4 rings, height 3): at edge length 0.8 the walls are folded through each other
+        static string WriteTube(TestMeshes m)
         {
-            var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_safe.stl"), "--edge-length", "0.4", "--safe");
+            var tube = new g3.DMesh3();
+            int slices = 16, rings = 4;
+            int[,] o = new int[rings + 1, slices], q = new int[rings + 1, slices];
+            for (int r = 0; r <= rings; ++r)
+                for (int s = 0; s < slices; ++s) {
+                    double a = 2 * Math.PI * s / slices, z = 3.0 * r / rings;
+                    o[r, s] = tube.AppendVertex(new g3.Vector3d(Math.Cos(a), Math.Sin(a), z));
+                    q[r, s] = tube.AppendVertex(new g3.Vector3d(0.95 * Math.Cos(a), 0.95 * Math.Sin(a), z));
+                }
+            for (int s = 0; s < slices; ++s) {
+                int s1 = (s + 1) % slices;
+                for (int r = 0; r < rings; ++r) {
+                    tube.AppendTriangle(o[r, s], o[r, s1], o[r + 1, s1]); tube.AppendTriangle(o[r, s], o[r + 1, s1], o[r + 1, s]);
+                    tube.AppendTriangle(q[r, s], q[r + 1, s1], q[r, s1]); tube.AppendTriangle(q[r, s], q[r + 1, s], q[r + 1, s1]);
+                }
+                tube.AppendTriangle(o[rings, s], o[rings, s1], q[rings, s1]); tube.AppendTriangle(o[rings, s], q[rings, s1], q[rings, s]);
+                tube.AppendTriangle(o[0, s], q[0, s1], o[0, s1]); tube.AppendTriangle(o[0, s], q[0, s], q[0, s1]);
+            }
+            string path = m.Path_("tube.stl");
+            g3.StandardMeshWriter.WriteMesh(path, tube, g3.WriteOptions.Defaults);
+            return path;
+        }
+
+        [Fact]
+        public void Remesh_Safe_BlocksTheFoldsOfThinWalls_DefaultStaysOff()
+        {
+            string input = WriteTube(m);
+            var (exit, r) = Run("remesh", input, m.Path_("tube_default.stl"), "--edge-length", "0.8");
+            AssertOk(exit, r);
+            Assert.False(B(r["safe"]));                                   // the default stays off
+            Assert.True(I(r["mesh"]["self_intersections"]) > 0, "without --safe the folded walls intersect");
+            Assert.Equal(0, I(r["self_intersections_rejected"]));
+            (exit, r) = Run("remesh", input, m.Path_("tube_safe.stl"), "--edge-length", "0.8", "--safe");
             AssertOk(exit, r);
             Assert.True(B(r["safe"]));
             Assert.Equal(0.2, D(r["min_quality"]));
-            AssertCleanCube(r["mesh"], 8);
-            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_nosafe.stl"), "--edge-length", "0.4");
+            Assert.Equal(0, I(r["mesh"]["self_intersections"]));
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.True(I(r["self_intersections_rejected"]) > 0);
+            (exit, r) = Run("remesh", input, m.Path_("tube_safe_q.stl"), "--edge-length", "0.8", "--safe", "--min-quality", "0.2");
             AssertOk(exit, r);
-            Assert.False(B(r["safe"]));                  // the default stays off
-            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_safe0.stl"), "--safe", "--min-quality", "0");
+            (exit, r) = Run("remesh", input, m.Path_("tube_safe_q5.stl"), "--safe", "--min-quality", "0.5");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("remesh", input, m.Path_("tube_safe_q0.stl"), "--safe", "--min-quality", "0");
             AssertError(exit, r, "invalid_arguments", 2);
         }
 

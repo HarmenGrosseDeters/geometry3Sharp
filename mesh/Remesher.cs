@@ -143,8 +143,9 @@ namespace g3 {
         /// SafePresetMinTriangleQuality (0.2) and PreventSelfIntersections to true, nothing else. Call it before the
         /// passes; a later assignment of either option overrides it. The measured combination of
         /// docs/perf/REMESHER_PHASE2_MEASURED.md (20 Thingi10K meshes, the g3cli remesh settings: 20 passes,
-        /// smoothing 0.5, projection, 30 degree creases): the only one of the two options and their pair that
-        /// created no new self-intersecting pair (the default left 19768 pairs, the preset 1108, all of them
+        /// smoothing 0.5, projection, 30 degree creases): the only combination of the two options with no new
+        /// self-intersecting pair and few flat triangles (PreventSelfIntersections alone also adds no pair, but leaves 7 times as many
+        /// flat triangles and costs 42 times the default; the default left 19768 pairs, the preset 1108, all of them
         /// inherited from 5 inputs that already had pairs: intersections of the input are not removed, see
         /// PreventSelfIntersections), at about 19 times the time of the default (4.3 s -> 82.8 s; about 12 times on
         /// simple primitives; PreventSelfIntersections alone 42 times). Folded thin walls stay unfolded but end far
