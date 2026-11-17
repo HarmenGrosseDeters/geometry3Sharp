@@ -300,11 +300,11 @@ One process per (method, operation), with the per-run timeout of `compare.py`; J
 - `ms` is the operation alone.
 - The tool prints a line once the operation has ended, then checks the input and the result.
 - A run that times out after that line has the status `check_timeout`, not `timeout`.
-- A thrown exception has the status `exception`.
+- A thrown exception in the operation has the status `exception`. If the checks do not finish (an exception in them, or the process dies after the operation line), the status is `check_crash`. Neither is ever `ok`.
 
 Checks per operation: the target closed and its `NotCleanReason`; the result closed, its `NotCleanReason`, the new vertices, the curve length.
 - **Exact imprint:** the curve length is the sum of `CurveEdges`. The tool also records whether the rounding was clean (`RoundingClean`).
-- **Float cut:** the curve length is the sum of the intersection segments the cut found. These are deduplicated as unordered endpoint pairs, because one pair of triangles gives one segment and a piece on a shared edge comes twice. The tool also records `FailedSegmentInsertions`.
+- **Float cut:** the curve length is the sum of the intersection segments the cut found. These are deduplicated as unordered endpoint pairs, because one pair of triangles gives one segment and a piece on a shared edge comes twice. Zero-length segments (point contacts) are dropped, so `segments` counts pieces of curve. Rows of earlier runs counted every segment and are not comparable. The tool also records `FailedSegmentInsertions`.
 - **Unions:** the volume.
 
 **Outcome** (`data/thingi_imprint.py`). The same rules apply to both methods.

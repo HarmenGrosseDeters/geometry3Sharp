@@ -80,7 +80,7 @@ static class ImprintCompare
                     // float counterpart of the exact curve length. MeshMeshCut has one segment per pair of triangles, so a piece
                     // of the curve on an edge shared by two triangles comes twice: deduplicated (unordered endpoint pairs, at a
                     // grid of 1e-9 of the target's box). Coplanar overlaps give no segments (MeshMeshCut does not handle them).
-                    var segs = Dedup(FloatSegments(cut), 1e-9 * Math.Max(target.CachedBounds.MaxDim, 1e-300));
+                    var segs = Dedup(FloatSegments(cut), target.CachedBounds.Min, 1e-9 * Math.Max(target.CachedBounds.MaxDim, 1e-300));
                     r["segments"] = segs.Count;
                     r["curve_length"] = segs.Sum(s => s.a.Distance(s.b));
                     break;
@@ -139,10 +139,12 @@ static class ImprintCompare
         r["target_reason"] = MeshRobustRepair.NotCleanReason(target);
     }
 
-    // segments with the same endpoints (in either order) after snapping to a grid of cell size h are counted once
-    internal static List<(Vector3d a, Vector3d b)> Dedup(List<(Vector3d a, Vector3d b)> segs, double h)
+    // segments with the same endpoints (in either order) after snapping to a grid of cell size h relative to origin (the box
+    // minimum, so that coordinates far from the zero point do not overflow the keys) are counted once; segments of zero length
+    // (point contacts) are dropped, so "segments" counts the pieces of curve
+    internal static List<(Vector3d a, Vector3d b)> Dedup(List<(Vector3d a, Vector3d b)> segs, Vector3d origin, double h)
     {
-        (long, long, long) key(Vector3d p) => ((long)Math.Round(p.x / h), (long)Math.Round(p.y / h), (long)Math.Round(p.z / h));
+        (long, long, long) key(Vector3d p) => ((long)Math.Round((p.x - origin.x) / h), (long)Math.Round((p.y - origin.y) / h), (long)Math.Round((p.z - origin.z) / h));
         var seen = new HashSet<((long, long, long), (long, long, long))>();
         var list = new List<(Vector3d, Vector3d)>();
         foreach (var s in segs) {

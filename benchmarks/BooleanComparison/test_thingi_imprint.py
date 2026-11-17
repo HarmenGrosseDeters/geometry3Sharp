@@ -159,6 +159,15 @@ class ToolingTests(unittest.TestCase):
             r = compare.run_one("exact_imprint", "a_by_b", "/nonexistent", 1)
             self.assertEqual((r["status"], r["ms"], r["ok"]), ("check_timeout", 5, True))
             self.assertEqual(compare.run_one("ours", "union", "/nonexistent", 1)["status"], "timeout")    # boolean methods as before
+            # a complete result printed before the kill is the result
+            compare.execute = lambda cmd, timeout: (None, '{"stage": "op", "ms": 5, "ok": true}\n{"ms": 5, "ok": true, "result_reason": ""}\n')
+            r = compare.run_one("exact_imprint", "a_by_b", "/nonexistent", 1)
+            self.assertEqual((r["status"], r["result_reason"]), ("ok", ""))
+            # the checks died after the operation line: never ok (it would be judged good with no checks)
+            compare.execute = lambda cmd, timeout: (subprocess.CompletedProcess(cmd, 134, '{"stage": "op", "ms": 5, "ok": true}\n', "Unhandled exception"), 900)
+            r = compare.run_one("float_cut", "a_by_b", "/nonexistent", 1)
+            self.assertEqual((r["status"], r["ok"], r["ms"]), ("check_crash", False, 5))
+            self.assertEqual(ti.outcome({f"a_by_b_{k}": v for k, v in r.items()}, "a_by_b"), "check_crash")
             compare.execute = lambda cmd, timeout: (None, "")
             self.assertEqual(compare.run_one("exact_imprint", "a_by_b", "/nonexistent", 1)["status"], "timeout")
         finally:
@@ -270,6 +279,18 @@ class ToolTests(unittest.TestCase):
         for op in ("a_by_b", "b_by_a"):
             self.assertAlmostEqual(rows["float_cut"][f"{op}_curve_length"], 4.0, places=9, msg=rows["float_cut"])
             self.assertGreaterEqual(rows["exact_imprint"][f"{op}_curve_length"], 4.0 - 1e-12)
+
+    def test_float_curve_far_from_the_origin(self):
+        # the same shared face at 2^40 (coordinate / box size 1.4e11: a grid key relative to zero would saturate a long and merge
+        # distinct segments); the pair as given, not normalized
+        o = 2.0 ** 40
+        write_off(os.path.join(self.tmp, "far_a.off"), *cube(o, o + 8.0))
+        v, f = cube(o, o + 8.0)
+        write_off(os.path.join(self.tmp, "far_b.off"), [(x + 8.0, y, z) for x, y, z in v], f)      # shares the face x = o + 8
+        case = {"class": "x", "name": "far", "a": os.path.join(self.tmp, "far_a.off"), "b": os.path.join(self.tmp, "far_b.off")}
+        r = compare.process(case, ["float_cut"], 300)[0]
+        for op in ("a_by_b", "b_by_a"):
+            self.assertEqual((r[f"{op}_segments"], r[f"{op}_curve_length"]), (4, 32.0), r)
 
     def test_the_operation_line_comes_first(self):
         d = os.path.join(self.tmp, "case_op")

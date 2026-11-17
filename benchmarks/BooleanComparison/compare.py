@@ -92,9 +92,17 @@ def run_one(method, op, d, timeout):
         if done and done.get("stage") == "op":
             # the operation ended (its ms and ok are known); the checks of its input and result ran out of time
             return {"ms": done.get("ms"), "ok": done.get("ok"), "error": "timeout in the result checks", "status": "check_timeout"}
+        if done:
+            # the final line was printed, the process did not exit in time: the result is complete
+            done["status"] = status_of(done, 0)
+            return done
         return {"ok": False, "error": "timeout", "status": "timeout"}
     # the tools print one JSON line with ms (cherchi on stderr)
     res = parse_json_line(p.stdout + "\n" + p.stderr)
+    if res is not None and res.get("stage") == "op":
+        # the operation ended but the checks of its input and result did not (an exception or the process died): never "ok"
+        return {"ms": res.get("ms"), "ok": False, "wall_ms": wall, "status": "check_crash",
+                "error": f"result checks did not finish: exit {p.returncode}: {p.stderr.strip()[-200:]}"}
     if res is None:
         res = {"ok": p.returncode == 0, "error": None if p.returncode == 0 else f"exit {p.returncode}: {p.stderr.strip()[-200:]}"}
     if method == "cherchi":
