@@ -9,6 +9,8 @@ namespace g3
     /// or cotangent / mean-value weighted), computed from the positions of the previous round (Jacobi style,
     /// so the result does not depend on the order or the threads). Vertices not in the list do not move, so
     /// they act as fixed constraints, eg pass only the interior vertices to keep the boundary.
+    /// A vertex with a non-finite position (NaN or infinite), and every listed vertex next to one, stays where it is
+    /// (R13): smoothing would average the bad value into its neighbours, round after round.
     /// Each round shrinks the surface a little (no volume preservation); ProjectF can project the smoothed
     /// positions back onto a surface. Smooth() always returns true.
     /// For a global solve with soft constraints see <see cref="LaplacianMeshSmoother"/>.
@@ -72,11 +74,31 @@ namespace g3
             else if (SmoothType == SmoothTypes.Cotan)
                 smoothFunc = MeshUtil.CotanSmooth;
 
+            // listed vertices that are not smoothed: a non-finite position, or a non-finite neighbour (neither moves)
+            bool[] frozen = new bool[NV];
+            for (int i = 0; i < NV; ++i) {
+                int vID = Vertices[i];
+                if (Mesh.IsVertex(vID) == false)
+                    continue;
+                if (Mesh.GetVertex(vID).IsFinite == false) {
+                    frozen[i] = true;
+                    continue;
+                }
+                foreach (int nbr in Mesh.VtxVerticesItr(vID)) {
+                    if (Mesh.GetVertex(nbr).IsFinite == false) {
+                        frozen[i] = true;
+                        break;
+                    }
+                }
+            }
+
             Action<int> smooth = (i) => {
                 int vID = Vertices[i];
-                SmoothedPostions[i] = smoothFunc(Mesh, vID, a);
+                SmoothedPostions[i] = frozen[i] ? Mesh.GetVertex(vID) : smoothFunc(Mesh, vID, a);
             };
             Action<int> project = (i) => {
+                if (frozen[i])
+                    return;
                 Vector3d pos = SmoothedPostions[i];
                 SmoothedPostions[i] = ProjectF(pos, Vector3f.AxisY, Vertices[i]);
             };
@@ -91,7 +113,8 @@ namespace g3
 
                 // bake
                 for (int i = 0; i < NV; ++i)
-                    Mesh.SetVertex(Vertices[i], SmoothedPostions[i]);
+                    if (frozen[i] == false)
+                        Mesh.SetVertex(Vertices[i], SmoothedPostions[i]);
             }
 
             return true;
