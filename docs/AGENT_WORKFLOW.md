@@ -172,8 +172,16 @@ from secret tests, which a public repository cannot keep.
   or once before ready), not after every merge on master. Hand mutants of generators and rules stay (fast and
   targeted).
 - Gate-change label (owner 2026-11-17): a PR that the gate-change check flags (it changes a file of `tools/gate_files.txt`:
-  workflows, thresholds, allow lists, CI scripts, the rules) needs the owner's label `gate-change` before the merge;
-  the coordinator never sets it ([QA.md](QA.md) 2.8a).
+  workflows, thresholds, allow lists, CI scripts, the rules) needs the label `gate-change` before the merge
+  ([QA.md](QA.md) 2.8a). Who sets it (owner 2026-11-17): the coordinator, after its own review of the gate-file diff,
+  for a change that keeps or tightens the checks (new tests in filters or projects, a `#pragma` for the obsolete warning
+  CS0618 in a tool or test, a new CI test, a threshold raised), logged with the PR and the gate file; the owner for a
+  change that loosens a check (a threshold lowered, a new allow-list, `SLOW_BACKLOG.txt` or suppression entry, any other
+  warning disabled, a CI job or test removed or disabled, a trigger narrowed) or changes the gate check itself
+  (`tools/gate_files.txt`, `tools/gate_check.py`, `gate-change.yml`) or the rules (`CLAUDE.md`, `AGENTS.md`, this file,
+  `docs/REVIEW_CHECKLIST.md`). In doubt: the owner. Workers never set it. A push after the coordinator's label gets a
+  fresh review of the gate-file diff before the merge; if it loosens a check, the coordinator removes the label and asks
+  the owner.
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
