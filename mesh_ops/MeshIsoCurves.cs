@@ -298,7 +298,9 @@ namespace g3
 
             } else {
                 // really should check this every iteration...
-                if ( Math.Abs(fB-fA) < MathUtil.ZeroTolerance )
+                // (no line through two equal values; this was an absolute 1e-8 on the field difference, which at a scale of 2^-24
+                // took every edge of the mesh as flat: R15. Any difference above 0 has a crossing: lerp_crossing clamps it into [a, b])
+                if ( fB - fA == 0 )
                     return a;
 
                 double t = 0;
