@@ -490,10 +490,18 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RemovedComponents_OnlyTinyOrThinOnesAreExempt()
         {
-            // a tiny box next to a unit sphere: the rounding removes it (a documented decision), the certificate holds
+            // a tiny box next to a unit sphere, left out of the result as the rounding's removal of tiny components does
+            // (it removes only those that keep a sliver, so the case is made by hand): the certificate holds
             DMesh3 tiny = new BoxCase(Bx(0, 0, 0, 1, 1, 1), Bx(0, 0, 0, 1, 1, 1), -17, new Vector3d(2, 0, 0)).MeshA();
             BooleanCertificate c = Certify(Sphere(1, Vector3d.Zero), tiny, Ops.Union, out ExactMeshBoolean eb);
-            Assert.Equal(1, eb.Rounding.RemovedComponents);
+            Assert.Equal("", c.Check());
+            Assert.Equal(0, c.ExemptComponents);
+            c = BooleanCertificate.From(eb);
+            c.Result = new DMesh3(c.Result, false, MeshComponents.None);
+            foreach (int t in c.Result.TriangleIndices().ToList())
+                if (c.Result.GetTriCentroid(t).x > 1.5) c.Result.RemoveTriangle(t, true, false);
+            Assert.Contains("farther than", c.Check());
+            c.RemovedComponents = 1;
             Assert.Equal("", c.Check());
             Assert.Equal(1, c.ExemptComponents);
             // two spheres apart: one of them dropped from the result, with a removed component reported: still caught
