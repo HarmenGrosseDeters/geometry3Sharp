@@ -1358,12 +1358,23 @@ namespace g3
             for (int k = 0; k < 3; ++k) {
                 int id = k == 0 ? a : k == 1 ? b : c;
                 Vector3d v = arr.Approx(id);
-                double e = arr.ApproxError(id) * (1 + 1e-9) + 1e-300;
-                double mx = e + 1e-14 * Math.Abs(v.x), my = e + 1e-14 * Math.Abs(v.y), mz = e + 1e-14 * Math.Abs(v.z);
-                x0 = Math.Min(x0, v.x - mx); x1 = Math.Max(x1, v.x + mx);
-                y0 = Math.Min(y0, v.y - my); y1 = Math.Max(y1, v.y + my);
-                z0 = Math.Min(z0, v.z - mz); z1 = Math.Max(z1, v.z + mz);
+                double e = arr.ApproxError(id), lo, hi;
+                widened(v.x, e, out lo, out hi); x0 = Math.Min(x0, lo); x1 = Math.Max(x1, hi);
+                widened(v.y, e, out lo, out hi); y0 = Math.Min(y0, lo); y1 = Math.Max(y1, hi);
+                widened(v.z, e, out lo, out hi); z0 = Math.Min(z0, lo); z1 = Math.Max(z1, hi);
             }
+        }
+
+        // an interval [lo, hi] of doubles that contains [v - e, v + e] exactly (v a coordinate's approximation, e its error
+        // bound): the bound and the coordinate widened by 1e-9 e + 1e-14 |v| + 1e-300, more than the rounding of the sums
+        // (at most 2^-53 of their magnitude); NaN or infinite inputs give a NaN or infinite end (boxes_meet reads NaN as
+        // meeting)
+        [MethodImpl(JitHints.Optimize)]
+        internal static void widened(double v, double e, out double lo, out double hi)
+        {
+            double m = e * (1 + 1e-9) + 1e-300 + 1e-14 * Math.Abs(v);
+            lo = v - m;
+            hi = v + m;
         }
 
         // whether the box of triangle u in boxes (coplanar_boxes) may meet the box (x0..z1): false only where they are
