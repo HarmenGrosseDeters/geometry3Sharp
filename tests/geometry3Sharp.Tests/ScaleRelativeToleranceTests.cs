@@ -12,7 +12,7 @@ namespace geometry3Sharp.Tests
     /// PlanarHoleFiller / PlanarSpansFiller are relative to the input (ROBUSTNESS_SWEEP.md S11, S12, S13, S16): the
     /// same decisions under every similarity, at scales far from 1, and an explicit (absolute) value keeps its meaning.
     /// </summary>
-    public partial class ScaleRelativeToleranceTests
+    public class ScaleRelativeToleranceTests
     {
         // scales beyond Similarity.All(): where the old absolute 1e-6 / 1e-8 constants are the size of the input or
         // below the rounding of its coordinates

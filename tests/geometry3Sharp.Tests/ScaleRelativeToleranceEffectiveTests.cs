@@ -13,8 +13,40 @@ namespace geometry3Sharp.Tests
     /// same decisions under every similarity, at scales far from 1, and an explicit (absolute) value keeps its meaning.
     /// </summary>
     // the tests that read the Effective* properties: a separate file, so that the tests of the other file compile against the base library
-    public partial class ScaleRelativeToleranceTests
+    public class ScaleRelativeToleranceEffectiveTests
     {
+        // scales beyond Similarity.All(): where the old absolute 1e-6 / 1e-8 constants are the size of the input or
+        // below the rounding of its coordinates
+        public static IEnumerable<object[]> ExtremeScales()
+        {
+            yield return new object[] { -24 };
+            yield return new object[] { -20 };
+            yield return new object[] { 20 };
+            yield return new object[] { 36 };
+        }
+        static Similarity Pow2(int log2) => new Similarity("scale 2^" + log2, Math.Pow(2, log2), Matrix3d.Identity, Vector3d.Zero);
+        static Similarity Of(string name) => name.StartsWith("scale 2^")
+            ? Pow2(int.Parse(name.Substring(8))) : Similarity.ByName(name);
+        public static IEnumerable<object[]> AllAndExtreme() =>
+            Similarity.Names().Concat(ExtremeScales().Select(a => new object[] { "scale 2^" + a[0] }));
+
+
+        // a unit triangle and a copy moved by shift (separate vertices)
+        static DMesh3 TrianglePair(double shift, Similarity s)
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, 0)), m.AppendVertex(new Vector3d(1, 0, 0)), m.AppendVertex(new Vector3d(0, 1, 0)));
+            m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, shift)), m.AppendVertex(new Vector3d(1, 0, shift)), m.AppendVertex(new Vector3d(0, 1, shift)));
+            return Invariance.Transformed(m, s);
+        }
+        // a unit sphere (outer shell) and a concentric shell of radius 1 - gap, both with outward normals
+        static DMesh3 TwoShells(double gap, Similarity s)
+        {
+            DMesh3 outer = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            DMesh3 inner = new Sphere3Generator_NormalizedCube() { Radius = 1 - gap, EdgeVertices = 6 }.Generate().MakeDMesh();
+            MeshEditor.Append(outer, inner);
+            return Invariance.Transformed(outer, s);
+        }
         [Theory]
         [MemberData(nameof(AllAndExtreme))]
         public void MergeCoincidentEdges_DefaultDistance_ScalesWithTheMesh(string name)
