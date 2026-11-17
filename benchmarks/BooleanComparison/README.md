@@ -345,7 +345,30 @@ python3 data/abc_chained.py summary results-abc.jsonl
 On GitHub: `abc-chained.yml` (`workflow_dispatch` only, no schedule, one job on a GitHub-hosted runner: downloads the chunk to the runner's second disk, lists, extracts, filters, runs, writes the table to the step
 summary; the result rows go to the data branch `runs/abc-chained`). `listing_only` stops after the listing, to check the layout of an archive.
 
-**First run:** pending (the workflow is dispatched after this section is on master; the results table follows in a results PR).
+**First run** (GitHub run [43994376178](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43994376178), 2026-11-17, master 2172017a, ubuntu-latest with 4 cores, one job of about 63 minutes, timeout 300 s per boolean; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the earlier runs 43970377038 (listing), 43973737886 and 43986004908 found the problems that #1005 and #1007 fix; raw rows on the data branch `runs/abc-chained`, folder `run-43994376178`: `results.jsonl`, `report.md`, `clean_raw.csv`, `chains.csv` with the model ids, `weld_tol.txt`):
+
+- **Models**: 400 obj files of chunk 0000 drawn with seed 20261116 (60 kB to 3 MB); weld tolerance used **0** (the exact weld was enough); of the 400 snapped and welded models the filter found **381 clean** (95 %; 1738 to 27 162 triangles, median 17 378), 10 not closed, 3 inconsistent orientation, 3 self-intersections, 2 inside-out components, 1 with bowties. The largest change of a coordinate by the snap is in the log of the `prepare` step of the run.
+- **Exactness check**: **all 90 chains passed** (0 refused placements, 0 runner errors; no refusal cause beyond the two that the earlier runs found). Placements: B `face` 46, `embedded` 34, `bbox` 10; C offset copies of A (`ulp-shift`, `ulp-shift-few`) 29 and `mirror` 11, `face` 24, `embedded` 15, `bbox` 11 (the `kind` of `ContactTransforms`: `face` = planar faces on both sides, `bbox` = contact through vertices or edges, `embedded` = B moved into A).
+
+| variant | method | chains | steps run (step 1/2/3) | chosen result clean or empty (step 1/2/3) | all steps clean | ended early: empty result / failed | unclean reasons of the chosen results | max identity error (step 1/2/3) | removed components (chosen results) | median ms of the chosen op, ok results (step 1/2/3) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ucd | cgal_epeck | 30 | 30/29/25 | 25/13/2 | 2 | 0 / 5 | bowties 4, degenerate triangles 24, failed 4, not closed 4, rejected 8 | 2.4e-14/2.9e-14/3.9e-12 | – | 50/97/1305 |
+| ucd | manifold | 30 | 30/30/30 | 20/11/16 | 10 | 0 / 0 | bowties 7, degenerate triangles 25, not closed 8, self-intersections 3 | 5.7e-14/5.5e-12/3.0e-06 | – | 34/37/65 |
+| ucd | ours | 30 | 30/30/30 | 28/23/26 | 23 | 0 / 0 | bowties 8, not closed 5 | 2.4e-14/4.0e-07/5.1e-05 | 165 | 234/334/1907 |
+| dui | cgal_epeck | 30 | 30/30/30 | 29/14/1 | 1 | 0 / 0 | degenerate triangles 19, not closed 14, rejected 13 | 6.5e-14/6.0e-14/6.3e-12 | – | 32/96/1019 |
+| dui | manifold | 30 | 30/30/30 | 24/18/19 | 14 | 0 / 0 | degenerate triangles 28, not closed 1 | 1.0e-13/3.1e-14/5.3e-11 | – | 32/38/74 |
+| dui | ours | 30 | 30/30/30 | 30/30/30 | 30 | 0 / 0 | – | 6.6e-14/1.5e-08/6.0e-06 | 0 | 179/289/2350 |
+| iud | cgal_epeck | 30 | 30/28/28 | 26/11/2 | 1 | 2 / 0 | degenerate triangles 17, failed 8, not closed 12, rejected 10 | 1.9e-14/5.9e-10/3.8e-12 | – | 20/63/896 |
+| iud | manifold | 30 | 30/28/28 | 26/22/13 | 10 | 2 / 0 | bowties 2, degenerate triangles 12, inside-out components 2, not closed 8, self-intersections 1 | 1.4e-14/8.6e-10/6.3e-11 | – | 31/28/45 |
+| iud | ours | 30 | 30/28/28 | 30/28/22 | 22 | 2 / 0 | bowties 1, inside-out components 2, not closed 3 | 8.5e-10/1.2e-10/4.5e-10 | 1166 | 101/180/2296 |
+
+Reading the table (one run, one runner: the times are indicative; `clean` is `NotCleanReason`, which also reports `degenerate triangles` (area below 1e-12 of the squared diagonal) as unclean, a property of the output that is not necessarily a defect):
+- **Chains that stayed clean to the end** (all three steps): ours 75 of 90 (23 / 30 / 22 per variant), manifold 34 of 90, CGAL EPECK 4 of 90 (its results have `degenerate triangles` and `not closed` more often, and 12 of its 260 steps failed and 31 were rejected, from inputs that its own previous step made unclean). 2 of the `iud` chains end after step 1 for all three methods (R1 = A ∩ B is empty: expected).
+- **Results re-entering the pipeline**: at steps 2 and 3, 9 of 176 inputs were unclean for ours (its own previous results), 57 of 176 for manifold and 54 of 170 for CGAL.
+- **Where ours goes wrong** (inputs clean at the step): 2 chains of `ucd` at step 1 (the first step, with exact placements) and then the operations of steps 2 and 3, **mostly the difference**: 19 results that lost components to the rounding stage are not closed, inside-out or self-intersecting (issue #1010), and 12 results that lost nothing are not closed (union, difference) or have degenerate triangles (intersection) (issue #1011); `bowties` also occur (plausible where the pieces touch at an edge or a vertex). The identity errors above the class tolerance 1e-7 on clean inputs are two: 6.0e-06 (`dui` step 3, a difference that lost 169 components) and 4.0e-07 (`ucd` step 2, 16 components): the size of the removed pieces, by design (`SafeRounding`, owner decision 2026-11-16); the 5.1e-05 of `ucd` step 3 is on inputs that were already unclean.
+- **Removed components** (`ours`, sum over the chosen results): 165 in `ucd`, 0 in `dui`, 1166 in `iud`: the third step of `iud` (R2 - A, with R2 containing a near-copy of A in many chains) removes most of them.
+- **Time of the chosen operation**: ours about 100 to 230 ms at step 1 and 1.9 to 2.4 s at step 3 (the inputs grow: results of earlier steps with many more triangles), manifold 34 / 37 / 65 ms (`ucd`), CGAL EPECK 20 to 50 ms at step 1 and 0.9 to 1.3 s at step 3.
+
 
 ## Open Boolean Benchmark runner
 
