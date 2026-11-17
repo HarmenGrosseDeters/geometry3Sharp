@@ -108,14 +108,28 @@ namespace G3Native
             }
         }
 
+        /// <summary> defaults, overlaid with the first min(struct_size, sizeof) bytes of the caller's struct (an older, smaller struct is safe) </summary>
+        public static unsafe bool ReadOptions(G3Options* opt, out G3Options o)
+        {
+            o = DefaultOptions();
+            if (opt == null) return true;
+            int n = opt->struct_size;
+            if (n < 20) { SetError("struct_size too small"); return false; }
+            if (n > sizeof(G3Options)) n = sizeof(G3Options);
+            G3Options tmp = o;
+            Buffer.MemoryCopy(opt, &tmp, sizeof(G3Options), n);
+            tmp.struct_size = n; o = tmp;
+            return true;
+        }
+
         /// <summary> op: 0 union, 1 intersection, 2 difference </summary>
         public static unsafe int Boolean(MeshBox a, MeshBox b, int op, G3Options* opt, out ResultBox res)
         {
             res = null;
             if (a == null || b == null) { SetError("null mesh"); return G3Err.NullArgument; }
             if (op < 0 || op > 2) { SetError("unknown operation"); return G3Err.BadOptions; }
-            G3Options o = DefaultOptions();
-            if (opt != null) { if (opt->struct_size < 20) { SetError("struct_size too small"); return G3Err.BadOptions; } o = *opt; }
+            G3Options o;
+            if (!ReadOptions(opt, out o)) return G3Err.BadOptions;
             try
             {
                 var bo = new ExactMeshBoolean(a.Mesh, b.Mesh, (ExactMeshBoolean.Operations)op);
@@ -133,8 +147,8 @@ namespace G3Native
         {
             res = null;
             if (target == null || cutter == null) { SetError("null mesh"); return G3Err.NullArgument; }
-            G3Options o = DefaultOptions();
-            if (opt != null) { if (opt->struct_size < 20) { SetError("struct_size too small"); return G3Err.BadOptions; } o = *opt; }
+            G3Options o;
+            if (!ReadOptions(opt, out o)) return G3Err.BadOptions;
             try
             {
                 var im = new ExactMeshImprint { Target = target.Mesh, Cutter = cutter.Mesh };

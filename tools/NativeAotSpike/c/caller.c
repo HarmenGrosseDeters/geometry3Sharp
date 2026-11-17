@@ -10,6 +10,8 @@
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 static int cmp(const void* a, const void* b) { double x = *(const double*)a, y = *(const double*)b; return (x > y) - (x < y); }
 
+static const char* nc(const g3_result* r) { const char* s = g3_result_not_clean_reason(r); return s ? s : "(null)"; }
+
 static void cube(double ox, double oy, double oz, double* v, int32_t* t)
 {
     for (int i = 0; i < 8; i++) { v[3*i] = ox + (i & 1); v[3*i+1] = oy + ((i >> 1) & 1); v[3*i+2] = oz + ((i >> 2) & 1); }
@@ -28,7 +30,7 @@ static int selftest(void)
         g3_result* r = 0;
         int rc = g3_boolean(a, b, op, NULL, &r);
         int64_t nv = 0, nt = 0; g3_result_counts(r, &nv, &nt);
-        printf("%-12s rc=%d status=%d vertices=%lld triangles=%lld not_clean_reason='%s'\n", names[op], rc, g3_result_status(r), (long long)nv, (long long)nt, g3_result_not_clean_reason(r));
+        printf("%-12s rc=%d status=%d vertices=%lld triangles=%lld not_clean_reason='%s'\n", names[op], rc, g3_result_status(r), (long long)nv, (long long)nt, nc(r));
         if (rc == 0) {   /* copy the result out, caller-owned arrays */
             double* xyz = malloc(sizeof(double) * 3 * nv); int32_t* tri = malloc(sizeof(int32_t) * 3 * nt);
             g3_result_copy(r, xyz, tri);
@@ -61,6 +63,7 @@ static int bench(int op, int n, int runs)
 {
     g3_mesh *a = 0, *b = 0; g3_result* r = 0; double ms[64];
     if (runs > 64) runs = 64;
+    if (runs < 1) runs = 1;
     g3_test_make_sphere(n, 1.0, 0, 0, 0, &a); g3_test_make_sphere(n, 0.9, 0.7, 0.3, 0.2, &b);
     for (int i = 0; i < runs; i++) {
         double t0 = now_ms();
@@ -71,7 +74,7 @@ static int bench(int op, int n, int runs)
     }
     int64_t nv, nt; g3_result_counts(r, &nv, &nt);
     double first = ms[0]; qsort(ms, runs, sizeof(double), cmp);
-    printf("native  op=%s n=%d first_ms=%.1f median_ms=%.1f tris=%lld hash=%016llx reason='%s'\n", op == 3 ? "imprint" : (const char*[]){"0","1","2"}[op], n, first, ms[runs / 2], (long long)nt, (unsigned long long)g3_test_result_hash(r), g3_result_not_clean_reason(r));
+    printf("native  op=%s n=%d first_ms=%.1f median_ms=%.1f tris=%lld hash=%016llx reason='%s'\n", op == 3 ? "imprint" : (const char*[]){"0","1","2"}[op], n, first, ms[runs / 2], (long long)nt, (unsigned long long)g3_test_result_hash(r), nc(r));
     g3_result_free(r); g3_mesh_free(a); g3_mesh_free(b);
     return 0;
 }

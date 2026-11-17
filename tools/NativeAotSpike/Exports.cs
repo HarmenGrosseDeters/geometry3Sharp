@@ -11,7 +11,7 @@ namespace G3Native
     /// </summary>
     public static unsafe class Exports
     {
-        static T get<T>(IntPtr h) where T : class { return h == IntPtr.Zero ? null : (T)GCHandle.FromIntPtr(h).Target; }
+        static T get<T>(IntPtr h) where T : class { return h == IntPtr.Zero ? null : GCHandle.FromIntPtr(h).Target as T; }
         static IntPtr put(object o) { return GCHandle.ToIntPtr(GCHandle.Alloc(o)); }
         static IntPtr utf8(string s)
         {
@@ -31,7 +31,7 @@ namespace G3Native
 
         [UnmanagedCallersOnly(EntryPoint = "g3_last_error")]
         public static IntPtr LastError()
-        {   // valid until the next failing call on this thread
+        {   // valid until the next g3_last_error call on this thread on this thread
             free(ref lastErrPtr); lastErrPtr = utf8(Core.LastError); return lastErrPtr;
         }
         [ThreadStatic] static IntPtr lastErrPtr;
@@ -79,7 +79,7 @@ namespace G3Native
         public static void ResultFree(IntPtr r)
         {
             if (r == IntPtr.Zero) return;
-            var b = (ResultBox)GCHandle.FromIntPtr(r).Target;
+            var b = GCHandle.FromIntPtr(r).Target as ResultBox; if (b == null) return;
             free(ref b.ReasonUtf8); free(ref b.ErrorUtf8);
             GCHandle.FromIntPtr(r).Free();
         }
@@ -128,6 +128,7 @@ namespace G3Native
         [UnmanagedCallersOnly(EntryPoint = "g3_test_make_sphere")]
         public static int MakeSphere(int edgeVertices, double radius, double cx, double cy, double cz, IntPtr* outMesh)
         {
+            if (outMesh == null) return G3Err.NullArgument;
             try { *outMesh = put(Core.MakeSphere(edgeVertices, radius, cx, cy, cz)); return 0; }
             catch (Exception e) { Core.SetError(e.Message); return G3Err.Exception; }
         }

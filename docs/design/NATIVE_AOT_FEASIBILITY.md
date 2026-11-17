@@ -10,12 +10,13 @@ are single-container timings: read the ratios.
 **Go for a supported native package, as an opt-in addon; the decisions below go to the owner.**
 
 - It compiles. `PublishAot=true` for the library plus a C-ABI wrapper gives a 2.9 MB `g3native.so` (symbols in a separate
-  4.7 MB `.dbg`), depending only on libc and libm, in about 11 s. No trim or AOT warning touches the boolean path.
+  4.7 MB `.dbg`), depending only on libc and libm (`ldd`), in about 11 s. No trim or AOT warning touches the boolean path.
 - The result is **bit-identical** to the JIT build: the FNV hash of the result's vertex doubles and index triples is equal for
   union, intersection, difference and imprint, on offset-sphere pairs of 4 300 to 69 000 result triangles (12 cases, section 5).
-- Speed: after warm-up native is about equal to the JIT build (0.9x to 1.1x, within the noise); the **first call is 5 to 6 times
-  faster** (no JIT) and a one-shot process 3.5 times faster with 27 % less memory (section 4).
-- Not measured here: Windows and macOS (no cross-compilation of NativeAOT; the new workflow `native-aot.yml` runs both on the PR),
+- Speed: after warm-up native is between 0.63x and 1.1x of the JIT time on these three sizes (n = 64, the best-warmed case: about 8 % slower;
+  n = 128 had only 5 JIT runs); the **first call is 2.3 to 6.3 times faster** (no JIT) and a one-shot n = 64 process 3.4 times faster
+  with 27 % less peak memory (section 4).
+- Not measured here: Windows and macOS (no cross-compilation of NativeAOT; the new workflow `native-aot.yml` runs the C caller and the check on macOS and only publishes on Windows),
   and cross-platform bit identity (section 7, risk 1).
 
 ## 1. Does it compile, and what warns
@@ -33,11 +34,11 @@ default settings (`TrimmerSingleWarn`). To see the library's own findings the li
 A search of `core/ math/ mesh/ mesh_ops/` for `Activator`, `GetMethod`, `Reflection.Emit`, `Expression.Compile`,
 `MakeGenericMethod`, `Assembly.Load`, `GetCustomAttribute` finds nothing. The six findings are fixable without an API change
 (`Marshal.SizeOf<T>()` overloads) if the readers are ever exported. `ExactMeshBoolean` and `ExactMeshImprint` use no
-reflection and no dynamic code; the parallel loops (`Parallel.For`) work in a NativeAOT library (the 4 cores are used).
+reflection and no dynamic code; the parallel loops (`Parallel.For`) run in a NativeAOT library (not measured separately; the native time at n = 64 is that of the 4-core JIT run, so the loops are not serial).
 
 ## 2. The C ABI (`tools/NativeAotSpike/g3native.h`, `Exports.cs`)
 
-An opaque handle per object, all functions return an error code, nothing throws across the boundary.
+An opaque handle per object, all functions return an error code, managed exceptions are caught and returned as `G3_EXCEPTION`. The spike does not harden against invalid handles (a freed or foreign handle is undefined behaviour), and `g3_result_copy` has no capacity check; both belong to section 6, step 5.
 
 ```c
 int32_t g3_mesh_create(const double* xyz, int64_t nv, const int32_t* tri, int64_t nt, g3_mesh** out);  // arrays are copied
@@ -56,7 +57,7 @@ const char* g3_last_error(void);                                  // thread-loca
 
 - **Options:** `g3_options { struct_size, safe_rounding, strict_rounding, allow_open_meshes, seed, max_pieces }`, filled by
   `g3_options_default`; fields are read only up to `struct_size`, so new options can be appended without an ABI break. The
-  other options of the C# classes (`Cancellation`, `WindingPredicate`, n-ary booleans, `ComputeExactVertices`, the imprint's
+  `g3_imprint` uses only `safe_rounding`, `strict_rounding` and `max_pieces`. The other options of the C# classes (`Cancellation`, `WindingPredicate`, n-ary booleans, `ComputeExactVertices`, the imprint's
   curve labels and `SourceTriangle`) are not wrapped; a supported package needs a decision on which (section 6).
 - **Ownership:** every handle is created and freed by the library; input arrays are copied at `g3_mesh_create`; result arrays
   are copied out by `g3_result_copy` into memory the caller owns; strings belong to the handle they came from. A result handle
@@ -64,13 +65,14 @@ const char* g3_last_error(void);                                  // thread-loca
 - **Errors:** `G3_NULL_ARGUMENT`, `G3_INVALID_MESH` (index out of range, non-manifold edge on creation), `G3_INVALID_INPUT`,
   `G3_ROUNDING_NOT_CLEAN`, `G3_BUDGET_EXCEEDED`, `G3_CANCELLED`, `G3_EXCEPTION` (managed exception, text in `g3_last_error`),
   `G3_BAD_OPTIONS`.
+- **Strings:** `g3_last_error` is owned by the thread and valid until its next call; the other strings belong to their handle.
 - **Threads:** distinct handles may be used from different threads; the exports are plain static calls, and the library's
   parallel loops run on the .NET thread pool inside the call.
 - `NotCleanReason` is computed on first request (it is a separate check, not free) and its semantics are untouched.
 
 `tools/NativeAotSpike/c/caller.c` (written for the spike, no external code) builds two cubes from arrays and runs the three
 operations; the volumes come out as 1.875, 0.125 and 0.875 from the C side, and the error paths (bad index, `NULL` mesh, bad
-operation, `max_pieces = 3` exceeded) return their codes:
+operation, `max_pieces = 3` exceeded) return their codes (`run_spike.sh` asserts the bad index and `max_pieces` cases):
 
 ```
 union        rc=0 status=0 vertices=20 triangles=36 not_clean_reason=''   volume=1.875000
@@ -104,13 +106,13 @@ the bit-identity comparison; `.github/workflows/native-aot.yml` runs it on linux
 | 128 (387 096; 5 runs) | 677 | 673 | 1565 / 1068 | | |
 
 - Steady state: native is within about ±10 % of the JIT build once the JIT is warm (n = 64: 201 against 179 to 188 ms: native
-  about 8 % slower; n = 32: 50 against 57 to 102 ms, noise and tier-up dominate). With the library's `Optimize` hints most hot
+  about 8 % slower; n = 32: 50 against 57 to 102 ms, native faster; n = 128: 673 against 1068 ms with an unwarmed JIT). With the library's `Optimize` hints most hot
   methods are compiled once at full optimisation, so the tiering and PGO settings change little; TieredPGO does not help
   this workload (PGO=0 is not slower). With 5 runs at n = 128 the JIT had not yet reached steady state.
-- The first call, which is what a native caller pays in a short process: 5 to 6 times faster at n = 32 (JIT cost 0.4 s), 4 times
-  at n = 64.
-- Whole process, one boolean: n = 16 (managed, includes the JIT of the whole boolean) 0.52 s against a native self test of
-  7 ms for three cube booleans; n = 64: 0.35 s and 110 MB peak RSS native against 1.2 s and 150 MB managed.
+- The first call, which is what a native caller pays in a short process: 5.1 to 6.3 times faster at n = 32 (JIT cost 0.4 s), 3.0 to 4.4 times
+  at n = 64, 2.3 times at n = 128.
+- Whole process, one boolean at n = 64 (3 runs each, wall time and peak RSS by `wait4`, host start included): 0.35 s and 110 MB native
+  against 1.2 s and 150 MB managed. (A native self test of three cube booleans takes 7 ms in total; there is no like-for-like managed figure.)
 - Size: `g3native.so` 2.9 MB including the runtime it embeds (the managed `geometry3Sharp.dll` alone is 3.2 MB and needs an
   installed .NET runtime); ILC trims the library to what the exports reach.
 - PGO for the native build (a static profile through `ilc --mibc`) was not tried; the gap is small enough that it is not needed
@@ -125,6 +127,8 @@ triangles, hash `d99882f5f952dc93`; imprint n = 64: 49 796 triangles, `5506e5809
 The hash covers the doubles bit for bit and the index order. This is on one CPU architecture (x64) and one OS. The existing
 cross-platform bit-identity measurement ([DETERMINISM.md](DETERMINISM.md)) covers net10.0 on Linux and Windows and net48; it does
 not include NativeAOT, ILC on arm64 or macOS.
+
+The spike has no test in `tests/` and no `ReaderFuzzTests` entry for `g3_mesh_create` (an input path): its check is `native-aot.yml`, which runs only when the spike changes. Concurrent operations on one input handle are not tested.
 
 ## 6. Effort for a supported native package (rough, one engineer-session each)
 
