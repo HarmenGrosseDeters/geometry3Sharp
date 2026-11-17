@@ -4,14 +4,17 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** items that are not scheduled: the "Later" list, the Phase 5 candidates from recent research, the open
   research questions, and the SMT pilot.
-- **Status (2026-11-15):** Phase 5 #1 (paths, loops, Bézier curves #540) and #7 (#374) done, #5 stopped (#331), the
+- **Status (2026-11-17):** Phase 5 #1 (paths, loops, Bézier curves #540) and #7 (#374) done, #5 stopped (#331), the
   affine heat method stopped at its gate (#371). Merged: batch queries stage 2 (#448; callers profiled and closed, #678),
   intersection-free dual contouring options A and B (#552, #572), point clouds step C1 (#580), the D1 drift rule (#513);
   since 2026-11-12: TPMS lattices with follow-ups (#750, #833, #835, #838, #860, CLI #879), CCD stages 1 and 2 (#778,
   #793, follow-ups #845, #857, #872), tet meshing stages 1 and 2 (#775, #821) with the fTetWild comparison (#885),
   `ContourLoft` stage 1 (#741), the contouring topology study and certificate stage 1 (#749, #779), mesh offset A1
-  (#799), the sharp-feature pass K (#736), determinism proof stage 0 (#776, #786, #810, #871). Open issues for items 6
-  and 7: #887 (screened Poisson) and #886 (ARAP deformation).
+  (#799), the sharp-feature pass K (#736, opt-in), determinism proof stage 0 (#776, #786, #810, #871); since
+  2026-11-15: ARAP and biharmonic deformation (#896, #897, 2026-11-16; issue #886 closed), the metamorphic relations A1 and
+  P1 (#988, 2026-11-16), contouring certificate stage 3 (#944, closed 2026-11-17), `CoreMath.Acos` / `Tan` (#1060) and
+  their use in `TerrainSlopeDesign` (#1066, 2026-11-17). Issue #887 (screened Poisson, item 6) is closed as not planned
+  (owner 2026-11-15).
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -24,7 +27,7 @@ Part of the [roadmap](../ROADMAP.md).
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
   item 9 (`ContourLoft`) stage 1 merged (#741); items 2 (collision detection) and 7
-  (deformation) moved to Later (item 2 was since built, #793; item 7 is issue #886); item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
+  (deformation) moved to Later (item 2 was since built, #793; item 7 was built, #896 / #897); item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
   upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
@@ -165,7 +168,8 @@ Part of the [roadmap](../ROADMAP.md).
      Theorem 6), which certifies every non-ball cluster of a right run: clean T1 / 128 uncertified cells 651 -> 381,
      certified runs 8 -> 10 of 14 (all right runs but 104640); / 64 437 -> 301, 9 -> 12 (all right runs); never certified
      wrong; the certificate 25-28 % of the contouring at / 128 (22-24 % before), 33-37 % at / 64 (24-30 %). Not built, by the stop rule: refinement for the thin features (upper bound one run, at 3-15 times the
-     contouring time, section 4.8) and growth across transitions (upper bound 0: only a wrong run has such cells).
+     contouring time, section 4.8) and growth across transitions (upper bound 0: only a wrong run has such cells). Issue #944
+     closed 2026-11-17.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
@@ -183,11 +187,11 @@ Part of the [roadmap](../ROADMAP.md).
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; issue #887 deferred (owner 2026-11-15: closed as not planned until a scan use case and a measured gap of C1 exist).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-     Issue #886: biharmonic displacement done (2026-11-16, #897): `BiharmonicMeshDeformer`, numerical mode with status and
+     Issue #886 (closed 2026-11-16): biharmonic displacement done (#897, merged 2026-11-16): `BiharmonicMeshDeformer`, numerical mode with status and
      stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
      `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
      (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
-     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP: `ArapMeshDeformer` in #896 (design note [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md)).
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail), both still open (2026-11-17). ARAP: `ArapMeshDeformer` (#896, merged 2026-11-16; design note [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md)). Issue #886 closed 2026-11-16 (#896 and #897 merged).
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
@@ -232,9 +236,9 @@ Part of the [roadmap](../ROADMAP.md).
   Delaunay tetrahedrization) not started, tet meshing went the wrap route instead (item 3); #8 CCD built from the
   Tight-Inclusion paper (#793); #6, #9, #10 not started; #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
-- **Later:** screened Poisson for point clouds (#887), mitered feature-preserving offsets, quad remeshing, deformation
-  (#886), sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS and batch queries left this list: built, see
-  items 1, 3 and 5.)
+- **Later:** screened Poisson for point clouds (#887, closed as not planned, owner 2026-11-15), mitered feature-preserving
+  offsets, quad remeshing, cage coordinates, sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS, batch queries
+  and ARAP / biharmonic deformation left this list: built, see items 1, 3, 5 and 7.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
   ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
   variant designed 2026-11-15; owner 2026-11-15: no-go, it stays a design), the
@@ -321,7 +325,7 @@ in the tool project.
   share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
   #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
-- Deformation: ARAP, biharmonic, cage coordinates
+- Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
@@ -406,8 +410,8 @@ Problems where the library already has a head start and that could be researched
   falsification run over the 83 issues and six executed repros on the fixing commits' parents. A relation was the finding
   mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
   does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
-  black-box part (needs a reference); stop rules in the note. Owner decision pending.
-  **A1 and P1 built 2026-11-16** (PR `claude/metamorphic-a1-p1`, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above). Stop rule 1 of the note is not met (the relations did find defects).
+  black-box part (needs a reference); stop rules in the note. Recommendation built as A1 and P1:
+  **A1 and P1 built 2026-11-16** (#988, merged 2026-11-16, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows; fixed in #1027, closed 2026-11-17) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above; closed 2026-11-17 by #1028 as a documented tolerance limit, not a fix). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,
@@ -418,9 +422,9 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
-  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). **Done (coordinator task 2026-11-17, owner approved):** `CoreMath.Acos` and
+  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). **Done (coordinator task 2026-11-17, owner approved; #1060 merged 2026-11-17):** `CoreMath.Acos` and
   `CoreMath.Tan`, correctly rounded, ported from CORE-MATH through CoreMathSharp (MIT, `docs/SOURCES.md`); verified bit for bit against the
-  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. **Switched (owner 2026-11-17):** `TerrainSlopeDesign` calls `CoreMath.Acos` instead of the composed `CoreMath.AcosByAtan2`
+  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. **Switched (owner 2026-11-17, #1066 merged 2026-11-17):** `TerrainSlopeDesign` calls `CoreMath.Acos` instead of the composed `CoreMath.AcosByAtan2`
   (within about 1.6 ulps, not monotone in the last ulp for |c| < 1/2; it differed from `Acos` by one ulp in about 12 % of the test arguments, `CoreMathAcosTanTests`);
   `Acos` is cheaper (`benchmarks/CoreMathBenchmark`). `AcosByAtan2` stays for tests and the benchmark only.
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
@@ -429,16 +433,21 @@ Problems where the library already has a head start and that could be researched
   inside / outside test, without a prior repair (needs Phase 5 #5, #6).
 - **Geometry APIs for coding agents.** A benchmark of mesh / CAD tasks solved by agents through `g3cli` / MCP, and
   which API patterns (result codes, `NotCleanReason`, options objects) actually help them.
-- **Showcase domains with error bounds.** Terrain: DEM → TIN with guaranteed error, exact cut / fill volumes.
+- **Showcase domains with error bounds.** Terrain: DEM → TIN with guaranteed error, exact cut / fill volumes (further terrain work,
+  berms, GeoTIFF, a showcase: later, the plan is parked, owner 2026-11-17).
   Orthotics: geodesic cut lines, wall thickness, feature-preserving offsets.
 
 #### Hard open problems (candidates for a stronger model)
 
-Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
-proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
-Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
-Not now: 1 alone, 4, 5 (tet), 7, 14.
+Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
+design note, started 2026-11-10; a scale-free repair study is running, 2026-11-17), 3 together with the leads of 1 (D1 has merged;
+the Fable research session of 2026-11-12 ended with #721 closed: 1 has no guarantee, its plateau variant stays a design; 3's
+open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
+closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
+addressed, see there). Done: 2 (D1, #513, merged 2026-11-11 as Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal;
+open operands are classified per piece, #528), 14 (closed 2026-11-17, parked as owner options), 4 (answered by the sharp-feature
+study 2026-11-12 and the opt-in pass K, #736). Decided: 6 (option D, B reopenable).
+Not now: 1 alone, 5 (tet), 7.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
@@ -461,7 +470,7 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
-   - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
+   - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
    - Result (2026-11-12, research note [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md), #721, with item 3): no
@@ -518,6 +527,7 @@ Ordered by expected value for the library.
      1 of the note); `near` is 14-56 % of the rounding where edits are evaluated (not diagnosed).
    - The old question (a rounding scheme sub-linear in the result size, by an incremental search or certified
      clearances) is answered: no, and the certificates do not pay (the note, sections 5.1 to 5.4).
+   - Boolean speed work stopped (owner 2026-11-16, [exact-boolean.md](exact-boolean.md)): (b) to (d) below are not scheduled.
    - Open now: (a) done: the passes stop proposing at the evaluation limit (#725, merged 2026-11-12; the drift-only
      variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
      triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
@@ -558,8 +568,8 @@ Ordered by expected value for the library.
      default on or off after the 800 run; corners and split retries in a follow-up. Separate small PR:
      WindingContouring.PostProcess with the pipeline's quality guard instead of 0.05 (> 170° triangles 17934 -> 52).
      K merged as the opt-in `AlphaWrapFeaturePass` (#736, 2026-11-13); TET_MESHING.md section 13 checks whether its
-     surfaces serve tet stage 1. The default after the 800 run, the follow-ups and the small PR: state unverified here
-     (see [alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).
+     surfaces serve tet stage 1. After the 800 run the pass stays opt-in (owner 2026-11-17; recorded in
+     [alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), commit 6a90dc22). Corners and split retries stay follow-ups.
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
@@ -589,7 +599,8 @@ Ordered by expected value for the library.
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
      w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
    - The open cohort also has 736 ops > 5 s.
-   - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
+   - Status 2026-11-17: correctness is fixed (#528); only speed remains, and Boolean speed work is stopped (owner 2026-11-16).
+   - Speed leads, not scheduled: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
      parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
      (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 merged in #675,
      2026-11-12; open inputs to the Antipodal Method up to 20000 boundary segments, #766, and its hierarchical boundary
@@ -607,20 +618,25 @@ Ordered by expected value for the library.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
-    - Related open issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for
-      `MeshHausdorffDistance.CertifiedUpper`) and #873 (coplanar meshes stall at Upper about 2e-9 with Converged false).
+    - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; open,
+      parked until a use case, owner 2026-11-16; design note [CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)); #873
+      (coplanar meshes stall at Upper, closed 2026-11-15, fixed in 5e7577c2).
 11. **Bit-for-bit determinism across runtimes and CPUs** (net48 / net10, x64 / ARM, parallel paths).
     - Needed: a systematic method to prove which paths are reproducible (not only test them), as a basis for
       certification use.
-    - Status 2026-11-15: proof study (#776), schedule adversary and runtime probes (#786, results #810), stage 0
-      closed-world analyzer rules for the exact kernel (#871, issue #859) merged. Open: #859, #789 (seeded `ExactPoint3`
-      hashes), #803 / #804 (net48 / net10 audits).
+    - Status 2026-11-17: proof study (#776), schedule adversary and runtime probes (#786, results #810), stage 0
+      closed-world analyzer rules for the exact kernel (#871) merged; #859 (stage 0), #789 (seeded `ExactPoint3` hashes), #803 / #804
+      (net48 / net10 audits) closed (2026-11-15 / 2026-11-16). Stage 1 (the exact building blocks as a closed world): PR #1076 open.
+      The net48 / net10 runtime comparison is the local issue #929 (open).
 12. **Mutation-testing cost of the rounding module.**
-    - A full rounding run takes up to 5 h per part; the 19-term filter would need about 11 parts.
+    - A full rounding run took up to 5 h per part; the 19-term filter would need about 11 parts.
     - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
       ([platform.md](platform.md)).
+    - Largely addressed 2026-11-13 to 2026-11-15: `tests/mutation/narrow_tests.py` and `coverage_select.py` (a test cover per
+      shard), incremental runs (`incremental.py`, the changed lines against the master baseline) and the rounding shards split
+      into 13 parts (`tests/mutation/stryker-mesh-rounding-*.json`); see [platform.md](platform.md).
 
-13. **Intersection-free dual contouring in general** (owner 2026-11-09; probably within reach of Opus, since it is
+13. **Intersection-free dual contouring in general. Done: options A and B merged (#552, #572, 2026-11-10).** (owner 2026-11-09; probably within reach of Opus, since it is
     mostly literature and engineering, not a new proof). `mesh_generators/DualContouring.cs` (manifold DC, Schaefer et
     al. 2007, QEF vertices) and `mesh_ops/WindingContouring.cs` (DC on the winding number, with a self-intersection
     check after the fact) can produce self-intersections. Wanted: a contouring that is self-intersection-free by
@@ -637,21 +653,23 @@ Ordered by expected value for the library.
 
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
 
-### Open for the future (2026-11-15)
+### Open for the future (2026-11-17)
 
-Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
+Done and removed from this list (status 2026-11-17): #804 (#973, closed 2026-11-16), #866 / #940 (documented limit, closed 2026-11-16),
+#886 (ARAP and biharmonic merged, #896 / #897, closed 2026-11-16), #944 (stage 3 built, the rest not built by the stop rule, closed
+2026-11-17), `CoreMath` `Acos` / `Tan` (#1060, used by the terrain slope design in #1066), #721 closed (the plateau variant of the position search stays a design: no-go, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
+1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, PR #1076, open), then the net48 / net10 measurement (#929, local, open).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (36 of 40 with the edge splits of TET_MESHING.md section 16;
    839690, 120628, 46460, 113956 left); sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
-4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
-   Options B and C only after a reviewed proof.
+4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
+   rule (upper bound one run). Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
-6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
-7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not scheduled (the
-   rounding spike is a no-go).
-8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
+6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
+7. Hard problem 9 (scale-free repair): a study is running (2026-11-17). Hard problem 8 (open operands: correctness fixed in #528, only
+   speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
+8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).

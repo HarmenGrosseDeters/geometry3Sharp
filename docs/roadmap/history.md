@@ -80,7 +80,7 @@ The Phase 2 items are on [exact-boolean.md](exact-boolean.md#phase-2-items-on-ex
 | Exact, robust mesh booleans and arrangements | Zhou et al. 2016 *Mesh Arrangements for Solid Geometry*; Cherchi et al. 2020/2022 (indirect predicates); Trettner et al. 2022 *EMBER*; Manifold (Apache-2.0) | The biggest gap; the existing `MeshBoolean` is not robust, the winding-number variant is voxel based. `ExactPredicates` is the base. |
 | Alpha wrapping / shrink wrap | Portaneri et al. 2022 *Alpha Wrapping with an Offset* | Guaranteed watertight manifold output from any input: scan repair, 3D printing, biomedical CAD. Complements `MeshAutoRepair`. |
 
-#### Platform and tooling milestones, November 2026 (log, appended 2026-11-15)
+#### Platform and tooling milestones, November 2026 (log, appended 2026-11-17)
 
 Merge dates from `git log origin/master`. The details are on [platform.md](platform.md) and the topic pages.
 
@@ -97,3 +97,5 @@ Merge dates from `git log origin/master`. The details are on [platform.md](platf
 - 2026-11-16: `DualContouring` takes exact Hermite data by default (`ExactHermite`, `QEFEigenTolerance` 0.02; owner decision): the output of
   a plain `DualContouring` changes (sharper creases, same triangle count); `ExactHermite = false` with tolerance 0.1 is the former output;
   `WindingContouring`, `MeshWindingNumberSolidify` and `MeshOffset` keep tolerance 0.1 (they set `HermiteF`).
+- 2026-11-17: NativeAOT feasibility study ([NATIVE_AOT_FEASIBILITY.md](../design/NATIVE_AOT_FEASIBILITY.md), #1052; native package not now, owner 2026-11-17);
+  test-only certifying checker of `ExactMeshBoolean` (#1061); mutation gate run 44013112256 on master dispatched (survivors of three shards: PR #1077, open).
