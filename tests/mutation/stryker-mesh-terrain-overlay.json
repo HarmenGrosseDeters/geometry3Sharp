@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/TerrainSlopeOverlay.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains",
+    "test-case-filter": "(FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains)|FullyQualifiedName~TerrainSlopeVolumeTests|FullyQualifiedName~TerrainSlopeCatchLineBoundTests|FullyQualifiedName~TerrainSlopeCatchLineInvarianceTests|FullyQualifiedName~TerrainSlopeAccuracyTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 10000,

@@ -11,6 +11,8 @@ Triangle.NET-Fork `master` `01af2aa` und offener PR #5 (`claude/awesome-pascal-e
 Repository, kein Zugriff freigegeben); die Angaben dazu stammen aus der vorigen Session und sind als solche
 markiert.
 
+*Status 2026-11-17:* this page is the October 2026 snapshot; the g3 branch named above has long been merged, and the numbers below were not re-measured. Done since: the exact fallback kernels of `Orient2d`, `Orient3d` and `InCircle` (#769, see the update in section 1). Open points 1, 2 and 5 of section 6 concern the Triangle.NET fork and Old-Custom repositories, whose state was not checked in this audit. Point 3 still holds: `Query2d`, `QueryTuple2d` and `PrimalQuery2d` are used by `ConvexHull2`, `MeshInsertUVPolyCurve` and `IntrTriangle3Triangle3`.
+
 ## Kurzfassung
 
 | | g3 `ExactPredicates` | Triangle.NET `RobustPredicates` | Old-Custom `Primitives` (`main`) | Old-Custom `claude/fallback-adapter` |
