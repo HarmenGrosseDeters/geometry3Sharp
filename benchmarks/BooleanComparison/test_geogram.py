@@ -185,6 +185,7 @@ class T6GeogramTests(unittest.TestCase):
         self.assertIn("Geogram clean", rep)
         self.assertIn("| 3/3 |", rep)                          # volumes agree in each bucket
         self.assertIn("volumes agree in 6 of 6", rep)
+        self.assertIn("Summed times (both ok): ours 1.2 s, Geogram 1.5 s, ratio 0.80.", rep)
         self.assertNotIn("CGAL", rep)
 
     def test_a_volume_that_disagrees_is_counted_and_listed(self):

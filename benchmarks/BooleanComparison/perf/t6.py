@@ -143,6 +143,7 @@ def analyse(rows, tris, other="cgal_epeck"):
                 if g.get(f"{op}_ms") is not None and a.get(f"{op}_ms") is not None:
                     ratio = a[f"{op}_ms"] / max(g[f"{op}_ms"], MIN_MS)
                     o["ratios"].append(ratio)
+                    o["sums"] = (o.get("sums", (0, 0))[0] + a[f"{op}_ms"], o.get("sums", (0, 0))[1] + g[f"{op}_ms"])
                     if clean_or_empty(a, op) and clean_or_empty(g, op):
                         o["clean_ratios"].append(ratio)
                     recs.append(dict(bucket=b, file=f, op=op, ratio=ratio, ours=a[f"{op}_ms"], other=g[f"{op}_ms"],
@@ -177,9 +178,11 @@ def report(label, rows, tris, other="cgal_epeck"):
     allclean = all_clean(ours)
     other_clean = all_clean([o["m"][other] for o in out.values()])
     allv = [x for o in out.values() for x in o["vdiff"]]
+    so, sg = (sum(o.get("sums", (0, 0))[i] for o in out.values()) for i in (0, 1))
     lines += ["", f"All buckets: median ratio {st.median(allr) if allr else float('nan'):.2f}, p90 {pct(allr, 90):.2f}, "
                   f"max {max(allr) if allr else float('nan'):.2f} over {len(allr)} operations; volumes agree in "
-                  f"{sum(1 for x in allv if x <= VOL_TOL)} of {len(allv)}.",
+                  f"{sum(1 for x in allv if x <= VOL_TOL)} of {len(allv)}. Summed times (both ok): ours {so / 1000:.1f} s, {n} {sg / 1000:.1f} s, "
+                  f"ratio {so / sg if sg else float('nan'):.2f}.",
               f"All-clean (every result of ours clean or correctly empty, no refusal, failure or timeout): **{'yes' if allclean else 'no'}**; "
               f"of {n}: **{'yes' if other_clean else 'no'}**.", ""]
     worst = sorted(recs, key=lambda x: -x["ratio"])[:5]
