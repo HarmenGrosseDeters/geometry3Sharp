@@ -80,9 +80,9 @@ namespace gs
 
         /// <summary> vertex vid has a position (the last Compute() succeeded and the vertex has a field) </summary>
         public bool HasPosition(int vid) { return ToCompact != null && vid >= 0 && vid < ToCompact.Length && ToCompact[vid] >= 0; }
-        /// <summary> the lattice point o of vertex vid (in its tangent plane, within s / sqrt 2 of the vertex) </summary>
+        /// <summary> the lattice point o of vertex vid (in its tangent plane, within s / sqrt 2 of the vertex); only for vertices with HasPosition </summary>
         public Vector3d Origin(int vid) { return Origins[ToCompact[vid]]; }
-        /// <summary> the unit orientation q of the lattice at vid (cross direction 0 of the field; at a boundary vertex the boundary direction is exact) </summary>
+        /// <summary> (only for vertices with HasPosition) the unit orientation q of the lattice at vid (cross direction 0 of the field; at a boundary vertex the boundary direction is exact) </summary>
         public Vector3d Orientation(int vid) { return L0.Q[ToCompact[vid]]; }
 
         internal sealed class Level
@@ -105,7 +105,7 @@ namespace gs
             if (Mesh == null || Field == null || !Field.Success) return Fail("a successful cross field is required");
             double s = TargetEdgeLength;
             if (!(s > 0) || double.IsInfinity(s)) return Fail("TargetEdgeLength must be positive and finite");
-            if (!(MiddleRegularization >= 0) || !(CornerAngleDegrees >= 0)) return Fail("invalid settings");
+            if (!(MiddleRegularization >= 1e-6) || !(CornerAngleDegrees >= 0)) return Fail("invalid settings (MiddleRegularization must be at least 1e-6)");
 
             int maxId = Mesh.MaxVertexID;
             ToCompact = new int[maxId];
@@ -144,6 +144,8 @@ namespace gs
                 O = Of;
                 SweepsRun += Smooth(L, O, s);
             }
+            for (int i = 0; i < O.Length; ++i)
+                if (!O[i].IsFinite) { L0 = null; LevelList = null; return Fail("the position field is not finite (degenerate input or a target edge length far below the size of the mesh)"); }
             L0 = f; Origins = O;
             return Status;
         }
@@ -428,10 +430,16 @@ namespace gs
             Vector3d x = L.X[k], b = L.Bq[k], tb = L.Nrm[j].Cross(b);
             Vector3d qi = L.Q[i], ti = L.T[i], oi = Origins[i], oj = Origins[j];
             Vector3d d = x - oi;
-            int kq0 = (int)Math.Round(qi.Dot(d) / s), kt0 = (int)Math.Round(ti.Dot(d) / s);
+            double cq0 = Math.Round(qi.Dot(d) / s), ct0 = Math.Round(ti.Dot(d) / s);
+            dq = dt = 0; mismatch = double.PositiveInfinity;
+            // lattice coordinates beyond a billion (or not finite): no vote, and no integer overflow
+            if (!(Math.Abs(cq0) < 1e9) || !(Math.Abs(ct0) < 1e9)) return;
+            int kq0 = (int)cq0, kt0 = (int)ct0;
             Vector3d a = oi + s * (kq0 * qi + kt0 * ti);
             Vector3d d2 = a - oj;
-            int kq1 = (int)Math.Round(b.Dot(d2) / s), kt1 = (int)Math.Round(tb.Dot(d2) / s);
+            double cq1 = Math.Round(b.Dot(d2) / s), ct1 = Math.Round(tb.Dot(d2) / s);
+            if (!(Math.Abs(cq1) < 1e9) || !(Math.Abs(ct1) < 1e9)) return;
+            int kq1 = (int)cq1, kt1 = (int)ct1;
             Vector3d bb = oj + s * (kq1 * b + kt1 * tb);
             dq = kq0 - kq1; dt = kt0 - kt1;
             mismatch = (a - bb).Length / s;

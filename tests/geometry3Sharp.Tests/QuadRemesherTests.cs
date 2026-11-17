@@ -427,6 +427,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TinyOrUnregularizedSettings_GiveAStatusNotAnException()
+        {
+            foreach (double tiny in new[] { 1e-310, 1e-320, double.Epsilon, 1e-12 }) {
+                var qr = new QuadRemesher(Shape("patch")) { Field = FieldOf("patch"), TargetEdgeLength = tiny };
+                QuadRemeshStatus st = qr.Compute();
+                Assert.NotEqual(QuadRemeshStatus.Success, st);
+            }
+            foreach (double eps in new[] { 0, 1e-17, double.NaN }) {
+                var pf = new PositionField(Shape("patch"), FieldOf("patch")) { TargetEdgeLength = 0.08, MiddleRegularization = eps };
+                Assert.Equal(PositionFieldStatus.InvalidInput, pf.Compute());
+            }
+        }
+
+        [Fact]
         public void Remesher_ComputesTheFieldWhenNoneIsGiven()
         {
             var qr = new QuadRemesher(Shape("box")) { TargetEdgeLength = S };
@@ -633,6 +647,20 @@ namespace geometry3Sharp.Tests
             QuadRemesher.CleanupGraph(g, 1, 0.4, out collapsed, out valence2);
             Assert.Equal(1, collapsed);
             Assert.Equal(new Vector3d(1, 1, 0), g.Pos[5]);      // the corner does not move
+            // a boundary vertex keeps its place against an interior one
+            var k = Grid(4, 1);
+            k.Kind[6] = 0; k.Pos[6] = new Vector3d(1.2, 1, 0);
+            QuadRemesher.CleanupGraph(k, 1, 0.4, out collapsed, out valence2);
+            Assert.Equal(new Vector3d(1, 1, 0), k.Pos[5]);
+            Assert.Equal(1, k.Kind[5]);
+            // and the other way round: the higher kind is the second vertex of the edge
+            var k2 = Grid(4, 1);
+            k2.Kind[5] = 0; k2.Pos[5] = new Vector3d(1.8, 1, 0);
+            QuadRemesher.CleanupGraph(k2, 1, 0.4, out collapsed, out valence2);
+            Assert.Empty(k2.Adj[5]);                       // the vertex of the higher kind is the one that stays
+            Assert.Equal(6, k2.Adj[6].Count);
+            Assert.Equal(new Vector3d(2, 1, 0), k2.Pos[6]);
+            Assert.Equal(1, k2.Kind[6]);
             Assert.Equal(2, g.Kind[5]);
             // two corners are never merged; an edge of 0.5 s stays
             var h = Grid(4, 1);

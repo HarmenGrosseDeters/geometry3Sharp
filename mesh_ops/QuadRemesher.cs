@@ -15,7 +15,7 @@ namespace gs
         FieldFailed = 2,
         /// <summary> the position field failed </summary>
         PositionFieldFailed = 3,
-        /// <summary> the extraction found no face (the target edge length is probably far above the size of the shape) </summary>
+        /// <summary> the extraction found no face (the target edge length is far above or far below the size of the mesh edges) </summary>
         NoFaces = 4
     }
 
@@ -48,7 +48,7 @@ namespace gs
         public bool Parallel = true;
         /// <summary> faces with more sides are not part of the result (a hole, normally none) </summary>
         public int MaxFaceSides = 6;
-        /// <summary> the repairs after the extraction (collapse of short edges, valence 2 vertices, T-junctions) </summary>
+        /// <summary> the repairs after the extraction (collapse of short edges, valence 2 vertices, dangling edges) </summary>
         public bool Cleanup = true;
         /// <summary> edges whose lattice points do not agree (the two roundings are further apart than this, in units of the edge length) do not vote </summary>
         public double MismatchLimit = 0.5;
@@ -204,9 +204,9 @@ namespace gs
                     int a = c.Item2, b = c.Item3;
                     if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim) continue;
                     if (g.Kind[a] == 2 && g.Kind[b] == 2) continue;
-                    if (g.Kind[b] == 2) { int t = a; a = b; b = t; }
-                    Vector3d p = g.Kind[a] == 2 ? g.Pos[a] : 0.5 * (g.Pos[a] + g.Pos[b]);
-                    if (g.Kind[a] == 2) { } else g.Kind[a] = Math.Max(g.Kind[a], g.Kind[b]);
+                    if (g.Kind[b] > g.Kind[a]) { int t = a; a = b; b = t; }
+                    // the vertex of the higher kind keeps its place (a boundary vertex stays on its lattice line, a corner on its point)
+                    Vector3d p = g.Kind[a] > g.Kind[b] ? g.Pos[a] : 0.5 * (g.Pos[a] + g.Pos[b]);
                     g.Pos[a] = p;
                     Vector3d nn = g.Nrm[a] + g.Nrm[b]; double nl = nn.Length; if (nl > 0) g.Nrm[a] = nn / nl;
                     foreach (int x in g.Adj[b].ToArray()) { g.Unlink(b, x); if (x != a) g.Link(a, x); }
@@ -227,7 +227,7 @@ namespace gs
 
         /// <summary>
         /// the faces of the polygon graph: for every vertex the neighbours sorted counter-clockwise in the tangent plane (normal Nrm),
-        /// every directed edge is traced to the face on its left; the faces are turned to agree with the normals; faces that
+        /// every directed edge is traced to the face on its left; the faces are turned as a whole to agree with the normals (a majority vote); faces that
         /// face away from the normals (the outer loops of an open graph, folded faces) and faces with more than maxSides sides are
         /// dropped (counted in dropped). Dangling edges are pruned first. Vertices without a face are not in the result.
         /// </summary>
