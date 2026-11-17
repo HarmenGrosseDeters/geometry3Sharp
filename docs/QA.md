@@ -445,7 +445,7 @@ every daily workflow has two starters and runs once a day:
 |---|---|---|---|
 | `nightly.yml` | 02:30 | none | `23 2 * * *` |
 | `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
-| `mutation.yml` | 01:20 daily full run | `shards=all` | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
+| `mutation.yml` | none since 2026-11-16 (the dispatch tasks are disabled, #958; manual `shards=all` dispatches remain possible) | `shards=all` | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
 
 The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
 `gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
@@ -487,13 +487,13 @@ is queued or running today (UTC date), or already succeeded. Rules:
 
 | Run | Created (UTC) | Result | Cause |
 |---|---|---|---|
-| 41436698451 (2026-11-02) | 11:25 (cron 03:23 Mon, +8 h) | 9 jobs green, 2 cancelled | job timeout: `The job has exceeded the maximum execution time of 5h50m0s` (`timeout-minutes: 350` of `exact-mesh`); the slowest shards do not fit, a real limit, not a cancel |
-| 42611917701 (2026-11-09) | 11:48 (cron 03:23 Mon, +8 h) | 2 green, 20 cancelled at 12:37:50 to 12:38:10 | annotation `The run was canceled by @HarmenGrosseDeters.` (a manual cancel through the owner's account: UI, `gh` or the coordinator's token) |
-| 44003452066 (2026-11-17) | 02:30 (cron 19:17 Mon of 11-16, +7 h 13) | 3 green, 22 cancelled at 03:51:25 to 03:51:54 | same annotation; the cancel came 8 s before the 3.0 gate dispatch 44013112256 was created (03:51:33): the late cron run held the runners the gate needed |
+| 41436698451 (2026-11-02) | 11:25 (cron 03:23 Mon, +8 h) | 9 jobs green, 2 cancelled | job timeout: `The job has exceeded the maximum execution time of 5h50m0s` (`timeout-minutes: 350` of `exact-mesh`) of the two unsplit shards `rounding` and `envelope`. Both were split afterwards (#913 and later: `rounding-1..13`, `envelope-1..4`; the single configs no longer exist), so this limit no longer applies as it was |
+| 42611917701 (2026-11-09) | 11:48 (cron 03:23 Mon, +8 h) | 2 green, 20 cancelled at 12:37:50 to 12:38:10 | annotation `The run was canceled by @HarmenGrosseDeters.`: cancelled from a session on the owner's account (most likely a coordinator action, sessions use the owner's token); not a workflow defect |
+| 44003452066 (2026-11-17) | 02:30 (cron 19:17 Mon of 11-16, +7 h 13) | 3 green, 22 cancelled at 03:51:25 to 03:51:54 | same annotation: the coordinator cancelled it with the owner's approval (a stuck run on the old sha 2172017a) to free the runners for the 3.0 gate dispatch 44013112256, created 8 s later (03:51:33); an approved one-off, not a defect |
 
 - Excluded: concurrency (the scheduled run is in group `mutation-schedule`, the dispatch in `mutation-workflow_dispatch`, and
   `cancel-in-progress` is only true for pull requests, so neither cancels the other), the guard (`changes` ran its steps to success
-  and the shards started: no earlier plain run existed that day, because the 11-17 01:20 dispatch had not been made), and a runner limit
+  and the shards started: no earlier plain run existed that day, because no dispatch is made since 11-16), and a runner limit
   (all cancelled jobs had started or were queued; none ended with a runner error).
 - Only one `schedule` run exists per week since the weekly cron was Monday only; the Mon-Sat nightly lines were added on 2026-11-16
   (8f0c5c8e), so 44003452066 is the first run of the new lines and says nothing yet about the other days. The history before shows
@@ -502,7 +502,7 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Not built: no guard or workflow change fixes a manual cancel. Proposal for the owner: (1) a late cron run is a fallback only, so
   it should not hold the runners when a gate dispatch is wanted: cancel it deliberately (as happened) or give `schedule` runs a
   smaller shard set / `force`-free skip once the day's dispatch is queued; (2) raise `timeout-minutes` of the slow shards or split
-  them for the 11-02 timeout; (3) the external dispatcher at 01:20 UTC did not run on 2026-11-17, check it (the scheduled tasks list).
+  them for the 11-02 timeout; (3) policy for late cron runs: eg the guard skips a `schedule` run created more than N hours after its cron time (not built). The external dispatchers for `mutation.yml` ("Dispatch nightly mutation run", "Dispatch Monday mutation run") were disabled on 2026-11-16 when #958 moved the schedule into the cron lines, so the cron lines (GitHub runs them 7 to 8 h late) are the only source for `mutation.yml` now; the dispatch rows above for `nightly.yml` and `coverage.yml` still apply.
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
 
