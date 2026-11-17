@@ -9,7 +9,7 @@ cleanups do not depend on the global box win at most, on real data and on scale-
   judged per own component, option D's view). The pre-fixed bar was 8.
 - **Tolerances and translation**: one global factor on the repair stage's tolerances (x0.01, x100) and a translation to 5e6 gain
   nothing.
-- **Disparity on the corpus**: the 52 inputs with two or more box-rule parts have no small separable part (the smallest is 8.5 % of
+- **Disparity on the corpus**: the 52 inputs with two or more box-rule parts have no small separable part (the smallest is 8.46 % of
   the scene). Small components exist, but inside one part (down to 1e-7 of the scene), where no oracle here reaches.
 - **The misses**: of the 252 strict misses, 242 are Hausdorff misses; the scale oracles repair 2 of those.
 - **What remains** is the open half of the owner's decision 2 of 2026-11-10 ("the loss of a part is reported"): on procedural scenes
@@ -38,7 +38,7 @@ diagonal; A has scaled everything into a frame of extent [1, 2), so no absolute 
 | 4 | B stage 0 (split `:480`), the union check (`:528-546`): `NotCleanReason` of the union, else the whole input again | scene (via `NotCleanReason`) | judge the union per part (closed, manifold, no intersections exactly; degeneracy per own component) | yes but for the area test | procedural: the fallback that leads to the silent loss of section 3.1 |
 | 5 | `MeshAutoRepair` `RelativeRepairTolerance` 1e-8 (crack merge 1x and 2x, boundary collapse 0.5x, `sizeTolerance`, occlusion offset), `RelativeMinEdgeLength` 1e-6 (final collapse), cap 0.01 median edge of the whole mesh; far-part mode: largest (`MeshAutoRepair.cs:102`) | scene / largest | own component, or the local edge length (option C) | no: merging near, not equal, vertices needs a distance | S / L oracles (x0.01, x100) |
 | 6 | `MeshRepairOrientation` degenerate area 1e-10 scene^2, ray length 2 scene | scene | exact orientation of each triangle (orient3d); the ray length is harmless | yes for the degeneracy | not separated |
-| 7 | `MeshPostRepairCleanup` `DegenerateAreaFactor` 1e-12 `ReferenceDiagonal`^2 (scene; largest in the far-part mode, which needs a closed input with at most 64 components) | scene / largest | own component | yes, as in 6 | procedural: collapses the open small parts (v2: 320 triangles to 4, traced) |
+| 7 | `MeshPostRepairCleanup` `DegenerateAreaFactor` 1e-12 `ReferenceDiagonal`^2 (scene; largest in the far-part mode, which needs a closed input with at most 64 components) | scene / largest | own component | yes, as in 6 | procedural: collapses the open small parts (v2: 314 triangles to 4, traced on one scene) |
 | 8 | `NotCleanReason` (public) degenerate area 1e-12 scene^2 | scene, by definition | option D (opt-in criterion next to it) | yes, as in 6 | column "own-component degeneracy" of section 3 |
 | 9 | Volume check: IoU >= 0.99 of the whole solid | scene volume | per part (a part below 1 % of the volume is invisible today) | no (sampling), but a per-part lost check is exact enough | part criterion of section 3 |
 | 10 | Lost-part check: closed parts of at least `MinComponentDiagonal` 1e-3 of the largest (`MeshRepairMetrics.cs:702`), only when row 3 fires; open components never | largest | every separable part (closed or open), judged against its own diagonal | -- | procedural: lets all 29 losses of 3.1 through |
@@ -62,7 +62,7 @@ parts, and nothing cheap fixes them inside one part.
 more parts; disparity inside one part is out of their reach) (`benchmarks/MeshRepairBenchmark/ScaleFreeProbe.cs` and `scale_free_study.py` on `runs/scale-free-study`; probe code
 only on that branch): R the library defaults; P every part of the box rule of option B stage 1 (closed components linked when their
 boxes meet; an open component makes the whole input one part) repaired by its own `MeshRobustRepair`, results appended; Q the same
-with every component (open ones too) linked by its box padded by 1e-3 of its own diagonal (an upper bound for stage 2); S / L the
+with every component (open ones too) linked by its box padded by 1e-3 of its own diagonal (an estimate for stage 2); S / L the
 relative tolerances of the repair stage (`RelativeRepairTolerance`, `RelativeMinEdgeLength`, row 5 only, still capped by 0.01 of
 the median edge) times 0.01 / 100, a global factor and not a local formulation; G solidify resolution 256; T the input translated by (5e5, 5e6, 0).
 P, Q and G rows are copied from R where they cannot differ (one part; no solidify). Components are those of
@@ -82,7 +82,7 @@ runners; 24 shards, timeout 600 s per mesh and configuration. Procedural: a unit
 size 2^-r (r = 4 .. 24) at distance 2^f (f = 2, 8, 16): v0 a clean box, v1 two overlapping boxes, v2 an open sphere; run locally
 (net10.0 Release, linux x64).
 
-## 3. Upper bound
+## 3. Measured gains (estimates of the upper bound)
 
 ### 3.1 Procedural scale disparity (54 scenes)
 
@@ -125,9 +125,10 @@ r=24 Tmx Tmx TD. Tmx nc  | Tmx Tmx TD. Tmx nc  | Tmx Tmx TD. Tmx nc
     (row 12; sw_v0_r16_f8 shows it is the tiny test, not the drift bound: its box diagonal 5.3e-5 is above the bound 3.5e-5, its
     area 5.6e-9 below 1e4 x 1e-12 x largest^2 = 1.2e-7). The lost-part check skips it (row 10).
   - **v2** (r = 4, f = 16): the input is open, so the far-part mode is off; `MeshAutoRepair`'s cleanup (row 7, relative to the scene)
-    collapses the small sphere from 320 triangles to 4, the rounding edits nothing (`ExactRoundingEdits` [0, 0] in all v2 losses at
-    f = 16), and the 4 triangles are gone after the post-resolve cleanup (row 13, not traced to the line). Open components are never
-    judged by the lost-part check.
+    collapses the small sphere from 314 triangles to 4, the rounding edits nothing (`ExactRoundingEdits` [0, 0], as at f = 16 for
+    r <= 16), and the 4 triangles are gone after the post-resolve cleanup (row 13, not traced to the line). In the other 9 v2 losses
+    the rounding does make edits (4 to 53), so it may take part there; not traced. The rounding's tiny-component removal and the
+    lost-part check skip open components.
   - **v1** r = 12 f = 8 and r = 16 f = 2: the far-part switch (row 3) does not fire, so no lost-part check runs.
   So no single change of one row removes all 29; reporting needs a lost-part check over every separable part (F1, section 6).
 - **P** (closed parts alone) keeps every closed part; **Q** (all components) keeps every part, open ones too: 54 / 54 without a
@@ -151,7 +152,7 @@ Run 44123357838 (24 shards, probe on master 86e94029), raw rows and summary in `
 | inputs with >= 2 components | 233 | 212 | 445 |
 | inputs with >= 2 parts, box rule (B stage 1) | 29 | 23 | 52 (misses among them: 9) |
 | inputs with >= 2 parts, padded rule (stage 2) | 68 | 65 | 133 (misses: 50) |
-| smallest part of a multi-part input (box rule), share of the scene diagonal | | | >= 0.084 in all 52 (smallest component inside them: 9.9e-5) |
+| smallest part of a multi-part input (box rule), share of the scene diagonal | | | >= 0.0846 in all 52 (smallest component inside them: 9.9e-5) |
 | far-part switch fires (row 3) | 125 | 109 | 234 |
 | ... with a triangle degenerate by the scene but not by its component | 31 | 26 | 57 |
 | far-part mode used (`FarPartsHandled`) | 10 | 5 | 15 |
@@ -230,7 +231,7 @@ ratio-based separation) are standard.
 | | What | Wins (measured) | Risk | Effort |
 |---|---|---|---|---|
 | F1 (report, the open owner decision) | A lost-part check over every separable part (Q's padded rule: closed and open components; a part judged against its own diagonal), run whether or not row 3 fires, reporting `LostFarPart` | the 29 silent losses of 3.1 become `Apply()` false (none is kept) | false reports where the repair rightly removes a separable speck (the floor of row 10 exists for those); the corpus count of true -> false flips decides | S |
-| F2 (prevent) | Per-part references in rows 7, 12 (tiny test, bound) and 13, and the far-part mode for open inputs | the 29 kept; Apply() stays false with `ScaleDisparity` while `NotCleanReason` is scene-relative (the D cells) | four stages; the comment at `MeshRoundingRepair.cs:899-912` records a regression when the area reference shrank before; a tighter bound rejects more edits, so more solidify / wrap fallbacks | M (about B1's cost, with less gain) |
+| F2 (prevent) | Per-part references in rows 7, 12 (tiny test, bound) and 13, and the far-part mode for open inputs | expected: the parts kept (Q keeps all 54; not measured for F2 itself); Apply() stays false with `ScaleDisparity` while `NotCleanReason` is scene-relative (the D cells) | four stages; the comment at `MeshRoundingRepair.cs:899-912` records a regression when the area reference shrank before; a tighter bound rejects more edits, so more solidify / wrap fallbacks | M (about B1's cost, with less gain) |
 | B1 | Part-wise repair, stage 1 (box rule, closed parts), scale-only frames, union verified exactly, merge on conflict (#547 5.2) | P column | merge loop, cost of one fallback per part | M |
 | B2 | Stage 2: open components by padded box | Q column | crack merging across parts: pieces closer than the padding are linked, farther ones never merged (today merged within 2e-8 scene) | M on top of B1 |
 | D | Opt-in criterion: degeneracy per own component | turns the "D" cells into true | a public status change (owner) | S |
@@ -245,9 +246,14 @@ half of an owner decision. Criteria, fixed now:
    every part of the padded box rule (components linked when their boxes padded by 1e-3 of their own diagonals meet; closed and
    open), and returns false with `LostFarPart` when no result triangle is within 25 % of a part's own diagonal of one of its sampled
    vertices. Independent of row 3 and of `MinVolumeIoU`; inputs with more than 4096 components are not checked (soups).
-   `NotCleanReason`, the rounding and the cleanups unchanged.
+   `NotCleanReason`, the rounding and the cleanups unchanged. Scope: on a single-part input (667 of the 800) F1 judges the whole input
+   against its own diagonal, so it is also a general check against silent success (it may flip the wrap results with IoU 0.07 to
+   0.53 of 3.2), not only a scale check; the corpus gate covers that.
 2. **Go** (open the bugfix PR) if all hold:
-   - on the 54 procedural scenes of 3.1, the 29 losses are false with `LostFarPart`, and the 25 other cells are unchanged;
+   - on the 54 procedural scenes of 3.1, the 28 losses where a whole part is gone are false with `LostFarPart`, and the 25 cells
+     without a loss are unchanged. The 29th (v1, r = 12, f = 8: one of two overlapping boxes lost inside one part, 25.5 % of the
+     part's diagonal against the 25 % threshold) is out of F1's scope by design: F1 judges parts, not components inside a part, and
+     its outcome there is no criterion;
    - on the 800 corpus meshes (R against F1, same workflow): at most 2 `Apply()` true -> false flips (counted from
      `apply_returned`, not from the strict criterion, which ignores it), the strict criterion unchanged on every mesh (F1 changes no
      mesh), no new timeout, wall time at most +2 %;
@@ -268,15 +274,16 @@ half of an owner decision. Criteria, fixed now:
    `runs/scale-free-study` measure such a cohort in one dispatch.
 2. **F1 as a bugfix** (section 6): it closes the open half of the owner's decision 2 of 2026-11-10 (the loss is reported). F2
    (keeping the parts) only on an owner decision.
-3. **Hard problem 9** in the roadmap: "study done, no-go for the larger effort; F1 open". The "183 misses" pointer came from an older
-   holdout run (benchmark README, section "Holdout selection": 217 repaired, before the exact resolve stage of 2026-10-25). On master 86e94029 the strict misses are 252 of 800 (123 of
+3. **Hard problem 9** in the roadmap: "study done, no-go for the larger effort; F1 open". The "183 misses" pointer is probably 400 - 217
+   of the holdout run of 2026-10-25, before the exact resolve stage (benchmark README, "Holdout selection"; the README does not
+   state 183 itself). On master 86e94029 the strict misses are 252 of 800 (123 of
    the first 400, 129 of the holdout). The scale oracles repair at most 5 of them.
 
 ## 8. Independent review
 
 An agent that got the diff, the raw rows and the code, not the author's reasoning, reviewed the first version (19 findings). Fixed:
-- F was wrong: it reached at most 16 of the 29 losses. 13 are open parts, which neither the rounding nor the lost-part check
-  touches; 2 have no far-part switch, so no check runs. Traced again (3.1, v2 path added); F split into F1 (report) and F2 (prevent),
+- F was wrong: it reached at most 16 of the 29 losses. 13 are open parts, which the rounding's tiny-component removal and the
+  lost-part check skip; 2 have no far-part switch, so no check runs. Traced again (3.1, v2 path added); F split into F1 (report) and F2 (prevent),
   with new criteria.
 - The v0 mechanism is the rounding's tiny test, not its drift bound (counterexample sw_v0_r16_f8).
 - F's corpus gate counted strict losses, which cannot see `Apply()` true -> false: it now counts the flips. The risks named in the

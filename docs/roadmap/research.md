@@ -598,12 +598,12 @@ Ordered by expected value for the library.
    - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
      effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
      component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
-     No input has a small separable part (box rule: all at least 8.4 % of the scene). Open: bugfix F1, report the loss (29 of 54
+     No input has a small separable part (box rule: all at least 8.46 % of the scene). Open: bugfix F1, report the loss (29 of 54
      procedural scenes lose a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
      for open inputs, the post-resolve cleanup).
    - The earlier pointer to "183 `robust` misses" is stale: on master 86e94029 the strict misses are 252 of 800 (first 123, holdout
-     129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 was an older holdout run, before the exact
-     resolve stage.)
+     129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 is probably 400 - 217 of the holdout run of
+     2026-10-25, before the exact resolve stage.)
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
