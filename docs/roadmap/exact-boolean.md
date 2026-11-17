@@ -761,6 +761,15 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
   after the conversion to doubles (degenerate triangles).
 - **T6 is closed.** The remaining gap at 12 threads, about 1.4x summed, is in the range of the rounding, which CGAL
   does not do (without it, 1.14x).
+- **Geogram, measured (2026-11-17; [GEOGRAM_BOOLEAN_COMPARISON_2026-11.md](../research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md)).**
+  Ours against the public Geogram 1.10.2 (`mesh_boolean_operation`, BSD-3, built without Triangle and TetGen) on GitHub
+  runners.
+  - T6: median ratio ours / Geogram 0.36 at 1 thread and 0.46 at 4 cores. Volumes agree on all 294 operations. Ours 294
+    of 294 clean; Geogram leaves degenerate triangles in 42.
+  - ABC chains: Geogram fails its radial sort on 46-49 of the later steps (27 of about 31 ulp-shift placements); ours has
+    no failure.
+  - Lead: step 3 of the chains (operands that share A's surface), where ours is 1.1-2.2x slower than Geogram and than
+    CGAL. Not diagnosed.
 
 **Triage of the research ideas.**
 
