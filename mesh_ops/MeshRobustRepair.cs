@@ -355,8 +355,9 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
-        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
-        /// unclean solidify result (when the wrap is off or failed): check ResultReason.
+        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. Also false with
+        /// LostFarPart, the result in Mesh, if a separable part of the input is not in the result (MeshRobustRepairLostParts: judged against
+        /// the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
