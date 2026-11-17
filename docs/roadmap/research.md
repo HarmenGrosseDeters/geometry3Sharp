@@ -205,7 +205,7 @@ Part of the [roadmap](../ROADMAP.md).
      #741 (2026-11-13, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
      `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
      oracle).
-  Then: quad remeshing (L, licences to check), feature-preserving offsets
+  Then: quad remeshing (L; feasibility study and staged plan 2026-11-17: [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
@@ -320,7 +320,7 @@ in the tool project.
   quad split (#800). A2 (topology certificate) shelved 2026-11-13 after the probe (design note section 11: certified
   share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
   #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
-- Quad remeshing (Instant Meshes 2015, QuadWild 2021)
+- Quad remeshing (Instant Meshes 2015, QuadWild 2021): study and plan in [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
