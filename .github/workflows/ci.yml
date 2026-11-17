@@ -146,6 +146,7 @@ jobs:
           python3 benchmarks/MeshRepairBenchmark/test_alpha_defaults.py
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_contact.py' -v
+          python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_imprint.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_abc_chained.py' -v
           python3 -m unittest discover -s benchmarks/net48-compare -p 'test_report.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_t6.py' -v

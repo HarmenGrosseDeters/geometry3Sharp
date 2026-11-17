@@ -18,6 +18,10 @@
 # Each run gets a status: ok, rejected (the tool refuses the input), failed (the tool reports a failure on an
 # accepted input), crash (abnormal termination), timeout.
 # Tool locations: environment variables CGAL_BOOL, CHERCHI_BOOL, MANIFOLD_PYTHON (see README.md).
+# The imprint methods (README.md, "Imprint: ExactMeshImprint against MeshMeshCut"): exact_imprint and float_cut run the operations
+# a_by_b and b_by_a (the curves of B cut into A, and of A into B), exact_union and float_union the operation union; the tool reports
+# the checks of the result itself (BooleanComparison imprint), so eval is not run for them. A thrown exception is the status
+# exception.
 import argparse, json, os, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -26,11 +30,17 @@ here = os.path.dirname(os.path.abspath(__file__))
 tool = ["dotnet", os.environ.get("BOOLCMP_TOOL", os.path.join(here, "bin/Release/net10.0/BooleanComparison.dll"))]
 manifold = [os.environ.get("MANIFOLD_PYTHON", "python3"), os.path.join(here, "external/manifold_bool.py")]
 OPS = ["union", "intersection", "difference"]
+IMPRINT_OPS = {"exact_imprint": ["a_by_b", "b_by_a"], "float_cut": ["a_by_b", "b_by_a"], "exact_union": ["union"], "float_union": ["union"]}
+
+def ops_of(method):
+    return IMPRINT_OPS.get(method, OPS)
 # error messages of the tools that mean: the input is refused (not a failure on an accepted input)
 REJECT = ["input not closed", "input self-intersects", "does not bound a volume", "read failed", "input not manifold",
           "input meshes must be closed", "non-finite coordinates", "invalid_input"]
 
 def commands(method, op, a, b, out):
+    if method in IMPRINT_OPS:
+        return tool + ["imprint", a, b, method, op]
     if method == "ours":
         return tool + ["run", a, b, op, out + ".off"]
     if method in ("cgal_epick", "cgal_epeck"):
@@ -45,6 +55,8 @@ def status_of(res, returncode):
     if res.get("ok"):
         return "ok"
     err = str(res.get("error") or "")
+    if res.get("exception"):
+        return "exception"
     if any(s in err for s in REJECT):
         return "rejected"
     # a tool that ends normally and reports why is a failure; a signal, an exception or exit code without a
@@ -174,16 +186,18 @@ def run_sequence(method, request, d, timeout):
     return res
 
 def evaluate(d, methods, case, info, runs, ops):
-    ev = subprocess.run(tool + ["eval", d], capture_output=True, text=True, timeout=3600)
     evals = {}
-    for line in ev.stdout.splitlines():
+    # the imprint methods report their checks themselves
+    lines = subprocess.run(tool + ["eval", d], capture_output=True, text=True, timeout=3600).stdout.splitlines() \
+        if any(m not in IMPRINT_OPS for m in methods) else []
+    for line in lines:
         if line.startswith("{"):
             r = json.loads(line)
             evals[r["method"]] = r
     rows = []
     for m in methods:
-        r = {"class": case["class"], "file": case["name"], "method": m, "ops": ops, "input": info}
-        for op in ops:
+        r = {"class": case["class"], "file": case["name"], "method": m, "ops": ops_of(m) if ops is OPS else ops, "input": info}
+        for op in r["ops"]:
             for k, v in runs[m][op].items():
                 r[f"{op}_{k}"] = v
         r.update({k: v for k, v in evals.get(m, {}).items() if k not in ("file", "method")})
@@ -222,7 +236,7 @@ def process(case, methods, timeout):
             info = json.loads(e.stdout.strip().splitlines()[-1])
             if "error" in info:
                 raise RuntimeError(info["error"])
-        runs = {m: {op: run_one(m, op, d, timeout) for op in OPS} for m in methods}
+        runs = {m: {op: run_one(m, op, d, timeout) for op in ops_of(m)} for m in methods}
         return evaluate(d, methods, case, info, runs, OPS)
     except Exception as ex:
         return [{"class": case["class"], "file": case["name"], "method": "export", "error": repr(ex)}]

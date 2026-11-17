@@ -6,6 +6,9 @@ name: Thingi10K contact pairs
 # manifold (the Python package manifold3d, Apache-2.0) and CGAL EPECK, each as a black box on a GitHub-hosted runner
 # (cgal_bool.cpp, the repo's own driver, is built against the runner's libcgal-dev; GPL, the binary is not distributed; no
 # CGAL source is read or ported). One job per variant. Raw rows go to the data branch runs/thingi-contact. No mesh is committed.
+# mode imprint (README.md, "Imprint: ExactMeshImprint against MeshMeshCut"): ExactMeshImprint against the float MeshMeshCut, and
+# ExactMeshBoolean against the float MeshBoolean (union), on the contact variants and on shards of thingi-pairs/pairs.csv (the
+# baseline: pairs-<k> is pairs [k * baseline_shard, (k + 1) * baseline_shard)); no external tool.
 on:
   workflow_dispatch:
     inputs:
@@ -16,8 +19,16 @@ on:
         description: 'Pairs per variant (a prefix of thingi-pairs/contact_pairs.csv)'
         default: '30'
       timeout_s:
-        description: 'Timeout per boolean in seconds'
+        description: 'Timeout per boolean (per imprint operation) in seconds'
         default: '300'
+      mode:
+        description: 'boolean (ours, manifold, CGAL EPECK) or imprint (exact against float imprint and union, with the thingi-pairs baseline)'
+        type: choice
+        options: [boolean, imprint]
+        default: boolean
+      baseline_shard:
+        description: 'imprint mode: pairs of thingi-pairs/pairs.csv per baseline job (4 jobs)'
+        default: '250'
 
 permissions:
   contents: read
@@ -35,8 +46,9 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 6
       matrix:
-        variant: [face-contact, partial-overlap, ulp-shift, ulp-shift-few, mirror]
+        variant: ${{ fromJSON(inputs.mode == 'imprint' && '["pairs-0", "pairs-1", "pairs-2", "pairs-3", "face-contact", "partial-overlap", "ulp-shift", "ulp-shift-few", "mirror"]' || '["face-contact", "partial-overlap", "ulp-shift", "ulp-shift-few", "mirror"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +63,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Build cgal_bool (CGAL from apt, used as a black box) and install manifold3d
+        if: inputs.mode != 'imprint'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q libcgal-dev libgmp-dev libmpfr-dev
@@ -65,17 +78,27 @@ jobs:
           git -C lib rev-parse HEAD > lib_sha.txt
           git -C scripts rev-parse HEAD >> lib_sha.txt
           nproc >> lib_sha.txt
-          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
-          python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
+          if [ "${{ inputs.mode }}" != imprint ]; then
+            dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
+            python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
+          fi
       - name: Case set and models
         env:
           PAIRS: ${{ inputs.pairs_per_variant }}
+          SHARD: ${{ inputs.baseline_shard }}
           VARIANT: ${{ matrix.variant }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/thingi_contact.py fetch data --limit "$PAIRS" --variants "$VARIANT"
-          python3 $S/data/thingi_contact.py manifest data cases.jsonl --limit "$PAIRS" --variants "$VARIANT"
-      - name: Run ours, manifold and CGAL EPECK
+          case "$VARIANT" in
+            pairs-*)
+              k=${VARIANT#pairs-}
+              python3 $S/data/thingi_imprint.py fetch-pairs data $((k * SHARD)) $(((k + 1) * SHARD))
+              python3 $S/data/thingi_imprint.py manifest-pairs data cases.jsonl $((k * SHARD)) $(((k + 1) * SHARD)) ;;
+            *)
+              python3 $S/data/thingi_contact.py fetch data --limit "$PAIRS" --variants "$VARIANT"
+              python3 $S/data/thingi_contact.py manifest data cases.jsonl --limit "$PAIRS" --variants "$VARIANT" ;;
+          esac
+      - name: Run ours, manifold and CGAL EPECK (mode boolean) or the imprint methods (mode imprint)
         env:
           CGAL_BOOL: ${{ github.workspace }}/cgal_bool
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
@@ -83,12 +106,14 @@ jobs:
           VARIANT: ${{ matrix.variant }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/compare.py cases.jsonl "results-$VARIANT.jsonl" --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT" -j 1 --resume
+          if [ "${{ inputs.mode }}" = imprint ]; then M=exact_imprint,float_cut,exact_union,float_union; else M=ours,manifold,cgal_epeck; fi
+          python3 $S/compare.py cases.jsonl "results-$VARIANT.jsonl" --methods "$M" --timeout "$TIMEOUT" -j 1 --resume
       - name: Report
         if: always()
         run: |
           set -o pipefail
-          python3 scripts/benchmarks/BooleanComparison/data/thingi_contact.py summary results-${{ matrix.variant }}.jsonl | tee report-${{ matrix.variant }}.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ inputs.mode }}" = imprint ]; then T=thingi_imprint; else T=thingi_contact; fi
+          python3 scripts/benchmarks/BooleanComparison/data/$T.py summary results-${{ matrix.variant }}.jsonl | tee report-${{ matrix.variant }}.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -112,7 +137,8 @@ jobs:
       - name: Table of all variants
         run: |
           set -o pipefail
-          python3 benchmarks/BooleanComparison/data/thingi_contact.py summary art/*/results-*.jsonl | tee table.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ inputs.mode }}" = imprint ]; then T=thingi_imprint; else T=thingi_contact; fi
+          python3 benchmarks/BooleanComparison/data/$T.py summary art/*/results-*.jsonl | tee table.md >> "$GITHUB_STEP_SUMMARY"
       - name: Raw rows to runs/thingi-contact
         run: |
           d=$(mktemp -d)
@@ -132,5 +158,5 @@ jobs:
           cp "$RUNNER_TEMP/table.md" "run-$GITHUB_RUN_ID/table.md"
           git add .
           git diff --cached --quiet && exit 0
-          git commit -q -m "Thingi10K contact pairs run $GITHUB_RUN_ID"
+          git commit -q -m "Thingi10K contact pairs run $GITHUB_RUN_ID (${{ inputs.mode }})"
           git push origin runs/thingi-contact
