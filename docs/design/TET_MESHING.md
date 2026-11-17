@@ -726,3 +726,108 @@ The stage-2 target (p01 >= 10 and min >= 1 degree on every mesh of the subset) i
 the boundary vertices in their tangent planes, is the conservative option (switch `BoundaryMovesTangentOnly`, and
 `BoundarySlideFactor` = 0.25) and misses one mesh (839690, p01 8.57). Face removal is tested (a constructed 2-3 case) but was never
 an improvement on the subset; edge removal (3.3k) and smoothing (2.2k interior, boundary moves) do the work.
+
+## 16. The dihedral floor: diagnosis and the lever (2026-11-17)
+
+Target (owner, research.md item 5): every tet >= 10 degrees on 100 % of the 40-mesh subset. At the start (master d1b86232, one
+process at a time, 4-core cloud container): 17 of 40 have every tet >= 10 degrees, all 40 have p01 >= 10 degrees, 361 tets
+below 10 degrees in all, the worst 3.17 degrees (839690).
+
+### 16.1 Diagnosis: where the 361 tets are, what shape, why stage 2 stops
+
+`TetMeshImprover.Diagnose()` (internal; `MeshTetrahedralization.DiagnoseImprovement`, benchmark `G3_TET_DIAG=1`) classifies every
+tet left below 10 degrees after stage 2 and tries every operation on it side-effect free (dry run), recording why each one fails.
+Shapes after S.-W. Cheng et al., *Sliver exudation* (J. ACM 2000, fig. 1): sliver (no short edge, no vertex over the opposite
+face), cap (a vertex over the opposite face's interior), needle and wedge (a short edge, shortest / longest < 0.3; wedge with two
+small angles).
+
+| Finding (the 361 tets of the 23 meshes that miss it) | count |
+|---|---|
+| **shape**: needle / wedge (a short edge) / sliver / cap | **196 / 139** / 25 / 1 |
+| the short edge of the needles and wedges: a boundary edge / boundary vertex to interior vertex / chord between two boundary vertices / interior | **168** / 98 / 60 / 9 |
+| **touch the boundary**: by a facet (one / two) / by an edge only / by a vertex only / not at all | 181 / 59 / 102 / 19 / **0** |
+| an operation would still succeed (the 20-pass cap of stage 2 stopped it) | 142 |
+| boundary vertex moves: no step improves / cap used up / refused by the exact input test / by the self-intersection test | **760** / 138 / 12 / 0 (per vertex) |
+| edge removal: boundary edge / ring > 8 / best ring triangulation not better | 1001 / 13 / 1151 (per edge) |
+
+So **every tet left touches the boundary, and the exact surface invariants are almost never the reason**: input refusals 12, self
+intersections none. The blockers are local optima of the hill climbing on needles and wedges whose short edge is a wrap surface
+edge (3-10 offsets) next to interior edges of about 50 offsets (one to two alpha): a size jump at the boundary that a fixed surface
+triangulation cannot grade. Probes (rows not kept, all invariants checked):
+
+| Probe (all 40) | every tet >= 10 degrees | worst |
+|---|---|---|
+| stage 2 as it is | 17 | 3.17 |
+| 500 passes instead of 20 | 20 | 3.17 (hill climbing creeps, the optima are real) |
+| stage-1 size bound 15 / 6 offsets (`MaxCircumradius`, uniform) | no change on the four worst; at 6 offsets 6.5x the tets | 4.12 on 113956 unchanged |
+| edge contraction (an end of a short edge into the other end) | 18 | 3.18 |
+| **edge splits with roll-back (16.2)** | **31** (20 passes), **35** (100 passes) | 6.56 |
+| edge splits + contraction, 50 passes | **38** | 7.64 |
+
+- Interior refinement does not reach these tets: inserting near the surface is refused (the point's cavity reaches an outside cell),
+  so a finer interior leaves the boundary layer as it is.
+- Contraction of the short boundary edges is refused by the slide cap on all of them (173 in that run; the edge is 3-10 offsets,
+  the cap 0.5 offsets);
+  only contractions of an interior vertex into a neighbour take place, so contraction is kept for interior vertices only (16.2).
+- The surface triangulation, not its geometry, is the lock: splitting boundary edges **in place** (the boundary as a point set does
+  not move) refines the boundary layer and frees the hill climbing.
+
+Sliver exudation (Cheng et al. 2000) and perturbation (Tournois, Srinivasan, Alliez 2009) target slivers of a Delaunay
+triangulation; 25 of the 361 are slivers and none is interior, so neither reaches the bulk (upper bound <= 25 tets, and both would
+have to act on a fixed, non-Delaunay boundary layer). 14.4's recommendation (no exudation) stands.
+
+### 16.2 The lever: vertex insertion by edge splits, and interior edge contraction (stage 2)
+
+After Klingner and Shewchuk 2007 (vertex insertion with roll-back; paper only) with a simpler insertion: for a tet still below 10
+degrees after edge removal and face removal, in `TetMeshImprover`:
+
+- **Edge contraction** (`ContractEdges`, edges shortest first, both directions): an interior vertex u merged into a neighbour w (w
+  keeps its position, the boundary does not change) under the link condition of T. K. Dey, H. Edelsbrunner, S. Guha, D. V. Nekhayev,
+  *Topology preserving edge contraction* (1999), every new tet exactly positive and the smallest dihedral angle of u's star raised.
+- **Edge split** (`SplitEdges`, edges longest first): the edge's midpoint m becomes a vertex, each tet around the edge is cut in two.
+  A boundary edge is split in place: its two boundary triangles become four in the same planes (up to the rounding of m); the flat
+  tet (a, b, c, m) of each old triangle is checked exactly against the input (`TetTouchesMesh`) and the four new triangles against the
+  other boundary triangles (exact, as boundary moves). Then the new vertex is smoothed (8 steps; boundary moves with all their exact
+  checks for a boundary vertex) and the edges at it get edge removal. The split is kept only if the smallest dihedral angle of all
+  tets at the edge's ring vertices strictly increases; otherwise it is undone exactly (journal of tets and boundary triangles;
+  test: the result is bit for bit the one before). A failed split is not retried until a vertex of its tet's 1-ring changes.
+- Order per tet: edge removal, face removal, contraction, split, smoothing, boundary moves; at most 50 passes (`ImprovePasses`,
+  was 20). Splits before smoothing measured better (31 against 21 of 40 at 20 passes): smoothing first spends the slide budget.
+
+What holds, by construction: every tet exactly positive; the boundary closed and 2-manifold (contractions leave it as it is, splits
+replace two triangles by four in place); free of self-intersections and the input strictly inside it (the exact checks); the smallest
+dihedral angle of the mesh never decreases (every operation raises the minimum of the tets it changes). The slide cap: a split
+vertex's cap is measured from the midpoint of its edge's first positions, which lies on the wrap (boundary edges are only ever
+split, so each lies in one wrap triangle), minus a margin for that midpoint's rounding, so every boundary vertex stays within
+`BoundarySlideFactor` offsets of the wrap surface (the margin was needed: at UTM coordinates the vertex was 0.5000061 offsets out,
+test `Similarity_ValidAndPow2ScalesBitForBit`). Scale-free and serial: 2^k scalings give the same mesh bit for bit (tested).
+
+### 16.3 Result on the 40-mesh subset (one process at a time; rows `results/thingi10k-subset-stage2-{master,splits}-2026-11-17.csv`)
+
+| Measure (40 meshes) | master (stage 2) | with splits and contractions (default) |
+|---|---|---|
+| valid (exact), boundary without self-intersection | 40 / 40, 40 / 40 | 40 / 40, 40 / 40 |
+| **every tet >= 10 degrees** | 17 | **37** |
+| p01 >= 10 degrees / smallest >= 1 degree | 39 / 40 | 40 / 40 |
+| tets below 10 degrees, all meshes | 361 | 47 |
+| worst smallest dihedral / median | 3.17 / 9.57 | 6.40 (839690) / 10.02 |
+| tets, median / max | 4.4k / 17.0k | 4.4k / 17.6k |
+| time (wrap, refinement, improvement), median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.74 s / 11.0 s / 47.9 s |
+| refinement + improvement per tet, median | 55 us | 73 us |
+| splits / contractions, all meshes | | 2061 / 490 |
+
+Left: 839690 (6.40 degrees, 5.4 s instead of 1.6 s: most split attempts there fail), 113956 (9.9), 46460 (9.1). In probes
+113956 reached 10.0 (the trajectory depends on the caps), and 46460 reaches 10.01 with a slide cap of one offset; 839690 stays
+below 8 degrees in every variant tried (needles on short boundary edges with rings of more than 8 tets around their long edges).
+
+`dev_out_max_rel` (boundary vertices to the input) rises from 0.0025 to 0.050 of the diagonal: a sampling effect, not a moved
+surface. The split vertices lie on the wrap's triangles, and the wrap's edge midpoints are already 0.050 of the diagonal from the
+input on master (alpha = diagonal / 20 in concave places); master's vertex sample saw only the wrap vertices (one offset away).
+The boundary itself stays within 0.5 offsets of the wrap surface, as before.
+
+Time: T5 (25 us per tet) was already missed by stage 2 on master (median 55 us); this adds a third. Not done: the per-attempt cost
+of a split on meshes like 839690 (smoothing with the exact checks dominates).
+
+Owner decisions: (1) the default: `SplitEdges` and `ContractEdges` on, `ImprovePasses` 50 (this PR; the output of
+`MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last three meshes: accept
+37 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).

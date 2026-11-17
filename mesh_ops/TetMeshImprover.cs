@@ -27,7 +27,7 @@ namespace gs
         readonly List<bool> alive = new List<bool>();
         readonly List<List<int>> vtets;
         readonly HashSet<(int, int, int)> boundaryFaces = new HashSet<(int, int, int)>();
-        readonly bool[] boundaryVertex;
+        readonly List<bool> boundaryVertex;
         readonly Stack<int> free = new Stack<int>();
         internal readonly Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> tets with a smallest dihedral angle below this are worked on </summary>
@@ -50,13 +50,13 @@ namespace gs
             pos = new List<Vector3d>(m.Vertices);
             vtets = new List<List<int>>(pos.Count);
             for (int i = 0; i < pos.Count; ++i) vtets.Add(new List<int>());
-            boundaryVertex = new bool[pos.Count];
+            boundaryVertex = new List<bool>(new bool[pos.Count]);
             foreach (Index3i f in m.BoundaryTriangles) {
                 boundaryFaces.Add(key(f.a, f.b, f.c));
                 boundaryVertex[f.a] = boundaryVertex[f.b] = boundaryVertex[f.c] = true;
             }
             foreach (Index4i t in m.Tets) add_tet(t);
-            foreach (string k in new[] { "edge_removals", "face_removals", "smooth_moves", "boundary_moves", "boundary_refused_input", "boundary_refused_self", "passes" })
+            foreach (string k in new[] { "edge_removals", "face_removals", "smooth_moves", "boundary_moves", "boundary_refused_input", "boundary_refused_self", "passes", "contractions", "insertions", "split_refused_input" })
                 Counts[k] = 0;
             orig = new List<Vector3d>(pos);
             bfaces = new List<Index3i>(m.BoundaryTriangles);
@@ -122,21 +122,31 @@ namespace gs
             return (a, b, c);
         }
 
+        // undo journal of a split: tets added (id) and removed (id, tet)
+        List<(int id, Index4i t, bool added)> tetLog;
+
+        // per vertex: bumped whenever a tet at the vertex is added or removed, or the vertex moves (memo of failed operations)
+        readonly List<int> ver = new List<int>();
+        int ver_of(int v) { while (ver.Count <= v) ver.Add(0); return ver[v]; }
+        void bump(int v) { while (ver.Count <= v) ver.Add(0); ver[v]++; }
+
         int add_tet(Index4i t)
         {
             int id;
             if (free.Count > 0) { id = free.Pop(); tets[id] = t; alive[id] = true; }
             else { id = tets.Count; tets.Add(t); alive.Add(true); }
-            for (int i = 0; i < 4; ++i) vtets[t[i]].Add(id);
+            for (int i = 0; i < 4; ++i) { vtets[t[i]].Add(id); bump(t[i]); }
+            tetLog?.Add((id, t, true));
             return id;
         }
 
         void remove_tet(int id)
         {
             Index4i t = tets[id];
-            for (int i = 0; i < 4; ++i) vtets[t[i]].Remove(id);
+            for (int i = 0; i < 4; ++i) { vtets[t[i]].Remove(id); bump(t[i]); }
             alive[id] = false;
             free.Push(id);
+            tetLog?.Add((id, t, false));
         }
 
         /// <summary> smallest dihedral angle in degrees; -1 if not exactly positively oriented </summary>
@@ -157,9 +167,15 @@ namespace gs
 
         internal void Run()
         {
-            for (int pass = 0; pass < MaxPasses && !CancelF(); ++pass) {
+            hill_climb(MaxPasses);
+            classify_left();
+        }
+
+        void hill_climb(int maxPasses)
+        {
+            for (int pass = 0; pass < maxPasses && !CancelF(); ++pass) {
                 Counts["passes"]++;
-                long before = Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"];
+                long before = Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count();
                 // the bad tets, worst first (ids for ties: deterministic)
                 var bad = new List<(double q, int id)>();
                 for (int id = 0; id < tets.Count; ++id)
@@ -170,8 +186,14 @@ namespace gs
                     if (!alive[id] || quality(id) >= TargetDegrees) continue;
                     improve(id);
                 }
-                if (Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] == before) break;
+                if (Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count() == before) break;
             }
+        }
+
+        long ins_count() { return (Counts.TryGetValue("insertions", out long a) ? a : 0) + (Counts.TryGetValue("contractions", out long b) ? b : 0); }
+
+        void classify_left()
+        {
             // what is left, by the number of boundary vertices and boundary facets
             for (int id = 0; id < tets.Count; ++id) {
                 if (!alive[id] || quality(id) >= TargetDegrees) continue;
@@ -186,15 +208,149 @@ namespace gs
             }
         }
 
+        // ---- diagnosis (docs/design/TET_MESHING.md section 16): why the tets left below the target stay there ----
+
+        bool dry;
+        double lastDp;
+        string lastContract;
+        string lastFace, lastBoundary;
+        /// <summary> (diagnosis) one line per tet left below TargetDegrees after Diagnose() </summary>
+        internal readonly List<string> DiagnosticLines = new List<string>();
+
+        /// <summary>
+        /// (diagnosis) for every tet left below TargetDegrees: its shape, how it touches the boundary, and why each operation fails
+        /// on it (side-effect free: the operations run with dry set). Adds "diag_*" counts.
+        /// </summary>
+        internal void Diagnose()
+        {
+            var bedges = new HashSet<(int, int)>();
+            foreach (Index3i f in bfaces) for (int j = 0; j < 3; ++j) { int a = f[j], b = f[(j + 1) % 3]; bedges.Add(a < b ? (a, b) : (b, a)); }
+            if (InputTree != null && BoundarySlideLimit > 0 && cell == 0) build_grid();
+            dry = true;
+            var snapshot = new Dictionary<string, long>(Counts);
+            var add = new Dictionary<string, long>();
+            Action<string> inc = (k) => add[k] = (add.TryGetValue(k, out long x) ? x : 0) + 1;
+            for (int id = 0; id < tets.Count; ++id) {
+                if (!alive[id]) continue;
+                double q = quality(id);
+                if (q >= TargetDegrees) continue;
+                Index4i t = tets[id];
+                int nv = 0, nf = 0, ne = 0;
+                for (int i = 0; i < 4; ++i) {
+                    if (boundaryVertex[t[i]]) nv++;
+                    if (boundaryFaces.Contains(key(t[Delaunay3.FacetIndices[i, 0]], t[Delaunay3.FacetIndices[i, 1]], t[Delaunay3.FacetIndices[i, 2]]))) nf++;
+                }
+                for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) { int a = t[i], b = t[j]; if (bedges.Contains(a < b ? (a, b) : (b, a))) ne++; }
+                string touch = nf > 0 ? "facet" + nf : ne > 0 ? "edge" + ne : nv > 0 ? "vertex" + nv : "interior";
+                string shape = Shape(pos[t.a], pos[t.b], pos[t.c], pos[t.d]);
+                inc("diag_touch_" + touch); inc("diag_shape_" + shape);
+                // the shortest edge: boundary edge, chord between two boundary vertices, or with an interior end; ratio to the longest
+                int sa = -1, sb = -1; double smin = double.MaxValue, smax = 0;
+                for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) { double l = pos[t[i]].Distance(pos[t[j]]); smax = Math.Max(smax, l); if (l < smin) { smin = l; sa = t[i]; sb = t[j]; } }
+                string sk = bedges.Contains(sa < sb ? (sa, sb) : (sb, sa)) ? "bedge" : boundaryVertex[sa] && boundaryVertex[sb] ? "chord" : boundaryVertex[sa] || boundaryVertex[sb] ? "mixed" : "inner";
+                if (shape == "needle" || shape == "wedge") {
+                    inc("diag_short_" + sk);
+                    if (Contraction) {
+                        try_contract(sa, sb); string r1 = lastContract; try_contract(sb, sa); string r2 = lastContract;
+                        inc("diag_contract_" + sk + "_" + (string.CompareOrdinal(r1, r2) < 0 ? r1 + "_" + r2 : r2 + "_" + r1));
+                        if (BoundarySlideLimit > 0) shape += "/short_in_caps:" + (smin / BoundarySlideLimit).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "/long_in_caps:" + (smax / BoundarySlideLimit).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                }
+                shape += "/" + sk + ":" + (smin / smax).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                // operations, as improve() would try them
+                var why = new List<string>();
+                bool can = false;
+                for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) {
+                    int a = t[i], b = t[j];
+                    bool be = bedges.Contains(a < b ? (a, b) : (b, a));
+                    lastDp = double.NaN;
+                    if (try_edge_removal(a, b)) { can = true; why.Add("E+"); continue; }
+                    int m = 0; foreach (int k in vtets[a]) if (idx2(tets[k], b)) m++;
+                    string r = be ? "Eb" : m > MaxRing ? "Er" + m : double.IsNaN(lastDp) ? "Eo" : "Ed" + m + ":" + lastDp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                    why.Add(r); inc("diag_edge_" + (r.StartsWith("Ed") ? "dp_not_better" : r.StartsWith("Er") ? "ring_too_large" : r == "Eb" ? "boundary_edge" : "open_ring"));
+                }
+                for (int i = 0; i < 4; ++i) {
+                    lastFace = "boundary";
+                    if (try_face_removal(id, i)) { can = true; why.Add("F+"); continue; }
+                    why.Add("F" + lastFace[0]); inc("diag_face_" + lastFace);
+                }
+                for (int i = 0; i < 4; ++i) {
+                    int v = t[i];
+                    if (!boundaryVertex[v]) {
+                        if (try_smooth(v)) { can = true; why.Add("S+"); continue; }
+                        why.Add("Si"); inc("diag_smooth_interior_not_better");
+                    } else if (InputTree != null && BoundarySlideLimit > 0) {
+                        if (try_smooth_boundary(v)) { can = true; why.Add("B+"); continue; }
+                        why.Add("B:" + lastBoundary); inc("diag_boundary_" + lastBoundary);
+                    }
+                }
+                if (can) inc("diag_still_improvable");
+                DiagnosticLines.Add(q.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " " + shape + " " + touch + " v" + nv + " " + string.Join(" ", why));
+            }
+            dry = false;
+            Counts.Clear();
+            foreach (var kv in snapshot) Counts[kv.Key] = kv.Value;
+            foreach (var kv in add) Counts[kv.Key] = kv.Value;
+        }
+
+        /// <summary>
+        /// (diagnosis) the shape class of a bad tet after Cheng, Dey, Edelsbrunner, Facello, Teng 2000 (fig. 1): "sliver" (no short
+        /// edge, no vertex over the opposite face's interior), "cap" (a vertex projects into the opposite face), "wedge" / "needle"
+        /// (a short edge: shortest / longest below 0.3; wedge with at least two small dihedral angles)
+        /// </summary>
+        internal static string Shape(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            Vector3d[] p = { a, b, c, d };
+            double lmin = double.MaxValue, lmax = 0;
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) { double l = p[i].Distance(p[j]); lmin = Math.Min(lmin, l); lmax = Math.Max(lmax, l); }
+            Vector3d n0 = (c - b).Cross(d - b), n1 = (d - a).Cross(c - a), n2 = (b - a).Cross(d - a), n3 = (c - a).Cross(b - a);
+            Vector3d[] n = { n0, n1, n2, n3 };
+            int small = 0;
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) if (dih(n[i], n[j]) < 10) small++;
+            if (lmin < 0.3 * lmax) return small >= 2 ? "wedge" : "needle";
+            for (int i = 0; i < 4; ++i) {
+                // project p[i] onto the plane of the opposite face; inside its triangle?
+                Vector3d u = p[Delaunay3.FacetIndices[i, 0]], v = p[Delaunay3.FacetIndices[i, 1]], w = p[Delaunay3.FacetIndices[i, 2]];
+                Vector3d nn = (v - u).Cross(w - u);
+                double nl2 = nn.LengthSquared; if (!(nl2 > 0)) continue;
+                Vector3d x = p[i] - ((p[i] - u).Dot(nn) / nl2) * nn;
+                double s0 = (v - u).Cross(x - u).Dot(nn), s1 = (w - v).Cross(x - v).Dot(nn), s2 = (u - w).Cross(x - w).Dot(nn);
+                if (s0 > 0 && s1 > 0 && s2 > 0) return "cap";
+            }
+            return "sliver";
+        }
+
+        // ---- test hooks ----
+
+        /// <summary> (tests) accept splits and contractions that pass the exact checks, whatever the quality </summary>
+        internal bool IgnoreQualityForTest = false;
+        /// <summary> (tests) the split point of an edge instead of its midpoint, to reach the exact checks that guard the rounding </summary>
+        internal Func<Vector3d, Vector3d, Vector3d> SplitPointForTest;
+        /// <summary> (tests) the split of edge (a, b) as the improvement would try it </summary>
+        internal bool TrySplit(int a, int b) { if (InputTree != null && BoundarySlideLimit > 0 && cell == 0) build_grid(); return try_split(a, b); }
+        /// <summary> (tests) the contraction of u into w as the improvement would try it </summary>
+        internal bool TryContract(int u, int w) { return try_contract(u, w); }
+        /// <summary> (tests) the link condition of edge (u, w) for an interior u </summary>
+        internal bool LinkCondition(int u, int w) { return link_ok(u, w); }
+        internal bool IsBoundaryVertex(int v) { return boundaryVertex[v]; }
+        internal bool IsBoundaryEdge(int a, int b) { return is_bedge(a, b); }
+        internal int VertexCount => pos.Count;
+        /// <summary> (tests) the alive tets </summary>
+        internal List<Index4i> AliveTets() { var r = new List<Index4i>(); for (int id = 0; id < tets.Count; ++id) if (alive[id]) r.Add(tets[id]); return r; }
+        /// <summary> (tests) the neighbours of v </summary>
+        internal SortedSet<int> Neighbours(int v) { var r = new SortedSet<int>(); foreach (int id in vtets[v]) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (t[i] != v) r.Add(t[i]); } return r; }
+
         void improve(int id)
         {
             Index4i t = tets[id];
-            // edges, face removals, then smoothing of its interior vertices
+            // edges, face removals, contractions, splits, then smoothing of its interior vertices and moves of its boundary vertices
             for (int i = 0; i < 4; ++i)
                 for (int j = i + 1; j < 4; ++j)
                     if (alive[id] && tets[id] == t && try_edge_removal(t[i], t[j])) return;
             for (int i = 0; i < 4; ++i)
                 if (alive[id] && tets[id] == t && try_face_removal(id, i)) return;
+            if (Contraction && alive[id] && tets[id] == t && try_contract_tet(id)) return;
+            if (Insertion && alive[id] && tets[id] == t && try_split_tet(id)) return;
             for (int i = 0; i < 4; ++i)
                 if (alive[id] && tets[id] == t && !boundaryVertex[t[i]] && try_smooth(t[i])) return;
             if (InputTree != null && BoundarySlideLimit > 0)
@@ -210,6 +366,7 @@ namespace gs
             List<int> star = vtets[v];
             double old = 180; int worst = -1;
             foreach (int id in star) { double q = quality(id); if (q < old) { old = q; worst = id; } }
+            lastBoundary = "no_star";
             if (worst < 0) return false;
             Vector3d p0 = pos[v];
             Vector3d n = Vector3d.Zero;
@@ -231,19 +388,28 @@ namespace gs
             pos[v] = p0;
             if (TangentOnly) g -= g.Dot(n) * n;           // in the tangent plane
             double gl = g.Length;
+            lastBoundary = "no_gradient";
             if (!(gl > 0)) return false;
             // steps of the star's scale, but within the slide budget left (moves can be far below the edge length)
-            double budget = BoundarySlideLimit - p0.Distance(orig[v]);
+            double budget = slide_limit(v) - p0.Distance(orig[v]);
+            lastBoundary = "budget";
             if (!(budget > 0)) return false;
+            lastBoundary = "not_better";
             foreach (double sc in new[] { 0.25, 0.125, 0.0625, 0.03125 }) {
                 Vector3d p = p0 + (Math.Min(sc * h, sc * 4 * budget) / gl) * g;
-                if (p.Distance(orig[v]) > BoundarySlideLimit) continue;
+                if (p.Distance(orig[v]) > slide_limit(v)) { lastBoundary = "budget"; continue; }
                 pos[v] = p;
                 double q = 180;
                 foreach (int id in star) { q = Math.Min(q, quality(id)); if (q <= old) break; }
-                if (q > old && boundary_move_ok(v, p0, p)) {
-                    Counts["boundary_moves"]++;
-                    return true;
+                if (q > old) {
+                    long ri = Counts["boundary_refused_input"];
+                    if (boundary_move_ok(v, p0, p)) {
+                        if (dry) { pos[v] = p0; return true; }
+                        Counts["boundary_moves"]++;
+                        bump(v);
+                        return true;
+                    }
+                    lastBoundary = Counts["boundary_refused_input"] > ri ? "refused_input" : "refused_self";
                 }
                 pos[v] = p0;
             }
@@ -289,16 +455,51 @@ namespace gs
                 var box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 // every face that can meet A is registered in a cell of A's box (its reach box contains it), or is a big face;
                 // this includes the other faces of v's fan
-                var seen = new HashSet<int>();
-                foreach (int o in bigFaces) seen.Add(o);
-                foreach (var k in cells(box))
-                    if (grid.TryGetValue(k, out var l)) foreach (int o in l) seen.Add(o);
+                List<int> seen = near_faces(box);
                 foreach (int o in seen) {
-                    if (o == f) continue;
+                    if (o == f || o >= bfaces.Count) continue;
                     Index3i ib = bfaces[o];
+                    if (!boundaryFaces.Contains(key(ib.a, ib.b, ib.c))) continue;      // removed by a contraction or an undone split
                     var B = new Triangle3d(pos[ib.a], pos[ib.b], pos[ib.c]);
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) { Counts["boundary_refused_self"]++; return false; }
+                    if (boxes_meet(ref A, ref B) && TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ib, ref B)) { Counts["boundary_refused_self"]++; return false; }
                 }
+            }
+            return true;
+        }
+
+        // the boundary faces registered in the cells of box (or big), once each (a stamp per face instead of a set), whose current
+        // box meets box; reused list
+        readonly List<int> nearList = new List<int>();
+        int[] faceStamp = new int[0];
+        int stamp;
+        List<int> near_faces(AxisAlignedBox3d box)
+        {
+            nearList.Clear();
+            if (faceStamp.Length < bfaces.Count) Array.Resize(ref faceStamp, Math.Max(bfaces.Count, 2 * faceStamp.Length));
+            if (++stamp == int.MaxValue) { Array.Clear(faceStamp, 0, faceStamp.Length); stamp = 1; }
+            foreach (int o in bigFaces) consider(o, box);
+            foreach (var k in cells(box))
+                if (grid.TryGetValue(k, out var l)) foreach (int o in l) consider(o, box);
+            return nearList;
+        }
+        void consider(int o, AxisAlignedBox3d box)
+        {
+            if (o >= bfaces.Count || faceStamp[o] == stamp) return;
+            faceStamp[o] = stamp;
+            Index3i t = bfaces[o];
+            Vector3d a = pos[t.a], b = pos[t.b], c = pos[t.c];
+            for (int k = 0; k < 3; ++k)
+                if (Math.Max(a[k], Math.Max(b[k], c[k])) < box.Min[k] || Math.Min(a[k], Math.Min(b[k], c[k])) > box.Max[k]) return;
+            nearList.Add(o);
+        }
+
+        // the closed boxes of two triangles meet (a necessary condition for any common point)
+        static bool boxes_meet(ref Triangle3d A, ref Triangle3d B)
+        {
+            for (int k = 0; k < 3; ++k) {
+                double amin = Math.Min(A.V0[k], Math.Min(A.V1[k], A.V2[k])), amax = Math.Max(A.V0[k], Math.Max(A.V1[k], A.V2[k]));
+                double bmin = Math.Min(B.V0[k], Math.Min(B.V1[k], B.V2[k])), bmax = Math.Max(B.V0[k], Math.Max(B.V1[k], B.V2[k]));
+                if (amax < bmin || bmax < amin) return false;
             }
             return true;
         }
@@ -306,6 +507,288 @@ namespace gs
         bool TetTouchesInput(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             return MeshTetrahedralization.Refiner.TetTouchesMesh(InputTree, a, b, c, d);
+        }
+
+        // ---- vertex insertion: edge split + smoothing of the new vertex, kept only if the neighbourhood improves ----
+
+        /// <summary>
+        /// edge splits (interior edges, and boundary edges split in place: the two boundary triangles on the edge become four in their
+        /// planes, so the boundary as a point set moves only by the rounding of the midpoint, checked exactly). A split is undone unless
+        /// the smallest dihedral angle at the edge's neighbourhood strictly increases after smoothing the new vertex.
+        /// </summary>
+        internal bool Insertion = false;
+        /// <summary> smoothing steps of a new vertex before the split is judged </summary>
+        internal int SmoothIterations = 8;
+
+        // failed splits: the tet and the versions of the vertices of its 1-ring at the time (a retry fails again unless one changed)
+        readonly Dictionary<Index4i, long> splitFailed = new Dictionary<Index4i, long>();
+        long ring_signature(Index4i t)
+        {
+            long h = 17;
+            var seen = new HashSet<int>();
+            for (int i = 0; i < 4; ++i) foreach (int id in vtets[t[i]]) { Index4i q = tets[id]; for (int k = 0; k < 4; ++k) if (seen.Add(q[k])) h = h * 31 + ((long)q[k] << 20) + ver_of(q[k]); }
+            return h;
+        }
+
+        bool try_split_tet(int id)
+        {
+            Index4i t = tets[id];
+            long sig = ring_signature(t);
+            if (splitFailed.TryGetValue(t, out long s0) && s0 == sig) return false;
+            bool r = try_split_tet_core(t);
+            if (!r) splitFailed[t] = ring_signature(t);
+            return r;
+        }
+
+        bool try_split_tet_core(Index4i t)
+        {
+            var e = new List<(double, int, int)>();
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) e.Add((-pos[t[i]].DistanceSquared(pos[t[j]]), t[i], t[j]));
+            e.Sort();                                       // longest first
+            foreach (var (_, a, b) in e) if (try_split(a, b)) return true;
+            return false;
+        }
+
+        bool try_split(int a, int b)
+        {
+            bool be = is_bedge(a, b);
+            if (be && (InputTree == null || !(BoundarySlideLimit > 0))) return false;
+            var ringT = new List<int>();
+            foreach (int id in vtets[a]) if (idx2(tets[id], b)) ringT.Add(id);
+            if (ringT.Count == 0) return false;
+            // the neighbourhood: tets at a, b and the ring vertices
+            var nb = new HashSet<int> { a, b };
+            foreach (int id in ringT) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) nb.Add(t[i]); }
+            double old = nbmin(nb);
+            Vector3d m = SplitPointForTest != null ? SplitPointForTest(pos[a], pos[b]) : 0.5 * (pos[a] + pos[b]);
+            // the new vertex. Its slide cap is measured from the midpoint of the edge's first positions, which lies on the wrap surface
+            // (up to rounding): boundary edges only ever get split, so each lies in one wrap triangle; and the vertex starts within the
+            // cap of there (the mean of two vertices within the cap of theirs)
+            if (cell == 0 && be) build_grid();
+            int v = pos.Count;
+            Vector3d om = 0.5 * (orig[a] + orig[b]);
+            // the rounding of om (it is on the wrap only up to that): taken off the new vertex's cap, so that its distance to the wrap
+            // stays within BoundarySlideLimit; a vertex that starts beyond its cap is not inserted
+            double margin = Math.Max(slide_margin(a), slide_margin(b)) + 4 * MathUtil.Epsilon * (orig[a].MaxAbs + orig[b].MaxAbs);
+            if (be && !(m.Distance(om) <= BoundarySlideLimit - margin)) return false;
+            pos.Add(m); orig.Add(om); vtets.Add(new List<int>()); vfaces.Add(new List<int>());
+            while (slideMargin.Count < v) slideMargin.Add(0);
+            slideMargin.Add(margin);
+            boundaryVertex.Add(be);
+            tetLog = new List<(int, Index4i, bool)>();
+            var countsBefore = new Dictionary<string, long>(Counts);
+            var faceLog = new List<(int f, Index3i t)>();
+            int nfaces0 = bfaces.Count;
+            bool ok = true, refusedInput = false;
+            foreach (int id in ringT) {
+                Index4i t = tets[id];
+                remove_tet(id);
+                Index4i t1 = t, t2 = t;
+                for (int i = 0; i < 4; ++i) { if (t1[i] == a) t1[i] = v; if (t2[i] == b) t2[i] = v; }
+                if (quality(t1.a, t1.b, t1.c, t1.d) < 0 || quality(t2.a, t2.b, t2.c, t2.d) < 0) ok = false;
+                add_tet(t1); add_tet(t2);
+            }
+            if (ok && be) {
+                // the two boundary triangles on (a, b) become four; the new ones lie in the old ones' planes up to the rounding of m:
+                // checked exactly as a move of v from the old triangles
+                foreach (int f in new List<int>(vfaces[a])) {
+                    Index3i t = bfaces[f];
+                    if (!(t.a == b || t.b == b || t.c == b)) continue;
+                    faceLog.Add((f, t));
+                    boundaryFaces.Remove(key(t.a, t.b, t.c));
+                    for (int j = 0; j < 3; ++j) vfaces[t[j]].Remove(f);
+                    Index3i f1 = t, f2 = t;
+                    for (int j = 0; j < 3; ++j) { if (f1[j] == a) f1[j] = v; if (f2[j] == b) f2[j] = v; }
+                    bfaces[f] = f1; add_face(f);
+                    bfaces.Add(f2); add_face(bfaces.Count - 1);
+                    int c = t.a != a && t.a != b ? t.a : t.b != a && t.b != b ? t.b : t.c;
+                    if (ok && TetTouchesInput(pos[a], pos[b], pos[c], m)) { ok = false; refusedInput = true; }
+                }
+                if (ok) ok = faces_ok(v);
+            }
+            if (ok) {
+                // smooth the new vertex (and its neighbours' tets by edge removal around it)
+                for (int it = 0; it < SmoothIterations; ++it) {
+                    bool moved = be ? try_smooth_boundary(v) : try_smooth(v);
+                    if (!moved) break;
+                }
+                foreach (int x in new List<int>(nb)) if (x != v) try_edge_removal(v, x);
+                nb.Add(v);
+                double now = nbmin(nb);
+                ok = now > old || IgnoreQualityForTest;
+            }
+            if (ok) {
+                Counts["insertions"]++;
+                tetLog = null;
+                return true;
+            }
+            // undo
+            var tl = tetLog; tetLog = null;
+            for (int k = tl.Count - 1; k >= 0; --k) {
+                var (id, t, added) = tl[k];
+                if (added) remove_tet(id);
+                else { // re-add at the same id
+                    tets[id] = t; alive[id] = true; for (int i = 0; i < 4; ++i) vtets[t[i]].Add(id);
+                    // the id is on the free stack (pushed by remove_tet): take it off
+                    var tmp = new Stack<int>(); while (free.Count > 0) { int x = free.Pop(); if (x == id) break; tmp.Push(x); } while (tmp.Count > 0) free.Push(tmp.Pop());
+                }
+            }
+            if (be) {
+                for (int f = bfaces.Count - 1; f >= nfaces0; --f) { Index3i t = bfaces[f]; boundaryFaces.Remove(key(t.a, t.b, t.c)); for (int j = 0; j < 3; ++j) vfaces[t[j]].Remove(f); }
+                bfaces.RemoveRange(nfaces0, bfaces.Count - nfaces0);
+                foreach (var (f, t) in faceLog) {
+                    Index3i cur = bfaces[f]; boundaryFaces.Remove(key(cur.a, cur.b, cur.c)); for (int j = 0; j < 3; ++j) vfaces[cur[j]].Remove(f);
+                    bfaces[f] = t; boundaryFaces.Add(key(t.a, t.b, t.c)); for (int j = 0; j < 3; ++j) vfaces[t[j]].Add(f);
+                }
+            }
+            pos.RemoveAt(v); orig.RemoveAt(v); vtets.RemoveAt(v); vfaces.RemoveAt(v); boundaryVertex.RemoveAt(v); slideMargin.RemoveAt(v);
+            // the counts of the undone operations go, the refusal stays
+            Counts.Clear(); foreach (var kv in countsBefore) Counts[kv.Key] = kv.Value;
+            if (refusedInput) Counts["split_refused_input"]++;
+            return false;
+        }
+
+        // per vertex: the part of BoundarySlideLimit taken off for the rounding of its first position (0 for wrap vertices)
+        readonly List<double> slideMargin = new List<double>();
+        double slide_margin(int v) { return v < slideMargin.Count ? slideMargin[v] : 0; }
+        double slide_limit(int v) { return BoundarySlideLimit - slide_margin(v); }
+
+        double nbmin(HashSet<int> nb)
+        {
+            double q = 180;
+            var seen = new HashSet<int>();
+            foreach (int x in nb) foreach (int id in vtets[x]) if (seen.Add(id)) q = Math.Min(q, quality(id));
+            return q;
+        }
+
+        void add_face(int f)
+        {
+            Index3i t = bfaces[f];
+            boundaryFaces.Add(key(t.a, t.b, t.c));
+            for (int j = 0; j < 3; ++j) vfaces[t[j]].Add(f);
+            if (cell == 0) return;            // the grid is built later from orig (which has the new vertex)
+            AxisAlignedBox3d b = reach_box(f);
+            if (cell_count(b) > MaxCellsPerFace) bigFaces.Add(f);
+            else foreach (var k in cells(b)) { if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(); l.Add(f); }
+        }
+
+        // the faces at v against the other boundary faces near them (exact)
+        bool faces_ok(int v)
+        {
+            foreach (int f in vfaces[v]) {
+                Index3i ia = bfaces[f];
+                var A = new Triangle3d(pos[ia.a], pos[ia.b], pos[ia.c]);
+                var box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                List<int> seen = near_faces(box);
+                foreach (int o in seen) {
+                    if (o == f || o >= bfaces.Count) continue;
+                    Index3i ib = bfaces[o];
+                    if (!boundaryFaces.Contains(key(ib.a, ib.b, ib.c))) continue;
+                    var B = new Triangle3d(pos[ib.a], pos[ib.b], pos[ib.c]);
+                    if (boxes_meet(ref A, ref B) && TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ib, ref B)) return false;
+                }
+            }
+            return true;
+        }
+
+        // ---- edge contraction ----
+
+        /// <summary> edge contraction (merging an end of an edge of a bad tet into the other end) </summary>
+        internal bool Contraction = false;
+
+        // the edges of tet id, shortest first; each tried in both directions
+        bool try_contract_tet(int id)
+        {
+            Index4i t = tets[id];
+            var e = new List<(double, int, int)>();
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) e.Add((pos[t[i]].DistanceSquared(pos[t[j]]), t[i], t[j]));
+            e.Sort();
+            foreach (var (_, a, b) in e) {
+                if (try_contract(a, b)) return true;
+                if (try_contract(b, a)) return true;
+            }
+            return false;
+        }
+
+        bool is_bedge(int a, int b)
+        {
+            foreach (int f in vfaces[a]) { Index3i t = bfaces[f]; if (t.a == b || t.b == b || t.c == b) return true; }
+            return false;
+        }
+
+        /// <summary>
+        /// merge the interior vertex u into w (w keeps its position; the boundary does not change, u has no boundary facet). The link
+        /// condition (Dey, Edelsbrunner, Guha, Nekhayev 1999) keeps the complex a triangulation: every vertex, edge and triangle in the
+        /// links of both u and w is in the link of the edge (u, w). Every new tet is exactly positive, and the smallest dihedral angle
+        /// of the changed tets (u's star) strictly increases.
+        /// </summary>
+        bool try_contract(int u, int w)
+        {
+            lastContract = "boundary";
+            if (boundaryVertex[u]) return false;
+            lastContract = "link";
+            if (!link_ok(u, w)) return false;
+            List<int> su = vtets[u];
+            lastContract = "not_better";
+            double old = 180;
+            foreach (int id in su) old = Math.Min(old, quality(id));
+            double q = 180;
+            foreach (int id in su) {
+                Index4i t = tets[id];
+                if (idx2(t, w)) continue;
+                Index4i nt = t; for (int i = 0; i < 4; ++i) if (nt[i] == u) nt[i] = w;
+                q = Math.Min(q, quality(nt.a, nt.b, nt.c, nt.d));
+                if (!(q > old) && !IgnoreQualityForTest) return false;
+                if (q < 0) return false;
+            }
+            if (dry) return true;
+            var changed = new List<Index4i>();
+            foreach (int id in new List<int>(su)) {
+                Index4i t = tets[id];
+                remove_tet(id);
+                if (idx2(t, w)) continue;
+                for (int i = 0; i < 4; ++i) if (t[i] == u) t[i] = w;
+                changed.Add(t);
+            }
+            foreach (Index4i t in changed) add_tet(t);
+            Counts["contractions"]++;
+            return true;
+        }
+
+        /// <summary>
+        /// the link condition of the edge (u, w) for an interior u (Dey, Edelsbrunner, Guha, Nekhayev 1999): every vertex, edge and
+        /// triangle in the links of both u and w is in the link of (u, w). False if (u, w) is not an edge.
+        /// </summary>
+        bool link_ok(int u, int w)
+        {
+            List<int> su = vtets[u], sw = vtets[w];
+            var lkuw = new HashSet<int>();
+            var lkuwE = new HashSet<(int, int)>();
+            int nEdgeTets = 0;
+            foreach (int id in su) {
+                if (!idx2(tets[id], w)) continue;
+                nEdgeTets++;
+                others(tets[id], u, w, out int c, out int d); lkuw.Add(c); lkuw.Add(d); lkuwE.Add(c < d ? (c, d) : (d, c));
+            }
+            if (nEdgeTets == 0) return false;
+            var nw = new HashSet<int>(); var ew = new HashSet<(int, int)>(); var fw = new HashSet<(int, int, int)>();
+            foreach (int id in sw) {
+                Index4i t = tets[id]; var o = new List<int>(3);
+                for (int i = 0; i < 4; ++i) if (t[i] != w) o.Add(t[i]);
+                foreach (int x in o) nw.Add(x);
+                for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j) ew.Add(o[i] < o[j] ? (o[i], o[j]) : (o[j], o[i]));
+                fw.Add(key(o[0], o[1], o[2]));
+            }
+            foreach (int id in su) {
+                Index4i t = tets[id];
+                if (idx2(t, w)) continue;
+                var o = new List<int>(3);
+                for (int i = 0; i < 4; ++i) if (t[i] != u) o.Add(t[i]);
+                foreach (int x in o) if (nw.Contains(x) && !lkuw.Contains(x)) return false;
+                for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j) { var k = o[i] < o[j] ? (o[i], o[j]) : (o[j], o[i]); if (ew.Contains(k) && !lkuwE.Contains(k)) return false; }
+                if (fw.Contains(key(o[0], o[1], o[2]))) return false;
+            }
+            return true;
         }
 
         // ---- edge removal ----
@@ -389,7 +872,9 @@ namespace gs
                         if (q > best[i, k]) { best[i, k] = q; split[i, k] = j; }
                     }
                 }
+            lastDp = best[0, m - 1];
             if (!(best[0, m - 1] > old)) return false;
+            if (dry) return true;
             foreach (int id in ringTets) remove_tet(id);
             emit(0, m - 1, split, a, b);
             Counts["edge_removals"]++;
@@ -431,7 +916,8 @@ namespace gs
             // crosses the facet's interior (the 2-3 flip is valid)
             double q0 = quality(f1, f0, d, e), q1 = quality(f2, f1, d, e), q2 = quality(f0, f2, d, e);
             double q = Math.Min(q0, Math.Min(q1, q2));
-            if (!(q > old)) return false;
+            if (!(q > old)) { lastFace = q < 0 ? "invalid" : "not_better"; return false; }
+            if (dry) return true;
             remove_tet(id); remove_tet(other);
             add_tet(new Index4i(f1, f0, d, e)); add_tet(new Index4i(f2, f1, d, e)); add_tet(new Index4i(f0, f2, d, e));
             Counts["face_removals"]++;
@@ -474,7 +960,7 @@ namespace gs
                 pos[v] = p;
                 double q = 180;
                 foreach (int id in star) { q = Math.Min(q, quality(id)); if (q <= old) break; }
-                if (q > old) { Counts["smooth_moves"]++; return true; }
+                if (q > old) { if (dry) { pos[v] = p0; return true; } Counts["smooth_moves"]++; bump(v); return true; }
             }
             pos[v] = p0;
             return false;

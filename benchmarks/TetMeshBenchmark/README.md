@@ -94,3 +94,17 @@ vertex-sampled surface deviation both ways relative to the input's diagonal. `co
 refinement, peeling, and stage 2 improvement with its defaults) and prints the `eval` row plus status, times and counts.
 Subset numbers (one thread, 4-core cloud container): `results/thingi10k-subset-stage1*.csv` and `results/thingi10k-subset-stage2-*.csv`;
 summary in `docs/design/TET_MESHING.md` sections 14.8, 14.9 and 15 (stage 2: p01 >= 10 and min >= 1 degree on 40 of 40).
+
+### Edge splits and contractions (TET_MESHING.md section 16, 2026-11-17)
+
+Switches from the environment (benchmark only): `G3_TET_SPLIT=0`, `G3_TET_CONTRACT=0` (stage 2 as before), `G3_TET_PASSES=<n>`
+(default 50), `G3_TET_DIAG=1` (one `diag,<mesh>,<angle> <shape> <touch> ...` line per tet left below 10 degrees on stderr, and
+`improve_diag_*` counts). Before / after on the 40-mesh subset, one process at a time, `refine <mesh> 20 600`
+(`results/thingi10k-subset-stage2-master-2026-11-17.csv` from master d1b86232, `results/thingi10k-subset-stage2-splits-2026-11-17.csv`):
+
+| | master | splits + contractions |
+|---|---|---|
+| every tet >= 10 degrees | 17 / 40 | 37 / 40 |
+| worst smallest dihedral | 3.17 | 6.40 |
+| time median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.74 s / 11.0 s / 47.9 s |
+| refinement + improvement per tet, median | 55 us | 73 us |

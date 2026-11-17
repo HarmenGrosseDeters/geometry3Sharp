@@ -64,6 +64,7 @@
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
     <InternalsVisibleTo Include="MeshRepairBenchmark" />
+    <InternalsVisibleTo Include="TetMeshBenchmark" />
     <InternalsVisibleTo Include="ReducerBenchmark" />
     <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
     <InternalsVisibleTo Include="SelfIntersectionBenchmark" />

@@ -65,6 +65,23 @@ namespace gs
         /// </summary>
         public bool Improve = true;
         /// <summary>
+        /// stage 2 (TET_MESHING.md section 16): edge splits for tets the flips and smoothing leave below SliverDihedralDegrees. An
+        /// edge of the tet is split at its midpoint (a boundary edge in place, so the boundary's two triangles become four in their
+        /// planes, up to the midpoint's rounding, checked exactly), the new vertex is smoothed, and the split is undone unless the
+        /// smallest dihedral angle of the tets around it then strictly increases (Klingner and Shewchuk 2007's insertion with roll-back)
+        /// </summary>
+        public bool SplitEdges = true;
+        /// <summary>
+        /// stage 2: contraction of an edge of a bad tet with an interior end into its other end (the boundary does not change), under
+        /// the link condition and only if the smallest dihedral angle of the changed tets strictly increases
+        /// </summary>
+        public bool ContractEdges = true;
+        /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
+        public int ImprovePasses = 50;
+        /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
+        internal bool DiagnoseImprovement = false;
+        internal List<string> DiagnosticLines;
+        /// <summary>
         /// stage 2: boundary vertices may move by at most this many offsets from their place on the wrap (each move checked exactly:
         /// no input triangle in the swept region, no boundary self-intersection, all tets positive); 0 = the boundary is fixed.
         /// The result's boundary then lies within this band around the wrap surface, and strictly around the input.
@@ -142,7 +159,11 @@ namespace gs
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
                     imp.TangentOnly = BoundaryMovesTangentOnly;
                 }
+                imp.MaxPasses = ImprovePasses;
+                imp.Contraction = ContractEdges;
+                imp.Insertion = SplitEdges;
                 imp.Run();
+                if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();
                 foreach (var kv in imp.Counts) Counts["improve_" + kv.Key] = kv.Value;
                 if (CancelF()) { Status = TetStatus.Cancelled; Result = null; return false; }
