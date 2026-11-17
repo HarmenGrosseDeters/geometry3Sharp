@@ -537,7 +537,9 @@ Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run pas
 guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
 
 1. Default decisions (owner) for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget
-   (#846). Both change outputs; each needs an 800 run with the lever on first (Haiku runner), then the owner decides.
+   (#846). Both change outputs. The 800 run is done (2026-11-17, GitHub Actions run 43972566855: no guarantee lost, B 0.67x
+   triangles and 1.33x time, C 0.78x time and one 47x Hausdorff outlier; [ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md));
+   the owner decides.
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).
