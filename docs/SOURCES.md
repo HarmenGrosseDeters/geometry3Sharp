@@ -825,8 +825,8 @@ carry the MIT notices in their headers. Chain of sources:
 
 | Part | Source | Licence |
 |---|---|---|
-| The algorithms (correctly rounded binary64 `sin`, `cos`, `tan`, `atan2`, `acos`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
-| The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite) | MIT |
+| The algorithms (correctly rounded binary64 `sin`, `cos`, `tan`, `atan2`, `acos`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10, for the original five functions; not reachable for `tan` and `acos`, see below); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
+| The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite; the `acos` is a double-double table algorithm) | MIT |
 | Software fused multiply-add (the integer algorithm and the exponent handling) and `CoreMath.Ldexp` (the scalbn algorithm) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
 | Fast FMA emulation by error-free transformations (`isNot1Or3TimesPowerOf2`, Dekker product) | the paper referenced in CoreMathSharp's `FusedMultiplyAdd.cs`: https://hal.science/hal-04575249 (title and authors not verified: the site refused automated access; only the algorithm names are taken from it, and the code is validated against an exact reference by `CoreMathFmaTests`) | paper |
 
@@ -854,13 +854,13 @@ libm. `Acos` is the newer table based CORE-MATH algorithm (a fast double-double 
 `asAcosRefine` with seven exception arguments of the original); `Tan` is the `Dint` path (a fast path with a double-double reduction and a
 128-bit accurate path, the same `Dint` type and `T` / `PS` / `PC` / `S` / `C` tables as `CoreMathCos.cs`, reused from there; its division is
 `DintInv` / `DintDiv`: a 256-entry table and three Newton steps, from `Dint.Inv` / `Dint.Div` of CoreMathSharp). Changes: namespace, `internal`
-visibility, tables as `static readonly` arrays (the tables of `Tan` are those of `Cos`, checked equal by a script; the 5706 `Acos` coefficients and 48
-others are new), `Math.Round` (nearest even) instead of the hardware rounding intrinsics, the NaN input returns `x + x` and infinity returns NaN as in `Cos`,
+visibility, tables as `static readonly` arrays (the tables of `Tan` are those of `Cos`, checked equal by a script, plus its 6 exception values; the `Acos` tables
+are new: 347 values), `Math.Round` (nearest even) instead of the hardware rounding intrinsics, the NaN input returns `x + x` and infinity returns NaN as in `Cos`,
 `Dint.Mul21Tan` is the (fixed) `Dint.Mul21`. Verification: `CoreMathReference.Acos` / `Tan` (BigInteger, `acos(x) = atan2(sqrt(1 - x^2), x)` and
 `sin / cos`) in `CoreMathAcosTanTests`; hard arguments (`CoreMathHardCasesAcosTan`): the arguments of the port's own exception tables and the
-40 closest to a rounding boundary among 31842 (acos) and 4123 (tan) arguments of a 24 million argument search for which the fast path cannot decide
+80 closest to a rounding boundary among 31842 (acos) and 4123 (tan) arguments of a 24 million argument search for which the fast path cannot decide
 (2^-25 to 2^-17 ulp for acos, 2^-26 to 2^-19 ulp for tan; **not** the CORE-MATH worst-case lists, which were not reachable; the true worst cases are about 2^-60 ulp and
-are covered only by the exception tables of the port). A search of 36000 such arguments found no mismatch. Of the seven `Acos` exception returns only
+are covered only by the exception tables of the port). A search of the 36000 such arguments (scratch run, not committed) found no mismatch; `CoreMathCampaignTests` (Nightly) now also runs `tan` and `acos`. Of the seven `Acos` exception returns only
 `x = 0.082987235660192948` is reached in the tests (the others are special cases of the original that this port's path decides without them); the
 `err = 86` margin of the `Tan` accurate path is not distinguished by any test argument. Both are as in the source and not re-derived.
 
