@@ -143,7 +143,7 @@ Counts per class (as written in the table): T: 72, F: 24, K: 5, T (F?): 4, F?: 4
 | P3 | `ExactBooleanFilterTests.Orient3dFiltered_SignHoldsAtAllCornersOfTheErrorBoxes` | 1 | 7.9 | 8 | T | BigInteger corner check | ~600k 4x3 determinants | iter 1, fewer exponents or sampled masks |
 | P3 | `GroundFilterTests.DeepPit_ClothReachesTheRim` | 1 | 7.9 | 8 | T | ClothSimulationFilter | 480x480 m, cloth 230k cells, >500 iterations | ClothResolution 2.0 |
 | P3 | `MeshMinimizerTests.Timeouts_CountAsDifferentError` | 1 | 7.9 | 8 | T | MeshMinimizer | predicate sleeps 10 s, 500 ms timeouts | 50-100 ms timeout |
-| P3 | `UVAtlasTests.Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion` | 1 | 7.8 | 8 | T (F?) | UVAtlasGenerator | 4 meshes x 2 methods = 8 Computes in one Fact | Theory per mesh |
+| P3 | `UVAtlasTests.Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion` | 1 | 7.8 | 8 | T (F?) | UVAtlasGenerator | 4 meshes x 2 methods = 8 Computes in one Fact | Theory per mesh (done, #1035: 8 cases, 3.3 s at most) |
 | P3 | `MeshEnvelopeTests.Fuzz_ContainedMeansWithinEpsilon_NotContainedHasAWitness` | 1 | 7.8 | 8 | T | MeshEnvelope | BumpySphere(8), 400 queries, exact-only ~20 ms each | 150 queries |
 | P3 | `TerrainSlopeOracleTests.RandomNearTheLimit_AgreesWithRationals` | 7 | 5.1 | 8 | T | slope predicate oracle | 3000 triples per row, rational reference at 1e150/1e300 | 1000 iterations; split large scales |
 | P3 | `RoundingDirtyTreeTests.ManySlivers_Similarities_Pow2BitIdentical` | 1 | 7.5 | 7 | T | MeshRoundingRepair | SliverBox(16,7), check mode over all similarities | Theory per similarity or 2^k frames only |
