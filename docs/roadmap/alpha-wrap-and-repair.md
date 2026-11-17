@@ -536,10 +536,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run passed, owner 2026-11-15), #747 (first-pass
 guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
 
-1. Default decisions (owner) for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget
-   (#846). Both change outputs. The 800 run is done (2026-11-17, GitHub Actions run 43972566855: no guarantee lost, B 0.67x
-   triangles and 1.33x time, C 0.78x time and one 47x Hausdorff outlier; [ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md));
-   the owner decides.
+1. ~~Default decisions (owner) for the opt-in levers~~ decided 2026-11-17 after the 800 run
+   ([ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md), run 43972566855 and the cap run 44013288852): lever 6 K (`AlphaWrapFeaturePass`,
+   #736) stays opt-in; the raw-size budget (#846) stays off by default, with `MaxAlphaCoarsening` (#1014) opt-in; recipe for a
+   bounded tail: budget 300,000 with `MaxAlphaCoarsening = 1.2` (mesh 40118: a coarsening above about 1.2 fills a hollow behind a narrow
+   neck). Open only if the owner wants the budget on by default: one 800 run of that recipe first.
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).

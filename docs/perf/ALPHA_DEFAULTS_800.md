@@ -1,5 +1,8 @@
 # Alpha wrap defaults on the 800-mesh sample (#736, #846)
 
+**Decisions (owner, 2026-11-17): #736 stays opt-in. #846 stays off by default; the budget and `MaxAlphaCoarsening` stay opt-in; no further 800 run.
+Opt-in recipe for a bounded tail: `MaxEstimatedTriangles = 300000` with `MaxAlphaCoarsening = 1.2`** (see "Follow-up on #846" below).
+
 Measurement for the two owner default decisions: the sharp-feature pass (`AlphaWrapSharpFeatures`, lever 6 K, #736) and the
 raw-size budget (`MaxEstimatedTriangles`, #846). Both are opt-in today. **No default is changed here**; this page gives the
 data and the options, the decision is the owner's.
@@ -74,7 +77,7 @@ Medians over 800 meshes (p95 in brackets); Hausdorff is the upper bound `hd_hi`,
 - One sample, one alpha (diagonal / 300); no statement about other alphas, other corpora or the robust mode (where `BENCH_WRAP_BUDGET` was
   already read).
 
-## Options for the owner (no recommendation is implied by the order)
+## Options for the owner (as presented before the decisions below)
 
 **#736, sharp-feature pass (B).**
 1. Stay opt-in (status quo): no risk, the better Hausdorff bound and 0.67x triangles stay available for callers who ask.
@@ -152,7 +155,7 @@ The 41 meshes above 1.5 (medians, sums over the 41; hd = Hausdorff upper bound r
   its narrowest neck against alpha) and the 49 meshes cannot exclude one.
 - The combination with the sharp-feature pass.
 
-### Recommendation
+### Recommendation (followed)
 
 Leave the budget **off by default** (#846 stays opt-in). Reasons: the budget trades a certain time gain for a bound that can be far worse
 on a mesh with a hollow part behind a narrow neck, and the benchmark has no way to tell such a mesh before the wrap; the safe
