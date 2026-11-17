@@ -26,6 +26,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Vector3d(0, 0, 2), TetMeshImprover.MinNormInHull(new List<Vector3d> { new Vector3d(0, 0, 2) }));
             Assert.True(TetMeshImprover.MinNormInHull(new List<Vector3d> { new Vector3d(1, 0, 0), new Vector3d(-1, 0, 0) }).Length < 1e-12);
             Assert.Equal(Vector3d.Zero, TetMeshImprover.MinNormInHull(new List<Vector3d>()));
+            // the origin inside a triangle of gradients: the iteration only approaches it, the cut makes it exactly no direction
+            Assert.Equal(Vector3d.Zero, TetMeshImprover.MinNormInHull(new List<Vector3d> { new Vector3d(1, 0.01, 0), new Vector3d(-1, 1, 0), new Vector3d(-1, -1.3, 0) }));
         }
 
         [Fact]
