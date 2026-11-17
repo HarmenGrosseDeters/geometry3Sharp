@@ -21,7 +21,7 @@ the run count. No mesh files or external data were used.
 | Edge-touching boxes, triangle id removed from both | ids 1..8 | 4, 6, 8, 12, 16 | 40 | 0 |
 | Initially edge-touching boxes, both rotated about their centers around Z | 7, 14, ..., 56 degrees | 4, 6, 8, 12, 16 | 40 | 0 |
 | Random overlapping boxes on a 4 x 4 x 4 lattice | 1..32 | 4, 6, 8 | 96 | 0 |
-| Random separated, rotated boxes on that lattice | 1..32 | 4, 6, 8 | 96 | 0 |
+| Random rotated boxes on that lattice | 1..32 | 4, 6, 8 | 96 | 0 |
 | Random open boxes on that lattice | 1..32 | 4, 6, 8 | 96 | 0 |
 
 The touching pairs have half extents (1,1,1), with centers (0,0,0) and
@@ -50,7 +50,9 @@ that local fact for all 256 corner-sign patterns, including all 36 joined
 ambiguous-face occurrences. Its graph transitive closure is independent of the
 library's union-find implementation. Thus a face needing two segments between
 the same patch pair has single-patch cells on both sides: the #572 face-vertex
-path separates those segments before triangle insertion.
+path separates those segments before triangle insertion. Quad diagonals join
+opposite cells around one unique primal edge, and fan-center edges use unique
+ids, so neither introduces another repeated-edge rejection.
 
 If the QEF point is inadmissible, `place_face_vertex` tries other interior
 points, ultimately the centroid of the allowed face triangle. When the actual arithmetic produces a strictly interior centroid on the correct
