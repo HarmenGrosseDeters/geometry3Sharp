@@ -33,21 +33,22 @@ static class ImprintCompare
         DMesh3 w1 = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
-        Measure(method, w1, w2, w1.CachedBounds.Center);
-        var r = Measure(method, target, cutter, center);
+        Measure(method, w1, w2, w1.CachedBounds.Center, false);
+        var r = Measure(method, target, cutter, center, true);
         Console.WriteLine(JsonSerializer.Serialize(r));
         return 0;
     }
 
-    internal static Dictionary<string, object> Measure(string method, DMesh3 target, DMesh3 cutter, Vector3d center)
+    // printOp: print a first JSON line (stage "op": ms, ok) as soon as the operation has ended, before the checks of the input and
+    // the result (NotCleanReason with its self-intersection test can take long on large meshes): compare.py reads it when the run
+    // times out, so that a timeout in the checks is not charged to the method as a timeout of the operation (status check_timeout)
+    internal static Dictionary<string, object> Measure(string method, DMesh3 target, DMesh3 cutter, Vector3d center, bool printOp)
     {
         var r = new Dictionary<string, object> { ["target_tris"] = target.TriangleCount };
         bool union = method == "exact_union" || method == "float_union";
-        if (!union) {
-            r["target_closed"] = target.IsClosed();
-            r["target_reason"] = MeshRobustRepair.NotCleanReason(target);
-        }
         DMesh3 result = null;
+        // the float cut works in place: its copy of the target is made before the clock starts
+        DMesh3 copy = method == "float_cut" ? new DMesh3(target) : null;
         var sw = Stopwatch.StartNew();
         try {
             switch (method) {
@@ -68,7 +69,7 @@ static class ImprintCompare
                     break;
                 }
                 case "float_cut": {
-                    var cut = new MeshMeshCut() { Target = new DMesh3(target), CutMesh = cutter };
+                    var cut = new MeshMeshCut() { Target = copy, CutMesh = cutter };
                     cut.Compute();
                     r["ms"] = sw.ElapsedMilliseconds;
                     r["ok"] = true;
@@ -76,8 +77,10 @@ static class ImprintCompare
                     result = cut.Target;
                     r["failed_insertions"] = cut.FailedSegmentInsertions;
                     // the intersection segments the cut found (private; read for the comparison only): their length is the
-                    // float counterpart of the exact curve length
-                    var segs = FloatSegments(cut);
+                    // float counterpart of the exact curve length. MeshMeshCut has one segment per pair of triangles, so a piece
+                    // of the curve on an edge shared by two triangles comes twice: deduplicated (unordered endpoint pairs, at a
+                    // grid of 1e-9 of the target's box). Coplanar overlaps give no segments (MeshMeshCut does not handle them).
+                    var segs = Dedup(FloatSegments(cut), 1e-9 * Math.Max(target.CachedBounds.MaxDim, 1e-300));
                     r["segments"] = segs.Count;
                     r["curve_length"] = segs.Sum(s => s.a.Distance(s.b));
                     break;
@@ -105,12 +108,19 @@ static class ImprintCompare
             }
         } catch (Exception ex) {
             r["ms"] = sw.ElapsedMilliseconds;
+            if (!union) AddTargetChecks(r, target);
             r["ok"] = false;
             r["exception"] = ex.GetType().Name;
             string msg = ex.Message ?? "";
             r["error"] = "exception " + ex.GetType().Name + ": " + (msg.Length > 160 ? msg.Substring(0, 160) : msg);
             return r;
         }
+        if (printOp) {
+            Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["stage"] = "op", ["ms"] = r["ms"], ["ok"] = r["ok"] }));
+            Console.Out.Flush();
+        }
+        if (!union)
+            AddTargetChecks(r, target);
         if (result != null) {
             r["result_tris"] = result.TriangleCount;
             if (!union)
@@ -121,6 +131,27 @@ static class ImprintCompare
                 r["volume"] = Program.Volume(result, center);
         }
         return r;
+    }
+
+    static void AddTargetChecks(Dictionary<string, object> r, DMesh3 target)
+    {
+        r["target_closed"] = target.IsClosed();
+        r["target_reason"] = MeshRobustRepair.NotCleanReason(target);
+    }
+
+    // segments with the same endpoints (in either order) after snapping to a grid of cell size h are counted once
+    internal static List<(Vector3d a, Vector3d b)> Dedup(List<(Vector3d a, Vector3d b)> segs, double h)
+    {
+        (long, long, long) key(Vector3d p) => ((long)Math.Round(p.x / h), (long)Math.Round(p.y / h), (long)Math.Round(p.z / h));
+        var seen = new HashSet<((long, long, long), (long, long, long))>();
+        var list = new List<(Vector3d, Vector3d)>();
+        foreach (var s in segs) {
+            var ka = key(s.a); var kb = key(s.b);
+            var k = ka.CompareTo(kb) <= 0 ? (ka, kb) : (kb, ka);
+            if (ka.Equals(kb) == false && seen.Add(k))
+                list.Add(s);
+        }
+        return list;
     }
 
     internal static List<(Vector3d a, Vector3d b)> FloatSegments(MeshMeshCut cut)

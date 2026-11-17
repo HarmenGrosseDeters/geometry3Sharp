@@ -195,9 +195,9 @@ def summary(files, out=sys.stdout):
                 else:
                     bad[o] = bad.get(o, 0) + 1
         fails = " / ".join(str(bad.get(k, 0)) for k in ("failed", "exception", "crash", "timeout"))
-        other = sum(v for k, v in bad.items() if k not in ("failed", "exception", "crash", "timeout"))
-        if other:
-            fails += f" (+{other} other)"
+        other = {k: v for k, v in bad.items() if k not in ("failed", "exception", "crash", "timeout")}
+        if other:      # check_timeout: the operation ended, its checks ran out of time; missing: no row for the operation
+            fails += " (" + ", ".join(f"{k} {v}" for k, v in sorted(other.items())) + ")"
         w(f"| {g} | {m} | {len(rs)} | {n} | {good} | {fails} | {opened} | {', '.join(f'{k} {v}' for k, v in sorted(unclean.items())) or '–'} | "
           f"{gaps if m == 'float_cut' else '–'} | {curves if m in CUT else '–'} | {nothing if m == 'float_cut' else '–'} | "
           f"{rounding if m == 'exact_imprint' else '–'} | {st.median(ms) if ms else float('nan'):.0f} | {max(ms, default=float('nan')):.0f} |\n")

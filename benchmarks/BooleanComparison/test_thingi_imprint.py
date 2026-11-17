@@ -152,6 +152,27 @@ class ToolingTests(unittest.TestCase):
         self.assertEqual(compare.status_of({"ok": False, "exception": "NullReferenceException", "error": "exception ..."}, 0), "exception")
         self.assertEqual(compare.status_of({"ok": False, "error": "x"}, 0), "failed")
 
+    def test_a_timeout_in_the_checks_is_not_a_timeout_of_the_operation(self):
+        real = compare.execute
+        try:
+            compare.execute = lambda cmd, timeout: (None, '{"stage": "op", "ms": 5, "ok": true}\n')
+            r = compare.run_one("exact_imprint", "a_by_b", "/nonexistent", 1)
+            self.assertEqual((r["status"], r["ms"], r["ok"]), ("check_timeout", 5, True))
+            self.assertEqual(compare.run_one("ours", "union", "/nonexistent", 1)["status"], "timeout")    # boolean methods as before
+            compare.execute = lambda cmd, timeout: (None, "")
+            self.assertEqual(compare.run_one("exact_imprint", "a_by_b", "/nonexistent", 1)["status"], "timeout")
+        finally:
+            compare.execute = real
+        r = cut_row("float_cut", a_by_b={"status": "check_timeout"}, b_by_a={})
+        self.assertEqual(ti.outcome(r, "a_by_b"), "check_timeout")
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.jsonl")
+            with open(p, "w") as f:
+                f.write(json.dumps(r) + "\n")
+            out = io.StringIO()
+            ti.summary([p], out)
+        self.assertIn("| 0 / 0 / 0 / 0 (check_timeout 1) |", out.getvalue())
+
     def test_pair_range_is_a_slice_of_pairs_csv(self):
         with open(os.path.join(tp.LISTS, "pairs.csv")) as f:
             rows = list(csv.DictReader(l for l in f if not l.startswith("#")))
@@ -240,6 +261,26 @@ class ToolTests(unittest.TestCase):
                 self.assertEqual(rows[m][f"{op}_new_vertices"], 0)
             self.assertFalse(ti.inserted_nothing(rows["float_cut"], op))
         self.assertEqual(ti.disagreements({("thingi-pairs", "apart"): rows}), [])
+
+    def test_float_curve_counts_each_piece_once(self):
+        # B = A shifted by its side along x: the cubes share the face x = 0.5. The float cut gets no segment from the coplanar
+        # triangles and the four edges of the face from two triangle pairs each: counted once, the length is 4
+        case = {"class": "thingi-pairs", "name": "face", "thingi_pair": [os.path.join(self.tmp, "cube.off")] * 2 + ["0", "0", "0", "1", "1", "0", "0"]}
+        rows = {r["method"]: r for r in compare.process(case, ["exact_imprint", "float_cut"], 300)}
+        for op in ("a_by_b", "b_by_a"):
+            self.assertAlmostEqual(rows["float_cut"][f"{op}_curve_length"], 4.0, places=9, msg=rows["float_cut"])
+            self.assertGreaterEqual(rows["exact_imprint"][f"{op}_curve_length"], 4.0 - 1e-12)
+
+    def test_the_operation_line_comes_first(self):
+        d = os.path.join(self.tmp, "case_op")
+        subprocess.run(compare.tool + ["thingi-pair", os.path.join(self.tmp, "cube.off"), os.path.join(self.tmp, "cube.off"), d,
+                                       "0", "0", "0", "1", "0.5", "0.5", "0.5"], capture_output=True, check=True)
+        p = subprocess.run(compare.tool + ["imprint", os.path.join(d, "A.off"), os.path.join(d, "B.off"), "float_cut", "a_by_b"], capture_output=True, text=True)
+        lines = [json.loads(l) for l in p.stdout.splitlines() if l.startswith("{")]
+        self.assertEqual(lines[0]["stage"], "op")
+        self.assertEqual(lines[0]["ms"], lines[-1]["ms"])
+        self.assertIn("result_reason", lines[-1])
+        self.assertNotIn("result_reason", lines[0])
 
     def test_exception_and_timeout_statuses(self):
         d = os.path.join(self.tmp, "case")

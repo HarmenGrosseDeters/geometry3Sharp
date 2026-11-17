@@ -67,8 +67,10 @@ def execute(cmd, timeout):
     t0 = time.perf_counter()
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return None, None
+    except subprocess.TimeoutExpired as e:
+        # the output printed until the timeout (the imprint methods print a line when the operation has ended)
+        out = e.stdout or b""
+        return None, out.decode(errors="replace") if isinstance(out, bytes) else out
     return p, round((time.perf_counter() - t0) * 1000)
 
 def parse_json_line(text):
@@ -86,6 +88,10 @@ def run_one(method, op, d, timeout):
     out = os.path.join(d, f"{method}_{op}")
     p, wall = execute(commands(method, op, os.path.join(d, "A.off"), os.path.join(d, "B.off"), out), timeout)
     if p is None:
+        done = parse_json_line(wall or "") if method in IMPRINT_OPS else None
+        if done and done.get("stage") == "op":
+            # the operation ended (its ms and ok are known); the checks of its input and result ran out of time
+            return {"ms": done.get("ms"), "ok": done.get("ok"), "error": "timeout in the result checks", "status": "check_timeout"}
         return {"ok": False, "error": "timeout", "status": "timeout"}
     # the tools print one JSON line with ms (cherchi on stderr)
     res = parse_json_line(p.stdout + "\n" + p.stderr)

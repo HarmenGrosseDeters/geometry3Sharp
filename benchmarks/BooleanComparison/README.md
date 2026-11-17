@@ -233,7 +233,7 @@ On GitHub: the workflow `thingi-contact.yml` (`workflow_dispatch` only, no sched
 manifold3d`, CGAL EPECK as a black box built from the runner's `libcgal-dev`, GitHub-hosted runners only) fetches the models, runs the
 three methods and writes the table to the step summary; the raw rows go to the data branch `runs/thingi-contact`.
 
-ExactMeshImprint is not a method of this class yet. TODO: add it as a method once PR #981 is merged.
+ExactMeshImprint runs on this class (and on thingi-pairs) in the imprint comparison, [below](#imprint-exactmeshimprint-against-meshmeshcut).
 
 **First run** (GitHub run [43949164518](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43949164518), 2026-11-16, master d5fb874a, `workflow_dispatch`, ubuntu-latest with 4 cores, `-j 1`, timeout 300 s; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the first 30 pairs of each variant; raw rows on the data branch `runs/thingi-contact`, folder `run-43949164518`):
 
@@ -281,6 +281,66 @@ What the run shows (all of it from the raw rows; causes marked *not diagnosed* w
 - **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants. All 60 of these empty results are `empty, removed by rounding` (1 to 733 removed components each; 1440 and 689 removed components over all operations of the two variants), none is really empty; the exact result is a shell of volume about 1e-16 of the model, which the identities cannot see. Intended behaviour of `SafeRounding` (owner decision 2026-11-16, see the oracle note above), not a defect. Identity errors up to 5.0e-08 (`ulp-shift-few`). In contrast the 26 empty intersections of `face-contact` and `partial-overlap` removed nothing: they are really empty.
 - **CGAL EPECK** failed or timed out on 18 operations (`ulp-shift` 6, `ulp-shift-few` 3, `mirror` 9; one `ulp-shift-few` case took 93 s) and its results are mostly `not closed` under our weld-by-position check for `ulp-shift` (74 of 90) and `ulp-shift-few` (73 of 90): not analysed whether that is CGAL's output after the conversion to double or the check. **manifold** is `not closed` or `self-intersections` in a few cases per variant, and `degenerate triangles` in 27 of 72 `partial-overlap` results.
 - Summary rows for results that `eval` could not read back were crashing `summary` (a result without a clean reason); fixed here (`not evaluated`), and the workflow's report steps now fail on a summary error (`set -o pipefail`; the run above shows an empty table in the step summary for that reason, the table here is computed from the raw rows).
+
+## Imprint: ExactMeshImprint against MeshMeshCut
+
+The evidence for the deprecation decision on the float `MeshMeshCut` / `MeshBoolean` (docs/roadmap/exact-boolean.md item 7):
+`ExactMeshImprint` against `MeshMeshCut` and `ExactMeshBoolean` against `MeshBoolean` (union) on the same pairs. The pairs are those of
+`thingi-pairs` (`thingi-pairs/pairs.csv`) and `thingi-contact`, prepared exactly as in those classes.
+
+| method | what runs (`BooleanComparison imprint <A> <B> <method> <op>`, ImprintCompare.cs) | operations |
+|---|---|---|
+| `exact_imprint` | `ExactMeshImprint` (defaults), target and cutter as given | `a_by_b` (B's curves into A), `b_by_a` |
+| `float_cut` | `MeshMeshCut.Compute()` (defaults: `VertexSnapTol` 1e-5 absolute, `RefuseContact` false) | `a_by_b`, `b_by_a` |
+| `exact_union` | `ExactMeshBoolean` union | `union` |
+| `float_union` | `MeshBoolean.Compute()` (the float union built on `MeshMeshCut`, welded) | `union` |
+
+One process per (method, operation), with the per-run timeout of `compare.py`; JIT is warmed up on a small pair first.
+
+- `ms` is the operation alone.
+- The tool prints a line once the operation has ended, then checks the input and the result.
+- A run that times out after that line has the status `check_timeout`, not `timeout`.
+- A thrown exception has the status `exception`.
+
+Checks per operation: the target closed and its `NotCleanReason`; the result closed, its `NotCleanReason`, the new vertices, the curve length.
+- **Exact imprint:** the curve length is the sum of `CurveEdges`. The tool also records whether the rounding was clean (`RoundingClean`).
+- **Float cut:** the curve length is the sum of the intersection segments the cut found. These are deduplicated as unordered endpoint pairs, because one pair of triangles gives one segment and a piece on a shared edge comes twice. The tool also records `FailedSegmentInsertions`.
+- **Unions:** the volume.
+
+**Outcome** (`data/thingi_imprint.py`). The same rules apply to both methods.
+
+A cut is `good` when it ended ok and none of these hold:
+- `opened`: a closed target gave an open result;
+- `unclean: <reason>`: a clean target gave a result that `NotCleanReason` refuses;
+- `gaps`: float only, failed insertions.
+
+A union is `good` when it is closed and clean.
+
+**Nothing inserted** (float only, counted apart): an ok cut that found intersection segments but added no vertex. It snapped every point to a target vertex, so the result is the target unchanged, which its own checks cannot tell from a good cut.
+
+**Disagreements** per operation, with their kinds:
+- `float inserted nothing` (the exact cut added vertices);
+- `only exact good`, `only float good`;
+- `curve only exact` / `curve only float`;
+- `curve length` (more than 1e-3 relative, both good);
+- `volume differs` (unions, more than 1e-6 of vA + vB);
+- `both fail` (different failures).
+
+Reading the numbers:
+- **Curve length:** `MeshMeshCut` does not handle coplanar overlaps, so its curve misses the boundaries of coplanar contact. On the contact variants (face-contact, partial-overlap, mirror, the ulp shifts) a `curve length` disagreement is expected from that alone. It means something on `thingi-pairs`.
+- **Time ratio:** float / exact, the geometric mean over the operations both methods ended `ok`. A float result counts as `ok` even when it is open or has gaps. An operation that timed out (in practice the exact one on the hard cases) is not in the ratio. So the ratio is taken over the cases the exact method finished, and it understates the exact method's cost on the hard cases. Quote it with that caveat, next to the timeout counts.
+
+```
+D=/path/outside/the/repo/thingi-imprint
+python3 data/thingi_imprint.py fetch-pairs $D 0 250                       # pairs [0, 250) of pairs.csv
+python3 data/thingi_imprint.py manifest-pairs $D $D/cases.jsonl 0 250
+python3 data/thingi_contact.py fetch $D --limit 100                       # the contact variants
+python3 data/thingi_contact.py manifest $D $D/contact.jsonl --limit 100
+python3 compare.py $D/cases.jsonl results-imprint.jsonl --methods exact_imprint,float_cut,exact_union,float_union --timeout 120 -j 1 --resume
+python3 data/thingi_imprint.py summary results-imprint.jsonl              # failure table, time ratio, disagreements
+```
+
+On GitHub: `thingi-contact.yml` with `mode: imprint` and a `library_ref` that has the `imprint` command. It runs 4 baseline jobs (`pairs-<k>`: pairs `[k * baseline_shard, (k + 1) * baseline_shard)` of `pairs.csv`) and the 5 contact variants, `max-parallel: 6`, with no external tool. The summary goes to the step summary, the raw rows to `runs/thingi-contact`. Tests: `test_thingi_imprint.py`.
 
 ## Chained booleans on ABC models
 
