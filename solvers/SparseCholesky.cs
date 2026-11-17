@@ -51,6 +51,10 @@ namespace g3
         int[] apColPtr, apRow, apSrc;
 
         bool factored;
+        // test switch: run the scalar kernels even where the vector kernels are available (the results are the same bits)
+        internal bool ForceScalarKernels;
+        // the values of L (dense blocks of the supernodes), for tests
+        internal double[] FactorValues { get { return Lx; } }
         // slot in the compressed pattern of each entry of the last Factorize, to refill in the same order
         int[] slotOf, prevRow, prevCol;
 
@@ -662,6 +666,8 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, off = snVal[J];
             int kw = snFirst[K + 1] - snFirst[K], krp = snRowPtr[K], kh = snRowPtr[K + 1] - krp, koff = snVal[K];
+            bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
+            double* r4 = stackalloc double[4];
             fixed (double* L = Lx)
             fixed (int* rows = snRows, rel = relmap) {
                 int* krows = rows + krp;
@@ -670,8 +676,15 @@ namespace g3
                     double* li = LK + i * kw;
                     double* dst = L + off + rel[krows[i]] * w - f;
                     int cend = Math.Min(i + 1, p1);
-                    for (int c = p0; c < cend; ++c)
-                        dst[krows[c]] -= dot(li, LK + c * kw, kw);
+                    int c = p0;
+                    if (vec)
+                        for (; c + 4 <= cend; c += 4) {
+                            SparseCholeskyKernels.Dot4Cols(li, LK + c * kw, kw, kw, r4, true);
+                            dst[krows[c]] -= r4[0]; dst[krows[c + 1]] -= r4[1];
+                            dst[krows[c + 2]] -= r4[2]; dst[krows[c + 3]] -= r4[3];
+                        }
+                    for (; c < cend; ++c)
+                        dst[krows[c]] -= SparseCholeskyKernels.Dot(li, LK + c * kw, kw, vec);
                 }
             }
         }
@@ -681,37 +694,45 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
+            bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
+            double* r4 = stackalloc double[4];
             fixed (double* L = Lx) {
                 double* B = L + off;
-                for (int i = 0; i < h; ++i) {
-                    double* li = B + i * w;
-                    int m = Math.Min(i, w);
-                    for (int c = 0; c < m; ++c)
-                        li[c] = (li[c] - dot(li, B + c * w, c)) * inv[c];
-                    if (i < w) {
-                        double d = li[i] - dot(li, li, i);
-                        if (!(d > 1e-14 * Math.Abs(diagA[f + i])) || double.IsInfinity(d)) {
-                            Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + i] + ")";
-                            return false;
+                int i = 0;
+                while (i < h) {
+                    // four rows at once: their entries left of the first row's index only need earlier rows, so the
+                    // four dot products run side by side (each product keeps its own order of operations)
+                    int nr = vec && i + 4 <= h ? 4 : 1;
+                    int cl = 0;
+                    if (nr == 4) {
+                        cl = Math.Min(i, w);
+                        double* L0 = B + i * w;
+                        for (int c = 0; c < cl; ++c) {
+                            SparseCholeskyKernels.Dot4Rows(L0, w, B + c * w, c, r4, true);
+                            for (int q = 0; q < 4; ++q)
+                                L0[q * w + c] = (L0[q * w + c] - r4[q]) * inv[c];
                         }
-                        li[i] = Math.Sqrt(d);
-                        inv[i] = 1.0 / li[i];
                     }
+                    for (int q = 0; q < nr; ++q) {
+                        int row = i + q;
+                        double* li = B + row * w;
+                        int m = Math.Min(row, w);
+                        for (int c = cl; c < m; ++c)
+                            li[c] = (li[c] - SparseCholeskyKernels.Dot(li, B + c * w, c, vec)) * inv[c];
+                        if (row < w) {
+                            double d = li[row] - SparseCholeskyKernels.Dot(li, li, row, vec);
+                            if (!(d > 1e-14 * Math.Abs(diagA[f + row])) || double.IsInfinity(d)) {
+                                Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
+                                return false;
+                            }
+                            li[row] = Math.Sqrt(d);
+                            inv[row] = 1.0 / li[row];
+                        }
+                    }
+                    i += nr;
                 }
             }
             return true;
-        }
-
-        static unsafe double dot(double* a, double* b, int n)
-        {
-            double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-            int k = 0;
-            for (; k + 4 <= n; k += 4) {
-                s0 += a[k] * b[k]; s1 += a[k + 1] * b[k + 1];
-                s2 += a[k + 2] * b[k + 2]; s3 += a[k + 3] * b[k + 3];
-            }
-            for (; k < n; ++k) s0 += a[k] * b[k];
-            return (s0 + s1) + (s2 + s3);
         }
     }
 }
