@@ -1019,6 +1019,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OuterFaceIncremental_SerialEqualsParallel_RepeatedRuns()
+        {
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 24; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 24), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+            MeshFidelityMetrics Make(bool parallel) => new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, Parallel = parallel, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            var p0 = Make(true); Assert.True(p0.Compute());
+            var s0 = Make(false); Assert.True(s0.Compute());
+            Assert.Equal(p0.OuterFaceRemovedIds, s0.OuterFaceRemovedIds);
+            Assert.Equal(p0.OuterFaceRounds, s0.OuterFaceRounds);
+            Assert.Equal(p0.OuterFaceRedoFaces, s0.OuterFaceRedoFaces);
+            Assert.Equal(p0.OuterFaceShare, s0.OuterFaceShare);
+            for (int k = 0; k < 3; ++k) {
+                var r = Make(true); Assert.True(r.Compute());
+                Assert.Equal(p0.OuterFaceRemovedIds, r.OuterFaceRemovedIds);
+                Assert.Equal(p0.OuterFaceRedoFaces, r.OuterFaceRedoFaces);
+            }
+            Assert.True(p0.OuterFaceRemovedIds.SequenceEqual(p0.OuterFaceRemovedIds.OrderBy(x => x)));
+            var off = new MeshFidelityMetrics(reference, box) { OuterSurface = false };
+            Assert.True(off.Compute());
+            Assert.Null(off.OuterFaceRemovedIds);
+        }
+
+        [Fact]
         public void OuterFaceIncremental_DefaultIsOff_AndInvariantUnderSimilarityAll()
         {
             Assert.False(new MeshFidelityMetrics(new DMesh3(), new DMesh3()).OuterFaceIncremental);

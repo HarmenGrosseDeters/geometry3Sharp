@@ -493,14 +493,15 @@ namespace gs
         /// again with the big tree only the faces whose stored values lie within OuterFaceIncrementalMargin of a decision
         /// boundary of the rule (is_outer, the double layer test, the mean threshold of the round). The verdicts of the
         /// other faces are those of the updated values, which differ from a new judgement by the error of the two
-        /// approximations (FWN, a few percent at most); OuterFaceRedoFaces counts the faces judged again.
+        /// approximations (FWN); no exactness is promised, the result can differ from the default's. OuterFaceRedoFaces counts the faces judged again.
+        /// Memory: about 70 bytes per triangle id of the reference while it runs.
         /// </summary>
         public bool OuterFaceIncremental = false;
         /// <summary> output (OuterFaceIncremental): faces judged again with the winding number tree after the first round </summary>
         public long OuterFaceRedoFaces;
-        /// <summary> output (OuterSurface, VolumeSamples): the triangle ids of the reference that the outer face classification removed (sorted), eg to compare two settings </summary>
+        /// <summary> output (OuterSurface, VolumeSamples): the triangle ids of the reference that the outer face classification removed (sorted; null if OuterSurface or VolumeSamples is off), eg to compare two settings </summary>
         public int[] OuterFaceRemovedIds;
-        /// <summary> distance of a stored winding number to a decision boundary below which a face is judged again (OuterFaceIncremental). 0.2: with 0.1 the stack of 40 interior layers (60 rounds) differed in 2 of 320 faces from the default, from 0.15 up none did on the stacks of 5, 20 and 40 layers and on the 4 large meshes of the PR; the updates drift by the FWN error of each round </summary>
+        /// <summary> distance, in winding number units, of a stored winding number to a decision boundary below which a face is judged again (OuterFaceIncremental). 0.2: see benchmarks/MeshRepairBenchmark/README.md for the measurements behind it </summary>
         public double OuterFaceIncrementalMargin = 0.2;
 
         // a copy of the reference without the faces that are not outer (see OuterVolumeIoU), and the area kept. Each round
@@ -524,7 +525,7 @@ namespace gs
             OuterFacesConverged = left.Count == 0;
             var removedByRound = new List<int>();
             double[] stored = null; byte[] evaluated = null; List<int> lastRemoved = null;
-            int[] done_redo = new int[reference.MaxTriangleID];
+            int[] done_redo = OuterFaceIncremental ? new int[reference.MaxTriangleID] : null;
             while (left.Count > 0 && OuterFaceRounds < MaxOuterFaceRounds) {
                 OuterFaceRounds++;
                 int[] cand = left.ToArray();
@@ -580,18 +581,20 @@ namespace gs
                             Vector3d d = offset * MeshAnalysisNormals.TriNormal(reference, tid);
                             reference.GetTriVertices(tid, ref a, ref b, ref c);
                             int ne = evaluated[tid];
-                            bool o = false, flat = true, near = false;
+                            bool o = false, flat = true, near = false, decided = false;
                             double m = double.MaxValue;
                             for (int k = 0; k < ne; ++k) {
                                 Vector3d pt = (k == 0) ? (a + b + c) / 3 : (k == 1) ? (4 * a + b + c) / 6 : (k == 2) ? (a + 4 * b + c) / 6 : (a + b + 4 * c) / 6;
                                 double wf = stored[8 * tid + 2 * k] - goneTree.FastWindingNumber(pt + d);
                                 double wb = stored[8 * tid + 2 * k + 1] - goneTree.FastWindingNumber(pt - d);
                                 stored[8 * tid + 2 * k] = wf; stored[8 * tid + 2 * k + 1] = wb;
+                                // (every stored point is updated, also those after the first outer one: a later round can need them)
+                                if (decided) continue;
                                 near = near || boundary_margin(wf, wb) < OuterFaceIncrementalMargin;
                                 o = is_outer(wf, wb);
                                 flat = flat && Math.Abs(wf - wb) <= 0.5;
                                 m = Math.Min(m, 0.5 * (wf + wb));
-                                if (o) break;
+                                decided = o;
                             }
                             // (stopped at a point that is not outer before the last of its 4: it needs the next one)
                             if (o == false && ne < 4) near = true;
@@ -601,7 +604,8 @@ namespace gs
                     }, 256, serial);
                     // the mean threshold of the round, from the stored values; faces near it, and those that could be the
                     // largest mean (it sets the threshold), are judged again
-                    for (int pass = 0; pass < 2; ++pass) {
+                    // (passes until no face is newly marked: a face judged again can move the largest mean and so the threshold)
+                    for (int pass = 0; pass < 8; ++pass) {
                         double mx = double.NegativeInfinity;
                         for (int i = 0; i < cand.Length; ++i)
                             if (outer[i] == false && twin[i] == false) mx = Math.Max(mx, mean[i]);
@@ -609,12 +613,17 @@ namespace gs
                         for (int i = 0; i < cand.Length; ++i)
                             if (outer[i] == false && redo[i] == false && (Math.Abs(mean[i] - thr) < OuterFaceIncrementalMargin || (twin[i] == false && mean[i] > mx - OuterFaceIncrementalMargin)))
                                 redo[i] = true;
-                        // (the faces marked now are judged again together; the second pass finds the threshold of the new values)
                         var list = new List<int>();
                         for (int i = 0; i < cand.Length; ++i) if (redo[i] && done_redo[cand[i]] != OuterFaceRounds) list.Add(i);
+                        if (list.Count == 0)
+                            break;
                         OuterFaceRedoFaces += list.Count;
-                        gParallel.ForEach(list, (i) => judge(i));
-                        foreach (int i in list) done_redo[cand[i]] = OuterFaceRounds;
+                        int[] items = list.ToArray();
+                        gParallel.BlockStartEnd(0, items.Length - 1, (start, end) => {
+                            for (int q = start; q <= end; ++q)
+                                judge(items[q]);
+                        }, 64, serial);
+                        foreach (int i in items) done_redo[cand[i]] = OuterFaceRounds;
                     }
                 }
                 double maxMean = double.NegativeInfinity;
