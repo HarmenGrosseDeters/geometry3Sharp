@@ -197,7 +197,7 @@ ls data/meshes/* | xargs -P3 -I{} dotnet bin/Release/net10.0/UVAtlasBenchmark.dl
 python3 spectral_ab.py results/chart_ab.jsonl
 ```
 
-Main set, 250 meshes, 18,861 charts (master 40583f8d plus the spectral option; cloud container, 4 cores, 3 meshes in
+Main set, 250 meshes, 18,861 charts (master 2af80b9e, with the near-collapse rule of #1054, plus the spectral option; cloud container, 4 cores, 3 meshes in
 parallel, so times are relative; the output of `spectral_ab.py`):
 
 | | LSCM (default) | spectral (opt-in) |
@@ -212,8 +212,8 @@ parallel, so times are relative; the output of `spectral_ab.py`):
 | max conformal: spectral lower / higher / equal (1e-6); spectral / LSCM p1 / median / p99 / max | | 2829 / 2715 / 12684; 0.9023 / 1 / 1.039 / 530.2 |
 | mean area distortion, median / p90 / max (both Success, 18228) | 2.63e-14 / 0.03031 / 19.9 | 8.601e-15 / 0.02968 / 20.26 |
 | mean area distortion: spectral lower / higher / equal (1e-6); spectral / LSCM p1 / median / p99 / max | | 12064 / 5628 / 536; 0 / 0.8897 / 7.278 / 1.74e+05 |
-| time, all both-Success charts (18228): total; per chart spectral / LSCM median, p90 | 11.7 s | 25.9 s (2.21x); 2.46x, 4.61x |
-| time, charts with >= 2000 triangles (75): total; per chart spectral / LSCM median, p90 | 1.4 s | 2.7 s (1.90x); 1.86x, 2.80x |
+| time, all both-Success charts (18228): total; per chart spectral / LSCM median, p90 | 12.0 s | 26.9 s (2.24x); 2.47x, 4.65x |
+| time, charts with >= 2000 triangles (75): total; per chart spectral / LSCM median, p90 | 1.4 s | 2.8 s (1.98x); 2.01x, 3.00x |
 | spectral iterations median / p90 / max (next pair: median) | | 3 / 6 / 198 (4) |
 | refused as nearly double: atlas method of the chart, median triangles | | {'bff': 112, 'tutte': 25, 'slim': 17}, 16 |
 
@@ -225,5 +225,5 @@ parallel, so times are relative; the output of `spectral_ab.py`):
 - Refused (169, 0.9 %): 154 as nearly double, mostly tiny charts (median 16 triangles) whose flat pieces meet only
   through zero-area triangles, so they have more than one conformal map; 15 where the shifted matrix is not positive
   definite (more null modes than the translations). There the caller keeps LSCM.
-- Time: 2.2x LSCM in all, 1.9x on the charts with at least 2000 triangles (the next-pair estimate costs about 4 more
+- Time: 2.2x LSCM in all, 2.0x on the charts with at least 2000 triangles (the next-pair estimate costs about 4 more
   solves).
