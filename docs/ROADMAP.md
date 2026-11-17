@@ -47,44 +47,57 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-17 (evening, Berlin), after the docs freshness audit (#1079-#1083). Each subpage ends with an "Open for
+Status on 2026-11-17 (night, Berlin), after the merges up to #1103 and #1100 (the docs freshness audit was #1079-#1083). Each subpage ends with an "Open for
 the future" list, ordered by priority; this section names only what is in flight.
 
 - **Exact Boolean 3.0** (closing): the functional and speed work is done; speed work has stopped (owner 2026-11-16; the
   step-3 lead of the Geogram comparison #1056 is not diagnosed, owner 2026-11-17). T6 is closed (#1013). Left: the
   completion gate. Gate run 44013112256 (master 6117a866): 35 shards green, 5 red; envelope-3 and geodesic-1 got tests
-  (#1051; geodesic-1 green in run 44104242651, envelope-3 rerun pending), rounding-4, rounding-7 and terrain-overlay are
-  #1077 (terrain-overlay: additional timeout raised so starved runs do not count, break 90 -> 75, owner 2026-11-17).
-  #1064 (#1047, coplanar-stack prefilter, -7 to -14 % on 42327) is in review.
+  (#1051; geodesic-1 green in run 44104242651, envelope-3 rerun pending), rounding-4, rounding-7 and terrain-overlay got
+  tests and filters in #1077 (merged; terrain-overlay: additional timeout raised so starved runs do not count, break 90 -> 75,
+  owner 2026-11-17); their reruns are pending. #1064 (#1047, coplanar-stack prefilter, -7 to -14 % on 42327) is merged.
   [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
-- **Exact Boolean 4.0, stage 0** (owner 2026-11-17): a design analysis of exact output with provenance (chained
-  operations); no PR yet.
+- **Exact Boolean 4.0** (owner 2026-11-17): stage 0, the design analysis of exact output with provenance (chained
+  operations), is merged (#1093; verdict: stage 1 only, no materialized provenance). Stage 1 goes ahead as option A, an opt-in
+  API (a lazy `ExactMesh` expression with one exact pass, PR #1107 in review).
+  [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Boolean result classes** (owner 2026-11-17): issue #1104 with procedural cases of the solid workflow (PR #1105, in review: pins
+  the classes and documents validating boolean results). Class E: option (a), an additive final-result volume IoU diagnostic in
+  `MeshRobustRepair` (`Apply()` unchanged), to be done with #1096 after the wrap target-count work. In progress: an opt-in helper
+  for "exact boolean on triangle soups -> clean closed low-poly solid".
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
-  the pass-through of RC4a's budget (#1068) is in review; RC4b is a documented limit; no budget raise below D = 50000;
+  the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
   open: #1067 (p0008) and the owner's local campaigns (#1038). The certifying checker is merged (#1061).
   [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
-- **Exact imprint / deprecation:** decided (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean`, PR
-  #1037 in review.
+- **Exact imprint / deprecation:** done (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean` (#1037 merged).
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
-  1.30x time), PR #1073; the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
+  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
-  defaults unchanged, owner 2026-11-17) is in review (#1085); the inversion guard study #1070 closed hard problem 14 (options
-  parked). The quad remeshing study is merged (#1078); stage 5 (the `DPolyMesh` polygon type with OBJ / PLY
-  writers and readers, no `g3cli` command yet) and stage 1 (`CrossField`, speed gate open) are merged; stage 2 (position field and
-  extraction, `QuadRemesher`) is built and measured: the irregular-vertex gate hits the no-go (6 to 12 x the singularities). Owner 2026-11-17: stage 2 merges as
-  quad-dominant with the missed gates open; next is stage 3B (QuadriFlow flow, from the paper), starting with an upper-bound measurement.
+  defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
+  parked).
+- **Quad remeshing** (study #1078, owner 2026-11-17): stage 5 (`DPolyMesh` with OBJ / PLY writers and readers, #1097, no `g3cli`
+  command yet) and stage 1 (`CrossField`, `MeshPrincipalCurvature`, #1098, merged with the speed gate open) are merged; the speed
+  gate is then met on the sphere and torus by the Hermitian n x n form (#1099, done) and the parallel loops; the owner's next lever is a
+  parallel `SparseCholesky` with an upper-bound check first, bit for bit, existing callers unchanged (#1103, bit-identical vector
+  kernels, merged; more in progress). Stage 2 (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`, #1100) merged as quad-dominant with the
+  missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; next is stage 3B (the
+  QuadriFlow min-cost flow, from the paper only), upper-bound measurement first (in progress).
+  [QUAD_REMESHING.md](design/QUAD_REMESHING.md)
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
-  scale-free repair study (hard problem 9) runs (owner 2026-11-17, no PR yet).
+  scale-free repair study (hard problem 9, #1095) is merged: no-go for a larger effort. Owner 2026-11-17: F1 go, done (#1101,
+  `MeshRobustRepair` reports a lost separable part: `LostFarPart`, new `LostFarOpenPart`, `LostSeparatePart`); F2 not now.
 - **Alpha Wrap 3.0:** done. Lever 6 K stays opt-in (#736), the raw-size budget stays off with the opt-in
-  `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
+  `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). In progress (owner 2026-11-17): an opt-in target triangle count that keeps the
+  guarantees, defaults unchanged, the budget default stays off (PR #1106 in review). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
 - **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 done (owner 2026-11-17, #1092:
-  the `SnapRounding2.Diagnostics` text is culture-invariant); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
+  the `SnapRounding2.Diagnostics` text is culture-invariant); the guard-limit int overflow in `ExactTriangulation2` is fixed (#1086).
 - **Platform and CI:** #999 (xatlas report) in review; the UV parameterization mutation shards are merged (#1006); the
-  nightly changed-line coverage gate is red since 2026-11-17 (16 uncovered changed lines), a fix session runs; flaky
-  allocation test #1074; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
+  uncovered lines of the nightly changed-line coverage gate got tests (#1089; the next nightly run shows whether it is green); the flaky
+  allocation test #1074 now explains its own failure (#1090); the gate-change check (#1087, observe mode) and the diff triggers of the
+  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
   (extreme field values) partly fixed, S10 deferred ([ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md)). Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
@@ -95,13 +108,13 @@ the future" list, ordered by priority; this section names only what is in flight
 
 ## Open decisions (owner)
 
-Checked on 2026-11-17 (evening).
+Checked on 2026-11-17 (night).
 
 - **Branch deletion (decided, owner action pending):** the coordinator lists the candidates (branches whose PRs are merged
   or closed, plus `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`), and the
   owner deletes them (owner 2026-11-17); sessions cannot delete branches; `runs/*` branches hold run data and stay.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **#1064 levers** (if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
+- **#1064 levers** (#1064 is merged; if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
   `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop.
 
 Decided on 2026-11-17 (owner): split pinches stay "not clean" in `NotCleanReason` (only the benchmark reports them as
@@ -110,7 +123,8 @@ their own class); the cleanup never empties a non-empty result (RC1); the inside
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
 step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
 (with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text is culture-invariant (O1, done, #1092); tet 16.2: the boundary
-bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label: the coordinator sets it for a change that keeps or tightens the checks, the owner for one that loosens a check or changes the gate list or the rules ([QA.md](QA.md) 2.8a).
+bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label (#1094): the coordinator labels a change that keeps or tightens a check after reviewing the gate-file diff, the owner one that loosens a check or changes the gate check or the rule files, workers never set it, and a push after the label needs a fresh review ([QA.md](QA.md) 2.8a);
+MeshRobustRepair F1 go (done, #1101), F2 not now; Exact Boolean 4.0 stage 1 as option A, an opt-in API (in progress, #1107); quad remeshing: stage 1 merged with the speed gate open (#1098), then a parallel `SparseCholesky` with an upper-bound check first (bit for bit, existing callers unchanged; #1103), the Hermitian form (#1099, done), stage 2 merged as quad-dominant with the missed gates open (#1100), next stage 3B from the paper with an upper-bound measurement first; alpha wrap: an opt-in target triangle count keeping the guarantees, defaults unchanged, budget default off (in progress); boolean result classes: issue #1104 with procedural cases (PR #1105), class E option (a), an additive final-result volume IoU diagnostic in `MeshRobustRepair` with `Apply()` unchanged, with #1096 after the wrap target-count work; an opt-in helper for "exact boolean on triangle soups -> clean closed low-poly solid" (in progress).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -119,11 +133,11 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- The 3.0 completion gate: #1077 and the reruns of envelope-3, rounding-4, rounding-7, terrain-overlay (and the
+- The 3.0 completion gate: the reruns of envelope-3, rounding-4, rounding-7, terrain-overlay (and the
   terrain-kernel / terrain-arith shards, re-selected by #1066 through their `TerrainSlope*.cs` trigger paths); then the roadmap status "3.0 complete".
-- Tet P2 (output / API) after #1073.
+- Tet P2 (output / API); #1073 is merged.
 - After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
-- Merge in flight: #1064, #1068, #1073, #1037, #999, #1085 and the coverage fix.
+- Merge in flight: #1105, #1106, #1107, #999.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
@@ -134,8 +148,8 @@ In order:
    certified runs 4 -> 10 of 14 at / 128, never wrong); refinement for thin features deferred (#944).
 3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go
    (owner 2026-11-15, no spike; #721 closed, it stays a design).
-4. **Scale-free robust repair** (hard problem 9): a study runs (owner 2026-11-17).
-5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 in #1073. Sharp
+4. **Scale-free robust repair** (hard problem 9): the study is merged (#1095): no-go for a larger effort; F1 done (#1101), F2 not now (owner 2026-11-17).
+5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 merged (#1073). Sharp
    features (hard problem 4): lever 6 K (#736, opt-in); a provably valid feature recovery stays open.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10

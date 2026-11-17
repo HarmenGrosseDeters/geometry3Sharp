@@ -566,7 +566,9 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363). Measured 2026-11-17 (#1075, [REMESHER_PHASE2_MEASURED.md](../perf/REMESHER_PHASE2_MEASURED.md)), defaults
    unchanged (upstream's, owner). The opt-in safe preset `Remesher.ApplySafePreset()` / `g3cli remesh --safe` (`MinTriangleQuality`
-   0.2 + `PreventSelfIntersections`, 19x the plain default on Thingi10K) is in #1085 (owner go, defaults unchanged).
+   0.2 + `PreventSelfIntersections`, 19x the plain default on Thingi10K) is merged (#1085; owner go, defaults unchanged).
+   Alpha wrap, in progress (owner 2026-11-17): an opt-in target triangle count that keeps the guarantees, defaults unchanged, the budget
+   default stays off (PR #1106); the additive final-result volume IoU diagnostic of boolean result class E (`MeshRobustRepair`, `Apply()` unchanged) follows with #1096 after it.
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.
