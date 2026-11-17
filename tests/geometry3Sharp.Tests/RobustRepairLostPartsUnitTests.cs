@@ -21,6 +21,12 @@ namespace geometry3Sharp.Tests
             // the unit sphere and the small box: two parts; two overlapping boxes count as one part
             Assert.Equal(2, MeshRobustRepairLostParts.Parts(Scene("box", 20, 2)).Count);
             Assert.Equal(2, MeshRobustRepairLostParts.Parts(Scene("boxes", 16, 2)).Count);
+            // open: a part with a boundary edge (the small sphere with 6 triangles removed), not the closed unit sphere
+            var open = MeshRobustRepairLostParts.Parts(Scene("open", 4, 16));
+            Assert.Equal(2, open.Count);
+            Assert.False(open[0].Open);
+            Assert.True(open[1].Open);
+            Assert.All(MeshRobustRepairLostParts.Parts(Scene("boxes", 16, 2)), p => Assert.False(p.Open));
             // one part: not checked
             var sphere = new DMesh3();
             append(sphere, icosphere(1, 1, Vector3d.Zero), p => p);
@@ -48,6 +54,8 @@ namespace geometry3Sharp.Tests
             foreach (int t in sphere.TriangleIndices().ToArray())
                 if (sphere.GetTriCentroid(t).x > 2) sphere.RemoveTriangle(t);
             Assert.True(MeshRobustRepairLostParts.AnyLost(parts, sphere));
+            Assert.Same(parts[1], MeshRobustRepairLostParts.FirstLost(parts, sphere));
+            Assert.Null(MeshRobustRepairLostParts.FirstLost(parts, input));
             // the box moved by 0.3 of its own diagonal (beyond a quarter): lost; by 0.2: present
             double d = 2 * Math.Sqrt(3) * Math.Pow(2, -20);
             foreach (double shift in new[] { 0.3, 0.2 }) {

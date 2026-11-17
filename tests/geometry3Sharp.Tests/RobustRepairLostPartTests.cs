@@ -14,6 +14,7 @@ namespace geometry3Sharp.Tests
     /// - a clean box removed by the safe rounding's tiny test (the area relative to the largest component);
     /// - an open small sphere collapsed by MeshAutoRepair's cleanup, relative to the scene (the far-part mode is off for open inputs);
     /// - two overlapping small boxes where the far-part switch does not fire, so no lost-part check ran.
+    /// A lost closed part is reported as LostFarPart, a lost open part as LostFarOpenPart (coordinator 2026-11-17: LostFarPart keeps its meaning).
     /// The scenes are those of the study's sweep (an icosphere of subdivision 3 on a 2^-12 grid; the small part of half size 2^-r at 2^f on x).
     /// </summary>
     public class RobustRepairLostPartTests
@@ -111,11 +112,13 @@ namespace geometry3Sharp.Tests
             var rr = new MeshRobustRepair(Scene(kind, r, f));
             bool ok = rr.Apply();
             bool kept = small_part_kept(rr.Mesh, f);
-            Assert.True(kept || (ok == false && rr.ResultReason == MeshRobustRepair.LostFarPart),
+            // a closed part lost: LostFarPart; an open one: LostFarOpenPart
+            string expected = kind == "open" ? MeshRobustRepair.LostFarOpenPart : MeshRobustRepair.LostFarPart;
+            Assert.True(kept || (ok == false && rr.ResultReason == expected),
                 $"part kept {kept}, Apply() {ok}, ResultReason '{rr.ResultReason}'");
             // (on these scenes the part is lost: the check is what decides)
             Assert.False(ok);
-            Assert.Equal(MeshRobustRepair.LostFarPart, rr.ResultReason);
+            Assert.Equal(expected, rr.ResultReason);
         }
 
         [Theory]
@@ -148,7 +151,7 @@ namespace geometry3Sharp.Tests
             string ra = rr.ResultReason;
             int ta = rr.Mesh.TriangleCount;
             Assert.False(a);
-            Assert.Equal(MeshRobustRepair.LostFarPart, ra);
+            Assert.Equal(MeshRobustRepair.LostFarOpenPart, ra);
             rr.Mesh = Scene("open", 4, 16);
             bool b = rr.Apply();
             Assert.Equal(a, b);

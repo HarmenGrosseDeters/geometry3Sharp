@@ -399,7 +399,7 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   `alpha_wrap_quality_pass`, `passthrough_clean_parts`, `separate_fraction`), `exact_resolve_rounds_used`, `passed_through_triangles` (triangles of
   clean components passed through untouched), `alpha_wrap_quality_improved`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` /
   `alpha_wrap_share_above_170` (measured on the alpha wrap result; `null` if the result is not a wrap) and `phase_milliseconds` (milliseconds per
-  phase, eg `repair`, `exact`, `exact.resolve`, `solidify`, `wrap`; the phases present and their times vary between runs and are not for diffing results; see `MeshRobustRepair.PhaseMilliseconds`). `result_code` also is `outside_range`, `lost_far_part` or `wrap_too_coarse` where `result_reason`
+  phase, eg `repair`, `exact`, `exact.resolve`, `solidify`, `wrap`; the phases present and their times vary between runs and are not for diffing results; see `MeshRobustRepair.PhaseMilliseconds`). `result_code` also is `outside_range`, `lost_far_part`, `lost_far_open_part` or `wrap_too_coarse` where `result_reason`
   contains that reason's text. Ranges: `exact_resolve_rounds` 1..64, `wrap_relative_*` 1..1e6, `separate_fraction` in (0, 1).
 - `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
   triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).

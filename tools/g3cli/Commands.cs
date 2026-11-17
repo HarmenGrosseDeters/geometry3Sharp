@@ -376,6 +376,7 @@ namespace g3cli
             if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
             if (reason.Contains(MeshRobustRepair.OutsideRange)) return "outside_range";
             if (reason.Contains(MeshRobustRepair.LostFarPart)) return "lost_far_part";
+            if (reason.Contains(MeshRobustRepair.LostFarOpenPart)) return "lost_far_open_part";
             if (reason.Contains(MeshRobustRepair.WrapTooCoarse)) return "wrap_too_coarse";
             return null;
         }

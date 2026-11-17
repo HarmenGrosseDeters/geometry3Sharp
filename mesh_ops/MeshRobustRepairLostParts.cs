@@ -29,6 +29,8 @@ namespace gs
         {
             public double Diagonal;
             public Vector3d[] Samples;
+            /// <summary> a triangle of the part has a boundary edge (reported as MeshRobustRepair.LostFarOpenPart, else LostFarPart) </summary>
+            public bool Open;
         }
 
         /// <summary>
@@ -71,6 +73,7 @@ namespace gs
             var partBoxes = new List<AxisAlignedBox3d>();
             var partTris = new List<int>();
             var partVerts = new List<List<int>>();
+            var partOpen = new List<bool>();
             var seen = new bool[input.MaxVertexID];
             foreach (int t in input.TriangleIndices()) {
                 Index3i tv = input.GetTriangle(t);
@@ -80,7 +83,11 @@ namespace gs
                     partBoxes.Add(AxisAlignedBox3d.Empty);
                     partTris.Add(0);
                     partVerts.Add(new List<int>());
+                    partOpen.Add(false);
                 }
+                Index3i te = input.GetTriEdges(t);
+                if (input.IsBoundaryEdge(te.a) || input.IsBoundaryEdge(te.b) || input.IsBoundaryEdge(te.c))
+                    partOpen[p] = true;
                 AxisAlignedBox3d b = partBoxes[p];
                 partTris[p]++;
                 for (int k = 0; k < 3; ++k) {
@@ -105,7 +112,7 @@ namespace gs
                 var samples = new List<Vector3d>();
                 for (int k = 0; k < vs.Count; k += stride)
                     samples.Add(input.GetVertex(vs[k]));
-                parts.Add(new Part() { Diagonal = diag, Samples = samples.ToArray() });
+                parts.Add(new Part() { Diagonal = diag, Samples = samples.ToArray(), Open = partOpen[p] });
             }
             return parts.Count > 0 ? parts : null;
         }
@@ -113,10 +120,16 @@ namespace gs
         /// <summary> true if a part has no triangle of the result within PresentDistance of its own diagonal of any of its samples </summary>
         public static bool AnyLost(List<Part> parts, DMesh3 result)
         {
-            if (parts == null)
-                return false;
+            return FirstLost(parts, result) != null;
+        }
+
+        /// <summary> the first part (in the order of its first triangle) that the result does not reach (see AnyLost); null if none </summary>
+        public static Part FirstLost(List<Part> parts, DMesh3 result)
+        {
+            if (parts == null || parts.Count == 0)
+                return null;
             if (result.TriangleCount == 0)
-                return true;
+                return parts[0];
             var tree = new DMeshAABBTree3(result, true);
             foreach (Part part in parts) {
                 double reach = PresentDistance * part.Diagonal;
@@ -128,9 +141,9 @@ namespace gs
                     }
                 }
                 if (present == false)
-                    return true;
+                    return part;
             }
-            return false;
+            return null;
         }
 
         static bool meets(AxisAlignedBox3d a, AxisAlignedBox3d b)
