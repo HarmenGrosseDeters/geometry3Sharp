@@ -33,3 +33,25 @@ Factorize includes the serial analysis (ordering and symbolic part, about 0.4 s 
 | torus | aligned s=1 | 60712 | 5.6 to 6.1 | 3.6 |
 
 (The field, the eigenvalues and the singular faces are unchanged.)
+
+## Shared analysis (`CholeskyAnalysis`, 2026-11-17)
+
+`SparseCholesky` and `SparseHermitianCholesky` share one analysis (ordering, elimination tree, structure of L, supernodes). The
+tree is now found from the pattern of A (Liu's algorithm), so the structure of L is computed once, for the postordered matrix,
+instead of twice. The arrays, the factor and the solutions are the same bits as before (`CholeskyAnalysisTests`, golden hashes of
+the previous code; the benchmark compares the solution hashes with those of the previous code and exits with 1 on a difference).
+Factorize (s), best of 3, same machine, before / after:
+
+| matrix | before | after |
+|---|---|---|
+| grid2d bs=1 n=40000 | 0.17 | 0.15 |
+| grid2d bs=2 n=80000 | 0.48 | 0.45 |
+| grid2d bs=2 n=120000 | 0.75 | 0.65 |
+| grid3d n=27000 | 0.97 | 0.89 |
+| hermitian grid2d n=40000 | 0.28 | 0.27 |
+| hermitian grid2d n=60000 | 0.43 | 0.42 |
+
+`CrossFieldBenchmark h=0.017` (one thread, best of 3, s, `SparseHermitianCholesky`): sphere smoothest 1.66 -> 1.61, sphere aligned
+1.80 -> 1.63, torus smoothest 2.08 -> 2.06, torus aligned 2.14 -> 1.95. The gain is small because the analysis of the 55k-vertex
+system is now mostly the minimum degree ordering (0.26 s of 0.33 s; the structure of L takes 0.05 s); a faster ordering with the
+same result is the next lever of the analysis.
