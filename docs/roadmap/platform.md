@@ -11,7 +11,7 @@ Part of the [roadmap](../ROADMAP.md).
   mutation 3.0 process is on master (#615 closed, #913 and #958 merged 2026-11-16). Determinism stage 0 (#871) and the exact fallback
   monomial kernels (#769) are merged; stage 1 is PR #1076 (open). The Clipper2 vendoring line is done (#751, #826, #851, #874, #914; the final precision work #955 closed with #1059, 2026-11-17); Clipper2's
   triangulation is not offered (owner decision). The net48 hang #824 is closed (2026-11-16, no recurrence after #883), the fuzz
-  campaigns #623 and #624 are closed (2026-11-15). Open: a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-17).
+  campaigns #623 and #624 are closed (2026-11-15). Open: a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-15).
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
@@ -204,15 +204,15 @@ Part of the [roadmap](../ROADMAP.md).
   (ExactPoint3 hash values are seeded per process; a test that the shard choice does not change results).
 - **CI: net48 intermittent hang (#824): closed 2026-11-16.** Shard b of the net48 tests hung until the job timeout. #828 (and #844) run
   the net48 test steps under blame-hang, so a hang names its test. The hang seen was the `patch_winding` race
-  #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no net48 job hung in the 194 CI runs
-  after it. Reopen if one hangs again. #823 (FastWinding 800 ms bound on net48) is closed, fixed by #831.
+  #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no recurrence was reported when it was closed (the closing comment
+  counts 194 CI runs). Reopen if one hangs again. #823 (FastWinding 800 ms bound on net48) is closed, fixed by #831.
 - **Mutation shards (status 2026-11-17):** #615 (the 3.0 process and the coverage-pass fix) is closed, merged in #913 and #958
   (2026-11-16). #884 (the `hausdorff` shard) is merged. #843 (merged 2026-11-15) narrowed the shared test filter to the class itself
   (`ExactMeshBooleanTests.`: `~` is a substring match, so it also selected other classes whose names contain it) and split the rounding
   shards; `tests/mutation` has 45 mesh configs now (`rounding-1` .. `-13`, `boolean-1` .. `-7`, `arrangement-1` .. `-4`, `envelope-1` .. `-4`, uv, terrain, geodesic and others)
   next to the arithmetic job. Exact Boolean 3.0 gate (owner 2026-11-11: a full run of every touched shard above its threshold on master): master run 44013112256
-  (dispatched 2026-11-17) had 35 shards green and 5 red (`envelope-3`, `geodesic-1`, `rounding-4`, `rounding-7`, `terrain-overlay`); a fix is in
-  review (#1077). The gate is pending.
+  (dispatched 2026-11-17) had 35 shards green and 5 red (`envelope-3`, `geodesic-1`, `rounding-4`, `rounding-7`, `terrain-overlay`); a fix for three of them
+  (`rounding-4`, `rounding-7`, `terrain-overlay`) is in review (#1077). The gate is pending.
 - **Public package:** none planned (owner 2026-11-16); `dotnet pack`, the API check against 1.0.324 and the package
   smoke tests stay in CI.
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
@@ -453,13 +453,14 @@ cinolib, geometry-central, Manifold) on the operations it shares with them.
 
 - [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing. Booleans done (`ExactBooleanIssueCasesTests`); repair and alpha wrap merged in #326 (24 failure modes, MinimalHoleFill fix); groups 2-4 merged in #330 (2026-11-02); P3 by design (#349); Q2/Q3 (watertight exact ray-triangle: repair CPU +0.9 %, tree queries +2-29 %, single Intersects 4.2x, 260/260 boolean hashes) in #341 G3 (relative path-trace tolerance) in #343 and P1 (FlippedTriangles status, degenerate-UV rule relative to the surface triangle; UVAtlas A/B identical) in #346 and G2 in #347 (2026-11-03). **The fix list is complete** (2026-11-03): fixed R1, S1, G1-G3, P1, P4, Q1-Q3 and the Reducer and constraint bowties; P3 by design; R2 a limitation; P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept, OPERATIONS.md recommends the guards) open, pinned and documented as decided. Follow-ups: the ray batch API (Later), the P1 collapse itself (closed 2026-11-12 as a limitation; the real fix, virtual fan vertices or spectral conformal, is research); the flip-guard follow-up (the regressions a remesher flip-guard default would cause) is closed: the Remesher defaults stay upstream's (owner November 2026); the other operations started 2026-11-02 in a QA session (repair and alpha wrap, Reducer / Remesher, geodesics and parameterization, queries; mesher and terrain failure modes collected only). Findings in [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); owner 2026-11-02: every finding is fixed (correct first, then fast), distributed: QA session Q2+Q3 (exact ray/triangle crossings, IsInside), G3, P1, then G2, P2, S2, S3, P3; 7b session R1 (orientation rule for crossing components; merged in #333 on 2026-11-03: crossing components keep their orientation, A/B 3 inputs now accepted exactly instead of falling back, controls 1.008×), then S1 merged in #336 (2026-11-03; Reducer fold-over guard from area-weighted original normals plus a boundary ear rule, owner: PreventFoldOver default on, UPSTREAM_CHANGES row; noisy terrains 20/110 → 7/0 folds/walls, time on/off 1.00-1.14x, with MaxDeviation 1.01-1.02x)
 
-### Open for the future (2026-11-17)
+### Open for the future (2026-11-15)
 
+List updated 2026-11-17 (the heading keeps its date because ROADMAP.md links to it).
 Done and removed from this list: #824 (closed 2026-11-16), #858 (closed 2026-11-17, answered by the owner's thread A/B of #962), #866, #888 and #947 (closed 2026-11-16), #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
 (hausdorff shard), #868 (`g3cli offset --method mesh_offset`), the fuzz campaigns #623 / #624 and wave 3 #686, #756,
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
-1. Coverage gate (`coverage.yml`): red 2026-11-13 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run).
+1. Coverage gate (`coverage.yml`): red in every scheduled and dispatched run 2026-11-12 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run).
 2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. Open: owner decision on the late-cron proposal there.
 3. Runtime watch rule (#888, owner 2026-11-15; #888 closed 2026-11-16): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists ([QA.md 3.3](../QA.md#33-runtime-watch-extreme-cases-nightly)).
