@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
+// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
@@ -17,8 +17,15 @@ namespace gs
 	{
 		public DMesh3 Mesh;
 
-		/// <summary> maximum distance between corresponding endpoints of edges to merge (absolute) </summary>
-		public double MergeDistance = MathUtil.ZeroTolerancef;
+		/// <summary>
+		/// maximum distance between corresponding endpoints of edges to merge. A finite value is an absolute
+		/// distance. NaN (default): relative to the mesh, MathUtil.ZeroTolerancef times the diagonal of the
+		/// bounds of its triangles (the 1.0.324 value 1e-6 for a mesh of diagonal 1); see EffectiveMergeDistance
+		/// </summary>
+		public double MergeDistance = double.NaN;
+
+		/// <summary> the merge distance the last Apply() used (model units) </summary>
+		public double EffectiveMergeDistance { get; private set; }
 
         /// <summary>
         /// if true, only merge edges that have exactly one candidate partner, which in turn has only them
@@ -35,6 +42,9 @@ namespace gs
 
 		/// <summary> merge the coincident boundary edges; always returns true (check Mesh.IsClosed() for the result) </summary>
 		public virtual bool Apply() {
+			double MergeDistance = double.IsNaN(this.MergeDistance)
+				? MeshScaleTolerance.Relative(Mesh, MathUtil.ZeroTolerancef) : this.MergeDistance;
+			EffectiveMergeDistance = MergeDistance;
 			merge_r2 = MergeDistance * MergeDistance;
 
             // construct hash table for edge midpoints
@@ -45,7 +55,6 @@ namespace gs
             if (Mesh.TriangleCount > 1000000)  hashN = 256;
             // FindInBall needs cells at least MergeDistance wide: when the boundary is one short crack, the
             // midpoints span far less than hashN * MergeDistance
-            // (written so that a NaN MergeDistance keeps the grid's own cell size)
             AxisAlignedBox3d bounds = BoundsUtil.Bounds(pointset);
             double cellSize = bounds.MaxDim / hashN;
             if (MergeDistance > cellSize) cellSize = MergeDistance;
