@@ -128,6 +128,13 @@ namespace g3
             // accuracy in the calcs below...
             Vector2d shiftOrigin = Bounds.Center;
             double scale = 1.0 / Bounds.MaxDim;
+            // the merge distance of fill and loop vertices: relative to the loops, at least 16 rounding units of the
+            // largest loop coordinate (a small hole far from the origin)
+            double magnitude = 0;
+            foreach (var floop in Loops)
+                foreach (int vid in floop.edgeLoop.Vertices)
+                    magnitude = Math.Max(magnitude, Mesh.GetVertex(vid).MaxAbs);
+            double merge_tol = Math.Max(MathUtil.ZeroTolerancef * Bounds.MaxDim, 16 * MathUtil.Epsilon * magnitude);
             foreach ( var floop in Loops ) {
                 floop.poly.Translate(-shiftOrigin);
                 floop.poly.Scale(scale * Vector2d.One, Vector2d.Zero);
@@ -248,7 +255,7 @@ namespace g3
 
                         // construct vertex-merge map for this loop
                         List<int> bad_indices = build_merge_map(FillMesh, fillLoopVerts, Mesh, sourceLoop.Vertices,
-                            MathUtil.ZeroTolerancef * Bounds.MaxDim, mergeMapV);
+                            merge_tol, mergeMapV);
 
                         bool errors = (bad_indices != null && bad_indices.Count > 0);
                         if (errors) {

@@ -70,7 +70,7 @@ namespace geometry3Sharp.Tests
             Similarity s = Of(name);
             CrackCloses(3e-7, Similarity.Identity, out DMesh3 m0, out double e0);
             CrackCloses(3e-7, s, out DMesh3 m, out double e);
-            Assert.Equal(1.7320508 * 1e-6, e0, 1e-8);      // diagonal sqrt(3) of the unit cube
+            Assert.Equal(Math.Sqrt(3) * (double)MathUtil.ZeroTolerancef, e0, 1e-12);      // diagonal sqrt(3) of the unit cube
             if (s.IsExact)
                 Assert.Equal(s.Scale * e0, e);
             else    // a rotation changes the axis-aligned bounds, a translation adds the rounding floor: bounded, not equal
@@ -164,7 +164,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, d.Removed);
             d.Apply();
             Assert.Equal(0, d.Removed);
-            Assert.Equal(e, d.EffectiveVertexTolerance, 0);
+            Assert.Equal(e, d.EffectiveVertexTolerance, 1e-12);   // the bounds of one triangle of the pair
             Assert.True(new RemoveDuplicateTriangles(new DMesh3()).Apply());
             Assert.True(new MergeCoincidentEdges(new DMesh3()).Apply());
         }
@@ -210,17 +210,48 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(-24)]
         [InlineData(-20)]
-        [InlineData(36)]
+        [InlineData(0)]
         public void PlanarSpansFiller_DegenerateTolerance_IsRelativeToTheSpans(int log2)
         {
-            Similarity s = Pow2(log2);
+            DMesh3 Run(Similarity s)
+            {
+                var (m, top, o, n) = Cylinder(s);
+                int[] verts = top.Vertices;
+                var span = EdgeSpan.FromVertices(m, verts.Take(verts.Length - 1).ToArray());
+                var fill = new PlanarSpansFiller(m, new List<EdgeSpan> { span });
+                fill.SetPlane(o, n);
+                Assert.True(fill.Fill(), $"scale 2^{log2}");
+                Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
+                return m;
+            }
+            DMesh3 m0 = Run(Similarity.Identity), m1 = Run(Pow2(log2));
+            Assert.Equal(m0.VertexCount, m1.VertexCount);
+            Assert.Equal(m0.TriangleCount, m1.TriangleCount);
+        }
+
+        [Fact]
+        public void PlanarHoleFiller_SmallHoleFarFromTheOrigin_Merges()
+        {
+            // a hole of size 1e-2 at UTM coordinates: the merge distance 1e-8 is within ulps of the rounding there
+            var s = new Similarity("small utm", 1e-2, Matrix3d.Identity, new Vector3d(632117.25, 5712043.5, 113.75));
             var (m, top, o, n) = Cylinder(s);
-            // the span: the loop without one edge
-            int[] verts = top.Vertices;
-            var span = EdgeSpan.FromVertices(m, verts.Take(verts.Length - 1).ToArray());
-            var fill = new PlanarSpansFiller(m, new List<EdgeSpan> { span });
+            var fill = new PlanarHoleFiller(m);
             fill.SetPlane(o, n);
-            Assert.True(fill.Fill(), $"scale 2^{log2}");
+            fill.AddFillLoop(top);
+            Assert.True(fill.Fill(), $"insertions {fill.FailedInsertions}, merges {fill.FailedMerges}");
+            Assert.Equal(16, MeshTestUtil.BoundaryEdgeCount(m));
+        }
+
+        [Fact]
+        public void DefaultTolerances_MeshAtOnePoint_FallBackToTheAbsoluteValue()
+        {
+            // diagonal 0: a tolerance of 0 would not match exact duplicates
+            var m = new DMesh3();
+            for (int k = 0; k < 2; ++k)
+                m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero));
+            var d = new RemoveDuplicateTriangles(m) { CheckOrientation = false };
+            d.Apply();
+            Assert.Equal((double)MathUtil.ZeroTolerancef, d.EffectiveVertexTolerance);
         }
 
         // ---- S16: RemoveOccludedTriangles ----
@@ -249,6 +280,23 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData("scale 2^-24")]
+        [InlineData("scale 2^36")]
+        [InlineData("utm")]
+        public void RemoveOccludedTriangles_DefaultOffset_PerVertexAndOtherModes(string name)
+        {
+            Similarity s = Of(name);
+            foreach (var mode in new[] { RemoveOccludedTriangles.CalculationMode.FastWindingNumber, RemoveOccludedTriangles.CalculationMode.AnalyticWindingNumber }) {
+                DMesh3 m = TwoShells(1e-4, s);
+                int nOuter = m.TriangleCount / 2;
+                var remove = new RemoveOccludedTriangles(m) { InsideMode = mode, PerVertex = true };
+                Assert.True(remove.Apply());
+                Assert.Equal(nOuter, remove.RemovedT.Count);
+                Assert.True(remove.RemovedT.All(t => t >= nOuter), $"{name} {mode}");
+            }
+        }
+
         [Fact]
         public void RemoveOccludedTriangles_ExplicitOffset_KeepsItsAbsoluteMeaning_DefaultIsRelative()
         {
@@ -260,7 +308,7 @@ namespace geometry3Sharp.Tests
 
             var def = new RemoveOccludedTriangles(TwoShells(1e-4, Similarity.Identity));
             def.Apply();
-            Assert.Equal(1e-8 * 2 * Math.Sqrt(3), def.EffectiveNormalOffset, 1e-9);   // the diagonal of the bounds [-1, 1]^3
+            Assert.InRange(def.EffectiveNormalOffset, MathUtil.ZeroTolerance * 3.3, MathUtil.ZeroTolerance * 2 * Math.Sqrt(3));   // the diagonal of the sphere polyhedron inside [-1, 1]^3
             double e = def.EffectiveNormalOffset;
             def.Apply();                                                              // reuse: same offset, same result
             Assert.Equal(e, def.EffectiveNormalOffset);

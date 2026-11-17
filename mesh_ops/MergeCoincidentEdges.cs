@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
+// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
@@ -55,7 +55,6 @@ namespace gs
             if (Mesh.TriangleCount > 1000000)  hashN = 256;
             // FindInBall needs cells at least MergeDistance wide: when the boundary is one short crack, the
             // midpoints span far less than hashN * MergeDistance
-            // (written so that a NaN MergeDistance keeps the grid's own cell size)
             AxisAlignedBox3d bounds = BoundsUtil.Bounds(pointset);
             double cellSize = bounds.MaxDim / hashN;
             if (MergeDistance > cellSize) cellSize = MergeDistance;
