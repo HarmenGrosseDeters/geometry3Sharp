@@ -44,6 +44,32 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // a capped cone frustum with five slices (snapped to a grid of 2^-24 like ExactMeshImprintSliverTests.Shape: the same input on every runtime)
+        static DMesh3 FiveSliceCylinder()
+        {
+            return ExactMeshImprintSliverTests.Snapped(new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 5 }.Generate().MakeDMesh());
+        }
+
+        [Theory]
+        [InlineData(3, true)]
+        [InlineData(-3, false)]
+        public void TheStage_SearchesAgain_AndTheListsOfDefectsAreRebuiltAfterItsMoves(int ulps, bool targetIsTheUnshifted)
+        {
+            // the copy shifted by 3 ulp along z: the stage's contractions leave a defect that the position search of the stage fixes;
+            // the defect lists are then rebuilt and the passes run again (without that, the result is not clean)
+            DMesh3 a = FiveSliceCylinder(), b = ExactMeshImprintSliverTests.Shifted(a, 2, ulps);
+            DMesh3 target = targetIsTheUnshifted ? a : b, cutter = targetIsTheUnshifted ? b : a;
+            ExactMeshImprint old = Run(target, cutter, false);
+            Assert.False(old.RoundingClean);
+            Assert.False(old.Rounding.FollowStageRan);
+            ExactMeshImprint now = Run(target, cutter, true);
+            Assert.True(now.Rounding.FollowStageRan);
+            Assert.True(now.Rounding.PositionSearchMoves > 0);
+            ExactMeshImprintSliverTests.AssertCleanAndCarried(target, now);
+            Assert.Equal(0, now.Rounding.RemainingDegenerate);
+            Assert.Equal(0, now.Rounding.RemainingIntersections);
+        }
+
         // inputs whose result is clean without the stage: the same result bit for bit, and the stage does not run
         public static IEnumerable<object[]> CleanToday()
         {
