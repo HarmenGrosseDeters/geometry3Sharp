@@ -559,11 +559,11 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    (design: [ALPHA_WRAP_MANIFOLD_QUALITY.md](../design/ALPHA_WRAP_MANIFOLD_QUALITY.md)). Where no point on the offset surface
    keeps the separation, the pinch refinement uses the projected circumcenter pulled back to the separation depth, at most 2
    offsets out, so the spots become manifold by carving. Relaxed promise: vertices in [offset, 2 offset]. 800-run table in
-   #1045 (merged). Stays opt-in, default off (owner 2026-11-17).
+   #1045 (merged). Stays opt-in, default unchanged (owner 2026-11-17, made with the merge of #1045; 800 run 44064241725).
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363). Measured 2026-11-17 (#1075, [REMESHER_PHASE2_MEASURED.md](../perf/REMESHER_PHASE2_MEASURED.md)), defaults
    unchanged (upstream's, owner). An opt-in safe preset (`MinTriangleQuality` 0.2 + `PreventSelfIntersections`, the only
-   combination with no new pairs, 19x the plain default on Thingi10K) is in progress, not merged.
+   combination with no new pairs, 19x the plain default on Thingi10K) started 2026-11-17 (owner go, defaults unchanged), no PR yet.
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.
