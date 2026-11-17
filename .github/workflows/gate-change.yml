@@ -1,0 +1,56 @@
+name: gate-change
+
+# A change must not modify the checks that judge it. This workflow flags a PR that changes a gate file (tools/gate_files.txt:
+# workflows, analyzer and ratchet lists, mutation configs, CI scripts, the rules) unless the PR carries the label `gate-change`,
+# which only the owner sets. docs/QA.md, "Gate-change check".
+#
+# Observe mode (GATE_ENFORCE unset or 0): the job reports (step summary, one warning annotation per file) and passes.
+# Enforce mode: set the repository variable GATE_CHANGE_ENFORCE to 1 (Settings > Variables); a flagged PR without the label then fails.
+# Enforcing is the owner's decision.
+#
+# Why pull_request_target, and why it is safe here:
+# - It runs the workflow, the script and the gate list from the BASE branch, so the PR cannot switch the check off or edit its list
+#   (a PR that changes this file or the list only takes effect after the merge; therefore this workflow cannot test itself in
+#   the PR that adds it).
+# - It never checks out, builds or runs the PR's code: actions/checkout has no `ref`, so it gets the base branch.
+# - The PR's file list and labels come from the REST API, not from a checkout. Their names are PR-controlled text: they only
+#   go through files (`gh api ... > file`) and into tools/gate_check.py as data, which escapes them for annotations and summary.
+#   No `${{ }}` expression of PR-controlled text is used in a `run:` line; the PR number and the repository come from env.
+# - The token has contents: read and pull-requests: read only (no write scopes, no secrets are used).
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gate-change-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate-change:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GATE_ENFORCE: ${{ vars.GATE_CHANGE_ENFORCE == '1' && '1' || '0' }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_FILE_COUNT: ${{ github.event.pull_request.changed_files }}
+      REPO: ${{ github.repository }}
+    steps:
+      # the default ref of pull_request_target: the base branch (never the PR head)
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Unit tests of the script
+        run: python3 -m unittest discover -s tools -p 'test_gate_check.py'
+      # the files are read live (not from the event payload), so a re-run after the label was set sees the current labels
+      - name: List the changed files and the labels of the PR
+        run: |
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[] | .filename, (.previous_filename // empty) | @json' > changed.txt
+          gh api --paginate "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name | @json' > labels.txt
+          wc -l changed.txt labels.txt
+      - name: Judge
+        run: python3 tools/gate_check.py --gates tools/gate_files.txt --changed changed.txt --labels labels.txt --file-count "$PR_FILE_COUNT" --summary "$GITHUB_STEP_SUMMARY"
