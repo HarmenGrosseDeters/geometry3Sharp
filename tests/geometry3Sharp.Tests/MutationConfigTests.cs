@@ -196,7 +196,8 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits" },
                 // (ulp to try_move: the separation of false contacts, try_separate, and the removal of contact vertices,
-                // try_remove_vertex and runs3; gate run 44013112256, about 3 s)
+                // try_remove_vertex and runs3; gate run 44013112256; about 11 s with Searches_IncrementalAfterEdits: the local
+                // run of the part took 80 minutes)
                 ["stryker-mesh-rounding-7"] = new[] {
                     "FullyQualifiedName~ExactBooleanContactCountTests", "FullyQualifiedName~ExactBooleanRoundingContactsTests",
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
