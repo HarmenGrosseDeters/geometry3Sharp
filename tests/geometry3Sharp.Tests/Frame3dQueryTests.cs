@@ -173,7 +173,7 @@ namespace geometry3Sharp.Tests
             Assert.True(ex < axisTol && ey < axisTol && ez < axisTol, "axis differences " + ex + " " + ey + " " + ez);
         }
 
-        // The float NTMesh3.GetTriFrame builds a reflection (X x Y = -Z); the D variant is a proper right-handed frame, equal to DMesh3's.
+        // The D variant is a proper right-handed frame, equal to DMesh3's.
         [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void NTMesh3_GetTriFrameD_IsRightHandedAndInvariant(string name)
         {
@@ -210,6 +210,9 @@ namespace geometry3Sharp.Tests
                     Assert.True(((Vector3d)f.X.Cross(f.Y) - (Vector3d)f.Z).Length < 1e-4, "right-handed");
                     Assert.True(((Vector3d)ft.Z - mt.GetTriNormal(tid)).Length < 1e-4, "z is the face normal (transformed)");
                     Assert.True(((Vector3d)ft.Z - s.ApplyDirection((Vector3d)f.Z)).Length < 1e-4, "z axis follows the transform");
+                    Index3i tri = dt.GetTriangle(tid);
+                    Vector3d edgeDir = (dt.GetVertex(tri[(e + 1) % 3]) - dt.GetVertex(tri[e % 3])).Normalized;
+                    Assert.True(((Vector3d)ft.X - edgeDir).Length < 1e-4, "x is the edge direction");
                     if (name == "identity") {
                         Frame3f g = d.GetTriFrame(tid, e);
                         Assert.True(((Vector3d)f.X - (Vector3d)g.X).Length < 1e-4 && ((Vector3d)f.Y - (Vector3d)g.Y).Length < 1e-4 && ((Vector3d)f.Z - (Vector3d)g.Z).Length < 1e-4);
