@@ -14,7 +14,7 @@
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
 #
 # Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
-import csv, json, math, os, re, shutil, subprocess, sys, tempfile, time
+import csv, json, math, os, re, shutil, struct, subprocess, sys, tempfile, time
 import statistics as st
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -90,6 +90,7 @@ def cmd_filter(meshes_dir, out):
 # --- prepare: the obj files of the ABC dataset are tessellated per face of the CAD model, so adjacent faces have their own copies of the
 # vertices on a shared edge: read as they are, no mesh is closed. The vertices are welded by position (exactly equal doubles first; a tolerance
 # only if that leaves too few clean models) before the filter; a tolerance weld moves a vertex by at most tol x the bounding box diagonal.
+# The coordinates are first snapped to single precision (`snap`): the exact placements need the headroom of single precision values.
 
 WELD_TOLERANCES = [0.0, 1e-9, 1e-7, 1e-5]       # relative to the bounding box diagonal; the first one with enough clean models is used
 MIN_CLEAN = 40
@@ -153,6 +154,20 @@ def weld(verts, tris, tol):
             remap.append(ids[v])
     return out, [(remap[a], remap[b], remap[c]) for a, b, c in tris]
 
+def snap(verts, tiny_exponent=28):
+    """The model as the benchmark uses it: coordinates rounded to single precision (the precision of STL files; a single precision value has 29 bits
+    of headroom in a double, which is what makes a translation by a shift of the size of the model exact: ABC's text coordinates are full 53-bit doubles,
+    and the first run refused 89 of 90 placements as inexact), and nonzero coordinates smaller than 2^-28 of the largest extent of the bounding box
+    set to 0 (single precision noise around zero has a last bit too fine for a shift of order 1; the largest change is 4e-9 of the model's size,
+    single precision rounding changes a coordinate by at most 6e-8 relative). A value that does not fit single precision is an error (OverflowError)."""
+    f32 = lambda x: struct.unpack("f", struct.pack("f", x))[0]
+    out = [(f32(x), f32(y), f32(z)) for x, y, z in verts]
+    if out:
+        extent = max(max(v[k] for v in out) - min(v[k] for v in out) for k in range(3))
+        tiny = extent * 2.0 ** -tiny_exponent
+        out = [tuple(0.0 if c != 0 and abs(c) < tiny else c for c in v) for v in out]
+    return out
+
 def write_off(path, verts, tris):
     with open(path, "w") as f:
         f.write(f"OFF\n{len(verts)} {len(tris)} 0\n")
@@ -179,8 +194,9 @@ def cmd_prepare(d, out, tolerances=None, min_clean=MIN_CLEAN):
             if k in unreadable:
                 continue
             try:
-                write_off(os.path.join(tdir, k + ".off"), *weld(*read_obj(os.path.join(mdir, f)), tol))
-            except (ValueError, IndexError) as ex:
+                v, t = read_obj(os.path.join(mdir, f))
+                write_off(os.path.join(tdir, k + ".off"), *weld(snap(v), t, tol))
+            except (ValueError, IndexError, OverflowError) as ex:
                 unreadable[k] = str(ex)
         print(f"weld tolerance {tol:g} (x bounding box diagonal), {len(unreadable)} unreadable files:", flush=True)
         reasons, clean = cmd_filter(tdir, f"{out}.{tol:g}")
