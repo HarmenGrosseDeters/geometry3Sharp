@@ -157,7 +157,7 @@ rounds (`Delaunay3.PlanInsert` / `ApplyInsert`, `core/WorkerTeam.cs`, `MeshAlpha
 every thread count; on 4 cores the tail 20 pipeline 760 -> 603 s (1.26x, max 87.9 -> 81.5 s), main carving 1.53x, the
 normal 30 1.10x; p01 medians not lower, min angle per mesh both ways (not significant). Owner: `RoundWindow` = 256 is
 the default, `RoundWindow` = 0 (master's serial loop, bit for bit) the opt-out.
-The raw-size budget, built 2026-11-13 (#846, issue #694, closed): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
+The raw-size budget, built 2026-11-13 (#846, issue #694, closed): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; an optional limit on that factor, `MaxAlphaCoarsening` / `WrapMaxAlphaCoarsening` (0 = none, #1014, after the cliff of mesh 40118 in [ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md)); the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
 meshes). #692 (185k raw triangles from 144) is closed: #765 (2026-11-13) runs the tests on a coarser solidify and wrap of the
 same defect classes (32 s -> 8.7 s); #703 (2026-11-12) takes a small input's alpha from its edge length (#636, #712).
 #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) is fixed in #744 (2026-11-13; the
@@ -536,10 +536,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run passed, owner 2026-11-15), #747 (first-pass
 guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
 
-1. Default decisions (owner) for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget
-   (#846). Both change outputs. The 800 run is done (2026-11-17, GitHub Actions run 43972566855: no guarantee lost, B 0.67x
-   triangles and 1.33x time, C 0.78x time and one 47x Hausdorff outlier; [ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md));
-   the owner decides.
+1. ~~Default decisions (owner) for the opt-in levers~~ decided 2026-11-17 after the 800 run
+   ([ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md), run 43972566855 and the cap run 44013288852): lever 6 K (`AlphaWrapFeaturePass`,
+   #736) stays opt-in; the raw-size budget (#846) stays off by default, with `MaxAlphaCoarsening` (#1014) opt-in; recipe for a
+   bounded tail: budget 300,000 with `MaxAlphaCoarsening = 1.2` (mesh 40118: a coarsening above about 1.2 fills a hollow behind a narrow
+   neck). Open only if the owner wants the budget on by default: one 800 run of that recipe first.
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).

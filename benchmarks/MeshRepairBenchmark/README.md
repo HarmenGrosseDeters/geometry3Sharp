@@ -1746,3 +1746,8 @@ shards (`alpha_defaults.py merge`), writes `alpha_defaults_summary.py`'s table t
 `wall.tsv` and `summary.md` to `runs/alpha-defaults-800/run-<run id>`. `BENCH_WRAP_BUDGET` was read only by the robust mode until
 this workflow; the `wrappipe` mode now sets `MeshAlphaWrap.MaxEstimatedTriangles` from it and writes `wrap_estimate` and
 `wrap_coarsening` into the row (unset: the output is unchanged). Checks: `python3 test_alpha_defaults.py`.
+
+Limit on the budget's coarsening (`MeshAlphaWrap.MaxAlphaCoarsening`, `MeshRobustRepair.WrapMaxAlphaCoarsening`; off by default;
+`BENCH_WRAP_COARSEN_CAP=f` in `wrappipe` and `robust`): with a budget, the factor by which alpha and offset grow is at most `f`
+(then the result can be above the budget). Configurations `D` (budget 300000, cap 1.5) and `E` (cap 1.2) of `alpha_defaults.py`;
+`alpha-defaults.yml` takes an `ids` input (space-separated mesh ids of the list) for a run on a few meshes.

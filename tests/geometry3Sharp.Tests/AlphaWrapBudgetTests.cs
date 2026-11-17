@@ -21,9 +21,9 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static MeshAlphaWrap Wrap(DMesh3 m, double relativeAlpha, int budget)
+        static MeshAlphaWrap Wrap(DMesh3 m, double relativeAlpha, int budget, double cap = 0)
         {
-            var w = new MeshAlphaWrap(m) { RelativeAlpha = relativeAlpha, RelativeOffset = 10 * relativeAlpha, MaxEstimatedTriangles = budget };
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = relativeAlpha, RelativeOffset = 10 * relativeAlpha, MaxEstimatedTriangles = budget, MaxAlphaCoarsening = cap };
             Assert.True(w.Compute(), w.Error);
             return w;
         }
@@ -173,6 +173,100 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply(), r.ResultReason);
             Assert.False(r.UsedAlphaWrap);
             Assert.Equal(1.0, r.AlphaWrapCoarsening);
+        }
+
+        // the cap on the coarsening (MaxAlphaCoarsening): the factor is at most the cap, alpha and offset are the requested ones times
+        // it, the result is the complete clean wrap at that alpha (bit for bit the wrap with UsedAlpha and UsedOffset given), above the
+        // budget; a cap that the budget does not reach, 0 (the default) and a value below 1 (counts as 1) are as documented
+        [Fact]
+        public void Cap_LimitsTheFactor_TheWrapIsTheCompleteWrapAtThatAlpha()
+        {
+            DMesh3 flat = Flat();
+            double diag = flat.CachedBounds.DiagonalLength;
+            const int budget = 1000;
+            MeshAlphaWrap free = Wrap(flat, 50, budget);
+            Assert.True(free.AlphaCoarsening > 2.0, $"factor {free.AlphaCoarsening}");
+            Assert.Equal(0.0, free.MaxAlphaCoarsening);
+            MeshAlphaWrap capped = Wrap(flat, 50, budget, 1.25);
+            Assert.Equal(1.25, capped.AlphaCoarsening);
+            Assert.Equal(diag / 50 * 1.25, capped.UsedAlpha);
+            Assert.Equal(diag / 500 * 1.25, capped.UsedOffset);
+            Assert.Equal(free.EstimatedTriangles, capped.EstimatedTriangles);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Success, capped.Status);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(capped.Result));
+            Assert.True(capped.Result.TriangleCount > 2 * budget, $"{capped.Result.TriangleCount}: the cap leaves the result above the budget");
+            Assert.True(capped.Result.TriangleCount > free.Result.TriangleCount);
+            var given = new MeshAlphaWrap(flat) { Alpha = capped.UsedAlpha, Offset = capped.UsedOffset };
+            Assert.True(given.Compute(), given.Error);
+            Assert.Equal(AlphaWrapManifoldStepTests.Hash(given.Result), AlphaWrapManifoldStepTests.Hash(capped.Result));
+            // (a cap above the factor the budget asks for, and 0: the free result)
+            string h = AlphaWrapManifoldStepTests.Hash(free.Result);
+            MeshAlphaWrap high = Wrap(flat, 50, budget, free.AlphaCoarsening * 2);
+            Assert.Equal(free.AlphaCoarsening, high.AlphaCoarsening);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(high.Result));
+            // (a cap just at the factor, and the next value below it)
+            MeshAlphaWrap atFactor = Wrap(flat, 50, budget, free.AlphaCoarsening);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(atFactor.Result));
+            Assert.Equal(free.UsedAlpha, atFactor.UsedAlpha);   // (the uncapped alpha bit for bit, not requested alpha * factor)
+            Assert.Equal(free.UsedOffset, atFactor.UsedOffset);
+            Assert.Equal(free.AlphaCoarsening * 0.999, Wrap(flat, 50, budget, free.AlphaCoarsening * 0.999).AlphaCoarsening);
+            // (a value below 1 counts as 1: not coarsened, the wrap of the requested alpha)
+            MeshAlphaWrap one = Wrap(flat, 50, budget, 0.5);
+            Assert.Equal(1.0, one.AlphaCoarsening);
+            Assert.Equal(diag / 50, one.UsedAlpha);
+            Assert.Equal(AlphaWrapManifoldStepTests.Hash(Wrap(flat, 50, 0).Result), AlphaWrapManifoldStepTests.Hash(one.Result));
+            // (the cap does nothing without a budget)
+            Assert.Equal(AlphaWrapManifoldStepTests.Hash(Wrap(flat, 50, 0).Result), AlphaWrapManifoldStepTests.Hash(Wrap(flat, 50, 0, 1.25).Result));
+        }
+
+        // reuse: Compute() twice with the cap gives the same result; the factor follows the cap that is set at each call
+        [Fact]
+        public void Cap_Reuse()
+        {
+            DMesh3 flat = Flat();
+            var w = new MeshAlphaWrap(flat) { RelativeAlpha = 50, RelativeOffset = 500, MaxEstimatedTriangles = 1000, MaxAlphaCoarsening = 1.25 };
+            Assert.True(w.Compute(), w.Error);
+            string h = AlphaWrapManifoldStepTests.Hash(w.Result);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(w.Result));
+            Assert.Equal(1.25, w.AlphaCoarsening);
+            w.MaxAlphaCoarsening = 0;
+            Assert.True(w.Compute(), w.Error);
+            Assert.True(w.AlphaCoarsening > 2.0, $"{w.AlphaCoarsening}");
+            w.MaxAlphaCoarsening = 1.5;
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(1.5, w.AlphaCoarsening);
+        }
+
+        // invariance over Similarity.All() with the cap active: the factor is the cap in every frame (the requested alpha follows the
+        // box, the factor does not); at the 2^k scales the result is the scaled result bit for bit; every wrap is clean
+        [Fact]
+        public void Cap_Invariance()
+        {
+            DMesh3 input = Flat();
+            MeshAlphaWrap w0 = Wrap(input, 50, 1000, 1.25);
+            foreach (Similarity s in Similarity.All()) {
+                MeshAlphaWrap w = Wrap(Invariance.Transformed(input, s), 50, 1000, 1.25);
+                Assert.Equal(1.25, w.AlphaCoarsening);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+                if (s.IsExact) {
+                    Assert.Equal(w0.Result.TriangleCount, w.Result.TriangleCount);
+                    Assert.True(w0.Result.VertexIndices().All(v => w.Result.GetVertex(v) == s.Apply(w0.Result.GetVertex(v))), s.Name);
+                }
+            }
+        }
+
+        // MeshRobustRepair passes the cap on (WrapMaxAlphaCoarsening, default 0)
+        [Fact]
+        public void RobustRepair_Cap_ReachesTheWrap()
+        {
+            Assert.Equal(0.0, new MeshRobustRepair(Flat()).WrapMaxAlphaCoarsening);
+            var r = new MeshRobustRepair(Flat()) { WrapMaxEstimatedTriangles = 1000, WrapMaxAlphaCoarsening = 1.5, SolidifyResolution = 16 };
+            Assert.True(r.Apply(), r.ResultReason);
+            Assert.True(r.UsedAlphaWrap, r.ResultReason);
+            Assert.Equal(1.5, r.AlphaWrapCoarsening);
+            Assert.Equal(1.5, r.AlphaWrap.MaxAlphaCoarsening);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
     }
 }

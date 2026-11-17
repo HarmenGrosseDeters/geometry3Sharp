@@ -232,6 +232,8 @@ class Program
                 // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
                 string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
                 if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
+                string wcap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
+                if (wcap != null) robust.WrapMaxAlphaCoarsening = double.Parse(wcap, System.Globalization.CultureInfo.InvariantCulture);
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
@@ -571,6 +573,9 @@ class Program
         // BENCH_WRAP_BUDGET: MeshAlphaWrap.MaxEstimatedTriangles in the pipeline as well (it was read only by the robust mode)
         string wrapBudget = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
         if (wrapBudget != null) wrap.MaxEstimatedTriangles = int.Parse(wrapBudget, inv);
+        // BENCH_WRAP_COARSEN_CAP: MeshAlphaWrap.MaxAlphaCoarsening, the limit of the coarsening the budget applies (unset: no limit)
+        string coarsenCap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
+        if (coarsenCap != null) wrap.MaxAlphaCoarsening = double.Parse(coarsenCap, inv);
         wrap.Compute();
         long wrapMs = sw.ElapsedMilliseconds;
         r["wrap_ms"] = wrapMs;

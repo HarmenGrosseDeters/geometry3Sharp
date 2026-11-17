@@ -4,7 +4,8 @@
 Three configurations of the wrap pipeline (BENCH_REPAIR=wrappipe, alpha = diagonal / 300, offset = diagonal / 3000,
 full fidelity) over the 800-mesh Thingi10K sample (cases/alpha_defaults_list800.txt = sample800_2611, the list of the
 earlier 800-mesh sweeps):
-  A: library defaults;  B: A + BENCH_WRAP_FEATURES=1 (#736);  C: A + BENCH_WRAP_BUDGET=300000 (#846).
+  A: library defaults;  B: A + BENCH_WRAP_FEATURES=1 (#736);  C: A + BENCH_WRAP_BUDGET=300000 (#846);
+  D: C + BENCH_WRAP_COARSEN_CAP=1.5;  E: C + BENCH_WRAP_COARSEN_CAP=1.2 (the limit on the coarsening, MaxAlphaCoarsening).
 
   alpha_defaults.py select  <list> <shard> <shards> [<first>:<last>]   print the ids of one shard (round robin over the range)
   alpha_defaults.py run     <ids-file> <out-dir> [--configs ABC] [--timeout 400] [--deadline-min 0]
@@ -21,8 +22,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_ENV = {"A": {}, "B": {"BENCH_WRAP_FEATURES": "1"}, "C": {"BENCH_WRAP_BUDGET": "300000"}}
-UNSET = ("BENCH_WRAP_FEATURES", "BENCH_WRAP_BUDGET", "BENCH_FIDELITY")
+CONFIG_ENV = {"A": {}, "B": {"BENCH_WRAP_FEATURES": "1"}, "C": {"BENCH_WRAP_BUDGET": "300000"},
+              # the budget with a limit on the coarsening (MeshAlphaWrap.MaxAlphaCoarsening, #846 follow-up, owner 2026-11-17)
+              "D": {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.5"},
+              "E": {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.2"}}
+UNSET = ("BENCH_WRAP_FEATURES", "BENCH_WRAP_BUDGET", "BENCH_WRAP_COARSEN_CAP", "BENCH_FIDELITY")
 
 
 def read_ids(path):
@@ -124,6 +128,8 @@ def cmd_merge(args):
                     seen.add(name)
                     rows.append(line.rstrip("\n"))
         rows.sort(key=lambda l: json.loads(l)["file"])
+        if not rows and cfg not in "ABC":
+            continue  # (a configuration that was not run: no file, so the summary does not list it)
         with open(os.path.join(out, "raw", cfg + ".jsonl"), "w") as w:
             w.write("".join(l + "\n" for l in rows))
     walls = {}
