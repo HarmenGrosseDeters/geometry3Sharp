@@ -1,0 +1,1 @@
+Procedural chains of EXACT_BOOLEAN_40_DESIGN.md section 4.1: python3 benchmarks/BooleanComparison/chain_exact.py proc rows.jsonl --seeds 30 --steps 8 (commit d2a9a8e0 code, 4 cores). Rows only, no meshes.
