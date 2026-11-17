@@ -243,6 +243,10 @@ def unwelded_cube_obj(path, jitter=0.0, side=1.0):
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
 
+def f32_of(x):
+    import struct
+    return struct.unpack("f", struct.pack("f", x))[0]
+
 class WeldTests(unittest.TestCase):
     def test_read_obj_handles_face_formats_negative_indices_and_polygons(self):
         with tempfile.TemporaryDirectory() as d:
@@ -298,16 +302,38 @@ class WeldTests(unittest.TestCase):
     def test_snap_rounds_to_single_precision_and_flushes_tiny_coordinates(self):
         import struct
         f32 = lambda x: struct.unpack("f", struct.pack("f", x))[0]
-        v = ac.snap([(0.1, 1 / 3, 2.5), (1e-12, -1e-12, 1.0), (1e-3, 0.0, 1.0)])
-        self.assertEqual(v[0], (f32(0.1), f32(1 / 3), 2.5))
-        self.assertEqual(v[0][0], 0.10000000149011612)                  # a double that is also a float
-        self.assertEqual(v[1], (0.0, 0.0, 1.0))                         # below 2^-28 of the extent: zero
-        self.assertEqual(v[2][0], f32(1e-3))                            # above: kept (rounded to single precision)
-        for c in (x for p in v for x in p):
-            self.assertEqual(c, f32(c))                                 # every coordinate is a single precision value
+        v = ac.snap([(0.1, 1 / 3, 2.5), (-1.0, 0.0, 1.0)])
+        self.assertEqual(v[0], (0.10000000149011612, f32(1 / 3), 2.5))   # 0.1 is not a single precision value: its neighbour is used
+        self.assertNotEqual(0.1, v[0][0])
+        self.assertEqual(v[1], (-1.0, 0.0, 1.0))                        # a large negative coordinate is not "tiny"
         self.assertEqual(ac.snap([]), [])
+        self.assertEqual(ac.snap([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0)]), [(0.0, 0.0, 0.0)] * 2)      # extent 0: nothing to flush
+        self.assertEqual(repr(ac.snap([(-0.0, 0.0, 1.0), (1.0, 1.0, 1.0)])[0][0]), "-0.0")        # a negative zero stays (it is not nonzero)
+
+    def test_the_flush_threshold_is_2_to_the_minus_26_of_the_extent(self):
+        extent = 4.0                                                    # the extent of the points below along x
+        tiny = extent * 2.0 ** -26
+        inside = ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 0.9 * tiny, 0.0), (0.0, 0.0, -0.9 * tiny)])
+        self.assertEqual((inside[2][1], inside[3][2]), (0.0, 0.0))     # below the threshold: flushed, positive and negative
+        outside = ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 1.1 * tiny, 0.0), (0.0, 0.0, -1.1 * tiny)])
+        self.assertNotEqual(outside[2][1], 0.0)
+        self.assertNotEqual(outside[3][2], 0.0)                         # above: kept
+        self.assertEqual(ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 0.9 * tiny, 0.0)], tiny_exponent=40)[2][1], f32_of(0.9 * tiny))   # the parameter works
+
+    def test_non_finite_coordinates_are_an_error_and_a_value_beyond_single_precision_overflows(self):
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            with self.assertRaises(ValueError):
+                ac.snap([(0.0, 0.0, 0.0), (bad, 1.0, 1.0)])
         with self.assertRaises(OverflowError):
             ac.snap([(1e39, 0.0, 0.0)])
+
+    def test_snap_distortion_is_relative_to_the_extent(self):
+        verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.1, 0.0, 0.0)]
+        self.assertAlmostEqual(ac.snap_distortion(verts, ac.snap(verts)), abs(0.1 - 0.10000000149011612), places=15)      # extent 1
+        self.assertEqual(ac.snap_distortion([], []), 0.0)
+        self.assertEqual(ac.snap_distortion([(1.0, 1.0, 1.0)], [(1.0, 1.0, 1.0)]), 0.0)
+        far = [(1e6 + 0.1, 0.0, 0.0), (1e6 + 1.1, 0.0, 0.0)]            # far from the origin: single precision rounds by 0.0x, a share of the extent 1
+        self.assertGreater(ac.snap_distortion(far, ac.snap(far)), 1e-3)
 
     def test_collapsed_triangles_are_kept_for_the_filter_to_report(self):
         v, t = ac.weld([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [(0, 1, 2)], 0.0)
@@ -456,7 +482,7 @@ class PrepareEndToEndTests(unittest.TestCase):
                 ac.write_off(os.path.join(raw, name + ".off"), *ac.weld(*ac.read_obj(os.path.join(d, "meshes", name + ".obj")), 0.0))
             rows = ac.run_chain(case(raw), ["ours"], 300)
             self.assertEqual(rows[0]["method"], "export", rows)
-            self.assertIn("not exact", rows[0]["error"])
+            self.assertIn("inexact transform: B", rows[0]["error"])
             old = ac.CLEAN_TRIS
             ac.CLEAN_TRIS = (1, 100)
             try:
