@@ -28,6 +28,15 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FanAngle_IsCoreMathAcosOverThreeQuarters_AndSlopeAngleKeepsNaN()
+        {
+            double c = 0.23144537602828275;
+            Assert.Equal(BitConverter.DoubleToInt64Bits(CoreMath.Acos(c) / 0.75), BitConverter.DoubleToInt64Bits(TerrainSlopeDesign.FanAngle(c)));
+            Assert.NotEqual(BitConverter.DoubleToInt64Bits(CoreMath.AcosByAtan2(c) / 0.75), BitConverter.DoubleToInt64Bits(TerrainSlopeDesign.FanAngle(c)));
+            Assert.True(double.IsNaN(TerrainSlopeDesign.SlopeAngle(double.NaN)));
+        }
+
+        [Fact]
         public void SlopeAngle_IsMonotone_AtTheDocumentedNeighbours()
         {
             // 0.23144537602828275 and its next double: AcosByAtan2 gave 1.3372331895174001 then 1.3372331895174003 (a rise)

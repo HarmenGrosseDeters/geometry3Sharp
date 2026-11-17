@@ -184,7 +184,7 @@ namespace g3.Tests
         [Fact]
         public void Acos_DiffersFromTheComposedVersionByAtMostTwoUlps()
         {
-            // what replacing AcosByAtan2 by Acos would change (the terrain slope design was switched on 2026-11-17):
+            // what the switch of the terrain slope design from AcosByAtan2 to Acos (2026-11-17) changed:
             // by derivation at most 1.6 ulps + 0.5 apart, and in a few percent of the arguments
             ulong s = 4242;
             long differ = 0, count = 0, worst = 0;

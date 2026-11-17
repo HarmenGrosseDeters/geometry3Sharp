@@ -183,7 +183,7 @@ result depends on, with a harness case and benchmark numbers. Second user (2026-
 design (`mesh_ops/TerrainSlope*.cs`), whose result differed in 20 of 15302 values between the Windows CRT of .NET and the
 others on a libm-free input (the `Cos / Sin` of the fan directions); its `Cos`, `Sin`, `Atan2` are `CoreMath`'s, its two
 `Acos` are `CoreMath.Acos` (correctly rounded, monotone; they were the composed `AcosByAtan2` until 2026-11-17, which differed from it by one ulp in
-12.4 % of 100 000 test arguments and was not monotone in the last ulp; the swap moved terrain output bits by at most one ulp of an angle), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
+12.4 % of 100 000 test arguments and was not monotone in the last ulp; the swap moves an angle by at most about 2 ulps, derived, not measured on terrain output; the run time below was measured before the swap), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
 the run time (1.39 s against 1.40 s, median of 5, pit at tolerance 0.001). Files using `CoreMath` may not call the `System.Math`
 transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
 tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.

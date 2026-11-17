@@ -2031,6 +2031,8 @@ namespace gs
         /// the angle of a strip's slope to the plan direction, acos of the clamped ratio: the correctly rounded CoreMath.Acos
         /// (the same bits everywhere, monotone over neighbouring doubles; the composed AcosByAtan2 was neither exact nor monotone, #1060)
         /// </summary>
+        internal static double FanAngle(double c) => CoreMath.Acos(c) / 0.75;
+
         internal static double SlopeAngle(double ratio) => CoreMath.Acos(Math.Max(-1, Math.Min(1, ratio)));
 
         /// <summary>
@@ -2042,7 +2044,7 @@ namespace gs
         {
             if (!(facetShare > 0)) return -1;
             double c = 1 - facetShare / scale;
-            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.Acos(c) / 0.75 : Math.PI / 8;
+            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? FanAngle(c) : Math.PI / 8;
             double n = Math.Ceiling(2 * Math.PI / theta);
             return n <= max ? (int)n : -1;
         }
