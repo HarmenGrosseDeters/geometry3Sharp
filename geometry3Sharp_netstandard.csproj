@@ -86,6 +86,8 @@
     <InternalsVisibleTo Include="ContouringCertificate" />
     <!-- the interval path of the CCD solver (benchmarks/CcdBenchmark) -->
     <InternalsVisibleTo Include="CcdBenchmark" />
+    <!-- the width, time and windows of the certified geodesic oracle (benchmarks/GeodesicOracleBenchmark, #1058) -->
+    <InternalsVisibleTo Include="GeodesicOracleBenchmark" />
     <!-- the certified geodesic oracle (ExactMeshGeodesicDistance) in the cross-platform determinism cases -->
     <InternalsVisibleTo Include="DeterminismHarness" />
   </ItemGroup>
