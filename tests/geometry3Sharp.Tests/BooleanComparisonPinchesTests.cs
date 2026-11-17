@@ -174,6 +174,27 @@ namespace geometry3Sharp.Tests
             return s;
         }
 
+        [Fact]
+        public void BalancedEdgeThatDoesNotAlternate_IsUnpaired()
+        {
+            // two boxes along an edge, one inside out: the edge has two triangles each way, but in angular order the two of
+            // the inverted box face the wrong way, so no forward triangle has a backward one on its solid side
+            DMesh3 inverted = Box(1, 1, 0, 2, 2, 1);
+            inverted.ReverseOrientation();
+            Pinches.Split s = SplitOf(Soup(Box(0, 0, 0, 1, 1, 1), inverted));
+            Assert.Equal(1, s.UnpairedEdges);
+            Assert.Equal(0, s.PinchEdges);
+            Assert.NotEqual("", MeshRobustRepair.NotCleanReason(s.Mesh, false));
+        }
+
+        [Fact]
+        public void NonFiniteCoordinates_AreNotFreeOfIntersections()
+        {
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            m.SetVertex(0, new Vector3d(double.NaN, 0, 0));
+            Assert.Equal(-1, Pinches.SelfIntersectionsBeyondContacts(m));
+        }
+
         /// <summary> invariance (Similarity.All()): the pinch counts and the verdicts do not depend on the frame </summary>
         [Fact]
         public void PinchCounts_InvariantUnderSimilarities()

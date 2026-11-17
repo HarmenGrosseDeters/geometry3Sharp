@@ -298,8 +298,11 @@ def mesh_file(d, k):
 def cmd_manifest(d, chains, out, limit=None, variants=None, only=None):
     rows = tc.select(read_chains(chains), limit, variants)
     if only:
-        names = set(only)
+        names = {n.strip() for n in only if n.strip()}
         rows = [r for r in rows if f"{r['variant']}_p{r['pair']}" in names]
+        missing = names - {f"{r['variant']}_p{r['pair']}" for r in rows}
+        if missing:
+            print("not in the list (or beyond --limit):", ", ".join(sorted(missing)), file=sys.stderr)
     with open(out, "w") as f:
         for r in rows:
             f.write(json.dumps({"class": CLASS, "name": f"{r['variant']}_p{r['pair']}_{r['a']}+{r['b']}+{r['c']}", "variant": r["variant"],

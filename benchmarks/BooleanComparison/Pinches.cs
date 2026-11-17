@@ -15,7 +15,8 @@ namespace BoolCmp
     /// backward. Then every vertex gets one copy per fan of triangles joined across its edges (manifold edges and the paired
     /// ones), so that a vertex where the solid touches itself at a point (a bowtie) is split too. Positions with more than one
     /// copy, and the welded edges that were split, are the pinches. An edge with an odd or unbalanced count, or whose
-    /// angular order does not alternate, is left unpaired (its triangles keep boundary edges: the result is not closed there).
+    /// angular order does not alternate, is left unpaired (counted in UnpairedEdges: its triangles usually keep boundary
+    /// edges, or the pieces close on their own copies and another check, eg inside-out, names the defect).
     /// Double precision angles: the eval's oracle, not exact code.
     /// </summary>
     public static class Pinches
@@ -134,7 +135,8 @@ namespace BoolCmp
         /// <summary>
         /// intersecting triangle pairs of the split mesh, where triangles that touch only at positions they both have a vertex
         /// at (the pinches) do not count: MeshRoundingRepair's exact check with SharedPositionsTouch, on a copy, repairing
-        /// nothing (MaxPasses 0, no component removal)
+        /// nothing (MaxPasses 0, no component removal); -1 where the check cannot run (coordinates not finite or outside its
+        /// range), so that such a result is not taken as free of intersections
         /// </summary>
         public static int SelfIntersectionsBeyondContacts(DMesh3 mesh)
         {
@@ -142,7 +144,7 @@ namespace BoolCmp
                 return 0;
             var r = new MeshRoundingRepair(new DMesh3(mesh)) { SharedPositionsTouch = true, MaxPasses = 0, RemoveTinyComponents = false };
             r.Apply();
-            return r.InitialIntersections;
+            return r.ScaleNotFinite || r.OutsideRange ? -1 : r.InitialIntersections;
         }
     }
 }

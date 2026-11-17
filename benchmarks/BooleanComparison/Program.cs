@@ -407,7 +407,7 @@ static class Program
                     if (reason == "" && selfint != 0) reason = "self-intersections";
                     // clean except where the solid touches itself: a class of its own (owner 2026-11-17; NotCleanReason
                     // itself is unchanged and calls the split mesh self-intersecting there)
-                    if (reason == "" && split.PinchVertices > 0) reason = "pinches";
+                    if (reason == "" && (split.PinchVertices > 0 || split.PinchEdges > 0)) reason = "pinches";
                     r[op + "_clean_reason"] = reason;
                 }
                 r[op + "_volume"] = volume;
