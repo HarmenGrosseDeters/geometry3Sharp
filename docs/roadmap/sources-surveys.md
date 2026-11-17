@@ -200,7 +200,7 @@ Documented only, nothing planned yet.
 
 Order if one is picked up:
 1. The Minkowski / swept volume paper next to `MeshOffset` (the decision is made: A1 merged in #799), because both are offsets on our exact boolean kernel.
-2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run (draft #385).
+2. Shelved: the octree-BSP / EMBER architecture (owner 2026-11-17, [exact-boolean.md](exact-boolean.md#after-30-owner-2026-11-16)).
 3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task (its status is unverified).
 
 #### Award-winning papers (October 2026 survey)
@@ -354,7 +354,7 @@ Order if one is picked up:
 
 1. Full Thingi10K run (draft #385). The EMBER / octree-BSP architecture is shelved (owner 2026-11-17, [exact-boolean.md](exact-boolean.md#after-30-owner-2026-11-16)), so it no longer waits for this run.
 2. The Minkowski / swept volume paper (Campen, Kobbelt 2010) next to `MeshOffset` (#799); not scheduled.
-3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first; the top three were measured 2026-11-17 ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md): spectral conformal map an opt-in for discs, not the P1 fix; the lfs yardstick a metric, not a bound; true restricted Voronoi cells a go for RDR stage 1b). Owner 2026-11-17: the spectral conformal map is built as an opt-in with an atlas A/B; RDR stage 1b not now. A port is a decision with an A/B.
+3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first; the top three were measured 2026-11-17 ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md): spectral conformal map an opt-in for discs, not the P1 fix; the lfs yardstick a metric, not a bound; true restricted Voronoi cells a go for RDR stage 1b). Owner 2026-11-17: the spectral conformal map is to be built as an opt-in with an atlas A/B; RDR stage 1b not now. A port is a decision with an A/B.
 4. Other permissive libraries: each row to check, none read yet; PyMesh, ManifoldPlus and Directional wait for a LICENSE file.
 5. Generalized winding numbers for rational curves (Phase 5 next research item 3, [research.md](research.md#phase-5-candidates-from-recent-research)).
 6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).
