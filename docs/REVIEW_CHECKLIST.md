@@ -16,12 +16,12 @@ read all classes against every diff:
 2. Check those classes, and for each yes, check that a test covers it. A test must fail on the old code (mutation
    check). Class 0 ("always") applies to every diff.
 3. Classes without a trigger match are skipped. The review names which classes it checked (and which it skipped)
-   in its report, so that a missing class can be seen. A typical diff matches 3 to 10 classes.
+   in its report, so that a missing class can be seen. A small diff matches 3 to 8 classes; a large PR (a new operation) can match most of them, and then the review is the full list.
 4. A fault class found in review that has no class here is added in the same PR, with its trigger
    ([AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 4). A bug that a trigger missed is a bug of the trigger: widen it.
 
 Trigger syntax of the machine line: `path=` globs (shell style, `*` also crosses `/`) matched against the changed
-file paths, `add=` / `del=` regular expressions matched against the added / removed lines of code files in the diff, `always` for a
+file paths, `add=` / `del=` regular expressions matched against the added / removed lines of code files in the diff (comments are not matched), `ladd=` a regular expression matched against added lines outside `tests/` and `benchmarks/`, `always` for a
 class that applies to every diff. A class matches when any of its parts matches. Inside a broad class, a bullet that starts with `*(when: ...)*`
 needs checking only when that condition holds for the diff; a bullet without it always applies once its class matches.
 
@@ -42,7 +42,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 1. Silent success (#60, #61, #75, #79, #84, #108, #109, #110, #111, #112)
 
 **Trigger:** a `Success` / `true` / `Converged` / status or reason value, a failure status, a certificate, an oracle or a proof tool (Z3) is added or changed; a new success path of an operation; a change of a repair, cleanup or metrics file or of benchmark acceptance criteria.
-<!-- trigger: path=mesh_ops/*Repair* mesh_ops/*Cleanup* mesh_ops/*Metrics* benchmarks/*; add=\b(Success|Converged|NotCleanReason|Failure|Certificate|Z3)\b|\bStatus\b|\bReason\b|\bUNKNOWN\b|\bunsat\b|IsClean|Closed|Manifold|IsValid -->
+<!-- trigger: path=mesh_ops/*Repair* mesh_ops/*Cleanup* mesh_ops/*Metrics* benchmarks/*; add=\b(Success|Converged|NotCleanReason|Failure|Certificate|Z3)\b|\bStatus\b|\bReason\b|\bUNKNOWN\b|\bunsat\b|return true|IsClean|Closed|Manifold|IsValid -->
 
 - Does every `Success`, `true` or `Converged` path check the result it reports? Closed, manifold, no
   self-intersections, no lost components, walk arrived, factorization succeeded, finite output.
@@ -77,7 +77,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 3. Degenerate input (#69, #70, #87, #93, #97, #105, #109)
 
 **Trigger:** a division by an area, length or determinant, a triangle or polygon operation, `Normalized`, an offset or a call into a polygon library (Clipper2), a ring or hole input, or a new public geometry operation.
-<!-- trigger: path=mesh_ops/* mesh_generators/* curve/* comp_geom/* parameterization/* addons/*; add=Area|Degenerate|Sliver|Collinear|Normalized|Normalize\(|Clipper|Offset|Hole|Bowtie -->
+<!-- trigger: path=parameterization/*; add=Area|Degenerate|Sliver|Collinear|Normalized|Normalize\(|Clipper|Offset|Hole|Bowtie -->
 
 - Zero-area, collinear and coincident-vertex triangles; slivers; T-junctions; charts or components made only
   of such triangles; empty meshes; a single triangle.
@@ -91,7 +91,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 4. Open, non-manifold and bowtie input (#60, #64, #99, #100, #110)
 
 **Trigger:** an operation that takes a mesh (`DMesh3`, `IMesh`, a triangle or edge loop, `MeshBoundaryLoops`), a repair, boolean, hole-fill or parameterization change, or a new mesh-reading entry point.
-<!-- trigger: path=mesh_ops/* mesh/* parameterization/* mesh_selection/*; add=\bDMesh3\b|\bNonManifold|\bIsBoundary|\bBoundaryLoops|\bInvalidMesh\b|\bBowtie -->
+<!-- trigger: path=parameterization/* mesh_selection/*; add=\bDMesh3\b|\bNonManifold|\bIsBoundary|\bBoundaryLoops|\bInvalidMesh\b|\bBowtie -->
 
 - Open meshes, bowtie vertices (interior and boundary), non-manifold edges, touching sheets, inconsistent
   orientation, several components including tiny and nested ones.
@@ -102,7 +102,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 5. Floating-point range: subnormal, overflow (#62, #71, #73, #74, #103, #104, #110)
 
 **Trigger:** a change in `math/Exact*`, `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*`, an error bound, `Math.Sqrt` / `ScaleB` / `ToDouble` / `Normalized` / `UnitCross`, a cast to `int` or `long` of a double, a distance or length or squared value, or a tolerance applied to a computed value.
-<!-- trigger: path=math/Exact* math/AdaptivePredicates* mesh_ops/ExactMesh* core/ExactCodeAllowList*; add=ErrBound|ErrorBound|\bulp\b|ScaleB|ToDouble|Math\.Sqrt|\bNormalized\b|UnitCross|\(int\)|\(long\)|double\.(NaN|Epsilon|IsFinite|IsNaN)|IsInfinity|\.LengthSquared|\.DistanceSquared|\.Dot\( -->
+<!-- trigger: path=math/Exact* math/AdaptivePredicates* mesh_ops/ExactMesh* core/ExactCodeAllowList*; add=ErrBound|ErrorBound|\bulp\b|ScaleB|ToDouble|Math\.Sqrt|\bNormalized\b|UnitCross|\(int\)|\(long\)|double\.(NaN|Epsilon|IsFinite|IsNaN)|IsInfinity|\.LengthSquared|\.DistanceSquared|DistanceSquared\(|\.Distance\(|\.Dot\( -->
 
 - *(when: a product, sum or finiteness check over input values)* Products and sums of large values (`1e200 * 1e200`), finiteness checks by summing values (the sum can
   overflow), `ToDouble` of exact values beyond the double range.
@@ -146,7 +146,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 6. Integer overflow, sizes and hard limits (#68, #75, #81, #104)
 
 **Trigger:** a new grid, cell or index product (`nx * ny`, `i * n + j`), a fixed cap or maximum (iterations, components), a count read from input, a hard cap removed or added (`Count > 500`), a hash-grid key range, or a call into another library with scaled values (Clipper2 integer grid).
-<!-- trigger: path=addons/* spatial/*Grid* mesh_ops/*Arrangement*; add=\bCount\s*[<>]=?\s*\d{2,}|new (int|long)\[|\bBatch|\bnx\b; del=\bCount\s*[<>]=?\s*\d{2,}|\bMax[A-Z]\w*\s*=|\bny\b|\bnz\b|\bMax[A-Z]\w*\s*=|\bconst\s+int\b|\bint\.MaxValue|\bCount\s*\*|Clipper|\bIntPoint|\bPoint64 -->
+<!-- trigger: path=addons/* spatial/*Grid* mesh_ops/*Arrangement*; add=\bCount\s*[<>]=?\s*\d{2,}|new (int|long)\[|\bBatch|\bnx\b|\bMax[A-Z]\w*\s*=|const int; del=\bCount\s*[<>]=?\s*\d{2,}|\bMax[A-Z]\w*\s*=|\bny\b|\bnz\b|\bconst\s+int\b|\bint\.MaxValue|\bCount\s*\*|Clipper|\bIntPoint|\bPoint64 -->
 
 - *(when: an `int` product of grid dimensions or indices)* `int` products of grid dimensions or indices (`nx * ny * nz`, `i * n + j`), cell counts over large
   extents; is there a limit, and is it reported?
@@ -183,7 +183,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 8. Untrusted input (#86, #88, #90, #91)
 
 **Trigger:** a reader, writer or file format, the CLI (`tools/g3cli`) or MCP server, a path or URI from input, a size or count read from a file or network, `Parse` / `ReadAll` / a deserializer, or a change of `ReaderFuzzTests`.
-<!-- trigger: path=io/* tools/g3cli/* tests/g3cli.Tests/* *ReaderFuzz*; add=\bStream\b|\bFile\.(Open|Read)|\bdouble\.Parse|\bint\.Parse|\bTryParse|\bXmlReader|\bBinaryReader|\bZipArchive|\bUri\b -->
+<!-- trigger: path=io/* tools/g3cli/* tests/g3cli.Tests/* *ReaderFuzz*; add=\bStream\b|\bFile\.(Open|Read)|\bdouble\.Parse|\bint\.Parse|\bTryParse|\bXmlReader|\bBinaryReader|\bZipArchive|\bUri\b|ReadAll|Deserializ|\bRead[A-Z]\w*\( -->
 
 - Readers and the CLI / MCP server: path traversal (`../` in URIs), sizes from the file (allocation before
   validation), recursion and DAGs (exponential expansion), zip bombs, DTDs, locale (`1,5`), `1e400`, NaN.
@@ -277,7 +277,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 11. Compatibility and documentation (#92, #94)
 
 **Trigger:** a public type or member is added, removed or changed (`public` in a library file), `CompatibilitySuppressions.xml`, the result of an existing method changes, a new operation, a roadmap item changes status, or test code that runs on net48.
-<!-- trigger: path=CompatibilitySuppressions.xml docs/ROADMAP.md docs/roadmap/* docs/UPSTREAM_CHANGES.md docs/OPERATIONS.md tests/*; add=^\s*public\s|^\s*protected\s|\binternal\s+static\s+class|\.IsFinite|\bIsFinite\( -->
+<!-- trigger: path=CompatibilitySuppressions.xml docs/ROADMAP.md docs/roadmap/* docs/UPSTREAM_CHANGES.md docs/OPERATIONS.md; add=\.IsFinite|\bIsFinite\(; ladd=^\s*public\s|^\s*protected\s -->
 
 - Public API unchanged against 1.0.324 (pack runs the package validation; an accepted break goes into
   `CompatibilitySuppressions.xml` with a reason).
@@ -291,7 +291,7 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 12. Test oracles and generators (#229)
 
 **Trigger:** a test harness, fuzzer, generator, shrinker or replay command, a tool result validator or coverage gate (`tools/*`, `tests/**/Harness/*`, `*Fuzz*`, `*Generator*`), or an "exact" comparison in a test.
-<!-- trigger: path=tools/* tests/*/Harness/* *Fuzz* *Generator* tests/mutation/*; add=\ballowDegenerate\b|\bFuzz|\bGenerator|\bShrink|\bReplay|\.Equal\(.*0\.0|Assert\.Equal\( -->
+<!-- trigger: path=tools/* tests/*/Harness/* *Fuzz* *Generator* tests/mutation/*; add=\ballowDegenerate\b|\bFuzz|\bGenerator|\bShrink|\bReplay -->
 
 - *(when: a tool-result validator)* Tool-result validation: parse decimal bounds without binary floating-point underflow masking a negative value;
   reject malformed, non-finite or missing results.
