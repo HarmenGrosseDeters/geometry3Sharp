@@ -240,10 +240,24 @@ static class Program
             WriteOFF(boolean.Result, fout);
         var r = new Dictionary<string, object> { ["ms"] = ms, ["ok"] = ok, ["phases"] = boolean.PhaseMilliseconds, ["counts"] = boolean.Counts, ["gc"] = gc };
         if (!ok) r["error"] = boolean.Error;
-        if (boolean.Rounding != null) r["rounding_clean"] = boolean.RoundingClean;
+        if (boolean.Rounding != null) {
+            r["rounding_clean"] = boolean.RoundingClean;
+            // what the repair left and why it stopped (RC4 of docs/research/BOOLEAN_TRIAGE_2026-11.md)
+            MeshRoundingRepair rr = boolean.Rounding;
+            r["rounding"] = new Dictionary<string, object> {
+                ["remaining_intersections"] = rr.RemainingIntersections, ["remaining_degenerate"] = rr.RemainingDegenerate,
+                ["remaining_false_contacts"] = rr.RemainingFalseContacts, ["evaluation_limit_reached"] = rr.EvaluationLimitReached,
+                ["smallest_rejected_drift"] = Finite(rr.SmallestRejectedDrift),
+                ["max_drift"] = Finite(rr.MaxDrift), ["max_length"] = Finite(rr.MaxLength), ["scale_disparity"] = rr.ScaleDisparity,
+                ["removed_components"] = rr.RemovedComponents, ["edits"] = rr.Collapses + rr.Flips + rr.Moves + rr.Zips + rr.VertexRemovals,
+            };
+        }
         Console.WriteLine(JsonSerializer.Serialize(r));
         return 0;
     }
+
+    // (JSON has no infinity or NaN: null)
+    static object Finite(double x) => double.IsNaN(x) || double.IsInfinity(x) ? null : (object)x;
 
     internal static void WriteOFF(DMesh3 mesh, string path)
     {
@@ -365,15 +379,12 @@ static class Program
                 }
                 bool wclosed = edgeUse.Values.All(c => (c & 0xFFFF) == (c >> 16));
                 bool manifold = edgeUse.Values.All(c => (c & 0xFFFF) == 1 && (c >> 16) == 1);
-                DMesh3 mesh = new DMesh3();
-                foreach (var kv in ids.OrderBy(kv => kv.Value)) mesh.AppendVertex(kv.Key);
-                int dup = 0;
-                foreach (Index3i g in tris) {
-                    if (mesh.AppendTriangle(g) < 0) {
-                        dup++;
-                        mesh.AppendTriangle(mesh.AppendVertex(mesh.GetVertex(g.a)), mesh.AppendVertex(mesh.GetVertex(g.b)), mesh.AppendVertex(mesh.GetVertex(g.c)));
-                    }
-                }
+                // the welded result split at its pinches (edges and vertices where the solid touches itself) into a manifold
+                // mesh with duplicated vertices, the representation of ExactMeshBoolean and Manifold (BoolCmp.Pinches; before,
+                // the triangles that did not fit at a pinch edge were appended on their own vertices: "not closed")
+                var welded = ids.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+                BoolCmp.Pinches.Split split = BoolCmp.Pinches.Build(welded, tris);
+                DMesh3 mesh = split.Mesh;
                 double volume = 0;
                 int zeroArea = 0;
                 foreach (Index3i g in tris) {
@@ -388,11 +399,20 @@ static class Program
                 r[op + "_manifold_closed"] = manifold;
                 r[op + "_degenerate"] = degenerate;
                 r[op + "_zero_area"] = zeroArea;
-                int selfint = mesh.TriangleCount <= 400000 || notClean ? MeshRepairMetrics.SelfIntersections(mesh) : -1;
+                r[op + "_pinch_edges"] = split.PinchEdges;
+                r[op + "_pinch_vertices"] = split.PinchVertices;
+                r[op + "_unpaired_edges"] = split.UnpairedEdges;
+                // intersecting pairs beyond the pinches: triangles that touch only at a position where both have a vertex
+                // (the duplicated vertices of a pinch) do not count (before: every pair touching at a pinch did)
+                int selfint = mesh.TriangleCount <= 400000 || notClean ? BoolCmp.Pinches.SelfIntersectionsBeyondContacts(mesh) : -1;
                 r[op + "_selfint"] = selfint;
                 if (notClean) {
                     string reason = MeshRobustRepair.NotCleanReason(mesh, false);
-                    r[op + "_clean_reason"] = reason == "" && selfint != 0 ? "self-intersections" : reason;
+                    if (reason == "" && selfint != 0) reason = "self-intersections";
+                    // clean except where the solid touches itself: a class of its own (owner 2026-11-17; NotCleanReason
+                    // itself is unchanged and calls the split mesh self-intersecting there)
+                    if (reason == "" && (split.PinchVertices > 0 || split.PinchEdges > 0)) reason = "pinches";
+                    r[op + "_clean_reason"] = reason;
                 }
                 r[op + "_volume"] = volume;
             }
