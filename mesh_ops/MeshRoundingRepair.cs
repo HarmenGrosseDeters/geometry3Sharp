@@ -199,13 +199,29 @@ namespace g3
         public int MaxEvaluationsPerDefect = 50;
         /// <summary>
         /// effort budget for hopeless inputs: no edit is evaluated once the exact triangle pair tests of the evaluations
-        /// exceed it (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
+        /// exceed it, grown with the initial defects by up to PairTestsMaxGrowth times (PairTestsDefectScale) (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
         /// MaxEvaluationsPerDefect). Measured (November 2026, after #327): 5M instead of 20M lost and gained no clean result
         /// (generated families 1340 of 1512 clean, Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of
         /// 18 at 5M to 80M) and cut the time of the cases that reach it (rounding of the rotated cases 193 to 96 s).
         /// ExactMeshBoolean.RoundingMaxPairTests and MeshRobustRepair.RoundingMaxPairTests pass it through
         /// </summary>
         public long MaxPairTests = 5000000;
+        /// <summary>
+        /// the budget grows with the work (RC4a, owner 2026-11-17): the effective budget is MaxPairTests times
+        /// min(max(1, D / PairTestsDefectScale), PairTestsMaxGrowth), D the initial defects (intersecting pairs, degenerate
+        /// triangles, contacts the rounding made). With the defaults: min(max(5M, 100 D), 20M). A repair that finished within
+        /// MaxPairTests is unchanged, bit for bit (the budget is only compared with the count). Measured on the abc-chained
+        /// cases that reached 5M: unions and intersections of a model with its 1-ulp copy needed 64 to 83 pair tests per
+        /// defect and at most 12.7M to finish clean (docs/research/BOOLEAN_TRIAGE_2026-11.md, RC4a). The ceiling bounds the time
+        /// where more pair tests buy nothing: unlimited, a difference that ends empty and clean at any budget took 112M pair
+        /// tests and 60 s. 0 or less: no growth
+        /// </summary>
+        public double PairTestsDefectScale = 50000;
+        /// <summary> the most the budget grows with the defects, as a factor of MaxPairTests (PairTestsDefectScale); 4: 20M </summary>
+        public double PairTestsMaxGrowth = 4;
+        // the effective budget of the last Apply
+        long pairBudget;
+        internal long PairBudget { get { return pairBudget; } }
         /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests: from there on no edit is proposed (see SmallestRejectedDrift) </summary>
         public bool EvaluationLimitReached;
         /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
@@ -617,6 +633,8 @@ namespace g3
             OutsideRange = false;
             InitialFalseContacts = RemainingFalseContacts = 0;
             EvaluationLimitReached = false;
+            StoppedByPairTests = false;
+            pairBudget = MaxPairTests;      // (until the defects are counted; also where Apply returns before)
             if (SharedPositionsTouch == false)
                 atPosition = null;
             // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
@@ -693,6 +711,7 @@ namespace g3
                 InitialFalseContacts = false_contacts().Count;
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
+            pairBudget = pair_budget(MaxPairTests, PairTestsDefectScale, PairTestsMaxGrowth, pairs.Count + bad.Count + InitialFalseContacts);
             repair_passes(ref pairs, ref bad);
             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
             // passes again where the moves changed the mesh)
@@ -1313,6 +1332,22 @@ namespace g3
         readonly List<int> cacheRemoved = new List<int>();
 
         long evaluations, maxEvaluations, pairTests;
+        // (diagnostics of the effort limit, RC4a of docs/research/BOOLEAN_TRIAGE_2026-11.md: the evaluations and exact pair
+        // tests of the last Apply, the evaluation cap, and which of the two limits stopped the repair)
+        internal long Evaluations { get { return evaluations; } }
+
+        // MaxPairTests times min(max(1, defects / scale), maxGrowth), at most long.MaxValue; MaxPairTests where scale is not
+        // positive or maxGrowth not above 1
+        internal static long pair_budget(long maxPairTests, double scale, double maxGrowth, long defects)
+        {
+            if (!(scale > 0) || !(maxGrowth > 1) || defects <= scale || maxPairTests <= 0)
+                return maxPairTests;
+            double b = maxPairTests * Math.Min(defects / scale, maxGrowth);
+            return b >= long.MaxValue ? long.MaxValue : Math.Max(maxPairTests, (long)b);
+        }
+        internal long MaxEvaluations { get { return maxEvaluations; } }
+        internal long PairTests { get { return pairTests; } }
+        internal bool StoppedByPairTests;
         // editDrift = drift; false (and the smallest rejected drift updated) if it is beyond the bound or not a number
         bool within_bound(double drift, double bound)
         {
@@ -1457,7 +1492,9 @@ namespace g3
             // (for tests: a proposal within the bound that arrives after the limit; none with the stop)
             if (EvaluationLimitReached)
                 ProposalsPastTheLimit++;
-            if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
+            if (++evaluations > maxEvaluations || pairTests > pairBudget) {
+                if (EvaluationLimitReached == false)
+                    StoppedByPairTests = pairTests > pairBudget;
                 EvaluationLimitReached = true;
                 return false;
             }

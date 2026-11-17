@@ -73,7 +73,7 @@ namespace g3
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxDisplacement"/> </summary>
         public double RoundingMaxDisplacement = 1e-5;
-        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> </summary>
+        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> (grown with the defects at the defaults of MeshRoundingRepair.PairTestsDefectScale) </summary>
         public long RoundingMaxPairTests = 5000000;
         /// <summary> compute ResultExactVertices </summary>
         public bool ComputeExactVertices = false;
