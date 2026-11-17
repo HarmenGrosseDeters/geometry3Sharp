@@ -2,7 +2,7 @@
 
 Task (owner approved 2026-11-17): can C, C++, Rust and Python call `ExactMeshBoolean` and `ExactMeshImprint` through a
 NativeAOT shared library, without a port? Method: a spike (`tools/NativeAotSpike`, not packed, no change to the public C#
-API), measured on the cloud container (4 cores, shared; .NET SDK 10.0.115, `dotnet-sdk-aot-10.0`, linux-x64, gcc 13). Numbers
+API), measured on the cloud container (4 cores, shared; .NET SDK 10.0.115, `dotnet-sdk-aot-10.0`, linux-x64, gcc 13.3). Numbers
 are single-container timings: read the ratios.
 
 ## Verdict
@@ -111,8 +111,8 @@ the bit-identity comparison; `.github/workflows/native-aot.yml` runs it on linux
   at n = 64.
 - Whole process, one boolean: n = 16 (managed, includes the JIT of the whole boolean) 0.52 s against a native self test of
   7 ms for three cube booleans; n = 64: 0.35 s and 110 MB peak RSS native against 1.2 s and 150 MB managed.
-- Size: `g3native.so` 2.9 MB (1 MB less than the managed `geometry3Sharp.dll` of 3.2 MB, which still needs the 70 MB-class .NET
-  runtime); the native library embeds its runtime and starts in ms. ILC trimming reduces the library to what the 16 exports reach.
+- Size: `g3native.so` 2.9 MB including the runtime it embeds (the managed `geometry3Sharp.dll` alone is 3.2 MB and needs an
+  installed .NET runtime); ILC trims the library to what the exports reach.
 - PGO for the native build (a static profile through `ilc --mibc`) was not tried; the gap is small enough that it is not needed
   for a first release.
 
@@ -150,8 +150,8 @@ for a linux-x64 only drop (steps 1, 2, 5 and the Linux part of 3).
 
 ## 7. Risks and open points
 
-1. **Cross-platform bit identity** is the library's selling point and is unmeasured for NativeAOT on arm64 and macOS. ILC
-   does not contract multiply-add into FMA (neither does RyuJIT), and the exact code bans FMA, but the non-exact parts (rounding,
+1. **Cross-platform bit identity** is the library's selling point and is unmeasured for NativeAOT on arm64 and macOS. The exact code bans FMA and
+   the JIT does not contract multiply-add on its own (not checked for ILC), but the non-exact parts (rounding,
    generators) and `Math.*` calls (libm of the platform, in the native build linked from the system libm) can differ per platform. The
    determinism harness should get a NativeAOT leg before a release claims it.
 2. **Memory and failure**: a managed `OutOfMemoryException` becomes `G3_EXCEPTION`; a native caller cannot catch a stack overflow
