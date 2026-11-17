@@ -172,8 +172,69 @@ namespace gs
         internal void Run()
         {
             hill_climb(MaxPasses);
+            // rescue phase (TET_MESHING.md section 17): only if tets below the target are left, so meshes that reach it are unchanged
+            if (RescuePasses > 0 && !CancelF() && any_bad()) {
+                ActiveSet = true;
+                long p = Counts["passes"];
+                hill_climb(RescuePasses);
+                Counts["rescue_passes"] = Counts["passes"] - p;
+                ActiveSet = false;
+            }
             classify_left();
         }
+
+        /// <summary> passes of the rescue phase (active-set smoothing) after the main passes, if tets below the target are left </summary>
+        internal int RescuePasses = 0;
+        /// <summary> smoothing of interior vertices also along the active-set direction (Freitag, Jones, Plassmann 1995) </summary>
+        internal bool ActiveSet = false;
+        bool any_bad() { for (int id = 0; id < tets.Count; ++id) if (alive[id] && quality(id) < TargetDegrees) return true; return false; }
+
+        /// <summary>
+        /// the steepest ascent direction of the smallest dihedral angle of v's star (Freitag, Jones, Plassmann 1995): the point of
+        /// least norm in the convex hull of the gradients of the near-worst tets (within ActiveBand degrees of the worst), found by
+        /// Gilbert's iteration; zero if there is no direction that raises all of them
+        /// </summary>
+        Vector3d active_direction(int v, double worstQ, double eps)
+        {
+            Vector3d p0 = pos[v];
+            var gs = new List<Vector3d>();
+            foreach (int id in vtets[v]) {
+                double q = quality(id);
+                if (!(q <= worstQ + ActiveBand)) continue;
+                Vector3d g = Vector3d.Zero;
+                for (int axis = 0; axis < 3; ++axis) {
+                    Vector3d dv = Vector3d.Zero; dv[axis] = eps;
+                    pos[v] = p0 + dv; double qp = quality(id);
+                    pos[v] = p0 - dv; double qm = quality(id);
+                    g[axis] = qp - qm;
+                }
+                pos[v] = p0;
+                gs.Add(g);
+            }
+            return MinNormInHull(gs);
+        }
+
+        /// <summary>
+        /// the point of least norm in the convex hull of gs (Gilbert's iteration, 64 steps); zero (or nearly) when no direction raises
+        /// all of them to first order. A candidate step only: the smoothing keeps a move only if the star's worst angle rises
+        /// </summary>
+        internal static Vector3d MinNormInHull(List<Vector3d> gs)
+        {
+            if (gs.Count == 0) return Vector3d.Zero;
+            Vector3d x = gs[0];
+            for (int it = 0; it < 64; ++it) {
+                int best = 0; double bd = double.MaxValue;
+                for (int i = 0; i < gs.Count; ++i) { double d = gs[i].Dot(x); if (d < bd) { bd = d; best = i; } }
+                Vector3d e = x - gs[best];
+                double ee = e.LengthSquared;
+                if (!(ee > 0) || !(x.Dot(e) > 1e-12 * x.LengthSquared)) break;
+                double t = Math.Min(1, x.Dot(e) / ee);
+                x = x - t * e;
+            }
+            return x;
+        }
+        /// <summary> tets within this many degrees of the worst of a star are active in the active-set direction </summary>
+        internal double ActiveBand = 1;
 
         void hill_climb(int maxPasses)
         {
@@ -983,6 +1044,11 @@ namespace gs
             double gl = g.Length;
             var candidates = new List<Vector3d>();
             if (gl > 0) foreach (double s in new[] { 0.25, 0.125, 0.0625, 0.03125 }) candidates.Add(p0 + (s * h / gl) * g);
+            if (ActiveSet) {
+                Vector3d d = active_direction(v, old, eps);
+                double dl = d.Length;
+                if (dl > 0) foreach (double s in new[] { 0.25, 0.125, 0.0625, 0.03125, 0.015625, 0.0078125 }) candidates.Add(p0 + (s * h / dl) * d);
+            }
             // and the centroid of the star's other vertices (Laplacian)
             Vector3d cen = Vector3d.Zero; int nc = 0;
             foreach (int id in star) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (t[i] != v) { cen += pos[t[i]]; nc++; } }

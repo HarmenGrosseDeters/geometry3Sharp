@@ -350,7 +350,11 @@ namespace geometry3Sharp.Tests
         {
             Func<bool, MeshTetrahedralization> run = (d) => {
                 // one pass, so that needles and wedges are left (their short edges get the dry contraction)
+<<<<<<< HEAD
                 var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha, SplitEdges = false, ImprovePasses = 1, DiagnoseImprovement = d };
+=======
+                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ImprovePasses = 1, RescuePasses = 0, DiagnoseImprovement = d };
+>>>>>>> cff94aa2 (Tet meshing stage 2: rescue phase with active-set smoothing for meshes with tets left)
                 Assert.True(m.Compute()); return m;
             };
             MeshTetrahedralization a = run(false), b = run(true);
