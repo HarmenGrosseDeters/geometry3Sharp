@@ -15,7 +15,7 @@ this container.
 | root cause | issues (cases) | where | kind | needs exact review / mutation gate |
 |---|---|---|---|---|
 | [RC1](#rc1-saferounding-removes-the-whole-result-of-an-anisotropic-solid) SafeRounding removes a whole thin component, here the whole result, and reports Success and clean | #985 (all) | `mesh_ops/MeshRoundingRepair.cs` | library defect | no exact code; the test it changes is a geometric bound, so review it like one; no mutation gate |
-| [RC2](#rc2-edge-contacts-of-the-exact-solid-read-as-not-closed-by-the-benchmark-eval) Edge contacts of the exact solid read as "not closed" / self-intersecting by the benchmark eval | #994 (2 of 2), #993 (7 of 8 differences, plus the p0011 intersection), #1010 (10 "not closed"), #1011 (7 of 12) | `benchmarks/BooleanComparison/Program.cs` (eval) | oracle artefact | no |
+| [RC2](#rc2-edge-contacts-of-the-exact-solid-read-as-not-closed-by-the-benchmark-eval) Edge contacts of the exact solid read as "not closed" / self-intersecting by the benchmark eval | #994 (2 of 2), #993 (7 of 8 differences, plus the p0011 intersection), #1010 (8 of the 10 "not closed"), #1011 (7 of 12) | `benchmarks/BooleanComparison/Program.cs` (eval) | oracle artefact | no |
 | [RC3](#rc3-inside-out-from-a-floating-point-volume-sign-of-sub-ulp-slivers) "Inside-out" from a floating-point volume sign of sub-ulp slivers | #1010 (iud p0017) | `mesh_ops/MeshPostRepairCleanup.cs` (`FindInvertedComponents`, used by `NotCleanReason`) | oracle false positive; **owner decision** (NotCleanReason semantics) | adds an error bound: yes, mutation gate |
 | [RC4](#rc4-the-rounding-repair-leaves-defects-roundingclean--false-on-near-coincident-surfaces) The rounding repair leaves defects (`RoundingClean == false`, Status Success) | #1011 (5 of 12), #1010 (4 of 19), #993 (p0011 difference) | `MeshRoundingRepair` | documented limit, real defects; **not diagnosed further** (needs a runner rerun) | depends on the fix |
 
@@ -96,7 +96,7 @@ thin test is a geometric bound: review it like an error bound. No mutation gate 
 ## RC2: edge contacts of the exact solid read as "not closed" by the benchmark eval
 
 **Issues:** #994 (p0012 and p0021: union); #993 (p0001, p0009, p0014, p0020, p0021, p0023, p0024: difference;
-p0011 intersection); #1010 (all 10 "not closed"); #1011 (ucd p0005 s1 union and difference, ucd p0019 s3 union, ucd p0004
+p0011 intersection); #1010 (8 of the 10 "not closed"; ucd p0007 and iud p0020 are RC4); #1011 (ucd p0005 s1 union and difference, ucd p0019 s3 union, ucd p0004
 s2 difference, iud p0003 s1 difference, dui p0000 s3 and dui p0007 s3 difference). #993 p0011's *difference* is RC4.
 
 **Stage:** none in the library. The result is right; the oracle misreads it.
