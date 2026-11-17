@@ -100,11 +100,14 @@ namespace geometry3Sharp.Tests
                     for (int a = 36; a <= 52; ++a) {
                         int e = sign * a;
                         var input = rectangle ? Rectangle(Math.Pow(2, e)) : Pentagon(Math.Pow(2, e));
-                        double area = Math.Abs(Area(input.Points));
+                        // (at 2^-40 the pentagon's corner (0, 1) is 2^-41 from its apex and merges into it: the domain is the merged polygon;
+                        // at 2^+40 the tolerance is 1/2 and no two points are that close)
+                        var merged = input.Points.ToList();
+                        if (!rectangle && e == -40) merged[4] = merged[3];
+                        double area = Math.Abs(Area(merged));
                         foreach (var (name, r) in new[] { ("QualityMesh2", Mesher().Compute(input)), ("ConstrainedDelaunayMesh2", new ConstrainedDelaunayMesh2().Compute(input)) }) {
                             string what = $"{(rectangle ? "rectangle" : "pentagon")}, {name}, 2^{e}";
-                            // (at 2^40 the pentagon's apex is 2^-41 from a corner and merges: its area changes by an eighth)
-                            if (a <= 40) AssertMesh(r, area, !rectangle && a == 40 ? 0.25 : 1e-12, what);
+                            if (a <= 40) AssertMesh(r, area, 1e-12, what);
                             else AssertDocumentedEmpty(r, what);
                         }
                     }
