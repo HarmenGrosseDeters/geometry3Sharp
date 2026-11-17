@@ -108,7 +108,7 @@ the future" list, ordered by priority; this section names only what is in flight
 
 ## Open decisions (owner)
 
-Checked on 2026-11-17 (evening).
+Checked on 2026-11-17 (night).
 
 - **Branch deletion (decided, owner action pending):** the coordinator lists the candidates (branches whose PRs are merged
   or closed, plus `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`), and the

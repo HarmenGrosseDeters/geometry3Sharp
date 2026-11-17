@@ -9,7 +9,7 @@ Part of the [roadmap](../ROADMAP.md).
   closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 merged); the issue-tracker fix list is complete
   (2026-11-03). QA 2.0 rollout continuing (status table [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the
   mutation 3.0 process is on master (#615 closed, #913 and #958 merged 2026-11-16). Determinism stage 0 (#871) and the exact fallback
-  monomial kernels (#769) are merged; stage 1 is PR #1076 (open). The Clipper2 vendoring line is done (#751, #826, #851, #874, #914; the final precision work #955 closed with #1059, 2026-11-17); Clipper2's
+  monomial kernels (#769) are merged; stage 1 is merged (#1076). The Clipper2 vendoring line is done (#751, #826, #851, #874, #914; the final precision work #955 closed with #1059, 2026-11-17); Clipper2's
   triangulation is not offered (owner decision). The net48 hang #824 is closed (2026-11-16, no recurrence after #883), the fuzz
   campaigns #623 and #624 are closed (2026-11-15). Open: a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-15).
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass

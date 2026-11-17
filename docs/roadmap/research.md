@@ -449,7 +449,7 @@ Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status
 design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 done (#1101), study #1095; F2 not now, owner 2026-11-17), 3 together with the leads of 1 (D1 has merged;
 the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
-closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
+closed 2026-11-15; stage 1, the exact building blocks as a closed world, is merged, #1076). Useful, not must-win: 10, 12 (12 largely
 addressed, see there). Done: 2 (D1, #513, merged 2026-11-11 as Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal;
 open operands are classified per piece, #528), 14 (closed 2026-11-17, parked as owner options), 4 (answered by the sharp-feature
 study 2026-11-12 and the opt-in pass K, #736). Decided: 6 (option D, B reopenable).
@@ -641,7 +641,7 @@ Ordered by expected value for the library.
       certification use.
     - Status 2026-11-17: proof study (#776), schedule adversary and runtime probes (#786, results #810), stage 0
       closed-world analyzer rules for the exact kernel (#871) merged; #859 (stage 0), #789 (seeded `ExactPoint3` hashes), #803 / #804
-      (net48 / net10 audits) closed (2026-11-15 / 2026-11-16). Stage 1 (the exact building blocks as a closed world): PR #1076 open.
+      (net48 / net10 audits) closed (2026-11-15 / 2026-11-16). Stage 1 (the exact building blocks as a closed world): merged (#1076).
       The net48 / net10 runtime comparison is the local issue #929 (open).
 12. **Mutation-testing cost of the rounding module.**
     - A full rounding run took up to 5 h per part; the 19-term filter would need about 11 parts.
@@ -676,7 +676,7 @@ Done and removed from this list (status 2026-11-17): #804 (#973, closed 2026-11-
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, PR #1076, open), then the net48 / net10 measurement (#929, local, open).
+1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, merged in #1076), then the net48 / net10 measurement (#929, local, open).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs: 494 of 500 sample meshes at the new default alpha diagonal / 40 (#1073,
    TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the 6 left go to the parked lever #1072; sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
