@@ -260,9 +260,9 @@ matches theory (8 x +1/4 on the sphere, the filleted box and the noisy sphere; 0
 the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic. **Not
 met: the speed of at most 2 s per 50k vertices on 4 cores** (about 5.4 to 5.9 s at 55k to 60k vertices, serial: 3.9 s of
 sparse Cholesky and 0.8 to 1.6 s of solves). The levers measured: a residual stop with the Lanczos method (6 to 33
-solves instead of 30 to 200 inverse iterations) is in; the factorization is the rest. Options for the owner: a parallel
-supernodal `SparseCholesky` (shared core, so a separate PR with its own determinism argument), a complex Hermitian
-factorization (about 2 x less work than the real 2n x 2n form), or a coarse-to-fine field.
+solves instead of 30 to 200 inverse iterations) is in; the factorization is the rest. **Speed gate: open (owner 2026-11-17).** 5.3-6.7 s per 55-60k vertices, serial, against 2 s per 50k on 4 cores. Stage 1 merges with
+it open. Levers, in this order: a parallel `SparseCholesky` (a separate PR, with an upper-bound measurement first), then the
+n x n complex Hermitian factorization in `CrossField` if still short.
 
 ## 5. Limits and recommendation
 
