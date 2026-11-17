@@ -26,6 +26,11 @@ static class Program
     class Result
     {
         public int Tris, Poor, Flat, SelfPairs, Inverted, RejectedPasses, Degenerate, SelfIntersectionsRejected;
+        // sweep=1: the buffered move passes (smoothing, projection) checked by a MeshSweepCollision over each pass's motion
+        // (outside Seconds): passes with moves, passes whose path touches a primitive (sweep status Collision / IterationLimit),
+        // of those the ones that end intersection-free after starting so (a move through a wall that a static end check
+        // accepts), the sweep seconds and the candidate pairs
+        public int SweepPasses, SweepCollisions, SweepTunnelled; public long SweepCandidates; public double SweepSeconds;
         public double Hausdorff, Seconds;
         public double VolumeRatio = double.NaN;     // signed volume of the result / of the input (closed inputs)
         // MeshFidelityMetrics against the input (relative thresholds of its size): F-score at 0.1 % and 0.5 %, normal
@@ -47,6 +52,7 @@ static class Program
         preventOn = A.ContainsKey("si") && A["si"] == "1";
         preventFrom = A.ContainsKey("si_from") ? int.Parse(A["si_from"]) : 0;
         double pinAngle = A.ContainsKey("pin") ? double.Parse(A["pin"], CultureInfo.InvariantCulture) : 0;
+        sweep = A.ContainsKey("sweep") && A["sweep"] == "1";
         sizing = A.ContainsKey("sizing") ? double.Parse(A["sizing"], CultureInfo.InvariantCulture) : 0;
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
 
@@ -98,7 +104,45 @@ static class Program
         return 0;
     }
 
-    static bool fidelity = true, preventOn = false;
+    static bool fidelity = true, preventOn = false, sweep = false;
+    static int sweepPasses, sweepCollisions, sweepTunnelled; static long sweepCandidates; static double sweepSeconds;
+
+    // sweep=1: checks the motion of each buffered move pass (the vertices go linearly from the old to the new position)
+    class SweepRemesher : Remesher
+    {
+        public SweepRemesher(DMesh3 m) : base(m) { }
+        protected override void ApplyVertexBuffer(bool bParallel)
+        {
+            int nv = Mesh.MaxVertexID;
+            var before = new Vector3d[nv];
+            for (int v = 0; v < nv; ++v) before[v] = Mesh.IsVertex(v) ? Mesh.GetVertex(v) : Vector3d.Zero;
+            base.ApplyVertexBuffer(bParallel);
+            var sw = Stopwatch.StartNew();
+            var after = new Vector3d[nv];
+            bool moved = false;
+            for (int v = 0; v < nv; ++v) {
+                after[v] = Mesh.IsVertex(v) ? Mesh.GetVertex(v) : Vector3d.Zero;
+                if (Mesh.IsVertex(v) && !(after[v] == before[v])) moved = true;
+            }
+            if (moved) {
+                DMesh3 start = new DMesh3(Mesh, false, false, false, false);
+                for (int v = 0; v < nv; ++v) if (start.IsVertex(v)) start.SetVertex(v, before[v]);
+                var sc = new MeshSweepCollision(start, after);
+                sc.Compute();
+                sweepPasses++; sweepCandidates += sc.CandidatePairCount;
+                if (sc.Status != MeshSweepStatus.NoCollision) {
+                    sweepCollisions++;
+                    if (MeshRepairMetrics.SelfIntersections(start) == 0 && MeshRepairMetrics.SelfIntersections(Mesh) == 0)
+                    {
+                        sweepTunnelled++;
+                        var c0 = sc.Contacts.Count > 0 ? sc.Contacts[0] : default;
+                        Console.Error.WriteLine($"# tunnelled pass: status {sc.Status}, earliest ToI {sc.EarliestTimeOfImpact:G6}, contacts {sc.Contacts.Count}, first {c0.Kind} {c0.First}/{c0.Second} ToI {c0.Result.TimeOfImpact:G6}, tris {Mesh.TriangleCount}");
+                    }
+                }
+            }
+            sweepSeconds += sw.Elapsed.TotalSeconds;
+        }
+    }
     static double sizing = 0;
     static int preventFrom = 0;
 
@@ -110,13 +154,15 @@ static class Program
         DMesh3 m = null;
         int rejected = 0, siRejected = 0;
         for (int k = 0; k < runs; ++k) {
+            sweepPasses = sweepCollisions = sweepTunnelled = 0; sweepCandidates = 0; sweepSeconds = 0;
             GC.Collect(); GC.WaitForPendingFinalizers();
             var sw = Stopwatch.StartNew();
             m = Remesh(input, target, quality, prevent, pinAngle, sizingFraction, out rejected, out siRejected);
-            times.Add(sw.Elapsed.TotalSeconds);
+            times.Add(sw.Elapsed.TotalSeconds - sweepSeconds);
         }
         times.Sort();
-        var r = new Result() { Tris = m.TriangleCount, Seconds = times[times.Count / 2], RejectedPasses = rejected, SelfIntersectionsRejected = siRejected };
+        var r = new Result() { Tris = m.TriangleCount, Seconds = times[times.Count / 2], RejectedPasses = rejected, SelfIntersectionsRejected = siRejected,
+            SweepPasses = sweepPasses, SweepCollisions = sweepCollisions, SweepTunnelled = sweepTunnelled, SweepCandidates = sweepCandidates, SweepSeconds = sweepSeconds };
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             m.GetTriVertices(t, ref a, ref b, ref c);
@@ -148,7 +194,8 @@ static class Program
     static DMesh3 Remesh(DMesh3 input, double target, double quality, bool prevent, double pinAngle, double sizingFraction, out int rejectedPasses, out int siRejected)
     {
         DMesh3 mesh = new DMesh3(input);
-        var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = quality };
+        Remesher r = sweep ? new SweepRemesher(mesh) : new Remesher(mesh);
+        r.SmoothSpeedT = 0.5; r.MinTriangleQuality = quality;
         r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
         if (pinAngle > 0)
