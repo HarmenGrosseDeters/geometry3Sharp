@@ -279,6 +279,19 @@ at). Design and measurements: [design/ALPHA_WRAP_QUALITY.md](design/ALPHA_WRAP_Q
 | Caps (large angles) spoil the gradient and the normal (cap splits and cap flips) | I. Babuška, A. K. Aziz, *On the angle condition in the finite element method*, SIAM J. Numer. Anal. 1976; J.-M. Morvan, B. Thibert, *Approximation of the normal vector field and the area of a smooth surface*, Discrete Comput. Geom. 2004 |
 | Quality measures (min and max angle reported separately) | J. R. Shewchuk, *What is a good linear finite element?*, 2002 |
 | The guard of every operation: `TriangleDeviationBounds.IsWithin` with the patch bound, the exact self-intersection test, the final one-sided Hausdorff certification | this library (#280, `MeshHausdorffDistance`) |
+## Cross field and principal curvature (`CrossField`, `MeshPrincipalCurvature`)
+
+Implemented from the papers only (owner 2026-11-17: no code of Instant Meshes, QuadriFlow, QuadWild, libigl, Geogram's quad
+code or any other implementation was read). Stage 1 of [design/QUAD_REMESHING.md](design/QUAD_REMESHING.md).
+
+| Part | Source |
+|---|---|
+| The smoothest 4-RoSy field as the smallest eigenvector of the Hermitian connection Laplacian against the vertex areas (vertex based discretization: tangent frames, discrete Levi-Civita transport, cotangent weights, singularity index per face; Poincare-Hopf) | F. Knöppel, K. Crane, U. Pinkall, P. Schröder, *Globally Optimal Direction Fields*, ACM TOG 32(4), SIGGRAPH 2013 |
+| Alignment to boundary and crease edges (a linear problem with prescribed unit values, as in the paper's constraints) and to curvature directions (a soft term in the eigenproblem). The formulation is ours: the weights (K1 - K2)^2 a^2 M, the unknown t without mass eliminated by a rank one update, the gauge of the phase | own choice, documented in `CrossField` |
+| Its solver: the Lanczos method with full reorthogonalization and restarts on (K + eps M)^-1 M, which is self-adjoint for the M inner product; the Sherman-Morrison formula for the rank one update | G. H. Golub, C. F. Van Loan, *Matrix Computations*, 4th ed. 2013, Sec. 10.1 (Lanczos), Sec. 2.1.4 (Sherman-Morrison); the dense eigenproblem of the tridiagonal matrix by `SymmetricEigenSolver` |
+| Principal curvatures and directions per vertex: the second fundamental form per triangle by least squares over the edges (differences of the vertex normals), rotated into the vertex frame, averaged with Voronoi corner areas | S. Rusinkiewicz, *Estimating Curvatures and Their Derivatives on Triangle Meshes*, 3DPVT 2004; M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Voronoi areas); N. Max, *Weights for Computing Vertex Normals from Facet Normals*, J. Graphics Tools 1999 (angle weighted normals) |
+| Smoothing of the curvature tensors over the one-ring (against noise) | own choice |
+
 ## Parameterization (`LSCMParameterization`, `SpectralConformalParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.
