@@ -1,0 +1,24 @@
+
+v0: R P Q S T per f in (2, 8, 16)
+r= 4 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR.
+r= 8 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | FD. TD. TD. FD. FD.
+r=12 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | FD. TD. TD. FD. FD.
+r=16 TR. TR. TR. TR. TR. | Tmx TD. TD. Tmx Tmx | FD. TD. TD. FD. FD.
+r=20 Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx
+r=24 Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx
+
+v1: R P Q S T per f in (2, 8, 16)
+r= 4 Tm. Tm. Tm. Tm. Tm. | TR. TR. TR. TR. TR. | TR. TD. TD. TR. TR.
+r= 8 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | FD. TD. TD. FD. FD.
+r=12 TR. TR. TR. TR. TR. | TRx TD. TD. TRx TR. | FD. TD. TD. FD. FD.
+r=16 Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx | FD. TD. TD. FD. FD.
+r=20 Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx
+r=24 Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx | Tmx TD. TD. Tmx Tmx
+
+v2: R P Q S T per f in (2, 8, 16)
+r= 4 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | Tmx Tmx TD. Tmx Tmx
+r= 8 TR. TR. TR. TR. TR. | TR. TR. TR. TR. TR. | Tmx Tmx TD. Tmx Tmx
+r=12 TR. TR. TR. TR. TR. | Tmx Tmx TD. Tmx Tmx | Tmx Tmx TD. Tmx Tmx
+r=16 Tmx Tmx TD. Tmx Tmx | Tmx Tmx TD. Tmx Tmx | Tmx Tmx TD. Tmx Tmx
+r=20 Tmx Tmx TD. Tmx Tmx | Tmx Tmx TD. Tmx Tmx | Tmx Tmx TD. Tmx Tmx
+r=24 Tmx Tmx TD. Tmx nc | Tmx Tmx TD. Tmx nc | Tmx Tmx TD. Tmx nc
