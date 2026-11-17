@@ -184,3 +184,46 @@ The five meshes: 53749, 96070, 123302 and 1582393 now succeed, 270395 has no ove
 limits. Time per mesh after / before: median 1.04 (p10 0.90, p90 1.35), sum 2083 s against 1959 s. The check costs
 one more `UVOverlap` of the packed atlas (two with an unrotated repack), and the run overlapped with test runs
 on the same machine, so part of the 6% is load.
+
+## Spectral conformal map against LSCM, per chart (`chart-ab`)
+
+`chart-ab` computes the atlas (Auto, defaults), then flattens each of its charts (discs, as the atlas cut them) with
+`LSCMParameterization` (the default) and `SpectralConformalParameterization` (the opt-in, Mullen et al. 2008), and
+writes one JSON line per chart; `spectral_ab.py` summarizes. The atlas itself uses LSCM only where BFF fails (once on
+these 250 meshes), so the comparison is on all charts, not on the atlas results.
+
+```
+ls data/meshes/* | xargs -P3 -I{} dotnet bin/Release/net10.0/UVAtlasBenchmark.dll chart-ab {} > results/chart_ab.jsonl
+python3 spectral_ab.py results/chart_ab.jsonl
+```
+
+Main set, 250 meshes, 18,861 charts (master 40583f8d plus the spectral option; cloud container, 4 cores, 3 meshes in
+parallel, so times are relative; the output of `spectral_ab.py`):
+
+| | LSCM (default) | spectral (opt-in) |
+|---|---|---|
+| status | Success 18417, FlippedTriangles 439, SolverFailed 4, InvalidMesh 1 | Success 18241, FlippedTriangles 450, SolverFailed (nearly double) 154, SolverFailed 15, InvalidMesh 1 |
+| charts with flipped or degenerate UV triangles | 439 | 450 |
+| Success but not injective (exact overlap test) | 1234 | 1155 |
+| Success where the other is FlippedTriangles | 32 | 13 |
+| mean conformal, median / p90 / max (both Success, 18228) | 1 / 1.017 / 11.51 | 1 / 1.017 / 11.43 |
+| mean conformal: spectral lower / higher / equal (1e-6); spectral / LSCM p1 / median / p99 / max | | 3799 / 1294 / 13135; 0.9919 / 1 / 1.001 / 1.335 |
+| max conformal, median / p90 / max (both Success, 18228) | 1 / 1.296 / 1.002e+04 | 1 / 1.298 / 6937 |
+| max conformal: spectral lower / higher / equal (1e-6); spectral / LSCM p1 / median / p99 / max | | 2829 / 2715 / 12684; 0.9023 / 1 / 1.039 / 530.2 |
+| mean area distortion, median / p90 / max (both Success, 18228) | 2.63e-14 / 0.03031 / 19.9 | 8.601e-15 / 0.02968 / 20.26 |
+| mean area distortion: spectral lower / higher / equal (1e-6); spectral / LSCM p1 / median / p99 / max | | 12064 / 5628 / 536; 0 / 0.8897 / 7.278 / 1.74e+05 |
+| time, all both-Success charts (18228): total; per chart spectral / LSCM median, p90 | 11.7 s | 25.9 s (2.21x); 2.46x, 4.61x |
+| time, charts with >= 2000 triangles (75): total; per chart spectral / LSCM median, p90 | 1.4 s | 2.7 s (1.90x); 1.86x, 2.80x |
+| spectral iterations median / p90 / max (next pair: median) | | 3 / 6 / 198 (4) |
+| refused as nearly double: atlas method of the chart, median triangles | | {'bff': 112, 'tutte': 25, 'slim': 17}, 16 |
+
+- Most atlas charts are nearly developable (median conformal distortion 1), where both maps agree.
+- No clear winner on distortion: spectral has a lower maximum on 2829 charts and a higher one on 2715. Its worst ratio is
+  530x (a 1071-triangle chart of 1620053.stl: 559 against 1.05); LSCM's worst chart (128058.stl, 1.0e4) is 6.9e3
+  with spectral.
+- Folds: spectral folds 32 charts that LSCM maps without folds, and maps 13 that LSCM folds (450 against 439 in all).
+- Refused (169, 0.9 %): 154 as nearly double, mostly tiny charts (median 16 triangles) whose flat pieces meet only
+  through zero-area triangles, so they have more than one conformal map; 15 where the shifted matrix is not positive
+  definite (more null modes than the translations). There the caller keeps LSCM.
+- Time: 2.2x LSCM in all, 1.9x on the charts with at least 2000 triangles (the next-pair estimate costs about 4 more
+  solves).

@@ -617,7 +617,7 @@ the score (rounded down, less two points; timeouts are 0.3 to 5 % of the mutants
 | `uv-pack` | `UVPacker.cs`, `UVOverlap.cs` | 579 | 69.22 % | 386 / 30 / 163 / 22 | 67 (69) | 57 min |
 | `uv-cones` | `ConeFlattening.cs`, `BoundaryFirstFlattening.cs` | 615 | 78.66 % | 490 / 4 / 121 / 13 | 76 (78) | 20 min |
 | `uv-slim` | `SLIMParameterization.cs`, `ARAPParameterization.cs` | 579 | 82.17 % | 473 / 11 / 95 / 10 | 80 (82) | 46 min |
-| `uv-foldover` | `FoldoverFreeParameterization.cs`, `LSCMParameterization.cs` | 609 | 82.19 % | 515 / 2 / 92 / 20 | 80 (82) | 29 min |
+| `uv-foldover` | `FoldoverFreeParameterization.cs`, `LSCMParameterization.cs` (and since the spectral option, not in this run: `SpectralConformalParameterization.cs`) | 609 | 82.19 % | 515 / 2 / 92 / 20 | 80 (82) | 29 min |
 | `uv-core` | `MeshParameterization.cs` (the shared `ParamMesh`, `ParamMath`, `ConstrainedQuadratic`) | 550 | 79.55 % | 455 / 4 / 91 / 27 | 77 (79) | 25 min |
 
 "Tested" counts killed, timeouts and survivors; "no coverage" mutants are not tested. The survivors are mostly equality,
