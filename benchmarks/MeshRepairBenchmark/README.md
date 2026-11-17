@@ -1768,10 +1768,10 @@ in one process (the second run has warm JIT and caches, which flatters it by a f
 
 | mesh | rounds | fm_ms default | fm_ms incremental | faces judged again | changed verdicts | outer face share, outer IoU |
 |---|---:|---:|---:|---:|---:|---|
-| 55928 (88k faces, stalls, not converged) | 5 | 10.8 s | 6.3 s | 13,040 | 0 | identical |
-| 318843 | 4 | 36.5 s | 22.2 s | 6,847 | 0 | identical |
-| 1514905 | 3 | 23.0 s | 18.2 s | 7 | 0 | identical |
-| 498456 (55 rounds) | 55 | 70.9 s | 48.2 s | 731,646 | 0 | identical |
+| 55928 (88k faces, stalls, not converged) | 5 | 12.5 s | 6.2 s | 13,040 | 0 | identical |
+| 318843 | 4 | 36.9 s | 20.5 s | 6,847 | 0 | identical |
+| 1514905 | 3 | 20.9 s | 16.1 s | 7 | 0 | identical |
+| 498456 (55 rounds) | 55 | 67.2 s | 46.7 s | 731,646 | 0 | identical |
 
 Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run; rounds, shares and IoU identical, 0 changed verdicts on all):
 37111 (88k faces, 4 rounds) 7.7 s to 4.2 s with 272 faces judged again; 37275, 37329, 37331, 37731, 37788, 37215 and 36075 (1 to 2
