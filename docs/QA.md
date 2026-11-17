@@ -2,7 +2,7 @@
 
 This page says how geometry3Sharp is tested, where the gaps are, and what is done about them, in order of
 priority: robustness and correctness first, performance second. The review checklist that goes with it is
-[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
+[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) (its classes carry diff triggers, so a review checks only the matching ones).
 
 ## 1. Where we stand
 

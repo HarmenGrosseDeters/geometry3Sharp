@@ -97,11 +97,12 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 ## 4. Review: separate and evidence-based
 
 - The reviewer gets the diff, the spec / brief and [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md). It does not get the
-  author's reasoning.
+  author's reasoning. It checks the matching classes (each class has a diff trigger; `python3 tools/review_triggers.py
+  <base>...<head>` lists them) and its report names the classes it checked and skipped.
 - A finding cites a concrete path: input → wrong result, ideally as a failing test. Findings without one are
   suggestions and do not block.
 - **Learning loop**: every fault class found in review that is not yet on the checklist is added to it in the same
-  PR.
+  PR, with its trigger; a bug that a trigger missed gets the trigger widened.
 
 ## 5. Acceptance against references (tier L)
 

@@ -132,7 +132,7 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
-      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py, tools/runtime_watch.py, tools/schedule_guard.py, tools/blame_summary.py)
+      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py, tools/runtime_watch.py, tools/schedule_guard.py, tools/blame_summary.py, tools/review_triggers.py)
         run: |
           python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
           python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
@@ -140,6 +140,7 @@ jobs:
           python3 -m unittest discover -s tools -p 'test_runtime_watch.py' -v
           python3 -m unittest discover -s tools -p 'test_schedule_guard.py' -v
           python3 -m unittest discover -s tools -p 'test_blame_summary.py' -v
+          python3 -m unittest discover -s tools -p 'test_review_triggers.py' -v
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
