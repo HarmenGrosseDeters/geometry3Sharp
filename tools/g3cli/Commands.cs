@@ -177,6 +177,7 @@ namespace g3cli
             c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value, 1..1e6") { Default = 3000.0 });
             c.Params.Add(new Param("alpha_wrap_quality_pass", ParamType.Boolean, "robust alpha wrap fallback: improve the triangle quality after the simplification (about 30 % more time, adds little)") { Default = false });
             c.Params.Add(new Param("wrap_target_triangles", ParamType.Integer, "robust alpha wrap fallback: reduce the simplified wrap further to at most this many triangles, with the wrap's guarantees kept (0 = off; MeshRobustRepair.WrapTargetTriangles; takes precedence over wrap_target_factor)") { Default = 0 });
+            c.Params.Add(new Param("measure_result_iou", ParamType.Boolean, "robust: also report result_volume_iou, the volume IoU of the final result against the input (MeshRobustRepair.MeasureResultVolumeIoU; a diagnostic, not a check: the result is the same; costs about 15-25 % of the time on a clean or resolved input)") { Default = false });
             c.Params.Add(new Param("wrap_target_factor", ParamType.Number, "robust alpha wrap fallback: the target as a factor of the input's triangle count, eg 1 (0 = off; MeshRobustRepair.WrapTargetFactor)") { Default = 0.0 });
             c.Params.Add(new Param("wrap_target_max_distance", ParamType.Number, "robust alpha wrap fallback: distance in wrap offsets within which the reduction to the target is certified of the unsimplified wrap, at least 0.5 (a larger one reaches fewer triangles)") { Default = 0.5 });
             c.Params.Add(new Param("passthrough_clean_parts", ParamType.Boolean, "robust: a closed component that is clean on its own and whose bounding box meets no other component is passed through untouched (false: the whole input goes through the stages)") { Default = true });
@@ -249,6 +250,7 @@ namespace g3cli
                         SimplifyAlphaWrap = args.Bool("simplify_alpha_wrap"),
                         WrapTargetTriangles = args.Integer("wrap_target_triangles"),
                         WrapTargetFactor = args.Number("wrap_target_factor"),
+                        MeasureResultVolumeIoU = args.Bool("measure_result_iou"),
                         WrapTargetMaxDistance = args.Number("wrap_target_max_distance"),
                         CheckLostComponents = args.Bool("check_lost_components"),
                         RejectTopologyChange = args.Bool("reject_topology_change"),
@@ -282,6 +284,9 @@ namespace g3cli
                     o["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason;
                     o["volume_iou"] = MeshReport.Num(repair.RepairVolumeIoU);
                     o["used_input"] = repair.UsedInput;
+                    // (additive: the stage that produced the result, and its volume IoU against the input, null unless --measure-result-iou)
+                    o["result_path"] = repair.ResultPath.ToString();
+                    o["result_volume_iou"] = MeshReport.Num(repair.ResultVolumeIoU);
                     o["solidify_reason"] = repair.SolidifyReason == "" ? null : repair.SolidifyReason;
                     o["used_alpha_wrap"] = repair.UsedAlphaWrap;
                     o["alpha_wrap_triangles"] = repair.AlphaWrapTriangles;

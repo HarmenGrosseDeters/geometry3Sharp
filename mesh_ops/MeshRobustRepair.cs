@@ -306,6 +306,43 @@ namespace gs
         /// (MeshRepairMetrics.VolumeIoUAtLeast)
         /// </summary>
         public double RepairVolumeIoU = double.NaN;
+        /// <summary>
+        /// Diagnostic, additive (changes no other output): measure ResultVolumeIoU after a successful Apply(). Off by default;
+        /// see ResultVolumeIoU for what it costs.
+        /// </summary>
+        public bool MeasureResultVolumeIoU = false;
+        /// <summary>
+        /// Diagnostic (MeasureResultVolumeIoU): the volume IoU of the FINAL result in Mesh against the input as given to Apply(),
+        /// whichever stage produced it (pass-through, repair, exact resolve, solidify, alpha wrap): the same reference (the input's
+        /// winding number solid, inside-out parts oriented as the metrics do), the same sampling and the same estimate as the volume
+        /// checks (MeshRepairMetrics.VolumeIoUAtLeast at MinVolumeIoU, 0.99 if the checks are off), so it equals RepairVolumeIoU
+        /// where the repair result is the final one. It is not a guard: Apply(), ResultReason and every other output are
+        /// the same with or without it. NaN where it is not computed (off, Apply() false, the input encloses no volume: an
+        /// open sheet has almost no reference solid, and a low value for an open or self-intersecting input may say more about
+        /// the reference than about the result, compare it with MeshFidelityMetrics.OuterVolumeIoU, docs/roadmap/alpha-wrap-and-repair.md).
+        /// </summary>
+        public double ResultVolumeIoU = double.NaN;
+        /// <summary> the stage that produced the result in Mesh (ResultPath) </summary>
+        public enum ResultPaths
+        {
+            /// <summary> Mesh was not replaced (Apply() false, or not run) </summary>
+            None,
+            /// <summary> every part of the input is clean and passed through untouched (PassThroughCleanParts), nothing was repaired </summary>
+            PassThrough,
+            /// <summary> the repair result (MeshAutoRepair, or RepairF); with PassedThroughTriangles &gt; 0 for the parts that were not passed through </summary>
+            Repair,
+            /// <summary> the exact resolve (UsedExactResolve) </summary>
+            ExactResolve,
+            /// <summary> the solidify fallback (UsedSolidify) </summary>
+            Solidify,
+            /// <summary> the alpha wrap fallback (UsedAlphaWrap) </summary>
+            AlphaWrap
+        }
+        /// <summary>
+        /// the stage that produced the result of the last Apply() (with passed through parts: the stage that produced the rest; they
+        /// are in the result untouched, PassedThroughTriangles). Derived from UsedAlphaWrap, UsedSolidify and UsedExactResolve
+        /// </summary>
+        public ResultPaths ResultPath { get; private set; } = ResultPaths.None;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
         /// <summary>
@@ -553,6 +590,9 @@ namespace gs
             else
                 parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
             bool far = parts != null && global_scale_share(Mesh) > 0;
+            DMesh3 givenInput = MeasureResultVolumeIoU ? new DMesh3(Mesh) : null;
+            ResultVolumeIoU = double.NaN;
+            ResultPath = ResultPaths.None;
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -563,14 +603,36 @@ namespace gs
                 ResultReason = ResultReason == "" ? reason : reason + "; " + ResultReason;
                 ok = false;
             }
+            if (ok || ResultReason != "not repaired") {
+                // (a stage flag: the pass-through of every part sets none)
+                ResultPath = UsedAlphaWrap ? ResultPaths.AlphaWrap : UsedSolidify ? ResultPaths.Solidify : UsedExactResolve ? ResultPaths.ExactResolve
+                    : ok && PassedThroughTriangles > 0 && wholePassedThrough ? ResultPaths.PassThrough : ResultPaths.Repair;
+            }
+            if (ok && givenInput != null)
+                ResultVolumeIoU = final_volume_iou(givenInput, Mesh);
             return ok;
         }
+
+        // the volume IoU of the final result against the input as given (ResultVolumeIoU)
+        double final_volume_iou(DMesh3 input, DMesh3 result)
+        {
+            double iou;
+            if (input.TriangleCount == 0)
+                return double.NaN;
+            var inputSolid = new MeshRepairMetrics.SolidReference(input);
+            var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(result);
+            MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, resultSolid, MinVolumeIoU > 0 ? MinVolumeIoU : 0.99, out iou, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+            return iou;
+        }
+
+        bool wholePassedThrough;
 
         bool apply_checked()
         {
             if (passThroughOff == false)
                 PassThroughFellBack = false;
             PassedThroughTriangles = 0;
+            wholePassedThrough = false;
             DMesh3 passed, rest;
             List<AxisAlignedBox3d> passedBoxes;
             if (PassThroughCleanParts && passThroughOff == false && RepairF == null && Mesh.TriangleCount > 0
@@ -587,6 +649,7 @@ namespace gs
             bool ok;
             if (rest.TriangleCount == 0) {
                 // every part is clean: nothing to repair
+                wholePassedThrough = true;
                 Mesh = passed;
                 ok = true;
                 ResultReason = "";
