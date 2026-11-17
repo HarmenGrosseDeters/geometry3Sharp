@@ -39,19 +39,30 @@ removed). That loss is by design (owner decision 2026-11-16) and is not a separa
    about 1.3e-10. The unrounded result is that same tetrahedron, so it gets the same verdict.
 2. The repair treats those exact triangles as rounding defects. Input vertices are only preferred, not hard fixed
    (`is_fixed`, `MeshRoundingRepair.cs:1793`; `FixedHard` is false for the boolean), so the repair moves input vertices to
-   fix them: 1 move at 2^-46 (MaxDrift 6.4e-11), 2 moves at 2^+46 (MaxDrift 2251, where `maxLength` is 5.6e9).
-3. `remove_tiny_components` (`MeshRoundingRepair.cs:2940`, called at `:676`) now sees a component with a degenerate
-   triangle and a touched vertex. The component is closed, and it is "thin" by the relative test at `:2974`:
-   2|V| = 2.4e-12 < `maxLength` · area = 1.1e-4 · 64. The volume guard (`|V| >= 1e-3 A^1.5`, `:2980`) does not save it,
-   because a slab has little volume for its area. The component is removed. It is the whole result.
+   fix them: 1 move at 2^-46 (MaxDrift 6.4e-11), 2 moves at 2^+46 (MaxDrift 2251, where `maxLength` is 5.6e9); no
+   contraction, flip or zip at either scale. Each move goes through `try_move` (`:2610`), which adds the vertex to
+   `touched` (`:2630`). That is how `touched` becomes non-empty at both scales; `bad` is non-empty too (2 initial
+   degenerate triangles at 2^-46, 4 at 2^+46).
+3. `remove_tiny_components` (`MeshRoundingRepair.cs:2940`, called at `:676`) now sees a closed component with a
+   degenerate triangle and a touched vertex. The test at `:2974` decides, and a different branch of it fires at each scale
+   (measured on the input A, which is the unrounded result):
+   - **2^-46** (diagonal 11.3, area 64, V 1.21e-12): `tiny` is false (area 64 ≥ 1e4 · `sizeArea` = 1.28e-6), and `thin`
+     is true (2|V| = 2.4e-12 < `maxLength` · area = 1.13e-4 · 64 = 7.2e-3). The volume guard (`|V| >= 1e-3 A^1.5`,
+     `:2980`; here 0.51) does not save it, because a slab has little volume for its area. Removed as **thin**.
+   - **2^+46** (diagonal 5.63e14, area 7.69e15, V 6.0e15): `tiny` is true (area 7.69e15 < 1e4 · `sizeArea` = 1e4 · 1e-12
+     · diagonal² = 3.17e21), because a needle has little area for the square of its length. `thin` is true as well
+     (1.2e16 < 4.3e25). The guard only applies to components that are not tiny, so it is removed as **tiny**.
+
+   Either way the component removed is the whole result.
 4. Nothing is left to be degenerate or to intersect, so `RoundingClean` is true and `Compute()` returns Success with
    0 triangles (`ExactMeshBoolean.cs:707`).
 
-The scale reference is the diagonal of the largest component, which is the very component that gets removed. Its
-thickness is about 64 ulps at 2^-46 and about 128 ulps (8 units at coordinates near 5.6e14) at 2^+46, so it can be
-represented in doubles at both scales. It is thin only relative to an isotropic bound. In the families with
-intersection points (overlapping, coplanar, sliver), the rounded new vertices make the component "touched" without any
-input vertex moving, and the same thin test then removes it.
+Both tests use the largest component as the scale reference (`sizeAreaC`, `maxLengthC`, `MeshRoundingRepair.cs:810`).
+In the nested family that is the very component that gets removed, so the result is empty. Its thickness is about 64
+ulps at 2^-46 and about 128 ulps (8 units at coordinates near 5.6e14) at 2^+46, so it can be represented in doubles at
+both scales. It is thin or tiny only relative to an isotropic bound. **The step-by-step mechanism above is shown for the
+nested family only.** The other five families end the same way (0 triangles, per the issue's probe), but which edits
+make their component bad or touched, and which branch removes it, was not traced.
 
 **Procedural repro** (as in the issue; measured: `tris=0 removedComp=1 moves=1 (2^-46) / 2 (2^+46), RoundingClean=True`):
 
@@ -187,7 +198,7 @@ d.Compute();   // NotCleanReason(d.Result) == "inside-out components", d.Roundin
 ```
 
 The same chain with C shifted along +y gives the same verdict (7 removed). With the shift along x or z, the step-3
-difference was clean in this probe.
+difference was clean, but that is one probe (one sphere, one tessellation, 6 chains), not a property of the axes.
 
 **Proposed fix (owner decision: `NotCleanReason` semantics).** In `FindInvertedComponents`, sum each component's volume
 relative to one of its own vertices, and decide the sign exactly when |V| is below a forward error bound (an exact sum of
@@ -219,7 +230,10 @@ bound and the incremental mutation gate. The SafeRounding question changes outpu
 defects are large: iud p0005 union has 17788 intersecting pairs and 129688 degenerate triangles at the start of the repair,
 from 266k pieces, and 5314 false contacts; iud p0021 is similar. This is the documented behaviour (`Compute()` succeeds
 with `RoundingClean == false`; `StrictRounding` turns it into a failure), so it is not a guarantee violation. But the
-defects are real, and they are 9 of the 39 non-clean `ours` results with clean inputs. Their "not closed" label is again
+defects are real. Counted per operation result (a step has three, and two of the same step can both fail), they are 9 of
+the 39 non-clean `ours` results with clean inputs: #1011 has iud p0005 s3 (union and intersection, 2), iud p0021 s3
+(union and intersection, 2) and iud p0022 s3 (difference, 1), which is 5; #1010 has dui p0029, iud p0020, iud p0029 and
+ucd p0007 (each step 3, difference), which is 4; 5 + 4 = 9. The 39 come from 36 rows (chain steps). Their "not closed" label is again
 the RC2 eval: it rests on the contacts these results also have, which here include contacts the rounding made.
 
 **Not diagnosed further, and why.** The rows hold only the initial counts (`rounding_intersections`,
@@ -227,9 +241,21 @@ the RC2 eval: it rests on the contacts these results also have, which here inclu
 (`EvaluationLimitReached` at `RoundingMaxPairTests` = 5M, an edit rejected by the bound: `SmallestRejectedDrift`,
 `ScaleDisparity`). Telling "budget" from "bound" from "no edit exists" needs those fields. The models are ABC files (runner
 only), and the chains reach pair 29, so a rerun is the full 30-chain job of `abc-chained.yml` (up to 240 minutes). I did
-not start it for a diagnosis-only task. Procedurally, a float-snapped sphere, cylinder and rotated box through all three
-chains with ulp-shift C (54 chains) gave no `RoundingClean == false` case. The CAD models' many large coplanar faces
-next to a 1-ulp copy seem to be needed.
+not start it for a diagnosis-only task.
+
+Procedurally, 54 chains gave no `RoundingClean == false` case. The probe was a scratch program, not committed; the
+parameters are given here so it can be rebuilt. Each model is snapped to float32 per coordinate:
+- shapes: `Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 12 }`;
+  `CappedCylinderGenerator { BaseRadius = 1, TopRadius = 0.7f, Height = 2, Slices = 24 }`; and
+  `GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.4)), EdgeVertices = 4 }`, rotated by 17°
+  about (1, 2, 3) normalized around the origin before the snap;
+- placements: `ContactTransforms.BuildChain(m, m, m, PartialOverlap, (axC + 1) % 3, 1, 1, UlpShift, axC, sgC, 0)` for
+  axC in {0, 1, 2} and sgC in {+1, -1};
+- chains: the `PLANS` of `data/abc_chained.py` (ucd, dui, iud), with all three operations computed at each step on
+  default settings and the chain continuing with the plan's operation.
+
+That is 3 shapes × 6 placements × 3 chains = 54. The CAD models' many large coplanar faces next to a 1-ulp copy seem to
+be needed. That is a guess, not a measured result.
 
 **Proposed next step (first commit of the RC4 PR, not a fix yet):** add `rounding_remaining_intersections`,
 `rounding_remaining_degenerate`, `rounding_remaining_false_contacts`, `rounding_evaluation_limit`,
@@ -298,6 +324,18 @@ reported as not clean for two reasons, both outside the library's result:
 - the eval welds them back by position (RC2);
 - on the unwelded output, `NotCleanReason`'s self-intersection test counts triangles that touch at a duplicated
   position, because it compares vertex ids and not positions (`MeshRepairMetrics.SelfIntersections`).
+
+  This was measured on the unwelded boolean output of the two RC2 procedural repros (master). The eval itself calls
+  `NotCleanReason(mesh, false)`, which skips the self-intersection test, so the eval's verdict alone does not show this.
+
+  | repro | `NotCleanReason(r, true)` | `NotCleanReason(r, false)` | `SelfIntersections` | pairs sharing 0 / 1 / 2 / 3 positions |
+  |---|---|---|---|---|
+  | L-prisms union | "self-intersections" | "" | 16 | 0 / 12 / 4 / 0 |
+  | A2 − mirror(A2, x = 3) | "self-intersections" | "" | 36 | 0 / 32 / 4 / 0 |
+
+  Every reported pair shares a position with its partner, and the rounding's contact-aware check finds none. So
+  the split pinch output is clean by every check of `NotCleanReason` except the self-intersection test. That test is
+  what makes it not clean, and it is the open owner question below.
 
 The rounding's exact check knows the contacts (`SharedPositionsTouch`), and by that check the 29 pinch results of
 abc-chained and the 26 of thingi-contact are clean. That is 29 of 39 and 26 of 29 non-clean results. Whether
