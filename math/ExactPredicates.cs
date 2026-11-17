@@ -435,6 +435,93 @@ namespace g3
             return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
         }
 
+        /// <summary>
+        /// The sign of a signed volume, exactly: six times it is the sum over the triangles t of det(p_a - o, p_b - o,
+        /// p_c - o), where the triangles are the triples corners[3 t .. 3 t + 2] of indices of the points xyz[3 i .. 3 i + 2]
+        /// and o = p_corners[0]. +1, -1, or 0 where it is zero. For a closed, consistently oriented surface that is the
+        /// sign of its enclosed volume. 0 also where a coordinate is not finite (no sign: as the floating-point
+        /// comparison V &lt; 0 of NaN, nothing is inside out).
+        ///
+        /// Filter (docs/design/EXACT_VOLUME_SIGN.md): each term is evaluated as Orient3dFilter evaluates its
+        /// determinant, from differences rounded once, so its error is at most Orient3dBound * permanent_t (Shewchuk's
+        /// errboundA, which covers the rounded differences but not the term's last rounding) plus u * |d_t| (that last
+        /// rounding) plus UnderflowUnit * (|w_t|_1 + 1) (subnormal products). The recursive sum of the n terms adds at most
+        /// gamma_(n-1) * sum |d_t| (Higham, Accuracy and Stability of Numerical Algorithms, 2nd ed., section 4.2). The
+        /// sums of the bounds are of non-negative numbers, computed with a relative error of at most gamma_(n-1) each, and
+        /// the bound has six roundings on each path: the term u * |d_t|, those errors and roundings are covered by
+        /// g = gamma_(n+2) in place of gamma_(n-1) and the factor (1 + 3 g) (with g &lt; 1/4: below about 2^50
+        /// triangles). Where |S|
+        /// exceeds the bound, S has the sign of the exact sum; elsewhere (and where a value is not finite) the sum is
+        /// evaluated exactly, in integers (the coordinates scaled to a common exponent, the differences exact).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int VolumeSign(double[] xyz, int[] corners)
+        {
+            if (corners == null || corners.Length < 3)
+                return 0;
+            for (int k = 0; k < xyz.Length; ++k)
+                if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
+                    return 0;
+            int s = VolumeSignFilter(xyz, corners);
+            return s != 0 ? s : VolumeSignExact(xyz, corners);
+        }
+
+        /// <summary>
+        /// the filter of VolumeSign: +1 or -1 where the bound proves the sign of the floating-point sum, 0 where it does not
+        /// decide (then VolumeSignExact decides); finite coordinates and at least one triangle
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int VolumeSignFilter(double[] xyz, int[] corners)
+        {
+            int io = 3 * corners[0];
+            double ox = xyz[io], oy = xyz[io + 1], oz = xyz[io + 2];
+            double sum = 0, perm = 0, under = 0, abs = 0;
+            int n = corners.Length / 3;
+            for (int t = 0; t < n; ++t) {
+                int ia = 3 * corners[3 * t], ib = 3 * corners[3 * t + 1], ic = 3 * corners[3 * t + 2];
+                // (u, v, w) = (a - o, b - o, c - o); det(u, v, w) = w . (u x v), the form of Orient3dFilter
+                double ux = xyz[ia] - ox, uy = xyz[ia + 1] - oy, uz = xyz[ia + 2] - oz;
+                double vx = xyz[ib] - ox, vy = xyz[ib + 1] - oy, vz = xyz[ib + 2] - oz;
+                double wx = xyz[ic] - ox, wy = xyz[ic + 1] - oy, wz = xyz[ic + 2] - oz;
+                double uyvz = uy * vz, uzvy = uz * vy, uzvx = uz * vx, uxvz = ux * vz, uxvy = ux * vy, uyvx = uy * vx;
+                double det = wx * (uyvz - uzvy) + wy * (uzvx - uxvz) + wz * (uxvy - uyvx);
+                sum += det;
+                abs += Math.Abs(det);
+                perm += Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy)) + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
+                    + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
+                under += Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1;
+            }
+            double g = (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
+            double bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+            bool finite = !(double.IsNaN(sum) || double.IsInfinity(sum) || double.IsNaN(bound) || double.IsInfinity(bound));
+            if (finite && g < 0.25) {
+                if (sum > bound) return 1;
+                if (-sum > bound) return -1;
+            }
+            return 0;
+        }
+
+        /// <summary> VolumeSign without the filter: the sum of the determinants in integers (exact, slow) </summary>
+        internal static int VolumeSignExact(double[] xyz, int[] corners)
+        {
+            if (corners == null || corners.Length < 3)
+                return 0;
+            for (int k = 0; k < xyz.Length; ++k)
+                if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
+                    return 0;
+            BigInteger[] q = to_integers(xyz);
+            int io = 3 * corners[0];
+            BigInteger total = BigInteger.Zero;
+            for (int t = 0; t < corners.Length / 3; ++t) {
+                int ia = 3 * corners[3 * t], ib = 3 * corners[3 * t + 1], ic = 3 * corners[3 * t + 2];
+                BigInteger ux = q[ia] - q[io], uy = q[ia + 1] - q[io + 1], uz = q[ia + 2] - q[io + 2];
+                BigInteger vx = q[ib] - q[io], vy = q[ib + 1] - q[io + 1], vz = q[ib + 2] - q[io + 2];
+                BigInteger wx = q[ic] - q[io], wy = q[ic + 1] - q[io + 1], wz = q[ic + 2] - q[io + 2];
+                total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
+            }
+            return total.Sign;
+        }
+
         // exact for the arguments of the public predicates (for tests)
         internal static int Orient3dExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d) { return orient3d_exact(a, b, c, d); }
         internal static int Orient2dExact(Vector2d a, Vector2d b, Vector2d c) { return orient2d_exact(a, b, c); }

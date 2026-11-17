@@ -332,8 +332,13 @@ namespace gs
             Vector3d center = mesh.CachedBounds.Center;
             var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
             var vols = volAreas.Select(va => va.x).ToList();
+            // the orientation from the exact sign of each volume (a filtered sum, exact where the floating-point sum
+            // cannot decide: a sliver far from the centre, whose volume is below the rounding of the sum, is not taken as
+            // inside out by a rounded sign; one of volume exactly zero is not inside out); the floating-point volumes
+            // stay for the magnitudes (sample depth, open bodies)
+            var inverted = closed.Select(c => volume_sign(mesh, c) < 0).ToList();
             if (closed.Count == 1) {
-                if (vols[0] < 0 && openBodies.Encloses(closed[0], vols[0], volAreas[0].y) == false)
+                if (inverted[0] && openBodies.Encloses(closed[0], vols[0], volAreas[0].y) == false)
                     result.Add(closed[0]);
                 return result;
             }
@@ -360,7 +365,7 @@ namespace gs
                         trees[j] = new DMeshAABBTree3(subs[j].SubMesh, true);
                     }
                     if (samples == null)
-                        samples = interior_samples(mesh, closed[i], vols[i] < 0,
+                        samples = interior_samples(mesh, closed[i], inverted[i],
                             Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
                     // a few samples vote, so one sample near a thin feature or another component does not decide
                     int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
@@ -370,7 +375,7 @@ namespace gs
                 bool cavity = nestedIn != null && (nestedIn.Count % 2) == 1;
                 // an inside-out shell that the closed components leave flagged may be the cavity of a nearly
                 // closed open body: only that can take the flag back (never set one)
-                if ((vols[i] < 0) == cavity || (vols[i] < 0 && openBodies.Encloses(closed[i], vols[i], volAreas[i].y)))
+                if (inverted[i] == cavity || (inverted[i] && openBodies.Encloses(closed[i], vols[i], volAreas[i].y)))
                     continue;
                 // nested only if the surfaces do not meet: crossing components (their interiors overlap, neither
                 // encloses the other) have no nesting and keep their orientation. (Tested only for a component that
@@ -380,6 +385,27 @@ namespace gs
                 result.Add(closed[i]);
             }
             return result;
+        }
+
+        // the exact sign of the signed volume of the triangles tris (ExactPredicates.VolumeSign, relative to a vertex of
+        // the first triangle)
+        internal static int volume_sign(DMesh3 mesh, int[] tris)
+        {
+            var index = new Dictionary<int, int>();
+            var xyz = new List<double>();
+            var corners = new int[3 * tris.Length];
+            for (int i = 0; i < tris.Length; ++i) {
+                Index3i tv = mesh.GetTriangle(tris[i]);
+                for (int k = 0; k < 3; ++k) {
+                    if (index.TryGetValue(tv[k], out int id) == false) {
+                        index[tv[k]] = id = xyz.Count / 3;
+                        Vector3d p = mesh.GetVertex(tv[k]);
+                        xyz.Add(p.x); xyz.Add(p.y); xyz.Add(p.z);
+                    }
+                    corners[3 * i + k] = id;
+                }
+            }
+            return ExactPredicates.VolumeSign(xyz.ToArray(), corners);
         }
 
         // do the triangles tris of mesh meet (exactly: intersect or touch, beyond the vertices they share) a triangle
