@@ -455,6 +455,21 @@ namespace g3cli.Tests
             AssertError(exit, r, "invalid_arguments", 2);
         }
 
+        [Fact]
+        public void Remesh_Safe_SetsThePresetAndKeepsTheDefaultsOtherwise()
+        {
+            var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_safe.stl"), "--edge-length", "0.4", "--safe");
+            AssertOk(exit, r);
+            Assert.True(B(r["safe"]));
+            Assert.Equal(0.2, D(r["min_quality"]));
+            AssertCleanCube(r["mesh"], 8);
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_nosafe.stl"), "--edge-length", "0.4");
+            AssertOk(exit, r);
+            Assert.False(B(r["safe"]));                  // the default stays off
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_safe0.stl"), "--safe", "--min-quality", "0");
+            AssertError(exit, r, "invalid_arguments", 2);
+        }
+
         // an extruded gear with 3 points per flank and fan caps (RemeshQualityBenchmark gear12_3): at its mean edge length
         // the unguarded remesher leaves flat triangles and self-intersections, the default (min_quality 0.2) a clean mesh
         static string WriteGear(TestMeshes m)

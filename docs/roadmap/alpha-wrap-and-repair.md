@@ -369,6 +369,9 @@ better; 0.75 is 1.09-1.22x.
   (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
+- **Remeshers, opt-in safe preset (owner 2026-11-17):** `Remesher.ApplySafePreset()` / `g3cli remesh --safe` = `MinTriangleQuality` 0.2
+  + `PreventSelfIntersections`, the only measured combination with no new pairs (about 19x the default on Thingi10K, 1108 pairs left, all
+  from 5 inputs that had them; [measurement](../perf/REMESHER_PHASE2_MEASURED.md)); defaults unchanged.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
@@ -557,8 +560,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    keeps the separation, the pinch refinement uses the projected circumcenter pulled back to the separation depth, at most 2
    offsets out, so the spots become manifold by carving. Relaxed promise: vertices in [offset, 2 offset]. 800-run table in
    #1045. Switching it on by default is the owner's decision.
-4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
-   thickness (135363).
+4. Remeshers, Phase 2: degenerate triangles and self-intersections by default (the opt-in preset `Remesher.ApplySafePreset()`
+   exists, defaults unchanged), and walls folding far above the wall thickness (135363).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Procedural coverage of `WindingContouring.FinishHoles`.
 7. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.

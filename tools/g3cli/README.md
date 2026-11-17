@@ -259,6 +259,10 @@ g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --de
 # pairs, F-score and edge recall slightly better, about 1.5x the time). 0 restores the unguarded remesher, eg for
 # thin walls far below the edge length, where the guard makes the result worse
 g3cli remesh part.stl part_remeshed.obj --min-quality 0
+# opt-in safe preset (--safe, Remesher.ApplySafePreset: --min-quality 0.2 and Remesher.PreventSelfIntersections): no
+# self-intersecting pair that the input did not have (those of the input stay), about 19x the time of the default on
+# Thingi10K (4.3 s -> 82.8 s for 20 meshes, docs/perf/REMESHER_PHASE2_MEASURED.md); folded thin walls are blocked, not kept
+g3cli remesh part.stl part_remeshed.obj --safe
 # points that are no junction of creases, eg the apex of a cone with many slices, are kept by default
 # (--sharp-vertex-angle 75, MeshConstraintUtil.PinSharpVertices: vertices with an absolute angle deficit of at least 75
 # degrees are pinned, reported in sharp_vertices_pinned; benchmarks/RemeshQualityBenchmark); 0 turns it off

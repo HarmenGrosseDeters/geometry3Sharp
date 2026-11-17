@@ -116,6 +116,12 @@ followed in this sample. Whether a move can truly pass a wall and end accepted s
    costly case (135363 at 1.1M) should be refused or coarsened by a budget as the alpha wrap does (`MaxEstimatedTriangles`).
 4. Slabs for the edge operations (<= 2.1x) stay the only speed lever of `si` that is left; not recommended for this item.
 
+## Follow-up: the preset (owner decision 2026-11-17)
+
+`Remesher.ApplySafePreset()` (also `g3cli remesh --safe`) sets exactly the `q 0.2` + `si` combination of the table (`MinTriangleQuality`
+0.2, `PreventSelfIntersections`); defaults unchanged. Cost: about 19x the default on Thingi10K; no new self-intersections on the measured
+set; pairs that the input has stay. Tests: `RemesherSafePresetTests`.
+
 ## What this PR adds
 
 `RemeshQualityBenchmark sweep=1`: after each buffered move pass the motion is checked with `MeshSweepCollision` (outside the
