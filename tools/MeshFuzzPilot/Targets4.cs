@@ -40,21 +40,24 @@ public static partial class Program
         return Math.Max(Diagonal(box), 1e-300);
     }
 
-    /// <summary> n-ary union of three operands against the chain of pairwise unions: same volume </summary>
+    /// <summary> n-ary union of three operands against the chain of pairwise unions: same volume. Without SafeRounding: the
+    /// repair may move the surface by up to RoundingMaxDisplacement (1e-5) of the diagonal and contracts short edges, so a chain
+    /// (which repairs each intermediate result) and the n-ary union (one repair) legitimately differ by that much; the
+    /// arrangement itself is exact, and there they agree (crash 096845c5 of campaign b30-n1-v2: 1.9e-6, within the contract) </summary>
     static void RunNary(Case c, string what)
     {
         // volumes are compared, which is only a contract for closed operands: an open operand is a generalized winding
-        // number, and the chain feeds an intermediate result into the next union (the crash 04511314 of campaign b30-n1:
-        // two open boxes, one folded, gave -1.7e-71 against -3.4e-71; with a closed bottom the two agree to 15 digits)
+        // number, and the chain feeds an intermediate result into the next union (crash 04511314 of campaign b30-n1: two
+        // open boxes, one folded, gave -1.7e-71 against -3.4e-71; with a closed bottom the two agree to 15 digits)
         if (!c.A.IsClosed() || !c.B.IsClosed()) return;
         DMesh3 third = new DMesh3(c.B);
         double d = B30Scale(c.A, c.B);
         foreach (int v in third.VertexIndices()) third.SetVertex(v, third.GetVertex(v) + new Vector3d(2 * d, 0, 0));
-        var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union);
+        var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!nary.Compute()) throw new Finding($"{what}: n-ary union Compute() false: {nary.Error}");
-        var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
+        var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!first.Compute()) return;
-        var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union);
+        var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!chain.Compute()) throw new Finding($"{what}: pairwise chain Compute() false: {chain.Error}");
         double tol = 1e-9 * Math.Pow(B30Scale(c.A, c.B, third), 3);
         double vn = B30Volume(nary.Result), vc = B30Volume(chain.Result);
@@ -108,15 +111,17 @@ public static partial class Program
         }
     }
 
-    /// <summary> SafeRounding against the plain arrangement: when both succeed and the plain result is clean, the volumes agree </summary>
+    /// <summary> SafeRounding against the plain arrangement: when both succeed and the repair is clean, the volumes agree within
+    /// the repair's documented bound (the surface moves by at most RoundingMaxDisplacement = 1e-5 of the diagonal; 1e-4 of the cube of
+    /// the diagonal covers it for the area of these shapes) </summary>
     static void RunRoundingEquivalence(Case c, string what)
     {
         if (!c.A.IsClosed() || !c.B.IsClosed()) return;   // volumes are judged on closed operands only (see RunNary)
         var plain = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         var safe = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
         bool okP = plain.Compute(), okS = safe.Compute();
-        if (!okP || !okS || plain.Result == null || safe.Result == null || !plain.RoundingClean) return;
-        double tol = 1e-9 * Math.Pow(B30Scale(c.A, c.B), 3);
+        if (!okP || !okS || plain.Result == null || safe.Result == null || !safe.RoundingClean) return;
+        double tol = 1e-4 * Math.Pow(B30Scale(c.A, c.B), 3);
         double vp = B30Volume(plain.Result), vs = B30Volume(safe.Result);
         if (Math.Abs(vp - vs) > tol)
             throw new Finding($"{what}: plain volume {vp:R} against SafeRounding {vs:R} (tolerance {tol:R})");

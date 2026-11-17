@@ -94,6 +94,18 @@ class PilotTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('nary', r.stdout)
 
+    def test_nary_and_rounding_equivalence_allow_the_documented_rounding_drift(self):
+        # campaign b30-n1-v2 artifact (156 bytes): two cubes of 2.4e-35 in the corner of a tetrahedron of 1.3e-29. With SafeRounding the
+        # chain repairs its intermediate result and cuts the corner by 2.4e-35 (1.9e-6 of the volume), within RoundingMaxDisplacement
+        # (1e-5 of the diagonal), and the n-ary union does not: not a finding. Without SafeRounding the two agree exactly.
+        data = bytes.fromhex('000503fe03fe00000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000001e00000500000000000000000000000000000003fe03fe04030200001e0000000000000000000000000000000000000000000000000000000000000001020000001905230613081e062a0716092307316f1b57230613081e062a071609230731b92d9137')
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'drift.bin'
+            p.write_bytes(data)
+            for ops in ('nary,determinism', 'rounding-equivalence'):
+                r = run('replay', str(p), ops=ops)
+                self.assertEqual(r.returncode, 0, ops + ': ' + r.stderr)
+
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             corpus = Path(tmp) / 'corpus'
