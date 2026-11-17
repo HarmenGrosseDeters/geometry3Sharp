@@ -245,6 +245,41 @@ namespace geometry3Sharp.Tests
             AssertClean(dc, "margin 0");
         }
 
+        // Hand-built fallback: a missing quad (two omitted contour triangles), with and without
+        // a closed component crossing the patch. Unlike the grid caller, this checks the bool verdict.
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FinishHoles_MissingQuad_ExactOracleAndSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            foreach (bool spike in new[] { false, true }) {
+                DMesh3 input = OpenCubeWithSpike(spike);
+                Assert.False(input.IsClosed());
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(input));
+                const int omittedTriangles = 2;
+                DMesh3 baseline = new DMesh3(input);
+                int baselinePairs;
+                bool baselineFree = WindingContouring.FinishHoles(baseline, omittedTriangles, true, out baselinePairs);
+                DMesh3 mesh = Invariance.Transformed(input, sim);
+                int before = mesh.TriangleCount, pairs;
+                bool free = WindingContouring.FinishHoles(mesh, omittedTriangles, true, out pairs);
+                Assert.True(mesh.TriangleCount > before);
+                Assert.True(mesh.IsClosed());
+                Assert.True(mesh.CheckValidity());
+                Assert.Empty(MeshIterators.BowtieVertices(mesh));
+                Assert.True(Invariance.AllFinite(mesh));
+                int exact = MeshRepairMetrics.SelfIntersections(mesh);
+                Assert.Equal(spike, exact > 0);
+                Assert.Equal(exact, pairs);
+                Assert.Equal(exact == 0, free);
+                Assert.Equal(baselineFree, free);
+                if (sim.IsExact) {
+                    Assert.Equal(baselinePairs, pairs);
+                    Assert.Equal("", Invariance.Difference(baseline, Invariance.MappedBack(mesh, sim)));
+                }
+            }
+        }
+
         [Fact]
         public void FinishHoles_ReportsTheFill_AndClearsTheFlag()
         {
