@@ -32,7 +32,11 @@ class Select(unittest.TestCase):
                 ad.select(ids, 0, 1, bad)
 
     def test_configs_are_the_documented_ones(self):
-        self.assertEqual(ad.CONFIG_ENV, {"A": {}, "B": {"BENCH_WRAP_FEATURES": "1"}, "C": {"BENCH_WRAP_BUDGET": "300000"}})
+        self.assertEqual(ad.CONFIG_ENV["A"], {})
+        self.assertEqual(ad.CONFIG_ENV["B"], {"BENCH_WRAP_FEATURES": "1"})
+        self.assertEqual(ad.CONFIG_ENV["C"], {"BENCH_WRAP_BUDGET": "300000"})
+        self.assertEqual(ad.CONFIG_ENV["D"], {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.5"})
+        self.assertEqual(ad.CONFIG_ENV["E"], {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.2"})
 
 
 class RunAndMerge(unittest.TestCase):
@@ -56,16 +60,17 @@ class RunAndMerge(unittest.TestCase):
             a, b = os.path.join(t, "a"), os.path.join(t, "b")
             for d, rows in ((a, ["1", "2"]), (b, ["2", "3"])):  # mesh 2 in both: the first shard's row wins
                 os.makedirs(os.path.join(d, "raw"))
-                for c in "ABC":
+                for c in "ABCD":
                     open(os.path.join(d, "raw", c + ".jsonl"), "w").write("".join(json.dumps({"file": r + ".stl", "src": d}) + "\n" for r in rows))
-                open(os.path.join(d, "wall.tsv"), "w").write("".join(f"{r}.stl\t{c}\t1.5\n" for r in rows for c in "ABC"))
+                open(os.path.join(d, "wall.tsv"), "w").write("".join(f"{r}.stl\t{c}\t1.5\n" for r in rows for c in "ABCD"))
             out = os.path.join(t, "m")
             ad.cmd_merge([out, a, b])
-            for c in "ABC":
+            self.assertFalse(os.path.exists(os.path.join(out, "raw", "E.jsonl")))  # (not run: no file)
+            for c in "ABCD":
                 got = [json.loads(l) for l in open(os.path.join(out, "raw", c + ".jsonl"))]
                 self.assertEqual([r["file"] for r in got], ["1.stl", "2.stl", "3.stl"])
                 self.assertEqual(got[1]["src"], a)
-            self.assertEqual(len(open(os.path.join(out, "wall.tsv")).readlines()), 9)
+            self.assertEqual(len(open(os.path.join(out, "wall.tsv")).readlines()), 12)
 
             # the summary reads the merge
             lst = os.path.join(t, "list.txt")
@@ -73,6 +78,8 @@ class RunAndMerge(unittest.TestCase):
             r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "alpha_defaults_summary.py"), out, lst], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("**3 of 3**", r.stdout)
+            self.assertIn("D (budget 300k, coarsening <= 1.5)", r.stdout)
+            self.assertNotIn("E (budget", r.stdout)
 
     def test_torn_rows_do_not_break_merge_or_run_one(self):
         with tempfile.TemporaryDirectory() as t:
