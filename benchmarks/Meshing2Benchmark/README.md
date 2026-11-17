@@ -545,3 +545,10 @@ shared `EdgeKeyComparer`; the meshes are the same (same triangle counts, the gol
 
 The triangle counts before the fix are the same (3 429, 13 610, 31 684, 56 032 with snap; 3 352, 13 760, 31 833, 54 329 without). After the fix the no-snap run is near linear (4.2x the triangles, 7x the time from 120 to 240); the snap run grows 3.9x the triangles in 4.9x the time, the rest
 is not the hash (snap rounding itself, 1.5 s at 56 000 triangles in the profile): a follow-up.
+
+## The lfs yardstick (2026-11-17)
+
+`dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- lfs [--cases f-11/a,f-11/b,f-40/angle-33.75] [--levels 6]`
+meshes the cases with `QualityMesh2` (default and constrained quality) and integrates I = ∫ 1/lfs² (Ruppert's local feature
+size) over the output; it prints the triangles per unit of I for ours and for the reference counts of MESHING2D_GRADING.md.
+Results and reading: [GEOGRAM_MEASUREMENTS_2026-11.md](../../docs/research/GEOGRAM_MEASUREMENTS_2026-11.md), item 2.

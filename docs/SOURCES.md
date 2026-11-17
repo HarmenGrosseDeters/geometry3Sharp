@@ -560,6 +560,14 @@ at fixed commits; no mesh files are in the repository):
 | `thingi-contact` | pairs of Thingi10K models (as `thingi-pairs`) or one model against a copy of itself, placed by exact translations and reflections (`ContactTransforms.cs`), fetched at run time by `data/thingi_contact.py`; only the pair list `thingi-pairs/contact_pairs.csv` is committed | individual licenses per model; the list is part of this repository (Boost) |
 | `abc-chained` | models of the ABC dataset (M. Koch et al., *ABC: A Big CAD Model Dataset For Geometric Deep Learning*, CVPR 2019, https://deep-geometry.github.io/abc-dataset, [doi:10.1109/CVPR.2019.00983](https://doi.org/10.1109/CVPR.2019.00983)), obj chunk downloaded on a GitHub-hosted runner by `.github/workflows/abc-chained.yml` at run time (owner decision 2026-11-16: run-time fetching only; no model or derived mesh is committed, redistributed or uploaded as an artifact; Fusion 360 Gallery excluded, GrabCAD not pursued) | the dataset is released under the MIT licence; the copyright of the models is owned by their creators (Onshape Terms of Use 1.g.ii), no warranties |
 
+Measurements of the geogram survey ([GEOGRAM_MEASUREMENTS_2026-11.md](research/GEOGRAM_MEASUREMENTS_2026-11.md); benchmark
+code only, written from the papers, no geogram code): the spectral conformal spike (`ParameterizationBenchmark spectral`)
+from P. Mullen, Y. Tong, P. Alliez, M. Desbrun, *Spectral Conformal Parameterization*, SGP 2008; the lfs yardstick
+(`Meshing2Benchmark lfs`) from J. Ruppert, *A Delaunay Refinement Algorithm for Quality 2-Dimensional Mesh Generation*,
+J. Algorithms 1995 (the local feature size of a PSLG and size optimality); the restricted Voronoi cell check
+(`RestrictedDelaunaySpike rvc`) from L. Yan, B. Lévy, Y. Liu, F. Sun, W. Wang, *Isotropic Remeshing with Fast and Exact
+Computation of Restricted Voronoi Diagram*, SGP 2009 (facet clipping by bisectors, propagation, the security radius).
+
 The Open Boolean Benchmark (https://github.com/Open-Boolean-Benchmark/boolean-benchmark-runners, MIT) defines
 the request/result protocol that `BooleanComparison obb` implements; `obb-runner/` follows its runner layout.
 No code of the runners repository was taken over. Its benchmark cases (Nefertiti, dental scans, iterated cube
