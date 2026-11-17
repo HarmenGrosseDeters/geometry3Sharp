@@ -16,7 +16,7 @@ are single-container timings: read the ratios.
 - Speed: after warm-up native is between 0.63x and 1.1x of the JIT time on these three sizes (n = 64, the best-warmed case: about 8 % slower;
   n = 128 had only 5 JIT runs); the **first call is 2.3 to 6.3 times faster** (no JIT) and a one-shot n = 64 process 3.4 times faster
   with 27 % less peak memory (section 4).
-- Not measured here: Windows and macOS (no cross-compilation of NativeAOT; the new workflow `native-aot.yml` runs the C caller and the check on macOS and only publishes on Windows),
+- Not measured here: Windows and macOS (no cross-compilation of NativeAOT; the new workflow `native-aot.yml` runs the C caller and the check on linux-x64 and only publishes on Windows; macOS is not in the workflow, because GitHub's macOS runners are not available for this repository at the moment (owner 2026-11-17)),
   and cross-platform bit identity (section 7, risk 1).
 
 ## 1. Does it compile, and what warns
@@ -83,7 +83,7 @@ max_pieces=3 rc=5 error='the arrangement would have 48 pieces, more than MaxPiec
 ```
 
 `tools/NativeAotSpike/run_spike.sh [rid] [outdir]` publishes, builds the C caller and the managed driver, runs the self test and
-the bit-identity comparison; `.github/workflows/native-aot.yml` runs it on linux-x64 and osx-arm64 and publishes on win-x64.
+the bit-identity comparison; `.github/workflows/native-aot.yml` runs it on linux-x64 and publishes on win-x64 (no macOS job, section 7).
 
 ## 3. Settings of the measurements
 
@@ -165,7 +165,7 @@ for a linux-x64 only drop (steps 1, 2, 5 and the Linux part of 3).
 4. **Handles** are GC handles: a leaked result handle leaks the mesh; the header documents the ownership but cannot enforce it.
 5. The six IL3050 sites are harmless now; a supported package should run the AOT analyzers in CI so a reflection use on the
    boolean path cannot appear unnoticed.
-6. Windows and macOS were not measured here (section 4 is linux-x64 only).
+6. Windows and macOS were not measured here (section 4 is linux-x64 only); macOS has no CI job until GitHub's macOS runners are usable again.
 
 ## 8. Decisions for the owner (via the coordinator)
 

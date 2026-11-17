@@ -17,7 +17,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, rid: linux-x64 }
-          - { os: macos-14, rid: osx-arm64 }
+          # no macOS job: GitHub's macOS runners are not available for this repository at the moment (owner 2026-11-17);
+          # add { os: macos-14, rid: osx-arm64 } back when they are
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
