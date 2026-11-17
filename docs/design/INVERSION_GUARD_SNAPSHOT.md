@@ -2,12 +2,15 @@
 
 Research task (owner 2026-11-17), roadmap item 5 of "Open for the future (2026-11-15)" in
 [alpha-wrap-and-repair.md](../roadmap/alpha-wrap-and-repair.md) and item 14 of [research.md](../roadmap/research.md).
-**Result: no single replacement qualifies.** No replacement of the snapshot can save 10 % of the run: the copy is at
-most 8.6 % of it. The cheap exact lever on the check (a parallel sign count) gains nothing. The one combination
-whose ceiling is above 10 % is an undo log in `DMesh3` together with component labels kept through the edge
-operations, and only on `RemesherPro` (`FastestRemesh`, and `pro_iter` on bumpy_uniform) on closed meshes. It is intrusive (shared core code,
-hot-path writes, a correctness argument for each edge operation), and its net gain is unmeasured. It is parked as an
-option for the owner (section 4). Nothing in the library changes.
+**Result: no single replacement qualifies.** The snapshot copy is at most 8.6 % of the run; with the extra garbage
+collection pauses it causes, its ceiling is about 10 % (10.4 % in one of nine configurations, at most 9.5 % in the
+others). Only a replacement that costs nothing could reach the bar there, and none of the candidates does. The cheap
+exact lever on the check (a parallel sign count) gains nothing. The combinations whose ceiling is above 10 % add
+component labels kept through the edge operations to an undo log in `DMesh3` or to reused snapshot buffers; they
+exceed 10 % in 4 of 9 configurations (three `RemesherPro` ones on two procedural closed meshes of up to about 75k
+triangles, and `Remesher` on noisy_coarsen at 9.9-10.6 %). They are intrusive (a correctness argument for each edge
+operation; the undo log also shared core code with hot-path writes), and their net gain is unmeasured. They are
+parked as options for the owner (section 4). Nothing in the library changes.
 
 ## 1. What the guard does
 
@@ -45,7 +48,8 @@ reuses the same ids as before the rolled-back pass, and a replacement must resto
 - Cloud container, 4 cores (Xeon 2.1 GHz).
 
 **Timed runs only:** `benchmarks/RemeshBenchmark` (`runs=3 only=<case>`). The counters are reset before the three
-timed runs of each configuration, and the shares are of their wall time (`time_s`, which includes the setup), so they
+timed runs of each configuration, and the shares are of the sum of their three wall times (`time_s` of each run,
+which includes the setup; the counters sum all three runs), so they
 are a lower bound on the share of the passes. This excludes the warm-up run, the serial run and the 2^k-scaled runs,
 which dilute the shares of an aggregate count (a first version of this note had that error).
 - `remesher` = `Remesher` with the `g3cli remesh` defaults: 20 x `BasicRemeshPass`, parallel smoothing and projection.
@@ -68,24 +72,40 @@ which dilute the shares of an aggregate count (a first version of this note had 
 The ranges come from three separate processes, each with three timed runs per configuration; one of them ran the
 build of (d) below, which changes only the sign count and gives the same output bits.
 
+**Garbage collection.** The per-pass snapshot arrays are large-object-heap allocations, and the collections they cause
+fall outside the copy timer. Two more processes per case ran the timed runs with the guard on and off (scratch switch
+`G3_GUARD=off`), alternating, and recorded `GC.GetTotalPauseDuration`, the collection counts and the allocated bytes
+over the timed runs:
+- the guard allocates 2-4x the bytes (eg bumpy_uniform `pro_fastest` 1265 against 504 MB) and doubles the gen2
+  collections on bumpy_uniform and noisy_coarsen (6 against 3, 8-9 against 3-6);
+- the extra pause time is small: -4.8 to +2.3 % of the run (the negative values are noise: sphere_refine
+  `pro_fastest` paused less with the guard on), at most +2.3 % (bumpy_uniform `pro_fastest`), at most +1.1 % in every
+  other configuration;
+- the wall-time difference on minus off agrees with the timed guard share within the noise (eg bumpy_uniform
+  `pro_fastest` 20.6 / 21.9 % against 21.9 / 21.7 %), so no larger hidden cost shows.
+
+Copy plus extra pause, the ceiling of any snapshot replacement: at most 10.4 % (bumpy_uniform `pro_fastest`: copy up to
+8.1 %, pause up to 2.3 %), at most 9.5 % in every other configuration (bumpy_uniform `pro_iter` 8.5 + 1.0, sphere_refine
+`pro_fastest` 8.6 with no extra pause, noisy_coarsen `remesher` 6.7 + 1.1).
+
 **Discarded data:**
 - Aggregate counts over all runs of a case: these shares are diluted, as described above.
-- End-to-end on/off timings (`G3_GUARD=off`, runs=3): they are dominated by noise. They give 11-24 % for the open
+- End-to-end on/off timings of the first runs (`G3_GUARD=off`, runs=3, the aggregate count): they are dominated by noise. They give 11-24 % for the open
   meshes, where the guard can cost at most the sign count, about 5 %.
 
 **Other benchmarks:**
 - `benchmarks/RemeshQualityBenchmark` (`fidelity=0`, all 192 procedural cases, `MinTriangleQuality` 0 and 0.2,
-  `Remesher`): an aggregate over its two runs per case (no warm-up or serial runs there). The snapshot copy is 3.5 %
-  of the guarded pass time and the sign count 8.0 % (union-find 3.6 %), a guard total of 11.5 %, over 7700 guarded
-  passes.
+  `Remesher`): an aggregate over its two runs per case and its one warm-up run (cylinder6_x0.1; no serial runs
+  there), 385 runs of 20 passes. The snapshot copy is 3.5 % of the guarded pass time and the sign count 8.0 %
+  (union-find 3.6 %), a guard total of 11.5 %, over 7700 guarded passes.
 - Thingi10K was not fetched here. Earlier measurements in [REDUCER_REMESHER_20.md](REDUCER_REMESHER_20.md):
   - section 12.4: on/off over sphere, torus, 78295, 93370 and 299291, 6-19 % (torus 12-19 %). The per-pass split on
     the sphere was copy 1.7 ms against signs 4.1 ms, i.e. about 30 % copy.
   - section 13: a bound on 93370, 78295, 299291 and a 170k sphere, 9-13 %, about 40 % of it the copy.
-  - At the upper ends of these, the copy is at most about 6-8 % of a run.
+  - At the upper ends of these, the copy is at most about 5-6 % of a run (19 % x 30 % = 5.7 %, 13 % x 40 % = 5.2 %).
 
 **How often a pass is rolled back:**
-- RemeshQualityBenchmark: 206 of the 7700 guarded passes (2.7 %), in 15 of its 384 runs:
+- RemeshQualityBenchmark: 206 of the 7700 guarded passes (2.7 %), in 15 of its 384 measured runs (none in the warm-up):
   - cone12_x0.6 and cone16_x0.6: 4-6 passes per run, both quality settings;
   - 11 runs of the thin tubes (wall 0.05 / 0.1, target 1.2 / 1.6): 11-20 passes each.
 - RemeshBenchmark: none in any of its runs.
@@ -96,15 +116,17 @@ build of (d) below, which changes only the sign count and gives the same output 
 ## 3. The candidates
 
 **Bound for every snapshot replacement.** Replacing the snapshot leaves the sign count as it is, because the sign
-count decides the rollback. So a replacement saves at most the copy share: at most 8.6 % of the run in every measured
-configuration, whatever its cost and whether or not it is correct. That is below the 10 % bar, so none of (a)-(c) can
-qualify alone:
+count decides the rollback. So a replacement saves at most the copy share plus the garbage collection it causes: at
+most 10.4 % of the run in one configuration (bumpy_uniform `pro_fastest`) and at most 9.5 % in the eight others,
+whatever its cost and whether or not it is correct. Only a replacement that costs nothing could reach the 10 % bar, in
+that one configuration; none of (a)-(c) comes close to that, so none can qualify alone:
 
 - (a) **Undo log** of the changed vertices, triangles, edges and constraints.
-  - Every pass smooths and projects all vertices: `smooth_vertices()` and `project_vertices()` are all vertices in
-    both classes (the only override is `EdgeLoopRemesher`'s, and it has the guard off). Almost every free vertex moves,
+  - Every pass smooths all vertices, and every pass with projection projects all of them (`FastestRemesh` turns the
+    projection off on every other iteration): `smooth_vertices()` and `project_vertices()` are all vertices in both
+    classes (the only override is `EdgeLoopRemesher`'s, and it has the guard off). Almost every free vertex moves,
     so the vertex part of the log is nearly the whole vertex buffer in every pass. That is about 15 % of the bytes of
-    the copy.
+    the copy. So (a) saves at most about 85 % of the copy plus the pauses, minus its logging: at most about 9 %.
   - The topology part must restore the free lists and the `SmallListSet` blocks exactly (section 1). That means
     logging inside `DMesh3`'s edge operations, a cost on the hot path of every caller.
 - (b) **Copy-on-write / lazy snapshot** (dirty blocks of `DVector`):
@@ -112,8 +134,8 @@ qualify alone:
   - the write barrier would sit on `DVector`'s indexer, which the whole library uses.
 - (c) **Reusing the snapshot buffers** (copying into preallocated arrays):
   - bit-identical by construction;
-  - saves only the allocation share of the copy, including the large-object-heap garbage collections that the
-    per-pass arrays cause outside the copy timer;
+  - saves only the allocation share of the copy and the extra garbage collection (at most 2.3 % of the run, above);
+    the copying of the bytes stays;
   - bounded in section 13 of REDUCER_REMESHER_20.md (at most 4-5 % of the run, about 2 % expected), not built
     (owner 2026-11-12).
 
@@ -126,7 +148,9 @@ qualify alone:
   - The output hashes were equal to the old path on sphere_refine, bumpy_uniform and noisy_coarsen, all three
     configurations.
   - The sign count share was unchanged (within noise: 4.9-17.0 % against 4.8-17.0 %). The count is memory-bound, not
-    bound by the arithmetic. Dropped.
+    bound by the arithmetic. Dropped. This agrees with section 12.4 of REDUCER_REMESHER_20.md (line 373 there), where
+    reusing the work arrays of `compute_component_signs` gave no measurable change: neither the allocation nor the
+    arithmetic of the count is its cost, so no bit-identical rewrite of the same count is cheaper.
 - (e) **Per-component signed volume tracked incrementally** through split, collapse, flip, smoothing and projection.
   - The decision compares one particular floating-point sum (component-relative origin, triangle-id order) with a
     tolerance from another sum. An incremental sum rounds differently, so the decisions agree only away from the
@@ -152,14 +176,17 @@ qualify alone:
       `DMesh3.CollapseEdge` (the link condition, the tetrahedron and triangle cases, and an interior edge with two
       boundary vertices), for boundary edges as well;
     - the same for every other write of the remeshers and their subclasses.
-  - Plausible, but it saves at most the union-find share: 1.7-8.2 %.
-- (a) and (f) together, at zero overhead (copy plus union-find):
-  - 13.2-15.0 % for sphere_refine and 12.3-12.9 % for bumpy_uniform with `pro_fastest`; 11.2-12.0 % for
-    bumpy_uniform with `pro_iter`;
-  - at most 9.5 % in every other configuration measured (5.7-9.5 for `remesher`, 7.5-7.7 for sphere `pro_iter`,
-    5.7-6.3 for noisy `RemesherPro`);
-  - these are ceilings: an undo log keeps the vertex buffer (about 15 % of the copy), logs on the hot path, and the
-    labels cost their own maintenance.
+  - Plausible, but it saves at most the union-find share: 1.7-8.2 % on closed meshes (1.6-3.9 % on the open ones).
+- (f) together with (a) or (c), at zero overhead (copy plus union-find plus the extra pause; per run over the five
+  processes, the pause of the on/off processes added at its maximum to the three others):
+  - 12.3-15.0 % for sphere_refine and 12.3-15.2 % for bumpy_uniform with `pro_fastest`; 12.1-13.0 % for
+    bumpy_uniform with `pro_iter`; 9.9-10.6 % for noisy_coarsen with `remesher`;
+  - at most 9.5 % in the five other configurations (sphere `remesher` 8.8-9.5, sphere `pro_iter` 7.5-9.2, bumpy
+    `remesher` 5.7-6.9, noisy `RemesherPro` 5.7-6.8);
+  - these are ceilings: an undo log keeps the vertex buffer (about 15 % of the copy) and logs on the hot path; buffer
+    reuse keeps the whole copying of the bytes (it saves the allocation and the pauses only, so (c) + (f) is lower
+    still: at most the pauses plus the allocation share plus the union-find); and the labels cost their own
+    maintenance.
 
 **Prior art.**
 - Cheap snapshots of a mutable structure are persistent data structures (Driscoll, Sarnak, Sleator and Tarjan,
@@ -171,19 +198,24 @@ qualify alone:
 ## 4. Conclusion
 
 **Closed for the snapshot.**
-- The copy is at most 8.6 % of the run, so no replacement of it can save 10 %.
+- The copy is at most 8.6 % of the run, at most 10.4 % with the garbage collection it causes (one configuration; at
+  most 9.5 % in the others), so only a replacement that costs nothing could reach the bar, and none of (a)-(c) does.
 - The exact cheap lever on the sign count, (d), gains nothing.
 - Incremental volume, (e), is neither decision-identical near the tolerance nor cheaper, because the passes move
   almost every vertex.
 
-**Parked, an owner option: (a) + (f).**
-- An undo log inside `DMesh3`'s edge operations together with component labels kept through them.
-- Ceiling: 11-15 % (copy plus union-find) with `RemesherPro` (`FastestRemesh`, and `pro_iter` on bumpy_uniform) on closed meshes of up to
-  about 75k triangles, at most 9.5 % elsewhere. The net is lower by the vertex buffer, the logging and the labels'
-  maintenance.
-- The cost: a change to `DMesh3`, which is shared core code; writes on its hot path; and a correctness argument for
-  each edge operation.
-- Not started without an owner decision. The first step would be measuring the net of (a) alone on `pro_fastest`.
+**Parked, owner options: (f) + (a), or (f) + (c).**
+- Component labels kept through the edge operations, together with an undo log inside `DMesh3`'s edge operations or
+  with reused snapshot buffers.
+- Ceiling (copy plus union-find plus the extra pause): above 10 % in 4 of the 9 configurations: `RemesherPro` on
+  sphere_refine and bumpy_uniform (`pro_fastest` 12.3-15.2 %, `pro_iter` on bumpy_uniform 12.1-13.0 %), two procedural
+  closed meshes of up to about 75k triangles, and `Remesher` on noisy_coarsen (9.9-10.6 %); at most 9.5 % in the
+  others. The net is lower: by the vertex buffer and the logging for (a), by the whole copying of the bytes for (c),
+  and by the labels' maintenance for both.
+- The cost: a correctness argument for each edge operation (both); for (a) also a change to `DMesh3`, which is shared
+  core code, with writes on its hot path.
+- Not started without an owner decision. The first step would be the union-find share against the labels' cost, since
+  (f) is needed in both, then the net of (c) (no change to `DMesh3`'s operations).
 
 **Would change the answer:**
 - passes that become much cheaper, so that the guard's share grows (measure again with the instrumentation of
@@ -191,5 +223,5 @@ qualify alone:
 - an owner decision to accept different rollback decisions near the tolerance (then (e) with its own tolerance, no
   longer bit-identical).
 
-**Open meshes** pay the sign count in every pass (2.4-6.1 %) although they cannot roll back while they have no closed
+**Open meshes** pay the sign count in every pass (2.4-6.1 %, the union-find 1.6-3.9 %) although they cannot roll back while they have no closed
 component. Caching "no closed component" needs the argument of (f), and is below the bar as well.

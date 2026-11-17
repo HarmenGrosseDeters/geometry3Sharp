@@ -622,9 +622,11 @@ Ordered by expected value for the library.
     2007 (manifold DC), Nielson 2004 (dual marching cubes), and newer DC variants (papers only, licences as usual).
     Serves B above, `WindingContouring`'s repair use and later TPMS / implicit inputs.
 14. ~~**Remesher: a cheaper exact `RejectInvertingPasses`.**~~ Closed 2026-11-17
-    ([INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)): the copy is at most 8.6 % of the run, so no
-    replacement of it reaches 10 %; the one combination with a higher ceiling (an undo log in `DMesh3` plus component
-    labels kept through the edge operations, 11-15 % on `RemesherPro` only) is parked as an owner option.
+    ([INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)): the copy is at most 8.6 % of the run (about 10 %
+    with its garbage collection), so no realistic replacement of it reaches 10 %; the combinations with a higher
+    ceiling (component labels kept through the edge operations, plus an undo log in `DMesh3` or reused snapshot
+    buffers; above 10 % in only 4 of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to about
+    75k triangles) are parked as owner options.
 
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
 
