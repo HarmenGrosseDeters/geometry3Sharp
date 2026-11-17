@@ -1,4 +1,4 @@
-// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 
@@ -266,7 +266,7 @@ namespace g3
             }
 
             // QEF vertex of the component (level l, root r) and the fit tests
-            void evaluate(int l, int r)
+            void evaluate(int l, int r, SymmetricEigenSolver qefSolver)
             {
                 List<int> mem = members[l][r];
                 var cross = dc.VertexCrossings;
@@ -281,7 +281,7 @@ namespace g3
                 Vector3d bmin = origin + owner.CellSize * new Vector3d((c0.x >> l) << l, (c0.y >> l) << l, (c0.z >> l) << l);
                 double bsize = owner.CellSize * (1 << l);
                 Vector3d mass, pn; bool feat;
-                Vector3d x = dc.solve_qef(bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat);
+                Vector3d x = dc.solve_qef(qefSolver, bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat);
                 bool ok = !(double.IsNaN(x.x) || double.IsNaN(x.y) || double.IsNaN(x.z) || double.IsInfinity(x.x) || double.IsInfinity(x.y) || double.IsInfinity(x.z));
                 if (ok) {
                     foreach (int ci in edges) {
@@ -318,8 +318,8 @@ namespace g3
                     }
                     if (todo.Count > 0) {
                         int lv = l;
-                        if (owner.ParallelCompute) gParallel.ForEach(Interval1i.Range(todo.Count), (i) => evaluate(lv, todo[i]));
-                        else for (int i = 0; i < todo.Count; ++i) evaluate(lv, todo[i]);
+                        if (owner.ParallelCompute) gParallel.ForRange(todo.Count, () => new SymmetricEigenSolver(3, 64), (i, qs) => evaluate(lv, todo[i], qs));
+                        else { var qs = new SymmetricEigenSolver(3, 64); for (int i = 0; i < todo.Count; ++i) evaluate(lv, todo[i], qs); }
                         foreach (int r in todo) coll[l][r] = fit[l][r] > 0;
                     }
                 }

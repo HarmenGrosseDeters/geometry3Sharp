@@ -175,3 +175,25 @@ The simplified contour has a lower mean smallest angle (34-40 against 41-43 degr
 The upper bound measured before the implementation (ideal merge, no topology test) was 3.7x / 7x / 10x for the CSG part at
 N = 32 / 64 / 128 at 0.1 cells; the real result at 0.1 is 3.7x / 4.2x / 11.1x (the take-back of the check costs at N=64; the
 rounds column shows it).
+
+## Eigen solver reuse (allocation fix)
+
+`SymmetricEigenSolver` sized its Givens list to `maxIterations * (size - 1)` and `solve_qef` built one solver per call, so
+57 % of the bytes of an AdaptiveDualContouring run were that list (about 3 KB per QEF; 196 KB per solver with 4096
+iterations in the fit classes and PointCloudNormals). Now the list grows on demand, the sort buffer is a field (a `Solve`
+allocates nothing), and DualContouring / AdaptiveDualContouring keep one solver per worker (`gParallel.ForRange` with a
+local). `--alloc [--serial]` (N = 256, tolerance 0.25, min time of 3 runs after a warm-up, 4-core container, two rounds
+alternating before / after, the better of the two):
+
+| shape | threads | ms before | ms after | change | allocated MB before | after | mesh hash (before = after) |
+|---|---|---|---|---|---|---|---|
+| csg | 1 | 3441 | 2954 | -14 % | 1911 | 790 | 531304BD640BA5E8 |
+| bracket | 1 | 2687 | 2250 | -16 % | 1285 | 539 | DA2938A298988D9F |
+| sphere | 1 | 3077 | 2754 | -11 % | 2025 | 807 | 045365CE274438E8 |
+| csg | 4 | 2319 | 2021 | -13 % | 1911 | 790 | 531304BD640BA5E8 |
+| bracket | 4 | 1627 | 1282 | -21 % | 1286 | 539 | DA2938A298988D9F |
+| sphere | 4 | 2279 | 1942 | -15 % | 2025 | 807 | 045365CE274438E8 |
+
+(The hash is of this benchmark's own vertex and triangle bits; it is the same before and after on every row. The GC pause
+column of `--alloc` is the pause during the third run; at 1 thread it fell from 510 to 348 ms (bracket) and 878 to 748 ms (sphere); csg is within noise (748 / 782 to 758 / 705 ms), and
+the 4-thread pauses vary by run.)
