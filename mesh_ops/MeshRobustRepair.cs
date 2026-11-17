@@ -199,6 +199,33 @@ namespace gs
         /// </summary>
         public bool SimplifyAlphaWrap = true;
         /// <summary>
+        /// alpha wrap fallback, opt-in (0 = off, the default; the result is then bit for bit the one without this option): reduce the
+        /// simplified wrap further, until it has at most this many triangles or no collapse is left that keeps the guarantees.
+        /// The reduction continues from the simplified wrap with Reducer.MaxDeviation measured from the unsimplified wrap (a
+        /// certified bound on every collapse, not only on the result) and the same exact checks as the simplification (no
+        /// self-intersection, no contact with the input), so the result is closed, 2-manifold, encloses the input without touching
+        /// it, and is certified within WrapTargetMaxDistance offsets of the unsimplified wrap (with the default 0.5 the certificate of
+        /// the simplification itself). The target is an upper bound: a wrap that is simplified below it is not refined. Needs
+        /// SimplifyAlphaWrap. If the target is out of reach, AlphaWrapTargetLimit says why and AlphaWrapTargetReached is the count
+        /// reached. The raw wrap is not coarsened for the target (that fills cavities, see WrapMaxEstimatedTriangles, and
+        /// can be combined with it). Takes precedence over WrapTargetFactor. Costs time: one serial Reducer with a certified deviation per
+        /// collapse, measured against the unsimplified wrap (benchmarks/MeshRepairBenchmark README, "Alpha wrap triangle target"),
+        /// so it grows with the wrap's size: 17 to 29 s more on a 210,000-triangle wrap.
+        /// </summary>
+        public int WrapTargetTriangles = 0;
+        /// <summary>
+        /// alpha wrap fallback, opt-in (0 = off, the default): WrapTargetTriangles as a factor of the triangle count of the
+        /// input of Apply() (1 = about the input's size), used if WrapTargetTriangles is 0
+        /// </summary>
+        public double WrapTargetFactor = 0;
+        /// <summary>
+        /// alpha wrap fallback: the distance, in offsets of the wrap, within which the reduction to the target is certified of the
+        /// unsimplified wrap (default 0.5, the simplification's own bound; a smaller value counts as 0.5). A larger one reaches
+        /// smaller counts and keeps the result farther from the input: at most (distance + 1) offsets plus the wrap's own
+        /// distance to the input at the vertices; the input is never touched
+        /// </summary>
+        public double WrapTargetMaxDistance = 0.5;
+        /// <summary>
         /// alpha wrap fallback: after the simplification, improve the triangle quality (before the simplification's
         /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
@@ -299,6 +326,24 @@ namespace gs
         /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
         /// </summary>
         public double AlphaWrapCoarsening = 1;
+        /// <summary> alpha wrap fallback: the target triangle count that was asked for (WrapTargetTriangles or WrapTargetFactor; 0 = none) </summary>
+        public int AlphaWrapTarget;
+        /// <summary> alpha wrap fallback with a target: the triangle count of the result (0 without a target or the wrap) </summary>
+        public int AlphaWrapTargetReached;
+        /// <summary>
+        /// alpha wrap fallback with a target: "" if the result has at most AlphaWrapTarget triangles, otherwise what limits it:
+        /// <see cref="TargetLimitDistance"/>, <see cref="TargetLimitNotSimplified"/>, <see cref="TargetLimitNotCertified"/> or
+        /// <see cref="TargetLimitQualityPass"/>
+        /// </summary>
+        public string AlphaWrapTargetLimit = "";
+        /// <summary> AlphaWrapTargetLimit: no further collapse keeps the guarantees within WrapTargetMaxDistance (raise it for fewer triangles) </summary>
+        public const string TargetLimitDistance = "no collapse left within the certified distance";
+        /// <summary> AlphaWrapTargetLimit: the wrap is not simplified (SimplifyAlphaWrap off, or the simplification not clean or certified), so there is no reduction to continue </summary>
+        public const string TargetLimitNotSimplified = "the wrap is not simplified";
+        /// <summary> AlphaWrapTargetLimit: the reduction to the target was not clean or not certified, the simplified wrap before it is the result </summary>
+        public const string TargetLimitNotCertified = "the reduction to the target is not certified";
+        /// <summary> AlphaWrapTargetLimit: the quality pass (AlphaWrapQualityPass) split caps and the result is above the target </summary>
+        public const string TargetLimitQualityPass = "the quality pass added triangles";
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
@@ -581,6 +626,8 @@ namespace gs
             AlphaWrapTriangles = 0;
             AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
+            AlphaWrapTarget = AlphaWrapTargetReached = 0;
+            AlphaWrapTargetLimit = "";
             AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
             AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
@@ -828,11 +875,32 @@ namespace gs
                         }
                     }
                     DMesh3 wrapped = raw;
+                    int target = WrapTargetTriangles > 0 ? WrapTargetTriangles
+                        : WrapTargetFactor > 0 ? (int)Math.Min(int.MaxValue, Math.Max(1.0, Math.Ceiling(WrapTargetFactor * input.TriangleCount))) : 0;
                     if (SimplifyAlphaWrap) {
                         wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
+                    }
+                    string targetLimit = "";
+                    if (target > 0) {
+                        AlphaWrapTarget = target;
+                        if (wrapped == raw)
+                            targetLimit = TargetLimitNotSimplified;
+                        else if (wrapped.TriangleCount > target) {
+                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, Math.Max(0.5, WrapTargetMaxDistance) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
+                            end_phase("wrap.target");
+                            if (CancelF())
+                                return false;
+                            if (reduced == null)
+                                targetLimit = TargetLimitNotCertified;
+                            else {
+                                wrapped = reduced;
+                                if (wrapped.TriangleCount > target)
+                                    targetLimit = TargetLimitDistance;
+                            }
+                        }
                     }
                     if (AlphaWrapQualityPass && wrapped != raw) {
                         DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
@@ -846,6 +914,10 @@ namespace gs
                         }
                     }
                     AlphaWrapSimplified = wrapped != raw;
+                    if (target > 0) {
+                        AlphaWrapTargetReached = wrapped.TriangleCount;
+                        AlphaWrapTargetLimit = targetLimit == "" && wrapped.TriangleCount > target ? TargetLimitQualityPass : targetLimit;
+                    }
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
@@ -1079,12 +1151,7 @@ namespace gs
             Stopwatch timer = Stopwatch.StartNew();
             // (the wrap's input, read only: no collapse creates a triangle that touches it)
             DMeshAABBTree3 clearTree = keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null;
-            Action<Reducer> configure = (r) => {
-                r.KeepClearOf = clearTree;
-                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
-                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
-                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
-            };
+            Action<Reducer> configure = wrap_reducer(clearTree, cancelF, minQuality, qualityAgainstWorst);
             DMesh3 m = reduce(mesh, quadricDistance, slabs, maxThreads, configure, cancelF, phases, "");
             lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
@@ -1125,6 +1192,39 @@ namespace gs
             within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
             lap(phases, "retry2/certify", timer);
             return within ? m : null;
+        }
+
+        // the settings of every reduction of a wrap: no contact with keepClear's mesh, no self-intersection, the quality guard
+        static Action<Reducer> wrap_reducer(DMeshAABBTree3 clearTree, Func<bool> cancelF, double minQuality, bool qualityAgainstWorst)
+        {
+            return (r) => {
+                r.KeepClearOf = clearTree;
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+            };
+        }
+
+        /// <summary>
+        /// simplified (a certified reduction of wrap) reduced further until it has at most target triangles or no allowed collapse is
+        /// left: one serial Reducer from simplified with MaxDeviation (RetryDeviationFraction of maxDistance, a certified bound on every
+        /// collapse) measured from wrap, and the exact checks of SimplifyWithin (no self-intersection, no contact with keepClearOf).
+        /// The result is checked clean and certified within maxDistance of wrap as a whole (one-sided Hausdorff upper bound); null
+        /// if it is not, or on cancel (the caller keeps simplified). The count may stay above target
+        /// </summary>
+        internal static DMesh3 ReduceToTarget(DMesh3 simplified, DMesh3 wrap, int target, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF, DMesh3 keepClearOf)
+        {
+            DMesh3 m = new DMesh3(simplified);
+            var reducer = new Reducer(m);
+            wrap_reducer(keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null, cancelF, WrapSimplifyMinQuality, true)(reducer);
+            reducer.MaxDeviation = RetryDeviationFraction * maxDistance;
+            reducer.SetDeviationReference(new DMeshAABBTree3(wrap, true));
+            reducer.ReduceToTriangleCount(target);
+            m = new DMesh3(m, true);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            int subdivisions = 0;
+            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
         }
 
         // a copy of mesh reduced to the quadric error quadricDistance^2 (PartitionedReduction on slabs, or one Reducer)

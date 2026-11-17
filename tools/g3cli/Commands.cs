@@ -176,6 +176,9 @@ namespace g3cli
             c.Params.Add(new Param("wrap_relative_alpha", ParamType.Number, "robust alpha wrap fallback: alpha = bounding box diagonal / this value, 1..1e6") { Default = 300.0 });
             c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value, 1..1e6") { Default = 3000.0 });
             c.Params.Add(new Param("alpha_wrap_quality_pass", ParamType.Boolean, "robust alpha wrap fallback: improve the triangle quality after the simplification (about 30 % more time, adds little)") { Default = false });
+            c.Params.Add(new Param("wrap_target_triangles", ParamType.Integer, "robust alpha wrap fallback: reduce the simplified wrap further to at most this many triangles, with the wrap's guarantees kept (0 = off; MeshRobustRepair.WrapTargetTriangles; takes precedence over wrap_target_factor)") { Default = 0 });
+            c.Params.Add(new Param("wrap_target_factor", ParamType.Number, "robust alpha wrap fallback: the target as a factor of the input's triangle count, eg 1 (0 = off; MeshRobustRepair.WrapTargetFactor)") { Default = 0.0 });
+            c.Params.Add(new Param("wrap_target_max_distance", ParamType.Number, "robust alpha wrap fallback: distance in wrap offsets within which the reduction to the target is certified of the unsimplified wrap, at least 0.5 (a larger one reaches fewer triangles)") { Default = 0.5 });
             c.Params.Add(new Param("passthrough_clean_parts", ParamType.Boolean, "robust: a closed component that is clean on its own and whose bounding box meets no other component is passed through untouched (false: the whole input goes through the stages)") { Default = true });
             c.Params.Add(new Param("separate_fraction", ParamType.Number, "robust exact stage: how far vertices at the same position are moved towards the centroid of their neighbours to separate touching sheets, in (0, 1)") { Default = 1e-4 });
             AddRoundingTolerances(c, repair: true);
@@ -220,6 +223,12 @@ namespace g3cli
                     foreach (string name in new[] { "wrap_relative_alpha", "wrap_relative_offset" })
                         if (!(args.Number(name) >= 1 && args.Number(name) <= 1e6))
                             throw new CommandException(ResultCodes.InvalidArguments, "'" + name + "' must be in 1..1e6");
+                    if (args.Integer("wrap_target_triangles") < 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_triangles' must be >= 0");
+                    if (!(args.Number("wrap_target_factor") >= 0 && args.Number("wrap_target_factor") <= 1e6))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_factor' must be in 0..1e6");
+                    if (!(args.Number("wrap_target_max_distance") >= 0.5 && args.Number("wrap_target_max_distance") <= 1e6))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_max_distance' must be in 0.5..1e6");
                     double separate = args.Number("separate_fraction");
                     if (!(separate > 0 && separate < 1))
                         throw new CommandException(ResultCodes.InvalidArguments, "'separate_fraction' must be in (0, 1)");
@@ -238,6 +247,9 @@ namespace g3cli
                         SafeRounding = args.Bool("safe_rounding"),
                         AlphaWrapFallback = args.Bool("alpha_wrap"),
                         SimplifyAlphaWrap = args.Bool("simplify_alpha_wrap"),
+                        WrapTargetTriangles = args.Integer("wrap_target_triangles"),
+                        WrapTargetFactor = args.Number("wrap_target_factor"),
+                        WrapTargetMaxDistance = args.Number("wrap_target_max_distance"),
                         CheckLostComponents = args.Bool("check_lost_components"),
                         RejectTopologyChange = args.Bool("reject_topology_change"),
                         RoundingMaxDisplacement = rounding.MaxDisplacement, RoundingUlpFactor = rounding.UlpFactor,
@@ -275,6 +287,10 @@ namespace g3cli
                     o["alpha_wrap_triangles"] = repair.AlphaWrapTriangles;
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
                     o["alpha_wrap_quality_improved"] = repair.AlphaWrapQualityImproved;
+                    // (the opt-in triangle target of the wrap: the target asked for, the count reached, what limits it; 0 / 0 / null without one)
+                    o["alpha_wrap_target"] = repair.AlphaWrapTarget;
+                    o["alpha_wrap_target_reached"] = repair.AlphaWrapTargetReached;
+                    o["alpha_wrap_target_limit"] = repair.AlphaWrapTargetLimit == "" ? null : repair.AlphaWrapTargetLimit;
                     // (measured on the alpha wrap result, null if the result is not the wrap)
                     o["alpha_wrap_min_angle"] = MeshReport.Num(repair.AlphaWrapMinAngleDegrees);
                     o["alpha_wrap_max_angle"] = MeshReport.Num(repair.AlphaWrapMaxAngleDegrees);
@@ -285,6 +301,9 @@ namespace g3cli
                         ["wrap_relative_alpha"] = repair.WrapRelativeAlpha,
                         ["wrap_relative_offset"] = repair.WrapRelativeOffset,
                         ["alpha_wrap_quality_pass"] = repair.AlphaWrapQualityPass,
+                        ["wrap_target_triangles"] = repair.WrapTargetTriangles,
+                        ["wrap_target_factor"] = repair.WrapTargetFactor,
+                        ["wrap_target_max_distance"] = repair.WrapTargetMaxDistance,
                         ["passthrough_clean_parts"] = repair.PassThroughCleanParts,
                         ["separate_fraction"] = repair.SeparateFraction,
                         ["rounding_defect_scale"] = repair.RoundingPairTestsDefectScale,
