@@ -112,8 +112,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 In order:
 - The 3.0 completion gate (run 44013112256); then the roadmap status "3.0 complete".
-- Done: the imprint corpus run and the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean` (2026-11-17: both `[Obsolete]`).
-- The imprint corpus run, then the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean`.
+- The boolean bugfix round (RC1, RC3, the benchmark pinch class, the RC4 rerun), then the owner's campaign findings.
 - After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
 - The Geogram survey, then the owner picks what to adopt.
 - The robustness sweep leftovers and #698 (sessions running).
