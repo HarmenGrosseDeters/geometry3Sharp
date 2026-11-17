@@ -596,3 +596,35 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
 
 Set `break` from a measured score as above and only raise it.
+
+## UV parameterization (stryker-mesh-uv-*.json)
+
+Seven shards of `parameterization/*.cs`, one or two files each (every file is mutated by exactly one shard; the pin
+`UvShards_EveryParameterizationFileIsMutatedByExactlyOneShard` in `MutationConfigTests` checks it). They share one test
+filter: the UV test classes `UVAtlasTests`, `ParameterizationTests`, `ParameterizationIssueCasesTests`,
+`ParameterizationFlippedMapTests`, `FoldoverFreeTests` and `FoldoverFreeToleranceTests` (about 70 s of suite time).
+`RobustnessSweepTests` (1197 tests) and `SymmetryInvarianceTests` (411) are left out on purpose: each mutant they cover
+would run them, and CI runs them on their own. These shards are not exact code, so the merge gate does not apply: a PR
+that changes them runs incrementally where a baseline fits, as the other shards do.
+
+Local full runs (16 and 17 November 2026, container, net10.0, 4 CPUs, concurrency 2), with the break threshold set from
+the score (rounded down, less two points; timeouts are 0.3 to 5 % of the mutants, so no halving):
+
+| Shard | Mutated | Tested | Score | Killed / timeouts / survived / no coverage | Break (low) | Stryker time |
+|---|---|---|---|---|---|---|
+| `uv-atlas` | `UVAtlasGenerator.cs` | 258 | 69.37 % | 191 / 6 / 61 / 26 | 67 (69) | 17 min |
+| `uv-charts` | `MeshChartSegmentation.cs`, `MeshDiscCut.cs` | 445 | 77.17 % | 352 / 13 / 80 / 28 | 75 (77) | 27 min |
+| `uv-pack` | `UVPacker.cs`, `UVOverlap.cs` | 579 | 69.22 % | 386 / 30 / 163 / 22 | 67 (69) | 57 min |
+| `uv-cones` | `ConeFlattening.cs`, `BoundaryFirstFlattening.cs` | 615 | 78.66 % | 490 / 4 / 121 / 13 | 76 (78) | 20 min |
+| `uv-slim` | `SLIMParameterization.cs`, `ARAPParameterization.cs` | 579 | 82.17 % | 473 / 11 / 95 / 10 | 80 (82) | 46 min |
+| `uv-foldover` | `FoldoverFreeParameterization.cs`, `LSCMParameterization.cs` | 609 | 82.19 % | 515 / 2 / 92 / 20 | 80 (82) | 29 min |
+| `uv-core` | `MeshParameterization.cs` (the shared `ParamMesh`, `ParamMath`, `ConstrainedQuadratic`) | 550 | 79.55 % | 455 / 4 / 91 / 27 | 77 (79) | 25 min |
+
+"Tested" counts killed, timeouts and survivors; "no coverage" mutants are not tested. The survivors are mostly equality,
+string (exception and message texts), arithmetic and statement mutants. They are open: tasks for the area's next PR,
+not merge blockers, with no new killing tests in this PR (a second round of runs would be needed to measure them).
+
+Known from these runs:
+- `UVAtlasTests.Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion` takes about 10.9 s in the container, above the 10 s
+  limit of CLAUDE.md for a test without the `Slow` trait. It is pre-existing and is in every shard's filter, so each
+  atlas mutant it covers pays its time. It needs its own fix (smaller input or a split) in a separate PR.

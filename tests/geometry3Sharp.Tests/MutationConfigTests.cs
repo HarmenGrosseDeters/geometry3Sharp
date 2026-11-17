@@ -204,5 +204,35 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
             }
         }
+
+        // The UV parameterization shards (tests/mutation/README.md, "UV parameterization"): every file of parameterization/
+        // is mutated by exactly one of them, so a new file cannot go unmeasured without this test failing.
+        [Fact]
+        public void UvShards_EveryParameterizationFileIsMutatedByExactlyOneShard()
+        {
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var mutated = new List<string>();
+            foreach (string cfg in Directory.GetFiles(Path.Combine(root, "tests", "mutation"), "stryker-mesh-uv-*.json"))
+                foreach (Match m in Regex.Matches(File.ReadAllText(cfg), @"""\*\*/(parameterization/[^""{}]+)"""))
+                    mutated.Add(m.Groups[1].Value);
+            var files = Directory.GetFiles(Path.Combine(root, "parameterization"), "*.cs")
+                .Select(f => "parameterization/" + Path.GetFileName(f)).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            Assert.Equal(files, mutated.OrderBy(x => x, StringComparer.Ordinal));
+        }
+
+        // The UV shards share one test filter. The sweeps are left out on purpose: RobustnessSweepTests (1197 tests) and
+        // SymmetryInvarianceTests (411) would run against every mutant they cover, and the CI runs them on their own.
+        [Fact]
+        public void UvShards_ShareOneTestFilter_WithoutTheSweeps()
+        {
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root).Where(kv => kv.Key.StartsWith("stryker-mesh-uv-", StringComparison.Ordinal)).ToList();
+            Assert.Equal(7, filters.Count);
+            Assert.Single(filters.Select(kv => kv.Value).Distinct());
+            Assert.DoesNotContain("RobustnessSweepTests", filters[0].Value);
+            Assert.DoesNotContain("SymmetryInvarianceTests", filters[0].Value);
+        }
     }
 }

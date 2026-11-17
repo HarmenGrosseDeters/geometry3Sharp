@@ -6,7 +6,8 @@ name: Mutation tests
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs, math/FixedPoint3.cs, the arrangement's fixed-width points, and math/Generated/*.cs, the
 #   generated predicates, and mesh_ops/PolyhedralEnvelope.cs, the envelope), in shards that run in
-#   parallel (tests/mutation/stryker-mesh-*.json).
+#   parallel (tests/mutation/stryker-mesh-*.json). The UV parameterization (parameterization/*.cs) has seven shards of
+#   its own (stryker-mesh-uv-*.json, tests/mutation/README.md "UV parameterization"); they are not exact code.
 # A shard whose mutated file changed runs incrementally (tests/mutation/incremental.py): Stryker mutates only the changed
 # lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
 # shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
@@ -94,6 +95,25 @@ on:
       - 'tests/geometry3Sharp.Tests/CertifiedTriangleBoundsTests.cs'
       - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
       - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
+      # UV parameterization (tests/mutation/stryker-mesh-uv-*.json: seven shards of parameterization/*.cs, README "UV parameterization")
+      - 'parameterization/UVAtlasGenerator.cs'
+      - 'parameterization/MeshChartSegmentation.cs'
+      - 'parameterization/MeshDiscCut.cs'
+      - 'parameterization/UVPacker.cs'
+      - 'parameterization/UVOverlap.cs'
+      - 'parameterization/ConeFlattening.cs'
+      - 'parameterization/BoundaryFirstFlattening.cs'
+      - 'parameterization/SLIMParameterization.cs'
+      - 'parameterization/ARAPParameterization.cs'
+      - 'parameterization/FoldoverFreeParameterization.cs'
+      - 'parameterization/LSCMParameterization.cs'
+      - 'parameterization/MeshParameterization.cs'
+      - 'tests/geometry3Sharp.Tests/UVAtlasTests.cs'
+      - 'tests/geometry3Sharp.Tests/ParameterizationTests.cs'
+      - 'tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs'
+      - 'tests/geometry3Sharp.Tests/ParameterizationFlippedMapTests.cs'
+      - 'tests/geometry3Sharp.Tests/FoldoverFreeTests.cs'
+      - 'tests/geometry3Sharp.Tests/FoldoverFreeToleranceTests.cs'
       - 'tests/mutation/*'
       - 'tests/mutation/local-results/**'
       - '.config/dotnet-tools.json'
