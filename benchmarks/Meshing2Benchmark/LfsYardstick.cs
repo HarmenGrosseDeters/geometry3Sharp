@@ -14,7 +14,7 @@ namespace Meshing2Acceptance
     ///
     /// lfs by brute force over the features (the inputs are small); the integral by the centroid rule on the output triangles of
     /// QualityMesh2, each split uniformly into 4^L triangles (the output is graded by lfs already, so the cells are adaptive), at
-    /// L = 0 .. --levels to show convergence. Usage: lfs [--cases f-11/a,f-11/b,f-40/angle-33.75] [--levels 5] [--reference 108,205,130]
+    /// L = 0 .. --levels to show convergence. Usage: lfs [--cases f-11/a,f-11/b,f-40/angle-33.75] [--levels 6] [--reference 108,205,130]
     /// </summary>
     static class LfsYardstick
     {
@@ -28,9 +28,18 @@ namespace Meshing2Acceptance
         static Pslg Features(Mesh2Input input)
         {
             var p = new Pslg { X = input.X, Y = input.Y };
+            // duplicate input points are one feature: segments refer to the first of equal points
+            var first = new Dictionary<(double, double), int>();
+            var canon = new int[p.X.Length];
+            for (int v = 0; v < p.X.Length; ++v) {
+                if (!first.TryAdd((p.X[v], p.Y[v]), v)) ++DuplicateCount;
+                canon[v] = first[(p.X[v], p.Y[v])];
+            }
+            p.Unique = first.Values.ToArray();
             var seen = new HashSet<(int, int)>();
             void add(int a, int b)
             {
+                a = canon[a]; b = canon[b];
                 if (a == b) return;
                 var k = a < b ? (a, b) : (b, a);
                 if (seen.Add(k)) p.Segments.Add(k);
@@ -47,7 +56,7 @@ namespace Meshing2Acceptance
                 split = false;
                 for (int s = 0; s < p.Segments.Count && !split; ++s) {
                     var (a, b) = p.Segments[s];
-                    for (int v = 0; v < p.X.Length; ++v) {
+                    foreach (int v in p.Unique) {
                         if (v == a || v == b) continue;
                         double cross = (p.X[b] - p.X[a]) * (p.Y[v] - p.Y[a]) - (p.Y[b] - p.Y[a]) * (p.X[v] - p.X[a]);
                         double dot = (p.X[v] - p.X[a]) * (p.X[b] - p.X[a]) + (p.Y[v] - p.Y[a]) * (p.Y[b] - p.Y[a]);
@@ -56,11 +65,6 @@ namespace Meshing2Acceptance
                     }
                 }
             }
-            // duplicate input points are one feature
-            var first = new Dictionary<(double, double), int>();
-            for (int v = 0; v < p.X.Length; ++v)
-                if (!first.TryAdd((p.X[v], p.Y[v]), v)) ++DuplicateCount;
-            p.Unique = first.Values.ToArray();
             return p;
         }
 
@@ -130,7 +134,7 @@ namespace Meshing2Acceptance
         public static int Run(string[] args, Func<string[], string, string> arg)
         {
             var ids = (arg(args, "--cases") ?? "f-11/a,f-11/b,f-40/angle-33.75").Split(',');
-            int levels = int.Parse(arg(args, "--levels") ?? "5", CultureInfo.InvariantCulture);
+            int levels = int.Parse(arg(args, "--levels") ?? "6", CultureInfo.InvariantCulture);
             // the reference mesher's triangle counts of docs/design/MESHING2D_GRADING.md (default mode, no constrained quality)
             var reference = (arg(args, "--reference") ?? "108,205,130").Split(',').Select(s => s.Length == 0 ? (double?)null : double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
             string F(double x) => x.ToString("G4", CultureInfo.InvariantCulture);

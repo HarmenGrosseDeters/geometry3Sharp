@@ -354,7 +354,7 @@ Order if one is picked up:
 
 1. Full Thingi10K run (draft #385): the EMBER re-evaluation and the octree-BSP paper wait for it.
 2. The Minkowski / swept volume paper (Campen, Kobbelt 2010) next to `MeshOffset` (#799); not scheduled.
-3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first (spectral conformal map, an lfs yardstick for the 2D grading, true restricted Voronoi cells for RDR); a port is a decision with an A/B.
+3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first; the top three were measured 2026-11-17 ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md): spectral conformal map an opt-in for discs, not the P1 fix; the lfs yardstick a metric, not a bound; true restricted Voronoi cells a go for RDR stage 1b); a port is a decision with an A/B.
 4. Other permissive libraries: each row to check, none read yet; PyMesh, ManifoldPlus and Directional wait for a LICENSE file.
 5. Generalized winding numbers for rational curves (Phase 5 next research item 3, [research.md](research.md#phase-5-candidates-from-recent-research)).
 6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).

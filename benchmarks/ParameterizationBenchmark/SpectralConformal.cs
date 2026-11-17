@@ -28,6 +28,10 @@ public sealed class SpectralConformal
     public double ShiftFraction = 1e-9;
 
     public bool SecondPair;
+    /// <summary> start from the projection on the xy plane instead of the least-squares plane (to test the start dependence) </summary>
+    public bool StartXY;
+    /// <summary> the first pair's iteration met Tol before MaxIterations </summary>
+    public bool Converged;
     public int Iterations, Iterations2;
     public double Lambda2;
     public double Lambda, Residual, FactorMs, IterateMs;
@@ -115,17 +119,19 @@ public sealed class SpectralConformal
         }
         // inverse power iteration; stops when the B-norm of the change of the iterate is below Tol (after the sign is
         // matched; within the eigenvalue pair the iteration does not rotate: both have the same eigenvalue)
+        bool converged = false;
         double iterate(double[] x, List<double[]> extra, out int its)
         {
             deflate(x, extra);
             var yv = new double[N];
+            converged = false;
             for (its = 0; its < MaxIterations;) {
                 chol.Solve(mulB(x), yv);
                 deflate(yv, extra);
                 ++its;
                 double sgn = dot(yv, mulB(x)) < 0 ? -1 : 1, ch = 0;
                 for (int i = 0; i < N; ++i) { double d = sgn * yv[i] - x[i]; ch += mass[i / 2] * d * d; x[i] = sgn * yv[i]; }
-                if (Math.Sqrt(ch) <= Tol) break;
+                if (Math.Sqrt(ch) <= Tol) { converged = true; break; }
             }
             return dot(x, mulA(x));
         }
@@ -144,7 +150,11 @@ public sealed class SpectralConformal
             }
         }
         var start = (double[])xk.Clone();
+        if (StartXY)
+            for (int v = 0; v < m.MaxVertexID; ++v)
+                if (idx[v] >= 0) { xk[2 * idx[v]] = m.GetVertex(v).x; xk[2 * idx[v] + 1] = m.GetVertex(v).y; }
         double lambda = iterate(xk, new List<double[]>(), out Iterations);
+        Converged = converged;
         if (SecondPair) {
             // the next eigenvalue pair: deflate x and its rotation J x = (-v, u) and iterate again from the same start
             var jx = new double[N];
@@ -279,22 +289,29 @@ static class SpectralComparison
         foreach (var (sides, rings, height, top, jit) in cyl) {
                 DMesh3 m = OpenCylinder(sides, rings, height / rings, top, jit);
                 var lscm = new LSCMParameterization(m).Compute();
-                var sc = new SpectralConformal { SecondPair = true };
-                var sw = Stopwatch.StartNew();
-                Vector2d[] uv = sc.Compute(m);
-                double ms = sw.Elapsed.TotalMilliseconds;
-                foreach (var (name, map, status) in new[] { ("LSCM", lscm.UV, lscm.Status.ToString()), ("spectral", uv, sc.Error ?? "ok") }) {
+                // variants: the default; an xy-plane start on the symmetric tall cylinders (the start dependence); 5000 iterations on
+                // the jittered ones (their gap is tiny)
+                var variants = new List<(string, SpectralConformal)> { ("spectral", new SpectralConformal { SecondPair = true }) };
+                if (top == 1 && jit == 0 && height > 3) variants.Add(("spec-xy", new SpectralConformal { SecondPair = true, StartXY = true }));
+                if (jit > 0) variants.Add(("spec-5k", new SpectralConformal { SecondPair = true, MaxIterations = 5000 }));
+                var runs = new List<(string, Vector2d[], string, SpectralConformal, double)> { ("LSCM", lscm.UV, lscm.Status.ToString(), null, 0) };
+                foreach (var (vname, sc) in variants) {
+                    var sw = Stopwatch.StartNew();
+                    Vector2d[] uv = sc.Compute(m);
+                    runs.Add((vname, uv, sc.Error ?? (sc.Converged ? "ok" : "not converged"), sc, sw.Elapsed.TotalMilliseconds));
+                }
+                foreach (var (name, map, status, sc, ms) in runs) {
                     if (map == null) { Console.WriteLine($"{name,-8} {sides}x{rings} h={height} top={top} jitter={jit}: {status}"); continue; }
                     var d = ParameterizationDistortion.Compute(m, map);
-                    // centre: centroid of the larger ring (the outer boundary of the map)
-                    Vector2d c0 = Vector2d.Zero, c1 = Vector2d.Zero;
-                    for (int i = 0; i < sides; ++i) { c0 += map[i]; c1 += map[rings * sides + i]; }
-                    c0 /= sides; c1 /= sides;
+                    // centre: the UV centroid of ring 0
+                    Vector2d c0 = Vector2d.Zero;
+                    for (int i = 0; i < sides; ++i) c0 += map[i];
+                    c0 /= sides;
                     var r0 = Ring(map, sides, 0, c0); var r1 = Ring(map, sides, rings, c0);
                     double inner = Math.Min(r0.radius, r1.radius), outer = Math.Max(r0.radius, r1.radius);
                     var rIn = r0.radius < r1.radius ? r0 : r1;
                     Console.WriteLine($"{name,-8} {sides}x{rings} h={height} top={top} jitter={jit}: {status} {Dist(d)} inner/outer={F(inner / outer)} (exact {F(top == 1 ? Math.Exp(-height) : double.NaN)}) inner roundness={F(rIn.roundness)}" +
-                        (name == "spectral" ? $" it={sc.Iterations} lambda={F(sc.Lambda)} next pair={F(sc.Lambda2)} (it={sc.Iterations2}) residual={F(sc.Residual)} {F(ms)} ms (with the next pair)" : ""));
+                        (sc != null ? $" it={sc.Iterations} lambda={F(sc.Lambda)} next pair={F(sc.Lambda2)} (it={sc.Iterations2}) residual={F(sc.Residual)} {F(ms)} ms (with the next pair)" : ""));
                 }
             }
 

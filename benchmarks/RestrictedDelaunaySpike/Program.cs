@@ -18,6 +18,13 @@ namespace RestrictedDelaunaySpike
             return m;
         }
 
+        static DMesh3 TwoSpheres()
+        {
+            var m = Sphere(16, p => p + new Vector3d(-2, 0, 0));
+            new MeshEditor(m).AppendMesh(Sphere(16, p => p + new Vector3d(2, 0, 0)));
+            return m;
+        }
+
         static DMesh3 Torus(double R, double r, int nu, int nv)
         {
             var m = new DMesh3();
@@ -205,7 +212,10 @@ namespace RestrictedDelaunaySpike
                 // samples on its centre circle (three tube sectors: annuli, chi 0, one component each)
                 foreach (var (what, m, pts) in new (string, DMesh3, Vector3d[])[] {
                     ("sphere, 2 poles", Sphere(32, p => p), new[] { new Vector3d(0, 0, 1), new Vector3d(0, 0, -1) }),
-                    ("torus, 3 on the centre circle", Torus(1, 0.3, 120, 36), Enumerable.Range(0, 3).Select(k => new Vector3d(Math.Cos(2 * Math.PI * k / 3 + 0.1), Math.Sin(2 * Math.PI * k / 3 + 0.1), 0)).ToArray()) }) {
+                    ("torus, 3 on the centre circle", Torus(1, 0.3, 120, 36), Enumerable.Range(0, 3).Select(k => new Vector3d(Math.Cos(2 * Math.PI * k / 3 + 0.1), Math.Sin(2 * Math.PI * k / 3 + 0.1), 0)).ToArray()),
+                    // two spheres at x = -2 and x = 2, one sample at the origin and one far up: the first cell holds both spheres (two
+                    // components, each closed: chi 2 + 2), the second cell is empty
+                    ("two spheres, 1 sample between them", TwoSpheres(), new[] { Vector3d.Zero, new Vector3d(0, 50, 0) }) }) {
                     var box = m.CachedBounds; box.Expand(box.Diagonal.Length);
                     var dt = new Delaunay3(box);
                     foreach (var p in pts) dt.Insert(p, -1, 0, out _);

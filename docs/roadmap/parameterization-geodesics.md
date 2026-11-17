@@ -42,8 +42,9 @@ Part of the [roadmap](../ROADMAP.md).
   is injective; no fix exists inside fixed-boundary untangling. Details in
   [FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12).
 - **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
-  ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
-  conformal; foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
+  ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices (spectral
+  conformal was measured 2026-11-17 and is no fix: on nearly symmetric annuli its eigenvalue pair is nearly double and
+  the map folds, [GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md); it is a go as an opt-in for disc charts, P3); foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
 
 ### Done / history
 
@@ -92,5 +93,5 @@ Part of the [roadmap](../ROADMAP.md).
 1. #869 (draft): `ExactMeshGeodesicDistance` as a certified test oracle; reviews before ready; reach on flat / aligned inputs below 10^4 vertices.
 2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b), after #869; then a public class for 10^5 vertices (no issue).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
-4. P1 collapse: virtual fan vertices or spectral conformal (research; documented limitation).
+4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): an opt-in for disc charts is an owner decision with an atlas A/B ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

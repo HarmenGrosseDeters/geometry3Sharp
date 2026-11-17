@@ -564,7 +564,8 @@ Measurements of the geogram survey ([GEOGRAM_MEASUREMENTS_2026-11.md](research/G
 code only, written from the papers, no geogram code): the spectral conformal spike (`ParameterizationBenchmark spectral`)
 from P. Mullen, Y. Tong, P. Alliez, M. Desbrun, *Spectral Conformal Parameterization*, SGP 2008; the lfs yardstick
 (`Meshing2Benchmark lfs`) from J. Ruppert, *A Delaunay Refinement Algorithm for Quality 2-Dimensional Mesh Generation*,
-J. Algorithms 1995 (the local feature size of a PSLG and size optimality); the restricted Voronoi cell check
+J. Algorithms 1995 (the local feature size of a PSLG and size optimality), and S. A. Mitchell, *Cardinality Bounds for
+Triangulations with Bounded Minimum Angle*, CCCG 1994 (the lower bound, cited only); the restricted Voronoi cell check
 (`RestrictedDelaunaySpike rvc`) from L. Yan, B. Lévy, Y. Liu, F. Sun, W. Wang, *Isotropic Remeshing with Fast and Exact
 Computation of Restricted Voronoi Diagram*, SGP 2009 (facet clipping by bisectors, propagation, the security radius).
 
