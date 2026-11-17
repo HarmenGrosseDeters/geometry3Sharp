@@ -6,7 +6,7 @@ Part of the [roadmap](../ROADMAP.md).
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
 - **Status (2026-11-17):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). **Terrain plan parked
-  (owner 2026-11-17): further terrain work (berms, GeoTIFF reader, showcase) later, no use case now.** Done: slope construction
+  (owner 2026-11-17): further terrain work (slope envelope, 3D blocks, berms, GeoTIFF reader, showcase) later, no use case now.** Done: slope construction
   phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
   #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
   `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Close-out
@@ -40,8 +40,8 @@ Part of the [roadmap](../ROADMAP.md).
   limit, #696, closed 2026-11-15, the extreme frame runs in Nightly; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
-distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). Still owner decisions: the slope-envelope construction,
-3D blocks; berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). The slope-envelope construction, 3D blocks,
+berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): done (#752, merged 2026-11-13; resumed by
   the owner 2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
@@ -77,7 +77,7 @@ distance, then the proven tan interval and catch-line bound. All but the sector 
   realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
   in-place translation with a bitwise restore (#355) costs no copy, and only a caller that shares the terrain concurrently
   would gain.
-- **Slope envelope construction (slow tests, class F; parked, needs an owner decision).** The 48-gon designs take 3-5 s
+- **Slope envelope construction (slow tests, class F). Later (owner 2026-11-17), not scheduled.** The 48-gon designs take 3-5 s
   (`WavyToe_130mHigh` 3.6 s; `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, 85-90 % in `SlopeMap.InsertPiece`).
   Profile (2026-11-10): the incremental map builds about 134k faces (1.6M `split_face` calls) for 48 pieces and simplifies them to 762;
   the order of insertion changes the time 2.5x (id order 8.9 s, fixed shuffle 3.4 s) but never the result. Constant factors are done
@@ -86,7 +86,7 @@ distance, then the proven tan interval and catch-line bound. All but the sector 
   later lost are seen by Simplify's close-position merge, so the output is not a pure function of the labels there; and it gained only
   1.05-1.4x because the split count, not the face count, drives the time. The lever left is a different construction, for example the
   lower envelope of a fan per sector, or divide and conquer over the pieces. It changes the vertex history and so the near-degenerate
-  outputs: the owner decides whether that is acceptable (or whether the near-degenerate cases get a canonical rule first).
+  outputs: when the work resumes, the question to settle is whether that is acceptable (or whether the near-degenerate cases get a canonical rule first).
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
   re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
@@ -193,8 +193,8 @@ Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, sh
 is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
 1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
-2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks. Berms and
-   inter-ramp checks and the GeoTIFF reader: later (owner 2026-11-17).
+2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks,
+   berms and inter-ramp checks and the GeoTIFF reader.
 3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
 4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes): (1) `TerrainSafety`'s
    segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
