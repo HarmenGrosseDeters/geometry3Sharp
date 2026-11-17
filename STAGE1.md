@@ -1,0 +1,1 @@
+Stage 1 (ExactMesh) of EXACT_BOOLEAN_40_DESIGN.md section 8. stage1-diag: chain_exact.py proc rows.jsonl --seeds 30 --steps 8 --families mixed --mode diag --factors 1,4,16 (commit 036b8347). stage1-time: --mode time --reps 5 (commit 967fa9d7). Rows only.
