@@ -104,6 +104,29 @@ namespace geometry3Sharp.Tests
         public static System.Collections.Generic.IEnumerable<object[]> Frames() => Similarity.Names();
 
         [Fact]
+        public void ParallelLoops_EqualSerialOnes_BitForBit()
+        {
+            DMesh3 m = CrossFieldShapes.NoisyTorus();
+            var parallel = MeshPrincipalCurvature.Compute(m, 2);
+            foreach (int order in new[] { 0, -1, 3 }) {
+                gParallel.SerialOnThisThread = true; gParallel.SerialOrderOnThisThread = order;
+                MeshPrincipalCurvature serial;
+                try { serial = MeshPrincipalCurvature.Compute(m, 2); }
+                finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+                foreach (int v in m.VertexIndices()) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(parallel.K1[v]), BitConverter.DoubleToInt64Bits(serial.K1[v]));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(parallel.K2[v]), BitConverter.DoubleToInt64Bits(serial.K2[v]));
+                    foreach (var (p, q) in new[] { (parallel.Dir1[v], serial.Dir1[v]), (parallel.Dir2[v], serial.Dir2[v]), (parallel.Normal[v], serial.Normal[v]) }) {
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.x), BitConverter.DoubleToInt64Bits(q.x));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.y), BitConverter.DoubleToInt64Bits(q.y));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.z), BitConverter.DoubleToInt64Bits(q.z));
+                    }
+                    Assert.Equal(parallel.Valid[v], serial.Valid[v]);
+                }
+            }
+        }
+
+        [Fact]
         public void CornerAreas_SumToTheTriangleArea()
         {
             var tris = new[] {

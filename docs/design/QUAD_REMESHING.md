@@ -286,12 +286,13 @@ Owner decisions (2026-11-17, after this study):
 `gs.CrossField` and `gs.MeshPrincipalCurvature` are in the library (`mesh_ops/`), with
 [benchmarks/CrossFieldBenchmark](../../benchmarks/CrossFieldBenchmark/README.md). Measured gates: the index histogram
 matches theory (8 x +1/4 on the sphere, the filleted box and the noisy sphere; 0 on the curvature-aligned torus and on
-the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic. **Not
-met: the speed of at most 2 s per 50k vertices on 4 cores** (about 5.4 to 5.9 s at 55k to 60k vertices, serial: 3.9 s of
-sparse Cholesky and 0.8 to 1.6 s of solves). The levers measured: a residual stop with the Lanczos method (6 to 33
-solves instead of 30 to 200 inverse iterations) is in; the factorization is the rest. **Speed gate: open (owner 2026-11-17).** 5.3-6.7 s per 55-60k vertices, serial, against 2 s per 50k on 4 cores. Stage 1 merges with
-it open. Levers, in this order: a parallel `SparseCholesky` (a separate PR, with an upper-bound measurement first), then the
-n x n complex Hermitian factorization in `CrossField` if still short.
+the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic.
+
+**Speed gate (owner 2026-11-17): met on the sphere and the torus.** Stage 1 as first merged took 5.3-6.7 s per 55-60k vertices
+(serial: 3.9 s of sparse Cholesky and 0.8-1.6 s of solves). With the n x n complex Hermitian factorization
+(`SparseHermitianCholesky`) and the parallel pre/post loops it takes 1.5-2.1 s (1.3-1.7 s per 50k) on the sphere and the
+torus, and 2.7 s per 50k on the noisy torus without alignment (34 solves); see the benchmark README. The index histograms
+are unchanged.
 
 ### 4.2 Stage 2 status (2026-11-17): built, the irregular-vertex gate is the no-go
 
