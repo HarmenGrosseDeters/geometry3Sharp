@@ -1,0 +1,9 @@
+# F1 A/B (R: with the final lost-part check, N: without)
+
+paired meshes: 54
+Apply() true -> false (N true, R false): 28: sw_v0_r16_f8.obj (scale disparity: a part of the input is ), sw_v0_r20_f16.obj (scale disparity: a part of the input is ), sw_v0_r20_f2.obj (scale disparity: a part of the input is ), sw_v0_r20_f8.obj (scale disparity: a part of the input is ), sw_v0_r24_f16.obj (scale disparity: a part of the input is ), sw_v0_r24_f2.obj (scale disparity: a part of the input is ), sw_v0_r24_f8.obj (scale disparity: a part of the input is ), sw_v1_r16_f2.obj (scale disparity: a part of the input is ), sw_v1_r16_f8.obj (scale disparity: a part of the input is ), sw_v1_r20_f16.obj (scale disparity: a part of the input is ), sw_v1_r20_f2.obj (scale disparity: a part of the input is ), sw_v1_r20_f8.obj (scale disparity: a part of the input is ), sw_v1_r24_f16.obj (scale disparity: a part of the input is ), sw_v1_r24_f2.obj (scale disparity: a part of the input is ), sw_v1_r24_f8.obj (scale disparity: a part of the input is ), sw_v2_r12_f16.obj (scale disparity: a part of the input is ), sw_v2_r12_f8.obj (scale disparity: a part of the input is ), sw_v2_r16_f16.obj (scale disparity: a part of the input is ), sw_v2_r16_f2.obj (scale disparity: a part of the input is ), sw_v2_r16_f8.obj (scale disparity: a part of the input is ), sw_v2_r20_f16.obj (scale disparity: a part of the input is ), sw_v2_r20_f2.obj (scale disparity: a part of the input is ), sw_v2_r20_f8.obj (scale disparity: a part of the input is ), sw_v2_r24_f16.obj (scale disparity: a part of the input is ), sw_v2_r24_f2.obj (scale disparity: a part of the input is ), sw_v2_r24_f8.obj (scale disparity: a part of the input is ), sw_v2_r4_f16.obj (scale disparity: a part of the input is ), sw_v2_r8_f16.obj (scale disparity: a part of the input is )
+Apply() false -> true: 0
+result hash differs: 0
+strict criterion differs: 0
+timeouts (either): 0
+wall sum R / N (s): 95 / 90 (+4.5 %)
