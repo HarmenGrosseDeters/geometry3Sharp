@@ -173,14 +173,18 @@ namespace geometry3Sharp.Tests
             // (RoundingSerialWorkTests: per part only the cases of its code, a few seconds each: the per-triangle scans of
             // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
             const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
+            const string sliverStage = "FullyQualifiedName~ExactMeshImprintSliverStageTests";
             var extras = new Dictionary<string, string[]>() {
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
                 // rounding-12)
                 ["stryker-mesh-rounding-1"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "OutsideRangeInOneTriangle",
                     serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock",
                     // (IsThinOrTiny, the input test of KeepWhenEmptied, #985)
-                    "FullyQualifiedName~SafeRoundingLastComponentTests" },
-                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel" },
+                    "FullyQualifiedName~SafeRoundingLastComponentTests",
+                    // (RuleLockedEdges and the final stage where they follow a contraction, #1034: the lock tests in parts 1, 10 and 5)
+                    sliverStage },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage },
+                ["stryker-mesh-rounding-5"] = new[] { sliverStage },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
