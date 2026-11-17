@@ -54,6 +54,8 @@ namespace DeterminismHarness
             Probes.AddTo(list);
             // ---- the exact kernel, the members of its allow list, Booleans with rounding (Kernel.cs)
             Kernel.AddTo(list);
+            // ---- the exact building blocks of stage 1: SnapRounding2, ExactTriangulation2, TriangleBoxTree (Stage1.cs)
+            Stage1.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
