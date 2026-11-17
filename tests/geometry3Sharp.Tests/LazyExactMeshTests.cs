@@ -287,10 +287,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SharedSubexpressions_ComputedOnce()
+        {
+            // e = e ∪ e forty times: 41 distinct nodes, 2^40 in the expanded tree; every walk visits each node once
+            ExactMesh ea = ExactMesh.FromDMesh(Box(0, 0, 0, 1, 1, 1)), eb = ExactMesh.FromDMesh(Box(2, 0, 0, 3, 1, 1));
+            ExactMesh e = ea.Difference(eb);
+            for (int i = 0; i < 40; ++i)
+                e = (i % 3 == 2) ? e.Intersection(e) : e.Union(e);
+            Assert.Equal(2, e.SourceCount);
+            Assert.True(e.Inside(new[] { 1, 0 }));
+            Assert.False(e.Inside(new[] { 1, 1 }));
+            Assert.False(e.Inside(new[] { 0, 1 }));
+            Assert.NotNull(e.ToBoolean().WindingPredicate);
+            // a shared union of sources is still the built-in union
+            ExactMesh u = ea.Union(eb);
+            for (int i = 0; i < 40; ++i)
+                u = u.Union(u);
+            Assert.Null(u.ToBoolean().WindingPredicate);
+            Assert.Equal(Ops.Union, u.ToBoolean().Operation);
+        }
+
+        [Fact]
         public void ConcurrentRound_SameAsSerial()
         {
-            ExactMesh e = Chain(A(), B(), C(), D());
-            DMesh3 serial = e.Round();
+            DMesh3 a = A(), b = B(), c = C(), d = D();
+            DMesh3 serial = Chain(a, b, c, d).Round();
+            // a fresh expression, first used inside the parallel loop (its sources are computed there, possibly twice)
+            ExactMesh e = Chain(a, b, c, d);
             var results = new DMesh3[4];
             System.Threading.Tasks.Parallel.For(0, results.Length, i => { results[i] = e.Round(); });
             foreach (DMesh3 r in results)
@@ -303,9 +326,13 @@ namespace geometry3Sharp.Tests
             // an empty source is outside everywhere
             ExactMesh ea = ExactMesh.FromDMesh(A()), empty = ExactMesh.FromDMesh(new DMesh3());
             DMesh3 a = ea.Round();
-            Assert.Equal("", Invariance.GeometricDifference(a, ea.Union(empty).Round()));
-            Assert.Equal(0, ea.Intersection(empty).Round().TriangleCount);
-            Assert.Equal("", Invariance.GeometricDifference(a, ea.Difference(empty).Union(empty.Intersection(ea)).Round()));
+            DMesh3 u = ea.Union(empty).Round(), i0 = ea.Intersection(empty).Round(), p = ea.Difference(empty).Union(empty.Intersection(ea)).Round();
+            AssertClean(u, "A u empty");
+            AssertClean(p, "(A - empty) u (empty n A)");
+            Assert.Equal("", Invariance.GeometricDifference(a, u));
+            Assert.Equal("", Invariance.GeometricDifference(a, p));
+            Assert.NotNull(i0);
+            Assert.Equal(0, i0.TriangleCount);
             // an open source (a box without its top) on the predicate path: its generalized winding number decides, as in
             // the n-ary boolean with the same predicate
             DMesh3 open = Box(-0.5, -0.5, -0.5, 0.5, 0.5, 0.25);
@@ -320,6 +347,10 @@ namespace geometry3Sharp.Tests
             var manual = new ExactMeshBoolean(new List<DMesh3>(e.Sources), Manual(w => (w[0] && !w[1]) || (w[2] && w[0])));
             Assert.Equal("", Invariance.Difference(Compute(manual), x.Result));
             Assert.True(x.Result.TriangleCount > 0);
+            // (not closed: the open box's missing top leaves the hole it cuts into A open, as in the n-ary boolean itself)
+            Assert.True(x.Result.CheckValidity(true, FailMode.ReturnOnly), "invalid mesh");
+            Assert.True(Invariance.AllFinite(x.Result));
+            Assert.Equal("not closed", MeshRobustRepair.NotCleanReason(x.Result));
         }
 
         [Fact]

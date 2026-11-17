@@ -209,10 +209,12 @@ def cmd_time_summary(files):
     (each the median over the order-randomized repetitions of one chain), and the ratio ExactMesh / chain 1..k: median, p90, max over
     the chains"""
     rows = load(files, "time")
-    groups = {}
+    groups, dropped = {}, 0
     for r in rows:
         if r.get("chain_cum_median_ms") is not None and r.get("lazy_median_ms") is not None and r.get("lazy_ok", True) and r.get("chain_ok", True):
             groups.setdefault((key(r), r["step"]), []).append(r)
+        else:
+            dropped += 1
     print("| family | step | chains | median ms chain steps 1..k | median ms chain step k | median ms ExactMesh.Round() | ExactMesh / chain 1..k: median | p90 | max | summed ms chain 1..k / ExactMesh |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     for (fam, k), rs in sorted(groups.items()):
@@ -220,6 +222,8 @@ def cmd_time_summary(files):
         sc = sum(r["chain_cum_median_ms"] for r in rs); sl = sum(r["lazy_median_ms"] for r in rs)
         print(f"| {fam} | {k} | {len(rs)} | {st.median([r['chain_cum_median_ms'] for r in rs]):.1f} | {st.median([r['chain_step_median_ms'] for r in rs]):.1f} | "
               f"{st.median([r['lazy_median_ms'] for r in rs]):.1f} | {st.median(rat):.2f} | {rat[max(0, math.ceil(0.9 * len(rat)) - 1)]:.2f} | {rat[-1]:.2f} | {sc:.0f} / {sl:.0f} |")
+    print()
+    print(f"{dropped} rows left out (the chain ended before the step, or a boolean failed).")
 
 if __name__ == "__main__":
     a = sys.argv[1:]

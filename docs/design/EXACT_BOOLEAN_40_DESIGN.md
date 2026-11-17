@@ -512,8 +512,8 @@ by nearest rank). Rows on `runs/exact-boolean-40`, folder `stage1-time`.
 | mixed | 7 | 27 | 115.4 | 6.1 | 78.9 | 0.69 | 3.59 | 12.69 | 11770 / 10801 |
 | mixed | 8 | 27 | 152.7 | 22.5 | 102.7 | 0.78 | 2.92 | 14.04 | 12696 / 13720 |
 
-At k = 1 both compute the same boolean (the built-in path), and the median ratio is 1.07 / 0.97: the order bias of section 4
-is gone. Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k), k = 2..8: median ratio 0.53-1.01 on
+At k = 1 both compute the same boolean (the built-in path), and the median ratio is 1.07 / 0.97 (p90 1.33 / 1.12): the order
+bias of section 4 is gone, and about ±7 % is the noise floor of this measurement, against which the k ≥ 2 ratios are read. Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k), k = 2..8: median ratio 0.53-1.01 on
 the generic and 0.60-0.89 on the contact chains; summed over the chains `ExactMesh` is faster on generic chains (2541 against
 2794 ms at k = 8) and on contact chains slower at k = 4, 5 and 8 (up to 1.25x), from the tail (p90 up to 8.6, max 21 at
 k = 4-5): the single rounding of the accumulated slabs. ABC (realistic sizes, run ABC_TIME_RUN): ABC_TIME_TEXT

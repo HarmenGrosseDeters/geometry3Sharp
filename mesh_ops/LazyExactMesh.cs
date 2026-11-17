@@ -84,14 +84,17 @@ namespace g3
             if (l != null)
                 return l;
             l = new List<ExactMesh>();
+            // (a value can be used twice in one expression, eg e.Union(e): every node is visited once, so the walk is
+            // linear in the distinct nodes, not in the size of the expanded tree; a revisit adds no new source)
             var seen = new HashSet<ExactMesh>();
             var stack = new Stack<ExactMesh>();
             stack.Push(this);
             while (stack.Count > 0) {
                 ExactMesh n = stack.Pop();
+                if (seen.Add(n) == false)
+                    continue;
                 if (n.op == Op.Leaf) {
-                    if (seen.Add(n))
-                        l.Add(n);
+                    l.Add(n);
                     continue;
                 }
                 stack.Push(n.right);
@@ -135,7 +138,7 @@ namespace g3
 
         /// <summary>
         /// the expression as a winding number predicate over Sources (for ExactMeshBoolean.WindingPredicate). Each call
-        /// returns a new delegate with its own evaluation stack: one delegate must not be called from two threads at once
+        /// returns a new delegate with its own buffer: one delegate must not be called from two threads at once
         /// (ExactMeshBoolean calls it from one thread).
         /// </summary>
         public Func<int[], bool> WindingPredicate()
@@ -183,14 +186,15 @@ namespace g3
             }
         }
 
-        // true if the tree has only `o` nodes over sources
+        // true if the expression has only `o` nodes over sources (each distinct node visited once)
         static bool only(ExactMesh e, Op o)
         {
+            var seen = new HashSet<ExactMesh>();
             var stack = new Stack<ExactMesh>();
             stack.Push(e);
             while (stack.Count > 0) {
                 ExactMesh n = stack.Pop();
-                if (n.op == Op.Leaf)
+                if (n.op == Op.Leaf || seen.Add(n) == false)
                     continue;
                 if (n.op != o)
                     return false;
@@ -218,12 +222,13 @@ namespace g3
             return true;
         }
 
-        // the expression in postfix: code >= 0 pushes "winding[code] > 0", the negative codes combine the top two
+        // the expression as a program over its distinct nodes in post-order (a value used twice is computed once):
+        // node i is a source (kind[i] = slot >= 0) or an operation (kind[i] < 0) on the nodes a[i], b[i] before it
         sealed class Program
         {
             const int Union = -1, Intersection = -2, Difference = -3;
-            readonly int[] code;
-            readonly bool[] stack;
+            readonly int[] kind, a, b;
+            readonly bool[] value;
             readonly int sources;
 
             public Program(ExactMesh e)
@@ -233,44 +238,49 @@ namespace g3
                 for (int i = 0; i < leaves.Count; ++i)
                     slot[leaves[i]] = i;
                 sources = leaves.Count;
-                var output = new List<int>();
-                // iterative post-order (a chain of thousands of operations is a deep tree)
+                var index = new Dictionary<ExactMesh, int>();
+                var k = new List<int>();
+                var ka = new List<int>();
+                var kb = new List<int>();
+                // iterative post-order over the distinct nodes (a chain of thousands of operations is a deep tree)
                 var todo = new Stack<KeyValuePair<ExactMesh, bool>>();
                 todo.Push(new KeyValuePair<ExactMesh, bool>(e, false));
-                int depth = 0, maxDepth = 0;
                 while (todo.Count > 0) {
                     KeyValuePair<ExactMesh, bool> t = todo.Pop();
                     ExactMesh n = t.Key;
+                    if (index.ContainsKey(n))
+                        continue;
                     if (n.op == Op.Leaf) {
-                        output.Add(slot[n]);
-                        maxDepth = Math.Max(maxDepth, ++depth);
+                        index[n] = k.Count;
+                        k.Add(slot[n]); ka.Add(-1); kb.Add(-1);
                     } else if (t.Value) {
-                        output.Add(n.op == Op.Union ? Union : n.op == Op.Intersection ? Intersection : Difference);
-                        depth--;
+                        index[n] = k.Count;
+                        k.Add(n.op == Op.Union ? Union : n.op == Op.Intersection ? Intersection : Difference);
+                        ka.Add(index[n.left]); kb.Add(index[n.right]);
                     } else {
                         todo.Push(new KeyValuePair<ExactMesh, bool>(n, true));
                         todo.Push(new KeyValuePair<ExactMesh, bool>(n.right, false));
                         todo.Push(new KeyValuePair<ExactMesh, bool>(n.left, false));
                     }
                 }
-                code = output.ToArray();
-                stack = new bool[Math.Max(1, maxDepth)];
+                kind = k.ToArray(); a = ka.ToArray(); b = kb.ToArray();
+                value = new bool[kind.Length];
             }
 
             public bool Eval(int[] w)
             {
                 if (w == null || w.Length != sources)
                     throw new ArgumentException($"ExactMesh: {(w == null ? 0 : w.Length)} winding numbers for {sources} sources");
-                int top = 0;
-                foreach (int c in code) {
+                for (int i = 0; i < kind.Length; ++i) {
+                    int c = kind[i];
                     if (c >= 0) {
-                        stack[top++] = w[c] > 0;
+                        value[i] = w[c] > 0;
                         continue;
                     }
-                    bool b = stack[--top], a = stack[top - 1];
-                    stack[top - 1] = c == Union ? (a || b) : c == Intersection ? (a && b) : (a && !b);
+                    bool x = value[a[i]], y = value[b[i]];
+                    value[i] = c == Union ? (x || y) : c == Intersection ? (x && y) : (x && !y);
                 }
-                return stack[0];
+                return value[kind.Length - 1];
             }
         }
     }
