@@ -73,57 +73,72 @@ if (!free.Ok)
     `ForBounds` and the constants stay, so a fixed grid can still be set with `Clipper2Options.Frame`.
 - The full description is in [docs/OPERATIONS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).
 
-## Near-degenerate integer input (#955)
+## Grid resolution and intersection precision (#955)
 
-The vendored engine has limits even on correctly converted integer inputs. This is a limit of this engine,
-not a claim that every integer clipping algorithm must have the same behaviour. It affects nearly coincident or
-collinear boundaries and intersections separated by about one integer grid unit. It is not restricted to large
-coordinates: the reduced UTM counterexample uses integer coordinates within ±5,002,400. The orientation examples
-use coordinates within ±683,591,589,077 (rotation at the origin) and ±562,949,953,421 (scale 1e-3).
-The physical range is these integers divided by `Frame.Scale`, relative to `Frame.Origin`. No magnitude-only
-threshold makes arbitrarily thin features safe. Increasing precision can change these degeneracies rather than
-preserve their topology.
+The #949 campaign uses `Random(17)`, 500 pairs, alternating ranges −2…2 and −4…4,
+`3 + Next(22)` vertices per ring, all four operations and fill rules. Pair indices are zero-based.
+The remaining 82 failures have different causes:
 
-The exact #949 campaign uses `Random(17)`, 500 pairs, alternating ranges −2…2 and −4…4, `3 + Next(22)` vertices
-per ring, all four operations and fill rules. Pair indices below are zero-based. There are three distinct outcomes:
-
-| Case class | Count | Verdict | Evidence / pinned behaviour |
+| Case class | Count | Verdict | Evidence / regression |
 |---|---:|---|---|
-| Rotated UTM, empty subgrid regions | 27 | Engine limit; bounded area loss | The exact snapped input has a positive region but the integer engine returns no region. An empty output has zero perimeter, so the old output-perimeter area allowance collapses to 1 square grid unit and omits the rounding budget of the vanished boundary. |
-| Rotated UTM, pair 399, Union Negative | 1 | Engine limit | Raw engine area and adapter area are both 23,171,051,747,518 square grid units; error against the independent rational-slab reference is 28,220,407,073.5625, exceeding allowance 125,778,021.32898551. The result is wrong, not the reference. |
-| Rotated z at the origin, empty subgrid regions | 35 | Engine limit; bounded area loss | Same empty-result area check. |
-| Rotated z at the origin, pair 268 | 4 | Engine limit | Difference and Xor, EvenOdd and NonZero: the raw integer tree includes a non-collinear path with exactly zero signed area, with opposite-winding filled lobes. The engine's floating area reports −0.5. |
-| Scale 1e-3, empty subgrid regions | 11 | Engine limit; bounded area loss | Same empty-result area check. |
-| Scale 1e-3, pair 296 | 4 | Engine limit | Same four combinations: a raw engine path has zero signed area and nonzero filled area. |
+| Rotated UTM, empty regions | 27 | Expected grid rounding; oracle allowance defect | Subgrid slivers disappear when intersections are rounded. Scaling the same integer inputs by 65536 recovers reference area within 0.5%. |
+| Rotated UTM, pair 399, Union Negative | 1 | Resolution-dependent engine error under the UTM clamp | Raw engine and adapter area are 23,171,051,747,518 grid squares; error 28,220,407,073.5625. At x16 integer resolution relative error falls to about 6e-9. |
+| Rotated z, empty regions | 35 | Expected grid rounding; oracle allowance defect | Same x65536 recovery, within 0.5% of the exact snapped-input reference. |
+| Rotated z, pair 268 | 4 | Precision-dependent engine arithmetic at the 40-bit adapter default | Difference/Xor × EvenOdd/NonZero produce a zero-signed-area ring at 40 bits; the same inputs are well-formed at PrecisionBits=30. |
+| Scale 1e-3, empty regions | 11 | Expected grid rounding; oracle allowance defect | Same x65536 recovery. |
+| Scale 1e-3, pair 296 | 4 | Precision-dependent engine arithmetic at the 40-bit adapter default | Same four combinations; well-formed at 30 bits. |
 
-An exact reference area need not equal the area after integer intersections are rounded. In particular, a vanished
-sliver must retain a boundary-rounding allowance; using only the returned perimeter is not a valid bound for it.
-The empty-region losses are smaller than the input perimeter in grid units; this is an area comparison, not a proof of correct topology. The exact reference value is correct for the snapped input, and the empty engine output loses that region. Pair 399 is different: it is a
-nonempty region with an error well beyond that perimeter scale. The global area oracle has not been relaxed.
+The exact area reference is correct for the snapped integer inputs. The 73 empty results are expected fixed-grid
+rounding, not an intrinsic engine limit. `Clipper2DegenerateUnionTests.Check` previously allowed only the returned
+perimeter plus one grid square: for an empty result this becomes one, ignoring the vanished boundary. The oracle
+now adds the L1 input perimeter as a grid-width boundary allowance, including when the output is empty. The output
+perimeter term still accounts for output rounding. This area allowance is not a topology certificate; the tests
+separately require recovery of the lost regions at x65536, and still reject pair 399's much larger error.
 
-The eight structural cases also precede conversion back to doubles: the exact integer signed area is already zero.
-The adapter keeps non-collinear zero-signed-area paths (a figure eight can have nonzero filled area); reversing such
-a path cannot give it positive signed area. Consequently the usual outer-counterclockwise / hole-clockwise promise
-has an exception for these rounding artefacts, and a `Success` result is not a topology certificate for subgrid
-features. Dropping every zero-signed-area path would also drop genuine opposite-winding lobes, so it is not a fix.
+At x1024 all 73 lost regions return, but exact BigInteger output-area sums give up to 6.24% relative error
+(UTM pair 137: reference 62.0276790256776, recovered 65.89564275741577). The tests bound this by 7%,
+then require at most 0.5% at x65536. Thus the smaller scale is not claimed to recover every reference to 1e-3.
+These integer-only refinements diagnose rounding; they do not bypass the adapter's world-coordinate clamp.
 
-[`Clipper2FrameClampLimitTests`](../../tests/geometry3Sharp.Clipper2.Tests/Clipper2FrameClampLimitTests.cs) supplies procedural reductions (6+6, 3+5, 4+3 and 6+3 vertices), pins the integer inputs,
-executes `Clipper64` directly, and prints its output. It checks conversion separately, compares raw integer and adapter
-areas, and runs the reductions over `Similarity.All2D`, with bit-for-bit polygon comparisons at powers of two.
-The frame follows the resolution formula above; the clamped UTM output round-trips exactly. All 82 reported failures have individual procedural replay rows in `CampaignFailure_IsAlreadyInIntegerEngine`; each row prints its integer input and output. The engine sources,
-#933's rounding port, and the decision not to port `4a3bf64` are unchanged.
+The eight orientation failures depend on the adapter's grid choice. At the 40-bit default the integers are about
+2^39. In `Clipper.Core.cs`, `GetLineIntersectPt` computes the determinant and intersection parameter in double;
+products can reach about 2^80. Products of integer differences need not be exact once they exceed 2^53 (roughly
+26 bits per difference). This is not a magnitude-only failure threshold: conditioning and degeneracies matter,
+and even 30-bit calculations need not be exact. On these cases the 30-bit grid removes the zero-area artefacts;
+it is not a universal robustness guarantee. The reduced examples and all eight original rows test this explicitly.
+The raw integer rings already have zero signed area before conversion back to doubles, with nonempty opposite-winding
+lobes; reversing them cannot establish the usual outer-counterclockwise / hole-clockwise property.
+
+The default remains 40 bits. Coarsening trades these artefacts for additional geometric loss: the procedural
+`CoarserGridLosesAResolvableThinComponent` test preserves a component of width 2^-35 beside a unit square at the
+default, but loses it at 30 bits. Changing the default or imposing a cap is an output-policy decision for the owner;
+this PR does neither. Use `PrecisionBits` to make that tradeoff explicitly for the application.
+
+Pair 399 is also resolution-dependent, not an unavoidable property of every integer clipper. Its error exceeds
+100 times the input perimeter, while the same integers scaled by 16 recover the reference within 0.0001% (the original
+pair's measured relative error is about 6e-9). The UTM frame is clamped by #949 to world-coordinate double spacing:
+a finer default grid would sacrifice its exact grid-to-world round-trip guarantee. Thus the error remains with
+this engine and the current clamp policy. The reduced counterexample fits within ±5,002,400 integer units, so a
+large-coordinate-only explanation is insufficient for this separate case.
+
+[`Clipper2PrecisionTests`](../../tests/geometry3Sharp.Clipper2.Tests/Clipper2PrecisionTests.cs) supplies procedural
+reductions (6+6, 3+5, 4+3 and 6+3 vertices), pins integer inputs, prints raw engine output, and compares complete
+engine paths with mapped-back adapter paths. It checks each input's snap round-trip error is at most Resolution/2
+per coordinate. Reductions run over `Similarity.All2D`, check 30-bit well-formedness or area recovery as appropriate,
+and compare polygon output bit for bit at power-of-two scales. All 82 original rows are replayed individually in
+`CampaignPrecisionBehaviour`. The frame, default precision, engine sources, #933 port and decision not to port
+`4a3bf64` remain unchanged.
 
 The upstream [robustness documentation](https://angusj.com/clipper2/Docs/Robustness.htm),
 [FAQ](https://angusj.com/clipper2/Docs/FAQ.htm), and earlier
 [rounding notes](https://angusj.com/delphi/clipper/documentation/Docs/Overview/Rounding.htm) describe removal of
 triangles with an edge shorter than two integer units and rounding-induced self-intersections. These are consistent
-with the narrow-feature examples here; the numerical counterexamples above establish the limits of this vendored
-version independently of those general descriptions. No external implementation was ported.
+with the narrow-feature examples here; the recovery and precision tests distinguish grid rounding from resolution-dependent engine errors. No external implementation was ported.
 
 Reproduce the small cases and print the exact integer inputs and outputs:
 
 ```sh
-dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --filter FullyQualifiedName~Clipper2FrameClampLimitTests --logger 'console;verbosity=detailed'
+dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --filter FullyQualifiedName~Clipper2PrecisionTests --logger 'console;verbosity=detailed'
 ```
 
 For the reduced nonempty error, Union / Negative receives exactly these integers (no frame arithmetic in the

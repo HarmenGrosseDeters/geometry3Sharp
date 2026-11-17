@@ -25,7 +25,7 @@ namespace geometry3Sharp.Clipper2.Tests
     /// triangle as a path of its own if it lies inside the rest of the path.
     /// The oracle is the exact area of the region by its definition (ExactRegionArea: winding numbers, rational slabs),
     /// on the grid integers the adapter feeds to Clipper2; Clipper2 rounds its intersection points to the grid, so its
-    /// area may differ from the exact one by the rounding: less than the perimeter of the result in grid units.
+    /// area may differ from the exact one by the rounding: covered here by the retained input-boundary and output-perimeter allowances in grid units.
     /// </summary>
     public class Clipper2DegenerateUnionTests
     {
@@ -44,7 +44,9 @@ namespace geometry3Sharp.Clipper2.Tests
         /// the grid the call used. The rounding: Clipper2 rounds intersection points to the grid (half a unit per
         /// coordinate), and the result's double vertices map back to the grid only up to their own rounding far from
         /// the origin (an ulp of the coordinate in grid units, eg 16 units at UTM coordinates on the default grid);
-        /// each moves an edge by at most that much, so the area by at most perimeter times the sum, plus 1.
+        /// Retain an input-boundary allowance too: a vanished region has no output perimeter.
+        /// The L1 input perimeter supplies a conservative grid-width boundary budget; the output term also
+        /// includes conversion back to doubles. This is an area allowance, not a topology certificate.
         /// </summary>
         internal static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
         {
@@ -69,8 +71,14 @@ namespace geometry3Sharp.Clipper2.Tests
                 }
             double far = r.Polygons.SelectMany(g => new[] { g.Outer }.Concat(g.Holes)).SelectMany(q => q.Vertices)
                 .Select(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y))).DefaultIfEmpty(0).Max();
+            double inputBoundary = 0;
+            foreach (Path64 path in new[] { f.ToPath64(a), f.ToPath64(b) })
+                for (int i = 0; i < path.Count; ++i) {
+                    Point64 u = path[i], v = path[(i + 1) % path.Count];
+                    inputBoundary += Math.Abs((double)v.X - u.X) + Math.Abs((double)v.Y - u.Y);
+                }
             double backRounding = Ulp(far) * f.Scale;
-            return (Math.Abs(area - exact), perimeter * (1 + 2 * backRounding) + 1, r);
+            return (Math.Abs(area - exact), inputBoundary + perimeter * (1 + 2 * backRounding) + 1, r);
         }
 
         static Polygon2d Lattice(Random rand, int n, int range)

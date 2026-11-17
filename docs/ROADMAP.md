@@ -86,7 +86,7 @@ this section names only what is in flight.
 - **Robustness sweep leftovers** (owner 2026-11-17): relative tolerances S11-S13 and S16, the known failures R35
   (`MeshDeviation`), R13 and R15, double-precision frame queries (S6, S10), and the full-run test durations of #698.
 - **Owner's local runs:** #929 (net48 vs net10) open.
-- **Terrain:** nothing in flight. **Clipper2 #955:** diagnosis and procedural integer-input/output regressions in review (2026-11-17); frame and engine unchanged.
+- **Terrain:** nothing in flight. **Clipper2 #955:** precision diagnosis: 73 grid-rounding losses (oracle allowance), 1 resolution-dependent engine error, 8 zero-area rings at the 40-bit default; regressions in review (2026-11-17); frame and engine unchanged.
 
 ## Open decisions (owner)
 
@@ -122,7 +122,7 @@ In order:
 1. **Finish what runs.** Exact Boolean 3.0: everything but the completion gate is merged (#962, #967, #1002, T6
    closed in #1013). Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
-   diagnosed with integer-input/output regressions in review, 2026-11-17).
+   diagnosed as 73 grid-rounding losses (oracle allowance), 1 resolution-dependent engine error and 8 zero-area rings at 40 bits; regressions in review, 2026-11-17).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
    certified runs 4 -> 10 of 14 at / 128, never wrong); refinement for thin features deferred (#944).
 3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go
