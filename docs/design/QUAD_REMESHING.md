@@ -44,7 +44,8 @@ singularities, edge loops); (c) a nicer display and retopology of scans (quad-do
 Metrics, as the spike measures them (section 3): the face histogram by number of sides; quad corner angle
 deviation (p50 / p95, and the share in 70-110 degrees); quad aspect (p50 / p95); valence and the irregular vertex
 count; the irregular count after one Catmull-Clark step (a cheap conversion to pure quads); the field's singular
-faces and their total index, which must equal the Euler characteristic chi; the symmetric `MeshHausdorffDistance`
+faces with a histogram of their indices (the total equals the Euler characteristic chi by construction, so it checks
+only the transport); the symmetric `MeshHausdorffDistance`
 of the fan-triangulated output to the input, divided by the bounding box diagonal; the time per stage. Later
 stages add the angle between quad edges and feature edges, a manifold check of the polygon mesh, and the scaled
 Jacobian of each quad (the usual FE quality measure).
@@ -58,8 +59,8 @@ Licences were read from the projects' LICENSE / COPYING files or READMEs, withou
 |---|---|---|---|---|---|
 | **Knöppel, Crane, Pinkall, Schröder, *Globally Optimal Direction Fields*, ACM TOG 32(4), SIGGRAPH 2013** | n-RoSy field as a complex vertex field `z = u^n`. The smoothest field is the smallest eigenvector of a Hermitian connection Laplacian; curvature alignment and constraints come from one linear solve (the `s` parameter). The singularities are automatic and few. | Needs a manifold mesh (vertex frames); boundaries take Neumann or fixed directions. Noise only shifts singularities a little (spike: noisy sphere still has 8). | **S-M**: cotan weights plus `SparseCholesky` are enough; the spike field is about 100 lines | reference code fieldgen (GeometryCollective) **MIT**, checked; geometry-central **MIT**, checked | Principal directions are missing for the curvature-aligned variant. A 2n x 2n real factorization is 4 x the nonzeros of a scalar Laplacian. |
 | Ray, Vallet, Li, Lévy, *N-Symmetry Direction Field Design*, ACM TOG 27(2), 2008; Palacios, Zhang, *Rotational Symmetry Field Design on Surfaces*, ACM TOG 26(3), 2007 (citations from memory) | field design with explicit singularity control | - | alternatives to Knöppel; not needed first | papers | - |
-| **Jakob, Tarini, Panozzo, Sorkine-Hornung, *Instant Field-Aligned Meshes*, ACM TOG 34(6) 189, SIGGRAPH Asia 2015** | Local extrinsic smoothing of an orientation field and a position field (lattice), both by Gauss-Seidel on a multiresolution hierarchy, then extraction from the integer lattice offsets with cleanup. Quad-dominant output, or pure quads after one subdivision. | Very robust: works on point clouds, noisy and non-manifold input, because it is local and needs no global parametrization. It tolerates holes and has crease handling. Output has T-junction-like defects at position-field singularities. | **M-L**: the spike reached a usable quad-dominant result in about 400 lines; the cleanup and the boundary handling are the rest | instant-meshes **BSD-3 plus an "Enhancements" clause** (LBNL-style: Enhancements made publicly available are licensed back to the authors), checked. Dependencies: nanogui BSD-3 (GUI), tbb Apache-2.0, pss MIT, rply MIT-style, pcg32 Apache-2.0 (from the QuadriFlow README); dset and half not checked. No GPL. | Porting needs a per-file check; the Enhancements clause is an owner decision (implementing from the paper avoids it). Determinism: the paper's parallel Gauss-Seidel uses a graph colouring, so it is deterministic only with a fixed colouring and order. |
-| **Huang, Zhou, Niessner, Shewchuk, Guibas, *QuadriFlow: A Scalable and Robust Method for Quadrangulation*, CGF 37(5), SGP 2018** | Instant-Meshes-style fields, plus a min-cost network flow that removes the position-field singularities (and an SAT step for the orientation singularities). Pure quads are the goal. | Robust like Instant Meshes; fewer singularities. Its watertightness is still not guaranteed. | **L**: needs a min-cost flow solver (new; Boost-licensed Lemon in the original) | QuadriFlow: LICENSE.txt is **BSD-3-style**, checked, while the README says "MIT" (the inconsistency needs to be noted). It depends on Lemon (Boost), Eigen (MPL-2; the LGPL parts are avoided with `BUILD_FREE_LICENSE`), pcg32 (Apache), pss (MIT). | It is the cleanest permissive path to the spike's main gap (position singularities). Porting needs the same per-file check. |
+| **Jakob, Tarini, Panozzo, Sorkine-Hornung, *Instant Field-Aligned Meshes*, ACM TOG 34(6) 189, SIGGRAPH Asia 2015** | Local extrinsic smoothing of an orientation field and a position field (lattice), both by Gauss-Seidel on a multiresolution hierarchy, then extraction from the integer lattice offsets with cleanup. Quad-dominant output, or pure quads after one subdivision. | Very robust: works on point clouds, noisy and non-manifold input, because it is local and needs no global parametrization. It tolerates holes and has crease handling. Output has T-junction-like defects at position-field singularities. | **M-L**: the spike reached a usable quad-dominant result in about 400 lines; the cleanup and the boundary handling are the rest | instant-meshes **BSD-3 plus an "Enhancements" clause** (LBNL-style: Enhancements made publicly available are licensed back to the authors), checked. Its `.gitmodules` lists nanogui, pcg32, dset, tbb and pss (wjakob forks), and the repository states no licences for them. From the projects themselves: nanogui BSD-3, tbb Apache-2.0, pss MIT and rply MIT-style (checked); pcg32 Apache-2.0 (from the QuadriFlow README); dset not checked. No GPL found. | Porting needs a per-file check; the Enhancements clause is an owner decision (implementing from the paper avoids it). Determinism: the paper's parallel Gauss-Seidel uses a graph colouring, so it is deterministic only with a fixed colouring and order. |
+| **Huang, Zhou, Niessner, Shewchuk, Guibas, *QuadriFlow: A Scalable and Robust Method for Quadrangulation*, CGF 37(5), SGP 2018** | Instant-Meshes-style fields, plus a min-cost network flow that removes the position-field singularities (and an SAT step for the orientation singularities). Pure quads are the goal. | Robust like Instant Meshes; fewer singularities. Its watertightness is still not guaranteed. | **L**: needs a min-cost flow solver (new; Boost-licensed Lemon in the original) | QuadriFlow: LICENSE.txt is **BSD-3-style**, checked, without the Enhancements clause; the README says "MIT" (an inconsistency to note). It depends on Lemon (Boost), Eigen (MPL-2; the LGPL parts are avoided with `BUILD_FREE_LICENSE`), pcg32 (Apache), pss (MIT). | It is the cleanest permissive path to the spike's main gap (position singularities). Porting needs the same per-file check. |
 | **Bommes, Zimmer, Kobbelt, *Mixed-Integer Quadrangulation*, ACM TOG 28(3) 77, SIGGRAPH 2009** (MIQ) | A seamless global parametrization aligned to a cross field, with integer constraints solved by greedy rounding; quads come from the integer grid. | Sensitive to bad meshes (needs a cut graph, cones, a valid parametrization); flips can occur. Highest quality on clean CAD-like input. | **XL**: a mixed-integer solver, cut graph and cone handling (`ConeFlattening` and `MeshDiscCut` help) | CoMISo **GPL-3**, checked; libigl's MIQ is in `igl/copyleft/comiso` (GPL), checked. Paper only. | Greedy mixed-integer rounding can fail or need many re-solves. Only GPL references exist to compare against. |
 | **Ebke, Bommes, Chen, Kobbelt, *QEx: Robust Quad Mesh Extraction*, ACM TOG 32(6) 168, SIGGRAPH Asia 2013** | A robust extraction of the quad mesh from an integer-grid map, including small flips and degeneracies, using exact predicates in the parameter domain. | Robust given a parametrization; useless without MIQ / QGP. | **L**, on top of a parametrization; our exact predicates (`math/Exact*`, adaptive orient2d) fit the parameter-domain tests | libQEx **GPL-3** (commercial on request), checked. Paper only. | Only pays off with the XL parametrization route. |
 | Campen, Bommes, Kobbelt, *Quantized Global Parametrization*, ACM TOG 34(6) 192, SIGGRAPH Asia 2015 | Quantizes a T-mesh of the field instead of greedy rounding: always valid integer constraints | as MIQ, more reliable | XL | no code found | - |
@@ -82,8 +83,9 @@ QuadWild, Bi-MDF, libigl copyleft) or has no code, so those methods can only be 
 
 ## 3. Spike: field, position field, extraction (measured 2026-11-17)
 
-Setup: [benchmarks/QuadRemeshSpike](../../benchmarks/QuadRemeshSpike/README.md) at master 5be24c54 plus this
-branch, net10.0 Release, single-threaded, a 4-core Xeon at 2.1 GHz (cloud container). Procedural inputs:
+Setup: [benchmarks/QuadRemeshSpike](../../benchmarks/QuadRemeshSpike/README.md) on master
+5be24c54901f70a71501a4398ca66a338ead4771 (#1075) plus this branch. net10.0 Release, single-threaded, a 4-core
+Xeon at 2.1 GHz (cloud container), after one untimed warm-up run of the whole pipeline. Procedural inputs:
 `MarchingCubes`, then 20 `Remesher` passes at edge `h = s / 2`. Shapes and quad edge `s`:
 - sphere (r = 1, `s` 0.1);
 - torus (R = 1, r = 0.35, `s` 0.1);
@@ -91,26 +93,36 @@ branch, net10.0 Release, single-threaded, a 4-core Xeon at 2.1 GHz (cloud contai
 - filleted box (1 x 0.7 x 0.5 half extents, fillet radius 0.15, `s` 0.08);
 - noisy sphere (vertices moved +-0.2 h along the normal).
 
-The `s` values are 2-3 % of the bounding box diagonal. Hausdorff is measured against a remesh at `h / 2`.
-Command: `dotnet run -c Release --project benchmarks/QuadRemeshSpike` (default `sweeps=40`).
+The `s` values are 2-3 % of the bounding box diagonal. Hausdorff is measured against a remesh at `h / 2`. The
+symmetric value includes the input's distance to the holes (defect faces are not triangulated). The one-sided value
+from the output to the reference measures the faces that exist. Command: `dotnet run -c Release --project
+benchmarks/QuadRemeshSpike` (default `sweeps=40`).
 
-| shape | method | input V | field sing. | sum index | faces | quads % | tris | 5-6 | > 6 | irreg. V | irreg. after 1 CC | angle dev p50 / p95 | in 70-110 % | aspect p50 / p95 | Hausdorff / diag | t field | t pos | t extract (s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| sphere | field + pos | 6390 | 8 | 2.00 | 1275 | 95.0 | 62 | 2 | 0 | 62 | 126 | 2.3 / 12.7 | 97.6 | 1.06 / 1.36 | 0.0021 | 0.69 | 1.00 | 0.03 |
-| sphere | tri-pairing | 1591 | - | - | 1764 | 80.2 | 350 | 0 | 0 | 438 | 788 | 26.5 / 35.6 | 16.7 | 1.15 / 1.40 | 0.0026 | - | - | 0.11 |
-| torus | field + pos | 7026 | 12 | 0.00 | 1414 | 96.3 | 50 | 2 | 1 | 52 | 105 | 2.2 / 9.7 | 98.1 | 1.05 / 1.32 | 0.0091 | 0.31 | 1.05 | 0.02 |
-| torus | tri-pairing | 1767 | - | - | 1955 | 80.8 | 376 | 0 | 0 | 483 | 859 | 26.1 / 35.2 | 17.6 | 1.15 / 1.39 | 0.0049 | - | - | 0.12 |
-| bumpy | field + pos | 17918 | 8 | 2.00 | 3576 | 96.8 | 110 | 4 | 1 | 134 | 249 | 1.9 / 9.3 | 98.1 | 1.04 / 1.32 | 0.0090 | 1.04 | 2.82 | 0.03 |
-| bumpy | tri-pairing | 4471 | - | - | 4994 | 79.0 | 1050 | 0 | 0 | 1382 | 2432 | 26.6 / 35.8 | 17.4 | 1.16 / 1.40 | 0.0022 | - | - | 0.55 |
-| filleted box | field + pos | 9092 | 8 | 2.00 | 1755 | 99.5 | 8 | 0 | 0 | 7 | 15 | 0.7 / 2.4 | 99.7 | 1.01 / 1.04 | 0.0073 | 0.48 | 1.34 | 0.01 |
-| filleted box | tri-pairing | 2279 | - | - | 2504 | 81.9 | 454 | 0 | 0 | 583 | 1037 | 25.8 / 34.7 | 19.0 | 1.16 / 1.41 | 0.0101 | - | - | 0.12 |
-| noisy sphere | field + pos | 6390 | 8 | 2.00 | 1289 | 94.5 | 69 | 1 | 1 | 81 | 152 | 2.4 / 13.5 | 97.2 | 1.07 / 1.39 | 0.0137 | 0.23 | 0.91 | 0.02 |
-| noisy sphere | tri-pairing | 1591 | - | - | 1767 | 79.9 | 356 | 0 | 0 | 519 | 875 | 25.9 / 34.8 | 19.4 | 1.15 / 1.38 | 0.0077 | - | - | 0.11 |
+| shape | method | input V | singular faces (index x count); field eigenvalue | sum index | faces | quads % | tris | 5-6 | defects (<3 or >6 sides) | non-manifold tris | irreg. V | irreg. after 1 CC | angle dev p50 / p95 (deg) | corners in [70,110] % | aspect p50 / p95 | Hausdorff sym. / diag | Hausdorff out->ref / diag | t field | t pos | t extract (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | field+pos (IM-style) | 6390 | 8 (+1/4 x8); lambda 4, last change 1.5E-08 | 2.00 | 1275 | 95.0 | 62 | 2 | 0 | 2 | 62 | 126 | 2.3 / 12.7 | 97.6 | 1.06 / 1.36 | 0.0021 | 0.0021 | 0.41 | 1.04 | 0.02 |
+| sphere | tri-pairing (s) | 1591 | - | - | 1764 | 80.2 | 350 | 0 | 0 | 0 | 438 | 788 | 26.5 / 35.6 | 16.7 | 1.15 / 1.40 | 0.0026 | 0.0026 | 0.00 | 0.00 | 0.10 |
+| torus | field+pos (IM-style) | 7026 | 12 (-1/4 x6, +1/4 x6); lambda 4.74, last change 0.00049 | 0.00 | 1414 | 96.3 | 50 | 2 | 1 | 0 | 52 | 105 | 2.2 / 9.7 | 98.1 | 1.05 / 1.32 | 0.0091 | 0.0046 | 0.29 | 1.07 | 0.02 |
+| torus | tri-pairing (s) | 1767 | - | - | 1955 | 80.8 | 376 | 0 | 0 | 0 | 483 | 859 | 26.1 / 35.2 | 17.6 | 1.15 / 1.39 | 0.0049 | 0.0049 | 0.00 | 0.00 | 0.11 |
+| bumpy | field+pos (IM-style) | 17918 | 8 (+1/4 x8); lambda 4.03, last change 0.00054 | 2.00 | 3576 | 96.8 | 110 | 4 | 1 | 0 | 134 | 249 | 1.9 / 9.3 | 98.1 | 1.04 / 1.32 | 0.0090 | 0.0020 | 0.89 | 2.73 | 0.02 |
+| bumpy | tri-pairing (s) | 4471 | - | - | 4994 | 79.0 | 1050 | 0 | 0 | 0 | 1382 | 2432 | 26.6 / 35.8 | 17.4 | 1.16 / 1.40 | 0.0022 | 0.0022 | 0.00 | 0.00 | 0.44 |
+| filleted-box | field+pos (IM-style) | 9092 | 8 (+1/4 x8); lambda 1.32, last change 1E-15 | 2.00 | 1755 | 99.5 | 8 | 0 | 0 | 0 | 7 | 15 | 0.7 / 2.4 | 99.7 | 1.01 / 1.04 | 0.0073 | 0.0073 | 0.37 | 1.18 | 0.01 |
+| filleted-box | tri-pairing (s) | 2279 | - | - | 2504 | 81.9 | 454 | 0 | 0 | 0 | 583 | 1037 | 25.8 / 34.7 | 19.0 | 1.16 / 1.41 | 0.0101 | 0.0101 | 0.00 | 0.00 | 0.11 |
+| noisy-sphere | field+pos (IM-style) | 6390 | 8 (+1/4 x8); lambda 5.57, last change 0.00045 | 2.00 | 1289 | 94.5 | 69 | 1 | 1 | 0 | 81 | 152 | 2.4 / 13.5 | 97.2 | 1.07 / 1.39 | 0.0137 | 0.0044 | 0.24 | 0.91 | 0.02 |
+| noisy-sphere | tri-pairing (s) | 1591 | - | - | 1767 | 79.9 | 356 | 0 | 0 | 0 | 519 | 875 | 25.9 / 34.8 | 19.4 | 1.15 / 1.38 | 0.0077 | 0.0077 | 0.00 | 0.00 | 0.09 |
 
-(The tri-pairing rows' time includes their remesh. The noisy sphere's Hausdorff is measured against the clean
-sphere, so it includes the noise.)
+Notes on the table:
+- The tri-pairing rows' time includes their remesh.
+- The noisy sphere's Hausdorff is measured against the clean sphere, so it includes the noise.
+- "Field eigenvalue" is the Rayleigh estimate after 30 inverse iterations; "last change" is its relative change in
+  the last iteration. The torus, the bumpy sphere and the noisy sphere are not fully converged (5e-4); the
+  singularity structure is the same with 10 or 100 position sweeps.
+- "Non-manifold tris" are fan triangles of the output that `DMesh3` rejects (a non-manifold edge): 2 on the sphere.
+- Valence is counted from the faces with 3-6 sides, so the vertices on the border of a defect face count as
+  irregular.
 
-Sensitivity runs (same command with one parameter changed; field + pos rows):
+Sensitivity runs (same command with one parameter changed; field + pos rows; before the warm-up and the extra
+columns were added, which do not change the other columns):
 - **Sweeps** barely matter. With 10 sweeps per level: quads 94.2-99.5 %, irregular vertices 8-129, and position
   time 0.3-0.7 s. With 100 sweeps: quads 94.6-99.4 %, irregular 9-130, and 2.1-6.3 s. The hierarchy does the work.
 - **Finer input** (`ratio=0.33`, 14k-41k vertices): the quad share is unchanged (94.7-99.7 %), defects drop to 0,
@@ -120,40 +132,58 @@ Sensitivity runs (same command with one parameter changed; field + pos rows):
   field 3.9-5.2 s.
 
 Findings:
-1. **The field is solved.** Knöppel's smoothest field on our cotan weights with `SparseCholesky` gives exactly the
-   expected singularities: 8 index +1/4 cones on the sphere, the bumpy sphere and the filleted box. The total index
-   equals chi on every shape, the noisy sphere included. On the torus the smoothest field has 12 singular faces
-   (+-1/4 pairs, total 0), not the singularity-free field that follows the principal directions. That is the known
-   reason for a curvature-aligned variant (Knöppel's `s` parameter), which needs principal directions (section 0:
-   missing). Time: 0.2-1.0 s at 6k-18k vertices and 4.0 s at 41k vertices, unoptimized (2n x 2n real Cholesky, 30
-   inverse iterations).
-2. **Instant-Meshes-style position field plus a naive extraction already give a good quad-dominant mesh.** It has
-   94.5-99.5 % quads, corner deviation p50 0.7-2.4 and p95 2.4-13.5 degrees, aspect p95 1.32-1.39, no or one
-   defect face, and Hausdorff 0.2-0.9 % of the diagonal (0.07-0.4 `s`). On the filleted box (CAD-like, smooth
-   features) it is close to ideal: 8 triangles and 7 irregular vertices.
+1. **The field works.** Knöppel's smoothest field on our cotan weights with `SparseCholesky` has exactly 8 singular
+   faces, each of index +1/4, on the sphere, the bumpy sphere, the filleted box and the noisy sphere. That is the
+   minimum for a 4-RoSy field on genus 0. (The total index equals chi on every shape, but that total depends only on
+   the connection, not on the field: the edge terms cancel over a closed mesh, so it checks the transport, not the
+   field. The per-face histogram is the field-dependent evidence.) On the torus the smoothest field has 12 singular
+   faces (6 of +1/4, 6 of -1/4), not the singularity-free field that follows the principal directions. That is the
+   known reason for a curvature-aligned variant (Knöppel's `s` parameter), which needs principal directions
+   (section 0: missing). Time: 0.2-0.9 s at 6k-18k vertices and 4.0 s at 41k vertices, unoptimized (a 2n x 2n real
+   Cholesky and 30 inverse iterations without a residual stop).
+2. **An Instant-Meshes-style position field plus a naive extraction already give a usable quad-dominant mesh.**
+   - 94.5-99.5 % quads;
+   - corner deviation p50 0.7-2.4 and p95 2.4-13.5 degrees;
+   - aspect p95 1.04-1.39;
+   - 0 or 1 defect face;
+   - one-sided Hausdorff output-to-reference 0.20-0.73 % of the diagonal, or 0.07-0.32 `s` (the largest on the
+     filleted box);
+   - symmetric Hausdorff, which includes the holes, 0.21-1.37 % (0.07-0.54 `s`; the noisy sphere's 1.37 % includes
+     the noise).
+
+   With the hole included, the bumpy sphere (0.54 `s`) already misses the stage 2 target of 0.5 `s`. The sphere's
+   output has 2 non-manifold fan triangles, so the validity target of section 1 is not met yet. On the filleted box
+   (CAD-like, smooth features) the result is close to ideal: 8 triangles and 7 irregular vertices.
 3. **The main gap is the position-field singularities.** Irregular vertices are 52-134 on the curved shapes,
-   against 8 field singularities (or 0 on the torus). Each position singularity shows up as a triangle-pentagon
-   pair or a valence-3/5 pair. The paper's extraction cleanup and QuadriFlow's min-cost flow target exactly this.
-   The spike has neither.
-4. **Triangle pairing is no path to quality.** On isotropic triangles it gives rhombi: about 80 % quads, but
-   p50 26 degrees off 90 and only 17-19 % of corners within 70-110 degrees. It has 6-10 x the irregular vertices of
-   the field route. It is fine as a fallback representation, not as a remesher.
+   against 8 field singularities (or 0 on the torus). Most of them are triangles balanced by valence-5 vertices.
+   On the sphere there are 62 triangles but only 2 pentagons. By Euler (sum of (4 - valence) + sum of (4 - sides)
+   = 4 chi), the remaining degree deficit sits in about 52 net valence-5 vertices. The paper's extraction cleanup
+   and QuadriFlow's min-cost flow target exactly this. The spike has neither.
+4. **Triangle pairing is no path to quality.** On isotropic triangles it gives rhombi: about 80 % quads, but p50
+   26 degrees off 90 and only 17-19 % of corners within 70-110 degrees. Per face it has 23-29 % irregular
+   vertices, against 0.4-6.3 % for the field route: about 5 x more on the spheres and 58 x on the box. Its one-sided
+   Hausdorff is no better (0.22-1.01 %). It is fine as a fallback representation, not as a remesher.
 5. **Pure quads by one Catmull-Clark step** roughly double the irregular count (15 on the box, 105-249 elsewhere)
    and halve the edge length. That is acceptable for the box-like case only, so pure quads need stage 3 proper.
 6. **Not measured:** open boundaries, sharp (non-filleted) features, non-manifold or broken input, anisotropic or
    graded sizing, real scans, parallel speed and large inputs (>100k vertices). Those risks carry into stages 2-4.
+7. **Provenance of the spike's formulas.** `MiddlePoint` (with its 1e-4 regularizer and the factors 2 and 0.25),
+   the floor-plus-4x4 lattice search and the compatibility functions follow the Instant Meshes reference
+   implementation's functions as recalled, not a re-derivation from the paper. This is allowed under its BSD
+   licence, and the spike carries the attribution. Stage 2 either re-derives them from the paper or follows an
+   owner ruling on the Enhancements clause (section 4, decision 4).
 
 ## 4. Staged plan
 
-Each stage is a separate PR series with the usual tests (CLAUDE.md: invariance over `Similarity.All()`, reuse,
+Each stage is a separate PR series that adds its sources to [SOURCES.md](../SOURCES.md) (Knöppel et al. 2013 in stage 1, Jakob et al. 2015 in stage 2), with the usual tests (CLAUDE.md: invariance over `Similarity.All()`, reuse,
 determinism, the 5 s test rule) and a benchmark row in `benchmarks/`. A stage starts only after the go of the one
 before it.
 
 | stage | content | effort | risk | go / no-go gate |
 |---|---|---|---|---|
 | **0. Decisions** | The owner decisions below. | - | - | Decided by the owner. |
-| **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): total index = chi (minus the boundary term) on every input; singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 1 s per 50k vertices; bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
-| **2. Position field and extraction (quad-dominant)** | The Instant Meshes position field on a hierarchy, implemented from the paper (port only after the owner rules on the Enhancements clause). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores. No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
+| **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 4.0 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
+| **2. Position field and extraction (quad-dominant)** | The Instant Meshes position field on a hierarchy, implemented from the paper (port only after the owner rules on the Enhancements clause). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
 | **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within 2 x stage 2's time. |
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |
 | **5. API and writers** | Additive and compatible with 1.0.324: a new polygon container (`DPolyMesh`: compact face offsets plus vertex lists, face groups, `ToDMesh3()` that triangulates and records the triangle-pair map), OBJ polygon faces and PLY `vertex_indices` lists for n-gons, and `SimpleQuadMesh` from a pure-quad result. A `g3cli quadremesh` command. No change to `DMesh3`. | **S-M** | low; `dotnet pack` API validation catches breaks | The API validation passes; a round trip of OBJ and PLY through the readers keeps the faces (the polygon reader paths are added to `ReaderFuzzTests` if a reader is added). |
@@ -188,7 +218,7 @@ Limits:
 **Recommendation: go for stages 1 and 2 (plus 5) as quad-dominant remeshing, implemented from the Knöppel 2013
 and Jakob et al. 2015 papers.** The spike shows that both stages work with existing blocks (`Remesher`, cotan
 weights, `SparseCholesky`, `MeshHausdorffDistance`). It gives 94.5-99.5 % quads with corner p95 2.4-13.5 degrees
-already without cleanup, and the field matches theory (total index = chi, 8 cones on genus 0). The one measured
+already without cleanup, and the field matches theory (8 faces of index +1/4 on every genus-0 shape). The one measured
 gap (position singularities, 52-134 irregular vertices against 8 field singularities) is what the stage 2 cleanup
 and, if needed, the stage 3B flow address. Stage 1 also stands alone: a cross field is useful for anisotropic
 remeshing, hatching and seam layout. Defer pure quads (3B) and features (4) until stage 2's gates are measured. Do

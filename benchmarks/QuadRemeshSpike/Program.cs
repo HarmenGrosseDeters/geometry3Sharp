@@ -6,8 +6,12 @@
 //   1. input: implicit shape -> MarchingCubes -> Remesher (isotropic, edge h = s * ratio)
 //   2. cross field: Knöppel, Crane, Pinkall, Schröder 2013 (smoothest 4-RoSy field, vertex based, cotan weights,
 //      smallest eigenvector of the connection Laplacian by inverse iteration with SparseCholesky)
-//   3. position field: Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes), implemented from the paper:
-//      extrinsic 4-RoSy compatibility, lattice rounding, Gauss-Seidel smoothing on a coarsening hierarchy
+//   3. position field: Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes): extrinsic 4-RoSy compatibility,
+//      lattice rounding, Gauss-Seidel smoothing on a coarsening hierarchy. CompatOrient, MiddlePoint (its 1e-4
+//      regularizer and the factors 2 and 0.25), CompatPos (floor plus the 4 x 4 search) and RoundPos follow the
+//      functions of the Instant Meshes reference implementation as recalled, not a re-derivation from the paper.
+//      Instant Meshes: Copyright (c) 2015 Wenzel Jakob, Daniele Panozzo, Marco Tarini, and Olga Sorkine-Hornung,
+//      BSD-style licence with an "Enhancements" clause (LICENSE.txt of github.com/wjakob/instant-meshes).
 //   4. extraction: union-find of edges with zero lattice offset, unit-offset edges form the graph, faces traced in
 //      the tangent planes (a simplified version of the paper's extraction, no cleanup)
 //   5. baseline: greedy triangle pairing of an isotropic remesh at edge s (quad-dominant)
@@ -61,8 +65,14 @@ static class Program
             new Shape { Name = "noisy-sphere", F = sphere, Box = B2, Chi = 2, S = 0.1, Noise = 0.2 },
         };
 
-        Console.WriteLine("| shape | method | input V | sing. (field) | sum index | faces | quads % | tris | 5+ | >6 (defects) | irreg. V | irreg. after 1 CC | angle dev p50 / p95 (deg) | corners in [70,110] % | aspect p50 / p95 | Hausdorff / diag | t field | t pos | t extract (s) |");
-        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        Console.WriteLine("| shape | method | input V | singular faces (index x count); field eigenvalue | sum index | faces | quads % | tris | 5-6 | defects (<3 or >6 sides) | non-manifold tris | irreg. V | irreg. after 1 CC | angle dev p50 / p95 (deg) | corners in [70,110] % | aspect p50 / p95 | Hausdorff sym. / diag | Hausdorff out->ref / diag | t field | t pos | t extract (s) |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        {   // JIT warm-up (not reported): the whole pipeline once on a coarse sphere
+            var w0 = MakeInput(shapes[0], 0.2, 0); var f0 = new Frames(w0);
+            var z0 = SmoothestField(w0, f0, 4, out _, out _); var q0 = new Vector3d[f0.N.Length];
+            for (int i = 0; i < q0.Length; ++i) { double phi = Math.Atan2(z0[i].im, z0[i].re) / 4; q0[i] = Math.Cos(phi) * f0.E[i] + Math.Sin(phi) * f0.Bt[i]; }
+            Extract(w0, f0, q0, PositionField(w0, f0, q0, 0.4, 5), 0.4); TrianglePairing(w0);
+        }
         foreach (var sh in shapes) {
             if (only != null && !only.IsMatch(sh.Name)) continue;
             double s = sh.S * scaleMul;
@@ -72,7 +82,7 @@ static class Program
             // field + position field + extraction
             var sw = Stopwatch.StartNew();
             var fr0 = new Frames(input);
-            Complex[] z = SmoothestField(input, fr0, 4);
+            Complex[] z = SmoothestField(input, fr0, 4, out double lambda, out double lambdaChange);
             double tField = sw.Elapsed.TotalSeconds; sw.Restart();
             Vector3d[] Q = new Vector3d[fr0.N.Length];
             for (int i = 0; i < Q.Length; ++i) { double phi = Math.Atan2(z[i].im, z[i].re) / 4; Q[i] = Math.Cos(phi) * fr0.E[i] + Math.Sin(phi) * fr0.Bt[i]; }
@@ -81,7 +91,7 @@ static class Program
             double tPos = sw.Elapsed.TotalSeconds; sw.Restart();
             var poly = Extract(input, fr0, Q, O, s);
             double tExt = sw.Elapsed.TotalSeconds;
-            Report(sh.Name, "field+pos (IM-style)", input.VertexCount, sing.ToString(), sumIndex.ToString("F2", CultureInfo.InvariantCulture), poly, reference, tField, tPos, tExt);
+            Report(sh.Name, "field+pos (IM-style)", input.VertexCount, sing + "; lambda " + lambda.ToString("G3", CultureInfo.InvariantCulture) + ", last change " + lambdaChange.ToString("G2", CultureInfo.InvariantCulture), sumIndex.ToString("F2", CultureInfo.InvariantCulture), poly, reference, tField, tPos, tExt);
 
             // baseline: greedy triangle pairing of an isotropic remesh at edge s
             sw.Restart();
@@ -164,7 +174,7 @@ static class Program
     static double Wrap(double a) { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; }
 
     // smallest eigenvector of A x = lambda M x, A the n-RoSy connection Laplacian (Hermitian, as 2n x 2n real)
-    static Complex[] SmoothestField(DMesh3 m, Frames f, int nsym)
+    static Complex[] SmoothestField(DMesh3 m, Frames f, int nsym, out double lambda, out double lambdaChange)
     {
         int n = m.MaxVertexID;
         var w = CotanWeights(m);
@@ -184,20 +194,25 @@ static class Program
         double[] x = new double[2 * n], b = new double[2 * n];
         var rnd = new Random(7);
         for (int k = 0; k < 2 * n; ++k) x[k] = rnd.NextDouble() - 0.5;
+        // ||(A + eps M)^-1 M x||_M -> 1 / (lambda + eps) for the M-normalized iterate: its inverse estimates the eigenvalue
+        lambda = double.NaN; lambdaChange = double.NaN;
         for (int it = 0; it < 30; ++it) {
             for (int k = 0; k < n; ++k) { b[k] = f.Area[k] * x[k]; b[n + k] = f.Area[k] * x[n + k]; }
             chol.Solve(b, x);
             double nm = 0; for (int k = 0; k < n; ++k) nm += f.Area[k] * (x[k] * x[k] + x[n + k] * x[n + k]);
             nm = 1 / Math.Sqrt(nm); for (int k = 0; k < 2 * n; ++k) x[k] *= nm;
+            double l = nm - eps;
+            lambdaChange = Math.Abs(l - lambda) / Math.Abs(l); lambda = l;
         }
         var z = new Complex[n];
         for (int k = 0; k < n; ++k) z[k] = new Complex(x[k], x[n + k]);
         return z;
     }
 
-    static int Singularities(DMesh3 m, Frames f, Complex[] z, int nsym, out double sumIndex)
+    static string Singularities(DMesh3 m, Frames f, Complex[] z, int nsym, out double sumIndex)
     {
         int count = 0; sumIndex = 0;
+        var hist = new SortedDictionary<int, int>();
         foreach (int t in m.TriangleIndices()) {
             Index3i tv = m.GetTriangle(t);
             double sd = 0, sr = 0;
@@ -208,9 +223,10 @@ static class Program
                 sd += Wrap(Math.Atan2(z[j].im, z[j].re) - Math.Atan2(z[i].im, z[i].re) - nsym * rho);
             }
             double idx = Math.Round((sd + nsym * Wrap(sr)) / (2 * Math.PI));
-            if (idx != 0) { count++; sumIndex += idx / nsym; }
+            if (idx != 0) { count++; sumIndex += idx / nsym; hist.TryGetValue((int)idx, out int c); hist[(int)idx] = c + 1; }
         }
-        return count;
+        // the field-dependent part: the index of each singular face (in units of 1 / nsym); the total alone is fixed by the connection
+        return count + " (" + string.Join(", ", hist.Select(kv => (kv.Key > 0 ? "+" : "") + kv.Key + "/" + nsym + " x" + kv.Value)) + ")";
     }
 
     // ---------------------------------------------------------------- Instant Meshes style position field (from the paper)
@@ -453,8 +469,8 @@ static class Program
         var dev = new List<double>(); var asp = new List<double>();
         var valence = new Dictionary<int, int>();
         foreach (var f in p.Faces) {
-            if (f.Length == 4) quads++; else if (f.Length == 3) tris++; else if (f.Length <= 6) five6++; else big++;
-            if (f.Length <= 6) foreach (int v in f) { valence.TryGetValue(v, out int c); valence[v] = c + 1; }
+            if (f.Length == 4) quads++; else if (f.Length == 3) tris++; else if (f.Length >= 5 && f.Length <= 6) five6++; else big++;
+            if (f.Length >= 3 && f.Length <= 6) foreach (int v in f) { valence.TryGetValue(v, out int c); valence[v] = c + 1; }
             if (f.Length == 4) {
                 double mn = double.MaxValue, mx = 0;
                 for (int k = 0; k < 4; ++k) {
@@ -477,17 +493,22 @@ static class Program
         foreach (var v in p.V) tm.AppendVertex(v);
         int skipped = 0;
         foreach (var f in p.Faces) {
-            if (f.Length > 6) continue;
+            if (f.Length < 3 || f.Length > 6) continue;
             for (int k = 1; k + 1 < f.Length; ++k) if (tm.AppendTriangle(f[0], f[k], f[k + 1]) < 0) skipped++;
         }
-        double haus = double.NaN;
+        // the symmetric distance includes the input's distance to the holes (defect faces are not triangulated);
+        // the one-sided distance from the output to the reference measures the fidelity of the faces that exist.
+        // Irregular vertices: valence from the faces with 3-6 sides, so the vertices on a defect's border count as irregular
+        double haus = double.NaN, hausOut = double.NaN;
         if (tm.TriangleCount > 0) {
             var hd = new MeshHausdorffDistance(tm, reference) { Symmetric = true, RelativeTolerance = 1e-3 };
             hd.Compute();
             haus = hd.UpperBound / reference.CachedBounds.DiagonalLength;
+            var ho = new MeshHausdorffDistance(tm, reference) { Symmetric = false, RelativeTolerance = 1e-3 };
+            ho.Compute();
+            hausOut = ho.UpperBound / reference.CachedBounds.DiagonalLength;
         }
         string F(double x, string fmt) { return x.ToString(fmt, CultureInfo.InvariantCulture); }
-        Console.WriteLine($"| {shape} | {method} | {inputV} | {sing} | {sumIdx} | {faces} | {F(100.0 * quads / Math.Max(faces, 1), "F1")} | {tris} | {five6} | {big} | {irregular} | {irregular + nonquad} | {F(pct(dev, 0.5), "F1")} / {F(pct(dev, 0.95), "F1")} | {F(in70, "F1")} | {F(pct(asp, 0.5), "F2")} / {F(pct(asp, 0.95), "F2")} | {F(haus, "F4")} | {F(tField, "F2")} | {F(tPos, "F2")} | {F(tExt, "F2")} |");
-        if (skipped > 0) Console.Error.WriteLine($"{shape} {method}: {skipped} triangles not appended to the Hausdorff mesh (non-manifold)");
+        Console.WriteLine($"| {shape} | {method} | {inputV} | {sing} | {sumIdx} | {faces} | {F(100.0 * quads / Math.Max(faces, 1), "F1")} | {tris} | {five6} | {big} | {skipped} | {irregular} | {irregular + nonquad} | {F(pct(dev, 0.5), "F1")} / {F(pct(dev, 0.95), "F1")} | {F(in70, "F1")} | {F(pct(asp, 0.5), "F2")} / {F(pct(asp, 0.95), "F2")} | {F(haus, "F4")} | {F(hausOut, "F4")} | {F(tField, "F2")} | {F(tPos, "F2")} | {F(tExt, "F2")} |");
     }
 }
