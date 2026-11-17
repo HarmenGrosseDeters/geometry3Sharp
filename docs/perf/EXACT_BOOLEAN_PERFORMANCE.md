@@ -4,6 +4,10 @@ This is the hand-over for the performance work on `ExactMeshBoolean` / `ExactMes
 `ExactTriangulation2`, `ExactPlanarSimplify`, `MeshRoundingRepair` in the boolean path). A new session can continue
 from it without the earlier context. Its sources:
 
+- **Status (2026-11-17):** this is the hand-over of October / early November 2026; the state before the work of #223 and
+  #248. What came after (Exact Boolean 2.0 and 3.0, the limb kernels, the thread scaling) is in
+  [roadmap/exact-boolean.md](../roadmap/exact-boolean.md); the boolean speed work stopped (owner 2026-11-16). The status of
+  the candidates of sections 0 and 3 is noted under each heading.
 - **PRs:** #181 (rounds 1-3, merged) and #183 (round 4).
 - **Measurement chapters:** [benchmarks/BooleanComparison/README.md](../../benchmarks/BooleanComparison/README.md),
   section "Profile and performance work", with all tables. This document summarizes them and adds what is not
@@ -11,6 +15,12 @@ from it without the earlier context. Its sources:
 - **Scripts:** [benchmarks/BooleanComparison/perf/](../../benchmarks/BooleanComparison/perf/).
 
 ## 0. State in November 2026 (after #223 and #248): start here
+
+*Status 2026-11-17: the candidates ranked below are all settled. 1 (a fast exact kernel for the fixed-width planes): superseded,
+fixed width does not reach the planes (roadmap "Settled"); the `BigInteger` stages went to generated stack-limb kernels
+(P2 #769, `ExactLimbSigns` #772 and #893). 2 (cheaper constructions): merged in #256 (2026-11-01). 3 (the pair search within a
+mesh): the self-join is #248; skipping the self-pairs of certified results is EMBER lever 2, parked (owner 2026-11-16).
+4: not built. 5 (struct arrays): memory layout done in T2 (#619). 6 (indirect predicates): merged with #246 and its stack.*
 
 The two PRs after this hand-over was written, against the head of #222, measured with `perf/run_classes.sh` (two
 alternating rounds, 4 cores, warm) and `perf/exact_hashes.sh` (0 differences in all 263 runs):
@@ -418,6 +428,12 @@ was measured as a whole; the effects of its single changes were not separated, e
 | GC settings of an application | server GC: -23 % on fertility + spheres, +5..25 % on small inputs; `DOTNET_GCgen0size=0x40000000`: -9 % there, neutral elsewhere; `gcConcurrent=0`: nothing | an application's choice |
 
 ## 3. Open ideas, ranked
+
+*Status 2026-11-17: none of the seven is open. 1 is superseded (see the status under section 0), 2 is merged (#246, #250, #257),
+3 is done as the self-join of #248 and the `touch_only` filter of #1002, 4 is done by the parallel levers of #631 and #962
+(the rest is dropped as past the 80 % point, roadmap "After 3.0"), 5 by T2 (#619) and lever 4 (#768, #881), 6 (n-ary specifics) by P2 and the
+limb kernels (#769, #772, #893) as far as they are `BigInteger` stages, 7 (cold start): no measurement is recorded here and none is
+scheduled.*
 
 Expected gain against effort. Each comes with its evidence and its risks.
 
