@@ -167,11 +167,28 @@ namespace geometry3Sharp.Tests
             double tiny = SlopeSpec.TanLowerBound(1e-320);
             Assert.True(tiny > 0 && tiny <= 1e-320 * Math.PI / 180 * (1 + 1e-3), $"{tiny}");
             double t30 = SlopeSpec.TanLowerBound(30);
-            SlopeSpec.ClearTanCache();
-            for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
-            Assert.Equal(10, SlopeSpec.TanCacheCount);
-            for (int i = 0; i < SlopeSpec.TanCacheSize + 5; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
-            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize);
+            // (the cache is static and shared with every test that reaches TanLowerBound, which xUnit runs in parallel (#1039):
+            // a thread adds keys of its own, fewer than the bound, all the time; the asserts are on the keys inserted here,
+            // never on the global count, which it changes between the clear and the count)
+            using (var stop = new System.Threading.ManualResetEventSlim())
+            {
+                var noise = new System.Threading.Thread(() =>
+                {
+                    for (int k = 0; !stop.IsSet; k = (k + 1) % 100) SlopeSpec.TanLowerBound(50 + k * 1e-3);
+                });
+                noise.Start();
+                try
+                {
+                    SlopeSpec.ClearTanCache();
+                    for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
+                    for (int i = 1; i <= 10; ++i) Assert.True(SlopeSpec.TanCacheContains(10 + i * 1e-3), $"{i}");
+                    Assert.True(SlopeSpec.TanCacheCount >= 10);
+                }
+                finally { stop.Set(); noise.Join(); }
+            }
+            // (bounded: twice the size in distinct angles; the slack is for the few keys another test's thread adds)
+            for (int i = 0; i < 2 * SlopeSpec.TanCacheSize; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
+            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize + 256);
             Assert.Equal(t30, SlopeSpec.TanLowerBound(30));
         }
 
