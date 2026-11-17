@@ -63,11 +63,12 @@ this section names only what is in flight.
 - **Exact imprint:** `ExactMeshImprint` merged (#981, #990). In flight: the corpus run against `MeshMeshCut`, the
   evidence for the deprecation decision. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Alpha Wrap 3.0:** done. Defaults decided: lever 6 K stays opt-in (#736); the raw-size budget stays off, with the
-  opt-in `MaxAlphaCoarsening` (#1014; recipe budget 300 000 + cap 1.2; owner 2026-11-17). The 800 run of the default
+  opt-in `MaxAlphaCoarsening` (#1014, in review; recipe budget 300 000 + cap 1.2; owner 2026-11-17). The 800 run of the default
   candidates is merged (#1008). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data by default (#991), octree simplification on by default with tolerance 0.25
-  (#995, #1003). A faster QEF solver is below the bar (3-6 %, 2026-11-17); the solver's per-call allocation is not
-  (pooling it: -17 to -20 % at 4 threads on two of three shapes), its library fix is in flight. The 2026-11-12 drop of
+  (#995, #1003). A faster QEF solver is below the bar (3-6 % in a probe session, 2026-11-17, no PR); the per-call
+  allocation of `SymmetricEigenSolver` is not (pooling it in the same probe: -17 to -20 % at 4 threads on two of three
+  shapes); the library fix is in flight and its PR carries the benchmark. The 2026-11-12 drop of
   "DualContouring allocations" (bound 4 %) measured the solidify's contour, not this one.
 - **Deformation:** ARAP #896 and biharmonic #897 merged; ARAP initial positions and `Prepare` / `Solve` (#1004).
 - **2D mesher:** #986 (Empty at an aspect ratio of 2^41 and more) is the documented automatic merge tolerance; it gets
@@ -82,6 +83,9 @@ this section names only what is in flight.
   no wrong run certified. Refinement and transitions are not built under the stop rule; #944 closed, the surviving
   mutant M16 is #1016. Metamorphic testing (#983, #984, #988). A Geogram survey for the open items is in review (#1017)
   ([sources-surveys.md](roadmap/sources-surveys.md)). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
+- **Robustness sweep leftovers** (owner 2026-11-17): relative tolerances S11-S13 and S16, the known failures R35
+  (`MeshDeviation`), R13 and R15, double-precision frame queries (S6, S10), and the full-run test durations of #698.
+- **Owner's local runs:** #929 (net48 vs net10) open.
 - **Terrain, Clipper2:** nothing in flight; Clipper2 #955 deferred (owner 2026-11-15).
 
 ## Open decisions (owner)
@@ -109,7 +113,9 @@ In order:
 - The 3.0 completion gate (run 44013112256); then the roadmap status "3.0 complete".
 - The boolean bugfix round (RC1, RC3, the benchmark pinch class, the RC4 rerun), then the owner's campaign findings.
 - The imprint corpus run, then the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean`.
+- After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
 - The Geogram survey, then the owner picks what to adopt.
+- The robustness sweep leftovers and #698 (sessions running).
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 

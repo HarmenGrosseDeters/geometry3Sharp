@@ -812,8 +812,8 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 5. Thread scaling beyond 4 cores (#858): the owner's local run of 2026-11-15/16 (`after_reboot.ps1`, step 6).
    Levers 2 and 4 of #953 (parallel assembly and classification edge groups, bit-identical, 4 threads -6.9 % on T6) are built in one PR
    (2026-11-16; [perf/BOOLEAN_THREAD_SCALING.md](../perf/BOOLEAN_THREAD_SCALING.md) section 6); levers 3, 5, 6 remain.
-6. The rest of the #615 mutation process (no full shard on PRs, local runs with a result check, `resplit.py`) after
-   #913; #615 itself is then closed.
+6. Done: the rest of the #615 mutation process (no full shard on PRs, local runs with a result check, `resplit.py`)
+   merged as #958 after #913; #615 is closed.
 7. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
    2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
