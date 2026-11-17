@@ -21,7 +21,9 @@ namespace g3
     /// target's vertices fixed (never moved or removed), the curve edges locked (kept, unless AllowCurveContraction and the
     /// rounding needs the contraction) and the target's own edges between untouched vertices locked. Pairs of
     /// untouched triangles are not tested by the repair (they are the target's, defects of the target included). A target that
-    /// intersects itself is not repaired: near such a place the repair may still edit pieces.
+    /// intersects itself is not repaired: near such a place the repair may still edit pieces. Where the repair leaves a defect, a
+    /// final stage lets the locks of the parts of split target edges follow a contraction (the slivers of near contact, eg a
+    /// cutter shifted by one ulp; docs/design/IMPRINT_SLIVER_CLEANUP.md); a result that is clean without it is the same.
     ///
     /// Usage: set Target and Cutters (or Cutter), call Compute(), read Result (a new mesh, the inputs are not modified),
     /// CurveEdges and SourceTriangle. Compute() can be called again. Result has the target's attributes for its own vertices and
@@ -67,6 +69,12 @@ namespace g3
         public bool SafeRounding = true;
         /// <summary> a locked curve edge shorter than the bound may be contracted where the repair needs it (Counts["curve_edges_contracted"]); if false, a defect stays instead </summary>
         public bool AllowCurveContraction = true;
+        /// <summary>
+        /// where the repair leaves a defect, a final stage in which the parts of a split target edge may be contracted with
+        /// their locks following the contraction (the slivers of near contact, eg a cutter shifted by one ulp,
+        /// docs/design/IMPRINT_SLIVER_CLEANUP.md); a result that is clean without it is the same. For tests: false gives the repair without it.
+        /// </summary>
+        internal bool SliverCleanup = true;
         /// <summary> SafeRounding within the relative bound only; if its result is not clean, Compute() fails with RoundingNotClean (Result null) </summary>
         public bool StrictRounding = false;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingUlpFactor"/>, RoundingAbsoluteTolerance </summary>
@@ -453,7 +461,9 @@ namespace g3
                 // (the target's vertices are input doubles: a piece with three of them is an exact triangle of the arrangement)
                 ExactVertexF = (v) => v < original && target.IsVertex(v),
                 LockedEdges = locks,
-                LockedEdgeF = (a, b) => (a < original && b < original && target.FindEdge(a, b) >= 0) || subEdges.Contains(MeshRoundingRepair.LockedKey(a, b)),
+                LockedEdgeF = (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
+                // (the parts of the target's split edges: they follow a contraction in the final stage, docs/design/IMPRINT_SLIVER_CLEANUP.md)
+                RuleLockedEdges = new HashSet<long>(subEdges, EdgeKeyComparer.Instance), RuleLocksFollow = SliverCleanup,
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,

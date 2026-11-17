@@ -257,6 +257,11 @@ keeps its source, an edited one takes the nearest of the sources at its vertices
 edge of a split triangle) reuses that vertex (`Counts["target_vertex_points"]`); `HasCracks` is true where new vertices met a degenerate triangle that is not split;
 a curve along an edge of an unsplit triangle is in `CurveEdges`.
 
+Since #1034 (`IMPRINT_SLIVER_CLEANUP.md`): the parts of split target edges are a lock set of the repair (`RuleLockedEdges`) instead of
+a part of `LockedEdgeF`, with the same meaning while the repair runs as before. Only where it leaves a defect, a final stage runs
+the passes and the search once more with these locks following a contraction (the slivers of near contact, eg a cutter shifted by
+one ulp: a curve vertex on a split edge 1e-16 to 3e-11 from a target vertex). A result that is clean without the stage is the same.
+
 **Guarantees** (stated, each tested in section 5):
 - G1 Combinatorial: closed and manifold target gives a closed, manifold result (exact, independent of rounding); boundary loops of an
   open target are the same loops, split by vertices; orientation of every piece equals its source triangle's; target vertex ids
