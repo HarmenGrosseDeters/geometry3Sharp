@@ -32,6 +32,10 @@ namespace BoolCmp
             public int UnpairedEdges;
         }
 
+        // the angle error bound per apex, in ulps of |r| / rho (generous: the dot products and atan2 add a few), and its cap,
+        // far below pi so that the exact orientation decides only between angles less than pi apart
+        const double AngleErrorUlps = 64, MaxTieAngle = 0.5;
+
         static long Key(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
 
         /// <param name="pos">the welded positions</param>
@@ -75,12 +79,29 @@ namespace BoolCmp
                 Vector3d a = Math.Abs(e.x) < 0.9 ? Vector3d.AxisX : Vector3d.AxisY;
                 a = (a - a.Dot(e) * e).Normalized;
                 Vector3d b = e.Cross(a);
-                var order = new List<(double angle, int slot)>(l.Count);
+                var order = new List<(double angle, int slot, double err)>(l.Count);
                 foreach (int s in l) {
                     Vector3d r = pos[apex(s)] - pos[u];
-                    order.Add((Math.Atan2(r.Dot(b), r.Dot(a)), s));
+                    double ra = r.Dot(a), rb = r.Dot(b), rho = Math.Sqrt(ra * ra + rb * rb);
+                    // a bound on the error of the double angle: the dot products are off by a few ulps of |r|, which turns
+                    // the angle by about that over the distance rho from the edge (a sliver whose apex is nearly on the
+                    // edge line: large); the common error of the basis (a, b) turns every angle alike and does not reorder
+                    double err = rho > 0 ? Math.Min(AngleErrorUlps * MathUtil.Epsilon * r.Length / rho, MaxTieAngle) : MaxTieAngle;
+                    order.Add((Math.Atan2(rb, ra), s, err));
                 }
-                order.Sort((x, y) => x.angle != y.angle ? x.angle.CompareTo(y.angle) : x.slot.CompareTo(y.slot));
+                // angles closer than their error bounds (nearly coplanar triangles on one side of the edge, #993 mirror
+                // p0020, where atan2 gives both pi): their order from the exact orientation of the two apexes about the
+                // edge, not from the slot index. Outside the window the double order is the true one, inside it the exact
+                // one is, so the comparison agrees with the true angular order and is consistent (transitive)
+                order.Sort((x, y) => {
+                    if (Math.Abs(x.angle - y.angle) <= x.err + y.err) {
+                        // ((v - u) x (c1 - u)) . (c2 - u) = |c1'| |c2'| sin(angle2 - angle1) (c' the parts normal to the
+                        // edge): > 0 iff c2 is at the larger angle, for differences below pi (the window is far smaller)
+                        int o = ExactPredicates.Orient3d(pos[u], pos[v], pos[apex(x.slot)], pos[apex(y.slot)]);
+                        if (o != 0) return -o;
+                    }
+                    return x.angle != y.angle ? x.angle.CompareTo(y.angle) : x.slot.CompareTo(y.slot);
+                });
                 // a forward triangle's normal points to angle + 90 degrees: the solid is on the side of smaller angles, so it
                 // pairs with its predecessor, which must run the edge backward
                 var pairs = new List<(int, int)>();

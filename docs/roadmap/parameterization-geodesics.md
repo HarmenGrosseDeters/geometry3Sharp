@@ -31,6 +31,10 @@ Part of the [roadmap](../ROADMAP.md).
   the 10^4 target; Upper up to 1.3 % loose on flat regions. Open: A7 (continuation windows) with duplicate control, since
   it duplicates windows on flat regions (GEODESICS.md 6b); the flat-tie redesign; the heat-method tests against the
   oracle. Before merge: an unanchored review and the exact-code review, routed by the coordinator.
+  **#1058 (2026-11-17):** the 1.3 % was the plane from a corner source; measured, Upper was up to 8.2 % loose on flat and
+  nearly flat input (planes, domes and saddles with k <= 1e-5) because A6 merging dropped one of two inner intervals.
+  A6 now merges only when at most one is nonempty: width at most about 2e-8 on the whole procedural family, 2-7 times
+  fewer windows on flat input, the ridge 41² completes in 5.7 s (GEODESICS.md 6c, `benchmarks/GeodesicOracleBenchmark`).
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).

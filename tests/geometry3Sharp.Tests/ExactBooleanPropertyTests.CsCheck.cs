@@ -308,8 +308,13 @@ namespace geometry3Sharp.Tests
                 () => Prefix("union B,A", BooleanOracle.CheckBoxResult(ba, reversed, Ops.Union)),
                 () => Prefix("intersection B,A", BooleanOracle.CheckBoxResult(bi, reversed, Ops.Intersection)),
                 () => Prefix("union A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Union], ba, size)),
-                () => Prefix("intersection A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Intersection], bi, size)));
+                () => Prefix("intersection A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Intersection], bi, size)),
+                () => Certificates(a, b));
         }
+
+        // the certifying checker (Harness/BooleanCertificate.cs) on each operation: classification, selection, pieces, result
+        internal static string Certificates(DMesh3 a, DMesh3 b) =>
+            First(BooleanOracle.AllOps.Select(op => (Func<string>)(() => BooleanCertificate.CheckBoolean(a, b, op))).ToArray());
 
         static string Prefix(string what, string reason) => reason == "" ? "" : what + ": " + reason;
 
@@ -504,7 +509,8 @@ namespace geometry3Sharp.Tests
                     () => Prefix("(A-B) u (AnB)", BooleanOracle.CleanReason(rebuilt)),
                     () => Prefix("(A-B) u (AnB) vs A", BooleanOracle.SameRegularizedSolid(rebuilt, a, 6)),
                     () => Prefix("union A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Union], ba, 6)),
-                    () => Prefix("intersection A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Intersection], bi, 6)));
+                    () => Prefix("intersection A,B vs B,A", BooleanOracle.SameSolid(r[Ops.Intersection], bi, 6)),
+                    () => Certificates(a, b));
             }, 600, 6u);
         }
 
