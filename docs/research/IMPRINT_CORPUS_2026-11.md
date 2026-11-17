@@ -9,7 +9,7 @@ Methods compared:
 Classes: `thingi-pairs` (1000 Thingi10K pairs, the operation as it occurs in the corpus), and the procedural variants `face-contact` (78), `partial-overlap` (73), `ulp-shift` (100), `ulp-shift-few` (100) and `mirror` (99). In total 1450 cases; the summary tool reports 50 cases as "not written" (placement refused as inexact, or load failed).
 
 Definitions, as used by `benchmarks/BooleanComparison/data/thingi_imprint.py summary`:
-- "good": status ok, result closed, `NotCleanReason` empty, and for `float_cut` no failed insertions.
+- "good": status ok, result closed, `NotCleanReason` empty, and for `float_cut` no failed insertions. The tool's "good" does not exclude "nothing inserted": a float cut that inserted nothing is still counted good.
 - "nothing inserted": `float_cut` found intersection segments and snapped every point to a target vertex, so the result is the target unchanged.
 - "rounding not clean": `exact_imprint` reports `RoundingClean = false`.
 
@@ -46,16 +46,20 @@ Status counts over all records: `exact_imprint` and `exact_union` have no `excep
 
 ## Time ratios (float / exact)
 
-Geometric mean of the per-operation time ratio, over operations where both methods ended `ok`. The float methods count as `ok` even with an open result, so a ratio can include an open float result. Exact timeouts are excluded, but none occurred (see below).
+Direction: float / exact. A value below 1 means the float method is faster; a value above 1 means the exact method is faster.
 
-| class | cut: float_cut / exact_imprint | operations | union: float_union / exact_union | operations |
+Geometric mean of the per-operation time ratio, in ms of the operation alone, at least 1 ms. It covers only operations where both methods ended `ok`; the "both-ok ops" columns give that count against the class's total operations. The float methods count as `ok` even with an open result, so a ratio can include an open float result. Exact timeouts are excluded, but none occurred (see below).
+
+| class | cut: float_cut / exact_imprint | both-ok ops (of total) | union: float_union / exact_union | both-ok ops (of total) |
 |---|---|---|---|---|
-| thingi-pairs | 0.91 | 1859 | 4.67 | 870 |
-| face-contact | 0.65 | 155 | 2.85 | 77 |
-| partial-overlap | 1.00 | 132 | 6.36 | 61 |
-| ulp-shift | 0.10 | 200 | 0.88 | 100 |
-| ulp-shift-few | 0.08 | 200 | 0.83 | 100 |
-| mirror | 0.56 | 158 | 5.06 | 75 |
+| thingi-pairs | 0.91 | 1859 (of 2000) | 4.67 | 870 (of 1000) |
+| face-contact | 0.65 | 155 (of 156) | 2.85 | 77 (of 78) |
+| partial-overlap | 1.00 | 132 (of 146) | 6.36 | 61 (of 73) |
+| ulp-shift | 0.10 | 200 (of 200) | 0.88 | 100 (of 100) |
+| ulp-shift-few | 0.08 | 200 (of 200) | 0.83 | 100 (of 100) |
+| mirror | 0.56 | 158 (of 198) | 5.06 | 75 (of 99) |
+
+The ulp-shift and ulp-shift-few cut ratios (0.10 and 0.08) do not compare like with like: on these classes the float cut did almost no work, since it inserted nothing on 200 and 198 operations respectively. Those ratios measure a near-no-op float cut against the exact cut, not two comparable algorithms.
 
 Timeouts: none. No `timeout` status appears for any method in any class. The timeout covers the warm-up and the `NotCleanReason` checks, so a timeout would not necessarily be a slow cut.
 
@@ -64,6 +68,7 @@ Timeouts: none. No `timeout` status appears for any method in any class. The tim
 1. **Curve length.** `MeshMeshCut.Segments` has one entry per triangle pair. A segment on a shared edge therefore counts twice, and coplanar overlaps give no segments. The float curve length is consequently not comparable with the exact one on the variants. The 105 "curve length" disagreements are listed for the variants only:
    - face-contact 75, partial-overlap 3, ulp-shift 4, mirror 23 (total 105). They are not treated as meaningful.
    - `thingi-pairs` has 0 curve-length disagreements; that is the class where the length comparison is meaningful.
+- The list under-reports the double counting. On ulp-shift the float length is about 2x the exact one in the example `ulp-shift_p0000_76573+76573` (41.93 vs 21.33, ratio 1.97), though the median float/exact ratio over the 200 operations with both curves is 1.38. Only 4 are listed as "curve length", because 196 of the ulp-shift disagreements are first classified as "float inserted nothing".
 2. **Time ratios.** Each ratio above covers only operations where both methods ended `ok`. The float ratio includes open results.
 3. **Vacuous float "good" on the 1-ulp classes.** In `ulp-shift` (200 of 200) and `ulp-shift-few` (199 of 200) the float cut is counted `good`, but 200 and 198 of its operations inserted nothing, so the result is the target unchanged (`float inserted nothing`).
 
@@ -110,8 +115,8 @@ No `volume differs` or `curve only exact/float` disagreements were reported.
 | thingi-pairs | 1138 / 2000 = 56.9% | 751 / 1000 = 75.1% |
 | face-contact | 16 / 156 = 10.3% | 49 / 78 = 62.8% |
 | partial-overlap | 99 / 146 = 67.8% | 63 / 73 = 86.3% |
-| ulp-shift | 0 / 200 = 0% (all 200 "good" insert nothing) | 100 / 100 = 100% |
-| ulp-shift-few | 1 / 200 = 0.5% (198 insert nothing) | 100 / 100 = 100% |
+| ulp-shift | 0% by the tool; 200/200 (100%) inserted nothing | 100 / 100 = 100% |
+| ulp-shift-few | 1/200 (0.5%) not good; 198 of the other 199 inserted nothing (about 99.5% effectively not good) | 100 / 100 = 100% |
 | mirror | 161 / 198 = 81.3% | 99 / 99 = 100% |
 
 For the float cut on `thingi-pairs`, 220 operations are opened or not closed and 141 raise an exception; `float_union` on `thingi-pairs` has 510 opened or not closed and 130 exceptions.
@@ -136,3 +141,5 @@ The per-operation flag is `RoundingClean = false`. The summary tool reports no p
 ## Verdict
 
 Criteria (1) to (4) all hold on this run. This document reports whether the criteria hold; the recommendation is the owner's.
+
+The exact side's own weakness at 1-ulp contact is counted as unclean, not as a failure. `exact_imprint` is good in 18/200 operations on ulp-shift, 8/200 on ulp-shift-few and 105/198 on mirror; the rest are closed but carry slivers (`RoundingClean` false).
