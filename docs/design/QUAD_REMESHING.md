@@ -281,6 +281,18 @@ Owner decisions (2026-11-17, after this study):
 3. **Mesh type and output (stage 5):** an additive polygon mesh type with OBJ / PLY writers and conversion to and
    from `DMesh3`, with no change to `DMesh3` or the existing API.
 
+### 4.1 Stage 1 status (2026-11-17)
+
+`gs.CrossField` and `gs.MeshPrincipalCurvature` are in the library (`mesh_ops/`), with
+[benchmarks/CrossFieldBenchmark](../../benchmarks/CrossFieldBenchmark/README.md). Measured gates: the index histogram
+matches theory (8 x +1/4 on the sphere, the filleted box and the noisy sphere; 0 on the curvature-aligned torus and on
+the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic. **Not
+met: the speed of at most 2 s per 50k vertices on 4 cores** (about 5.4 to 5.9 s at 55k to 60k vertices, serial: 3.9 s of
+sparse Cholesky and 0.8 to 1.6 s of solves). The levers measured: a residual stop with the Lanczos method (6 to 33
+solves instead of 30 to 200 inverse iterations) is in; the factorization is the rest. **Speed gate: open (owner 2026-11-17).** 5.3-6.7 s per 55-60k vertices, serial, against 2 s per 50k on 4 cores. Stage 1 merges with
+it open. Levers, in this order: a parallel `SparseCholesky` (a separate PR, with an upper-bound measurement first), then the
+n x n complex Hermitian factorization in `CrossField` if still short.
+
 ## 5. Limits and recommendation
 
 Limits:
