@@ -130,7 +130,7 @@ For solid workflows (a boolean, then a tool that needs a solid), check in this o
    open input is refused (`Status` `OpenInput`) instead of giving an open result. With the default (`true`) an open input
    gives a result that is generally open (`IsClosed()` false, "not closed"); it is not a failure of the boolean.
 2. **Check the rounding**: `Status` `Success` and `RoundingClean` (no self-intersection, no degenerate triangle, no
-   contact the rounding made). `StrictRounding = true` makes an unclean result a failure (`RoundingNotClean`, no `Result`).
+   contact the rounding made). `StrictRounding = true` makes an unclean result a failure (`RoundingNotClean`, no `Result`; pinned in `ExactBooleanScaleDisparityTests`).
 3. **Check `Contacts` and `NonManifoldEdges` before a tool that welds by position** (STL, a solid converter): where
    solids touch at an edge or a point, the result is closed and manifold in memory, with copies of the vertices there, and
    non-manifold when welded (two boxes that share an edge: `NonManifoldEdges` 1, `Contacts` 2, four triangles at the
@@ -143,14 +143,14 @@ For solid workflows (a boolean, then a tool that needs a solid), check in this o
 5. **A thin piece is a piece of the exact solid**: a slab of the solid is kept down to a thickness of 1e-8 of the
    input (volume exact). SafeRounding removes a closed component only where it keeps degenerate triangles (below 1e-12 of
    the squared diagonal) and is thinner than `RoundingMaxDisplacement` (1e-5) of the diagonal (`Rounding.RemovedComponents`;
-   a 1e-13 slab of a unit cube). Filter by volume yourself if such pieces are noise for you.
+   a 1e-13 slab of a unit cube). Where an exact input is itself that thin or tiny, every such component is kept and counted in `Rounding.ScaleDisparity`, and a thin one that holds real volume for its area is too: then `RoundingClean` is false (step 2). Filter by volume yourself if such pieces are noise for you.
 6. **Do not repair an open boolean result with `MeshRobustRepair` and take the volume as a check.** An open mesh has no
    inside in the exact sense; the volume of its input solid is where the generalized winding number is above 1/2.
    `Apply()` returns true with a clean, closed mesh, but when the repair result differs from that solid (`FallbackReason`
    "volume differs from the input" or "self-intersections", `UsedInput`), the solidify or the alpha wrap that replaces it
    is *not* checked against it (class comment of `MeshRobustRepair`; `RepairVolumeIoU` is the IoU of the rejected repair
-   result). A solid input comes back within a few percent (a sphere with a cap removed: IoU above 0.95). A thin open sheet
-   becomes a slab of the wrap's offset: a 10 x 10 plate of thickness 0.001 (solid volume 0.07) wraps to 32. Close open
+   result). A solid input comes back within a few percent (a sphere with a cap removed, minus a sphere: IoU above 0.95). A thin open sheet
+   becomes a slab of the wrap's offset: a 10 x 10 plate of thickness 0.001 (solid volume about 0.09) wraps to 32. Close open
    inputs before the boolean (step 1) instead. The signed volume of an open mesh is not a measure of its solid either: by
    the divergence theorem it depends on the origin (UTM coordinates make it arbitrary), a closed mesh does not.
 7. **Unreferenced and unwelded input vertices change nothing**: a mesh with unused vertices, or one whose triangles

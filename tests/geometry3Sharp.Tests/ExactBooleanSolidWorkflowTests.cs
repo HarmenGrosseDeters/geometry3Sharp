@@ -76,7 +76,11 @@ namespace geometry3Sharp.Tests
         }
 
         // edges with more than two triangles after welding the vertices by position (what a converter that welds sees)
-        static int WeldedNonManifoldEdges(DMesh3 m)
+        static int MaxWeldedEdgeTriangles(DMesh3 m) => WeldedEdgeCounts(m).DefaultIfEmpty(0).Max();
+
+        static int WeldedNonManifoldEdges(DMesh3 m) => WeldedEdgeCounts(m).Count(c => c > 2);
+
+        static IEnumerable<int> WeldedEdgeCounts(DMesh3 m)
         {
             var id = new Dictionary<Vector3d, int>();
             int Weld(Vector3d p) { if (!id.TryGetValue(p, out int i)) id[p] = i = id.Count; return i; }
@@ -90,7 +94,7 @@ namespace geometry3Sharp.Tests
                     count[key] = count.TryGetValue(key, out int c) ? c + 1 : 1;
                 }
             }
-            return count.Values.Count(c => c > 2);
+            return count.Values;
         }
 
         // the Similarity.All() check: the image of the inputs gives the same structure, and for a 2^k scale (exact) the
@@ -189,6 +193,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(2, boolean.Contacts);              // the two ends of the edge, two vertices at each
                 Assert.True(boolean.RoundingClean);
                 Assert.Equal(1, WeldedNonManifoldEdges(r));     // what a tool that welds by position sees: four triangles at the edge
+                Assert.Equal(4, MaxWeldedEdgeTriangles(r));
                 List<double> v = ComponentVolumes(r).Select(x => x / (scale * scale * scale)).ToList();
                 Assert.Equal(2, v.Count);
                 Assert.All(v, x => Assert.Equal(1.0, x, 4));    // two positive solids
@@ -276,8 +281,9 @@ namespace geometry3Sharp.Tests
             Assert.True(iou > 0.95, "volume IoU " + iou);
         }
 
+        // (these pin the tuning of the wrap and solidify as documented behaviour: a deliberate improvement of them updates the numbers here and in docs/OPERATIONS.md)
         [Theory]
-        [InlineData(0.05, 1.0)]
+        [InlineData(0.05, 3.0)]
         [InlineData(0.001, 100.0)]
         public void E_OpenThinSheet_IsWrappedIntoASlabFarAboveItsSolid(double thickness, double minVolumeRatio)
         {
@@ -287,7 +293,7 @@ namespace geometry3Sharp.Tests
             // the IoU of the rejected repair result. The result is clean (closed, no self-intersections), not a copy of the solid.
             DMesh3 plate = WithoutTop(Box(0, 0, 0, 10, 10, thickness), thickness * 0.9);
             DMesh3 open = OpenResult(plate, Box(-1, -1, -1, 3, 3, 1));
-            double solidVolume = Invariance.Volume(open);
+            double solidVolume = 91 * thickness;     // the plate minus the 3 x 3 corner (the signed volume of the open mesh is no measure of its solid)
             var repair = new MeshRobustRepair(new DMesh3(open));
             Assert.True(repair.Apply());
             Assert.True(repair.UsedAlphaWrap);
@@ -314,6 +320,9 @@ namespace geometry3Sharp.Tests
                 return a.Dot(b.Cross(c)) / 6;
             });
             Assert.True(Math.Abs(aboutOrigin(moved)) > 100 * Math.Abs(Invariance.Volume(open)), aboutOrigin(moved) + " vs " + Invariance.Volume(open));
+            DMesh3 closed = Sphere(Vector3d.Zero, 10, 8), closedMoved = new DMesh3(closed);
+            MeshTransforms.Translate(closedMoved, utm);
+            Assert.True(Math.Abs(aboutOrigin(closedMoved) / aboutOrigin(closed) - 1) < 0.1);   // a closed mesh: the same about any origin (up to the rounding of the sum at 1e6)
             Assert.Equal(1.0, Invariance.Volume(moved) / Invariance.Volume(open), 6);     // (about its own center: the volume of the solid is the same everywhere)
         }
 
