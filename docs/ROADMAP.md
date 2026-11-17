@@ -70,15 +70,16 @@ the future" list, ordered by priority; this section names only what is in flight
   1.30x time), PR #1073; the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is in review (#1085); the inversion guard study #1070 closed hard problem 14 (options
-  parked). A quad remeshing study runs (#1078).
+  parked). The quad remeshing study is merged (#1078); stage 5 (the `DPolyMesh` polygon type with OBJ / PLY
+  writers and readers, no `g3cli` command yet) is in review (owner 2026-11-17: stages 1, 2 and 5).
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9) runs (owner 2026-11-17, no PR yet).
 - **Alpha Wrap 3.0:** done. Lever 6 K stays opt-in (#736), the raw-size budget stays off with the opt-in
   `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
-- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 decided (owner 2026-11-17:
-  the `SnapRounding2.Diagnostics` text becomes culture-invariant, PR in flight); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
+- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 done (owner 2026-11-17, #1092:
+  the `SnapRounding2.Diagnostics` text is culture-invariant); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
 - **Platform and CI:** #999 (xatlas report) in review; the UV parameterization mutation shards are merged (#1006); the
   nightly changed-line coverage gate is red since 2026-11-17 (16 uncovered changed lines), a fix session runs; flaky
   allocation test #1074; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
@@ -106,8 +107,8 @@ their own class); the cleanup never empties a non-empty result (RC1); the inside
 (RC3); #846 stays off; #986 option (A); `Obsolete` on `MeshMeshCut` / `MeshBoolean`; tet P1 default diag/40; the
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
 step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
-(with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text becomes culture-invariant (O1); tet 16.2: the boundary
-bound is restated against the peeled surface (no code change, P1 494/500 kept).
+(with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text is culture-invariant (O1, done, #1092); tet 16.2: the boundary
+bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label: the coordinator sets it for a change that keeps or tightens the checks, the owner for one that loosens a check or changes the gate list or the rules ([QA.md](QA.md) 2.8a).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B

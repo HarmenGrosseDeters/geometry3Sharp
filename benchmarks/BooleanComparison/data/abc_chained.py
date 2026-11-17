@@ -12,6 +12,8 @@
 #                                                           (--only: just these chains, eg iud_p0005,iud_p0021; applied after --limit)
 #   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
 #                                                           (--budget: no new chain is started after S seconds; finished chains are kept)
+#                                                           (method ours_exact: exact intermediates against today's chain, rows for
+#                                                           chain_exact.py summary; EXACT_BOOLEAN_40_DESIGN.md section 4)
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
 #   python3 data/abc_chained.py versus <other> results.jsonl...   per step: time ratio ours / <other> of the chosen operation and
 #                                                           agreement of the volumes, over the chains where both results are ok
@@ -27,6 +29,7 @@ import thingi_pairs as tp   # noqa: E402
 import thingi_contact as tc   # noqa: E402
 
 CLASS = "abc-chained"
+EXACT_CLASS = "abc-chained-exact"     # rows of the method ours_exact (run_exact)
 SEED_SELECT, SEED_CHAINS = 20261116, 20261117
 OPS = ["union", "intersection", "difference"]
 # a chain: (operation, left, right); "A", "B", "C" are the placed inputs, "R" the result of the previous step of the same method
@@ -359,6 +362,30 @@ def run_method(m, case, d0, plan, files, timeout, rows, info):
             return
         prev = out
 
+def run_exact(case, files, rows, info, timeout):
+    """method ours_exact (Exact Boolean 4.0 stage 0, docs/design/EXACT_BOOLEAN_40_DESIGN.md): the chain once as today (each step on
+    the previous rounded result) and each step once as one n-ary boolean over the original A, B, C (exact intermediates, one
+    rounding), in one process (`chain-exact`); one row per step, class abc-chained-exact (read by chain_exact.py summary, not by
+    summary here)"""
+    import compare
+    # (three booleans per step: the per-boolean timeout for each; the rows printed before a timeout are kept)
+    try:
+        s = subprocess.run(compare.tool + ["chain-exact", files["A"], files["B"], files["C"], case["variant"]], capture_output=True, text=True,
+                           timeout=3 * len(PLANS[case["variant"]]) * timeout)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
+    got = 0
+    for l in out.splitlines():
+        if l.startswith("{"):
+            r = json.loads(l)
+            r.update({"class": EXACT_CLASS, "file": case["name"], "method": "ours_exact", "chain_inputs": info})
+            rows.append(r)
+            got += 1
+    if got < len(PLANS[case["variant"]]) and err:
+        rows.append({"class": EXACT_CLASS, "file": case["name"], "method": "ours_exact", "runner_error": err[-300:]})
+
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
     results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's operations
@@ -380,9 +407,12 @@ def run_chain(case, methods, timeout):
         for m in methods:
             files = {k: os.path.join(d0, k + ".off") for k in "ABC"}
             try:
+                if m == "ours_exact":
+                    run_exact(case, files, rows, info, timeout)
+                    continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m == "ours_exact" else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)
@@ -395,12 +425,16 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             data = f.read()
             if data and not data.endswith(b"\n"):
                 f.write(b"\n")
+        retry = set()
         for l in open(out):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
+                if r.get("class") == EXACT_CLASS and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
+                    retry.add(r["file"])
             except ValueError:
                 pass
+        done -= retry
     todo = [c for c in cases if c["name"] not in done]
     print(f"{len(cases) - len(todo)} chains finished, {len(todo)} to run", flush=True)
     t0 = time.monotonic()
@@ -437,6 +471,7 @@ def cmd_summary(files):
         with open(f) as fh:
             rows += [json.loads(l) for l in fh if l.strip()]
     steps, refused, runner = {}, {}, {}
+    rows = [r for r in rows if r.get("class") != EXACT_CLASS]    # ours_exact: chain_exact.py summary
     for r in rows:
         if r.get("method") == "export":
             refused[r["file"]] = r.get("error", "")

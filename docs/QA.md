@@ -2,7 +2,7 @@
 
 This page says how geometry3Sharp is tested, where the gaps are, and what is done about them, in order of
 priority: robustness and correctness first, performance second. The review checklist that goes with it is
-[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
+[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) (its classes carry diff triggers, so a review checks only the matching ones).
 
 ## 1. Where we stand
 
@@ -686,8 +686,16 @@ that tests check against generators, the rules (`CLAUDE.md`, `AGENTS.md`, `docs/
 `docs/REVIEW_CHECKLIST.md`) and the list and script themselves. A new gate input (a threshold, allow list or baseline
 file) is added to the list in the PR that introduces it.
 
-Limits of the label (a social rule, not a technical one): it approves the PR, not a diff, so the owner sets it after the last
-push (a later push keeps it); and nothing checks who set it (branch protection and the repository's permissions do). A broken
+Who sets the label (owner 2026-11-17): the coordinator, after reviewing the gate-file diff, for a change that keeps or
+tightens the checks (tests added to filters or projects, a `#pragma` for the obsolete warning CS0618 in a tool or test, a new
+CI test, a threshold raised), and logs it with the PR and the gate file; the owner for a change that loosens a check (a
+threshold lowered, a new allow-list, `SLOW_BACKLOG.txt` or suppression entry, any other warning disabled, a job or test removed
+or disabled, a trigger narrowed) or changes the gate check itself (list, script, workflow) or the rules; in doubt, the owner.
+Workers never set it. A push after the coordinator's label gets a fresh review of the gate-file diff before the merge; if it
+loosens a check, the label is removed and the owner decides ([AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 8).
+
+Limits of the label (a social rule, not a technical one): it approves the PR, not a diff, so it is set after the last
+push (a later push keeps it, hence the fresh review above); and nothing checks who set it (branch protection and the repository's permissions do). A broken
 `gate_files.txt` or a failing `test_gate_check.py` fails the job (a broken list must not pass silently; the unit-test step only
 in enforce mode). A PR against another base branch is judged by that branch's workflow and list.
 

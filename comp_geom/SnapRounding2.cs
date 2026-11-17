@@ -119,6 +119,10 @@ namespace g3
             while (bucket < mean && bucket < (1L << 40)) bucket *= 2;
         }
 
+        /// <summary> culture-invariant text of an integer or a pixel (the minus sign of a culture is not the same everywhere; O1 of DETERMINISM_PROOF.md 5.4) </summary>
+        static string I(long v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        static string I((long, long) p) => "(" + I(p.Item1) + ", " + I(p.Item2) + ")";
+
         /// <summary> the pixel holding the point num / den (twice the coordinate, in units; den > 0): floor((num / den + W) / (2 W)) </summary>
         long PixelOf(BigInteger num, BigInteger den)
         {
@@ -224,7 +228,7 @@ namespace g3
             for (int i = 0; i < input.Points.Count; ++i) hot.Add((KX[i], KY[i]));
             AddCrossings();
             while (true) {
-                if (++Rounds > RoundLimit) throw new InvalidOperationException("snap rounding did not settle within " + RoundLimit + " rounds");
+                if (++Rounds > RoundLimit) throw new InvalidOperationException("snap rounding did not settle within " + I(RoundLimit) + " rounds");
                 RouteAll();
                 var critical = Critical();
                 if (critical.Count == 0) break;
@@ -389,7 +393,7 @@ namespace g3
                         var p = (cp.Item1 + dx, cp.Item2 + dy);
                         if (!hot.Contains(p) && Meets(X[sa], Y[sa], X[sb], Y[sb], p, true) && Between(sa, sb, a, b, p)) wider.Add(p);
                     }
-                    if (wider.Count == 0) throw new InvalidOperationException("snap rounding: no pixel to restore critical pixel " + cp + " on the chain of segment "
+                    if (wider.Count == 0) throw new InvalidOperationException("snap rounding: no pixel to restore critical pixel " + I(cp) + " on the chain of segment "
                         + input.Points[sa] + " - " + input.Points[sb] + " (SRR, Proposition 4.9)");
                     chosen = Nearest(wider, sa, sb); ++Widened;
                 }
@@ -492,7 +496,7 @@ namespace g3
                 if (!Collapsed(list)) { result.Rings.Add(new Mesh2Ring(list.ToArray(), ring.Hole, ring.Marker)); continue; }
                 // a ring that collapsed to a line or a point removes and adds nothing; its pieces stay as segments
                 ++CollapsedRings;
-                Diagnostics.Add("snap: ring " + r + " collapsed below the tolerance" + (list.Distinct().Count() >= 2 ? "; its edges stay as segments" : ""));
+                Diagnostics.Add("snap: ring " + I(r) + " collapsed below the tolerance" + (list.Distinct().Count() >= 2 ? "; its edges stay as segments" : ""));
                 for (int i = 0; i < list.Count && list.Count >= 2; ++i)
                     if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
             }
@@ -508,13 +512,13 @@ namespace g3
             }
             foreach (var g in input.Regions) {
                 if (g.Ring == null) {
-                    if (Swept(g.Seed)) { ++DroppedSeeds; Diagnostics.Add("snap: region seed " + g.Seed + " with label " + g.Label + " dropped: snapping moved constraints across it"); continue; }
+                    if (Swept(g.Seed)) { ++DroppedSeeds; Diagnostics.Add("snap: region seed " + g.Seed + " with label " + I(g.Label) + " dropped: snapping moved constraints across it"); continue; }
                     result.Regions.Add(g);
                     continue;
                 }
                 var list = Expand(g.Ring);
                 if (!Collapsed(list)) result.Regions.Add(Mesh2Region.ByRing(list.ToArray(), g.Label, g.MaxArea));
-                else Diagnostics.Add("snap: region ring with label " + g.Label + " collapsed below the tolerance");
+                else Diagnostics.Add("snap: region ring with label " + I(g.Label) + " collapsed below the tolerance");
             }
             if (input.Heights != null) {
                 var heights = new List<double>(input.Heights);
@@ -526,7 +530,7 @@ namespace g3
                 }
                 result.Heights = heights;
             }
-            if (CollapsedSegments > 0) Diagnostics.Add("snap: " + CollapsedSegments + " segments collapsed below the tolerance");
+            if (CollapsedSegments > 0) Diagnostics.Add("snap: " + I(CollapsedSegments) + " segments collapsed below the tolerance");
             Result = result;
         }
 

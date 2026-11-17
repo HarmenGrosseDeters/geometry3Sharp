@@ -1,5 +1,5 @@
 # Gate files: files that define or run the checks that judge a pull request (docs/QA.md, "Gate-change check").
-# A PR that changes one of them needs the label `gate-change` (set by the owner only), so a change cannot loosen its own checks.
+# A PR that changes one of them needs the label `gate-change` (set by the owner, or by the coordinator for a change that keeps or tightens the checks; docs/QA.md 2.8a), so a change cannot loosen its own checks.
 # Format: one `glob | reason` per line; `#` starts a comment line. Globs match the whole repository-relative path:
 # `*` and `?` stay inside one path segment, `**/` matches any number of directories (also none), a trailing `/**` matches everything below.
 # The check reads this file from the BASE branch (.github/workflows/gate-change.yml), so a PR cannot edit its own list.

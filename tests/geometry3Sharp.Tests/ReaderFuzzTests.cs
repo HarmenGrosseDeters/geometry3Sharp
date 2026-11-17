@@ -53,8 +53,33 @@ namespace geometry3Sharp.Tests
             throw new ArgumentException(extension);
         }
 
+        // polygon readers (PolyMeshIO, the faces stay whole): the extension names the format, "poly-obj" / "poly-ply"
+        static bool IsPoly(string extension) => extension.StartsWith("poly-");
+
+        static byte[] WritePoly(string extension, bool binary)
+        {
+            DPolyMesh mesh = PolyMeshTestUtil.QuadsAndNgons();
+            var ms = new MemoryStream();
+            if (extension == "poly-obj") {
+                var w = new StreamWriter(ms, new UTF8Encoding(false));
+                Assert.Equal(IOCode.Ok, PolyMeshIO.WriteOBJ(w, mesh).code);
+                w.Flush();
+            } else if (binary) {
+                var w = new BinaryWriter(ms);
+                Assert.Equal(IOCode.Ok, PolyMeshIO.WritePLY(w, mesh).code);
+                w.Flush();
+            } else {
+                var w = new StreamWriter(ms, new UTF8Encoding(false));
+                Assert.Equal(IOCode.Ok, PolyMeshIO.WritePLY(w, mesh).code);
+                w.Flush();
+            }
+            return ms.ToArray();
+        }
+
         static byte[] Write(string extension, bool binary)
         {
+            if (IsPoly(extension))
+                return WritePoly(extension, binary);
             DMesh3 mesh = MeshFormatTestUtil.AttributeSphere(new Vector3d(1, 2, 3));
             if (extension == "xyz-points") {
                 DMesh3 plain = new DMesh3();
@@ -95,6 +120,9 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "ply-points", true };
             yield return new object[] { "xyz", false };
             yield return new object[] { "xyz-points", false };
+            yield return new object[] { "poly-obj", false };
+            yield return new object[] { "poly-ply", false };
+            yield return new object[] { "poly-ply", true };
         }
 
         /// <summary>One mutation of the input, described for the failure message.</summary>
@@ -180,6 +208,7 @@ namespace geometry3Sharp.Tests
         {
             IOReadResult result = default(IOReadResult);
             DMesh3Builder builder = new DMesh3Builder();
+            DPolyMesh poly = null;
             long allocated = 0;
             Exception thrown = null;
             bool finished = Timed.Finishes(() => {
@@ -190,7 +219,12 @@ namespace geometry3Sharp.Tests
                     // the format reader itself: StandardMeshReader turns every exception into GenericReaderError,
                     // which would hide crashes (with the invariant culture StandardMeshReader sets)
                     System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-                    result = FormatReader(extension).ReadFile(new MemoryStream(data, false), builder, ReadOptions.Defaults, null);
+                    if (extension == "poly-obj")
+                        result = PolyMeshIO.ReadOBJ(new StreamReader(new MemoryStream(data, false), Encoding.UTF8), ReadOptions.Defaults, out poly);
+                    else if (extension == "poly-ply")
+                        result = PolyMeshIO.ReadPLY(new BinaryReader(new MemoryStream(data, false)), ReadOptions.Defaults, out poly);
+                    else
+                        result = FormatReader(extension).ReadFile(new MemoryStream(data, false), builder, ReadOptions.Defaults, null);
 #if NETCOREAPP
                     allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 #endif
@@ -211,6 +245,19 @@ namespace geometry3Sharp.Tests
                 return $"allocated {allocated / (1024 * 1024)} MB for {data.Length} bytes of input ({result.code})";
             if (result.code != IOCode.Ok)
                 return "";
+            if (IsPoly(extension)) {
+                if (poly == null) return "Ok without a mesh";
+                if (poly.VertexCount > data.Length || poly.FaceCount > data.Length || poly.FaceIndices.Count > data.Length)
+                    return $"Ok with {poly.VertexCount} vertices / {poly.FaceCount} faces from {data.Length} bytes";
+                PolyMeshReport report = poly.Validate();
+                for (int i = 0; i < report.InvalidFaces.Count; ++i)
+                    if ((report.Issues[i] & (PolyFaceIssues.TooFewVertices | PolyFaceIssues.IndexOutOfRange)) != 0)
+                        return $"Ok with invalid face {report.InvalidFaces[i]}: {report.Issues[i]}";
+                if (requireFinite && report.NonFiniteVertices.Count > 0)
+                    return "Ok with non-finite coordinates";
+                if (poly.FaceOffsets.Count != poly.FaceCount + 1 || poly.FaceOffsets[poly.FaceCount] != poly.FaceIndices.Count)
+                    return "inconsistent face offsets";
+            }
             foreach (DMesh3 mesh in builder.Meshes) {
                 if (mesh.VertexCount > data.Length || mesh.TriangleCount > data.Length)
                     return $"Ok with {mesh.VertexCount} vertices / {mesh.TriangleCount} triangles from {data.Length} bytes";
