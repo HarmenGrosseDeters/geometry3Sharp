@@ -250,12 +250,14 @@ namespace geometry3Sharp.Tests
         const int PentagonSteinerLimit = 20000;
 
         /// <summary>
-        /// Known defect #986: the mesher returns Empty (0 triangles) for a valid pentagon at an aspect ratio of 2^41 or more, in both
-        /// directions. Below it, the cost of a min-angle mesh is proportional to the aspect ratio (the size law of quality meshing: a sliver
-        /// needs points along its length), so the bound of A1 for this operation is the reference's count times 2^|e| (within CountFactor),
-        /// not the reference's count. Where the Steiner limit of the input is reached, the output says so (SteinerLimitReached): a documented cap.
+        /// The documented limit (#986, owner decision 2026-11-17): from an aspect ratio of 2^41 on, in both directions, the pentagon is narrower
+        /// than the automatic tolerance (2^-41 of the larger of its largest coordinate and its extent, spec O11), its points merge and the result
+        /// is Empty, with a diagnostic that says so. Below it, the cost of a min-angle mesh is proportional to the aspect ratio (the size law of
+        /// quality meshing: a sliver needs points along its length), so the bound of A1 for this operation is the reference's count times
+        /// 2^|e| (within CountFactor), not the reference's count. Where the Steiner limit of the input is reached, the output says so
+        /// (SteinerLimitReached): a documented cap.
         /// </summary>
-        public const int MesherKnownDefectFrom = 41;
+        public const int MesherToleranceLimitFrom = 41;
 
         static void A1_Mesher(int e)
         {
@@ -264,8 +266,15 @@ namespace geometry3Sharp.Tests
             Mesh2Input reference = Pentagon(1), flat = Pentagon(Math.Pow(2, e));
             Mesh2Output a = mesher.Run(reference), b = mesher.Run(flat);
             Assert.True(a.Status == Mesh2Status.Success, "the unflattened input: " + a.Status + " " + a.FailureKind);
-            // rows of the known defect #986 are pinned by A1_QualityMesh2_KnownDefect986_RowsStillEmpty
-            if (Math.Abs(e) >= MesherKnownDefectFrom) return;
+            if (Math.Abs(e) >= MesherToleranceLimitFrom) {
+                // the documented Empty: no triangles, accepted by the oracle (O11), and the library's result names the automatic tolerance
+                Assert.True(b.Status == Mesh2Status.Empty && b.Triangles.Length == 0, $"2^{e}: {b.Status} {b.FailureKind}, not the documented Empty");
+                OracleReport report = Oracle.Check(flat, b, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.True(report.Ok, $"2^{e}: " + report);
+                var direct = new QualityMesh2 { MinAngle = 20, SteinerLimit = PentagonSteinerLimit }.Compute(ConstrainedDelaunayMesh2Candidate.Convert(flat));
+                Assert.Contains(direct.Diagnostics, d => d.StartsWith("no triangle is left, though the input is not on one line", StringComparison.Ordinal));
+                return;
+            }
             Assert.True(b.Status == Mesh2Status.Success, $"2^{e}: {b.Status} {b.FailureKind}");
             long aspect = (long)Math.Pow(2, Math.Abs(e));
             long predicted = a.VertexCount * aspect;
@@ -283,31 +292,19 @@ namespace geometry3Sharp.Tests
         [InlineData(2)]
         public void A1_QualityMesh2_CostAndValidityDoNotDependOnTheFlattening(int e) => A1_Mesher(e);
 
-        /// <summary> PR tier: the known defect #986 at the ends of the range, strict: the mesher must still return Empty (a fix removes this pin) </summary>
+        /// <summary> PR tier: the documented limit at the ends of the range and at its first row (QualityMesh2ToleranceLimitTests sweeps it) </summary>
         [Theory]
         [InlineData(-46)]
+        [InlineData(-41)]
+        [InlineData(41)]
         [InlineData(46)]
-        public void A1_QualityMesh2_KnownDefect986_EndsStillEmpty(int e)
-        {
-            Mesh2Output b = new QualityMesh2Candidate().Run(Pentagon(Math.Pow(2, e)));
-            Assert.True(b.Status == Mesh2Status.Empty, $"2^{e} gives {b.Status} now: #986 is fixed, remove this pin");
-        }
+        public void A1_QualityMesh2_BeyondTheToleranceLimit_IsTheDocumentedEmpty(int e) => A1_Mesher(e);
 
-        // The nightly sweep runs every exponent of A1. Rows of the known defect must be Empty (strict, per row).
+        // The nightly sweep runs every exponent of A1, the rows of the documented limit included.
         public static IEnumerable<object[]> MesherExponents() => MetamorphicRelations.AnisotropicAll().Select(e => new object[] { e });
 
         [Theory, MemberData(nameof(MesherExponents)), Trait("Category", "Nightly")]
         public void A1_QualityMesh2_FullSweep(int e) => A1_Mesher(e);
-
-        /// <summary> Nightly: the rows of the known defect #986 (|e| 41..46) are all Empty; a row that is not is a fix or a new failure. </summary>
-        [Fact, Trait("Category", "Nightly")]
-        public void A1_QualityMesh2_KnownDefect986_RowsStillEmpty()
-        {
-            var bad = new List<string>();
-            foreach (int e in MetamorphicRelations.AnisotropicAll().Where(x => Math.Abs(x) >= MesherKnownDefectFrom))
-                if (new QualityMesh2Candidate().Run(Pentagon(Math.Pow(2, e))).Status != Mesh2Status.Empty) bad.Add(e.ToString());
-            Assert.True(bad.Count == 0, "rows that are no longer Empty (#986 changed): " + string.Join(", ", bad));
-        }
 
         // ---------------------------------------------------------------- P1: the classifiers
         // The winding-number and IsInside samples lie at radius 0.4 and 1.8 of the unit sphere, far from the perturbed vertex: they check
