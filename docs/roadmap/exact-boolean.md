@@ -734,10 +734,13 @@ discards; an older probe found about a third of the 1-thread time there.
 
 **T6 closing report (2026-11-17).** The owner's 12-thread data: i7-8700, 6 cores / 12 threads, net10.0, 3 rounds per
 side, `thread_scaling.ps1`, branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/` (master 414c6b5f and
-#962 head bf34eff7). CGAL runs on GitHub-hosted runners only, so its time on the owner's machine is estimated per
-operation: CGAL's single-threaded time from T6 run 43819984226 (the same master 414c6b5f, 4-core runner), times the
-ratio of our 1-thread time on the owner's machine to our 1-thread time on the runner for the same operation (summed
-factor 0.56). Ours is the median of the three rounds per operation; "without rounding" subtracts the `rounding` phase.
+#962 head bf34eff7). CGAL runs on GitHub-hosted runners only, so its time on the owner's machine is estimated:
+CGAL's single-threaded time from T6 run 43819984226 (the same master 414c6b5f, 4-core runner), times the ratio of our
+master 1-thread time on the owner's machine to ours on the runner. The summed ratios use one global factor (0.56, the
+ratio of the sums); the median ratios use the factor of each operation. With per-operation factors the summed ratios
+are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median of the three rounds per operation;
+"without rounding" subtracts the `rounding` phase. The estimate assumes CGAL gains from the faster CPU like our
+1-thread code does; it rests on one runner run.
 
 | code | threads | summed ratio | summed, without rounding | median ratio | median, without rounding |
 |---|---|---|---|---|---|
@@ -752,7 +755,7 @@ factor 0.56). Ours is the median of the three rounds per operation; "without rou
 - After #962, the boolean probes (#967) and the touch_only filter (#1002) come on top, the last two without a new
   12-thread run.
 - **Cleanliness:** ours 294 of 294 clean or correctly empty (T6 run 43819984226); the result hashes on the owner's
-  machine are equal across all rounds and thread counts on both sides. CGAL: 49 of its 294 results are unclean
+  machine are equal across all rounds and thread counts, and equal between master and #962. CGAL: 49 of its 294 results are unclean
   after the conversion to doubles (degenerate triangles).
 - **T6 is closed.** The remaining gap at 12 threads, about 1.4x summed, is in the range of the rounding, which CGAL
   does not do (without it, 1.14x).
