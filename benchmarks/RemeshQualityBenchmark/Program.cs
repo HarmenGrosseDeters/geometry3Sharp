@@ -30,7 +30,7 @@ static class Program
         // (outside Seconds): passes with moves, passes whose path touches a primitive (sweep status Collision / IterationLimit),
         // of those the ones that end intersection-free after starting so (a move through a wall that a static end check
         // accepts), the sweep seconds and the candidate pairs
-        public int SweepPasses, SweepCollisions, SweepTunnelled; public long SweepCandidates; public double SweepSeconds;
+        public int SweepPasses, SweepCollisions, SweepTunnelled; public long SweepCandidates; public double SweepSeconds, SweepComputeSeconds;
         public double Hausdorff, Seconds;
         public double VolumeRatio = double.NaN;     // signed volume of the result / of the input (closed inputs)
         // MeshFidelityMetrics against the input (relative thresholds of its size): F-score at 0.1 % and 0.5 %, normal
@@ -105,7 +105,7 @@ static class Program
     }
 
     static bool fidelity = true, preventOn = false, sweep = false;
-    static int sweepPasses, sweepCollisions, sweepTunnelled; static long sweepCandidates; static double sweepSeconds;
+    static int sweepPasses, sweepCollisions, sweepTunnelled; static long sweepCandidates; static double sweepSeconds, sweepComputeSeconds;
 
     // sweep=1: checks the motion of each buffered move pass (the vertices go linearly from the old to the new position)
     class SweepRemesher : Remesher
@@ -128,7 +128,9 @@ static class Program
                 DMesh3 start = new DMesh3(Mesh, false, false, false, false);
                 for (int v = 0; v < nv; ++v) if (start.IsVertex(v)) start.SetVertex(v, before[v]);
                 var sc = new MeshSweepCollision(start, after);
+                var swc = Stopwatch.StartNew();
                 sc.Compute();
+                sweepComputeSeconds += swc.Elapsed.TotalSeconds;
                 sweepPasses++; sweepCandidates += sc.CandidatePairCount;
                 if (sc.Status != MeshSweepStatus.NoCollision) {
                     sweepCollisions++;
@@ -154,7 +156,7 @@ static class Program
         DMesh3 m = null;
         int rejected = 0, siRejected = 0;
         for (int k = 0; k < runs; ++k) {
-            sweepPasses = sweepCollisions = sweepTunnelled = 0; sweepCandidates = 0; sweepSeconds = 0;
+            sweepPasses = sweepCollisions = sweepTunnelled = 0; sweepCandidates = 0; sweepSeconds = 0; sweepComputeSeconds = 0;
             GC.Collect(); GC.WaitForPendingFinalizers();
             var sw = Stopwatch.StartNew();
             m = Remesh(input, target, quality, prevent, pinAngle, sizingFraction, out rejected, out siRejected);
@@ -162,7 +164,7 @@ static class Program
         }
         times.Sort();
         var r = new Result() { Tris = m.TriangleCount, Seconds = times[times.Count / 2], RejectedPasses = rejected, SelfIntersectionsRejected = siRejected,
-            SweepPasses = sweepPasses, SweepCollisions = sweepCollisions, SweepTunnelled = sweepTunnelled, SweepCandidates = sweepCandidates, SweepSeconds = sweepSeconds };
+            SweepPasses = sweepPasses, SweepCollisions = sweepCollisions, SweepTunnelled = sweepTunnelled, SweepCandidates = sweepCandidates, SweepSeconds = sweepSeconds, SweepComputeSeconds = sweepComputeSeconds };
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             m.GetTriVertices(t, ref a, ref b, ref c);
