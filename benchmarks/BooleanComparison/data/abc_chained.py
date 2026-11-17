@@ -362,22 +362,29 @@ def run_method(m, case, d0, plan, files, timeout, rows, info):
             return
         prev = out
 
-def run_exact(case, files, rows, info):
+def run_exact(case, files, rows, info, timeout):
     """method ours_exact (Exact Boolean 4.0 stage 0, docs/design/EXACT_BOOLEAN_40_DESIGN.md): the chain once as today (each step on
     the previous rounded result) and each step once as one n-ary boolean over the original A, B, C (exact intermediates, one
     rounding), in one process (`chain-exact`); one row per step, class abc-chained-exact (read by chain_exact.py summary, not by
     summary here)"""
     import compare
-    s = subprocess.run(compare.tool + ["chain-exact", files["A"], files["B"], files["C"], case["variant"]], capture_output=True, text=True, timeout=3 * 3600)
+    # (three booleans per step: the per-boolean timeout for each; the rows printed before a timeout are kept)
+    try:
+        s = subprocess.run(compare.tool + ["chain-exact", files["A"], files["B"], files["C"], case["variant"]], capture_output=True, text=True,
+                           timeout=3 * len(PLANS[case["variant"]]) * timeout)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
     got = 0
-    for l in s.stdout.splitlines():
+    for l in out.splitlines():
         if l.startswith("{"):
             r = json.loads(l)
             r.update({"class": EXACT_CLASS, "file": case["name"], "method": "ours_exact", "chain_inputs": info})
             rows.append(r)
             got += 1
-    if got == 0:
-        rows.append({"class": EXACT_CLASS, "file": case["name"], "method": "ours_exact", "runner_error": (s.stderr or s.stdout)[-300:]})
+    if got < len(PLANS[case["variant"]]) and err:
+        rows.append({"class": EXACT_CLASS, "file": case["name"], "method": "ours_exact", "runner_error": err[-300:]})
 
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
@@ -401,11 +408,11 @@ def run_chain(case, methods, timeout):
             files = {k: os.path.join(d0, k + ".off") for k in "ABC"}
             try:
                 if m == "ours_exact":
-                    run_exact(case, files, rows, info)
+                    run_exact(case, files, rows, info, timeout)
                     continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m == "ours_exact" else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)

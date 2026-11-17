@@ -145,6 +145,8 @@ static class ChainExact
 
     static int RunChain(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info)
     {
+        // warm up (the JIT), so that step 1's chained time is not the first boolean of the process
+        Warm();
         int B = GridBits(ops, out int scaleExp);
         DMesh3 prev = null;
         bool chainAlive = true;
@@ -185,13 +187,20 @@ static class ChainExact
                 if (ok) {
                     row["exact_tris"] = b.Result.TriangleCount;
                     row["exact_verts"] = b.Result.VertexCount;
-                    row["exact_rounded_to_nearest_reason"] = MeshRobustRepair.NotCleanReason(b.Result, false);
                     Bits(b.ResultExactVertices, B, scaleExp, row);
                 }
             }
             Console.WriteLine(JsonSerializer.Serialize(row));
         }
         return 0;
+    }
+
+    static void Warm()
+    {
+        DMesh3 a = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
+        DMesh3 b = new TrivialBox3Generator { Box = new Box3d(new Vector3d(0.5, 0.25, 0.125), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
+        new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union).Compute();
+        new ExactMeshBoolean(new List<DMesh3> { a, b }, w => w[0] > 0 && w[1] <= 0) { ComputeExactVertices = true }.Compute();
     }
 
     static void Outcome(ExactMeshBoolean b, bool ok, string pre, Dictionary<string, object> row)
