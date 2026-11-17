@@ -250,6 +250,27 @@ namespace geometry3Sharp.Tests
             AssertSame(Run(m), Run(m));
         }
 
+        [Fact]
+        public void ParallelLoops_EqualSerialOnes_BitForBit()
+        {
+            DMesh3 m = CrossFieldShapes.TorusMesh();
+            var parallel = Run(m, 10);
+            foreach (int order in new[] { 0, -1, 7 }) {
+                gParallel.SerialOnThisThread = true; gParallel.SerialOrderOnThisThread = order;
+                CrossField serial;
+                try { serial = Run(m, 10); }
+                finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+                AssertSame(parallel, serial);
+                foreach (int t in m.TriangleIndices())
+                    for (int k = 0; k < 4; ++k) {
+                        Vector3d a = parallel.FaceDirection(t, k), b = serial.FaceDirection(t, k);
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(a.x), BitConverter.DoubleToInt64Bits(b.x));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(a.y), BitConverter.DoubleToInt64Bits(b.y));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(a.z), BitConverter.DoubleToInt64Bits(b.z));
+                    }
+            }
+        }
+
         static void AssertSame(CrossField x, CrossField y)
         {
             Assert.Equal(x.Iterations, y.Iterations);

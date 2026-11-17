@@ -227,11 +227,11 @@ namespace gs
                 vB[i] = nrm[i].Cross(vE_[i]);
             }
             var rho = new double[E];
-            for (int e = 0; e < E; ++e) {
+            gParallel.ForRange(E, e => {     // each edge writes only its own entry
                 int a = ea[e], b = eb[e];
                 Vector3d d = pm.Pos[b] - pm.Pos[a];
                 rho[e] = Math.Atan2(-d.Dot(vB[b]), -d.Dot(vE_[b])) + Math.PI - Math.Atan2(d.Dot(vB[a]), d.Dot(vE_[a]));
-            }
+            });
 
             // connected components of the vertices: each gets its own matrix and eigenproblem (local index loc)
             var comp = new int[N];
@@ -381,8 +381,10 @@ namespace gs
 
             // per face: index and direction
             fIndex = new int[Mesh.MaxTriangleID]; fDir = new Vector3d[Mesh.MaxTriangleID];
-            int ti2 = 0;
-            foreach (int tid in Mesh.TriangleIndices()) {
+            // (in parallel: each face writes only its own entries; the lists are then built serially in face order)
+            int[] tidArr = System.Linq.Enumerable.ToArray(Mesh.TriangleIndices());
+            gParallel.ForRange(tidArr.Length, ti2 => {
+                int tid = tidArr[ti2];
                 Index3i t = pm.Tris[ti2];
                 double sd = 0, sr = 0;
                 for (int k = 0; k < 3; ++k) {
@@ -392,14 +394,14 @@ namespace gs
                     sr += r;
                     sd += Wrap(Math.Atan2(x[2 * j + 1], x[2 * j]) - Math.Atan2(x[2 * i + 1], x[2 * i]) - Symmetry * r);
                 }
-                int idx = (int)Math.Round((sd + Symmetry * Wrap(sr)) / (2 * Math.PI));
-                fIndex[tid] = idx;
-                if (idx != 0) {
-                    SingularFaces.Add(tid); IndexSum += idx / (double)Symmetry;
-                    int cnt; IndexHistogram.TryGetValue(idx, out cnt); IndexHistogram[idx] = cnt + 1;
-                }
+                fIndex[tid] = (int)Math.Round((sd + Symmetry * Wrap(sr)) / (2 * Math.PI));
                 fDir[tid] = FaceDirectionFrom(pm, ti2, t, nrm, vE_, vB, phi, mag);
-                ++ti2;
+            });
+            foreach (int tid in tidArr) {
+                int idx = fIndex[tid];
+                if (idx == 0) continue;
+                SingularFaces.Add(tid); IndexSum += idx / (double)Symmetry;
+                int cnt; IndexHistogram.TryGetValue(idx, out cnt); IndexHistogram[idx] = cnt + 1;
             }
             Status = CrossFieldStatus.Success;
             return Status;
