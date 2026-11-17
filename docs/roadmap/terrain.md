@@ -37,7 +37,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Terrain Slope rows in the rotated / 1e-3 / utm frame (owner 2026-11-12): no library change.** A first-δ shortcut was
   approved, then withdrawn (the formula gives no fraction, so it would be a constant tuned on one design); TERRAIN.md 5.8.1
   states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
-  limit, #696, still open; two theories moved to Nightly in #706).
+  limit, #696, closed 2026-11-15, the extreme frame runs in Nightly; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
 distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). Still owner decisions: the slope-envelope construction,
@@ -184,7 +184,9 @@ Plan fact-checked on 2026-10-30 (see [platform.md](platform.md#plans-fact-checke
   for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
   change terrain algorithms or the "never steeper" rule.
 
-### Open for the future (2026-11-17)
+### Open for the future (2026-11-15)
+
+Status 2026-11-17 (the heading keeps its date: ROADMAP.md links to it).
 
 Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, showcase) later. Done and removed from this list:
 #855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15: the extreme frame runs in Nightly; its cost
