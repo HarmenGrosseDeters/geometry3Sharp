@@ -424,7 +424,8 @@ namespace gs
             if (Method == Methods.DualContouring) {
                 DualContouring dc = new DualContouring() {
                     Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CellSize = cellSize, CancelF = CancelF,
-                    QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                    QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                    Simplify = false   // pinned: uniform output
                 };
                 dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                     wc.Hermite(cellSize, a, b, p, out point, out normal);

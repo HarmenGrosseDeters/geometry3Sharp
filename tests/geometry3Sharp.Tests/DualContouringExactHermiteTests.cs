@@ -64,7 +64,7 @@ namespace geometry3Sharp.Tests
             var box = new AxisAlignedBox3d(new Vector3d(-1.1, -1.1, -1.1) - Cell * new Vector3d(0.37, 0.61, 0.23), new Vector3d(1.1, 1.1, 1.1));
             var grid = AxisAlignedBox3d.Empty;
             for (int q = 0; q < 8; ++q) grid.Contain(sim.Apply(box.Corner(q)));
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Csg() { Sim = sim }, InsideIsLess = true, IsoValue = 0, CellSize = sim.ApplyLength(Cell),
                 Bounds = grid, ParallelCompute = parallel, ExactHermite = exact
             };
@@ -140,7 +140,7 @@ namespace geometry3Sharp.Tests
         public void Polytope_CreasesAreSharperThanWithInterpolation()
         {
             Func<bool, DMesh3> run = exact => {
-                var dc = new DualContouring() {
+                var dc = new DualContouring() { Simplify = false,
                     Implicit = new Polytope(), InsideIsLess = true, CellSize = Cell, Bounds = new AxisAlignedBox3d(new Vector3d(-1.1, -1.1, -1.1) - Cell * new Vector3d(0.37, 0.61, 0.23), new Vector3d(1.1, 1.1, 1.1)),
                     ExactHermite = exact, QEFEigenTolerance = exact ? 0.02 : 0.1
                 };
@@ -272,7 +272,7 @@ namespace geometry3Sharp.Tests
                 B = new ImplicitBox3d { Box = new Box3d(new Vector3d(1.25, -0.8, 0), new Vector3d(0.25, 0.6, 1.0)) } };
             var f = new ImplicitDifference3d { A = body, B = new ImplicitNaryUnion3d { Children = new System.Collections.Generic.List<BoundedImplicitFunction3d> { hole, slot, chamfer } } };
             AxisAlignedBox3d bounds = f.Bounds(); bounds.Expand(0.15);
-            var dc = new DualContouring() { Implicit = f, Bounds = bounds, CellSize = bounds.MaxDim / cells, InsideIsLess = true };
+            var dc = new DualContouring() { Simplify = false, Implicit = f, Bounds = bounds, CellSize = bounds.MaxDim / cells, InsideIsLess = true };
             dc.Generate();
             Assert.Equal(0, dc.NonManifoldTriangles);
             return new DMesh3(dc.Mesh, true, MeshComponents.None);
@@ -300,7 +300,7 @@ namespace geometry3Sharp.Tests
                 int n = 16; double h = 2.2 / n; Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + h * new Vector3d(0.37, 0.61, 0.23);
                 var cells = new System.Collections.Generic.List<Vector3i>();
                 for (int k = 0; k < n; ++k) for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) cells.Add(new Vector3i(i, j, k));
-                var dc = new DualContouring() {
+                var dc = new DualContouring() { Simplify = false,
                     Implicit = new Sphere() { R = 0.93 }, InsideIsLess = true, CellSize = h, Bounds = new AxisAlignedBox3d(o, o + n * h * Vector3d.One),
                     CandidateCells = cells, NodeValueF = v => (o + h * new Vector3d(v.x, v.y, v.z)).Length - 0.9, ParallelCompute = parallel
                 };
@@ -332,7 +332,7 @@ namespace geometry3Sharp.Tests
             // on a sphere the mean error is a little higher with exact data (measured 0.0061 cells vs 0.0044 before, max 0.026 vs 0.025: the
             // tangent planes of exact points cut the sphere slightly outside); both stay far below a cell: the bound is for a lost surface, not a ranking
             Func<bool, DMesh3> run = exact => {
-                var dc = new DualContouring() {
+                var dc = new DualContouring() { Simplify = false,
                     Implicit = new Sphere(), InsideIsLess = true, CellSize = Cell, Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.1),
                     ExactHermite = exact, QEFEigenTolerance = exact ? 0.02 : 0.1
                 };

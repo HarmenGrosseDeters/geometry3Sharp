@@ -133,6 +133,10 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Intersection-free dual contouring (owner 2026-11-10: moved up, ahead of collision detection and tet meshing; options A
   and B merged in #552 and #572):
   [research.md](roadmap/research.md#open)
+- Adaptive simplification of dual contouring (owner 2026-11-16: `DualContouring.Simplify`, default on with opt-out; `AdaptiveDualContouring`,
+  #995 and the default-on PR): [design/DC_ADAPTIVE_SIMPLIFICATION.md](design/DC_ADAPTIVE_SIMPLIFICATION.md). Open idea, opt-in, not scheduled: a
+  coarse-first construction (skip the fine cells of flat regions, no dense grid) needs bounds on the implicit (a Lipschitz constant or interval
+  evaluation); measured upper bound of the sparse grid alone: 8-15 % of the time.
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 steps (1) and (2) merged in #416 and #407): [research.md](roadmap/research.md#smt-checks-with-z3)

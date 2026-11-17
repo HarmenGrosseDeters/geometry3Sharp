@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
             var box = new AxisAlignedBox3d(s.Apply(o), s.Apply(o));
             for (int c = 0; c < 8; ++c)
                 box.Contain(s.Apply(o + 2.2 * new Vector3d(c & 1, (c >> 1) & 1, (c >> 2) & 1)));
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Fn() { F = p => f(s.Inverse(p)) }, InsideIsLess = true, CellSize = s.ApplyLength(cell),
                 Bounds = box, ParallelCompute = parallel,
                 ExactHermite = !legacy, QEFEigenTolerance = legacy ? 0.1 : 0.02

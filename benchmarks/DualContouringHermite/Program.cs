@@ -29,7 +29,7 @@ internal static class Program
         double cell = Math.Max(size.x, Math.Max(size.y, size.z)) / cells;
         // grid offset by an irrational-ish fraction so that faces do not sit on grid nodes
         Vector3d o = s.Bounds.Min - cell * new Vector3d(0.37, 0.61, 0.23);
-        return new DualContouring() {
+        return new DualContouring() { Simplify = false,
             Implicit = s, InsideIsLess = true, IsoValue = 0, CellSize = cell,
             Bounds = new AxisAlignedBox3d(o, o + size + 2 * cell * Vector3d.One),
             ExactHermite = exact, QEFEigenTolerance = tol

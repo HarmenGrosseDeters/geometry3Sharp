@@ -228,7 +228,60 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Adaptive simplification (default on, opt-out): where one vertex still fits the Hermite data of a block of 2^L
+        /// cells within SimplifyTolerance finest cells, the block's vertices merge, so flat and smooth regions get large
+        /// triangles (see AdaptiveDualContouring and docs/design/DC_ADAPTIVE_SIMPLIFICATION.md; the result stays closed,
+        /// manifold and, with ResolveSelfIntersections, free of self-intersections). Applies only to the dense mode with
+        /// Implicit, ExactHermite and ResolveSelfIntersections, no HermiteF, no sparse mode, refinement, hidden gap / wall
+        /// functions or recording; otherwise, and with Simplify false, Generate gives the uniform contour as before. The
+        /// internal inspection members (ContourCells and the like) describe the uniform contour only if it is not simplified.
+        /// </summary>
+        public bool Simplify = true;
+        /// <summary> Simplify: largest distance of a merged vertex to the Hermite planes of its cells, in finest cells (relative, so scale invariant) </summary>
+        public double SimplifyTolerance = 0.25;
+        /// <summary> Simplify: the largest merged block is 2^SimplifyMaxLevel cells wide </summary>
+        public int SimplifyMaxLevel = 6;
+
+        bool simplify_applies()
+        {
+            return Simplify && SimplifyTolerance > 0 && SimplifyMaxLevel >= 1 && Implicit != null && HermiteF == null && ExactHermite
+                && ResolveSelfIntersections && CandidateCells == null && NodeValueF == null && F == 1 && refined == null && crossings == null
+                && HiddenGapF == null && HiddenWallF == null && !RecordCertificateData && !CollectDiagnostics && GenerateFinished == null
+                && !RecordVertexCrossings && !SkipResolveForTests;
+        }
+
         public void Generate()
+        {
+            if (simplify_applies()) generate_simplified();
+            else generate_uniform();
+        }
+
+        void generate_simplified()
+        {
+            var ad = new AdaptiveDualContouring() {
+                Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
+                Tolerance = SimplifyTolerance, MaxLevel = SimplifyMaxLevel, QEFEigenTolerance = QEFEigenTolerance, QEFCellMargin = QEFCellMargin,
+                ParallelCompute = ParallelCompute, CancelF = CancelF
+            };
+            ad.Generate();
+            Mesh = ad.Mesh;
+            NonManifoldTriangles = ad.NonManifoldTriangles;
+            SelfIntersectionFree = ad.SelfIntersectionFree;
+            PhaseMilliseconds = new Dictionary<string, long>(ad.BasePhaseMilliseconds);
+            if (ad.PhaseMilliseconds.ContainsKey("simplify")) PhaseMilliseconds["simplify"] = ad.PhaseMilliseconds["simplify"];
+            DualContouring b = ad.BaseContour;
+            if (b != null) {
+                CornerDimensions = b.CornerDimensions;
+                FaceVertices = b.FaceVertices; ClampedFaceVertices = b.ClampedFaceVertices; EdgeVertices = b.EdgeVertices;
+                ForcedDiagonals = b.ForcedDiagonals; DegenerateSplitsAvoided = b.DegenerateSplitsAvoided;
+                SelfIntersectionsFound = b.SelfIntersectionsFound; SelfIntersectionsLeft = b.SelfIntersectionsLeft;
+                CoveredTriangles = b.CoveredTriangles; CheckedTriangles = b.CheckedTriangles; TransitionErrors = b.TransitionErrors;
+                NonManifoldCells = b.NonManifoldCells; ResolveMilliseconds = b.ResolveMilliseconds;
+            }
+        }
+
+        void generate_uniform()
         {
             SelfIntersectionFree = false;
             Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;

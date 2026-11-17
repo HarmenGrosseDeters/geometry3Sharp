@@ -272,7 +272,7 @@ namespace geometry3Sharp.Tests
             var sdf = new SphereSDF();
             var bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3);
             double cell = 0.1;
-            var dense = new DualContouring() { Implicit = sdf, InsideIsLess = true, CellSize = cell, Bounds = bounds };
+            var dense = new DualContouring() { Simplify = false, Implicit = sdf, InsideIsLess = true, CellSize = cell, Bounds = bounds };
             dense.Generate();
 
             // candidate cells: all cells within one cell of the surface
@@ -286,7 +286,7 @@ namespace geometry3Sharp.Tests
                             candidates.Add(new Vector3i(i, j, k));
                     }
             int nodeEvaluations = 0;
-            var sparse = new DualContouring() {
+            var sparse = new DualContouring() { Simplify = false,
                 Implicit = sdf, InsideIsLess = true, CellSize = cell, Bounds = bounds,
                 CandidateCells = candidates,
                 NodeValueF = (ijk) => {
