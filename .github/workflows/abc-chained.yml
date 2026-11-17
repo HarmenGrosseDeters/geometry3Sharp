@@ -38,7 +38,7 @@ on:
         description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
         default: ''
       methods:
-        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck, geogram; ours_exact: exact intermediates against round-each-step, docs/design/EXACT_BOOLEAN_40_DESIGN.md)'
+        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck, geogram; ours_exact: exact intermediates against round-each-step, ours_exact_time: its order-randomized timing, docs/design/EXACT_BOOLEAN_40_DESIGN.md)'
         default: 'ours,manifold,cgal_epeck'
       threads:
         description: 'Threads of the booleans: all (all cores) or 1 (pinned to core 0)'
@@ -186,6 +186,9 @@ jobs:
           python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
           if [[ ",$METHODS," == *",ours_exact,"* ]]; then
             { echo; echo "### Exact intermediates (one pass over the original operands) against round-each-step"; echo; python3 scripts/benchmarks/BooleanComparison/chain_exact.py summary results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ ",$METHODS," == *",ours_exact_time,"* ]]; then
+            { echo; echo "### ExactMesh.Round() against today's chain, order-randomized timing"; echo; python3 scripts/benchmarks/BooleanComparison/chain_exact.py time-summary results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
           fi
           if [[ ",$METHODS," == *",geogram,"* ]]; then
             { echo; echo "### ours against Geogram (threads $THREADS)"; echo; python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py versus geogram results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"

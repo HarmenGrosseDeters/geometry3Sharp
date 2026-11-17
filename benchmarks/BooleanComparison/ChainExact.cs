@@ -9,6 +9,12 @@
 // against the value bounds of the design note (section 2), from the operands' grid bits B.
 //   chain-exact <A.off> <B.off> <C.off> <ucd|dui|iud>      the abc-chained plans (data/abc_chained.py, PLANS)
 //   chain-exact-proc <mixed|generic> <seed> <steps>        procedural chains (no data), 1..8 steps
+// Stage 1 (the lazy ExactMesh, mesh_ops/LazyExactMesh.cs):
+//   chain-exact-diag[-proc] <inputs> <factors>   per step today's chain and ExactMesh.Round() with the rounding's pair-test budget
+//                                                 times each factor (eg 1,4,16; the cause of the long-chain regression)
+//   chain-exact-time[-proc] <inputs> <reps>       order-randomized timing: per repetition the chain (steps 1..n) and ExactMesh.Round()
+//                                                 of each step k run as separate jobs in a shuffled order; medians per k
+// where <inputs> is <A.off> <B.off> <C.off> <ucd|dui|iud> or <mixed|generic> <seed> <steps>.
 // Benchmark code only: nothing here is part of the library.
 using System;
 using System.Collections.Generic;
@@ -55,7 +61,20 @@ static class ChainExact
             Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["error"] = "load failed" }));
             return 0;
         }
-        return RunChain(ops, AbcPlan(args[3]), new Dictionary<string, object> { ["family"] = "abc", ["variant"] = args[3] });
+        return Dispatch(mode, ops, AbcPlan(args[3]), new Dictionary<string, object> { ["family"] = "abc", ["variant"] = args[3] }, args.Skip(4).ToArray());
+    }
+
+    static string mode = "measure";
+    public static int Abc(string[] args, string m) { mode = m; return Abc(args); }
+    public static int Procedural(string[] args, string m) { mode = m; return Procedural(args); }
+
+    static int Dispatch(string m, List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, string[] rest)
+    {
+        switch (m) {
+            case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(double.Parse).ToArray());
+            case "time": return RunTime(ops, plan, info, int.Parse(rest[0]));
+            default: return RunChain(ops, plan, info);
+        }
     }
 
     // ------------------------------------------------------------------ procedural chains
@@ -85,7 +104,7 @@ static class ChainExact
     {
         string family = args[0];
         int seed = int.Parse(args[1]), steps = int.Parse(args[2]);
-        if ((family != "mixed" && family != "generic") || steps < 1 || steps > 8)
+        if ((family != "mixed" && family != "generic") || steps < 1 || steps > 8 || (mode != "measure" && args.Length < 4))
             throw new ArgumentException("chain-exact-proc <mixed|generic> <seed> <steps 1..8>");
         var r = new Random(seed);
         var ops = new List<DMesh3>();
@@ -122,7 +141,117 @@ static class ChainExact
             plan.Add(new Step(op, i == 1 ? 0 : -1, i));
         }
         info["placements"] = placements;
-        return RunChain(ops, plan, info);
+        return Dispatch(mode, ops, plan, info, args.Skip(3).ToArray());
+    }
+
+    // ------------------------------------------------------------------ stage 1: the lazy ExactMesh
+
+    // step k of the plan as an ExactMesh expression over the operands (one source per operand: A used twice is one source)
+    static ExactMesh Lazy(List<Step> plan, int k, ExactMesh[] leaf)
+    {
+        ExactMesh e = null;
+        for (int i = 0; i <= k; ++i) {
+            ExactMesh l = plan[i].Left < 0 ? e : leaf[plan[i].Left], r = leaf[plan[i].Right];
+            e = plan[i].Op == ExactMeshBoolean.Operations.Union ? l.Union(r) : plan[i].Op == ExactMeshBoolean.Operations.Intersection ? l.Intersection(r) : l.Difference(r);
+        }
+        return e;
+    }
+
+    static ExactMesh[] Leaves(List<DMesh3> ops) { return ops.Select(ExactMesh.FromDMesh).ToArray(); }
+
+    // per step: today's chain and ExactMesh.Round() with the rounding's pair-test budget times each factor
+    static int RunDiag(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, double[] factors)
+    {
+        Warm();
+        ExactMesh[] leaf = Leaves(ops);
+        DMesh3 prev = null;
+        bool chainAlive = true;
+        for (int k = 0; k < plan.Count; ++k) {
+            var row = new Dictionary<string, object>(info) { ["step"] = k + 1, ["op"] = Name(plan[k].Op), ["factors"] = factors };
+            if (chainAlive) {
+                var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op);
+                var sw = Stopwatch.StartNew();
+                bool ok = b.Compute();
+                row["chained_ms"] = sw.ElapsedMilliseconds;
+                Outcome(b, ok, "chained", row);
+                if (ok && b.Result.TriangleCount > 0) prev = b.Result;
+                else chainAlive = false;
+            }
+            ExactMesh e = Lazy(plan, k, leaf);
+            foreach (double f in factors) {
+                ExactMeshBoolean b = e.ToBoolean();
+                b.RoundingMaxPairTests = (long)(b.RoundingMaxPairTests * f);
+                var sw = Stopwatch.StartNew();
+                bool ok = b.Compute();
+                string pre = "lazy_x" + f;
+                row[pre + "_ms"] = sw.ElapsedMilliseconds;
+                Outcome(b, ok, pre, row);
+            }
+            Console.WriteLine(JsonSerializer.Serialize(row));
+        }
+        return 0;
+    }
+
+    // order-randomized timing: per repetition, the jobs "chain" (today's steps 1..n, each step timed) and "lazy k"
+    // (ExactMesh.Round() of step k) for every k, shuffled (a fixed seed; the order varies between repetitions); a full GC
+    // before each job; medians over the repetitions
+    static int RunTime(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, int reps)
+    {
+        Warm();
+        ExactMesh[] leaf = Leaves(ops);
+        int n = plan.Count;
+        var chainSteps = new List<long[]>();           // per repetition: the ms of each step (-1 after the chain ended)
+        var lazyMs = new List<long>[n];
+        for (int k = 0; k < n; ++k) lazyMs[k] = new List<long>();
+        var orders = new List<string>();
+        var rng = new Random(12345 + 7 * n);
+        for (int rep = 0; rep < reps; ++rep) {
+            var jobs = Enumerable.Range(-1, n + 1).ToList();      // -1: the chain, k: lazy step k
+            for (int i = jobs.Count - 1; i > 0; --i) { int j = rng.Next(i + 1); int t = jobs[i]; jobs[i] = jobs[j]; jobs[j] = t; }
+            orders.Add(string.Join(" ", jobs.Select(j => j < 0 ? "c" : "l" + (j + 1))));
+            foreach (int job in jobs) {
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                if (job < 0) {
+                    var ms = new long[n];
+                    DMesh3 prev = null;
+                    bool alive = true;
+                    for (int k = 0; k < n; ++k) {
+                        if (!alive) { ms[k] = -1; continue; }
+                        var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op);
+                        var sw = Stopwatch.StartNew();
+                        bool ok = b.Compute();
+                        ms[k] = sw.ElapsedMilliseconds;
+                        if (ok && b.Result.TriangleCount > 0) prev = b.Result; else alive = false;
+                    }
+                    chainSteps.Add(ms);
+                } else {
+                    ExactMeshBoolean b = Lazy(plan, job, leaf).ToBoolean();
+                    var sw = Stopwatch.StartNew();
+                    b.Compute();
+                    lazyMs[job].Add(sw.ElapsedMilliseconds);
+                }
+            }
+        }
+        for (int k = 0; k < n; ++k) {
+            var row = new Dictionary<string, object>(info) { ["step"] = k + 1, ["op"] = Name(plan[k].Op), ["reps"] = reps, ["orders"] = orders };
+            if (chainSteps.All(ms => ms[k] >= 0)) {
+                List<long> cum = chainSteps.Select(ms => ms.Take(k + 1).Sum()).ToList();
+                row["chain_cum_ms"] = cum;
+                row["chain_cum_median_ms"] = Median(cum);
+                row["chain_step_median_ms"] = Median(chainSteps.Select(ms => ms[k]).ToList());
+            }
+            row["lazy_ms"] = lazyMs[k];
+            row["lazy_median_ms"] = Median(lazyMs[k]);
+            Console.WriteLine(JsonSerializer.Serialize(row));
+        }
+        return 0;
+    }
+
+    static double Median(List<long> v)
+    {
+        var s = v.OrderBy(x => x).ToList();
+        if (s.Count == 0) return -1;
+        return s.Count % 2 == 1 ? s[s.Count / 2] : 0.5 * (s[s.Count / 2 - 1] + s[s.Count / 2]);
     }
 
     // ------------------------------------------------------------------ the two chains
@@ -215,6 +344,13 @@ static class ChainExact
         row[pre + "_removed_components"] = b.Rounding?.RemovedComponents ?? 0;
         row[pre + "_evaluation_limit"] = b.Rounding?.EvaluationLimitReached ?? false;
         row[pre + "_max_drift"] = b.Rounding?.MaxDrift ?? 0;
+        if (b.Rounding != null) {
+            MeshRoundingRepair rr = b.Rounding;
+            row[pre + "_max_length"] = rr.MaxLength;
+            row[pre + "_smallest_rejected_drift"] = double.IsInfinity(rr.SmallestRejectedDrift) ? -1 : rr.SmallestRejectedDrift;
+            row[pre + "_stopped_by_pair_tests"] = rr.StoppedByPairTests;
+            row[pre + "_remaining"] = new[] { rr.RemainingIntersections, rr.RemainingDegenerate, rr.RemainingFalseContacts };
+        }
         row[pre + "_contacts"] = b.Contacts;
         // NotCleanReason without its self-intersection test (as the eval; split pinches touch at duplicated positions) and with it
         row[pre + "_reason"] = MeshRobustRepair.NotCleanReason(m, false);
