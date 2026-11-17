@@ -7,9 +7,10 @@
     "target-framework": "net10.0",
     "mutate": [
       "**/parameterization/FoldoverFreeParameterization.cs",
-      "**/parameterization/LSCMParameterization.cs"
+      "**/parameterization/LSCMParameterization.cs",
+      "**/parameterization/SpectralConformalParameterization.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~UVAtlasTests.|FullyQualifiedName~ParameterizationTests.|FullyQualifiedName~ParameterizationIssueCasesTests.|FullyQualifiedName~ParameterizationFlippedMapTests.|FullyQualifiedName~FoldoverFreeTests.|FullyQualifiedName~FoldoverFreeToleranceTests.",
+    "test-case-filter": "FullyQualifiedName~UVAtlasTests.|FullyQualifiedName~ParameterizationTests.|FullyQualifiedName~ParameterizationIssueCasesTests.|FullyQualifiedName~ParameterizationFlippedMapTests.|FullyQualifiedName~FoldoverFreeTests.|FullyQualifiedName~FoldoverFreeToleranceTests.|FullyQualifiedName~SpectralConformalParameterizationTests.",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

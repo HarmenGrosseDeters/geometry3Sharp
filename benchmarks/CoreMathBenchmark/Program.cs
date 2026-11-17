@@ -1,4 +1,4 @@
-// Cost of the correctly rounded CoreMath (sin, cos, atan2, exp, log, and the fused multiply-add) against System.Math, in ns per call.
+// Cost of the correctly rounded CoreMath (sin, cos, tan, atan2, acos, exp, log, and the fused multiply-add) against System.Math, in ns per call.
 // net10.0: CoreMath.FusedMultiplyAdd is Math.FusedMultiplyAdd (hardware); net48 (the netstandard2.0 build): the software version.
 using System;
 using System.Diagnostics;
@@ -11,12 +11,13 @@ static class Program
     static void Main()
     {
         var rnd = new Random(1);
-        var a = new double[N]; var b = new double[N]; var pos = new double[N]; var wide = new double[N];
+        var a = new double[N]; var b = new double[N]; var pos = new double[N]; var wide = new double[N]; var unit = new double[N];
         for (int i = 0; i < N; ++i) {
             a[i] = (rnd.NextDouble() - 0.5) * 12.0;                  // angles of a few turns
             b[i] = (rnd.NextDouble() - 0.5) * 40.0;                  // exp arguments
             pos[i] = rnd.NextDouble() * 100 + 1e-3;                  // log arguments
             wide[i] = (rnd.NextDouble() - 0.5) * 2e3;
+            unit[i] = rnd.NextDouble() * 2 - 1;                      // acos arguments
         }
         Console.WriteLine("runtime: " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
             + ", arch " + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture);
@@ -26,6 +27,10 @@ static class Program
         Row("sin", a, x => Math.Sin(x), x => CoreMath.Sin(x));
         Row("cos", a, x => Math.Cos(x), x => CoreMath.Cos(x));
         Row("sin (|x| < 1000)", wide, x => Math.Sin(x), x => CoreMath.Sin(x));
+        Row("tan", a, x => Math.Tan(x), x => CoreMath.Tan(x));
+        Row("tan (|x| < 1000)", wide, x => Math.Tan(x), x => CoreMath.Tan(x));
+        Row("acos", unit, x => Math.Acos(x), x => CoreMath.Acos(x));
+        Row("acos, composed AcosByAtan2 (not correctly rounded)", unit, x => Math.Acos(x), x => CoreMath.AcosByAtan2(x));
         Row("atan2(x, 1.7)", a, x => Math.Atan2(x, 1.7), x => CoreMath.Atan2(x, 1.7));
         Row("exp", b, x => Math.Exp(x), x => CoreMath.Exp(x));
         Row("log", pos, x => Math.Log(x), x => CoreMath.Log(x));

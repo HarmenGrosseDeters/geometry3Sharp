@@ -257,6 +257,11 @@ keeps its source, an edited one takes the nearest of the sources at its vertices
 edge of a split triangle) reuses that vertex (`Counts["target_vertex_points"]`); `HasCracks` is true where new vertices met a degenerate triangle that is not split;
 a curve along an edge of an unsplit triangle is in `CurveEdges`.
 
+Since #1034 (`IMPRINT_SLIVER_CLEANUP.md`): the parts of split target edges are a lock set of the repair (`RuleLockedEdges`) instead of
+a part of `LockedEdgeF`, with the same meaning while the repair runs as before. Only where it leaves a defect, a final stage runs
+the passes and the search once more with these locks following a contraction (the slivers of near contact, eg a cutter shifted by
+one ulp: a curve vertex on a split edge 1e-16 to 3e-11 from a target vertex). A result that is clean without the stage is the same.
+
 **Guarantees** (stated, each tested in section 5):
 - G1 Combinatorial: closed and manifold target gives a closed, manifold result (exact, independent of rounding); boundary loops of an
   open target are the same loops, split by vertices; orientation of every piece equals its source triangle's; target vertex ids
@@ -266,7 +271,8 @@ a curve along an edge of an unsplit triangle is in `CurveEdges`.
   intersection curves of target and cutter (the boolean's `ConstraintEdges` restricted to the target's triangles).
 - G3 Geometric: with rounding, every result point is within `max(MaxDisplacement * diagonal, UlpFactor * ulp)` of the target's
   surface (the same bound as SafeRounding); with `FixedHard` only new vertices move (tiny moves within the bound, or the
-  contractions of curve edges); target vertices never move. For results where no edit was made the distance is at most a rounding unit.
+  contractions of curve edges and, since #1034, of the parts of split edges, whose chain may then pass through a vertex off the
+  edge within the bound, `IMPRINT_SLIVER_CLEANUP.md`); target vertices never move. For results where no edit was made the distance is at most a rounding unit.
 - G4 Verified: with `SafeRounding`, if `RoundingClean`, no pair with a piece triangle (these are all the pairs that can be new)
   self-intersects unless its source triangles intersect in the target, and no piece is degenerate unless its source is (exact check on the doubles).
 - G5 Curve edges: every curve edge of the exact imprint is an edge of `Result`, or was contracted by a counted edit

@@ -231,10 +231,14 @@ namespace g3
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
         /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): no edit is evaluated once the exact triangle
-        /// pair tests of its evaluations exceed it. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
+        /// pair tests of its evaluations exceed it (grown with the initial defects by up to 4 times, RoundingPairTestsDefectScale / RoundingPairTestsMaxGrowth). Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
         /// defects left counted; it bounds the time on inputs it cannot repair. Default 5M
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary>
         /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
         /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
@@ -692,7 +696,7 @@ namespace g3
                     // of them are exact triangles of the arrangement)
                     ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests,
+                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests, PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
                     // (#985: where an exact input is itself thin or tiny, a result of thin pieces only is that input's
                     // shape, not slivers of nearly coincident surfaces: it is kept, and counted)
                     KeepWhenEmptied = inputs.Exists(m => MeshRoundingRepair.IsThinOrTiny(m, RoundingMaxDisplacement, 1e-12))

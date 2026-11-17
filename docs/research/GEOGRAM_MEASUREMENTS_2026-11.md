@@ -26,7 +26,8 @@ Side finding (item 1): `LSCMParameterization` returns `Success` with mean confor
 the open cylinder 48 x 12 of height 3.6, whose far ring collapses to a near-segment without a flipped or (by the rule)
 degenerate triangle; on a jittered 24 x 6 cylinder `Success` with max conformal 36.5. The P1 status check (flips and
 `DegenerateUVTriangles`) does not catch a near-collapse. Not fixed here (it changes a status); reported to the
-coordinator.
+coordinator. Fixed later (#1049): a near-collapsed UV triangle now counts as degenerate, the 48 x 12 cylinder reports
+`FlippedTriangles` (docs/ISSUE_CASE_FINDINGS.md, P1).
 
 ## 1. Pin-free spectral conformal parameterization
 
@@ -125,6 +126,8 @@ and iterations); distortion: `ParameterizationDistortion.Compute`, mean / max co
 
 ### Recommendation
 
+- Implemented as the opt-in `SpectralConformalParameterization` (discs only, refusing a nearly double smallest
+  eigenvalue); its per-chart A/B against LSCM on the atlas corpus is in benchmarks/UVAtlasBenchmark/README.md (`chart-ab`).
 - **Go, opt-in, for disc charts** (owner decision): it removes the pin choice (P3 to 1e-13) and keeps the maximum
   conformal distortion equal or slightly lower, at 1.65-1.85x LSCM's time on curved discs (48k). Before an adoption: an A/B in the atlas
   (`UVAtlasBenchmark`: the charts where LSCM is the fallback) and the mollified weights of `ParamMesh` (the spike uses

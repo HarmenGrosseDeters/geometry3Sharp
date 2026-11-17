@@ -75,6 +75,7 @@ on:
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshGeodesicDistanceTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshImprintTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactMeshImprintSliver*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImprintAssemblyTests.cs'
       - 'tests/geometry3Sharp.Tests/Harness/ContactAssemblies.cs'
       - 'tests/geometry3Sharp.Tests/Harness/ContactAssemblyFixtures.cs'
@@ -82,6 +83,7 @@ on:
       - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingLastComponentTests.cs'
+      - 'tests/geometry3Sharp.Tests/SafeRoundingBudgetTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingSerialWorkTests.cs'
@@ -111,6 +113,7 @@ on:
       - 'parameterization/ARAPParameterization.cs'
       - 'parameterization/FoldoverFreeParameterization.cs'
       - 'parameterization/LSCMParameterization.cs'
+      - 'parameterization/SpectralConformalParameterization.cs'
       - 'parameterization/MeshParameterization.cs'
       - 'tests/geometry3Sharp.Tests/UVAtlasTests.cs'
       - 'tests/geometry3Sharp.Tests/ParameterizationTests.cs'
@@ -118,13 +121,14 @@ on:
       - 'tests/geometry3Sharp.Tests/ParameterizationFlippedMapTests.cs'
       - 'tests/geometry3Sharp.Tests/FoldoverFreeTests.cs'
       - 'tests/geometry3Sharp.Tests/FoldoverFreeToleranceTests.cs'
+      - 'tests/geometry3Sharp.Tests/SpectralConformalParameterizationTests.cs'
       - 'tests/mutation/*'
       - 'tests/mutation/local-results/**'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
     # master, in the evening (UTC; Exact Boolean 3.0, tests/mutation/README.md "3.0 process"): the big shards of the exact boolean
-    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 39 configs) Monday to Saturday, everything else (envelope, imprint,
+    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 46 configs) Monday to Saturday, everything else (envelope, imprint,
     # geodesic, hausdorff, terrain, planar, fixed, generated, arithmetic) on Sunday (select_shards.py --only nightly / weekly).
     # Estimate, not measured: a shard takes 1 to 6 hours (README) and 6 run at a time (max-parallel), so the 24 nightly shards need
     # about 12 to 16 hours, ending between 07:00 and 11:00 UTC. The baselines of the incremental PR runs come from these runs.
@@ -321,9 +325,9 @@ jobs:
       fail-fast: false
       # at most 6 shards at a time (owner 2026-11-13: short PR jobs must not wait for slots; it was 12, and 4 before: the 15 mesh
       # shards of a full run then took 4 waves, about 12 hours of wall time). The account runs at most 20 jobs at once; a full
-      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 38 mesh
+      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 45 mesh
       # configs of 1 to 6 hours each need more than a day when all run (`shards=all`), which is why the scheduled runs are
-      # split into the nightly (24) and the weekly (15) group (README "3.0 process"; the schedule guard skips a starter while a
+      # split into the nightly (24) and the weekly (22, the arithmetic job included) group (README "3.0 process"; the schedule guard skips a starter while a
       # plain run of the day is under way). Not a concurrency group: it keeps one pending job and cancels the
       # others. Scheduling only: it changes no shard's result (select_shards.py: not a reason for full runs)
       max-parallel: 6
