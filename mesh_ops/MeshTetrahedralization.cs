@@ -32,8 +32,11 @@ namespace gs
     public class MeshTetrahedralization
     {
         public DMesh3 Mesh;
-        /// <summary> the wrap's parameters (MeshAlphaWrap.RelativeAlpha / RelativeOffset: the bounding box diagonal over alpha / offset) </summary>
-        public double RelativeAlpha = 20, RelativeOffset = 600;
+        /// <summary> the wrap's parameters (MeshAlphaWrap.RelativeAlpha / RelativeOffset: the bounding box diagonal over alpha / offset).
+        /// The default alpha is diagonal / 40, finer than the wrap's own default of / 20 (docs/design/TET_MESHING.md section 17.8, 500-mesh
+        /// Thingi10K sample: every tet >= 10 degrees on 494 instead of 461 meshes, the input-to-boundary distance 0.77x, 1.3x the time, 1.7x the
+        /// tets). Larger values follow the input more closely at more tets (17.2). </summary>
+        public double RelativeAlpha = 40, RelativeOffset = 600;
         /// <summary> radius-edge bound rho (> 2 for the termination argument without the floor) </summary>
         public double MaxRadiusEdgeRatio = 2;
         /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>

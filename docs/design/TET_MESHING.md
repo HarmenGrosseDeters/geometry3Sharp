@@ -3,7 +3,7 @@
 **Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500).
 Stage 1 prerequisites (owner go 2026-11-13): the fTetWild black-box comparison (section 12), the sharp-feature check of #736
 (section 13) and the stage-1 plan with its owner decisions (section 14). Stages 1 and 2 are built since (sections 14.8-16);
-the production-quality gap study and plan (owner 2026-11-17) is section 17.
+the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8.
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
@@ -799,9 +799,11 @@ degrees after edge removal and face removal, in `TetMeshImprover`:
 What holds, by construction: every tet exactly positive; the boundary closed and 2-manifold (contractions leave it as it is, splits
 replace two triangles by four in place); free of self-intersections and the input strictly inside it (the exact checks); the smallest
 dihedral angle of the mesh never decreases (every operation raises the minimum of the tets it changes). The slide cap: a split
-vertex's cap is measured from the midpoint of its edge's first positions, which lies on the wrap (boundary edges are only ever
-split, so each lies in one wrap triangle), minus a margin for that midpoint's rounding, so every boundary vertex stays within
-`BoundarySlideFactor` offsets of the wrap surface (the margin was needed: at UTM coordinates the vertex was 0.5000061 offsets out,
+vertex's cap is measured from the midpoint of its edge's first positions, which lies on the stage-1 surface (boundary edges are
+only ever split, so each lies in one stage-1 triangle), minus a margin for that midpoint's rounding, so every boundary vertex stays
+within `BoundarySlideFactor` offsets of the **stage-1 surface** (the wrap after peeling), and so within the peel depth plus
+`BoundarySlideFactor` offsets of the wrap (restated 2026-11-17 by owner decision, 16.4, where the peel depth is defined; the text said
+"of the wrap surface", which peeled triangles break; the margin was needed: at UTM coordinates the vertex was 0.5000061 offsets out,
 test `Similarity_ValidAndPow2ScalesBitForBit`). Scale-free and serial: 2^k scalings give the same mesh bit for bit (tested).
 
 ### 16.3 Result on the 40-mesh subset (one process at a time; rows `results/thingi10k-subset-stage2-{master,splits}-2026-11-17.csv`)
@@ -835,6 +837,42 @@ of a split on meshes like 839690 (smoothing with the exact checks dominates).
 Owner decisions: (1) the default: `SplitEdges` and `ContractEdges` on, `ImprovePasses` 50 (this PR; the output of
 `MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last four meshes: accept
 36 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).
+
+### 16.4 The slide bound on peeled surfaces (owner decision 2026-11-17)
+
+Found by the default-alpha tests of stage P1 (17.8): on the thin torus at alpha / 40 under the similarity "rotated, scale 1e-3, utm"
+a boundary vertex was **0.642 offsets** from the wrap surface, against the 0.5 that 16.2 stated for the wrap. Validity is not affected
+(exact positive tets, closed manifold boundary, no self-intersection, input inside). Cause: peeling (14.9) replaces two wrap triangles
+by the sliver's other two faces, which lie below the wrap; a split of an edge in such triangles measures its vertex's cap from a
+point below the wrap. Probe on that case: peeling off 0.498 offsets, splits off 0.499, both on 0.642; at alpha / 20 the same case is
+0.500: the code is master's, and only the finer alpha exposes it.
+
+**Decision (owner, 2026-11-17): the bound is restated, the code is unchanged**: every boundary vertex stays within
+`BoundarySlideFactor` offsets of the stage-1 surface (the wrap after peeling), so within the peel depth plus `BoundarySlideFactor`
+offsets of the wrap (16.2). The **peel depth** is the largest distance from a point of the stage-1 surface to the wrap. One peel moves
+the surface inward by at most the peeled sliver's height (14.9), but the final sweep repeats peels, so the depths can add up, and no
+parameter bounds the total. Reason: both sound ways to keep the old bound cost quality, while the measured fidelity is the same either way.
+
+| Every tet >= 10 degrees (all valid, no self-intersection) | master (kept) | refuse splits of edges whose two triangles are peeled | cap reduced by the midpoint's depth below the wrap |
+|---|---:|---:|---:|
+| 40-mesh subset, alpha / 20 | 36 (worst 6.11) | 34 (3.98) | 34 (5.09) |
+| 40-mesh subset, alpha / 40 | 40 | 39 (75915 5.22) | 39 (75915 4.70) |
+| 500-mesh sample, alpha / 40 | **494** (7.12) | not run | 488 (3.35) |
+| sample, input to boundary max, median | 0.0228 | | 0.0228 |
+
+The rejected alternatives (not built into the library; measured on a local branch): stage 1 flags the boundary triangles that are
+wrap facets (the `Refiner` records them before any peel), stage 2 carries the flag through splits and undo, and for an edge whose two
+triangles are both peeled either refuses the split or measures the depth of its midpoint below the wrap (an AABB tree of the wrap) and
+takes it off the new vertex's cap; both restore the 0.5-offset bound to the wrap (hand mutants killed, the UTM case fails without
+them). The cap reduction does not save the splits because peeled chords are often deeper than the 0.5-offset cap.
+
+Test: `TetMeshingStage2Tests.Invariants` checks every boundary vertex against the stage-1 surface (a second run of the same parameters
+without stage 2, deterministic for every `MaxThreads`, gives that surface; tests that already have that run pass it in). Mutants of the stage-1 cap (the limit 1.5x; a split vertex's cap
+measured from its own start instead of its edge's first-position midpoint) are killed. The wrap-side bound (peel depth + 0.5 offsets)
+is not checked separately: the peel depth is not exposed, and with the vertex on the stage-1 surface it follows by the triangle
+inequality. A distance check cannot see a move along the surface beyond the cap: the cumulative cap of never-split vertices is checked
+by `BoundaryDisplacement_IsCumulativelyCapped_FromTheOriginalWrapPosition`, and that of split vertices only through this distance
+check.
 
 ## 17. Production quality: gap study and staged plan (2026-11-17; study only, no library code)
 
@@ -988,3 +1026,36 @@ the PR; meshes fetched at run time), each candidate default (alpha / 40 and alph
 3. **Order** P1 -> P2 (+ P5(a)) -> P3 -> P4, or P2 first if file output is needed sooner.
 4. **P2 scope**: formats (Medit, Gmsh 4.1 / 2.2, VTK), readers or not, boundary marker semantics.
 5. **P4 choice** after P1: local alpha, S1-F creases, or option (b); P5(b) only if a proof is required.
+
+### 17.8 Stage P1 result: the runner sample and the default (2026-11-17)
+
+Run: `.github/workflows/tet-sample.yml`, run 44122189889 on 637b148d, 6 shards on GitHub-hosted runners (ubuntu-latest), all alphas of
+a mesh on one runner, timeout 600 s per mesh and alpha (none reached). The 500 ids are `benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt`:
+every 20th id of the dataset's `metadata/file_ids.txt` from index 7, disjoint from the 40-mesh subset. Meshes were fetched at run time
+and not kept. Raw rows and SUMMARY.md: data branch `runs/tet-meshing`, `sample/2026-11-17-run44122189889/`; the same rows are
+`benchmarks/TetMeshBenchmark/results/thingi10k-sample500-alpha{20,40,80}-2026-11-17.csv`. The rule is applied by
+`benchmarks/TetMeshBenchmark/compare/summarize_sample.py`.
+
+| 500 meshes, offset diagonal / 600 | alpha / 20 (old default) | alpha / 40 | alpha / 80 |
+|---|---:|---:|---:|
+| Success, valid (exact), boundary without self-intersection | 500, 500, 500 | 500, 500, 500 | 500, 500, 500 |
+| every tet >= 10 degrees | 461 (92.2 %) | 494 (**98.8 %**) | 499 (99.8 %) |
+| worst smallest dihedral (degrees) | 3.78 | 7.12 | 9.25 |
+| input to boundary, max, median (diagonal) | 0.0343 | 0.0228 | 0.0135 |
+| per-mesh ratio against / 20, median: input to boundary max / time / tets | 1 | 0.77 / 1.22 / 1.69 | 0.47 / 2.03 / 4.74 |
+| time median / max (s) | 0.64 / 8.6 | 0.83 / 9.8 | 1.41 / 11.7 |
+| tets, median | 4.1k | 7.3k | 19.5k |
+
+The rule of 17.5 gives no go for both candidates: alpha / 40 misses criterion 1 by one mesh (6 meshes below 10 degrees, 5 allowed by
+99 %) and passes 2 and 3 (0.77 <= 0.85; median time 1.30x <= 2x); alpha / 80 passes 1 and 2 and misses 3 (2.22x the median time).
+No run took more than 20 s. Criterion 4 (subset): 7.1k tets at the median at / 40, below 29k.
+
+**Owner decision (2026-11-17), a documented exception to the rule of 17.5: the default of `MeshTetrahedralization.RelativeAlpha` is
+diagonal / 40** (was 20; `RelativeOffset` stays 600; `MeshAlphaWrap`'s own default is unchanged). It misses the 99 % of criterion 1 by
+one mesh and costs 1.30x the time and 1.7x the tets for 461 -> 494 meshes at 10 degrees and 0.77x the input-to-boundary distance. The
+6 meshes left below 10 degrees at / 40 go to the parked improver lever (#1072): 138102 (7.12 degrees, 2976 input triangles), 763398
+(9.15), 38781 (9.43), 282598 (9.53), 83719 (9.60), 50656 (9.88). Tests: `TetMeshingDefaultTests` (the default pinned, every `MaxThreads`
+the same result, `Similarity.All()` with 2^k bit for bit at the default); `TetMeshingStage2Tests` runs at the default (reuse, and every
+tet >= 10 degrees with the invariants on the procedural set); the mechanism tests of peeling, splits and the diagnosis keep alpha / 20 (`MechanismAlpha`), because at the finer default
+the bad tets they act on are gone. The procedural inputs already reach 10 degrees at / 20, so the unit test that fails on the old
+code is the pinned default; the behaviour change is evidenced by the sample.

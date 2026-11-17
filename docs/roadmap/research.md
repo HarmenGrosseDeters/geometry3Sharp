@@ -106,6 +106,8 @@ Part of the [roadmap](../ROADMAP.md).
      Production quality (owner 2026-11-17): gap study and staged plan P1-P5 in TET_MESHING.md section 17 (surface fidelity
      first; at alpha = diagonal / 40 or / 80 every tet >= 10° on 40 of 40; stage P1 = finer default alpha + a runner sample,
      go / no-go fixed in 17.5; owner decisions 17.7).
+     P1 done (17.8): 500-mesh runner sample; default alpha diagonal / 40 as a documented exception to the 17.5 rule (every tet
+     >= 10° on 494 of 500, 461 at / 20; 1.3x the time); the 6 meshes left go to the parked lever #1072. Next: P2 (scope to the owner).
   4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: the next
      Phase 5 item, ahead of items 1-3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
@@ -587,6 +589,7 @@ Ordered by expected value for the library.
      edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690). Exudation not needed.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
+     At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
