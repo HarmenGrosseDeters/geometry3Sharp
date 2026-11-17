@@ -43,6 +43,7 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 - [AW87] J. Amanatides, A. Woo, *A fast voxel traversal algorithm for ray tracing*, Eurographics 1987.
 - [H91] D. Hilbert 1891; [B71] A. R. Butz, IEEE Trans. Computers 1971 (Hilbert index).
 - [Sh97] J. R. Shewchuk, *Adaptive precision floating-point arithmetic and fast robust geometric predicates*, DCG 18, 1997 (the library's `ExactPredicates`).
+- [GG26] Geogram (Inria, BSD-3), commit 16440c45, read 2026-11-17 for the survey [GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md) by a session that did not change the mesher; ideas only, nothing built from it. Read (header checked first): `src/lib/geogram/delaunay/CDT_2d.h` lines 1-800, 1000-1100, 1300-1380, 1520-1751 (the rest seen only as a grep outline of declarations); `CDT_2d.cpp` lines 1-1160, 1309-1452, 1520-1770, 1990-2019 (1160-1309, 1453-1519, 1770-1990 not read, function signatures seen by grep); `LFS.h` and `LFS.cpp` in full. `delaunay_triangle.*` and `third_party/triangle` were not opened. A later change that takes an idea from it (crossings from the original input segments, section 2a idea A2) names this entry.
 
 ## M1: `comp_geom/DelaunayKernel2.cs`, `DelaunayMesh2.cs`, `TriangulationMesh2.cs`, `Triangulation2Result.cs`
 
