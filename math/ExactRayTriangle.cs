@@ -36,8 +36,11 @@ namespace g3
         /// coordinates of origin and direction so that the scaled direction is at least twice the origin's largest
         /// coordinate (so p != origin, and the rounding of the sum changes the line's direction by at most about
         /// 2^-51 relative). 2^m depends only on the exponent difference, so scaling origin and direction by 2^k (or the
-        /// origin alone, with the 2^k scaled into 2^m) scales p by 2^k exactly. Returns origin if the direction is 0
-        /// or a value is not finite (no hits then).
+        /// origin alone, with the 2^k scaled into 2^m) scales p by 2^k exactly, as long as the scaled direction and p
+        /// stay normal before and after the scaling: in the subnormal range 2^m direction rounds to the subnormal grid,
+        /// so p, and with it the ray, is a different one for scaled inputs (and on 32-bit .NET Framework, x87, the
+        /// rounding of the subnormal sum differs from SSE2: docs/design/DETERMINISM_PROOF.md 5.3). Returns origin if
+        /// the direction is 0 or a value is not finite (no hits then).
         /// </summary>
         public static Vector3d SecondPoint(Vector3d origin, Vector3d direction)
         {

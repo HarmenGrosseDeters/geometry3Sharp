@@ -1,0 +1,45 @@
+#710 in-range variant (corner 2^-30): scales 2^600 .. 2^800 step 4 (cube from 2^-139 to 2^61): 51 of 51 bit-identical to 2^600
+#712 flat id    ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=True vol=1.0072543153947486E-92
+#712 flat perm  ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=False vol=1.007254315394749E-92
+#712 flat sym1  ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=False vol=1.0072543153947489E-92
+#712 flat sym3  ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=False vol=1.0072543153947486E-92
+#712 flat sym6  ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=False vol=1.0093534380449156E-92
+#712 flat sym7  ok=True tris=84 clean='' wrap=True solid=False exact=False wrapTris=94 fallback='degenerate triangles' sameAsId=False vol=1.0093534380457071E-92
+#712 unflat id    ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#712 unflat perm  ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#712 unflat sym1  ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#712 unflat sym3  ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#712 unflat sym6  ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#712 unflat sym7  ok=True tris=4 clean='' wrap=False solid=False exact=False wrapTris=0 fallback='' sameAsId=True vol=8.181822442162877E-92
+#710 orig corner 1.8e-284        2^0 sym0       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^0 sym1       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^0 sym7       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^0 sym3       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^700 sym0     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^700 sym1     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^700 sym7     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^700 sym3     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^740 sym0     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^740 sym1     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^740 sym7     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^740 sym3     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^760 sym0     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^760 sym1     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 orig corner 1.8e-284        2^760 sym7     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 orig corner 1.8e-284        2^760 sym3     ok=True tris=16 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=False
+#710 variant corner 2^-30 of a0  2^0 sym0       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^0 sym1       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^0 sym7       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^0 sym3       ok=True tris=20 outsideRange=1 roundingClean=False sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^700 sym0     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^700 sym1     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^700 sym7     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^700 sym3     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^740 sym0     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^740 sym1     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^740 sym7     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^740 sym3     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^760 sym0     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^760 sym1     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^760 sym7     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True
+#710 variant corner 2^-30 of a0  2^760 sym3     ok=True tris=20 outsideRange=0 roundingClean=True sameAs[2^740 sym0]=True

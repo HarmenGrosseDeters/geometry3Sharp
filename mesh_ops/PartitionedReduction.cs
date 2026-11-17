@@ -151,7 +151,7 @@ namespace gs
             cut[0] = bounds.Min[axis]; cut[K] = bounds.Max[axis];
             for (int k = 1; k < K; ++k) {
                 double f = shifted ? (k - 0.5) / (K - 1) : (double)k / K;
-                cut[k] = coords[(int)(f * (coords.Count - 1))];
+                cut[k] = coords[MathUtil.ToIntSaturating(f * (coords.Count - 1))];
             }
             // (the shrunk slabs must be disjoint: a vertex free in two regions would be put in twice, a crack. With the
             // gap lost in the rounding of the coordinates, or no gap, the caller runs serially)

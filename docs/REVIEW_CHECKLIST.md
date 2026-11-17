@@ -20,6 +20,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   check? UNKNOWN/timeouts must not be counted as proofs. Are assumptions satisfiable, source/model drift
   detected, and model mutations covered so contradictory assumptions cannot pass vacuously? (Z3 pilot)
 
+- A certificate or check against a reference: is the reference the one the documentation names, not a normalized copy
+  the algorithm works on (the contouring certificate compared with the oriented copy, in which inside-out parts are
+  flipped, and certified a wrong topology for inputs with an inside-out part; #935)?
+
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
 - Are tolerances relative to the input (bounding box of the *used* vertices, edge lengths), not absolute
@@ -145,6 +149,16 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   predicates stay exact. `Array.Sort` is not stable, and runtimes may break ties differently: break them by
   index (meshing M1 review).
 
+- A parallel loop behind a helper (`ExactMeshEdgeGroups.ForBlocks`): the analyzer flags only the helper's own call of `gParallel`, so
+  its callers escape the allow-list. A new caller in exact code needs the same review (no floating-point reduction across tasks, one
+  writer per slot) and its own line in the header of the allow-list entry.
+- Blocks over a sorted range whose groups can straddle a block border (a group belongs to the block it begins in): tests run the
+  operation with block sizes of 2-16 entries, and compare the counters the loop sums (ConflictEdges, NonManifoldEdges), not only the
+  ids; a group seen twice or in two halves is invisible where the join is idempotent. Test inputs with groups of 3 and 4 (touching solids).
+- A bulk builder of a data structure that appends otherwise (`DMesh3.FromEdgeStructure`): compare every observable, also the reference
+  counts, time stamps, normals and the internal state of its containers (a resized DVector at a multiple of its block size), the
+  rejection checks with crafted inputs, a counter that proves the fast path was taken, and edits applied to both afterwards.
+
 - An incremental step that assumes an invariant (CDT, Delaunay) right after an operation that breaks it, such as
   removing a constraint before inserting a point: restore the invariant first, and verify it at the end (meshing M2 review).
 
@@ -202,6 +216,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
 - A PR that starts, finishes or changes a roadmap item updates it ([ROADMAP.md](ROADMAP.md) "Now" and the `docs/roadmap/` or
   `docs/design/` page of the item: status, date, PR numbers), see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 6.
+
+- Test code builds for net48 too (`-f net48 -p:TestNet48=true`): no `double.IsFinite` and other APIs of newer runtimes (use the test helpers).
 
 ## 12. Test oracles and generators (#229)
 

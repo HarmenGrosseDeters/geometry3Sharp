@@ -65,14 +65,11 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Sphere(1, z), b = Sphere(1.01, z);
             var reference = new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z));
             Assert.True(reference.Compute());
-            var sw = Stopwatch.StartNew();
-            // (the base ran into this cap: 200k subdivisions, seconds; the time bound is loose for a loaded machine, the subdivisions
-            // are the deterministic measure)
+            // (the base ran into this cap: 100k subdivisions, seconds. The work is measured by the number of subdivisions, not by the wall clock,
+            // which a loaded runner stretches (5.1 s measured on a Windows runner against 0.1 s here): 1367 to 2937 over the offsets, bound 6000)
             var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
             Assert.True(h.Compute());
-            sw.Stop();
-            Assert.True(h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
-            Assert.True(sw.ElapsedMilliseconds < 4000, "took " + sw.ElapsedMilliseconds + " ms, " + h.Subdivisions + " subdivisions");
+            Assert.True(h.Subdivisions < 6000, h.Subdivisions + " subdivisions");
             Assert.True(h.Converged, "not converged: " + h.LowerBound + " .. " + h.UpperBound);
             AssertValid(h, reference, "z = " + z);
             Assert.True(h.UpperBound - h.LowerBound <= 1e-4 * 2.01 * Math.Sqrt(3) * 1.0001, "gap " + (h.UpperBound - h.LowerBound));
@@ -93,10 +90,9 @@ namespace geometry3Sharp.Tests
             foreach (bool symmetric in new[] { true, false }) {
                 var given = new MeshHausdorffDistance(a, b) { Symmetric = symmetric, MaxSubdivisions = 100000 };
                 AsGiven(given);
-                var sw = Stopwatch.StartNew();
                 Assert.True(given.Compute());
-                Assert.True(sw.ElapsedMilliseconds < 4000, "as given took " + sw.ElapsedMilliseconds + " ms");
-                Assert.True(given.Subdivisions < 50000, "as given: " + given.Subdivisions + " subdivisions");
+                // (the work, not the wall clock: 182 to 2856 subdivisions over the offsets and both modes, bound 6000)
+                Assert.True(given.Subdivisions < 6000, "as given: " + given.Subdivisions + " subdivisions");
                 var oneSidedRef = symmetric ? reference : new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z)) { Symmetric = false };
                 if (!symmetric) Assert.True(oneSidedRef.Compute());
                 AssertValid(given, oneSidedRef, "as given, z = " + z + ", symmetric " + symmetric);

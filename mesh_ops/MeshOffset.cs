@@ -258,6 +258,8 @@ namespace gs
             var dc = new DualContouring() {
                 Implicit = new FieldImplicit() { Owner = this, Tree = tree, D = d },
                 IsoValue = 0, CellSize = h, CancelF = CancelF, ParallelCompute = UseParallel,
+                QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                Simplify = false,   // pinned: uniform output
                 Bounds = new AxisAlignedBox3d(origin, origin + new Vector3d((nx - 1) * h, (ny - 1) * h, (nz - 1) * h)),
                 CandidateCells = cells,
                 NodeValueF = (Vector3i n) => (n.x < 0 || n.y < 0 || n.z < 0 || n.x >= nx || n.y >= ny || n.z >= nz) ? -cap : f[idx(n.x, n.y, n.z)]

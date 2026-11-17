@@ -107,6 +107,18 @@ namespace g3
 
 
 
+        /// <summary>
+        /// As count calls of allocate() on an empty vector, left with the counts that the caller writes into RawRefCounts (all above
+        /// zero: valid indices 0 .. count - 1)
+        /// </summary>
+        internal void AllocateBulk(int count)
+        {
+            if (ref_counts.size != 0 || free_indices.size != 0 || used_count != 0)
+                throw new InvalidOperationException("RefCountVector.AllocateBulk: the vector is not empty");
+            ref_counts.ResizeLikePushBack(count);
+            used_count = count;
+        }
+
         public int increment(int index, short increment = 1) {
             Util.gDevAssert( isValid(index)  );
             // debug check for overflow...

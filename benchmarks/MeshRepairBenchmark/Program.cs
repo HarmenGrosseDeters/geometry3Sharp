@@ -232,6 +232,8 @@ class Program
                 // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
                 string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
                 if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
+                string wcap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
+                if (wcap != null) robust.WrapMaxAlphaCoarsening = double.Parse(wcap, System.Globalization.CultureInfo.InvariantCulture);
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
@@ -568,6 +570,12 @@ class Program
         var phases = new System.Collections.Generic.Dictionary<string, long>();
         var sw = Stopwatch.StartNew();
         var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        // BENCH_WRAP_BUDGET: MeshAlphaWrap.MaxEstimatedTriangles in the pipeline as well (it was read only by the robust mode)
+        string wrapBudget = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
+        if (wrapBudget != null) wrap.MaxEstimatedTriangles = int.Parse(wrapBudget, inv);
+        // BENCH_WRAP_COARSEN_CAP: MeshAlphaWrap.MaxAlphaCoarsening, the limit of the coarsening the budget applies (unset: no limit)
+        string coarsenCap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
+        if (coarsenCap != null) wrap.MaxAlphaCoarsening = double.Parse(coarsenCap, inv);
         wrap.Compute();
         long wrapMs = sw.ElapsedMilliseconds;
         r["wrap_ms"] = wrapMs;
@@ -577,6 +585,8 @@ class Program
         r["wrap_rel_offset"] = relOffset;
         r["wrap_alpha"] = wrap.UsedAlpha;
         r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_estimate"] = wrap.EstimatedTriangles;
+        r["wrap_coarsening"] = wrap.AlphaCoarsening;
         r["wrap_counts"] = wrap.Counts;
         foreach (var kv in wrap.PhaseMilliseconds) phases[kv.Key.StartsWith("wrap") ? kv.Key : "wrap." + kv.Key] = kv.Value;
         DMesh3 raw = wrap.Result;
@@ -961,7 +971,7 @@ class Program
             Index3i t = mesh.GetTriangle(tid);
             sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
         }
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected

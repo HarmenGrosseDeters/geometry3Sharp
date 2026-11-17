@@ -270,7 +270,7 @@ namespace g3
                     continue;
                 }
 
-                int steps = (int)Math.Ceiling(len / length);
+                int steps = MathUtil.ToIntSaturating(Math.Ceiling(len / length));
                 for (int k = 1; k < steps; ++k) {
                     double t = (double)(k) / (double)steps;
                     Vector2d v = (1.0 - t) * poly[j] + (t) * poly[next];

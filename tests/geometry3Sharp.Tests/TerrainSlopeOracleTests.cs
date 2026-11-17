@@ -167,11 +167,27 @@ namespace geometry3Sharp.Tests
             double tiny = SlopeSpec.TanLowerBound(1e-320);
             Assert.True(tiny > 0 && tiny <= 1e-320 * Math.PI / 180 * (1 + 1e-3), $"{tiny}");
             double t30 = SlopeSpec.TanLowerBound(30);
-            SlopeSpec.ClearTanCache();
-            for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
-            Assert.Equal(10, SlopeSpec.TanCacheCount);
-            for (int i = 0; i < SlopeSpec.TanCacheSize + 5; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
-            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize);
+            // (the cache is static and shared with every test that reaches TanLowerBound, which xUnit runs in parallel (#1039):
+            // a thread works on the cache all the time with 100 keys of its own, far below the bound (it reads and adds, never clears); the asserts are on the keys inserted here,
+            // never on the global count, which it changes between the clear and the count)
+            using (var stop = new System.Threading.ManualResetEventSlim())
+            {
+                var noise = new System.Threading.Thread(() =>
+                {
+                    for (int k = 0; !stop.IsSet; k = (k + 1) % 100) SlopeSpec.TanLowerBound(50 + k * 1e-3);
+                });
+                noise.Start();
+                try
+                {
+                    SlopeSpec.ClearTanCache();
+                    for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
+                    for (int i = 1; i <= 10; ++i) Assert.True(SlopeSpec.TanCacheContains(10 + i * 1e-3), $"{i}");
+                }
+                finally { stop.Set(); noise.Join(); }
+            }
+            // (bounded: twice the size in distinct angles; the slack of 64 is for the few keys another test's thread adds)
+            for (int i = 0; i < 2 * SlopeSpec.TanCacheSize; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
+            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize + 64);
             Assert.Equal(t30, SlopeSpec.TanLowerBound(30));
         }
 
@@ -426,6 +442,37 @@ namespace geometry3Sharp.Tests
             // below / above with a clockwise triangle
             Assert.True(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, 0)));
             Assert.False(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, -1e-300)));
+        }
+
+        // survivors of the terrain-arith shard (mutation run 535, 2026-11-14)
+
+        // 90 degrees is rejected (the explicit < 90 check, with a NaN tangent bound as backup); just below is valid. The
+        // 89.9 case is the one that kills mutants of the check; a < to <= mutant is equivalent (the NaN bound rejects 90)
+        [Fact]
+        public void Degrees90_IsNotValid()
+        {
+            Assert.False(SlopeSpec.Degrees(90).IsValid);
+            Assert.True(SlopeSpec.Degrees(89.9).IsValid);
+        }
+
+        [Fact]
+        public void SlopeSpec_ToString_NamesTheKind()
+        {
+            Assert.Equal("1:1.5", SlopeSpec.Ratio(1.5).ToString());
+            Assert.Equal("10 %", SlopeSpec.Percent(10).ToString());
+            Assert.Equal("40 deg", SlopeSpec.Degrees(40).ToString());
+        }
+
+        // a triangle with one vertex not finite is not "not steeper" (in any position of that vertex); a vertical one neither
+        [Fact]
+        public void IsNotSteeper_NonFiniteOrVerticalTriangle_IsFalse()
+        {
+            var a = new Vector3d(0, 0, 0); var b = new Vector3d(1, 0, 0); var c = new Vector3d(0, 1, 0);
+            var bad = new Vector3d(0.5, 0.5, double.NaN);
+            foreach (var t in new[] { new[] { bad, b, c }, new[] { a, bad, c }, new[] { a, b, bad }, new[] { a, b, new Vector3d(0, double.PositiveInfinity, 0) } })
+                Assert.False(Slope.IsNotSteeper(t[0], t[1], t[2], SlopeSpec.Ratio(1)));
+            Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Ratio(1)));
+            Assert.False(Slope.IsNotSteeper(a, b, new Vector3d(0, 0, 1), SlopeSpec.Ratio(1)));
         }
     }
 }

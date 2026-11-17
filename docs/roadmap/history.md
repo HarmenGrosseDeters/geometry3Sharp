@@ -3,7 +3,8 @@
 Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** finished material whose value is mostly the record: Phase 1, the Phase 2 feature table, and the takeover
-  of the abandoned work (2026-10-30 to 2026-11-02) with its stage table and slot order. The stages themselves are
+  of the abandoned work (2026-10-30 to 2026-11-02) with its stage table and slot order, and a short log of the platform
+  milestones of November 2026. The stages themselves are
   kept on the topic pages; this page links them.
 - **Status:** done.
 
@@ -78,3 +79,21 @@ The Phase 2 items are on [exact-boolean.md](exact-boolean.md#phase-2-items-on-ex
 |---|---|---|
 | Exact, robust mesh booleans and arrangements | Zhou et al. 2016 *Mesh Arrangements for Solid Geometry*; Cherchi et al. 2020/2022 (indirect predicates); Trettner et al. 2022 *EMBER*; Manifold (Apache-2.0) | The biggest gap; the existing `MeshBoolean` is not robust, the winding-number variant is voxel based. `ExactPredicates` is the base. |
 | Alpha wrapping / shrink wrap | Portaneri et al. 2022 *Alpha Wrapping with an Offset* | Guaranteed watertight manifold output from any input: scan repair, 3D printing, biomedical CAD. Complements `MeshAutoRepair`. |
+
+#### Platform and tooling milestones, November 2026 (log, appended 2026-11-15)
+
+Merge dates from `git log origin/master`. The details are on [platform.md](platform.md) and the topic pages.
+
+- 2026-11-04: test suite on German Windows (#383).
+- 2026-11-09: mutation shards split, green on all 14 shards (#403); mutation tooling follow-ups (#445).
+- 2026-11-10: test tiers and the per-test time limit (#447).
+- 2026-11-11: changed-line coverage gate, nightly on master (#434).
+- 2026-11-12: FPTaylor filter bounds (#627).
+- 2026-11-13: CLI / MCP update finished (#707); runtime watch (#726); net48 tests under blame-hang (#828); smaller
+  test sets per mutation shard (#777); Clipper2 C# sources vendored (#751) and FINDINGS item 5 fixed (#826).
+- 2026-11-14: Clipper2 NuGet package removed from the addon, addon 2.0.0 (#851); the #756 orientation guard (#874);
+  determinism proof stage 0, analyzer rules G3D0001-9 (#871); `g3cli tpms` (#879).
+- 2026-11-15: exact fallback monomial kernels instead of BigInteger (#769, for #711).
+- 2026-11-16: `DualContouring` takes exact Hermite data by default (`ExactHermite`, `QEFEigenTolerance` 0.02; owner decision): the output of
+  a plain `DualContouring` changes (sharper creases, same triangle count); `ExactHermite = false` with tolerance 0.1 is the former output;
+  `WindingContouring`, `MeshWindingNumberSolidify` and `MeshOffset` keep tolerance 0.1 (they set `HermiteF`).

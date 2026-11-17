@@ -2,7 +2,7 @@ name: Runtime watch
 
 # Per master commit, time a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
 # (tools/runtime-watch/cases.json) and report the outliers: a median more than 1.3x the median of the last 10 runs and more than
-# 1 s above it, anything over 20 s (owner 2026-11-12: a potential defect), a failed or timed-out case. Isolated runs (one process per
+# 1 s above it (once a baseline exists; no absolute limit, owner 2026-11-15), a failed or timed-out case. Isolated runs (one process per
 # run), median of the repeats, machine recorded. Thingi10K meshes are fetched here at run time and never committed; no PR-tier test
 # fetches from the network. The history is one JSON file on the data branch `runs/runtime-watch` (docs/QA.md, "Runtime watch").
 # Daily at 01:17 UTC (owner 2026-11-13; a full run is about 1 h typical, about 4 h in the worst case; the schedule only takes effect on

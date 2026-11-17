@@ -1,0 +1,189 @@
+name: ABC chained booleans
+
+# The abc-chained class of benchmarks/BooleanComparison (README.md, "Chained booleans on ABC models"): chains of booleans (union,
+# difference, intersection) on triplets of ABC models (Koch et al., CVPR 2019, CAD models from public Onshape documents) placed
+# with the exact contact transforms of thingi-contact. Manual only (workflow_dispatch, no schedule). Owner decision 2026-11-16: the ABC
+# dataset may be used for tests and benchmarks with run-time fetching only: the chunk is downloaded here, on a GitHub-hosted runner,
+# one file of it is extracted for a seeded sample of models, and neither a model nor a derived mesh is committed, uploaded as an
+# artifact or pushed anywhere: only result rows and model ids leave the job. No fetch happens in a PR-tier test.
+# Methods: ours, manifold (the Python package manifold3d, Apache-2.0) and CGAL EPECK, each as a black box on the runner (cgal_bool.cpp,
+# the repo's own driver, is built against the runner's libcgal-dev; GPL, the binary is not distributed; no CGAL source is read or ported).
+# One job: the chunk (about 8 GB) is downloaded once, to /mnt (the runner's second disk).
+on:
+  workflow_dispatch:
+    inputs:
+      library_ref:
+        description: 'Ref of the library and benchmark tool to measure (must contain the abc-chain-inputs command; the scripts come from the ref the workflow is run on)'
+        default: 'master'
+      chunk:
+        description: 'ABC chunk number (4 digits) of the obj format, 10000 models per chunk'
+        default: '0000'
+      candidates:
+        description: 'Obj files extracted from the chunk (seeded sample, then filtered with NotCleanReason)'
+        default: '400'
+      chains_per_variant:
+        description: 'Chains per variant (a prefix of the generated list)'
+        default: '30'
+      timeout_s:
+        description: 'Timeout per boolean in seconds'
+        default: '300'
+      budget_min:
+        description: 'Minutes after which no new chain is started (the job limit is 345 minutes; finished chains are kept and reported)'
+        default: '240'
+      chains:
+        description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
+        default: ''
+      methods:
+        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck)'
+        default: 'ours,manifold,cgal_epeck'
+      listing_only:
+        description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: abc-chained-data-branch
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 345
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install 7-Zip, build cgal_bool (CGAL from apt, used as a black box), install manifold3d
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q p7zip-full libcgal-dev libgmp-dev libmpfr-dev
+          g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG lib/benchmarks/BooleanComparison/external/cgal_bool.cpp -o cgal_bool -lgmp -lmpfr
+          dpkg -s libcgal-dev | grep '^Version'
+          python3 -m pip install numpy manifold3d==3.0.1
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          git -C scripts rev-parse HEAD >> lib_sha.txt
+          nproc >> lib_sha.txt
+          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
+          python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
+      - name: Download the chunk
+        env:
+          CHUNK: ${{ inputs.chunk }}
+        run: |
+          [[ "$CHUNK" =~ ^[0-9]{4}$ ]] || { echo "chunk must be 4 digits"; exit 1; }
+          curl -fsSL https://deep-geometry.github.io/abc-dataset/data/obj_v00.txt -o obj_list.txt
+          URL=$(tr -d '\r' < obj_list.txt | awk -v f="abc_${CHUNK}_obj_v00.7z" '$2==f {print $1}')
+          [ -n "$URL" ] || { echo "chunk $CHUNK not in the list of the dataset page"; exit 1; }
+          echo "chunk URL host: $(echo "$URL" | cut -d/ -f3)"
+          sudo mkdir -p /mnt/abc && sudo chown "$USER" /mnt/abc
+          df -h /mnt | tail -n 1
+          curl -fL --retry 6 --retry-delay 30 --retry-all-errors -C - -o /mnt/abc/chunk.7z "$URL"
+          ls -l /mnt/abc/chunk.7z
+      - name: List the archive
+        run: |
+          7z l -slt /mnt/abc/chunk.7z > listing.txt
+          grep -c '^Path = ' listing.txt
+          grep '^Path = ' listing.txt | sed -n '1,12p'
+      - name: Select, extract and filter the models
+        if: ${{ !inputs.listing_only }}
+        env:
+          CANDIDATES: ${{ inputs.candidates }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/abc_chained.py select listing.txt selected.txt --count "$CANDIDATES"
+          7z x -y /mnt/abc/chunk.7z -o/mnt/abc/x @selected.txt > extract.log || { tail -n 20 extract.log; exit 1; }
+          rm -f /mnt/abc/chunk.7z
+          mkdir -p data/meshes
+          while read -r p; do cp "/mnt/abc/x/$p" "data/meshes/$(basename "$p" .obj).obj"; done < selected.txt
+          ls data/meshes | wc -l
+          BOOLCMP_TOOL="$GITHUB_WORKSPACE/frozen/BooleanComparison.dll" python3 $S/data/abc_chained.py prepare data clean_raw.csv
+          wc -l clean_raw.csv.clean
+          cp data/weld_tol.txt weld_tol.txt
+      - name: Chains
+        if: ${{ !inputs.listing_only }}
+        env:
+          CHAINS: ${{ inputs.chains_per_variant }}
+          ONLY: ${{ inputs.chains }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/abc_chained.py generate clean_raw.csv.clean chains.csv
+          python3 $S/data/abc_chained.py manifest data chains.csv cases.jsonl --limit "$CHAINS" ${ONLY:+--only "$ONLY"}
+      - name: Run ours, manifold and CGAL EPECK on the chains
+        if: ${{ !inputs.listing_only }}
+        env:
+          CGAL_BOOL: ${{ github.workspace }}/cgal_bool
+          BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
+          TIMEOUT: ${{ inputs.timeout_s }}
+          BUDGET_MIN: ${{ inputs.budget_min }}
+          METHODS: ${{ inputs.methods }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+      - name: Report
+        if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
+        run: |
+          set -o pipefail
+          python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: abc-chained
+          # result rows, the report, the sampled model ids and the chain list: no mesh, no derived mesh
+          path: |
+            results.jsonl
+            report.md
+            lib_sha.txt
+            clean_raw.csv
+            weld_tol.txt
+            chains.csv
+            listing.txt
+
+  publish:
+    needs: measure
+    if: ${{ !cancelled() && needs.measure.result != 'skipped' && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the data branch runs/abc-chained
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true      # the measure job may have failed before it uploaded anything
+        with:
+          path: art
+      - name: Result rows to runs/abc-chained
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin runs/abc-chained > /dev/null; then
+            git fetch -q --depth=1 origin runs/abc-chained:refs/remotes/origin/runs/abc-chained
+            git checkout -q -B runs/abc-chained origin/runs/abc-chained
+          else
+            git checkout -q --orphan runs/abc-chained
+            git rm -rqf .
+          fi
+          mkdir -p "run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "run-$GITHUB_RUN_ID"/ 2>/dev/null || true
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -q -m "ABC chained booleans run $GITHUB_RUN_ID"
+          git push origin runs/abc-chained

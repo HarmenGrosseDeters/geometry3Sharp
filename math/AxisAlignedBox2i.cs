@@ -77,7 +77,7 @@ namespace g3
         public int DiagonalLength
         {
             get {
-                return (int)Math.Sqrt((Max.x-Min.x)*(Max.x-Min.x) + (Max.y-Min.y)*(Max.y-Min.y));
+                return MathUtil.ToIntSaturating(Math.Sqrt((Max.x-Min.x)*(Max.x-Min.x) + (Max.y-Min.y)*(Max.y-Min.y)));
             }
         }
         public int MaxDim
@@ -173,18 +173,18 @@ namespace g3
 
         public void Contain(Vector3d v)
         {
-            Min.x = Math.Min(Min.x, (int)Math.Floor(v.x));
-            Min.y = Math.Min(Min.y, (int)Math.Floor(v.y));
-            Max.x = Math.Max(Max.x, (int)Math.Floor(v.x));
-            Max.y = Math.Max(Max.y, (int)Math.Floor(v.y));
+            Min.x = Math.Min(Min.x, MathUtil.FloorToIntSaturating(v.x));
+            Min.y = Math.Min(Min.y, MathUtil.FloorToIntSaturating(v.y));
+            Max.x = Math.Max(Max.x, MathUtil.FloorToIntSaturating(v.x));
+            Max.y = Math.Max(Max.y, MathUtil.FloorToIntSaturating(v.y));
         }
 
         public void Contain(AxisAlignedBox3d box)
         {
-            Min.x = Math.Min(Min.x, (int)Math.Floor(box.Min.x));
-            Min.y = Math.Min(Min.y, (int)Math.Floor(box.Min.y));
-            Max.x = Math.Max(Max.x, (int)Math.Floor(box.Max.x));
-            Max.y = Math.Max(Max.y, (int)Math.Floor(box.Max.y));
+            Min.x = Math.Min(Min.x, MathUtil.FloorToIntSaturating(box.Min.x));
+            Min.y = Math.Min(Min.y, MathUtil.FloorToIntSaturating(box.Min.y));
+            Max.x = Math.Max(Max.x, MathUtil.FloorToIntSaturating(box.Max.x));
+            Max.y = Math.Max(Max.y, MathUtil.FloorToIntSaturating(box.Max.y));
         }
 
 
@@ -235,7 +235,7 @@ namespace g3
         }
         public int Distance(Vector2i v)
         {
-            return (int)Math.Sqrt(DistanceSquared(v));
+            return MathUtil.ToIntSaturating(Math.Sqrt(DistanceSquared(v)));
         }
 
 

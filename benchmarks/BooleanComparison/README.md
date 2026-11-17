@@ -11,6 +11,17 @@ area, volumes (measured relative to the centre of A, so that coordinates far fro
 the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` and `V(A−B) = V(A) − V(A∩B)` (relative error); for
 synthetic cases also the error against the analytically known volumes of the results.
 
+**Pinches (2026-11-17, docs/research/BOOLEAN_TRIAGE_2026-11.md RC2).** Where the exact solid touches itself along an edge or at a
+vertex (the regularized result of touching solids), the welded result has a non-manifold edge or vertex. The eval splits
+these pinches (`Pinches.cs`): the triangles at a welded edge with 2k > 2 triangles are paired by their angle around the edge,
+and every vertex gets one copy per fan. The split mesh is judged instead of the welded one. Self-intersections count only
+pairs that meet beyond the positions both have a vertex at, by `MeshRoundingRepair`'s exact check with `SharedPositionsTouch`.
+A result that is clean except for its pinches gets the reason `pinches` and its own outcome (`analyze.py`; correct), with
+`<op>_pinch_edges` and `<op>_pinch_vertices`. Before, the triangles that did not fit at a pinch edge were appended on their
+own vertices: "not closed", plus self-intersections for every touching pair. `NotCleanReason` itself is unchanged (owner
+2026-11-17). The run rows of `ours` also carry `rounding`: the defects the repair left, whether it stopped at its effort
+limit, the smallest edit the bound rejected, the drift and the bound (RC4 of the triage).
+
 The external code is not part of this repository; build it next to it as described below.
 
 **Licenses:** the files in `external/` are small drivers written for this comparison. `cgal_bool.cpp` links
@@ -43,6 +54,8 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
 | `knot` | an open tube wound tightly inside a ball like a ball of yarn (one component, two open ends, many self-intersecting pairs per triangle), with the export's rotated, shifted copy: a procedural stand-in for the knot of Thingi10K 55928 | open operands with a dense self-intersecting region: per-piece open winding and triangulation cost (`docs/design/EXACT_BOOLEAN_TAIL_55928.md`) | `BooleanComparison knot <dir> [--segments s] [--ring m] [--turns t] [--tube r] [--seed k]` ([below](#tail-case-knot-the-55928-stand-in)) |
 | `thingi-pairs` | 1000 pairs of different clean Thingi10K models (1k-100k triangles each) after the EMBER protocol, B randomly rotated and shifted; `thingi-pairs-size`: 100 pairs of models with 100k-1M triangles | the performance and correctness of the three operations on real models at scale, with `NotCleanReason` and the volume identities as the oracle | `python3 data/thingi_pairs.py fetch/filter/manifest` ([below](#thingi10k-pairs-after-the-ember-protocol)); the pair lists are `thingi-pairs/pairs.csv` and `pairs_size.csv` |
+| `abc-chained` | chains of three booleans on triplets of ABC CAD models placed with the exact contact transforms, each method on its own rounded results | results of exact booleans re-entering the exact pipeline, on CAD-like models (planar faces, cylinders), where exact contact really happens | `abc-chained.yml` (run-time download of one ABC chunk on a runner only) and `python3 data/abc_chained.py` ([below](#chained-booleans-on-abc-models)) |
+| `thingi-contact` | Thingi10K pairs (or one model against itself) with deliberate exact contact: coplanar faces touching or overlapping, a one-ulp or few-ulp offset, a mirror image; 5 variants, 100 pairs each in the list | the hard cases of the exact predicates: exactly coplanar faces, touching edges, flush parts (the use case of `ExactMeshImprint`), where `thingi-pairs` almost never touches exactly | `python3 data/thingi_contact.py fetch/manifest` ([below](#thingi10k-pairs-with-exact-contact)); the list is `thingi-pairs/contact_pairs.csv` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
 data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
@@ -93,10 +106,10 @@ draws them; a thin model can still miss (an empty intersection is then correct a
 with round-trip precision, so all tools read the same doubles.
 
 **Oracle** (`eval`, for results of all tools alike; the case's `info.json` has `notclean`): per result
-- `clean_reason`: `MeshRobustRepair.NotCleanReason` of the result welded by exact position (closed, manifold, no
-  degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
-  self-intersections: found by `MeshRepairMetrics.SelfIntersections` on any size, `eval` otherwise stops at 400k triangles);
-  `""` is clean, `"empty"` is an empty result;
+- `clean_reason`: `MeshRobustRepair.NotCleanReason` of the result welded by exact position and split at its pinches (closed,
+  manifold, no degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
+  self-intersections beyond the pinches, on any size; `eval` otherwise stops at 400k triangles);
+  `""` is clean, `"empty"` is an empty result, `"pinches"` is clean except where the solid touches itself;
 - the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` (relative to V(A) + V(B)) and `V(A−B) = V(A) − V(A∩B)`
   (relative to V(A)) on the doubles of the written results, volumes relative to the centre of A. An empty result is
   not an error by itself (A∩B of two apart models, A−B of A inside B), and an empty union, or an empty difference with
@@ -170,6 +183,263 @@ Times of `ours` are cold (one process per boolean, as everywhere), the booleans 
 are all clean or correctly empty; Manifold and CGAL EPECK results contain triangles below 1e-12 diagonal² (the
 oracle's degenerate-triangle threshold; their volumes are exact to 1e-14). Six of the 60 operations are empty intersections
 (models that do not touch), consistent with the volumes.
+
+## Thingi10K pairs with exact contact
+
+The class `thingi-contact` fills the gap of `thingi-pairs`: that class rotates B randomly, so the operands almost never touch exactly. Here B is
+placed against A by a **translation, a power-of-two scale or a reflection, never a rounded transform** (no quaternions), so that
+coplanar faces, touching edges and exactly flush parts occur on real models. These are the hard cases of the exact predicates and the main
+use case of `ExactMeshImprint`. The models, the clean list and the data rules are those of `thingi-pairs` (models fetched at run time,
+`thingi-pairs/clean_models.csv`, no mesh in the repository); the list is `thingi-pairs/contact_pairs.csv` (generated by
+`python3 data/thingi_contact.py generate`, SplitMix64 seed 20261116 plus 7919 per variant index; a test checks that the committed file is
+the generator's output): 100 pairs per variant from the 2739 clean models with 1k-30k triangles, columns `pair,a,b,variant,axis,sign,param`.
+A run takes a prefix of each variant (`--limit N`; the first run: 30).
+
+**Exactness.** The placements are in `ContactTransforms.cs` (no dependency on the tool, unit-tested in
+`tests/geometry3Sharp.Tests/ThingiContactTransformTests.cs` on procedural meshes, bit for bit). Both models are first normalized exactly: scaled by
+the power of two that gives a longest side in [0.5, 1), moved to the origin up to a grid of 1/32 of that side. Every coordinate sum
+(`v + t`, `2c - v`) is checked with TwoSum: if it is not exactly representable the placement is **refused, never rounded** (the case becomes an
+`inexact transform` error row and is listed in the summary). The Thingi10K models are single precision STL files, so a double sum with a grid
+translation is almost always exact; a model with a coordinate far below the rest (1e-30 next to 1) is refused.
+
+| variant | what B is | oracle |
+|---|---|---|
+| `face-contact` | B on one side of A with a planar face of B in the plane of a planar face of A, touching only | the volumes are known exactly: V(A∩B) = 0, V(A∪B) = V(A) + V(B), V(A−B) = V(A) (`expected`); plus the identities and `NotCleanReason` |
+| `partial-overlap` | as `face-contact`, then moved into A along the contact axis by 2^-d of B's extent (d = `param` in 0, 1, 2; the shift of A's face plane is exact: a power of two times a double). d = 0 is the flush case: B's far face lies in the plane of A's face, both planar and overlapping; d = 1, 2 embed B by a half or a quarter | the identities and `NotCleanReason` |
+| `ulp-shift` | A against A translated by one ulp of A's largest coordinate along an axis (about 1e-16 of the model size: near-coincident surfaces, every filter fails) | the identities and `NotCleanReason` |
+| `ulp-shift-few` | as `ulp-shift` with 2 to 5 ulps (`param` + 2) | the same |
+| `mirror` | A against its mirror image across an axis plane through a vertex coordinate of A (the `param`-th vertex coordinate in order of distance from the box centre; `x' = 2c - x`, the triangle orientation is kept outward): vertices and faces on the plane coincide | the same |
+
+**Which face (`face-contact`, `partial-overlap`).** A face of the bounding box is a point or an edge contact for most models (the extreme is
+reached by a vertex or an edge), not the coplanar face contact this class is about. So the contact face is an *actual planar face*: the triangles whose three
+vertices have bit-equal coordinates on the extreme plane (flat bottoms and sides of printed parts are exactly that). For each of the six
+directions, starting at the one of the pair list, the tool computes the planar extreme face of A on its side and of B on the opposite side (for `partial-overlap` d = 0 the far side of B), aligns the centres of the two meshes
+laterally on the grid and takes the first direction with a planar face on both sides whose bounding boxes overlap laterally and an exact placement (`kind` = `face` in
+`info.json`; the patches themselves can still miss each other, eg a gap in A's patch under B's patch: the area of contact is not computed; extremes are taken over the vertices that triangles use); a model pair with no such direction is placed through its bounding box (`kind` = `bbox`: an exact contact through vertices or edges, still a
+hard case, but not the coplanar one); `partial-overlap` with d = 1, 2 has `kind` `embedded` (no face of B lies in a face plane of A; only d = 0 is coplanar, and the tool checks that B's far plane is bit-equal to A's). The summary column *face contact* counts the pairs with `kind` `face`. The contact plane coordinates of the two faces are bit-equal (a test).
+
+**Oracle.** As in `thingi-pairs` (`eval`): `NotCleanReason` of every result, the volume identities, and `expected_error` for `face-contact`; the inputs
+are checked again after the transform (`inputs_clean` in the case). A result that self-intersects is not correct in this class
+(`analyze.py`, `thingi-contact` has the tolerance 1e-7 and `NO_SELFINT`). Two limits of the oracle: touching solids merged at a single vertex or edge (`kind` `bbox`)
+give a union with a non-manifold vertex or edge, which `NotCleanReason` reports (`bowties`, `non-manifold`) although the result is correct; and a shell
+one ulp thick has a volume far below the tolerance, so a method that drops it passes the identities. For `ours` the rounding stage
+(`SafeRounding`, on by default; owner decision 2026-11-16: the default stays, no new option, `SafeRounding = false` and
+`ComputeExactVertices` give such a shell to callers who need it) drops pieces that cannot survive the rounding to doubles
+(`ExactMeshBoolean.Rounding.RemovedComponents`). Each result of `ours` therefore records `removed_components` and `removed_triangles`
+(`<op>_removed_components` in the raw rows, from the `counts` of `BooleanComparison run`), and the summary tells an empty result that the
+rounding produced by removing components (`empty, removed by rounding`) from a really empty one (`empty (volume-consistent)`, nothing
+removed). Other methods have no such field (shown as `–`); the first run's rows have the number in `<op>_counts` only, and `summary` reads both.
+
+**Running** (from `benchmarks/BooleanComparison`; the tool and `cgal_bool` as for `thingi-pairs`):
+
+```
+D=/path/outside/the/repo/thingi-contact
+python3 data/thingi_contact.py fetch $D --limit 30
+python3 data/thingi_contact.py manifest $D $D/cases.jsonl --limit 30                  # --variants face-contact,mirror: some variants only
+python3 compare.py $D/cases.jsonl results-contact.jsonl --methods ours,manifold,cgal_epeck --timeout 300 -j 1 --resume
+python3 data/thingi_contact.py summary results-contact.jsonl                           # per variant and method
+```
+
+On GitHub: the workflow `thingi-contact.yml` (`workflow_dispatch` only, no schedule; one job per variant; Manifold from `pip install
+manifold3d`, CGAL EPECK as a black box built from the runner's `libcgal-dev`, GitHub-hosted runners only) fetches the models, runs the
+three methods and writes the table to the step summary; the raw rows go to the data branch `runs/thingi-contact`.
+
+ExactMeshImprint runs on this class (and on thingi-pairs) in the imprint comparison, [below](#imprint-exactmeshimprint-against-meshmeshcut).
+
+**First run** (GitHub run [43949164518](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43949164518), 2026-11-16, master d5fb874a, `workflow_dispatch`, ubuntu-latest with 4 cores, `-j 1`, timeout 300 s; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the first 30 pairs of each variant; raw rows on the data branch `runs/thingi-contact`, folder `run-43949164518`):
+
+| variant | method | pairs | face contact | operations | ok | failed / crash / timeout | clean | empty (volume-consistent) | empty, removed by rounding | unclean | max volume error | median ms | max ms | removed components |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| face-contact | cgal_epeck | 22 | 16 | 66 | 64 | 2 | 39 | 20 | 0 | bowties 1, not evaluated 4 | 1.19e-14 | 24 | 84 | – |
+| face-contact | manifold | 22 | 16 | 66 | 66 | 0 | 41 | 19 | 0 | empty (inconsistent) 3, not closed 2, self-intersections 1 | 5.46e-14 | 24 | 48 | – |
+| face-contact | ours | 22 | 16 | 66 | 66 | 0 | 41 | 20 | 0 | bowties 1, empty (inconsistent) 2, not closed 2 | 1.19e-14 | 112 | 335 | 0 |
+| partial-overlap | cgal_epeck | 24 | 5 | 72 | 72 | 0 | 61 | 4 | 0 | bowties 1, degenerate triangles 6 | 1.45e-14 | 24 | 385 | – |
+| partial-overlap | manifold | 24 | 5 | 72 | 72 | 0 | 41 | 4 | 0 | degenerate triangles 27 | 2.31e-14 | 29 | 48 | – |
+| partial-overlap | ours | 24 | 5 | 72 | 72 | 0 | 67 | 4 | 0 | bowties 1 | 9.61e-13 | 109 | 394 | 0 |
+| ulp-shift | cgal_epeck | 30 | 0 | 90 | 84 | 6 | 0 | 0 | 0 | degenerate triangles 10, not closed 74 | 1.12e-14 | 858 | 3054 | – |
+| ulp-shift | manifold | 30 | 0 | 90 | 90 | 0 | 67 | 4 | 0 | bowties 1, degenerate triangles 2, inside-out components 3, not closed 13 | 2.38e-13 | 45 | 179 | – |
+| ulp-shift | ours | 30 | 0 | 90 | 90 | 0 | 59 | 0 | 30 | degenerate triangles 1 | 2.59e-09 | 798 | 3435 | 1440 |
+| ulp-shift-few | cgal_epeck | 30 | 0 | 90 | 87 | 3 | 0 | 0 | 0 | degenerate triangles 14, not closed 73 | 1.46e-14 | 625 | 93228 | – |
+| ulp-shift-few | manifold | 30 | 0 | 90 | 90 | 0 | 63 | 5 | 0 | bowties 1, degenerate triangles 4, inside-out components 1, not closed 15, self-intersections 1 | 5.27e-14 | 74 | 221 | – |
+| ulp-shift-few | ours | 30 | 0 | 90 | 90 | 0 | 60 | 0 | 30 | – | 4.97e-08 | 792 | 10702 | 689 |
+| mirror | cgal_epeck | 30 | 0 | 90 | 81 | 9 | 21 | 0 | 0 | bowties 15, degenerate triangles 45 | 2.14e-13 | 295 | 4416 | – |
+| mirror | manifold | 30 | 0 | 90 | 90 | 0 | 30 | 0 | 0 | bowties 16, degenerate triangles 34, not closed 9, self-intersections 1 | 1.51e-14 | 53 | 245 | – |
+| mirror | ours | 30 | 0 | 90 | 90 | 0 | 66 | 0 | 0 | bowties 15, not closed 9 | 9.38e-06 | 432 | 3216 | 284 |
+
+`pairs` are the placements that were accepted (of 30 per variant), `face contact` those with `kind` `face`, the other columns count operations as in `thingi-pairs`; `empty, removed by rounding` and `removed components` are explained in the oracle note (ours only). Times are the boolean alone, from one run on a shared runner (indicative only, no repeats).
+
+Placements refused as inexact or failed to load: 14 of 150 cases:
+- face-contact_p0000_88616+92837: RuntimeError('inexact transform: contact shift not exact')
+- face-contact_p0002_37282+985160: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0008_136634+84320: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0013_925244+65149: RuntimeError('inexact transform: contact shift not exact')
+- face-contact_p0022_100339+40051: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0025_47748+985160: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0028_113862+59228: RuntimeError('inexact transform: translation not exact')
+- face-contact_p0029_242305+178193: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0001_91452+73413: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0002_121868+200963: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0009_107439+514852: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0011_92836+49546: RuntimeError('inexact transform: embedding depth not exact')
+- partial-overlap_p0023_44397+54467: RuntimeError('inexact transform: translation not exact')
+- partial-overlap_p0028_472179+76057: RuntimeError('inexact transform: translation not exact')
+
+What the run shows (all of it from the raw rows; causes marked *not diagnosed* were not investigated):
+- **Refused placements: 14 of 150, all in the two variants that move B by a general shift** (8 of 30 `face-contact`, 6 of 30 `partial-overlap`); `ulp-shift`, `ulp-shift-few` and `mirror` had none. Probable cause (*not verified on the models*): the shift is of order 1, and a model with a coordinate that is nearly but not exactly zero (single precision noise, about 1e-8) has a finer last bit than a sum of that size can keep. That is the exactness rule working (the case is refused, not rounded), but it costs 27 % of the pairs of these two variants. A follow-up can pre-select the models whose coordinates survive the placement.
+- **`face-contact`: 16 of 22 accepted pairs have planar faces on both sides** (`kind` `face`), 6 touch through vertices or edges (`bbox`). `partial-overlap`: 5 of 24 `face` (flush), the others `embedded` or `bbox`. In 4 of 24 `partial-overlap` pairs the intersection is empty although B was moved into A (no volume under B's footprint), which the oracle accepts as volume-consistent.
+- **ours, `face-contact`**: the union of 2 pairs is `not closed` (p0012, p0021; both `kind` `face`); manifold has 2 `not closed` results too (which cases was not compared). Volumes are right (expected_error 2.4e-15). Not diagnosed; issue filed.
+- **ours, `mirror`**: the difference A - mirror(A) is `not closed` for 8 of 30 pairs and `bowties` for 15 (bowties are plausible for pieces that meet on the mirror plane); the largest identity error is 9.4e-06 (p0024) and 5.2e-07 (p0001), above the class tolerance 1e-7. Issue filed (pair ids and parameters in it).
+- **ours, `ulp-shift` / `ulp-shift-few`**: the difference A - A' (a shell one ulp thick) is empty for all 30 pairs of both variants. All 60 of these empty results are `empty, removed by rounding` (1 to 733 removed components each; 1440 and 689 removed components over all operations of the two variants), none is really empty; the exact result is a shell of volume about 1e-16 of the model, which the identities cannot see. Intended behaviour of `SafeRounding` (owner decision 2026-11-16, see the oracle note above), not a defect. Identity errors up to 5.0e-08 (`ulp-shift-few`). In contrast the 26 empty intersections of `face-contact` and `partial-overlap` removed nothing: they are really empty.
+- **CGAL EPECK** failed or timed out on 18 operations (`ulp-shift` 6, `ulp-shift-few` 3, `mirror` 9; one `ulp-shift-few` case took 93 s) and its results are mostly `not closed` under our weld-by-position check for `ulp-shift` (74 of 90) and `ulp-shift-few` (73 of 90): not analysed whether that is CGAL's output after the conversion to double or the check. **manifold** is `not closed` or `self-intersections` in a few cases per variant, and `degenerate triangles` in 27 of 72 `partial-overlap` results.
+- Summary rows for results that `eval` could not read back were crashing `summary` (a result without a clean reason); fixed here (`not evaluated`), and the workflow's report steps now fail on a summary error (`set -o pipefail`; the run above shows an empty table in the step summary for that reason, the table here is computed from the raw rows).
+
+## Imprint: ExactMeshImprint against MeshMeshCut
+
+The evidence for the deprecation decision on the float `MeshMeshCut` / `MeshBoolean` (docs/roadmap/exact-boolean.md item 7):
+`ExactMeshImprint` against `MeshMeshCut` and `ExactMeshBoolean` against `MeshBoolean` (union) on the same pairs. The pairs are those of
+`thingi-pairs` (`thingi-pairs/pairs.csv`) and `thingi-contact`, prepared exactly as in those classes.
+
+| method | what runs (`BooleanComparison imprint <A> <B> <method> <op>`, ImprintCompare.cs) | operations |
+|---|---|---|
+| `exact_imprint` | `ExactMeshImprint` (defaults), target and cutter as given | `a_by_b` (B's curves into A), `b_by_a` |
+| `float_cut` | `MeshMeshCut.Compute()` (defaults: `VertexSnapTol` 1e-5 absolute, `RefuseContact` false) | `a_by_b`, `b_by_a` |
+| `exact_union` | `ExactMeshBoolean` union | `union` |
+| `float_union` | `MeshBoolean.Compute()` (the float union built on `MeshMeshCut`, welded) | `union` |
+
+One process per (method, operation), with the per-run timeout of `compare.py`; JIT is warmed up on a small pair first.
+
+- `ms` is the operation alone.
+- The tool prints a line once the operation has ended, then checks the input and the result.
+- A run that times out after that line has the status `check_timeout`, not `timeout`.
+- A thrown exception in the operation has the status `exception`. If the checks do not finish (an exception in them, or the process dies after the operation line), the status is `check_crash`. Neither is ever `ok`.
+
+Checks per operation: the target closed and its `NotCleanReason`; the result closed, its `NotCleanReason`, the new vertices, the curve length.
+- **Exact imprint:** the curve length is the sum of `CurveEdges`. The tool also records whether the rounding was clean (`RoundingClean`).
+- **Float cut:** the curve length is the sum of the intersection segments the cut found. These are deduplicated as unordered endpoint pairs, because one pair of triangles gives one segment and a piece on a shared edge comes twice. Zero-length segments (point contacts) are dropped, so `segments` counts pieces of curve. Rows of earlier runs counted every segment and are not comparable. The tool also records `FailedSegmentInsertions`.
+- **Unions:** the volume.
+
+**Outcome** (`data/thingi_imprint.py`). The same rules apply to both methods.
+
+A cut is `good` when it ended ok and none of these hold:
+- `opened`: a closed target gave an open result;
+- `unclean: <reason>`: a clean target gave a result that `NotCleanReason` refuses;
+- `gaps`: float only, failed insertions.
+
+A union is `good` when it is closed and clean.
+
+**Nothing inserted** (float only, counted apart): an ok cut that found intersection segments but added no vertex. It snapped every point to a target vertex, so the result is the target unchanged, which its own checks cannot tell from a good cut.
+
+**Disagreements** per operation, with their kinds:
+- `float inserted nothing` (the exact cut added vertices);
+- `only exact good`, `only float good`;
+- `curve only exact` / `curve only float`;
+- `curve length` (more than 1e-3 relative, both good);
+- `volume differs` (unions, more than 1e-6 of vA + vB);
+- `both fail` (different failures).
+
+Reading the numbers:
+- **Curve length:** `MeshMeshCut` does not handle coplanar overlaps, so its curve misses the boundaries of coplanar contact. On the contact variants (face-contact, partial-overlap, mirror, the ulp shifts) a `curve length` disagreement is expected from that alone. It means something on `thingi-pairs`.
+- **Time ratio:** float / exact, the geometric mean over the operations both methods ended `ok`. A float result counts as `ok` even when it is open or has gaps. An operation that timed out (in practice the exact one on the hard cases) is not in the ratio. So the ratio is taken over the cases the exact method finished, and it understates the exact method's cost on the hard cases. Quote it with that caveat, next to the timeout counts.
+
+```
+D=/path/outside/the/repo/thingi-imprint
+python3 data/thingi_imprint.py fetch-pairs $D 0 250                       # pairs [0, 250) of pairs.csv
+python3 data/thingi_imprint.py manifest-pairs $D $D/cases.jsonl 0 250
+python3 data/thingi_contact.py fetch $D --limit 100                       # the contact variants
+python3 data/thingi_contact.py manifest $D $D/contact.jsonl --limit 100
+python3 compare.py $D/cases.jsonl results-imprint.jsonl --methods exact_imprint,float_cut,exact_union,float_union --timeout 120 -j 1 --resume
+python3 data/thingi_imprint.py summary results-imprint.jsonl              # failure table, time ratio, disagreements
+```
+
+On GitHub: `thingi-contact.yml` with `mode: imprint` and a `library_ref` that has the `imprint` command. It runs 4 baseline jobs (`pairs-<k>`: pairs `[k * baseline_shard, (k + 1) * baseline_shard)` of `pairs.csv`) and the 5 contact variants, `max-parallel: 6`, with no external tool. The summary goes to the step summary, the raw rows to `runs/thingi-contact`. Tests: `test_thingi_imprint.py`.
+
+## Chained booleans on ABC models
+
+The class `abc-chained` runs **chains of booleans** on triplets of CAD models of the ABC dataset (Koch et al., *ABC: A Big CAD Model Dataset For
+Geometric Deep Learning*, CVPR 2019: about a million CAD models from public Onshape documents, tessellated). ABC models are CAD-like (planar faces,
+cylinders, coordinates that are nearly exact), which is where exact contact and coplanarity really happen, and a chain makes the result of one boolean the
+input of the next: **results that were rounded to doubles re-enter the exact pipeline**, which a single boolean on clean inputs never exercises.
+
+**Dataset terms (owner decisions 2026-11-16).** ABC is approved for tests and benchmarks with **run-time fetching only**: the chunk is downloaded on a
+GitHub-hosted runner by the workflow, never committed, never redistributed, never uploaded as an artifact (only result rows, the sampled model ids, the chain list and the file listing of the chunk, names and sizes, leave the
+job), never fetched by a PR-tier test. The dataset page gives the models' copyright to their creators (Onshape Terms of Use 1.g.ii) and no warranties; cite the
+paper. The Fusion 360 Gallery is excluded and GrabCAD is not pursued. The tests of this class write procedural meshes.
+
+**Which files.** The download page lists chunks of 10 000 models per format, `abc_NNNN_<format>_v00.7z`, with links on `archive.nyu.edu`; chunk 0000 has
+7.94 GB in the `obj` format (triangle meshes, one file per model part, with vertex normals), 9.37 GB as binary STL (`stl2`), 2.5 GB as Parasolid, 1.6 GB as
+STEP (CAD, not meshes). `obj` is the smallest mesh format, so the workflow takes `obj` (`obj_v00.txt` of the page maps a chunk's file name to its link; the workflow
+reads it at run time instead of hard-coding the link). The archive is a solid 7z: `7z l -slt` lists its files from the header, one `7z x` of a list of paths extracts
+the sample (the whole chunk is never unpacked, which would not fit the runner's disk). The obj files are tessellated **per face of the CAD model**, so adjacent faces carry their own copies of the vertices on a shared edge: read as they are,
+none of the 400 files of the first sample was closed (`not closed` for all 400, run 43973737886). `abc_chained.py prepare` therefore welds the vertices by position before the filter:
+first exactly (bit-equal doubles), and only if that gives fewer than 40 clean models in the triangle range, with a tolerance (1e-9, 1e-7, 1e-5 of the bounding box diagonal; the first that
+reaches 40; a tolerance weld moves a vertex by at most that). The tolerance used is recorded (`weld_tol.txt`, an artifact of the run, and the run's log; the results PR names it). A vertex joins the first earlier vertex within the tolerance (looked up across grid cell boundaries; not transitively), so it moves by at most tol x the diagonal; at 1e-5 a weld can also merge genuinely distinct features (thin walls, small holes) of a model that then still passes the filter, which is why the exact weld is tried first. Triangles that collapse in the weld are kept, the filter then reports the model as degenerate. A file that cannot be read is skipped and listed (`unreadable.txt`).
+**Single precision snap.** The first run with the weld (run 43986004908) closed 381 of the 400 files with the exact weld (tolerance 0, no tolerance needed), but then refused 89 of 90 chains as inexact: ABC's obj files write full 53-bit
+doubles, and a translation by a shift of the size of the model is only exact if the coordinates have headroom (a single precision value, as in the STL files of Thingi10K, has 29 spare bits in a double). So `prepare` first rounds every
+coordinate to single precision (a change of at most 6e-8 of the coordinate itself: for a model far from the origin that is a larger share of the model's size, so the log of `prepare` reports the largest change relative to the extent; ABC models sit near the origin) and sets nonzero coordinates smaller than 2^-26 of the largest extent of the bounding box to 0 (the single precision noise around zero has a last bit too fine for a shift of order 1; less than 1.5e-8 of the model's size; two bits of slack for sums with a result below 2), then welds. Non-finite coordinates make a file unreadable. These snapped, welded meshes are the models of the chains; the filter judges them (rounding can create degenerate triangles or self-intersections, which the filter then excludes).
+The welded meshes are written as OFF with round-trip precision; they are the models of the chains (the exact placements start from them) and, like the downloaded files, are never uploaded.
+
+**Models.** `data/abc_chained.py select` (`prepare` snaps the models to single precision and welds them before they count, below): of the `.obj` files of the listing with 60 kB to 3 MB (about 500 to 30 000 triangles), 400 are drawn with SplitMix64 (seed 20261116,
+partial Fisher-Yates over the sorted paths). `prepare` welds them (below) and runs the tool's `thingi-filter` on the result: `MeshRobustRepair.NotCleanReason(mesh) == ""` and a positive volume, then
+500-30 000 triangles. The ids of the clean ones are an output of the run (`clean_raw.csv`), not a committed list: the sample depends on the chunk.
+
+**Chains** (`generate`, seed 20261117 plus 7919 per variant index; `chains.csv`, 100 per variant, a run takes a prefix): three different models A, B, C per chain and a variant:
+
+| variant | step 1 | step 2 | step 3 | B is placed |
+|---|---|---|---|---|
+| `ucd` | R1 = A ∪ B | R2 = R1 − C | R3 = R2 ∩ A | `face-contact` or `partial-overlap` |
+| `dui` | R1 = A − B | R2 = R1 ∪ C | R3 = R2 ∩ A | `face-contact` or `partial-overlap` |
+| `iud` | R1 = A ∩ B | R2 = R1 ∪ C | R3 = R2 − A | `partial-overlap` (B must overlap A, an empty R1 ends the chain) |
+
+B and C are each placed against A by the exact placements of [`thingi-contact`](#thingi10k-pairs-with-exact-contact) (`ContactTransforms.BuildChain`: translations, power-of-two scales,
+reflections; every coordinate sum checked, an inexact placement refuses the chain and is listed); C uses `face-contact`, `partial-overlap`, or one of the offsets of A itself,
+`ulp-shift` and `mirror` (then the third model is not used: c = a). Placement, axis, sign and parameter are drawn per chain.
+
+**Running a chain** (`abc_chained.py run`, `BooleanComparison abc-chain-inputs` and `chain-step`): each method runs the steps **on its own results**: the output of
+step k of ours is the input of step k+1 of ours, as the file the method wrote (`chain-step` copies the OFF file; its volumes and `NotCleanReason` are those of the mesh as the reader builds it, which drops triangles that do not fit a manifold mesh), likewise for manifold and CGAL EPECK. At each step all three operations are run on the
+step's inputs, so that the volume identities of the step hold on the inputs the method actually got; the operation of the plan is the chosen result that goes on. The chosen operation runs first: if it
+fails, the other two are not run. A chain ends early if the chosen result is missing or empty; the summary counts the empty ends (expected) apart from the failures. An exception of the driver or a hung tool for one method is a `runner_error` row of that method (the rows of the others stay, and it is listed apart from refused placements). The run has a time budget (`--budget`, the workflow's `budget_min`): no new chain starts after it, finished chains are kept.
+
+**Oracle** (per step and method, as in `thingi-pairs`): `NotCleanReason` of the results, `V(X∪Y) + V(X∩Y) = V(X) + V(Y)` and `V(X−Y) = V(X) − V(X∩Y)` with the class tolerance 1e-7 **per step** (the error
+budget of a chain is the sum over its steps, 3e-7; the summary reports the largest identity error per step), no self-intersections; `input.inputs_clean` says whether the step's inputs were clean when
+they arrived (a rounded result is not always). For `ours` the rows record `removed_components` per operation (what `SafeRounding` dropped; the summary adds up the chosen results of the chains only) and the time of each step (the summary's median counts finished operations only, a timeout is not a fast run).
+
+**Running** (from `benchmarks/BooleanComparison`, with the models already extracted to `$D/meshes/<id>.obj`, eg for a local trial with procedural or licensed files you hold):
+
+```
+python3 data/abc_chained.py prepare $D $D/clean_raw.csv
+python3 data/abc_chained.py generate $D/clean_raw.csv.clean $D/chains.csv
+python3 data/abc_chained.py manifest $D $D/chains.csv $D/cases.jsonl --limit 30
+python3 data/abc_chained.py run $D/cases.jsonl results-abc.jsonl --methods ours,manifold,cgal_epeck --timeout 300
+python3 data/abc_chained.py summary results-abc.jsonl
+```
+
+On GitHub: `abc-chained.yml` (`workflow_dispatch` only, no schedule, one job on a GitHub-hosted runner: downloads the chunk to the runner's second disk, lists, extracts, filters, runs, writes the table to the step
+summary; the result rows go to the data branch `runs/abc-chained`). `listing_only` stops after the listing, to check the layout of an archive.
+
+**First run** (GitHub run [43994376178](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/43994376178), 2026-11-17, master 2172017a, ubuntu-latest with 4 cores, one job of about 63 minutes, timeout 300 s per boolean; CGAL 6.1.1 from apt as `cgal_bool` (EPECK), manifold3d 3.0.1; the earlier runs 43970377038 (listing), 43973737886 and 43986004908 found the problems that #1005 and #1007 fix; raw rows on the data branch `runs/abc-chained`, folder `run-43994376178`: `results.jsonl`, `report.md`, `clean_raw.csv`, `chains.csv` with the model ids, `weld_tol.txt`):
+
+- **Models**: 400 obj files of chunk 0000 drawn with seed 20261116 (60 kB to 3 MB); weld tolerance used **0** (the exact weld was enough); of the 400 snapped and welded models the filter found **381 clean** (95 %; 1738 to 27 162 triangles, median 17 378), 10 not closed, 3 inconsistent orientation, 3 self-intersections, 2 inside-out components, 1 with bowties. The largest change of a coordinate by the snap is in the log of the `prepare` step of the run.
+- **Exactness check**: **all 90 chains passed** (0 refused placements, 0 runner errors; no refusal cause beyond the two that the earlier runs found). Placements: B `face` 46, `embedded` 34, `bbox` 10; C offset copies of A (`ulp-shift`, `ulp-shift-few`) 29 and `mirror` 11, `face` 24, `embedded` 15, `bbox` 11 (the `kind` of `ContactTransforms`: `face` = planar faces on both sides, `bbox` = contact through vertices or edges, `embedded` = B moved into A).
+
+| variant | method | chains | steps run (step 1/2/3) | chosen result clean or empty (step 1/2/3) | all steps clean | ended early: empty result / failed | unclean reasons of the chosen results | max identity error (step 1/2/3) | removed components (chosen results) | median ms of the chosen op, ok results (step 1/2/3) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ucd | cgal_epeck | 30 | 30/29/25 | 25/13/2 | 2 | 0 / 5 | bowties 4, degenerate triangles 24, failed 4, not closed 4, rejected 8 | 2.4e-14/2.9e-14/3.9e-12 | – | 50/97/1305 |
+| ucd | manifold | 30 | 30/30/30 | 20/11/16 | 10 | 0 / 0 | bowties 7, degenerate triangles 25, not closed 8, self-intersections 3 | 5.7e-14/5.5e-12/3.0e-06 | – | 34/37/65 |
+| ucd | ours | 30 | 30/30/30 | 28/23/26 | 23 | 0 / 0 | bowties 8, not closed 5 | 2.4e-14/4.0e-07/5.1e-05 | 165 | 234/334/1907 |
+| dui | cgal_epeck | 30 | 30/30/30 | 29/14/1 | 1 | 0 / 0 | degenerate triangles 19, not closed 14, rejected 13 | 6.5e-14/6.0e-14/6.3e-12 | – | 32/96/1019 |
+| dui | manifold | 30 | 30/30/30 | 24/18/19 | 14 | 0 / 0 | degenerate triangles 28, not closed 1 | 1.0e-13/3.1e-14/5.3e-11 | – | 32/38/74 |
+| dui | ours | 30 | 30/30/30 | 30/30/30 | 30 | 0 / 0 | – | 6.6e-14/1.5e-08/6.0e-06 | 0 | 179/289/2350 |
+| iud | cgal_epeck | 30 | 30/28/28 | 26/11/2 | 1 | 2 / 0 | degenerate triangles 17, failed 8, not closed 12, rejected 10 | 1.9e-14/5.9e-10/3.8e-12 | – | 20/63/896 |
+| iud | manifold | 30 | 30/28/28 | 26/22/13 | 10 | 2 / 0 | bowties 2, degenerate triangles 12, inside-out components 2, not closed 8, self-intersections 1 | 1.4e-14/8.6e-10/6.3e-11 | – | 31/28/45 |
+| iud | ours | 30 | 30/28/28 | 30/28/22 | 22 | 2 / 0 | bowties 1, inside-out components 2, not closed 3 | 8.5e-10/1.2e-10/4.5e-10 | 1166 | 101/180/2296 |
+
+Reading the table (one run, one runner: the times are indicative; `clean` is `NotCleanReason`, which also reports `degenerate triangles` (area below 1e-12 of the squared diagonal) as unclean, a property of the output that is not necessarily a defect):
+- **Chains that stayed clean to the end** (all three steps): ours 75 of 90 (23 / 30 / 22 per variant), manifold 34 of 90, CGAL EPECK 4 of 90 (its results have `degenerate triangles` and `not closed` more often, and 12 of its 260 steps failed and 31 were rejected, from inputs that its own previous step made unclean). 2 of the `iud` chains end after step 1 for all three methods (R1 = A ∩ B is empty: expected).
+- **Results re-entering the pipeline**: at steps 2 and 3, 9 of 176 inputs were unclean for ours (its own previous results), 57 of 176 for manifold and 54 of 170 for CGAL.
+- **Where ours goes wrong** (inputs clean at the step): 2 chains of `ucd` at step 1 (the first step, with exact placements) and then the operations of steps 2 and 3, **mostly the difference**: 19 results that lost components to the rounding stage are not closed, inside-out or self-intersecting (issue #1010), and 12 results that lost nothing are not closed (union, difference) or have degenerate triangles (intersection) (issue #1011); `bowties` also occur (plausible where the pieces touch at an edge or a vertex). The identity errors above the class tolerance 1e-7 on clean inputs are two: 6.0e-06 (`dui` step 3, a difference that lost 169 components) and 4.0e-07 (`ucd` step 2, 16 components): the size of the removed pieces, by design (`SafeRounding`, owner decision 2026-11-16); the 5.1e-05 of `ucd` step 3 is on inputs that were already unclean.
+- **Removed components** (`ours`, sum over the chosen results): 165 in `ucd`, 0 in `dui`, 1166 in `iud`: the third step of `iud` (R2 - A, with R2 containing a near-copy of A in many chains) removes most of them.
+- **Time of the chosen operation**: ours about 100 to 230 ms at step 1 and 1.9 to 2.4 s at step 3 (the inputs grow: results of earlier steps with many more triangles), manifold 34 / 37 / 65 ms (`ucd`), CGAL EPECK 20 to 50 ms at step 1 and 0.9 to 1.3 s at step 3.
+
 
 ## Open Boolean Benchmark runner
 
@@ -742,6 +1012,104 @@ Thingi10K cohort models × 3 operations, 4 cores, best of 2 rounds, all result h
 | 1517923 (union / intersection / difference) | 9.9 / 7.0 / 7.6 s | 6.8 / 4.4 / 5.1 s |
 | 668056 / 668057 union | 6.5 / 6.0 s | 4.9 / 5.1 s |
 | 519511 union | 36.4 s | 28.4 s |
+
+## Thread scaling: the tree build threshold (November 2026)
+
+`TriangleBoxTree` builds its tree (Morton codes, the sort, the nodes) in parallel from `ParallelBuildFrom` boxes on, to the same tree as the serial build
+(node for node, `BoxTreeParallelBuildTests`). The threshold was 262 144, so the trees of every operand of 1k-100k triangles (the input trees of the
+arrangement and SafeRounding's tree of the result) were built serially: 17 % of the 4-thread time of the T6 set
+([docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). It is now 8192 (above the median split's 4096 boxes, which stays serial).
+Callers of the constant: the constructor (the build and the copy of the leaf boxes), `morton_order` and `sort_codes` (only reached for trees above the median split);
+the trees of fewer than 8192 boxes, among them every small dirty tree of SafeRounding, are unchanged.
+
+A/B on the T6 set (98 pairs, 294 booleans, SafeRounding on, warm, `profile --repeat 2`, the faster run per boolean, sums), the thresholds interleaved in
+3 rounds (order reversed in round 2), 4-vCPU container; `--tree-parallel-from <n>` sets the threshold; raw rows
+[perf/tree_threshold_2026-11-15/](perf/tree_threshold_2026-11-15/):
+
+| threads | threshold | totals of the 3 rounds (ms) | mean | against 262144 | trees phase | rounding phase |
+|---|---|---|---|---|---|---|
+| 1 | 262144 (before) | 35715 / 36711 / 34792 | 35739 | – | 2135 | 7535 |
+| 1 | 8192 | 34928 / 34992 / 35160 | 35027 | −2.0 % | 2078 | 7383 |
+| 1 | 4096 (effective 4097) | 36690 / 34574 / 35639 | 35634 | −0.3 % | 2047 | 7525 |
+| 4 | 262144 (before) | 20073 / 18570 / 18983 | 19209 | – | 1684 | 4121 |
+| 4 | **8192** | 18619 / 18370 / 18066 | 18352 | **−4.5 %** | 998 | 3726 |
+| 4 | 4096 (effective 4097) | 18841 / 18518 / 17795 | 18385 | −4.3 % | 988 | 3797 |
+
+At 1 thread the difference is noise (±3 %); at 4 threads the trees phase falls by 41 % and the rounding by 10 %, the whole by 4.5 %. 8192 and 4097 do not differ; 8192
+is kept (smaller trees gain little from the parallel build). All 18 files give the same result hash for every one of the 294 booleans (1 and 4 threads, three thresholds).
+
+The re-check against #837's case set (37 unions of the extreme-runtime study, thresholds 262144 / 16384 / 8192, 4 and 1 threads, 3 interleaved rounds): rows `perf/tree_threshold_2026-11-15/rerun_837_variants_2026-11-15.jsonl.gz`, tables by `python3 perf/rerun_837_report.py <rows>` (classification does not slow down: −0.1 % at 8192, 4 threads; the details are in the PR body of #956).
+
+## Thread scaling: the parallel assembly and classification edge groups (November 2026)
+
+`ExactMeshBoolean.assemble` and the edge grouping / patch joins of `classify` run in parallel from 65 536 sorted edge entries on (levers 2 and 4 of
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md), section 6, with the upper bound, the building blocks and the
+literature): a stable blocked radix partition, an order-independent union-find, the vertices by a prefix sum, and a bulk builder for the result
+(`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`). Results are bit-identical: the `profile` hash of
+all 294 booleans of the T6 set equals master's at 1, 2 and 4 threads (2940 rows of 10 files, 0 differences). The sub-phases are the `assembly.*_us` and
+`classification.*_us` entries (microseconds) of `phases_ms`.
+
+T6 set, 4-vCPU container, 4 threads, `DOTNET_TieredPGO=0`, 3 interleaved rounds (base, candidate; candidate, base; base, candidate), sums over the 294 booleans of the faster of two runs, ms:
+
+| 4 threads | master, mean of 3 | candidate, mean of 3 | change |
+|---|---|---|---|
+| classification | 1345 | 938 | -30 % |
+| assembly (without simplify) | 2235 | 1373 | -39 % |
+| simplify, rounding (unchanged) | 942, 4320 | 941, 4329 | 0 % |
+| whole boolean | 19 416 | 18 084 | **-6.9 %** |
+
+1 thread: 35 712 → 35 561 ms (-0.4 %); 2 threads: 23 955 → 23 285 ms (-2.8 %), one run each. Raw rows: `perf/assembly_parallel_2026-11-16/`
+(`python3 perf/assembly_parallel_2026-11-16/subphases.py <label>=<file.jsonl.gz> ...` for the sub-phase table). The owner's i7-8700 (6 cores / 12 threads), T6 set, 3 rounds A B A B: 1 thread 43.8 → 42.2 s (-3.7 %), 4 threads 24.4 → 22.9 s (-6.2 %), 12 threads 17.0 → 15.4 s (-9.6 %; classification -37 %, assembly -34 %), hashes 294 of 294 equal
+(branch `runs/exact-numbers`, `results/ab-pr962-vs-master-2026-11-16/`). Not measured: net48.
+
+## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
+
+The question: what limits the speedup of `ExactMeshBoolean` with the number of threads (the analysis and the lever list:
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). `perf/thread_scaling.ps1` runs the T6 case set (the 98 pairs of
+`perf/t6.py`, 294 booleans, SafeRounding on) or the three cases with the largest rounding time in the earlier cold measurement (`-Set three`: p0466_203344+80414, p0861_80557+285607,
+p0974_97674+472023) at 1, 2, 4, 8 and 12 threads on net10.0 (and net48, Windows only), the combinations alternated round by round, and writes
+the phase times and the result hashes to CSV. Thingi10K is fetched at run time (about 300 MB, outside the repository); the script needs `python3`
+(or `python`) and the .NET 10 SDK, in Windows PowerShell 5.1 or PowerShell 7.
+
+```powershell
+# the plan and the exact commands, nothing runs
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -DryRun
+# a short check of the setup: 3 cases, 1 round (fetches the models, builds, exports the cases)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set three -Rounds 1 -Limit 3 -ThreadCounts 1,2
+# the run: T6 and the three cases, 1/2/4/8/12 threads, 3 rounds (a long run, the first 4-core container run of one round took 15 minutes; not resumable)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6,three -Rounds 3 -OutDir D:\scaling
+# net48 as well (builds with -p:BenchNet48=true)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6 -Runtimes net10.0,net48 -Rounds 3 -OutDir D:\scaling48
+# one physical core per thread on a machine with SMT (up to 6 threads on a 6-core / 12-thread CPU)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -ThreadCounts 1,2,4,6 -Stride 2
+```
+
+Output in `-OutDir`: `runs.csv` (one row per process), `cases.csv` (best time and hash of each boolean), `phases.csv` (phase times of the fastest run of
+each boolean), `summary.csv` (sum of the best times per thread count, speedup, efficiency), `raw\*.jsonl`, `settings.json`. The exit code is 1 if
+a run failed or one boolean has two different hashes over all threads, runtimes and rounds (the drift check; the hash covers vertex ids, coordinates
+and triangles). Phase tables and the Amdahl bounds from the raw rows:
+
+```powershell
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --bound 1=D:\scaling\raw\t6_net10.0_t1_r1.jsonl,D:\scaling\raw\t6_net10.0_t1_r2.jsonl 4=D:\scaling\raw\t6_net10.0_t4_r1.jsonl 12=D:\scaling\raw\t6_net10.0_t12_r1.jsonl
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --hashes 1=...\t6_net10.0_t1_r1.jsonl 12=...\t6_net10.0_t12_r1.jsonl
+```
+
+On net48 the mask is set right after the process start and there is no `DOTNET_PROCESSOR_COUNT`: check the `cores` column of `raw\\*.jsonl` (the processor count the process saw) before trusting a net48 thread count; on net10.0 the script fails a run whose `cores` differs from the requested count.
+
+Threads are limited by the affinity mask of the process (and `DOTNET_PROCESSOR_COUNT` on net10.0): `-Stride 1` takes logical processors 0..n-1,
+which are SMT pairs on a CPU with hyper-threading, so 2 threads there are one physical core. Times are warm (one process per thread count and round
+runs all cases after a warm-up, `profile`); one-process-per-boolean cold times are those of `compare.py`.
+
+### Probes of the pair stage and the rounding (`perf/pair_probe.patch`, `perf/rounding_probe.patch`)
+
+Two patches against the head of #962 (3b52946), applied to the library only at measurement time, never merged: `pair_probe.patch` counts and times the candidate pairs of
+`intersections.pairs` (switches `G3_PAIR_PROBE=1|2|3`, `G3_PROBE_SERIAL=1`), `rounding_probe.patch` adds the sub-phase timers of
+`MeshRoundingRepair.Apply` (`rounding.<Step>_us` in `phases_ms`, always on). Both only add counters and `Stopwatch` reads; the `profile` hash must equal that of the unpatched build
+(`perf/scaling_report.py --hashes`). Reports `perf/pair_probe_report.py` and `perf/rounding_probe_report.py`, results in
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md#7-two-probes-on-the-head-of-962-the-discarded-pairs-of-the-pair-stage-and-the-rounding-sub-phases-2026-11-16),
+raw rows in `perf/probe_2026-11-16/`.
+`touch_only` asks `TriangleTriangleFilter` before the exact test since 2026-11-16 (the former `G3_PAIR_FILTER` experiment, now the code path; `pair_probe.patch` applies on top of it): before / after on the T6 set in
+section 7.5 of that document, raw rows in `perf/touch_only_filter_2026-11-16/` (pairs phase -21 % at 1 thread, -13 % at 4; whole boolean -8.8 % / -1.3 %, hashes equal).
 
 ## Indirect predicates (`indirect`)
 

@@ -16,8 +16,8 @@ namespace geometry3Sharp.Tests
     /// - it computed the piece's length from an exact square that underflowed a double (a corner at 2e-260 after the fuzz target's
     ///   normalisation): no shell point, no excuse.
     /// The oracle now models the mesher's split point and its rounding (Oracle.ComputeO11Unsplittable, O11RefusalSlack2). These are three
-    /// of the eleven dumps; the mesher's results were right and are accepted now (ten of the eleven; d6710852 needs the output to say
-    /// which piece ends existed before refinement, #870).
+    /// of the eleven dumps; the mesher's results were right and are accepted now (ten of the eleven; d6710852 needed the output to say
+    /// which piece ends existed before refinement: Meshing2OracleReportedProvenanceTests).
     /// </summary>
     public class Meshing2OracleSplitPointModelTests
     {

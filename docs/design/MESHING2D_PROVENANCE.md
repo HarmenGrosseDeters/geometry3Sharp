@@ -43,6 +43,7 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 - [AW87] J. Amanatides, A. Woo, *A fast voxel traversal algorithm for ray tracing*, Eurographics 1987.
 - [H91] D. Hilbert 1891; [B71] A. R. Butz, IEEE Trans. Computers 1971 (Hilbert index).
 - [Sh97] J. R. Shewchuk, *Adaptive precision floating-point arithmetic and fast robust geometric predicates*, DCG 18, 1997 (the library's `ExactPredicates`).
+- [GG26] Geogram (Inria, BSD-3), commit 16440c45, read 2026-11-17 for the survey [GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md) by a session that did not change the mesher; ideas only, nothing built from it. Read (header checked first): `src/lib/geogram/delaunay/CDT_2d.h` lines 1-800, 1000-1100, 1300-1380, 1520-1751 (the rest seen only as a grep outline of declarations); `CDT_2d.cpp` lines 1-1160, 1309-1452, 1520-1770, 1990-2019 (1160-1309, 1453-1519, 1770-1990 not read, function signatures seen by grep); `LFS.h` and `LFS.cpp` in full. `delaunay_triangle.*` and `third_party/triangle` were not opened. A later change that takes an idea from it (crossings from the original input segments, section 2a idea A2) names this entry. No implementation was made from it, so SOURCES.md has no row for it yet; a change that uses it adds one.
 
 ## M1: `comp_geom/DelaunayKernel2.cs`, `DelaunayMesh2.cs`, `TriangulationMesh2.cs`, `Triangulation2Result.cs`
 
@@ -77,6 +78,7 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 | `Builder.Output`, `RingParity`, `Xor`, `SeedCell` | the set of rings each triangle lies inside of (even-odd) by a breadth-first search from the ghosts; the innermost ring of the set decides by its role, nesting read off the sets of the real triangles (a nesting-level flood fill over the triangulation); seeds fill the cells of the constraints | spec definition of the domain (I4, I6: the domain is what is reachable without crossing a constraint, which forces a flood fill from outside and from the seeds); decisions D5 (owner 2026-11-01), D6, D16; spec I6, Q7; OGC Simple Features (ISO 19125) for role-based polygon nesting |
 | `Builder.Covering`, `SegDist2`, `BuildGrid`, `Traverse` | the sources within the tube of a subsegment, through a uniform grid of the sources | decision D7, spec R8; [AW87] (cell traversal) |
 | `Builder.Subsegment` | marker: the sole nonzero one, else 0, with the list; locked if any source is | decisions D7, D8 |
+| `EmptyDomainDiagnostic`, `Builder.SnapRounded` | the diagnostic of an empty domain whose input is not on one line (off the snap grid): the documented limit of the automatic tolerance (#986) | spec O11; owner decision 2026-11-17; no external source read |
 | `Builder.SetCrossingHeight`, `Along`, `SetHeight`, `InitHeights` | heights passed through (lowest index wins), crossings interpolated along the segment given first | spec Q9; decision D11 |
 | `ConstrainedMesh2.TryLocate`, `ContainsSlot` | walk in the hull triangulation behind the mesh, smallest kept id | [DPT]; spec R7 |
 

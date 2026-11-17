@@ -7,7 +7,7 @@ using System.Linq;
 using g3;
 using gs;
 
-static class Program
+static partial class Program
 {
     static DMesh3 Sphere(int ev, double r, Vector3d off)
     {
@@ -31,6 +31,25 @@ static class Program
         return m;
     }
 
+    // n x n cells of the unit square in z = 0, the interior vertices jittered by up to jitter of a cell (#873)
+    static DMesh3 Grid(int n, double jitter, int seed)
+    {
+        var rnd = new Random(seed);
+        var m = new DMesh3();
+        for (int j = 0; j <= n; ++j)
+            for (int i = 0; i <= n; ++i) {
+                double x = (double)i / n, y = (double)j / n;
+                if (i > 0 && i < n && j > 0 && j < n) { x += jitter / n * (2 * rnd.NextDouble() - 1); y += jitter / n * (2 * rnd.NextDouble() - 1); }
+                m.AppendVertex(new Vector3d(x, y, 0));
+            }
+        for (int j = 0; j < n; ++j)
+            for (int i = 0; i < n; ++i) {
+                int a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+                m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c);
+            }
+        return m;
+    }
+
     static int Runs = 7;
 
     static (MeshHausdorffDistance h, double ms) Measure(DMesh3 a, DMesh3 b, bool sym, double tol, bool certified)
@@ -39,7 +58,7 @@ static class Program
         MeshHausdorffDistance h = null;
         for (int r = 0; r <= Runs; ++r) {
             var sw = Stopwatch.StartNew();
-            h = new MeshHausdorffDistance(a, b) { Symmetric = sym, Tolerance = tol, CertifiedUpper = certified };
+            h = new MeshHausdorffDistance(a, b) { Symmetric = sym, Tolerance = tol, CertifiedUpper = certified, MaxSubdivisions = 200000 };
             h.Compute();
             if (r > 0) times.Add(sw.Elapsed.TotalMilliseconds);     // (run 0: warm-up)
         }
@@ -51,12 +70,15 @@ static class Program
     {
         var d = Measure(a, b, sym, tol, false);
         var c = Measure(a, b, sym, tol, true);
-        Console.WriteLine($"| {name} | {(sym ? "yes" : "no")} | {d.h.LowerBound:R} | {d.h.UpperBound:R} → {c.h.UpperBound:R} | " +
+        string conv = (d.h.Converged && c.h.Converged) ? "" : $" (converged {d.h.Converged} → {c.h.Converged})";
+        Console.WriteLine($"| {name}{conv} | {(sym ? "yes" : "no")} | {d.h.LowerBound:R} | {d.h.UpperBound:R} → {c.h.UpperBound:R} | " +
             $"{d.h.Subdivisions} → {c.h.Subdivisions} | {d.ms:F1} → {c.ms:F1} | {100 * (c.ms / d.ms - 1):+0;-0}% |");
     }
 
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "predcost") { PredCost(); return; }
+        if (args.Length > 0 && args[0] == "patch") { PatchOracle(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0) Runs = int.Parse(args[0]);
         Console.WriteLine($"| case | sym | lower (default) | upper default → certified | subdivisions | ms, median of {Runs} | time |");
         Console.WriteLine("|---|---|---|---|---|---|---|");
@@ -72,6 +94,8 @@ static class Program
             Row("reduced 1/8 of 21k", red2, big2, sym);
             Row("cube-vs-sphere", new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(0.7, 0.7, 0.7)) }.Generate().MakeDMesh(), Sphere(10, 1, Vector3d.Zero), sym);
             Row("offset 1e3 spheres", Sphere(6, 1, new Vector3d(1000, 0, 0)), Sphere(6, 1.01, new Vector3d(1000, 0, 0)), sym);
+            // (#873: coplanar, exact distance 0, an absolute tolerance below the former noise floor of about 2e-9)
+            Row("coplanar grids 16/17 tol1e-12", Grid(16, 0, 1), Grid(17, 0.3, 2), sym, 1e-12);
         }
         // the case the option is for: a small triangle 1e-9 above a tilted unit triangle (the default upper bound can be below the
         // exact distance there)

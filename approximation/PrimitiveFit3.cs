@@ -441,7 +441,7 @@ namespace g3
                         double l1 = (pk < 1e-8) ? -pk : Math.Log(1 - pk);
                         double iters = Math.Ceiling(Math.Log(1 - Confidence) / l1);
                         if (iters < MaxIterations)
-                            needed = (long)iters;
+                            needed = MathUtil.ToLongSaturating(iters);
                     }
                 }
             }
@@ -935,15 +935,15 @@ namespace g3
             AxisAlignedBox3d box = BoundsUtil.Bounds(pts);
             double cell = Math.Max(box.MaxDim / Math.Max(1, Math.Pow(n / 4.0, 1.0 / 3.0)), MathUtil.Epsilon);
             var grid = new Dictionary<Vector3i, List<int>>();
-            Func<Vector3d, Vector3i> key = (p) => new Vector3i((int)Math.Floor((p.x - box.Min.x) / cell),
-                (int)Math.Floor((p.y - box.Min.y) / cell), (int)Math.Floor((p.z - box.Min.z) / cell));
+            Func<Vector3d, Vector3i> key = (p) => new Vector3i(MathUtil.FloorToIntSaturating((p.x - box.Min.x) / cell),
+                MathUtil.FloorToIntSaturating((p.y - box.Min.y) / cell), MathUtil.FloorToIntSaturating((p.z - box.Min.z) / cell));
             for (int i = 0; i < n; ++i) {
                 Vector3i kk = key(pts[i]);
                 List<int> list;
                 if (grid.TryGetValue(kk, out list) == false) grid[kk] = list = new List<int>();
                 list.Add(i);
             }
-            int maxRing = (int)Math.Ceiling(box.MaxDim / cell) + 1;
+            int maxRing = MathUtil.ToIntSaturating(Math.Ceiling(box.MaxDim / cell)) + 1;
             Vector3d[] result = new Vector3d[n];
             gParallel.ForEach(Interval1i.Range(n), (i) => {
                 Vector3i c = key(pts[i]);

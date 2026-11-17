@@ -8,9 +8,10 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// #742: MeshHausdorffDistance.CertifiedUpper. Without it UpperBound is the floating-point model of the distance queries, whose
-    /// squared-distance form cancels: near the surface (a distance d much below the size E of the nearest triangle) it is off by
-    /// about 2^-53 E^2 / d, up to 2^-26 E, and can be below the exact distance. With it every bound holds under rounding (outward-rounded
+    /// #742: MeshHausdorffDistance.CertifiedUpper. Without it UpperBound is the floating-point model of the distance queries, which
+    /// can be below the exact distance: by a few ulps of the coordinates since #873 (lengths to the float closest points); before, the
+    /// squared-distance form cancelled near the surface (a distance d much below the size E of the nearest triangle) to about
+    /// 2^-53 E^2 / d, up to 2^-26 E. With it every bound holds under rounding (outward-rounded
     /// distances to points of the triangles; the float cascade's pieces re-evaluated so). Checked against exact integer distances
     /// (CertifiedPointMeshDistance.AtLeastDistance). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
     /// </summary>
@@ -68,7 +69,8 @@ namespace geometry3Sharp.Tests
                     if (!VerticesWithin(a, b, plain.UpperBound)) below0++;
                     n++;
                 }
-            // (why the option exists: the default is below the exact distance in a good part of these cases; 76 of 180 measured)
+            // (why the option exists: the default is below the exact distance in a good part of these cases; 76 of 180 measured, 69 with
+            // the closest-point distances of #873)
             Assert.True(below0 > n / 10, $"{below0} of {n}");
         }
 

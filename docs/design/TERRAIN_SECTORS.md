@@ -1,16 +1,17 @@
 # Design note: sector polygons and the exterior distance (terrain item 3)
 
-Status: **owner decision 2026-11-13: yes to the proposals** (below): E1, the exterior distance, first; R2 attribution with the
+Status: **parked (owner 2026-11-16), see [the status section](#status-2026-11-16-parked-owner).**
+Earlier, owner decision 2026-11-13: yes to the proposals (below): E1, the exterior distance, first; R2 attribution with the
 smaller slope on a sector boundary; an ε-approximation within the Tolerance budget for S1. Ordered after ramps R1;
 nothing is built yet. `TerrainSlopeDesign.Modes.SectorPolygons` and `Modes.ExteriorDistance` exist in the API sketch
-(TERRAIN.md 6) and are rejected today (`NotImplemented`).
+(TERRAIN.md 6) only; **they are not in the code** (see the status section).
 
 ## Goal
 
 Two extensions of the cone envelope R1 (TERRAIN.md 2.2, 2.3, 5.2):
 
 1. **Exterior distance.** For a closed toe the design area is an obstacle. A cone must not reach a wall point through the
-   area's interior. Today such designs are detected and rejected (`CrossDesignInfluence`). This one replaces the
+   area's interior. (Planned in TERRAIN.md 5.2 as `CrossDesignInfluence` but not in the code: today only `ToeUndercut` guards this.) This one replaces the
    Euclidean distance by the shortest path around the design area.
 2. **Sector polygons.** Geotechnical domains are given as polygons in plan, each with its own slope. The slope a wall
    point must obey is that of the sector it lies in (R2, attribution by location), not that of the nearest toe point
@@ -44,7 +45,7 @@ bounds the over-excavation against the exact surface of the mode.
     lateral limits of open toes the same way: limits as barriers. So the wedge is a lateral limit of the secondary
     piece.
   - The support check (ii) of the oracle holds per piece as today: the plane is at or below the apex height z_v.
-  - Through the design area nothing is supported any more: `CrossDesignInfluence` disappears for this mode.
+  - Through the design area nothing is supported any more: the planned `CrossDesignInfluence` (not in the code) would not be needed for this mode.
 - **Sectors (S1, after E1):**
   - The sector boundaries become constraints of the realization: triangles do not cross them.
   - Each triangle is checked exactly against the slope of its sector. A triangle on a boundary gets the smaller slope.
@@ -103,3 +104,48 @@ bounds the over-excavation against the exact surface of the mode.
 2. Sectors: the attribution by the location of the wall point (R2), and the smaller slope on a sector boundary?
 3. Sectors: is an ε-approximation of the R2 optimum in the Tolerance budget acceptable? The exact weighted-region surface
    has no practical exact algorithm.
+
+## Status 2026-11-16: parked (owner)
+
+The E1 session read this note against the code before building and stopped. Owner decision 2026-11-16: park E1, S1 and
+R2; no behaviour changes. Findings:
+
+1. **Premises of this note that are not in the code.**
+   - There is no `Mode`, `Modes.ExteriorDistance` or `Modes.SectorPolygons` in `TerrainSlopeDesign`; they exist only in
+     the API sketch of TERRAIN.md 6. The note's "rejected today (`NotImplemented`)" is wrong: no mode is rejected.
+   - There is no `CrossDesignInfluence` status or check. TERRAIN.md 5.2 designed it, phase 1 did not build it. Today the only
+     guard is `ToeUndercut` (and `ToeOvertopped` for fill), which `through_design_area` classifies as `UnsupportedByMethod` when the causing cone reaches
+     the toe through the design area. A Euclidean cone across the design area that undercuts no toe is accepted, which is
+     valid for R1's Euclidean definition (the output is the exact Euclidean envelope), not the exterior surface.
+   - So "`CrossDesignInfluence` disappears for this mode" has nothing to remove.
+2. **A wedge clip is not enough.** The visibility region of an obstacle vertex in the exterior is star-shaped and not
+   convex; for a non-convex design area or holes, other parts of the design area cut it. The toe's own primary pieces (strip
+   planes and fans) must also be clipped to the points that see them: a weak-visibility region per toe edge, bounded by
+   shadow lines through obstacle vertices parallel to the fall direction. A subset of the visible region leaves S above the
+   exact surface; a superset breaks the Tolerance bound. Both need exact handling.
+3. **The planar map has no per-piece clip.** Lateral limits are domain barriers shared by the whole toe, not a region per
+   piece. `InsertPiece` / `insert_into` would need a variant "valid only inside convex clip cells, +infinity outside",
+   which touches the exact core (`insert_into`, `Simplify`, `Undercuts`, the support check). The height of a secondary apex is
+   the small part: for a closed toe whose design area is its own interior, z_v = z(v) when no toe is undercut, so the note's "its new
+   error bound is only the rounding of the secondary apexes' heights" is nearly vacuous. The bounds that matter are the shadow-line
+   direction errors and the clip boundaries, which this note does not budget.
+4. **Also affected:** ramps (polygon pieces), `through_design_area`, the overlay and catch-line certificates, the local
+   frame, Auto and fill (z negated).
+
+**Size.** About 2-3 times 1b (the overlay with the terrain, TERRAIN_1A_PLAN.md), not "about the size of 1b": a visibility graph, exact visibility and shadow regions, a map
+insertion variant, a Tolerance-budget derivation, and an oracle test against an independent exact exterior-distance
+reference.
+
+**Options put to the owner.**
+- **A.** Restricted E1: only designs with a simple exact exterior distance (for example one closed toe with a convex-separable
+  obstacle); everything else keeps `ToeUndercut` / `NotImplemented`. Smaller, covers few real pits.
+- **B.** Full E1 with weak-visibility clipping, a multi-PR tier-L feature: rewrite this note first, owner review, then the
+  map change, then the Design integration.
+- **C.** First add the missing `CrossDesignInfluence` detection (conservative hull test, TERRAIN.md 5.2). It changes which
+  designs are accepted, so it is an owner decision.
+
+Decision: park everything (owner 2026-11-16). If E1 resumes, the recommended order is C, then B with a rewritten note.
+
+**How others solve it (prior-art line).** Shortest paths among polygonal obstacles: visibility graph, Lee and Preparata
+1984; continuous Dijkstra, Hershberger and Suri 1999; weak visibility polygons, Guibas, Hershberger, Leven, Sharir and
+Tarjan 1987. Nothing found that combines them with a per-triangle slope certificate (terms as above).

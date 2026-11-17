@@ -386,6 +386,27 @@ namespace g3
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
         const int Shards = 64;
+        /// <summary>
+        /// for tests (issue 789): a salt for the hashes of exact points (0: their own hashes). The hash of an exact
+        /// point is seeded per process on .NET (BigInteger.GetHashCode); a non-zero salt scrambles the hashes of the
+        /// rational and fixed-width points (their shard and their bucket in it, and ExactHash of the merge) and the
+        /// shard of the implicit points (their bucket keeps PointKey's own hash, which is not seeded), so that a test
+        /// can show that no result depends on them. SingleShard puts every point into the first shard. Both are set
+        /// before the first point is added.
+        /// </summary>
+        internal int HashSalt;
+        internal bool SingleShard;
+        [MethodImpl(JitHints.Optimize)]
+        int salted(int h)
+        {
+            if (HashSalt == 0)
+                return h;
+            ulong z = (uint)(h ^ HashSalt) * 0x9E3779B97F4A7C15UL;
+            z = (z ^ (z >> 29)) * 0xBF58476D1CE4E5B9UL;
+            return (int)(z ^ (z >> 32));
+        }
+        [MethodImpl(JitHints.Optimize)]
+        int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
         readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
         readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
         readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
@@ -402,7 +423,7 @@ namespace g3
         {
             public readonly ExactPoint3 P;
             public readonly int Hash;
-            public HashedPoint(ExactPoint3 p) { P = p; Hash = p.GetHashCode(); }
+            public HashedPoint(ExactPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
             public override int GetHashCode() { return Hash; }
@@ -413,7 +434,7 @@ namespace g3
         {
             FixedPoint3 P;
             public readonly int Hash;
-            public FixedKey(ref FixedPoint3 p) { P = p; Hash = p.Hash(); }
+            public FixedKey(ref FixedPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(FixedKey o)
             {
                 return Hash == o.Hash && FixedPoint3.SameValue(ref P, ref o.P);
@@ -495,8 +516,8 @@ namespace g3
             FixedPoint3 f;
             if (FixedWidthPoints && FixedPoint3.TryCreateLimbs(p, out f)) {
                 // (the representation is a function of the value: a point in this index is never in the other)
-                var fk = new FixedKey(ref f);
-                var fshard = fixedIndex[(fk.Hash & 0x7FFFFFFF) % Shards];
+                var fk = new FixedKey(ref f, salted(f.Hash()));
+                var fshard = fixedIndex[shard_of(fk.Hash)];
                 lock (fshard) {
                     int id;
                     if (fshard.TryGetValue(fk, out id))
@@ -509,8 +530,8 @@ namespace g3
                     return id;
                 }
             }
-            var hp = new HashedPoint(p);
-            var shard = rationalIndex[(hp.Hash & 0x7FFFFFFF) % Shards];
+            var hp = new HashedPoint(p, salted(p.GetHashCode()));
+            var shard = rationalIndex[shard_of(hp.Hash)];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(hp, out id))
@@ -538,7 +559,7 @@ namespace g3
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
-            var shard = keyIndex[(key.GetHashCode() & 0x7FFFFFFF) % Shards];
+            var shard = keyIndex[shard_of(salted(key.GetHashCode()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(key, out id))
@@ -602,7 +623,7 @@ namespace g3
         internal int ExactHash(int id)
         {
             int r = exact_ref(id);
-            return (r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode();
+            return salted((r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode());
         }
 
         // point ids compared by their exact points
@@ -1194,7 +1215,7 @@ namespace g3
             var constraints = new List<long>[Triangles.Count];
             // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
             gParallel.ForRange(Triangles.Count, (ti) => {
-                if (Cancellation.IsCancellationRequested == false)
+                if (Cancellation.IsCancellationRequested == false && triangulated(Triangles[ti]))
                     triangulate(ti, out pieces[ti], out constraints[ti]);
             });
             touchedPoints = null;
@@ -1210,7 +1231,7 @@ namespace g3
             Output.Capacity = Math.Max(Output.Capacity, Output.Count + pieceCount);
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 InputTriangle t = Triangles[ti];
-                if (Culled[ti])
+                if (Culled[ti] || triangulated(t) == false)
                     continue;
                 if (pieces[ti] != null)
                     Output.AddRange(pieces[ti]);
@@ -1268,7 +1289,7 @@ namespace g3
         int predicted_pieces(int ti)
         {
             InputTriangle t = Triangles[ti];
-            if (Culled[ti] || t.Degenerate)
+            if (Culled[ti] || t.Degenerate || triangulated(t) == false)
                 return 0;
             if (t.Points.Count == 0 && t.Segments.Count == 0)
                 return 1;
@@ -1839,6 +1860,13 @@ namespace g3
         // per input triangle, after Compute: culled by the early-out; and their number
         internal bool[] Culled;
         internal int CulledCount;
+        // per mesh: whether Compute triangulates its triangles and outputs their pieces (null: all meshes, the default). A mesh that
+        // is not takes part in the intersections as usual (the segments and points it adds to the other meshes' triangles are
+        // the same), but its own triangles are neither triangulated nor output, and not counted in PredictedPieces. The pieces
+        // of the other meshes are the same as without the mask (the triangulation is per input triangle). The exact imprint
+        // (docs/design/EXACT_IMPRINT.md) triangulates its target only.
+        internal bool[] TriangulateMeshes;
+        bool triangulated(InputTriangle t) { return TriangulateMeshes == null || TriangulateMeshes[t.Mesh]; }
         public int SelfIntersectingPairs;
         /// <summary>
         /// for tests: the candidate pairs within a mesh by one self-join of its box tree (each pair once), else by a
@@ -2250,6 +2278,12 @@ namespace g3
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
             Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
+            // the projection filter first: it answers only where the exact test's answer is known (TriangleTriangleFilter, it
+            // never changes a decision of IntersectsBeyondShared), and decides 96 % of the pairs that reach here
+            // (docs/perf/BOOLEAN_THREAD_SCALING.md, section 7.1)
+            int decided = TriangleTriangleFilter.BeyondShared(pa, ref A, pb, ref B);
+            if (decided != TriangleTriangleFilter.Undecided)
+                return decided != TriangleTriangleFilter.Intersecting;
             // (all non-shared corners of U in T's plane: the coplanar branches of IntersectsBeyondShared without their
             // Orient3d, which are 0; docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1)
             if (st == 0 && shared > 0)
@@ -2920,8 +2954,10 @@ namespace g3
             nodeBox = new double[6 * cap];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
             if (n > 0) {
-                if (median == false && n >= ParallelBuildFrom)
+                if (median == false && n >= ParallelBuildFrom) {
+                    ParallelBuildsOnThisThread++;
                     build_parallel(n);
+                }
                 else {
                     var nodes = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
                     build(nodes, 0, n);
@@ -2948,7 +2984,14 @@ namespace g3
 
         // from this many boxes on the tree is built (Morton order, codes, sort, nodes) in parallel over fixed blocks and
         // subtrees, to the same tree as the serial build (tests set it)
-        internal static volatile int ParallelBuildFrom = 262144;
+        // (8192, down from 262144: the operands of a boolean have 1k-100k triangles, so their trees, and the result's tree in SafeRounding,
+        // were built serially; the parallel tree is the serial one node for node, so only the time changes. Above the median split's 4096
+        // boxes; benchmarks/BooleanComparison/README.md, "Thread scaling: the tree build threshold")
+        internal const int DefaultParallelBuildFrom = 8192;
+        internal static volatile int ParallelBuildFrom = DefaultParallelBuildFrom;
+        internal const int MedianSplitLimit = MedianSplitBelow;
+        // for tests: the parallel builds started on this thread
+        [ThreadStatic] internal static int ParallelBuildsOnThisThread;
         const int BlockSize = 4096;
         static int blocks(int n) { return (n + BlockSize - 1) / BlockSize; }
         // the top of the tree down to this depth is built serially, the subtrees below it in parallel
@@ -3035,8 +3078,10 @@ namespace g3
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
             for (int c = 0; c < 2; ++c) {
                 int ch = c == 0 ? left : right;
-                box.Contain(new AxisAlignedBox3d(new Vector3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2]),
-                    new Vector3d(all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5])));
+                // (the six-number constructor keeps the box as stored: the vector constructor orders min and max, which an inverted box
+                // (AxisAlignedBox3d.Empty) or one with a NaN in only one of them would not survive; the serial build unions the boxes as they are)
+                box.Contain(new AxisAlignedBox3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2],
+                    all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5]));
             }
             put(all.Box, id, box);
             return id;

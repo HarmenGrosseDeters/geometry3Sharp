@@ -93,7 +93,7 @@ namespace gs
             // end e of line e / 2: the first point if e is even, the last if odd
             Func<int, Vector3d> endPoint = (e) => { var l = lines[e / 2]; return (e % 2 == 0) ? l[0] : l[l.Count - 1]; };
             double cellSize = Math.Max(gap, 1e-12);
-            Func<Vector3d, Vector3i> cellOf = (p) => new Vector3i((int)Math.Floor(p.x / cellSize), (int)Math.Floor(p.y / cellSize), (int)Math.Floor(p.z / cellSize));
+            Func<Vector3d, Vector3i> cellOf = (p) => new Vector3i(MathUtil.FloorToIntSaturating(p.x / cellSize), MathUtil.FloorToIntSaturating(p.y / cellSize), MathUtil.FloorToIntSaturating(p.z / cellSize));
             var cells = new Dictionary<Vector3i, List<int>>();
             for (int e = 0; e < 2 * n; ++e) {
                 if (open(e / 2) == false) continue;
@@ -854,7 +854,7 @@ namespace gs
             foreach (Vector3d p in SourcePoints) lines.Add(new List<Vector3d>() { p });
             foreach (var line in lines)
                 for (int i = 0; i < line.Count; ++i) {
-                    int steps = (i + 1 < line.Count) ? Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / (0.25 * maxLength))) : 1;
+                    int steps = (i + 1 < line.Count) ? Math.Max(1, MathUtil.ToIntSaturating(Math.Ceiling(line[i].Distance(line[i + 1]) / (0.25 * maxLength)))) : 1;
                     for (int k = 0; k < steps; ++k) {
                         Vector3d s = (i + 1 < line.Count) ? Vector3d.Lerp(line[i], line[i + 1], (double)k / steps) : line[i];
                         int tid = spatial.FindNearestTriangle(s, maxLength);
@@ -923,7 +923,7 @@ namespace gs
                 double prev = bound(line[0]);
                 ex.Add(prev - SafetyDistance);
                 for (int i = 0; i + 1 < line.Count; ++i) {
-                    int n = Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / h));
+                    int n = Math.Max(1, MathUtil.ToIntSaturating(Math.Ceiling(line[i].Distance(line[i + 1]) / h)));
                     double step = line[i].Distance(line[i + 1]) / n;
                     double segMax = 0;
                     for (int k = 1; k <= n; ++k) {
@@ -998,7 +998,7 @@ namespace gs
                 foreach (var line in polyLines)
                     for (int i = 0; i + 1 < line.Count || (line.Count == 1 && i == 0); ++i) {
                         Vector3d a = line[i], b = (i + 1 < line.Count) ? line[i + 1] : line[i];
-                        int steps = Math.Max(1, (int)Math.Ceiling(a.Distance(b) / (0.5 * h)));
+                        int steps = Math.Max(1, MathUtil.ToIntSaturating(Math.Ceiling(a.Distance(b) / (0.5 * h))));
                         for (int k = 0; k <= steps; ++k)
                             pts.Add(Vector3d.Lerp(a, b, (double)k / steps));
                     }

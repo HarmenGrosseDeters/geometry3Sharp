@@ -55,14 +55,14 @@ namespace g3
                 ((pt.z - GridOrigin.z) / CellSize));
 
             // compute integer coordinates (floor, so points just below the origin are outside)
-            int x0 = (int)Math.Floor(gridPt.x);
-            int y0 = (int)Math.Floor(gridPt.y), y1 = y0 + 1;
-            int z0 = (int)Math.Floor(gridPt.z), z1 = z0 + 1;
+            int x0 = MathUtil.FloorToIntSaturating(gridPt.x);
+            int y0 = MathUtil.FloorToIntSaturating(gridPt.y), y1 = y0 + 1;
+            int z0 = MathUtil.FloorToIntSaturating(gridPt.z), z1 = z0 + 1;
 
-            // clamp to grid
-            if (x0 < 0 || (x0+1) >= Grid.ni ||
-                y0 < 0 || y1 >= Grid.nj ||
-                z0 < 0 || z1 >= Grid.nk)
+            // clamp to grid (compared without x0 + 1: a saturated int.MaxValue, from a huge coordinate, must not wrap around, #804)
+            if (x0 < 0 || x0 >= Grid.ni - 1 ||
+                y0 < 0 || y0 >= Grid.nj - 1 ||
+                z0 < 0 || z0 >= Grid.nk - 1)
                 return Outside;
 
             // convert double coords to [0,1] range
@@ -151,9 +151,9 @@ namespace g3
                 return Vector3d.Zero;
 
             // compute integer coordinates
-            int x0 = (int)gridPt.x;
-            int y0 = (int)gridPt.y, y1 = y0 + 1;
-            int z0 = (int)gridPt.z, z1 = z0 + 1;
+            int x0 = MathUtil.ToIntSaturating(gridPt.x);
+            int y0 = MathUtil.ToIntSaturating(gridPt.y), y1 = y0 + 1;
+            int z0 = MathUtil.ToIntSaturating(gridPt.z), z1 = z0 + 1;
 
             // convert double coords to [0,1] range
             double fAx = gridPt.x - (double)x0;

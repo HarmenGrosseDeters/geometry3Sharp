@@ -60,7 +60,8 @@ namespace gs
         /// certify UpperBound too, rounding included (#742): the distances of the subdivision points and the bounds of the triangles are
         /// evaluated with outward rounding (ExactInterval), so UpperBound is never below the exact distance. Without it UpperBound is
         /// certified only up to the floating-point evaluation of the distance queries (see Compute), which can put it below the exact
-        /// distance where a point of one mesh lies very near the other (a distance d much below the size E of the nearest triangle).
+        /// distance by a few ulps of the coordinates, more for slivers (eg where a point of one mesh lies very near the other, at UTM
+        /// coordinates).
         /// Takes about twice the time (+16 to +115%, typically +90%, benchmarks/HausdorffBenchmark); on those inputs the subdivisions
         /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound is not used. Every
         /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
@@ -82,8 +83,9 @@ namespace gs
         /// distance queries, which can put it below the exact distance near the surface (see Compute) </summary>
         public double LowerBound, UpperBound;
         /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF, or if
-        /// the subdivision points' rounding keeps the gap open); the upper bound, and so the gap, up to the floating-point evaluation of
-        /// the distance queries unless CertifiedUpper </summary>
+        /// the subdivision points' rounding keeps the gap open; the gap is compared in doubles, so an absolute tolerance below an ulp of
+        /// the distance may not converge); the upper bound, and so the gap, up to the floating-point evaluation of the distance queries
+        /// unless CertifiedUpper </summary>
         public bool Converged;
         /// <summary> point where the lower bound is attained (on A, or on B if WorstPointOnB), and its closest point on the other mesh </summary>
         public Vector3d WorstPoint, WorstPointClosest;
@@ -120,9 +122,12 @@ namespace gs
         /// exact shift (subdivision points would round off the triangles). SpatialA / SpatialB are then not used (nor set).
         /// LowerBound is certified, rounding included: never above the exact distance (the worst point's distance is re-evaluated
         /// exactly, less the rounding of the point; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md). UpperBound is certified up to the
-        /// floating-point evaluation of the distance queries, about 2^-53 E^2 / d for a distance d to a triangle of size E, at most about
-        /// 2^-26 E (E: the nearest target triangle's size; the rounding of subdivision points is included): near the surface (d much below
-        /// E) it can be below the exact distance. CertifiedUpper certifies it fully (#742).
+        /// floating-point evaluation of the distance queries: a distance is the length |p - c| to a closest point c computed in doubles,
+        /// within a few ulps of the coordinates of the exact one, more for slivers (the rounding of subdivision points is included), so UpperBound can be
+        /// below the exact distance by that much. CertifiedUpper certifies it fully (#742). (Before #873 the distances were the square root
+        /// of the squared-distance form, which cancels near the surface to about 2^-26 E, E the nearest triangle's size: on coplanar or
+        /// touching meshes UpperBound could not get below about 1e-9 E, and an absolute Tolerance below that did not converge.)
+        /// An absolute Tolerance below a few ulps of the coordinates may not converge for meshes that touch.
         /// </summary>
         public bool Compute()
         {
@@ -176,7 +181,7 @@ namespace gs
             if (keepSpatial) { SpatialA = spatialA; SpatialB = spatialB; }
 
             Subdivisions = 0;
-            var ab = new OneSided(meshA, spatialB, tol, 0, this, Symmetric ? MaxSubdivisions - MaxSubdivisions / 2 : MaxSubdivisions);
+            var ab = new OneSided(meshA, spatialB, tol, 0, 0, this, Symmetric ? MaxSubdivisions - MaxSubdivisions / 2 : MaxSubdivisions);
             ab.Run();
             // (the certified lower bounds; the second direction is pruned against the first one's computed Lower, which the upper
             // bound of the first direction is never below, so the pruned triangles stay bounded)
@@ -184,7 +189,7 @@ namespace gs
             Converged = ab.Converged;
             Vector3d worst = ab.CertifiedWorst, worstClosest = ab.CertifiedWorstClosest; WorstPointOnB = false;
             if (Symmetric && CancelF() == false) {
-                var ba = new OneSided(meshB, spatialA, tol, ab.Lower, this, MaxSubdivisions);
+                var ba = new OneSided(meshB, spatialA, tol, ab.Lower, ab.CertifiedLower, this, MaxSubdivisions);
                 ba.Run();
                 Converged = Converged && ba.Converged;
                 computed = Math.Max(computed, ba.Lower);
@@ -199,9 +204,10 @@ namespace gs
             // distance may be below the meshes' (scaled) by less than 2^-1072; every certified triangle bound is at least 2^-537 and
             // ends with a rounding up, at least about 2^-590 above its exact value, which covers it; HAUSDORFF_CERTIFIED_UPPER.md
             // section 8)
-            // where the certified lower bound is below the computed one (a rounded point off the triangles, #738), the gap to the upper
-            // bound may exceed the tolerance
-            if (lower < computed && !(upper - lower <= tol))
+            // the reported gap decides (the directions stop on their computed Lower, or at a stuck triangle's bound, or capped in the
+            // second pass; where the certified lower bound is below the computed one, a rounded point off the triangles (#738) or a
+            // distance of about 1e-16 where the exact one is 0 (#873), the gap to the upper bound may exceed the tolerance)
+            if (!(upper - lower <= tol))
                 Converged = false;
             // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
             // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
@@ -276,6 +282,8 @@ namespace gs
             DMeshAABBTree3 spatial;
             TriangleDeviationBounds bounds;
             double tol, prune;
+            // the certified lower bound of the first direction (prune is its computed Lower; 0 for the first direction)
+            double pruneCertified;
             MeshHausdorffDistance owner;
 
             // points of From (input vertices, then subdivision points): position, distance to To, nearest triangle
@@ -308,13 +316,13 @@ namespace gs
             // (owner.Subdivisions, counted over both directions, at which this direction stops)
             readonly int limit;
 
-            public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner, int limit)
+            public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, double pruneCertified, MeshHausdorffDistance owner, int limit)
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
                 certified = owner.CertifiedUpper;
                 // (the patch bound's rounding slack is estimated, not derived: not used for a certified bound)
-                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound && !certified, Certified = certified };
-                this.tol = tol; this.prune = prune; this.owner = owner; this.limit = limit;
+                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound && !certified, Certified = certified, PointDistance = true };
+                this.tol = tol; this.prune = prune; this.pruneCertified = pruneCertified; this.owner = owner; this.limit = limit;
             }
 
             // CertifiedUpper: per point, a certified upper bound of its distance to its nearest triangle (B1; the triangles' bounds use
@@ -324,9 +332,10 @@ namespace gs
 
             void query(Vector3d p, out double d, out int t, out Vector3d c, out double u)
             {
-                t = spatial.FindNearestTriangle(p);
+                // (the nearest triangle and the distance by the closest point, |p - c|: the square root of the squared-distance form
+                // cancels near the surface to about 2^-26 E, which floored Upper at about 1e-9 on coplanar meshes, #873)
+                t = spatial.FindNearestTriangleByClosestPoint(p, out d);
                 DistPoint3Triangle3 q = MeshQueries.TriangleDistance(to, t, p);
-                d = Math.Sqrt(q.DistanceSquared);
                 c = q.TriangleClosest;
                 u = certified ? CertifiedTriangleBounds.PointTriangleUpper(p, q.Triangle.V0, q.Triangle.V1, q.Triangle.V2,
                     q.TriangleBaryCoords.y, q.TriangleBaryCoords.z) : d;
@@ -399,15 +408,54 @@ namespace gs
                 // refine the triangles with the largest upper bounds, in batches: the distance queries of
                 // the new points and the bounds of the children are computed in parallel
                 Converged = true;
-                const int BatchSize = 256;
+                startSubdivisions = owner.Subdivisions;
+                refine(heap, limit, true);
+                finish(heap);
+                // (#873) the refinement closes the gap to the computed Lower, the reported one is to the certified lower bound, which
+                // may be below it by the rounding of the worst point's distance (eg about 1e-16 where the meshes touch, the exact
+                // distance 0): the gap then ended up to that much above the tolerance and Converged false. Where that difference is at
+                // most half the tolerance, the triangles above the certified lower bound plus the tolerance are refined further (only
+                // the stopping point changes, not a bound)
+                // The pass is capped at the subdivisions of the first (at least one batch) and never changes Converged: where it stops
+                // early (a rounding floor between the two targets, the limit), Compute's check of the reported gap decides, as before
+                // (review of #873)
+                double slack0 = threshold() - Math.Max(CertifiedLower, pruneCertified);
+                if (Converged && slack0 > 0 && slack0 <= 0.5 * tol && stuck <= threshold() + tol - slack0
+                    && heap.Count > 0 && heap.TopKey > threshold() + tol - slack0) {
+                    int first = owner.Subdivisions - startSubdivisions;
+                    slack = slack0;
+                    refine(heap, Math.Min(limit, owner.Subdivisions + Math.Max(first, BatchSize)), false);
+                    Upper = Math.Max(Math.Max(Lower, stuck), (heap.Count > 0) ? heap.TopKey : 0);
+                    certify();
+                }
+            }
+
+            const int BatchSize = 256;
+            // owner.Subdivisions when this direction started
+            int startSubdivisions;
+
+            // the refinement stops where every triangle's bound is within the tolerance (less slack) of max(Lower, prune), or at most
+            // stuck - 2 tol: Upper is at least stuck anyway, and no later point can raise Lower above the largest bound (a point's
+            // distance is at most its triangle's bound, up to rounding), so the goal stays below stuck and the gap open whatever is
+            // refined (Converged false, finish); a run that converged before still does, with the same result (review of #873).
+            // Without it a tolerance near the rounding of the certified bounds on touching meshes (eg 1e-15 at coordinates of 1, where
+            // the distances are about 1e-16 since #873) refined to MaxSubdivisions with the gap held open by a stuck triangle
+            double slack = 0;
+            double goal() { return threshold() + tol - slack; }
+            double target() { return Math.Max(goal(), stuck - 2 * tol); }
+
+            // refine until every bound is within target(), or until owner.Subdivisions reaches stop (or CancelF); then Converged is set
+            // false if setConverged
+            void refine(DeviationMaxHeap<Index3i> heap, int stop, bool setConverged)
+            {
                 List<Index3i> batch = new List<Index3i>(BatchSize);
-                while (heap.Count > 0 && heap.TopKey > threshold() + tol) {
-                    if (owner.Subdivisions >= limit || owner.CancelF()) {
-                        Converged = false;
+                while (heap.Count > 0 && heap.TopKey > target()) {
+                    if (owner.Subdivisions >= stop || owner.CancelF()) {
+                        if (setConverged) Converged = false;
                         break;
                     }
                     batch.Clear();
-                    while (batch.Count < BatchSize && heap.Count > 0 && heap.TopKey > threshold() + tol)
+                    while (batch.Count < BatchSize && heap.Count > 0 && heap.TopKey > target())
                         batch.Add(heap.Pop());
                     owner.Subdivisions += batch.Count;
 
@@ -451,7 +499,11 @@ namespace gs
                             heap.Push(double.IsNaN(cu[k]) ? double.MaxValue : cu[k], children[k]);
                     }
                 }
-                if (stuck > threshold() + tol)
+            }
+
+            void finish(DeviationMaxHeap<Index3i> heap)
+            {
+                if (stuck > goal())
                     Converged = false;
                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
                 // only an upper bound where it is above prune, which is all the symmetric distance needs

@@ -109,11 +109,20 @@ namespace gs
         /// identical coordinates) and the adaptive dual contouring (Adaptive, Methods.DualContouring), exact tests per grid
         /// cell that the level set of the input's winding number (its components across which the winding number steps
         /// from 0 to 1) and the contour cross the cell in the same way. TopologyCertified and UncertifiedCells report the
-        /// result. Off by default; it does not change the contour or the result.
+        /// result. Off by default; it does not change the contour or the result. The reference is the input as given: an
+        /// inside-out part (winding number -1 inside) is not on the level set, although the contouring makes it solid, so an
+        /// input with inside-out parts (or wholly inside out) is not certified where they are.
         /// </summary>
         public bool ComputeTopologyCertificate = false;
         /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
         internal bool CertificateParallel = true;
+        /// <summary> (tests) the certificate's block test (Theorem 6 of the design note; on by default) </summary>
+        internal bool CertificateBlocks = true;
+        /// <summary> (tests, benchmark) the blocks the certificate of the last Compute() tried, certified, and their cells </summary>
+        internal int CertificateBlocksTried, CertificateBlocksCertified, CertificateBlockCells;
+        internal int[] CertificateBlockLeft = new int[5];
+        internal int CertificateBlocksGrown, CertificateGrownCells, CertificateClustersTakenIn, CertificateBlocksTakenIn;
+        internal int CertificateGrowRounds = 2;
         /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
         internal int CertificateMinChunk = 2048;
 
@@ -160,7 +169,9 @@ namespace gs
         /// certifies the contour or was not computed). With uncertified cells: inside the union of the certified cells, the
         /// contour differs from the level set only by a deformation that keeps every grid cell, face and edge in place
         /// (Theorem 1b); nothing is claimed inside the uncertified cells, and so nothing about the topology of the whole (a
-        /// handle can hide in one uncertified cell).
+        /// handle can hide in one uncertified cell). Cells that fail the per-cell test can still be certified as part of a
+        /// block (Theorem 6, section 7.10: a cluster of them that is a ball, in which the level set and the contour are both
+        /// disjoint disks); they are not listed here, and the deformation keeps such a block in place as a whole.
         /// </summary>
         public List<ContouringUncertifiedCell> UncertifiedCells = new List<ContouringUncertifiedCell>();
 
@@ -211,9 +222,14 @@ namespace gs
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
                 CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
-                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk
+                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk,
+                CertificateBlocks = CertificateBlocks, CertificateGrowRounds = CertificateGrowRounds
             };
             bool ok = inner.compute_unit();
+            CertificateBlocksTried = inner.CertificateBlocksTried; CertificateBlocksCertified = inner.CertificateBlocksCertified;
+            CertificateBlockCells = inner.CertificateBlockCells; CertificateBlockLeft = inner.CertificateBlockLeft;
+            CertificateBlocksGrown = inner.CertificateBlocksGrown; CertificateGrownCells = inner.CertificateGrownCells;
+            CertificateClustersTakenIn = inner.CertificateClustersTakenIn; CertificateBlocksTakenIn = inner.CertificateBlocksTakenIn;
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
@@ -253,6 +269,8 @@ namespace gs
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
             TopologyCertified = ContourTopologyCertified = false;
+            CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
+            CertificateBlocksGrown = CertificateGrownCells = CertificateClustersTakenIn = CertificateBlocksTakenIn = 0; CertificateBlockLeft = new int[5];
             TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
@@ -279,9 +297,13 @@ namespace gs
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
                     ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
-                    CertificateMinChunk = CertificateMinChunk
+                    CertificateMinChunk = CertificateMinChunk, CertificateBlocks = CertificateBlocks, CertificateGrowRounds = CertificateGrowRounds
                 };
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
+                CertificateBlocksTried = wc.CertificateBlocksTried; CertificateBlocksCertified = wc.CertificateBlocksCertified;
+                CertificateBlockCells = wc.CertificateBlockCells; CertificateBlockLeft = wc.CertificateBlockLeft;
+                CertificateBlocksGrown = wc.CertificateBlocksGrown; CertificateGrownCells = wc.CertificateGrownCells;
+                CertificateClustersTakenIn = wc.CertificateClustersTakenIn; CertificateBlocksTakenIn = wc.CertificateBlocksTakenIn;
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 NonManifoldRefinements = wc.NonManifoldRefinements;
@@ -401,7 +423,9 @@ namespace gs
             DMesh3 result;
             if (Method == Methods.DualContouring) {
                 DualContouring dc = new DualContouring() {
-                    Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CellSize = cellSize, CancelF = CancelF
+                    Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CellSize = cellSize, CancelF = CancelF,
+                    QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                    Simplify = false   // pinned: uniform output
                 };
                 dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                     wc.Hermite(cellSize, a, b, p, out point, out normal);

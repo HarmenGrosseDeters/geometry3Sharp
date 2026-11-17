@@ -46,7 +46,8 @@ namespace g3
     /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
     /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
-    /// RemoveTinyComponents, as Milenkovic and Sacks do. Open components are kept (they may close the rest of the
+    /// RemoveTinyComponents, as Milenkovic and Sacks do (not if that would leave nothing of a mesh whose input is itself
+    /// thin or tiny: KeepWhenEmptied, set by ExactMeshBoolean, #985). Open components are kept (they may close the rest of the
     /// mesh by position), so an isolated sliver that no edit can repair is left and counted in RemainingDegenerate.
     ///
     /// The degenerate test is the one of MeshRobustRepair.NotCleanReason (area below DegenerateArea times the
@@ -142,6 +143,44 @@ namespace g3
         public bool SharedPositionsTouch = false;
         /// <summary> vertices whose position is kept where possible (tried last as the moved vertex; a strip zip removes the inner vertices of its strip, fixed or not); null = none </summary>
         public Func<int, bool> FixedVertexF = null;
+        /// <summary>
+        /// FixedVertexF as a hard constraint (the exact imprint, docs/design/EXACT_IMPRINT.md 4.2): a fixed vertex is never moved
+        /// and never removed (in no edit: a contraction keeps it at its position, a strip zip, a vertex removal and the separation
+        /// of false contacts leave it alone), also where the coordinates are coarse. Tiny components are not removed: set
+        /// RemoveTinyComponents to false with it (Apply does not remove any while FixedVertexF would lose a vertex). Without it
+        /// FixedVertexF is a preference. More defects can remain than without it (counted as usual).
+        /// </summary>
+        public bool FixedHard = false;
+        /// <summary>
+        /// edges that no edit removes or changes (undirected vertex pairs, key LockedKey): a flip, a zip and a strip zip leave their
+        /// triangles alone, a vertex removal does not remove a vertex at one. A contraction of a locked edge is made only with
+        /// AllowLockedContraction, and a contraction of another edge moves the lock of an edge at the vanishing vertex to the kept
+        /// one. Changed by Apply. null: none.
+        /// </summary>
+        public HashSet<long> LockedEdges = null;
+        /// <summary> edges that are locked by a rule, asked for every edit (eg the edges of the input between fixed vertices); null: none </summary>
+        public Func<int, int, bool> LockedEdgeF = null;
+        /// <summary> a locked edge may be contracted if the edit is within the bound (counted in LockedContractions) </summary>
+        public bool AllowLockedContraction = false;
+        /// <summary> edges of LockedEdges contracted by Apply </summary>
+        public int LockedContractions;
+        /// <summary> edges locked by LockedEdgeF only that were contracted by Apply </summary>
+        public int RuleLockedContractions;
+        /// <summary> the key of the undirected edge (a, b) in LockedEdges </summary>
+        public static long LockedKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
+        bool locked(int a, int b)
+        {
+            return (LockedEdges != null && LockedEdges.Contains(LockedKey(a, b))) || (LockedEdgeF != null && LockedEdgeF(a, b));
+        }
+        bool has_locks { get { return (LockedEdges != null && LockedEdges.Count > 0) || LockedEdgeF != null; } }
+        bool hard_fixed(int v) { return FixedHard && FixedVertexF != null && FixedVertexF(v); }
+        // a triangle with a locked edge
+        bool triangle_locked(int t)
+        {
+            if (has_locks == false) return false;
+            Index3i tv = Mesh.GetTriangle(t);
+            return locked(tv.a, tv.b) || locked(tv.b, tv.c) || locked(tv.c, tv.a);
+        }
         /// <summary>
         /// whether FixedVertexF applies also where the coordinates are coarse (see UlpFactor). True by default. There the
         /// fixed vertices carry rounding errors of the size of the bound themselves, and keeping them can make the edits
@@ -260,9 +299,58 @@ namespace g3
         /// component's diagonal) but hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the
         /// result is not clean. Components removed as tiny (area below 1e4 DegenerateArea times the square of that
         /// diagonal) are not counted: they go, as SAFE_ROUNDING.md section 1 decides, also where a long thin component
-        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny)
+        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny). Also counted: the components kept because their
+        /// removal would have emptied a mesh whose input is itself thin or tiny (KeepWhenEmptied, #985)
         /// </summary>
         public int ScaleDisparity;
+        /// <summary>
+        /// set by ExactMeshBoolean where an exact input is itself thin or tiny by the tests of the component removal
+        /// (IsThinOrTiny): if the removal would leave nothing of a non-empty mesh, nothing is removed (#985, owner 2026-11-17)
+        /// </summary>
+        internal bool KeepWhenEmptied;
+        /// <summary> the components kept by KeepWhenEmptied (also counted in ScaleDisparity) </summary>
+        internal int KeptWhenEmptied;
+
+        /// <summary>
+        /// whether the mesh would be removed as tiny or thin by remove_tiny_components, judged as that judges it: by its
+        /// largest connected component (the largest diagonal of a component's triangle box, which sets the scale) against
+        /// that diagonal and maxDisplacement of it: area below 1e4 degenerateArea diagonal^2, or closed with 2 |V| below
+        /// maxDisplacement diagonal area and |V| below 1e-3 area^1.5 (a flattened or needle-like solid). Without the ulp and
+        /// absolute terms of the removal's bound: where they would widen it, this says false, which keeps the removal as it was
+        /// </summary>
+        internal static bool IsThinOrTiny(DMesh3 mesh, double maxDisplacement, double degenerateArea)
+        {
+            if (mesh == null || mesh.TriangleCount == 0)
+                return false;
+            double bestDiag = -1, bestArea = 0, bestVolume = 0;
+            bool bestClosed = false;
+            foreach (List<int> comp in connected_components(mesh)) {
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                double area = 0, volume = 0;
+                bool closed = true;
+                // (the volume relative to a point of the component, against cancellation far from the origin)
+                Vector3d o = mesh.GetVertex(mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                    box.Contain(a); box.Contain(b); box.Contain(c);
+                    area += 0.5 * (b - a).Cross(c - a).Length;
+                    volume += (a - o).Dot((b - o).Cross(c - o)) / 6;
+                    Index3i te = mesh.GetTriEdges(t);
+                    closed &= mesh.IsBoundaryEdge(te.a) == false && mesh.IsBoundaryEdge(te.b) == false && mesh.IsBoundaryEdge(te.c) == false;
+                }
+                double diag = box.DiagonalLength;
+                if (diag > bestDiag) {
+                    bestDiag = diag; bestArea = area; bestVolume = volume; bestClosed = closed;
+                }
+            }
+            if (!(bestDiag > 0) || double.IsInfinity(bestDiag) || double.IsNaN(bestArea))
+                return false;
+            if (bestArea < 1e4 * degenerateArea * bestDiag * bestDiag)
+                return true;
+            return bestClosed && 2 * Math.Abs(bestVolume) < maxDisplacement * bestDiag * bestArea
+                && Math.Abs(bestVolume) < 1e-3 * bestArea * Math.Sqrt(bestArea);
+        }
         /// <summary>
         /// a component's diagonal is not finite (coordinates that are not finite, or finite ones whose extent overflows,
         /// beyond about 1e154): the tolerances are NaN, every edit is rejected, nothing is removed, degenerate triangles are
@@ -429,36 +517,85 @@ namespace g3
         // the supported range (class comment): the largest coordinate magnitude in [2^-200, 2^200] (about 6e-61 to 2e60), no subnormal coordinate
         static bool coordinates_in_range(DMesh3 mesh)
         {
-            double max = 0;
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i tv = mesh.GetTriangle(tid);
-                for (int k = 0; k < 3; ++k) {
-                    Vector3d p = mesh.GetVertex(tv[k]);
-                    for (int c = 0; c < 3; ++c) {
-                        double a = Math.Abs(p[c]);
-                        if (a != 0 && a < 2.2250738585072014e-308)
-                            return false;
-                        if (a > max) max = a;
+            // (per block of triangle ids: a subnormal coordinate, and the largest magnitude; the largest of the blocks'
+            // is the largest of all, exact in any order, so the answer is that of a serial scan)
+            int blocks = triangle_blocks(mesh);
+            var maxOf = new double[blocks];
+            var subnormalIn = new bool[blocks];
+            gParallel.ForRange(blocks, (b) => {
+                double max = 0;
+                int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
+                for (int tid = b * TriangleBlock; tid < end; ++tid) {
+                    if (mesh.IsTriangle(tid) == false)
+                        continue;
+                    Index3i tv = mesh.GetTriangle(tid);
+                    for (int k = 0; k < 3; ++k) {
+                        Vector3d p = mesh.GetVertex(tv[k]);
+                        for (int c = 0; c < 3; ++c) {
+                            double a = Math.Abs(p[c]);
+                            if (a != 0 && a < 2.2250738585072014e-308) {
+                                subnormalIn[b] = true;
+                                return;
+                            }
+                            if (a > max) max = a;
+                        }
                     }
                 }
+                maxOf[b] = max;
+            });
+            double most = 0;
+            for (int b = 0; b < blocks; ++b) {
+                if (subnormalIn[b])
+                    return false;
+                if (maxOf[b] > most) most = maxOf[b];
             }
-            return max == 0 || (max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
+            return most == 0 || (most >= 6.2230152778611417e-61 && most <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
+        }
+
+        // the per-triangle scans run over blocks of this many triangle ids in parallel; each block writes only its own
+        // ids' slots or its own entry, and the results are combined serially in block order (no floating-point
+        // reduction across threads: the combined values are flags and a largest magnitude, exact in any order)
+        const int TriangleBlock = 4096;
+
+        static int triangle_blocks(DMesh3 mesh)
+        {
+            return (mesh.MaxTriangleID + TriangleBlock - 1) / TriangleBlock;
+        }
+
+        // body(tid) for every triangle id of the mesh, in parallel over blocks of ids; body may write only the slots of
+        // its own id
+        static void for_triangles(DMesh3 mesh, Action<int> body)
+        {
+            // (one block: in this thread, without starting a parallel loop)
+            if (triangle_blocks(mesh) <= 1) {
+                for (int tid = 0; tid < mesh.MaxTriangleID; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);
+                return;
+            }
+            gParallel.ForRange(triangle_blocks(mesh), (b) => {
+                int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
+                for (int tid = b * TriangleBlock; tid < end; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);
+            });
         }
 
         /// <summary> repair (see class comment); returns IsClean </summary>
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
+            LockedContractions = RuleLockedContractions = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
             refCarry = new double[Mesh.MaxTriangleID];
-            foreach (int t in Mesh.TriangleIndices()) {
+            for_triangles(Mesh, (t) => {
                 Index3i tv = Mesh.GetTriangle(t);
                 refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
-            }
+            });
             ghostsAt = new Dictionary<int, List<Ghost>>();
             GhostsMade = GhostsLost = 0;
             touched.Clear();
@@ -498,13 +635,17 @@ namespace g3
             // a vertex of a triangle that is not finite (NaN or infinite): nothing to repair or to certify; the exact
             // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
             // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
-            foreach (int tid in Mesh.TriangleIndices()) {
+            // (per block: one flag)
+            var notFiniteIn = new bool[triangle_blocks(Mesh)];
+            for_triangles(Mesh, (tid) => {
                 Index3i tv = Mesh.GetTriangle(tid);
-                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false) {
-                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
-                    ScaleNotFinite = true;
-                    return false;
-                }
+                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false)
+                    notFiniteIn[tid / TriangleBlock] = true;
+            });
+            if (Array.IndexOf(notFiniteIn, true) >= 0) {
+                InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                ScaleNotFinite = true;
+                return false;
             }
             // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
             if (coordinates_in_range(Mesh) == false) {
@@ -513,7 +654,8 @@ namespace g3
                 return false;
             }
             if (SharedPositionsTouch) {
-                atPosition = new Dictionary<Vector3d, List<int>>();
+                // (sized for the vertices: no rehash while it fills; the capacity does not change the order of its entries)
+                atPosition = new Dictionary<Vector3d, List<int>>(Mesh.VertexCount);
                 canonId = new int[Mesh.MaxVertexID];
                 foreach (int vid in Mesh.VertexIndices())
                     position_add(vid, Mesh.GetVertex(vid));
@@ -581,7 +723,7 @@ namespace g3
             }
             if (check)
                 check_all_bounds();
-            if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
+            if (RemoveTinyComponents && FixedHard == false && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
                 bad = degenerate_triangles();
                 if (pairs.Count > 0)
                     pairs = intersecting_pairs();
@@ -758,7 +900,7 @@ namespace g3
         {
             List<int> list;
             if (atPosition.TryGetValue(key(p), out list) == false)
-                atPosition[key(p)] = list = new List<int>();
+                atPosition[key(p)] = list = new List<int>(1);
             list.Add(v);
             int least = list.Count > 1 ? Math.Min(canonId[list[0]], v) : v;
             foreach (int u in list)
@@ -869,13 +1011,17 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void rebuild_tree()
         {
-            var boxes = new List<AxisAlignedBox3d>();
-            treeTids = new List<int>();
-            foreach (int tid in Mesh.TriangleIndices()) {
+            treeTids = new List<int>(Mesh.TriangleCount);
+            foreach (int tid in Mesh.TriangleIndices())
                 treeTids.Add(tid);
-                boxes.Add(box(Mesh.GetTriangle(tid)));
-            }
-            tree = new TriangleBoxTree(boxes);
+            // (the boxes per triangle in parallel, each into its own slot: min / max, exact; no edit is pending)
+            var boxAt = new AxisAlignedBox3d[treeTids.Count];
+            gParallel.ForRange((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
+                int end = Math.Min(treeTids.Count, (b + 1) * TriangleBlock);
+                for (int i = b * TriangleBlock; i < end; ++i)
+                    boxAt[i] = box(Mesh.GetTriangle(treeTids[i]));
+            });
+            tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxAt));
             dirty.Clear();
             dirtyTree = null;
             pending.Clear();
@@ -1125,9 +1271,21 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         List<int> degenerate_triangles()
         {
+            // (one block: a serial scan, without the marks)
+            if (triangle_blocks(Mesh) <= 1) {
+                var few = new List<int>();
+                foreach (int tid in Mesh.TriangleIndices())
+                    if (is_bad(tid))
+                        few.Add(tid);
+                return few;
+            }
+            // (the test per triangle in parallel, read only: no proposed edit is pending, movedV = -1; the list in id
+            // order, as a serial scan)
+            var isBad = new bool[Mesh.MaxTriangleID];
+            for_triangles(Mesh, (tid) => isBad[tid] = is_bad(tid));
             var list = new List<int>();
-            foreach (int tid in Mesh.TriangleIndices())
-                if (is_bad(tid))
+            for (int tid = 0; tid < isBad.Length; ++tid)
+                if (isBad[tid])
                     list.Add(tid);
             return list;
         }
@@ -1706,6 +1864,18 @@ namespace g3
             int eid = Mesh.FindEdge(a, b);
             if (stopped || eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
                 return false;
+            if (FixedHard && (hard_fixed(a) || (hard_fixed(b) && p != Mesh.GetVertex(b))))
+                return false;
+            bool lockedEdge = has_locks && locked(a, b);
+            if (lockedEdge && AllowLockedContraction == false)
+                return false;
+            // (a rule-locked edge at a moves with the contraction to b: it must be locked there as well, else it would be lost)
+            if (LockedEdgeF != null) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && LockedEdgeF(a, x) && LockedEdgeF(b, x) == false && (LockedEdges == null || LockedEdges.Contains(LockedKey(b, x)) == false))
+                        return false;
+            }
+            bool setLocked = LockedEdges != null && LockedEdges.Contains(LockedKey(a, b));
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(a)) {
                 removed.Add(t);
@@ -1735,8 +1905,25 @@ namespace g3
             // (the triangles of a: removed or moved to b)
             foreach (int t in Mesh.VtxTrianglesItr(a))
                 pairsStale.Add(t);
+            // (the locks at a move to b; a locked edge that is contracted is gone)
+            List<int> lockedAtA = null;
+            if (LockedEdges != null && LockedEdges.Count > 0) {
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && LockedEdges.Contains(LockedKey(a, x))) (lockedAtA ?? (lockedAtA = new List<int>())).Add(x);
+            }
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
+            if (lockedAtA != null) {
+                foreach (int x in lockedAtA) {
+                    LockedEdges.Remove(LockedKey(a, x));
+                    LockedEdges.Add(LockedKey(b, x));
+                }
+            }
+            if (lockedEdge) {
+                LockedEdges?.Remove(LockedKey(a, b));
+                if (setLocked) LockedContractions++;
+                else RuleLockedContractions++;
+            }
             if (atPosition != null)
                 position_remove(a, pa);
             set_vertex(b, p);
@@ -1759,6 +1946,8 @@ namespace g3
             int c = IndexUtil.orient_tri_edge_and_find_other_vtx(ref a, ref b, t0v);
             int d = IndexUtil.find_tri_other_vtx(a, b, t1v);
             if (c < 0 || d < 0 || Mesh.FindEdge(c, d) >= 0)
+                return false;
+            if (has_locks && locked(a, b))
                 return false;
             begin_edit();
             removed.Add(et.a); removed.Add(et.b);
@@ -1817,6 +2006,8 @@ namespace g3
             int c = IndexUtil.orient_tri_edge_and_find_other_vtx(ref a, ref b, Mesh.GetTriangle(tT).array);
             int d = IndexUtil.find_tri_other_vtx(a, b, Mesh.GetTriangle(tU).array);
             if (c < 0 || d < 0 || c == d || Mesh.FindEdge(c, d) >= 0)
+                return false;
+            if (has_locks && (triangle_locked(tT) || triangle_locked(tU)))
                 return false;
             Vector3d pa = pos(a), ab = pos(b) - pa;
             double sc = (pos(c) - pa).Dot(ab) / ab.LengthSquared, sd = (pos(d) - pa).Dot(ab) / ab.LengthSquared;
@@ -1972,6 +2163,14 @@ namespace g3
         bool zip_strip(List<int> strip, out bool undone)
         {
             undone = false;
+            // (a strip zip removes vertices and edges of its triangles: not where one is fixed hard or locked)
+            if (FixedHard || has_locks) {
+                foreach (int t in strip) {
+                    Index3i stv = Mesh.GetTriangle(t);
+                    if (triangle_locked(t) || hard_fixed(stv.a) || hard_fixed(stv.b) || hard_fixed(stv.c))
+                        return false;
+                }
+            }
             var inStrip = new HashSet<int>(strip);
             // its boundary: the directed edges of the strip's triangles whose other side is outside it
             var next = new Dictionary<int, int>();
@@ -2340,6 +2539,12 @@ namespace g3
         {
             if (Mesh.GetVtxEdgeCount(u) != 3 || Mesh.IsBoundaryVertex(u) || EvaluationLimitReached)
                 return false;
+            if (hard_fixed(u))
+                return false;
+            if (has_locks) {
+                foreach (int x in Mesh.VtxVerticesItr(u))
+                    if (locked(u, x)) return false;
+            }
             int[] fan = new int[3];
             int nf = 0;
             foreach (int t in Mesh.VtxTrianglesItr(u)) {
@@ -2454,7 +2659,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool try_move(int v, Vector3d p, bool removesContact = false)
         {
-            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
+            if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z) || hard_fixed(v))
                 return false;
             if (stopped)
                 return false;
@@ -2745,22 +2950,67 @@ namespace g3
                     return;
         }
 
+        // the connected components of the triangles (across edges), in the order of MeshConnectedComponents.FindConnectedT
+        // and each in its order: by increasing smallest triangle id, depth first from it with the neighbours pushed in
+        // edge order (the same lists, without its filter delegates and range enumerator). The list is reused: read it
+        // before the next component is asked for. Triangles removed while a component is read are not visited again
+        internal static IEnumerable<List<int>> connected_components(DMesh3 mesh)
+        {
+            int n = mesh.MaxTriangleID;
+            // 0 not visited, 1 on the stack, 2 done
+            var state = new byte[n];
+            var stack = new List<int>();
+            var comp = new List<int>();
+            for (int seed = 0; seed < n; ++seed) {
+                if (state[seed] != 0 || mesh.IsTriangle(seed) == false)
+                    continue;
+                stack.Add(seed);
+                state[seed] = 1;
+                while (stack.Count > 0) {
+                    int t = stack[stack.Count - 1];
+                    stack.RemoveAt(stack.Count - 1);
+                    state[t] = 2;
+                    comp.Add(t);
+                    Index3i nbrs = mesh.GetTriNeighbourTris(t);
+                    for (int j = 0; j < 3; ++j) {
+                        int u = nbrs[j];
+                        if (u != DMesh3.InvalidID && state[u] == 0) {
+                            stack.Add(u);
+                            state[u] = 1;
+                        }
+                    }
+                }
+                yield return comp;
+                comp.Clear();
+            }
+        }
+
         // components with a degenerate triangle or an edited vertex that are tiny or thin
         [MethodImpl(JitHints.Optimize)]
         int remove_tiny_components(List<int> bad)
         {
-            var comps = new MeshConnectedComponents(Mesh);
-            comps.FindConnectedT();
-            var badSet = new HashSet<int>(bad);
+            // (marks instead of hash sets; the components in the order of MeshConnectedComponents.FindConnectedT, each
+            // in its order, so the sums below are the same, bit for bit)
+            var isBad = new bool[Mesh.MaxTriangleID];
+            foreach (int t in bad)
+                isBad[t] = true;
+            var isTouched = new bool[Mesh.MaxVertexID];
+            // (the edits add no vertices: every touched id is below MaxVertexID)
+            foreach (int v in touched)
+                isTouched[v] = true;
             int count = 0;
-            foreach (var comp in comps.Components) {
+            // the components to remove, decided first and removed after the loop: removing a closed component changes no
+            // other component, so the decisions are the same as when removing on the way (and in the same order)
+            var remove = new List<int[]>();
+            int removeTriangles = 0;
+            foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
                 double sum = 0, volume = 0;
                 // (the volume relative to a point of the component, against cancellation far from the origin)
-                Vector3d o = pos(Mesh.GetTriangle(comp.Indices[0]).a);
-                foreach (int t in comp.Indices) {
+                Vector3d o = pos(Mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
                     Index3i tv = Mesh.GetTriangle(t);
-                    hasBad |= badSet.Contains(t) || touched.Contains(tv.a) || touched.Contains(tv.b) || touched.Contains(tv.c);
+                    hasBad |= isBad[t] || isTouched[tv.a] || isTouched[tv.b] || isTouched[tv.c];
                     sum += area(t);
                     volume += (pos(tv.a) - o).Dot((pos(tv.b) - o).Cross(pos(tv.c) - o)) / 6;
                 }
@@ -2768,13 +3018,13 @@ namespace g3
                     continue;
                 // tiny, or (closed) thinner than maxLength: a slab of thickness h has about volume = h area / 2
                 bool closed = true;
-                foreach (int t in comp.Indices) {
+                foreach (int t in comp) {
                     Index3i te = Mesh.GetTriEdges(t);
                     closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
                 }
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
-                int v0 = Mesh.GetTriangle(comp.Indices[0]).a;
+                int v0 = Mesh.GetTriangle(comp[0]).a;
                 bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
                 if (closed == false || (tiny == false && thin == false))
                     continue;
@@ -2785,9 +3035,23 @@ namespace g3
                     ScaleDisparity++;
                     continue;
                 }
-                foreach (int t in comp.Indices)
+                remove.Add(comp.ToArray());
+                removeTriangles += comp.Count;
+            }
+            // never all of a non-empty mesh whose input was itself thin or tiny (#985, KeepWhenEmptied): the scale is that
+            // of the largest component, so a flattened or long thin solid is thin or tiny by its own diagonal. Then nothing
+            // is removed (every component stays, so that no cavity is lost) and each is counted as ScaleDisparity: the
+            // repair is not clean. Without KeepWhenEmptied a result of thin pieces only goes (the slivers of A - A',
+            // owner 2026-11-16)
+            if (KeepWhenEmptied && remove.Count > 0 && removeTriangles == Mesh.TriangleCount) {
+                ScaleDisparity += remove.Count;
+                KeptWhenEmptied += remove.Count;
+                remove.Clear();
+            }
+            foreach (int[] comp in remove) {
+                foreach (int t in comp)
                     remove_triangle(t, true);
-                count += comp.Indices.Length;
+                count += comp.Length;
                 RemovedComponents++;
             }
             if (count > 0) {

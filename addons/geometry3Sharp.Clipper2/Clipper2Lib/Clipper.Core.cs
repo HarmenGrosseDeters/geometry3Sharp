@@ -652,9 +652,15 @@ namespace g3.Clipper2.Vendored
     // seg2, even when 'ip' hasn't been constrained (ie 'ip' is inside seg1).
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool GetLineIntersectPt(Point64 ln1a,
-      Point64 ln1b, Point64 ln2a, Point64 ln2b, out Point64 ip)
+    public static bool GetLineIntersectPt(Point64 seg1a,
+      Point64 seg1b, Point64 seg2a, Point64 seg2b, out Point64 ip)
     {
+      // geometry3Sharp change (port of PolyClipping/Clipper2 f774daf, BSL-1.0): the segments are evaluated from their
+      // bottom end, as the sweep does, so that a shared edge rounds to the same point whichever way round it is given
+      bool rev1 = seg1b.Y > seg1a.Y || (seg1b.Y == seg1a.Y && seg1b.X < seg1a.X);
+      bool rev2 = seg2b.Y > seg2a.Y || (seg2b.Y == seg2a.Y && seg2b.X < seg2a.X);
+      Point64 ln1a = rev1 ? seg1b : seg1a, ln1b = rev1 ? seg1a : seg1b;
+      Point64 ln2a = rev2 ? seg2b : seg2a, ln2b = rev2 ? seg2a : seg2b;
       double dy1 = (ln1b.Y - ln1a.Y);
       double dx1 = (ln1b.X - ln1a.X);
       double dy2 = (ln2b.Y - ln2a.Y);
@@ -671,9 +677,10 @@ namespace g3.Clipper2.Vendored
       else if (t >= 1.0) ip = ln1b;
       else
       {
-        // avoid using constructor (and rounding too) as they affect performance //664
-        ip.X = (long) (ln1a.X + t * dx1);
-        ip.Y = (long) (ln1a.Y + t * dy1);
+        // geometry3Sharp change (port of f774daf): rounding rather than truncating toward zero keeps 'ip' within half a
+        // unit of the segment (truncation could push it off and reverse a contour); ToEven as C++'s nearbyint
+        ip.X = (long) Math.Round(ln1a.X + t * dx1, MidpointRounding.ToEven);
+        ip.Y = (long) Math.Round(ln1a.Y + t * dy1, MidpointRounding.ToEven);
 #if USINGZ
         ip.Z = 0;
 #endif

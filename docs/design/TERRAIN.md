@@ -201,7 +201,7 @@ choice only matters at changes of slope. The user's decision is in 2.5.
   spatial slope field fits better, which is R2-like. For those areas the plan is **explicit sector polygons**
   given by the caller. "The nearest point of the toe" is only one possible substitute definition of a sector and
   can produce unexpected attributions at concave edges, so it is not the target definition.
-- **Modes that are not available are rejected explicitly** (`Statuses.NotImplemented`), never silently replaced
+- **Modes that are not available are rejected explicitly** (`Statuses.NotImplemented`; designed, but the code has no `Mode` field, 2026-11-16), never silently replaced
   by R1.
 - **R2 construction (when it comes):** an eikonal solve on a refined triangulation (Fast Marching on triangles,
   Kimmel & Sethian 1998; or an ordered upwind method), followed by a conservative correction. Construction: an eikonal solve on a refined triangulation (Fast Marching on triangles, Kimmel &
@@ -237,7 +237,7 @@ The answers to the open questions of the first version, worked into the sections
 
 | # | question | decision | where |
 |---|---|---|---|
-| Q1 | R1 or R2 | R1 as the first implementation, explicitly as the cone-envelope model, not as a general guarantee for geotechnical sectors. Sectors later as a separate mode with explicit sector polygons. Modes that are not available are rejected explicitly. The guarantee always reads "not steeper than the chosen attribution rule allows". R1 is defined through the active cone source, not through a traced fall line | 2.2, 2.3 |
+| Q1 | R1 or R2 | R1 as the first implementation, explicitly as the cone-envelope model, not as a general guarantee for geotechnical sectors. Sectors later as a separate mode with explicit sector polygons. Modes that are not available are rejected explicitly (designed; the code has no `Mode`, 2026-11-16). The guarantee always reads "not steeper than the chosen attribution rule allows". R1 is defined through the active cone source, not through a traced fall line | 2.2, 2.3 |
 | Q2 | tolerances | keep three things strictly apart. **Geometric approximation:** an explicit maximum vertical deviation, given by the caller (1 cm is a sensible start for metre data, but it is not a universal library default). **Slope margin:** 1e-6 relative as a start; the check of the finished triangles decides. **Minimum feature size:** only a threshold for an allowed repair attempt, not a permission to delete small details wholesale. Also: no position or angle tolerance may exceed the slope limit. Collapsing slivers must not change the toe or the catch lines inadmissibly. If the margin is not enough at large coordinates or for small triangles, the computation improves or fails. A vertical tolerance does not bound the horizontal deviation of the catch line, so near-tangential sections are reported as ill-conditioned. Defaults must not depend only on the size of the UTM coordinates: professional accuracy and numerical representability are different quantities | 5.1, 5.4, 5.5 |
 | Q3 | influence across the design area | for a closed ring, no influence through the interior of the design area: it is an obstacle / a bounded interior region. Several levels are allowed, but checked for consistency. Phase 1 supports only the Euclidean R1 envelope, so it **rejects** the problematic cases and names the causing edges. Cones are not simply clipped: restricting them to the exterior changes the mathematical problem. The exterior distance and its topology are a development step of their own. A clearly restricted Euclidean mode is better than an exterior mode that only appears to work | 5.2 |
 | Q4 | how slopes change | support both steps and continuous change, with the interpolation fixed explicitly: constant per segment as the simple standard, piecewise constant with explicit jumps at sector boundaries, continuous change optional. Values per segment end (left / right of a vertex), because one value per shared vertex cannot express a real jump. Interpolation linear in s by default, documented as API contract; linear in n of 1:n must not be silently replaced | 2.1, 5.1, 6 |
@@ -248,7 +248,7 @@ The answers to the open questions of the first version, worked into the sections
 
 | Q9 | per triangle or overall / inter-ramp angle | per triangle for the constructed slope faces; the overall slope additionally and separately. These are different requirements: **bench face**: every generated triangle stays within the admissible face slope; **berms**: their own check of height, horizontal position and minimum width; **inter-ramp / overall slope**: an additional check across several benches and berms along defined profiles or measuring directions. An inter-ramp angle must not be used as the limit of every bench triangle, since bench faces may be steeper when berms reduce the overall slope. Phase 1: the input slope is the maximum admissible local slope of the generated surface, checked for every output triangle. An overall / inter-ramp check is a later, separate function. Which slope is entered in a given planning task is for the application to decide | 1, 10 |
 | Q10 | export precision | no fixed number of decimals is assumed. The guarantee must include the state actually stored. Two cases: in-memory doubles or a text format with round-trip formatting (checked coordinates kept unchanged); quantized output (eg a mm grid): quantize to the output grid before the final check, then check slope, degeneracies and topology again. A larger minimum feature size alone guarantees nothing, since rounding can change the slope of larger triangles too. Flow: construct → map to the output precision → repair or reject → final check → store → read back and check in an integration test. Rounding later by an external exporter is outside the guarantee, and the documentation says so | 5.4 |
-| Q11 | conservative rejection of influence through the design area | acceptable for phase 1, and better than an unnoticed wrong result, provided: a status of its own that is easy to understand; the causing toe edges and the affected areas named; no automatic change of toe heights or slopes; no silent fallback to another attribution rule; partial results only explicitly marked as incomplete / not released. The message distinguishes "this design is not supported by the restricted phase 1 method" from "this design is geometrically impossible". `CrossDesignInfluence` must not be read as a proof of impossibility; that is what the later exterior mode is for | 5.2, 6 |
+| Q11 | conservative rejection of influence through the design area | acceptable for phase 1, and better than an unnoticed wrong result, provided: a status of its own that is easy to understand; the causing toe edges and the affected areas named; no automatic change of toe heights or slopes; no silent fallback to another attribution rule; partial results only explicitly marked as incomplete / not released. The message distinguishes "this design is not supported by the restricted phase 1 method" from "this design is geometrically impossible". `CrossDesignInfluence` (designed, not implemented, 2026-11-16) must not be read as a proof of impossibility; that is what the later exterior mode is for | 5.2, 6 |
 | Q12 | horizontal uncertainty of the catch line | set by the caller in the library. 10 cm is a sensible configurable warning threshold to start with in an application, not a library default and not a proven accuracy requirement. There is no fixed relation like "1 cm vertical means 1 cm horizontal": locally δ_xy ≈ ε_D / \|∇(S − T)\|, with ε_D the vertical uncertainty of the height difference, so nearly parallel surfaces give a large horizontal uncertainty. Distinguish: warning threshold exceeded → result with the affected catch-line sections and their uncertainty; a binding horizontal accuracy required → refine, and fail explicitly if it cannot be reached; tangential or planar contact → marked separately, since there may be no unique catch line. Documented whether the number is a local estimate or a proven bound. Exact signs alone do not secure the exact position of the intersection, and survey errors of the terrain are not included without additional input data | 5.5, 6 |
 
 Two corrections of the first version came with the answers and are worked in:
@@ -421,7 +421,7 @@ of the end cones, spaced by an angle θ within the cone-facet share of the toler
     of the design area, or crosses another part of the toe, the cell may be supported through the interior. The
     test uses exact orient2d on the cell's implicit vertices and the toe. It is conservative: it may reject a case
     that is in fact fine, and it never accepts one that is not.
-  - **Result.** `Statuses.CrossDesignInfluence` with the causing toe edges and the affected toe ranges.
+  - **Result (designed, not implemented; owner 2026-11-16).** `Statuses.CrossDesignInfluence` with the causing toe edges and the affected toe ranges. Today's behaviour: there is no such check or status. The only guard is `ToeUndercut`, which `through_design_area` classifies as `UnsupportedByMethod` when the causing cone reaches the toe through the design area. A Euclidean cone across the design area that undercuts no toe is accepted; that is valid for R1's Euclidean definition (the surface is the exact Euclidean envelope), not the exterior surface. See [TERRAIN_SECTORS.md](TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
   - Several levels within one toe are allowed. Their consistency is checked by the toe checks above
     (`ToeUndercut`, `ToeSteeperThanSlope`) and by this test.
   - A real exterior distance (shortest paths around the design area, with its topology) is a development step of
@@ -1045,7 +1045,7 @@ impossible":
 
 | kind | statuses | meaning |
 |---|---|---|
-| `UnsupportedByMethod` | `CrossDesignInfluence`; `ToeUndercut` / `ToeOvertopped` when the causing cone reaches the toe through the design area; `NotImplemented` | the phase 1 method (Euclidean cone envelope) cannot handle this design. It is not a proof that the design is impossible; the later exterior mode is meant for these cases |
+| `UnsupportedByMethod` | `CrossDesignInfluence` (designed, not implemented); `ToeUndercut` / `ToeOvertopped` when the causing cone reaches the toe through the design area; `NotImplemented` | the phase 1 method (Euclidean cone envelope) cannot handle this design. It is not a proof that the design is impossible; the later exterior mode is meant for these cases |
 | `GeometricallyInfeasible` | `ToeSteeperThanSlope`; `ToeUndercut` / `ToeOvertopped` when the causing path runs outside the design area | no surface satisfies the specification, in any mode |
 | `NotCertified` | `SlopeViolation`, `CatchLineAccuracyNotReached` | the computation could not certify its own result |
 | (not a failure) | `NoDaylight` | the slope does not reach the terrain within its footprint; the result is partial |
@@ -1218,9 +1218,9 @@ namespace gs
     public class TerrainSlopeDesign
     {
         public enum Directions { Auto, Cut, Fill }
-        public enum Modes { ConeEnvelope /* R1, phase 1 */, SectorPolygons /* later */, ExteriorDistance /* later */ }
+        public enum Modes { ConeEnvelope /* R1, phase 1 */, SectorPolygons /* later */, ExteriorDistance /* later */ }   // sketch: `Modes` is not in the code (2026-11-16)
         public enum Statuses { Success, InvalidInput, NotHeightField, NotImplemented /* modes not yet available */,
-                               ToeSteeperThanSlope, ToeUndercut, ToeOvertopped, CrossDesignInfluence,
+                               ToeSteeperThanSlope, ToeUndercut, ToeOvertopped, CrossDesignInfluence /* designed, not in the code (2026-11-16) */,
                                NoDaylight, CatchLineAccuracyNotReached, SlopeViolation, Cancelled }
         /// what a failure means (section 5.6): the method cannot handle the design, the design is impossible as
         /// specified, or the computation could not certify its own result
@@ -1232,7 +1232,7 @@ namespace gs
         public DMesh3 Design;                  // optional: design TIN (the obstacle of 5.2); each toe must lie on its boundary
         public List<SlopeToe> Toes = new List<SlopeToe>();   // several: pit floor with islands, several pits / dumps
         public Directions Direction = Directions.Auto;
-        public Modes Mode = Modes.ConeEnvelope;
+        public Modes Mode = Modes.ConeEnvelope;      // sketch: not in the code (2026-11-16)
         public double Tolerance = double.NaN;  // required: max vertical deviation from the exact R1 surface (data units)
         public double TerrainVerticalUncertainty = 0;               // part of ε_D (5.5); survey errors are not known otherwise
         public double CatchLineWarningThreshold = double.NaN;       // required: horizontal; above it a section is reported
@@ -1341,12 +1341,12 @@ valleys), grids triangulated in both diagonal directions, and random perturbatio
 | slope input as 1:n and as percent | O1 exact against the spec as entered (no rounded double in between); angles checked against the double s and reported as such |
 | open toe: default lateral limits at the end normals, explicit limit lines, round caps | the slope ends at the limits, catch lines end with `LateralLimit`, side lines returned; the chosen side is kept |
 | closed toe without a side | `InvalidInput` |
-| narrow pit, deep edge opposite a higher edge (influence through the design area) | `CrossDesignInfluence` with the causing edges, no silent wall |
+| narrow pit, deep edge opposite a higher edge (influence through the design area) | designed: `CrossDesignInfluence` with the causing edges, no silent wall (not implemented; today `ToeUndercut` where a toe is undercut, otherwise the Euclidean surface) |
 | no `Tolerance` given | `InvalidInput` (no hidden default) |
 | near-tangential catch line | reported as ill-conditioned with its horizontal uncertainty |
 | catch lines only (`BuildComposite = false`, `ComputeVolumes = false`) | the catch lines are complete without building the composite terrain |
 | export: OBJ round trip at UTM; `OutputGrid` = 1 mm | O1 still passes on the re-read mesh; with the grid, a larger triangle that the rounding would tip over is repaired or rejected before storing (not only slivers) |
-| failure kinds | `CrossDesignInfluence` reports `UnsupportedByMethod`, `ToeSteeperThanSlope` reports `GeometricallyInfeasible`; toe heights and slopes unchanged; partial results have `IsComplete = false` |
+| failure kinds | `CrossDesignInfluence` (designed, not implemented) reports `UnsupportedByMethod`, `ToeSteeperThanSlope` reports `GeometricallyInfeasible`; toe heights and slopes unchanged; partial results have `IsComplete = false` |
 | catch-line accuracy: warning threshold exceeded; a binding accuracy that refinement reaches; one it cannot reach (large `TerrainVerticalUncertainty`); planar contact | sections reported with δ_xy; refined result; `CatchLineAccuracyNotReached`; `TangentialContact` marked |
 | missing `CatchLineWarningThreshold` | `InvalidInput` |
 | cancel during each stage | `Cancelled`, no partial result presented as complete |
@@ -1546,7 +1546,7 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
 2. S̃ for constant slope per segment (the simple standard): pieces, plane-based exact envelope, realization with
    the margin, repair, O1 / O2 tests, invariance. Explicit side, lateral limits by the end normals.
 3. Piecewise-constant slopes with jumps (values per segment end), then continuous change with the three
-   interpolations; toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`, `CrossDesignInfluence`).
+   interpolations; toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`; `CrossDesignInfluence` was planned here and is not built).
 4. Topological overlay with exact signs, catch lines with end reasons and horizontal uncertainty, connected region;
    optional composite terrain and volumes; special cases.
 5. Mixed cut and fill (clamp). Done in #320 (`Direction.Auto`, TERRAIN_1C_PLAN.md section 10).

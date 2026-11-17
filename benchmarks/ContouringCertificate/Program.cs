@@ -101,13 +101,31 @@ class Program
                 if (inL[comp.Indices[0]]) genera.Add(MeshTopologySummary.Compute(new DSubmesh3(L, comp.Indices).SubMesh).Genus);
             r["truth_sig"] = Sig(genera);
         }
-        foreach (bool cert in new[] { false, true }) {
+        // modes: 0 certificate off, 1 on without blocks (stage 1), 2 blocks as they are (stage 2), 3 blocks with growth (stage 3)
+        foreach (int mode in new[] { 0, 1, 2, 3 }) {
+            bool cert = mode > 0;
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert };
+            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert,
+                CertificateBlocks = mode >= 2, CertificateGrowRounds = mode == 3 ? 2 : 0 };
             s.Compute();
-            string p = cert ? "on_" : "off_";
+            string p = mode == 0 ? "off_" : mode == 1 ? "on_" : mode == 2 ? "blocks_" : "grow_";
             r[p + "ms"] = sw.ElapsedMilliseconds;
             if (!cert) { r["contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c) ? c : -1; continue; }
+            if (mode >= 2) {
+                string q = mode == 2 ? "blocks" : "grow";
+                r[mode == 2 ? "blocks_ms" : "grow_blocks_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate.blocks", out long bm) ? bm : 0;
+                r[q + "_tried"] = s.CertificateBlocksTried; r[q + "_certified"] = s.CertificateBlocksCertified;
+                r[q + "_block_cells"] = s.CertificateBlockCells;
+                r[q + "_left_by"] = string.Join(",", s.CertificateBlockLeft);
+                r[q + "_grown"] = s.CertificateBlocksGrown; r[q + "_grown_cells"] = s.CertificateGrownCells;
+                r[q + "_taken_in"] = s.CertificateClustersTakenIn + "," + s.CertificateBlocksTakenIn;
+                r[q + "_status"] = s.TopologyCertificateStatus.ToString();
+                r[q + "_uncertified"] = s.UncertifiedCells.Count;
+                r[q + "_certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm2) ? cm2 : -1;
+                r[q + "_contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c2) ? c2 : -1;
+                if (s.Result != null) r[q + "_result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(x => x.Genus));
+                continue;
+            }
             r["certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm) ? cm : -1;
             foreach (var kv in s.PhaseMilliseconds) if (kv.Key.StartsWith("contour.certificate.")) r[kv.Key.Substring(8)] = kv.Value;
             r["status"] = s.TopologyCertificateStatus.ToString();

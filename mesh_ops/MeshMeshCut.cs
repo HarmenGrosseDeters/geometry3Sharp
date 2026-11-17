@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 namespace g3
 {
     /// <summary>
+    /// For a robust cut use <see cref="ExactMeshImprint"/> (exact intersections, the target's vertices and orientation kept, contact and coplanar overlaps handled).
     /// Cuts the curves where CutMesh intersects Target into Target, in place (floating-point): Compute()
     /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
     /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
@@ -23,9 +24,12 @@ namespace g3
     /// Contact is out of scope, and can be refused (opt in, RefuseContact = true; by default the behaviour is that of upstream, which on touching
     /// input can cut with gaps, differently at different scales, or throw, eg "update_from_split: unsortable vertex?", issue 856). With RefuseContact, Compute() first looks, with exact
     /// predicates, for a pair of triangles (one of Target, one of CutMesh) whose closed triangles intersect although a vertex of the
-    /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, two edges that
-    /// touch, coplanar triangles overlapping or touching, a cut vertex on the plane with a proper crossing). That is conservative: a pair
-    /// that is also crossed properly is refused too. A vertex of a Target triangle on the plane of a CutMesh triangle (a grid cut by a plane
+    /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, an edge that touches
+    /// an edge of the target with a cut vertex on the plane, coplanar triangles overlapping or touching, a cut vertex on the plane with a
+    /// proper crossing). That is conservative: a pair that is also crossed properly is refused too, and so is a cut vertex on the plane of
+    /// a target triangle that lies outside that triangle while another edge of the cut crosses it (CAD input with aligned coordinates can do
+    /// this). Not detected: two edges that meet in an interior point of both with no cut vertex on the plane (all six orientations
+    /// nonzero): that is an ordinary transversal cut that ends on an edge, which the cut handles. A vertex of a Target triangle on the plane of a CutMesh triangle (a grid cut by a plane
     /// through its vertices) is not contact: that class is cut correctly. If there is a contact, Compute() leaves Target unchanged, sets
     /// Status to ContactDetected and returns (RemoveContained() then does nothing). The decision is made by exact predicates, so it is
     /// the same under every scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners)
@@ -799,9 +803,7 @@ namespace g3
             // triangle (s[3..5], e.g. a grid cut by a plane through its vertices) is no contact: master cuts that class correctly (measured, issue 856)
             if (s[0] != 0 && s[1] != 0 && s[2] != 0)
                 return false;       // a transversal cut or disjoint (or only target vertices on the cut plane)
-            // separated by a plane (all on one strict side)? then they do not meet
-            if ((s[0] > 0 && s[1] > 0 && s[2] > 0) || (s[0] < 0 && s[1] < 0 && s[2] < 0))
-                return false;
+            // (some s[0..2] is zero here, so the cut triangle's vertices are not all strictly on one side of the target's plane)
             if ((s[3] > 0 && s[4] > 0 && s[5] > 0) || (s[3] < 0 && s[4] < 0 && s[5] < 0))
                 return false;
             for (int i = 0; i < 3; ++i)

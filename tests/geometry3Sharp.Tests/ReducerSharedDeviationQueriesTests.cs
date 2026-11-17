@@ -63,24 +63,28 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        /// <summary> the same reduction with and without sharing, at three tolerances, on two meshes, twice </summary>
+        /// <summary>
+        /// the same reduction with and without sharing, at three tolerances, on two meshes, twice (one row per mesh, #698: both
+        /// took up to 6.8 s alone and 35 s in the full run, where the collapses' parallel loops share the cores with other tests)
+        /// </summary>
         [Trait("Category", "Slow")]
-        [Fact]
-        public void Reduction_SameWithAndWithoutSharing()
+        [Theory]
+        [InlineData("bumpy")]
+        [InlineData("terrain")]
+        public void Reduction_SameWithAndWithoutSharing(string mesh)
         {
-            foreach (DMesh3 input in new[] { Bumpy(20), Terrain(40) }) {
-                double diag = input.CachedBounds.DiagonalLength;
-                foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
-                    DMesh3 without = Reduce(input, rel * diag, false, out Reducer r0), with = Reduce(input, rel * diag, true, out Reducer r1);
-                    // the cache is used: by the samples (lookups), and IsWithin finds shared points in it
-                    Assert.Equal(0, r0.DeviationCacheLookups);
-                    Assert.Equal(0, r0.DeviationCacheSampleLookups);
-                    Assert.True(r1.DeviationCacheSampleLookups > 0 && r1.DeviationCacheIsWithinHits > 0, $"sample lookups {r1.DeviationCacheSampleLookups}, IsWithin hits {r1.DeviationCacheIsWithinHits}");
-                    Assert.True(with.TriangleCount < 0.9 * input.TriangleCount && with.TriangleCount > 4, $"{with.TriangleCount} of {input.TriangleCount}: the check both allowed and stopped collapses");
-                    AssertSame(without, with);
-                    AssertSame(with, Reduce(input, rel * diag, true));     // repeated: deterministic
-                    Assert.True(MeshDeviationCheck(with, input, rel * diag), "within the tolerance");
-                }
+            DMesh3 input = mesh == "bumpy" ? Bumpy(20) : mesh == "terrain" ? Terrain(40) : throw new ArgumentException(mesh);
+            double diag = input.CachedBounds.DiagonalLength;
+            foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
+                DMesh3 without = Reduce(input, rel * diag, false, out Reducer r0), with = Reduce(input, rel * diag, true, out Reducer r1);
+                // the cache is used: by the samples (lookups), and IsWithin finds shared points in it
+                Assert.Equal(0, r0.DeviationCacheLookups);
+                Assert.Equal(0, r0.DeviationCacheSampleLookups);
+                Assert.True(r1.DeviationCacheSampleLookups > 0 && r1.DeviationCacheIsWithinHits > 0, $"sample lookups {r1.DeviationCacheSampleLookups}, IsWithin hits {r1.DeviationCacheIsWithinHits}");
+                Assert.True(with.TriangleCount < 0.9 * input.TriangleCount && with.TriangleCount > 4, $"{with.TriangleCount} of {input.TriangleCount}: the check both allowed and stopped collapses");
+                AssertSame(without, with);
+                AssertSame(with, Reduce(input, rel * diag, true));     // repeated: deterministic
+                Assert.True(MeshDeviationCheck(with, input, rel * diag), "within the tolerance");
             }
         }
 

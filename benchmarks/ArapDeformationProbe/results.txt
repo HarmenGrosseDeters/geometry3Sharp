@@ -1,0 +1,35 @@
+identity steps=4 reconstruction=2.2204460492503131E-15 rotation_error=1.3322676295501878E-15 determinant=0.99999999999999734 orthogonal_error=2.6645352591003757E-15
+rotated-full steps=4 reconstruction=8.8817841970012523E-16 rotation_error=1.1102230246251565E-16 determinant=1 orthogonal_error=0
+rotated-planar steps=4 reconstruction=8.8817841970012523E-16 rotation_error=1.1102230246251565E-16 determinant=1 orthogonal_error=0
+general steps=4 reconstruction=1.4432899320127035E-15 rotation_error=3.3306690738754696E-16 determinant=0.99999999999999978 orthogonal_error=2.2204460492503131E-16
+general-small steps=4 reconstruction=1.3764285392882381E-21 rotation_error=3.3306690738754696E-16 determinant=0.99999999999999978 orthogonal_error=2.2204460492503131E-16
+general-large steps=4 reconstruction=1.5133991837501526E-09 rotation_error=3.3306690738754696E-16 determinant=0.99999999999999978 orthogonal_error=2.2204460492503131E-16
+rank-one steps=4 reconstruction=8.8817841970012523E-16 rotation_error=1.9999999999999991 determinant=0.99999999999999845 orthogonal_error=1.7763568394002505E-15
+zero steps=4 reconstruction=0 rotation_error=0.20423543456039817 determinant=1 orthogonal_error=2.7755575615628914E-17
+reflection steps=4 reconstruction=0 rotation_error=2 determinant=1 orthogonal_error=0
+identity steps=20 reconstruction=7.1054273576010019E-15 rotation_error=3.9968028886505635E-15 determinant=0.99999999999999201 orthogonal_error=7.9936057773011271E-15
+rotated-full steps=20 reconstruction=8.8817841970012523E-16 rotation_error=1.1102230246251565E-16 determinant=1 orthogonal_error=0
+rotated-planar steps=20 reconstruction=8.8817841970012523E-16 rotation_error=1.1102230246251565E-16 determinant=1 orthogonal_error=0
+general steps=20 reconstruction=2.2204460492503131E-15 rotation_error=2.6367796834847468E-16 determinant=0.99999999999999956 orthogonal_error=4.4408920985006262E-16
+general-small steps=20 reconstruction=2.1175823681357508E-21 rotation_error=2.6367796834847468E-16 determinant=0.99999999999999956 orthogonal_error=4.4408920985006262E-16
+general-large steps=20 reconstruction=2.3283064365386963E-09 rotation_error=2.6367796834847468E-16 determinant=0.99999999999999956 orthogonal_error=4.4408920985006262E-16
+rank-one steps=20 reconstruction=8.8817841970012523E-16 rotation_error=1.9999999999999969 determinant=0.999999999999994 orthogonal_error=6.2172489379008766E-15
+zero steps=20 reconstruction=0 rotation_error=0.84560848251333232 determinant=0.99999999999999267 orthogonal_error=6.6613381477509392E-15
+reflection steps=20 reconstruction=0 rotation_error=2 determinant=1 orthogonal_error=0
+cholesky valid=True x=0.66666666666666652,0.33333333333333331
+move=0.00000000 0.00000000 0.20000000 depth=0 budget=50 status=MaxIterations iterations=50 residual=0.00019531062374512825 energy=0.00013601380743950817
+move=0.00000000 0.00000000 0.20000000 depth=0 budget=500 status=MaxIterations iterations=500 residual=6.1352249624802062E-05 energy=0.00013018767073525939
+move=0.00000000 0.00000000 0.20000000 depth=0 budget=5000 status=MaxIterations iterations=5000 residual=9.064220543002951E-08 energy=0.00012905667187762074
+move=0.00000000 0.00000000 0.20000000 depth=0 budget=20000 status=Success iterations=6562 residual=9.9870774778109101E-09 energy=0.00012905666900988352
+move=0.00000000 0.00000000 0.20000000 depth=5 budget=50 status=Success iterations=18 residual=2.40838916682461E-09 energy=0.00012905666897455786
+move=0.00000000 0.00000000 0.20000000 depth=5 budget=500 status=Success iterations=18 residual=2.40838916682461E-09 energy=0.00012905666897455786
+move=0.00000000 0.00000000 0.20000000 depth=5 budget=5000 status=Success iterations=18 residual=2.40838916682461E-09 energy=0.00012905666897455786
+move=0.00000000 0.00000000 0.20000000 depth=5 budget=20000 status=Success iterations=18 residual=2.40838916682461E-09 energy=0.00012905666897455786
+move=0.20000000 0.00000000 0.00000000 depth=0 budget=50 status=Success iterations=18 residual=4.0824098214396038E-09 energy=0.0068537236412441142
+move=0.20000000 0.00000000 0.00000000 depth=0 budget=500 status=Success iterations=18 residual=4.0824098214396038E-09 energy=0.0068537236412441142
+move=0.20000000 0.00000000 0.00000000 depth=0 budget=5000 status=Success iterations=18 residual=4.0824098214396038E-09 energy=0.0068537236412441142
+move=0.20000000 0.00000000 0.00000000 depth=0 budget=20000 status=Success iterations=18 residual=4.0824098214396038E-09 energy=0.0068537236412441142
+move=0.20000000 0.00000000 0.00000000 depth=5 budget=50 status=Success iterations=7 residual=2.181338519061027E-09 energy=0.0068537236412441072
+move=0.20000000 0.00000000 0.00000000 depth=5 budget=500 status=Success iterations=7 residual=2.181338519061027E-09 energy=0.0068537236412441072
+move=0.20000000 0.00000000 0.00000000 depth=5 budget=5000 status=Success iterations=7 residual=2.181338519061027E-09 energy=0.0068537236412441072
+move=0.20000000 0.00000000 0.00000000 depth=5 budget=20000 status=Success iterations=7 residual=2.181338519061027E-09 energy=0.0068537236412441072

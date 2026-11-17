@@ -9,10 +9,18 @@ namespace g3
     /// Dual Contouring (Ju et al. 2002) of an implicit function on a uniform grid.
     /// One vertex per cell, placed by minimizing a QEF built from the surface points and normals
     /// ("Hermite data") on the cell's sign-changing edges, which reproduces sharp edges and corners.
-    /// Produces far fewer triangles than MarchingCubes at the same feature quality.
+    /// On the same grid it makes about as many triangles as MarchingCubes (two per sign-changing grid edge); because
+    /// it keeps sharp edges and corners, a coarser grid reaches the same accuracy there, so fewer triangles are needed
+    /// for a given accuracy on sharp features.
     ///
-    /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh),
-    /// otherwise from linear interpolation of the field and its central-difference gradient.
+    /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh).
+    /// Otherwise, if Implicit is set and ExactHermite is true (the default), each sign-changing edge is bisected on
+    /// Implicit to the true crossing and the normal is the central-difference gradient of Implicit at that point,
+    /// so the normals of the two faces of a crease do not blend (the QEF then finds the crease, QEFEigenTolerance
+    /// can be low). With ExactHermite = false, or where Implicit disagrees with the sign of a grid value at an end of
+    /// the edge (float rounding, imposed signs), the crossing is the linear interpolation of the grid values and the
+    /// normal the gradient at it (as before 2026-11). Without HermiteF the normals always come from Implicit, so it is
+    /// needed in sparse mode too (the exact crossing then also uses it; the grid values only decide which edges cross).
     ///
     /// Each cell gets one vertex per surface patch (the patches marching cubes would create in it), as in
     /// manifold dual contouring (Schaefer et al. 2007), so thin walls and gaps do not create non-manifold edges.
@@ -59,8 +67,24 @@ namespace g3
         public delegate bool HermiteFunc(Vector3d edgeA, Vector3d edgeB, Vector3d crossing, out Vector3d point, out Vector3d normal);
         public HermiteFunc HermiteF = null;
 
-        /// <summary> QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity) </summary>
-        public double QEFEigenTolerance = 0.1;
+        /// <summary>
+        /// With HermiteF null and Implicit set: take the edge crossing by bisection of Implicit (a fixed number of
+        /// halvings, so the result is scale invariant) and the normal from the central-difference gradient of Implicit
+        /// there, instead of the interpolated crossing and the gradient at it. Same triangle count, sharper creases on
+        /// sharp shapes, slightly less accurate on smooth ones; about 66 instead of 6 evaluations of Implicit per
+        /// sign-changing edge (0 to 100% more time on cheap fields, more on expensive ones; see
+        /// benchmarks/DualContouringHermite). false gives the former behaviour (interpolation).
+        /// No effect when HermiteF is set (also where it returns false: the fallback stays the interpolation).
+        /// </summary>
+        public bool ExactHermite = true;
+
+        /// <summary>
+        /// QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity). The default 0.02
+        /// (0.1 before 2026-11) suits ExactHermite; with interpolated Hermite data, whose normals blend at a crease,
+        /// 0.1 was the better value, so set it when ExactHermite is false and the old output is wanted.
+        /// </summary>
+        public double QEFEigenTolerance = 0.02;
+        internal const double LegacyQEFEigenTolerance = 0.1;
         /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
         public double QEFCellMargin = 0.01;
 
@@ -204,7 +228,60 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Adaptive simplification (default on, opt-out): where one vertex still fits the Hermite data of a block of 2^L
+        /// cells within SimplifyTolerance finest cells, the block's vertices merge, so flat and smooth regions get large
+        /// triangles (see AdaptiveDualContouring and docs/design/DC_ADAPTIVE_SIMPLIFICATION.md; the result stays closed,
+        /// manifold and, with ResolveSelfIntersections, free of self-intersections). Applies only to the dense mode with
+        /// Implicit, ExactHermite and ResolveSelfIntersections, no HermiteF, no sparse mode, refinement, hidden gap / wall
+        /// functions or recording; otherwise, and with Simplify false, Generate gives the uniform contour as before. The
+        /// internal inspection members (ContourCells and the like) describe the uniform contour only if it is not simplified.
+        /// </summary>
+        public bool Simplify = true;
+        /// <summary> Simplify: largest distance of a merged vertex to the Hermite planes of its cells, in finest cells (relative, so scale invariant) </summary>
+        public double SimplifyTolerance = 0.25;
+        /// <summary> Simplify: the largest merged block is 2^SimplifyMaxLevel cells wide </summary>
+        public int SimplifyMaxLevel = 6;
+
+        bool simplify_applies()
+        {
+            return Simplify && SimplifyTolerance > 0 && SimplifyMaxLevel >= 1 && Implicit != null && HermiteF == null && ExactHermite
+                && ResolveSelfIntersections && CandidateCells == null && NodeValueF == null && F == 1 && refined == null && crossings == null
+                && HiddenGapF == null && HiddenWallF == null && !RecordCertificateData && !CollectDiagnostics && GenerateFinished == null
+                && !RecordVertexCrossings && !SkipResolveForTests;
+        }
+
         public void Generate()
+        {
+            if (simplify_applies()) generate_simplified();
+            else generate_uniform();
+        }
+
+        void generate_simplified()
+        {
+            var ad = new AdaptiveDualContouring() {
+                Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
+                Tolerance = SimplifyTolerance, MaxLevel = SimplifyMaxLevel, QEFEigenTolerance = QEFEigenTolerance, QEFCellMargin = QEFCellMargin,
+                ParallelCompute = ParallelCompute, CancelF = CancelF
+            };
+            ad.Generate();
+            Mesh = ad.Mesh;
+            NonManifoldTriangles = ad.NonManifoldTriangles;
+            SelfIntersectionFree = ad.SelfIntersectionFree;
+            PhaseMilliseconds = new Dictionary<string, long>(ad.BasePhaseMilliseconds);
+            if (ad.PhaseMilliseconds.ContainsKey("simplify")) PhaseMilliseconds["simplify"] = ad.PhaseMilliseconds["simplify"];
+            DualContouring b = ad.BaseContour;
+            if (b != null) {
+                CornerDimensions = b.CornerDimensions;
+                FaceVertices = b.FaceVertices; ClampedFaceVertices = b.ClampedFaceVertices; EdgeVertices = b.EdgeVertices;
+                ForcedDiagonals = b.ForcedDiagonals; DegenerateSplitsAvoided = b.DegenerateSplitsAvoided;
+                SelfIntersectionsFound = b.SelfIntersectionsFound; SelfIntersectionsLeft = b.SelfIntersectionsLeft;
+                CoveredTriangles = b.CoveredTriangles; CheckedTriangles = b.CheckedTriangles; TransitionErrors = b.TransitionErrors;
+                NonManifoldCells = b.NonManifoldCells; ResolveMilliseconds = b.ResolveMilliseconds;
+            }
+        }
+
+        void generate_uniform()
         {
             SelfIntersectionFree = false;
             Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;
@@ -237,6 +314,16 @@ namespace g3
                 bool aInside = is_inside(fa);
                 if (HermiteF != null && HermiteF(aInside ? pa : pb, aInside ? pb : pa, p, out hp, out hn)) {
                     hpoints[ci] = hp; hnormals[ci] = hn.Normalized;
+                } else if (ExactHermite && HermiteF == null && Implicit != null && bracketed(pa, pb, aInside)) {
+                    // bisection in the parameter t of the edge (scale free: only powers of two and sign tests)
+                    double lo = 0, hi = 1;
+                    for (int it = 0; it < ExactBisectionSteps; ++it) {
+                        double mid = 0.5 * (lo + hi);
+                        Vector3d pm = Vector3d.Lerp(pa, pb, mid);
+                        if (is_inside(Implicit.Value(ref pm)) == aInside) lo = mid; else hi = mid;
+                    }
+                    Vector3d pe = Vector3d.Lerp(pa, pb, 0.5 * (lo + hi));
+                    hpoints[ci] = pe; hnormals[ci] = exact_gradient(pe).Normalized;
                 } else {
                     hpoints[ci] = p; hnormals[ci] = gradient(p).Normalized;
                 }
@@ -293,9 +380,10 @@ namespace g3
             Vector3d[][] cellGroupMass = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupPlane = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupCentroid = new Vector3d[cellList.Length][];
+            int[][][] cellGroupCrossings = RecordVertexCrossings ? new int[cellList.Length][][] : null;
             bool[][] cellGroupFeature = new bool[cellList.Length][];
             int transitionErrors = 0;
-            Action<int> place_vertices = (idx) => {
+            Action<int, SymmetricEigenSolver> place_vertices = (idx, qefSolver) => {
                 CellCrossings cc = cellCrossings[cellList[idx]];
                 int[] groups, parent;
                 List<int> keys;
@@ -330,10 +418,23 @@ namespace g3
                         for (int i = 0; i < faceGroups.Length; ++i)
                             if (faceGroups[i] == g)
                                 edges.Add(cc.FaceCrossings[i]);
-                    pos[g] = solve_qef(cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
+                    pos[g] = solve_qef(qefSolver, cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
                     foreach (int ci in edges)
                         centroid[g] += hpoints[ci];
                     centroid[g] /= Math.Max(edges.Count, 1);
+                }
+                if (cellGroupCrossings != null) {
+                    var lists = new int[nGroups][];
+                    for (int g = 0; g < nGroups; ++g) {
+                        var l = new List<int>();
+                        for (int le = 0; le < 12; ++le)
+                            if (cc.Edges[le] >= 0 && groups[le] == g) l.Add(cc.Edges[le]);
+                        if (faceGroups != null)
+                            for (int i = 0; i < faceGroups.Length; ++i)
+                                if (faceGroups[i] == g) l.Add(cc.FaceCrossings[i]);
+                        lists[g] = l.ToArray();
+                    }
+                    cellGroupCrossings[idx] = lists;
                 }
                 cellEdgeGroup[idx] = groups;
                 cellFaceGroup[idx] = faceGroups;
@@ -344,9 +445,11 @@ namespace g3
                 cellGroupFeature[idx] = feature;
             };
             if (ParallelCompute)
-                gParallel.ForEach(Interval1i.Range(cellList.Length), place_vertices);
-            else
-                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx);
+                gParallel.ForRange(cellList.Length, () => new SymmetricEigenSolver(3, 64), place_vertices);
+            else {
+                var qefSolver = new SymmetricEigenSolver(3, 64);   // (one solver for all cells: Solve resets its state)
+                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx, qefSolver);
+            }
             TransitionErrors += transitionErrors;
             phase("vertices");
             if (CancelF()) return;
@@ -357,6 +460,7 @@ namespace g3
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
             var vertexPatches = new List<int>();
+            VertexCrossings = RecordVertexCrossings ? new List<int[]>() : null;
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -364,6 +468,7 @@ namespace g3
                 for (int g = 0; g < groupVertex.Length; ++g) {
                     groupVertex[g] = Mesh.AppendVertex(cellGroupPos[idx][g]);
                     vertexMass.Add(cellGroupMass[idx][g]);
+                    if (VertexCrossings != null) VertexCrossings.Add(cellGroupCrossings[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
                     vertexPatches.Add(groupVertex.Length);
@@ -1310,6 +1415,32 @@ namespace g3
         }
 
 
+        // halvings of an edge: 2^-60 of its length, below double precision of any point on it
+        const int ExactBisectionSteps = 60;
+        // central-difference step of the exact normal: a power of two (1/32) of the grid edge, so it scales exactly
+        const double ExactGradientStep = 1.0 / 32;
+
+        // Implicit has the signs of the stored node values at the ends of the edge (they are floats, or signs imposed on a
+        // transition face): otherwise the edge keeps the interpolated crossing
+        bool bracketed(Vector3d pa, Vector3d pb, bool aInside)
+        {
+            return is_inside(Implicit.Value(ref pa)) == aInside && is_inside(Implicit.Value(ref pb)) != aInside;
+        }
+
+        // central difference divided by its step 2s, so that the length (about |grad|) does not underflow into
+        // Vector3d.Normalized's absolute threshold at small scales
+        Vector3d exact_gradient(Vector3d p)
+        {
+            double s = h * ExactGradientStep;
+            Vector3d g = Vector3d.Zero;
+            for (int c = 0; c < 3; ++c) {
+                Vector3d d = Vector3d.Zero; d[c] = s;
+                Vector3d p0 = p + d, p1 = p - d;
+                g[c] = (Implicit.Value(ref p0) - Implicit.Value(ref p1)) / (2 * s);
+            }
+            return g;
+        }
+
         Vector3d gradient(Vector3d p)
         {
             double h = CellSize * 0.25;
@@ -1460,7 +1591,20 @@ namespace g3
             return diagnosticMs;
         }
 
-        Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        /// <summary> recording for AdaptiveDualContouring: the crossing indices (into the Hermite arrays) of each cell vertex, by vertex id (face and edge vertices have no entry) </summary>
+        internal bool RecordVertexCrossings;
+        internal List<int[]> VertexCrossings;
+        internal Vector3d[] HermitePoints { get { return genPoints; } }
+        internal Vector3d[] HermiteNormals { get { return genNormals; } }
+        internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
+
+        internal Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        {
+            return solve_qef(new SymmetricEigenSolver(3, 64), cellMin, cellSize, edges, points, normals, out massPoint, out planeNormal, out isFeature);
+        }
+
+        /// <summary> as above, with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
         {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
@@ -1478,7 +1622,6 @@ namespace g3
                 b += d * n;
             }
 
-            SymmetricEigenSolver solver = new SymmetricEigenSolver(3, 64);
             solver.Solve(A, SymmetricEigenSolver.SortType.Decreasing);
             double[] evals = solver.GetEigenvalues();
             Vector3d x = Vector3d.Zero;
@@ -1787,6 +1930,20 @@ namespace g3
         }
         long[] lastCellKeys = new long[0];
         Dictionary<long, Cell> lastCells = new Dictionary<long, Cell>(EdgeKeyComparer.Instance);
+
+        /// <summary> (tests) the cell vertices (one per patch) of the last Generate's mesh, per cell (min node, size in nodes) </summary>
+        internal Dictionary<(Vector3i, int), int> CellVertexCountsForTests()
+        {
+            var d = new Dictionary<(Vector3i, int), int>();
+            foreach (int v in Mesh.VertexIndices()) {
+                if (genPatches[v] < 1) continue;
+                var key = (genCell[v].Min, cell_size(genCell[v]));
+                int c;
+                d.TryGetValue(key, out c);
+                d[key] = c + 1;
+            }
+            return d;
+        }
 
         /// <summary> (tests) the size (in fine nodes) of the cell of a vertex of the last Generate's mesh </summary>
         internal int VertexCellSize(int vid) { return cell_size(genCell[vid]); }

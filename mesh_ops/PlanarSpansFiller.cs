@@ -87,7 +87,7 @@ namespace g3
             float planeW = 1.5f;
             int nDivisions = 0;
             if ( FillTargetEdgeLen < double.MaxValue && FillTargetEdgeLen > 0) {
-                int n = (int)((planeW / (float)scale) / FillTargetEdgeLen) + 1;
+                int n = MathUtil.ToIntSaturating((planeW / (float)scale) / FillTargetEdgeLen) + 1;
                 nDivisions = (n <= 1) ? 0 : n;
             }
 
@@ -108,7 +108,7 @@ namespace g3
 
             // insert each poly
             MeshInsertUVPolyCurve insert = new MeshInsertUVPolyCurve(FillMesh, SpansPoly);
-            ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef * scale);
+            ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef);
             bool failed = true;
             if (status == ValidationStatus.Ok) {
                 if (insert.Apply()) {

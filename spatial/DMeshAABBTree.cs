@@ -184,6 +184,64 @@ namespace g3
             find_nearest_tri(root_index, p, ref fNearestDistSqr, ref tNearID);
             return tNearID;
         }
+        /// <summary>
+        /// (internal, MeshHausdorffDistance, #873) the triangle nearest to p, comparing the distances as |p - c| to the closest point c
+        /// (DistPoint3Triangle3) instead of the square root of the squared-distance form, which cancels near the surface to about
+        /// 2^-26 E (E the triangle's size) and so may pick a triangle that is farther by that much (eg two coplanar triangles that share
+        /// an edge p lies near). The traversal of FindNearestTriangle (on equal box distances it may visit a box more), deterministic;
+        /// InvalidID if the tree has no triangle. distance: |p - c| of the triangle found (double.MaxValue if none, or if none is finite)
+        /// </summary>
+        internal int FindNearestTriangleByClosestPoint(Vector3d p, out double distance)
+        {
+            if (mesh_timestamp != mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.FindNearestTriangleByClosestPoint: mesh has been modified since tree construction");
+            distance = double.MaxValue;
+            double nearestSqr = double.MaxValue;
+            int tNearID = DMesh3.InvalidID;
+            find_nearest_tri_closest(root_index, ref p, ref distance, ref nearestSqr, ref tNearID);
+            return tNearID;
+        }
+        void find_nearest_tri_closest(int iBox, ref Vector3d p, ref double nearest, ref double nearestSqr, ref int tID)
+        {
+            int idx = box_to_index[iBox];
+            if (idx < triangles_end) {
+                int num_tris = index_list[idx];
+                Triangle3d tri = new Triangle3d();
+                for (int i = 1; i <= num_tris; ++i) {
+                    int ti = index_list[idx + i];
+                    if (TriangleFilterF != null && TriangleFilterF(ti) == false)
+                        continue;
+                    mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
+                    Vector3d closest, bary;
+                    DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary);
+                    double d = p.Distance(closest);
+                    if (d < nearest) {
+                        nearest = d; nearestSqr = d * d; tID = ti;
+                    } else if (tID == DMesh3.InvalidID)
+                        tID = ti;       // (a distance that is not finite: a triangle all the same, replaced by any finite one)
+                }
+            } else {
+                // (boxes in the order and with the tests of find_nearest_tri, against the square of the nearest distance so far)
+                int iChild1 = index_list[idx];
+                if (iChild1 < 0) {
+                    iChild1 = (-iChild1) - 1;
+                    if (box_distance_sqr(iChild1, p) <= nearestSqr)
+                        find_nearest_tri_closest(iChild1, ref p, ref nearest, ref nearestSqr, ref tID);
+                } else {
+                    iChild1 = iChild1 - 1;
+                    int iChild2 = index_list[idx + 1] - 1;
+                    double d1 = box_distance_sqr(iChild1, p), d2 = box_distance_sqr(iChild2, p);
+                    int first = (d1 < d2) ? iChild1 : iChild2, second = (d1 < d2) ? iChild2 : iChild1;
+                    double df = Math.Min(d1, d2), ds = (d1 < d2) ? d2 : d1;
+                    if (df <= nearestSqr) {
+                        find_nearest_tri_closest(first, ref p, ref nearest, ref nearestSqr, ref tID);
+                        if (ds <= nearestSqr)
+                            find_nearest_tri_closest(second, ref p, ref nearest, ref nearestSqr, ref tID);
+                    }
+                }
+            }
+        }
+
         protected void find_nearest_tri(int iBox, Vector3d p, ref double fNearestSqr, ref int tID)
         {
             int idx = box_to_index[iBox];

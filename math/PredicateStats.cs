@@ -95,6 +95,13 @@ namespace g3
             allocated = a;
         }
 
+        /// <summary> Lap in microseconds, stored as name + "_us" (the sub-steps of a phase run for less than a millisecond each) </summary>
+        public void LapMicroseconds(string name)
+        {
+            ms[name + "_us"] = sw.ElapsedTicks * 1000000 / Stopwatch.Frequency;
+            sw.Restart();
+        }
+
         internal static long Allocated()
         {
 #if NET

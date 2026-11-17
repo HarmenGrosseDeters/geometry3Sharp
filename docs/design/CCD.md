@@ -92,7 +92,7 @@ Searched: `Interval`, `Exact*`, `AdaptivePredicates`, the AABB trees and box tre
 |---|---|---|
 | Outward-rounded evaluation (fallback path, test oracle) | `math/ExactIntervals.cs`: `ExactInterval` (each `+ - *` rounds to nearest and widens by one ulp, NaN gives the whole line, `Sign()`) | Direct. Internal, same assembly |
 | Exact values of `F` at dyadic points (oracle in tests) | `ExactDyadic` (same file, `BigInteger` mantissa, exact `+ - *`, `Compare`) | Direct; test-only use |
-| Broad phase over swept boxes | `TriangleBoxTree` (`mesh_ops/ExactMeshArrangement.cs`): a BVH over arbitrary `AxisAlignedBox3d`, closed overlap tests, no padding, `Query(box, ...)`, `SelfPairs`, parallel build from 262144 boxes, deterministic | Direct, over the swept boxes of vertices, edges and triangles. Used as is: the file is on the locked list of Exact Boolean 3.0, so stage 2 does not edit or move it |
+| Broad phase over swept boxes | `TriangleBoxTree` (`mesh_ops/ExactMeshArrangement.cs`): a BVH over arbitrary `AxisAlignedBox3d`, closed overlap tests, no padding, `Query(box, ...)`, `SelfPairs`, parallel build from 8192 boxes, deterministic | Direct, over the swept boxes of vertices, edges and triangles. Used as is: the file is on the locked list of Exact Boolean 3.0, so stage 2 does not edit or move it |
 | Mesh-level trees | `DMeshAABBTree3` | No: it indexes triangles at one position; swept boxes differ |
 | Exact orientation predicates | `ExactPredicates.Orient3d`, `AdaptivePredicates` | Not needed by the method; used in tests to build exact contact configurations (eg a vertex path that hits a triangle edge exactly) |
 | Mechanical bound derivation | `tools/PredicateCompiler` (magnitude bounds of fixed-width predicates; its README plans a floating-point filter pass) | Option b of section 6.4 |
@@ -674,3 +674,144 @@ Tests:
   The clip of the inner hulls to the whole-step range of a point, which the first version had, survived as
   equivalent: it changes boxes only by the interval's rounding unit, and the filter drops only candidates of the
   whole-step tree. It was removed.
+
+### 10.11 Sub-step boxes in the tree (#866, 2026-11-15)
+
+Upper bound (#866 after 10.10, puffer-ball, 4 cores, `CandidateSeconds`): collecting the candidates took 27.3 s of
+46.7 s serial and 13.3 s of 19.7 s parallel. Most of that is the enumeration of the 186M whole-step edge pairs and the 75M
+vertex-triangle pairs that the filter then drops. The narrow phase of the 25M candidates is about 18.4 s serial: a
+broad-phase change can lower the serial sweep to about 20 s at best. Lowering it further is the narrow phase's problem (#940).
+
+As built: `SubStepBoxTree` (internal, `spatial/`). It has one tree per set of primitives, as before. Each primitive has its
+whole-step box and its SubSteps sub-step boxes (`sub_boxes` from the hulls, the same doubles the filter of 10.10 uses);
+each node holds the union of its primitives' boxes, whole and per sub-step. A query, or a pair of nodes in `SelfPairs`,
+carries the mask of the sub-steps in which the boxes still overlap; the search drops it when the whole-step boxes are
+apart or the mask is empty. A leaf pair is reported when its whole-step boxes and its boxes of some sub-step overlap
+(closed boxes). That is the condition of 10.10 for a candidate: an overlap in the whole-step tree plus the filter. So the
+candidate set is the same, and the per-pair results, the reduction and `Contacts` are bit for bit those of 10.10. The node
+unions contain their primitives' boxes, so no pruned pair qualifies. Prior art: the multi-segment motion-blur BVHs of ray
+tracing, which keep one box per time segment in each node (Grünschloß et al. 2011, MSBVH; Woop et al. 2017, STBVH), and
+kinetic BVHs (Zachmann, Weller 2006). The ToI paper's broad phase (Belgrod et al.) sorts whole-step boxes on the GPU.
+
+- The order: Morton codes of the whole-step box centres, ties by index (the coordinates as ranks when one far or
+  infinite box would squeeze the others into a few cells, as `TriangleBoxTree`), median splits (leaves of up to 8). It only
+  decides which boxes share a node and the order of the candidates; the batches and the merge of 10.9 do not depend on
+  that order for the result, and it depends only on the input.
+- Memory: 6 (SubSteps + 1) doubles per triangle and edge for the leaves and about half that again for the nodes
+  (`SubStepBoxTree.Doubles`; about 1 GB for puffer-ball at k = 4, plus the transient whole-step boxes of the build).
+  Above `MaxTreeDoubles` (2^27 doubles for the trees together, 1 GB) the sweep falls back to the whole-step `TriangleBoxTree`s with the
+  filter of 10.10, with the same candidates. SubSteps = 1 and hulls above `MaxHullDoubles` keep the paths of 10.9 and
+  10.10.
+- `TriangleBoxTree` (exact code) is unchanged. The earlier rejected design (k trees, merged and deduplicated, 10.10)
+  needed the clipping of the sub-step boxes to the whole-step box to keep the subset property. This one tests both
+  boxes at the leaves.
+
+Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-step box tree"). Over the runs of the PR puffer-ball went from
+46.6-46.8 s to 29.9-32.7 s serial and from 16.5-19.7 s to 10.6-10.9 s parallel, with the same candidate count, status,
+earliest time of impact and contact count in every scene (the contents of the candidates and contacts are checked
+by the tests). armadillo-rollers and n-body are
+faster, cloth-ball and rod-twist within noise, and cloth-funnel is 75 ms slower serial (small motion; no size threshold
+separates it from armadillo-rollers). k = 8 does not lower the serial time (29.9 s: fewer but harder pairs).
+
+Tests:
+- `SubStepTree_EqualsFilterOnWholeStepPairs`: random rounds, A against B, the self sweep, one mesh object against
+  itself with other end positions, k = 2, 4, 8, 64, CollectAll on and off, small and default jobs. The tree and the
+  filter path give the same candidate count, status, times and contacts. The budget boundary: at `MaxTreeDoubles` equal
+  to the trees' size the tree runs, one below it the filter.
+- `SubStepBoxTree_AgainstBruteForce`: random grid boxes with many touching faces, sub-step boxes that stick out of the
+  whole-step box, k = 1, 3, 4, 64, sizes 0 to 300. `Query` and `SelfPairTasks`/`SelfPairs` (1 to 100 000 tasks) give
+  each qualifying box or pair exactly once; the parallel build (build blocks of 3) gives the serial build's output in
+  the same order.
+- `SubStepBoxTree_OutlierKeepsTheOrderSpatial` (review): a shuffled grid plus one far or infinite box keeps a spatial
+  order (the rank fallback; without it the order is the shuffled index order).
+- `SubStepTree_Reuse`: the budget and SubSteps changed between Computes on one instance give the fresh results.
+- `SelfSweep_Invariance` over `Similarity.All()` on the tree and the filter path; `Invariance` (A against B) and
+  `Jobs_ParallelEqualsSerial` run the tree by default.
+- Mutants, killed: no whole-step or no sub-step test at the leaves (query and pairs), strict overlap, the last sub-step
+  skipped, a node box of one child only, the within-leaf pairs skipping a neighbour, a full mask lost in the (a, a)
+  items, a triangle's sub-step boxes of two vertices, a strict budget, the hulls of A for B, the query's sub-step boxes at
+  the wrong offset, an edge query's sub-step boxes from the wrong mesh, no rank fallback, a parallel build writing a
+  neighbour's sub-step boxes. Survived as equivalent: passing the full mask to
+  the children instead of the narrowed one. The mask only prunes, and the leaves test every sub-step in the mask they
+  get.
+
+### 10.12 Narrow-phase pre-filter (#940, 2026-11-16)
+
+Upper bound (#940, puffer-ball, serial, instrumented run with a timestamp around `Set` and `Solve` of each of the 24 953 688
+candidates; the timers cost about 0.05 µs per pair, so the shares are upper estimates): `Solve` took 18.9 s and the gathers of
+the pair's points 1.7 s. Of the pairs 24 876 991 end in `NoCollision` and only 76 697 in `Collision`; 23 861 384 (95.6 %) are
+discarded at the first box (7.1 s, 0.30 µs per pair), and 458 408 pairs that need seven or more boxes take **11.1 s (24 µs per
+pair, 58 % of the solver time)**: the cost is not the volume of ordinary queries, as #940 assumed, but a tail of near misses
+that explore the whole time range. Of the first-box discards 92 % are decided by the axis tests (x 64 %, y 20 %, z 8 %) and 8 % by the normals. Two bounds follow:
+- skipping every `NoCollision` pair outright (not possible bit-identically, see below) would save at most 20.6 s of 33;
+- a query that stops once it cannot be the earliest contact (a time limit at the earliest contact, 0.0053, as an experiment)
+  takes the solver from 19.3 s to 9.9 s: the tail shrinks from 11.1 s to 0.6 s.
+
+Library and literature (the short check of AGENT_WORKFLOW section 3): the building blocks are `CcdSolver` itself (the corner
+values of `corners_filter` and the bound B1 stay as they are), `ExactInterval` and the sub-step culling of 10.10 / 10.11. A
+separate conservative test (a swept-volume or sub-step box separation, or an interval pre-filter as in Wang et al. 2021) cannot be
+the pre-filter: #940's constraint says a skipped pair must be one the solver itself answers `NoCollision`, and a proof of
+separation does not imply that (the solver reports a `Collision` within its error bound for a pair that is separated by less than
+the bound). The sub-step boxes of 10.10 have no such margin to the solver's arithmetic either. So the pre-filter is made of
+two pieces that are the solver's own decisions:
+
+1. **The first-box shortcut** (`CcdSolver.root_discarded`, `RootDiscards`). The first box [0, 1]^3 is discarded on an axis for
+   95.6 % of the candidates. `Solve` now evaluates only that: the same differences `d_i`, the same positions `x_i = s_i + t d_i`
+   at t = 0 and 1, the same `(e0 -/+ u e1) - v e2` at the corners (for a vertex-triangle box the clipped polygon's three corners
+   (0, 0), (1, 0), (0, 1), which hold the two crossing points of 10.1 as well, so the set of values is that of `evaluate`), the
+   same thresholds and comparisons, in the same order of axes. If an axis discards it, the result is what the search gives
+   after one box: `NoCollision`, `TimeOfImpact` from `no_collision_time`, `Iterations` 1, the `ErrorBound` of the filter. Otherwise the
+   search starts as before (the box is evaluated again; 4 % of the pairs). No new bound is used or derived. The sweep
+   (CollectAll false, where a pair that is not a contact has no output but its count) drops such a pair in the job that found it,
+   right after the tree search, without a queue, a result or a record (`drop_root_discarded`, counted as a candidate).
+2. **Abandoning a query that cannot matter** (`CcdSolver.AbandonAfter`). Let L be the smallest `NearContactTime` of the
+   `Collision` results seen so far. The reductions of `Compute` are: `EarliestTimeOfImpact` the minimum time of impact of the
+   touching results, `EarliestNearContactTime` the minimum near time of the `Collision` results (so the final one is at most L),
+   and `Contacts` the touching results with `TimeOfImpact <= EarliestNearContactTime`. A pair whose time of impact is above L
+   is none of these: the pair with the final near time N has `TimeOfImpact <= N <= L`, so it also sets the minimum of the
+   times, and the pair is above `EarliestNearContactTime`. The solver's time of impact of a pair is the smallest start of
+   the boxes that are left (10.1, G2), and the starts of the queue never decrease, so when the box taken from the queue
+   (before a near box is known), or the box a dive follows together with the queue, starts after L, the final time of
+   impact of the pair is above L: the query stops (`Abandoned`) and the sweep treats the pair like a `NoCollision`. A query
+   that is not abandoned runs exactly as before (the checks have no other effect), so its result is bit for bit its old one.
+   Unlike the "shared bound" that 10.1 rejected, no result under a bound is used: a result that is used is one that the bound
+   never touched. The bound is also not shared between threads: it is fixed per chunk of 65 536 pairs of a batch (order of the
+   batch's pairs, which depends only on the input) and updated from the finished chunk's results in pair order, so the
+   abandoned pairs, the counts and the output do not depend on the schedule. L is not a bound on `TimeOfImpact` (the
+   contacts list keeps pairs with a time of impact up to the earliest near time, which can be later than the earliest time of impact
+   by `TimeTolerance` or more): using L from the times of impact would drop pairs that are contacts, and a test checks that.
+
+Not done (measured or argued against): the pairs are not dropped in the broad phase by L (a pair whose boxes overlap only
+after L can still have `TimeOfImpact <= L` through the solver's lower bound); a larger set of first-box discards (the
+normals test, 8 % of them) was not added to the shortcut.
+
+As built: `MeshSweepCollision.PreFilter` (internal, default true; tests switch it off) covers both pieces and applies only with
+`CollectAll = false`. Public API and results are unchanged: the candidate count, status, `EarliestTimeOfImpact`,
+`EarliestNearContactTime` and `Contacts` (with the full result of each contact) are equal to the unfiltered path in every test and in
+all six sample scenes.
+
+Measured: `benchmarks/CcdBenchmark/README.md` ("Narrow-phase pre-filter"). Serial, puffer-ball goes from 33.9-34.9 s to
+23.5-24.9 s, parallel from 11.0-11.4 s to 8.8-10.4 s; cloth-ball from 20.7 s to 6.7 s, n-body 9.4 s to 3.8 s, armadillo-rollers
+4.4 s to 2.3 s, rod-twist 6.7 s to 4.0 s serial. The serial sweep of the 1M-triangle frame is therefore still above the 20 s rule
+(#866, #940 stay open): what is left is the tree search of the candidates (about 11 s), the first-box test and the gathers
+(about 3 s), the 1.1M survivors (about 5 s) and the preparation (about 3.5 s).
+
+Tests:
+- `RootShortcut_EqualsTheQueue` (ms 0, 1e-3, 0.25, 4 000 random constructed, near-miss and far queries at 2^-6 to 2^6 scale and a
+  UTM-like shift, vertex-triangle and edge-edge, time limits): every field of the result equals the result without the shortcut;
+  `RootDiscards` implies `NoCollision` after one box; NaN, infinite and out-of-range points with a separating axis are
+  `InvalidInput`, not discarded.
+- `AbandonAfter_NeverChangesARelevantResult`: bounds at 0, round values, 1, the query's own time of impact and near time, with
+  and without an iteration limit: a query that is not abandoned equals the unbounded one field for field; an abandoned one has an
+  unbounded time of impact above the bound.
+- `PreFilter_EqualsTheUnfilteredSweep` (A against B, the self sweep, one mesh against itself with other ends; minimum separations,
+  `TimeLimit`, `MaxIterations`; CollectAll on and off; one job and small jobs, batches and chunks; serial and parallel),
+  `PreFilter_FaceContactKeepsEveryContact` (faces that meet at one time, a chunk of one pair, large `TimeTolerance`),
+  `PreFilter_ParallelEqualsSerial` (serial order, backwards and permuted orders, repeated parallel runs: contacts, times, counts of
+  skipped and abandoned pairs), `PreFilter_Reuse`. The invariance (`SelfSweep_Invariance`, `Invariance` over `Similarity.All()`),
+  `Jobs_ParallelEqualsSerial` and the sub-step tests run the pre-filter by default.
+- Mutants, killed: the discard comparison of one side, one time end of the corners, one of the clipped corners, the abandon test
+  non-strict (`>=`), the dive test without the queue, no range check in `RootDiscards`, the bound from the time of impact instead
+  of the near time, the skipped pairs not counted as candidates, the pre-filter with CollectAll, the bound with CollectAll. Survived
+  as equivalent: abandoning also after a near box is known (the final time of impact is then above L as well, so the property holds;
+  the code keeps the narrower condition), the bound from `IterationLimit` results (their near time is infinite).

@@ -34,10 +34,20 @@ Neovius/Sheet, 6, 1092727, 846576, 53.8, 1008.0, 1194.7, 525.1, 10/10/8
 Gyroid(graded)/Sheet, 2, 59319, 29692, 3.1, 47.9, 32.2, 11.9, 1/1/1
 Gyroid(graded)/Sheet, 4, 357911, 224776, 16.4, 283.3, 242.7, 93.6, 8/8/8
 Gyroid(graded)/Sheet, 6, 1092727, 747280, 45.9, 775.6, 778.4, 334.2, 11/11/10
+Gyroid(+IWP)/Sheet, 2, 59319, 40556, 8.7, 110.3, 52.9, 19.7, 3/3/3
+Gyroid(+IWP)/Sheet, 4, 357911, 319028, 61.3, 433.1, 330.0, 141.8, 9/9/9
+Gyroid(+IWP)/Sheet, 6, 1092727, 1070044, 147.5, 1333.0, 1166.2, 491.0, 10/10/9
 ```
+
+The `(+IWP)` rows are the two-type hybrid (docs/design/TPMS_LATTICE.md section 9): gyroid sheet with `SecondType = IWP` across the plane
+`x = periods / 2`, `SigmoidBlend` width 0.5; the "field" column there is both bare `Evaluate`s. The hybrid rows come from a later run of the whole benchmark than the other rows (same container; the two runs differ by the usual noise of a shared container, eg the first row 6.4 against 7.8 ms field and 151.7 against 155.1 ms compute).
 
 Reading (workload: gyroid / P / Neovius, 2 to 6 periods, 16 cubes per period; other workloads are not covered):
 
+- The hybrid costs about 1.15 times the constant gyroid sheet in `Compute` at 6 periods (1333 against 1157 ms; two fields and the weight at every node, the "field"
+  column is 148 against 59 ms) and allocates the same (491 against 508 MB) at nearly the same triangle count. An earlier run of the hybrid, before the sliver guard was scaled by
+  the phase part of the Lipschitz bound (docs/design/TPMS_LATTICE.md 9.7), took 2782 ms and 1225 MB: the unscaled guard was a larger fraction of the field's range
+  than for the constant lattice and made the contouring much more expensive (it also thickened the lattice for steep weights, `SteepBlend_DoesNotThickenThePureSides`).
 - The graded gyroid sheet has fewer triangles than the constant one (the period grows to 2, so the surface area per volume falls) and
   costs about 0.7 of it in `Compute` at the same node count (775.6 against 1119.9 ms at 6 periods). The cost of the phase-map delegate
   call per sample (one `Math.Log` and a few divisions) is not separated from the rest in this benchmark (the "field" column is the bare

@@ -54,7 +54,7 @@ namespace geometry3Sharp.Tests
             var box = new AxisAlignedBox3d(s.Apply(o), s.Apply(o));
             for (int c = 0; c < 8; ++c)
                 box.Contain(s.Apply(o + 2.2 * new Vector3d(c & 1, (c >> 1) & 1, (c >> 2) & 1)));
-            var dc = new DualContouring() {
+            var dc = new DualContouring() { Simplify = false,
                 Implicit = new Fn() { F = p => f(s.Inverse(p)) }, InsideIsLess = true, CellSize = s.ApplyLength(cell),
                 Bounds = box, ParallelCompute = parallel
             };
@@ -213,7 +213,7 @@ namespace geometry3Sharp.Tests
             DualContouring dc = WithDiagnostics(() => {
                 double cell = 2.2 / 24;
                 Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * new Vector3d(0.1371, 0.2713, 0.3891);
-                var d = new DualContouring() {
+                var d = new DualContouring() { Simplify = false,
                     Implicit = new Fn() { F = TwoBoxes }, InsideIsLess = true, CellSize = cell, QEFCellMargin = 0,
                     Bounds = new AxisAlignedBox3d(o, o + 2.2 * Vector3d.One)
                 };

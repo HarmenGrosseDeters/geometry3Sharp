@@ -23,7 +23,7 @@ namespace g3
     /// not be stitched.
     ///
     /// Usage: construct, AddFillLoop(s), SetPlane, Fill() (or construct from a MeshPlaneCut, which sets loops
-    /// and plane). The loop vertices must lie in the plane (within about 1e-6, the merge tolerance), otherwise
+    /// and plane). The loop vertices must lie in the plane (within about 1e-6 times the larger side of the loops' bounds in the plane, the merge tolerance), otherwise
     /// the fill cannot be merged and cracks remain. The fill is appended to the mesh in place, as a new
     /// triangle group, even when Fill() returns false.
     /// </summary>
@@ -128,6 +128,13 @@ namespace g3
             // accuracy in the calcs below...
             Vector2d shiftOrigin = Bounds.Center;
             double scale = 1.0 / Bounds.MaxDim;
+            // the merge distance of fill and loop vertices: relative to the loops, at least 16 rounding units of the
+            // largest loop coordinate (a small hole far from the origin)
+            double magnitude = 0;
+            foreach (var floop in Loops)
+                foreach (int vid in floop.edgeLoop.Vertices)
+                    magnitude = Math.Max(magnitude, Mesh.GetVertex(vid).MaxAbs);
+            double merge_tol = Math.Max(MathUtil.ZeroTolerancef * Bounds.MaxDim, 16 * MathUtil.Epsilon * magnitude);
             foreach ( var floop in Loops ) {
                 floop.poly.Translate(-shiftOrigin);
                 floop.poly.Scale(scale * Vector2d.One, Vector2d.Zero);
@@ -165,7 +172,7 @@ namespace g3
                 float planeW = 1.5f;
                 int nDivisions = 0;
                 if ( FillTargetEdgeLen < double.MaxValue && FillTargetEdgeLen > 0) {
-                    int n = (int)((planeW / (float)scale) / FillTargetEdgeLen) + 1;
+                    int n = MathUtil.ToIntSaturating((planeW / (float)scale) / FillTargetEdgeLen) + 1;
                     nDivisions = (n <= 1) ? 0 : n;
                 }
 
@@ -192,7 +199,7 @@ namespace g3
                 // insert each poly
                 for ( int pi = 0; pi < polys.Count; ++pi ) { 
                     MeshInsertUVPolyCurve insert = new MeshInsertUVPolyCurve(FillMesh, polys[pi]);
-                    ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef * scale);
+                    ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef);
                     bool failed = true;
                     if (status == ValidationStatus.Ok) {
                         if (insert.Apply()) {
@@ -248,7 +255,7 @@ namespace g3
 
                         // construct vertex-merge map for this loop
                         List<int> bad_indices = build_merge_map(FillMesh, fillLoopVerts, Mesh, sourceLoop.Vertices,
-                            MathUtil.ZeroTolerancef, mergeMapV);
+                            merge_tol, mergeMapV);
 
                         bool errors = (bad_indices != null && bad_indices.Count > 0);
                         if (errors) {

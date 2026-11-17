@@ -26,12 +26,14 @@ done since and what is open.
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
-- Draft PRs run the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
-  `netstandard-b`: net48 / netstandard2.0 tests, the Clipper2 package on net48, the PowerShell regression) and `isolated` /
-  `time-rule` are skipped on a draft (2026-11-13, runner load; check locally with the net48 build of the CLAUDE.md list). A PR that
-  is ready for review (`ready_for_review` starts the run), every push to master and manual runs run everything.
-  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master runs: one concurrency group per ref with cancel-in-progress, so
-  only the newest master commit runs to the end; an older commit's run shows as cancelled.
+- A draft PR gets no CI (2026-11-15, runner load: most runs of drafts were cancelled by the next push; the gate is the `if:` of the job
+  `scope`, the other jobs need it; a skipped run of a draft has its own concurrency group, so it cannot cancel a real run). On demand:
+  `workflow_dispatch` (Actions tab, or `gh workflow run ci.yml --ref <branch>`; the checks attach to the head commit), which runs
+  everything. A PR that is ready for review (`ready_for_review` starts the run), every push to master and manual runs run all jobs;
+  check a draft locally with the CLAUDE.md list (with the net48 build). `FULL_TIER` in `ci.yml` is the switch for the Slow tier: it is
+  true for every run that exists now (the draft conditions of `isolated`, `time-rule` and the Windows jobs stay as a second guard).
+  PR runs cancel on a new push. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue; GitHub keeps
+  one pending run, so a burst of merges runs the first and the newest commit; the newest covers all merged changes).
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
@@ -351,7 +353,7 @@ scale checks of the campaigns (the scaling is not exact there).
 | `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 (`PartitionedReducer` also in the Reducer's range) | -- | sphere: ok 2^-250 .. 2^500 | not guaranteed (documented limit) |
 | `DMeshAABBTree3` ray, `IsInside`, winding numbers | up to 2^1000 | -- | fuzzed to 2^1000 | not guaranteed above |
 | `DMeshAABBTree3` nearest (squared distance) | extent 2^-450 .. 2^450 | -- | squared distance representable | not guaranteed outside |
-| 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude | -- | exact predicates | `ArgumentException` |
+| 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude; constrained: a domain more than 2^-41 of the larger of the largest coordinate and the extent wide (the automatic tolerance, O11) | -- | exact predicates; pentagon at aspect 2^e: mesh up to 2^±40, `Empty` from 2^±41 (#986) | `ArgumentException`; a domain no wider may vanish: `Empty` with a diagnostic without a snap tolerance (documented limit, owner 2026-11-17) |
 | `TerrainVolumeDifference`, `TerrainOffset` | <= 2^200, extent 2^-8 .. 2^200 | -- | bumpy 8 x 8 terrain: correct 2^-20 .. 2^250; zero volumes with `true` below 2^-25 and above 2^260; offset wrong with `true` above 2^260, `false` below 2^-30 | `Compute()` false (PR per module) |
 | Other terrain modules (grid TIN, greedy TIN, slope map / design / overlay, dual contouring, safety) | not swept: the slope classes decide with the exact kernel (`ExactSlopeKernel`) | -- | -- | open |
 
@@ -389,7 +391,9 @@ the module outside the range, or "not guaranteed".
   Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; invariant guards are the
   exception, kept on purpose: the two in `ExactMeshBoolean.cs` (deleting them needs the exact-code review and the 6 h
   Boolean shards for no gain) and five in `DualContouring.cs` (a hot, subtle file where deleting a guard would turn a
-  broken invariant into a silent wrong result). An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
+  broken invariant into a silent wrong result), and, from #959 (owner 2026-11-16), the walk and insertion guards of `Delaunay3.cs`
+  (point location and the star-shape growth, which the exact predicates make unreachable) and the requeue and lemma-check
+  branches of the round carving in `MeshAlphaWrap.cs`, each with its reason in the list. An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
   text whose nearest previous non-blank lines are `after` (a list, nearest first), unique in the file, so a new line of
   the same text elsewhere cannot take its place and edits elsewhere do not matter; it excuses that one line only;
   `approved_in` is the PR (`#123`) whose review approved the entry. The list is checked on every run, not only for
@@ -435,13 +439,13 @@ GitHub's `schedule` event is unreliable here. Diagnosis from the Actions run lis
 not queued late (`created_at` = `run_started_at`; the runner wait was 3 s to 47 min): `nightly.yml` (cron 02:23 UTC) created
 09:36 and 09:57 (+7 h 13 / +7 h 34), `coverage.yml` (03:41) created 11:48 (+8 h 07) and none at all for 2026-11-11,
 `mutation.yml` (Monday 03:23) created 11:25 and 11:48 (+8 h). Runner priorities or other cron times do not help against that. So
-every daily workflow has two starters and runs once a day:
+`nightly.yml` and `coverage.yml` have two starters and run once a day (`mutation.yml` has the cron lines only since 2026-11-16, see below):
 
 | Workflow | Dispatch (UTC, by the coordinator's scheduled tasks) | Inputs | Cron line (fallback, GitHub runs it late) |
 |---|---|---|---|
 | `nightly.yml` | 02:30 | none | `23 2 * * *` |
 | `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
-| `mutation.yml` | 01:20 daily full run; Monday 03:25 weekly run | `shards=all` | `23 3 * * 1` |
+| `mutation.yml` | none since 2026-11-16 (the dispatch tasks were disabled when #958 moved the schedule into the cron lines) | `shards=all` (manual dispatches only) | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
 
 The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
 `gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
@@ -471,12 +475,40 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Known gap, retry by hand: when the only running starter is cancelled or fails after the other one was skipped, nothing
   retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
 - In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key
-  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
-  waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
+  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs and is per kind
+  of run on master (`mutation-schedule`, `mutation-workflow_dispatch`): with a dispatched full run under way (a manual one now), a late cron starts next to it and is
+  skipped by the guard (it never cancels hours of work, and never replaces a pending dispatch).
 - `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
-- Master CI runs: `ci.yml` has one concurrency group per ref with cancel-in-progress, so only the newest master commit runs to the
-  end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
-  the commits since the last green (or finished) run.
+- Master CI runs: `ci.yml` has one concurrency group per ref without cancel-in-progress (2026-11-15: master runs queue; GitHub keeps the
+  run under way and the newest pending one, so a burst of merges skips the middle commits' runs, cancelled as pending). A regression of
+  such a commit shows at a later commit: when a master run is red, bisect over the commits since the last green run.
+
+**Why the scheduled `mutation.yml` runs ended cancelled (diagnosis 2026-11-17, run and job data of the three `schedule` runs; no current code cause):**
+
+| Run | Created (UTC) | Result | Cause |
+|---|---|---|---|
+| 41436698451 (2026-11-02) | 11:25 (cron 03:23 Mon, +8 h) | 9 jobs green, 2 cancelled | job timeouts: `The job has exceeded the maximum execution time of 5h50m0s` (`timeout-minutes: 350` of `exact-mesh`) of the two then unsplit shards `rounding` and `envelope`. Both were split afterwards (8381db07, 2e1a81f1 on 11-08, then 89586db5 on 11-10 and 7cd56d64 on 11-15: now `rounding-1..13`, `envelope-1..4`; the single configs no longer exist), so this limit no longer applies as it did |
+| 42611917701 (2026-11-09) | 11:48 (cron 03:23 Mon, +8 h) | 2 green, 20 cancelled at 12:37:50 to 12:38:10 | annotation `The run was canceled by @HarmenGrosseDeters.`: cancelled from a session on the owner's account (most likely a coordinator action, sessions use the owner's token); not a workflow defect |
+| 44003452066 (2026-11-17) | 02:30 (cron 19:17 Mon of 11-16, +7 h 13) | 3 green, 22 cancelled at 03:51:25 to 03:51:54 | same annotation: the coordinator cancelled it with the owner's approval (a run on the older sha 2172017a, 15 commits behind; boolean-1 and boolean-2 had finished, 13 rounding jobs were waiting for runners) to free the runners for the 3.0 gate dispatch 44013112256, created 8 s later (03:51:33); an approved one-off, not a defect |
+
+- Past defect, fixed: at 722b7f99 and aa514cb6 the concurrency group was `mutation-${{ github.ref }}` with `cancel-in-progress: true`, so
+  the late cron runs cancelled the day's dispatch runs: 41395763685 at 11:26:21 on 11-02 and 42567558219 at 11:48:44 on 11-09
+  (annotation `Canceling since a higher priority waiting request for mutation-refs/heads/master exists`). Fixed in 8f0c5c8e
+  (a group per kind of run, cancel only for pull requests).
+- Excluded as a current cause: concurrency (the scheduled run is in group `mutation-schedule`, the dispatch in
+  `mutation-workflow_dispatch`, and `cancel-in-progress` is only true for pull requests, so neither cancels the other), the guard
+  (`changes` ran its steps to success and the shards started: no earlier plain run existed that day, because `mutation.yml` has no
+  dispatcher since 2026-11-16, see below), and a runner limit (all cancelled jobs had started or were queued; none ended with a
+  runner error).
+- Dispatcher status: the coordinator's tasks "Dispatch nightly mutation run" and "Dispatch Monday mutation run" were disabled on
+  2026-11-16 when #958 moved the schedule into the cron lines of the workflow (the coordinator disabled them). The cron lines (GitHub
+  runs them 7 to 8 h late or not at all) are the only starter of `mutation.yml` now; manual `shards=all` dispatches remain possible.
+  The dispatch rows above for `nightly.yml` and `coverage.yml` still apply.
+- Until 2026-11-16 the cron line was Monday only, so there was one schedule run per week; the Mon-Sat nightly lines were added on
+  2026-11-16 (8f0c5c8e), so 44003452066 is the first run of the new lines and says nothing yet about the other days.
+- Not built: no guard or workflow change fixes a manual cancel. Proposals for the owner: (1) policy for late cron runs, eg the guard
+  skips a `schedule` run created more than N hours after its cron time; (2) a watch item, not a change: the slowest shards stay
+  well under `timeout-minutes: 350` (watch any shard near 350 min).
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
 
@@ -831,9 +863,14 @@ the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedu
 are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
 
 Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
-above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
+above it (a regression), applied once the case has a baseline; a failed or timed-out case. There is no absolute time limit:
+the 20 s limit is for tests, not for the tail cases (owner 2026-11-15, #888; before, a median over 20 s was flagged `hard`
+and made 28 of 35 cases outliers on the first run). A case is judged from 3 earlier successful runs on (`min_runs`; the
+median of one or two runs flags any noisy first night, from three one outlier cannot set it, owner 2026-11-16, against the median of
+the runs that exist up to 10); before that the report marks it "baseline building (n of 10)" (n successful runs so far,
+until the window of 10 is full) and it gets no flag. The
 job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
-regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
+regression or a failure), so a known slow case is not repeated every night. Results are a workflow
 artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
 `runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners
 vary, so the absolute 1 s and the 1.3x are a floor; a persistent step change enters the rolling median after about five nights.

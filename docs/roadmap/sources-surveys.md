@@ -5,19 +5,23 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** libraries and papers that may serve open items: geogram (owner 2026-11-03), other permissive libraries
   (survey 2026-11-03), RWTH Aachen papers (survey 2026-11-05), award-winning papers (October 2026 survey), PaMO
   (survey 2026-11-08).
-- **Status:** documented only; nothing in these lists is read or planned unless an item below says so.
+- **Status (checked 2026-11-15):** documented only; nothing in these lists is read or planned unless an item below says
+  so. Since the surveys, `MeshOffset` (#799) and an opt-in alpha wrap feature pass (#736) were merged; the full
+  Thingi10K run that two of the orders below wait for is still the draft #385.
 - **Related:** [SOURCES.md](../SOURCES.md) (what was used and how), the licence rules in
   [CLAUDE.md](../../CLAUDE.md).
 
 ### Open
 
-- **Geogram:** the open items in [its table](#geogram-as-a-source-owner-2026-11-03) are to check first; none is read
-  yet. A port is a decision with an A/B.
+- **Geogram:** the open items in [its table](#geogram-as-a-source-owner-2026-11-03) were read 2026-11-17
+  ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)), except `mesh_CSG*` and `triangle_intersection`.
+  A port is a decision with an A/B.
 - **Other permissive libraries:** each row is to check, none read yet. PyMesh, ManifoldPlus and Directional: no
   LICENSE file found, not used until one is found.
 - **RWTH Aachen papers:** documented only; the order if one is picked up is at the end of
   [their section](#rwth-aachen-papers-survey-2026-11-05).
-- **Award-winning papers:** documented only. The affine heat method stopped at its gate (#371); generalized winding
+- **Award-winning papers:** documented only. The affine heat method stopped at its accuracy gate (#371, closed
+  unmerged; the PR preserves the prototype and its findings); generalized winding
   numbers for rational curves are Phase 5 next research item 3 ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Other alpha-wrap implementations (survey 2026-11-08, noted only, owner):**
   [alecjacobson/alpha-wrap](https://github.com/alecjacobson/alpha-wrap) is a self-declared clean-room, CGAL-free
@@ -83,7 +87,7 @@ PaMO against Alpha Wrap 2.0 (our numbers: the 800 sample at 300/3000 and the T1 
 | no self-intersections | measured (float test, 0 misses on their sample, heuristic at shared vertices) | guaranteed: exact predicates per collapse |
 | distance to the input | none guaranteed; measured HD/CD | offset band; simplification certified within half the offset (one-sided Hausdorff upper bound) |
 | resolution | voxel grid, R = 256 on [0,1]³ | α and offset relative to the bounding box (default 300/3000) |
-| sharp features | stage 3 pulls vertices to the input; limited by fixed connectivity | none recovered (follow-up in the roadmap) |
+| sharp features | stage 3 pulls vertices to the input; limited by fixed connectivity | none recovered at the survey date; since #736 (2026-11-13) an opt-in sharp-feature pass, `AlphaWrapFeaturePass` |
 | triangle quality | shape term in the cost; Table 1 min angle 3.0° | quality guard in the reducer; target p01 ≥ 10° and no triangle below 0.5° or above 170° |
 | time | 1-2 s per mesh (GPU) | median about 7 s per mesh (4-core CPU, warm, T1 subset) |
 
@@ -125,12 +129,16 @@ QEM" holds for stage 2 at 1 %; the full pipeline is about 32 % lower at 1 % and 
 - Port into the exact code only under the exact-code rules (no FMA, no `float`, review of every bound).
 - The mesher logs every geogram file it reads in MESHING2D_PROVENANCE.md, and the provenance check (6b) covers it.
 
-Open items where geogram has an implementation to compare with or port from (to check first, not yet read):
+Open items where geogram has an implementation to compare with or port from. **Read 2026-11-17** (commit 16440c45). For the booleans row
+only the rounding and output path of `mesh_surface_intersection*` was read; its classification is covered by
+[LEVY_CLASSIFICATION_LITERATURE.md](../design/LEVY_CLASSIFICATION_LITERATURE.md) section 2, and `mesh_CSG*` and
+`triangle_intersection` are still unread:
+[GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md), with a ranked table of ideas. Nothing to adopt now; no idea clears the 10 % speed bar where a measured bound exists (two 2D mesher ideas have no bound yet), geogram has nothing for RC4, and the ideas worth a measurement are listed there.
 
-| Open item | Geogram (to check) |
+| Open item | Geogram (read 2026-11-17 unless noted) |
 |---|---|
 | Boolean performance (B) and the exact `Orient3d` hotspot ("kernel B", 1-limb fast path) | `numerics/PCK`, `expansion_nt`, `multi_precision`, `exact_geometry`, `interval_nt`: expansion arithmetic with an interval filter and homogeneous exact points |
-| Mesh arrangements and booleans; SafeRounding and the research item "Practical 3D snap rounding" | `mesh/mesh_surface_intersection*`, `mesh_CSG*`, `triangle_intersection` (Lévy 2024/25, exact predicates and constructions for mesh CSG; SAFE_ROUNDING.md notes that it does not solve the rounding) |
+| Mesh arrangements and booleans; SafeRounding and the research item "Practical 3D snap rounding" | `mesh/mesh_surface_intersection*`, `mesh_CSG*`, `triangle_intersection` (Lévy 2024/25, exact predicates and constructions for mesh CSG; SAFE_ROUNDING.md notes that it does not solve the rounding). Read: the rounding and output path only; `mesh_CSG*` and `triangle_intersection` not read yet |
 | 2D mesher: snap speed, the exact kernel, constraint intersections | `delaunay/CDT_2d` (Lévy's own constrained Delaunay with exact predicates and constraint crossings; not the Triangle wrapper) |
 | 2D mesher grading (2-2.5x triangle count on f-11 / f-40) | `delaunay/LFS` (local feature size) |
 | Phase 5 #4: tetrahedral meshing | `delaunay/delaunay_3d`, `parallel_delaunay_3d` (own code; not the TetGen path) |
@@ -181,7 +189,7 @@ Documented only, nothing planned yet.
 | Paper | Fit for us | Code |
 |---|---|---|
 | Nehring-Wirxel, Trettner, Kobbelt, *Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs*, Computer-Aided Design 135, 2021 (arXiv 2103.02486) | high for long chains of booleans (sweeps, milling simulation): a volumetric octree of BSPs over planes, fixed 256-bit integer arithmetic, up to 2.5 M mesh-plane cuts per second on one core. The EMBER group's predecessor; it is the chained-boolean case of EMBER idea 2 above. A patent check as for EMBER | none found |
-| Campen, Kobbelt, *Polygonal Boundary Evaluation of Minkowski Sums and Swept Volumes*, CGF 29(5) (SGP), 2010 | high next to `MeshOffset` ("Later"): exact 3D Minkowski sums, offsets and swept volumes along a rigid motion, manifold and watertight; computes only in cells that hold boundary. We have 2D Minkowski sums only (Clipper2 add-on) | none (the authors' web service is offline) |
+| Campen, Kobbelt, *Polygonal Boundary Evaluation of Minkowski Sums and Swept Volumes*, CGF 29(5) (SGP), 2010 | high next to `MeshOffset` (merged in #799, 2026-11-13): exact 3D Minkowski sums, offsets and swept volumes along a rigid motion, manifold and watertight; computes only in cells that hold boundary. We have 2D Minkowski sums only (Clipper2 add-on) | none (the authors' web service is offline) |
 | Campen, Kobbelt, *Exact and Robust (Self-)Intersections for Polygonal Meshes*, CGF 29(2) (EG), 2010 | medium: an adaptive octree plus nested plane-based BSPs only in the cells with intersections, exact in fixed precision. Gives booleans and **outer hulls for mesh repair**: a candidate next to `MeshAutoRepair` and alpha wrap for "keep the outside, drop inner junk" | none found |
 | Bischoff, Pavic, Kobbelt, *Automatic Restoration of Polygon Models*, TOG 24(4), 2005; Bischoff, Kobbelt, *Structure Preserving CAD Model Repair*, EG 2005 | medium: octree-volumetric repair that guarantees a closed manifold within a tolerance ε to the input and closes holes up to a size ρ. The CAD variant repairs only the critical regions (gaps, overlaps) volumetrically and keeps the rest of the tessellation. A design check for the repair pipeline: local volumetric repair instead of a global wrap | none found |
 | Kobbelt, Botsch, Schwanecke, Seidel, *Feature Sensitive Surface Extraction from Volume Data* (Extended Marching Cubes), SIGGRAPH 2001 | medium: sharp features from a directed distance field plus normals inside the marching-cubes structure. Compare with our `DualContouring` (QEF, `Reducer` probabilistic quadrics) before deciding anything; possibly only a SOURCES note | none |
@@ -191,9 +199,9 @@ Documented only, nothing planned yet.
 | Speetzen, Kobbelt, *Freeform Shape Fabrication by Kerfing Stiff Materials*, CGF 43, 2024 | low: kerf patterns to bend sheet material into free-form shapes (fabrication) | not checked |
 
 Order if one is picked up:
-1. The Minkowski / swept volume paper together with the `MeshOffset` decision, because both are offsets on our exact boolean kernel.
-2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run.
-3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task.
+1. The Minkowski / swept volume paper next to `MeshOffset` (the decision is made: A1 merged in #799), because both are offsets on our exact boolean kernel.
+2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run (draft #385).
+3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task (its status is unverified).
 
 #### Award-winning papers (October 2026 survey)
 
@@ -218,3 +226,139 @@ With a permissive implementation (portable, see Licenses):
 | Soliman, Sharp, *The Affine Heat Method*, CGF 2025 | SGP 2025 best paper | geometry-central (MIT, `LogMapStrategy::AffineLocal`) | high: a more accurate log map, above all near the cut locus; an upgrade of `VectorHeatMethod` |
 | Spainhour, Gunderman, Weiss, *Robust Containment Queries over Collections of Rational Parametric Curves via Generalized Winding Numbers*, TOG 2024 | SIGGRAPH 2024 best paper | Axom (BSD) | high: inside / outside of regions bounded by NURBS and Bézier curves (`NURBSCurve2`, CAD contours); follow-up for trimmed NURBS surfaces (2025) |
 | Trettner, Bommes, Kobbelt, *Geodesic Distance Computation via Virtual Source Propagation*, CGF 2021 | SGP 2021 second place | MIT (C++ library of the authors) | medium: geodesic distances next to the heat method |
+
+#### Scientific Reports and related papers (checked 2026-11-15)
+
+Five papers named by the owner, plus one the owner found good. Read: papers only, no code.
+- **Access:** www.nature.com redirects every article to a cookie login host (idp.nature.com) that the cloud session
+  blocks, and link.springer.com is blocked too. No preprints were found on arXiv. So for the four Scientific Reports
+  papers and Juretić & Putz only the Crossref record was read: title, authors, licence and the reference list (no
+  abstract is deposited). The method notes for them are what the title and the cited works show, not what the paper
+  says; they are marked "(title and references only)". CWF was read in full (arXiv 2404.15661 v1, HTML).
+- **Licences:** a paper licence covers the text, not the method; implementing from a paper is fine under the rules in
+  [CLAUDE.md](../../CLAUDE.md). No paper was checked for patents. No code was looked for or opened.
+
+Documented only, nothing planned yet.
+
+##### 1. Gao, Yu, Cao, Yang, Xie, Guan, *Robust mesh generation for electromagnetic models with geometric defects through node alignment and mesh boolean operations*, Sci. Rep. 15, 23153 (2025)
+
+DOI 10.1038/s41598-025-04160-8. CC BY-NC-ND 4.0. Read in part (title and references only).
+- **Method (inferred):** surface meshes of electromagnetic (FEM) models with defects such as gaps, overlaps and
+  misaligned parts are made conformal. Nodes of neighbouring parts that lie within a tolerance are aligned, and the
+  parts are then combined by mesh booleans, so that touching bodies share their interface. The references point to
+  the classic engineering line: imprint and merge with tolerances (White, Saigal, Owen 2004), faceted sealing (Smith,
+  Tautges, Wilson 2010), surface-surface intersection and mesh merging (Lo and Wang 2004-2013), booleans via a
+  boundary-conforming tet mesh (Xiao et al. 2016), hole filling (Liepa 2003). The output is likely a conformal
+  multi-body surface mesh for a volume mesher; quality is reported as equiangle skewness.
+- **Compare with:** `ExactMeshBoolean` and the internal `ExactMeshArrangement` (exact, no tolerance), the float
+  `MeshMeshCut`, `MergeCoincidentEdges` (welds boundary edges within a distance), `MeshStitchLoops`, `MinimalHoleFill`.
+  The open item "exact imprint on `ExactMeshArrangement`" ([exact-boolean.md](exact-boolean.md) item 13) is the
+  closest planned work. We have no multi-body output that keeps region labels on shared faces.
+- **Verdict: reference only.** The pattern (snap within a tolerance, then an exact arrangement) fits our kernel, but
+  without the text we cannot tell what is new. Worth a read when the exact imprint or a multi-region output is designed.
+
+##### 2. Yu, Li, Gong, Lin, *A neural poly-vector based non-orthogonal frame field generation method for quad meshing*, Sci. Rep. 15, 33595 (2025)
+
+DOI 10.1038/s41598-025-18823-z. CC BY-NC-ND 4.0. Read in part (title and references only). The registered title says
+*non-orthogonal*; the title in the request ("Orthogonal frame field generation for quad meshing") does not match it.
+- **Method (inferred):** a frame field for quad meshing is represented as a PolyVector field (Diamanti et al. 2014),
+  which allows non-orthogonal frames (Desobry et al. 2021), and is computed by a neural network, in the line of
+  NeurCross (Dong et al. 2025), neural octahedral fields and SIREN-style implicit networks. The quad mesh is then
+  extracted with the usual field-aligned parametrization pipeline (mixed-integer quadrangulation, QEx, Instant Meshes
+  and QuadriFlow are cited as comparisons or tools). libigl is cited, so the prototype likely builds on it.
+- **Compare with:** nothing in the library. There is no cross field, frame field or quad mesher; quad remeshing is
+  on the "Later" list ([research.md](research.md)). `VectorHeatMethod` transports vectors but does not design
+  n-direction fields. Note: [CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md) is about problems across
+  scientific fields, not about cross fields.
+- **Verdict: not relevant now.** A neural field needs training and an ML runtime, which does not fit a deterministic
+  C# library. If quad remeshing is started, the classic sources come first (Knöppel et al. 2013 globally optimal
+  direction fields, Diamanti et al. 2014, Bommes et al. 2009).
+
+##### 3. Fang, Yan, Xie, Wang, Ke, Zhang, Li, *In-plane hybrid design and mechanical properties of Ti-6Al-4V TPMS structures*, Sci. Rep. 16, 17947 (2026)
+
+DOI 10.1038/s41598-026-49318-0. CC BY 4.0. Read in part (title and references only).
+- **Method (inferred):** two TPMS types (Gyroid and I-WP, per the request) are joined in one lattice by a transition
+  function that blends their implicit fields across a plane-parallel boundary, and the hybrids are printed in
+  Ti-6Al-4V and tested in compression (with a Johnson-Cook model for simulation). The cited design work is
+  multi-TPMS transition boundaries (Ren et al. 2021), configuration-varying TPMS with geometric continuity (Gao et
+  al. 2022) and multi-dimensional hybrid TPMS (Zhang et al. 2023-2025). The exact form of the transition function
+  (for example a sigmoid weight, its width) is not known from the record.
+- **Compare with:** `TpmsLattice` ([TPMS_LATTICE.md](../design/TPMS_LATTICE.md), `g3cli tpms`) already has Gyroid
+  and I-WP as nodal approximations, a graded volume fraction (`VolumeFractionAt`) and graded cell size
+  ([TPMS_GRADED_CELL.md](../design/TPMS_GRADED_CELL.md)). It has no blend of two types. A blend
+  w(x)·f_G + (1 − w(x))·f_IWP is a new field in front of the same contouring; the guarantees (closed, manifold,
+  self-intersection free) stay checked on the result. Two points need work: the quantile table that maps a volume
+  fraction to a level is per type, and the Lipschitz bound for `Enclosure` must include the gradient of w.
+- **Verdict: adopt as a candidate** (small, M): a hybrid type with a user transition (a plane and a width) in
+  `TpmsLattice` and the CLI. The paper is design input for the transition and the realized volume fraction; read the
+  full text first (CC BY, so it can be quoted with credit) once nature.com is reachable.
+
+##### 4. Juretić, Putz, *Applications of heat-diffusion equation for surface wrapping: hole detection and normal orientation*, Eng. Comput. 30(3), 363-374 (2014, online 2012)
+
+DOI 10.1007/s00366-012-0304-8. Springer subscription article (Crossref lists only Springer's TDM licence). Read in part
+(title and references only).
+- **Method (inferred):** a surface wrapper on a Cartesian grid (in the line of Lee et al. 2006 and Wang and
+  Srinivasan 2002, "dirty" geometry) solves a heat-diffusion equation, by finite volumes and multigrid, on the grid
+  around the input. Heat sources on one side and the resulting temperature field show where heat leaks through,
+  which locates holes in the input, and the sign of the field orients the normals. The references also cover
+  volumetric diffusion hole filling (Davis et al. 2002), level-set reconstruction (Zhao, Osher, Fedkiw 2001) and
+  Kobbelt's shrink wrapping (1999). The first author wrote cfMesh, which may have used it; not checked.
+- **Compare with:** `MeshAlphaWrap` (closes holes up to α by construction), `MeshWindingNumberSolidify` and the
+  generalized winding number for inside/outside of open inputs
+  ([INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md), stopped 2026-11-02),
+  `MeshRepairOrientation`, `PointCloudNormals` (orientation from a wrap), `AutoHoleFill`.
+- **Verdict: reference only.** A diffusion field is a smooth inside/outside indicator like the winding number, which we
+  already have, and the winding-number spike found too few gains. Possible use: a hole-location report for
+  `MeshRobustRepair` (where the field leaks), but there is no open item for it.
+
+##### 5. Xu, Liu, Wang, Chen, Xin, Guo, Zhong, Komura, Wang, Tu, *CWF: Consolidating Weak Features in High-quality Mesh Simplification*, ACM TOG 43(4) (SIGGRAPH 2024)
+
+DOI 10.1145/3658159; arXiv 2404.15661 v1 (CC BY-NC-SA 4.0); TOG version under ACM copyright. Read in full (arXiv HTML).
+- **Method:** N movable points on the input surface minimise E = λ_NA·E_NA + λ_CVT·E_CVT over a restricted Voronoi
+  diagram (RVD) of the points. E_NA = Σ_i ∫_Ωi ((x − x_i)·n_x)² ds is the normal-anisotropy term of LpCVT (Lévy and
+  Liu 2010), a continuous QEM that pulls points onto feature lines and corners; E_CVT is the usual CVT energy (identity,
+  density or anisotropic metric). λ_CVT decays by τ = 0.95 per iteration, so even spacing comes first and feature
+  alignment later; this lets weak features (smooth, large-scale creases) emerge, which QEM and LpCVT miss. L-BFGS
+  with an approximate gradient (the boundary terms are dropped), 6-point quadrature per triangle, Poisson-disk
+  initialisation, a stop when E_CVT rises above 1.05 times its minimum; the output is the dual of the RVD. A fix for
+  RVDs on thin plates biases the sites along the inward normal and reassigns the regions they take.
+- **Results and limits (the paper's):** 100 ABC CAD models and 21 organic models against QEM, LpCVT, CVT, probabilistic
+  quadrics and others; better normal consistency and triangle quality at equal vertex counts. It is slower than QEM
+  (about 5-10 s RVD plus L-BFGS for 0.5-10 K points on a 40 K-face input, QEM below 1 s), has no robust anisotropic
+  RVD, fails for very few target points (the RVD dual is not manifold) and may give non-manifold output on
+  self-intersecting input. No guarantee of a closed, manifold or intersection-free result.
+- **Compare with:** `Reducer` (QEM with feature planes and the Trettner-Kobbelt regularisation), `Remesher` /
+  `RemesherPro` (isotropic, crease handling), the research notes in
+  [RESEARCH_REDUCER_REMESHER.md](../design/RESEARCH_REDUCER_REMESHER.md) and
+  [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md). We have no surface RVD; geogram's `mesh_remesh`
+  (BSD, the geogram table above) is the permissive building block, and Yan, Lévy et al. 2009 is already cited in
+  [CERTIFIED_REMESHING.md](../design/CERTIFIED_REMESHING.md) (T14).
+- **Verdict: reference only, a candidate if a CVT remesher is built.** It is a remesher, not a decimator: it needs an
+  RVD on the surface and gives no validity guarantee, so our checks (`NotCleanReason`, the exact self-intersection
+  test) would have to run on its output with a fallback. The decaying-weight idea is cheap to try once a CVT
+  remesher exists; it does not transfer to the edge-collapse `Reducer` directly.
+
+##### Also noted
+
+Liu, Gao, Gong, Chen, Li, Guo, Xu, Liu, *Shrink wrap meshing via graph-based optimization*, Sci. Rep. 16, 4148 (2026),
+DOI 10.1038/s41598-025-34284-w, CC BY-NC-ND 4.0; from the reference list only: it cites Portaneri et al. 2022 (alpha
+wrap), Dai, Wang, Yan 2024 (feature-preserving shrink wrap), Juretić & Putz 2014 and CWF 2024, and graph neural
+networks for meshing. The owner found it good; not read, the text is behind the same nature.com block.
+
+Order if one is picked up:
+1. The Gyroid-I-WP hybrid in `TpmsLattice` (paper 3), after its full text is read.
+2. Paper 1 as input to the exact imprint on `ExactMeshArrangement`, once nature.com is reachable.
+3. CWF only if a CVT remesher becomes a goal.
+
+### Open for the future (2026-11-15)
+
+1. Full Thingi10K run (draft #385): the EMBER re-evaluation and the octree-BSP paper wait for it.
+2. The Minkowski / swept volume paper (Campen, Kobbelt 2010) next to `MeshOffset` (#799); not scheduled.
+3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first; the top three were measured 2026-11-17 ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md): spectral conformal map an opt-in for discs, not the P1 fix; the lfs yardstick a metric, not a bound; true restricted Voronoi cells a go for RDR stage 1b); a port is a decision with an A/B.
+4. Other permissive libraries: each row to check, none read yet; PyMesh, ManifoldPlus and Directional wait for a LICENSE file.
+5. Generalized winding numbers for rational curves (Phase 5 next research item 3, [research.md](research.md#phase-5-candidates-from-recent-research)).
+6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).
+7. PaMO probe ideas: none planned; a patent check comes first.
+8. alecjacobson/alpha-wrap as a second alpha wrap reference: not scheduled (owner: not now).
+9. Hybrid TPMS (Gyroid–I-WP blend with a user transition) in `TpmsLattice`, from Fang et al. 2026 above: a small candidate; read the full text first.
+10. The Scientific Reports papers above could only be read from their Crossref records (nature.com needs a cookie login); a full read waits for access.

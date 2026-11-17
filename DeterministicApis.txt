@@ -8,6 +8,7 @@
 //
 //   <doc id> ; [tags] reason                    tags: [NET] used only on one side of an #if NET block;
 //                                               [sites] every member that uses it has a site line; [hash] only inside a GetHashCode
+//                                               [body:h] the reviewed declaration of a geometry3Sharp member (required for them)
 //   site <api> @ <member> ; why                 a member allowed to use a [sites] entry
 //   if <member> ; n ; test ; why                the n #if / #elif blocks of a member, and the test that checks their branches
 //   cast <member> ; n ; guard                   the n conversions of a double to an integer type in a member, and their guard
@@ -67,6 +68,7 @@ M:System.Numerics.BigInteger.CompareTo(System.Numerics.BigInteger) ; exact order
 M:System.Numerics.BigInteger.DivRem(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger@) ; truncated division (quotient toward zero, remainder with the sign of the dividend), exact
 M:System.Numerics.BigInteger.GreatestCommonDivisor(System.Numerics.BigInteger,System.Numerics.BigInteger) ; the nonnegative gcd, exact
 M:System.Numerics.BigInteger.GetBitLength ; [NET] bit length of the value, exact (portable branch: ExactPoint3.BitLengthPortable, registered #if)
+M:System.Numerics.BigInteger.GetByteCount(System.Boolean) ; [NET] the byte count of the two's complement form, exact (ExactLimbSigns.limbs_of)
 M:System.Numerics.BigInteger.ToByteArray ; little-endian two's complement, shortest form, documented format, exact
 M:System.Numerics.BigInteger.TryWriteBytes(System.Span{System.Byte},System.Int32@,System.Boolean,System.Boolean) ; [NET] the same bytes as ToByteArray, exact (portable branch registered #if)
 M:System.Numerics.BigInteger.op_Addition(System.Numerics.BigInteger,System.Numerics.BigInteger) ; exact
@@ -90,6 +92,7 @@ M:System.Array.Copy(System.Array,System.Array,System.Int32) ; copies elements, e
 P:System.Array.Length ; exact
 M:System.ReadOnlySpan`1.#ctor(System.Void*,System.Int32) ; [NET] a view of a stack buffer, no value
 M:System.Span`1.#ctor(System.Void*,System.Int32) ; [NET] a view of a stack buffer, no value
+M:System.Span`1.Fill(`0) ; [NET] writes every element of a stack buffer (ExactLimbSigns.load fills the limbs before TryWriteBytes)
 M:System.Collections.Generic.List`1.#ctor ; storage
 M:System.Collections.Generic.List`1.Add(`0) ; append: the order is the order of the (sequential) calls
 P:System.Collections.Generic.List`1.Count ; exact
@@ -98,39 +101,46 @@ M:System.Collections.Generic.Dictionary`2.#ctor(System.Collections.Generic.IEqua
 M:System.Collections.Generic.Dictionary`2.TryGetValue(`0,`1@) ; lookup: the answer is a function of the keys stored (P4), not of the bucket order
 P:System.Collections.Generic.Dictionary`2.Item(`0) ; lookup and store by key, as TryGetValue
 
-// ---- geometry3Sharp members declared outside the kernel files (their bodies are outside the stage 0 check: each
-//      reason is a review of the body today; extending the scope to these declarations is stage 1 work) ----
-F:g3.JitHints.Optimize ; constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
-F:g3.Vector2d.x ; a field: storage
-F:g3.Vector2d.y ; a field: storage
-M:g3.Vector2d.#ctor(System.Double,System.Double) ; stores the two values
-M:g3.Vector2d.Dot(g3.Vector2d) ; x * v.x + y * v.y, separately rounded (T1)
-M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; componentwise ==, exact
-M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; componentwise -, one rounding each (T1)
-F:g3.Vector3d.x ; a field: storage
-F:g3.Vector3d.y ; a field: storage
-F:g3.Vector3d.z ; a field: storage
-F:g3.Vector3d.Zero ; constant (0, 0, 0), all +0
-M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; stores the three values
-P:g3.Vector3d.Item(System.Int32) ; selects x, y or z by index
-P:g3.Vector3d.LengthSquared ; x * x + y * y + z * z, separately rounded, left to right (T1)
-M:g3.Vector3d.Cross(g3.Vector3d) ; the three 2x2 minors, separately rounded (T1)
-M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; componentwise +, one rounding each (T1)
-M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; componentwise -, one rounding each (T1)
-M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; componentwise ==, exact
-M:g3.Vector3d.ToString ; [sites] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
-F:g3.Triangle3d.V0 ; a field: storage
-F:g3.Triangle3d.V1 ; a field: storage
-F:g3.Triangle3d.V2 ; a field: storage
-P:g3.Triangle3d.Item(System.Int32) ; selects V0, V1 or V2 by index
-M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; stores the three values
-P:g3.Index3i.Item(System.Int32) ; selects a, b or c by index
-M:g3.MathUtil.IsFinite(System.Double) ; !IsInfinity && !IsNaN, exact
-M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
-M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"), as Call
-F:g3.PredicateStats.Kind.Orient2d ; enum constant (the counter's index)
-F:g3.PredicateStats.Kind.Orient3d ; enum constant
-F:g3.PredicateStats.Kind.InCircle ; enum constant
+// ---- geometry3Sharp members declared outside the kernel files: each reason is a review of the declaration, and
+//      [body:h] pins it (DeterminismScopeAnalyzer.BodyHash); a changed declaration fails the build (G3D0009) until it
+//      is reviewed again and the tag updated ----
+F:g3.JitHints.Optimize ; [body:3dd723fa4a5af9a7] constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
+F:g3.Vector2d.x ; [body:1195a7826c7403b2] a field: storage
+F:g3.Vector2d.y ; [body:11929f826c71c043] a field: storage
+M:g3.Vector2d.#ctor(System.Double,System.Double) ; [body:67fbbd1267914fc9] stores the two values
+M:g3.Vector2d.Dot(g3.Vector2d) ; [body:9407816e008ebe94] x * v.x + y * v.y, separately rounded (T1)
+M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; [body:80b01501bd1629ea] componentwise ==, exact
+M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; [body:a8c249362a9cb462] componentwise -, one rounding each (T1)
+F:g3.Vector3d.x ; [body:1195a7826c7403b2] a field: storage
+F:g3.Vector3d.y ; [body:11929f826c71c043] a field: storage
+F:g3.Vector3d.z ; [body:118f27826c6ebe84] a field: storage
+F:g3.Vector3d.Zero ; [body:884ead6796ccec39] constant (0, 0, 0), all +0
+M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; [body:1ca04e0cfd4ba757] stores the three values
+P:g3.Vector3d.Item(System.Int32) ; [body:fef9e7b860fa2681] selects x, y or z by index
+P:g3.Vector3d.LengthSquared ; [body:d6e95247010c63c3] x * x + y * y + z * z, separately rounded, left to right (T1)
+M:g3.Vector3d.Cross(g3.Vector3d) ; [body:740299f1499d09d8] the three 2x2 minors, separately rounded (T1)
+M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; [body:43eb5e3d47c92f5b] componentwise +, one rounding each (T1)
+M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; [body:846b0800e237be37] componentwise -, one rounding each (T1)
+M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; [body:a3ae53b1cca62bcf] componentwise ==, exact
+M:g3.Vector3d.ToString ; [sites][body:4997e7a14109c5ce] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
+F:g3.Triangle3d.V0 ; [body:8ead18cda8290cec] a field: storage
+F:g3.Triangle3d.V1 ; [body:8ead18cda8290cec] a field: storage
+F:g3.Triangle3d.V2 ; [body:8ead18cda8290cec] a field: storage
+P:g3.Triangle3d.Item(System.Int32) ; [body:871291858b997868] selects V0, V1 or V2 by index
+M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; [body:d64def4f51b89d8a] stores the three values
+P:g3.Index3i.Item(System.Int32) ; [body:0df7a2e72e735385] selects a, b or c by index
+F:g3.Index3i.a ; [body:becce43a54f402c7] a field: storage (read by the pinned Index3i members)
+F:g3.Index3i.b ; [body:bec95c3a54f0e5d8] a field: storage
+F:g3.Index3i.c ; [body:bec65c3a54eeb001] a field: storage
+M:g3.MathUtil.IsFinite(System.Double) ; [body:44f80149127f4ae1] !IsInfinity && !IsNaN, exact
+M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; [body:353102c0b1de393c] Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
+M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; [body:fce6076f71482569] Conditional("G3_PREDICATE_STATS"), as Call
+F:g3.PredicateStats.counters ; [body:d726907749026924] the profiling counters, written only by Call / ExactStage (compiled out unless G3_PREDICATE_STATS); no predicate reads them
+F:g3.PredicateStats.Kind.Count ; [body:71a5c9f4b68ef4d4] enum constant (the number of counter kinds: the size of counters)
+M:g3.ExactMeshArrangement.Det4(System.Numerics.BigInteger[0:,0:]) ; [body:0dd657236141ebcd] the exact 4 x 4 determinant, expanded along the first row with ExactPoint3.Det3 (BigInteger, exact); the BigInteger form of ExactLimbSigns.Det4
+F:g3.PredicateStats.Kind.Orient2d ; [body:f4ec332cbdb56442] enum constant (the counter's index)
+F:g3.PredicateStats.Kind.Orient3d ; [body:f4f0112cbdb91353] enum constant
+F:g3.PredicateStats.Kind.InCircle ; [body:0a830cc59a0a4be6] enum constant
 
 // ---- threads: schedule constructs (R13), every site registered ----
 M:System.Threading.Interlocked.Increment(System.Int32@) ; [sites] the value is schedule-assigned when called concurrently: each site says what it guards
@@ -141,6 +151,9 @@ M:System.Threading.Monitor.Exit(System.Object) ; [sites] the lock statement: as 
 // ---- sites of the restricted entries ----
 site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound: make() replaces a zero bound by -2^-1074 / +2^-1074 (Down / Up), so the sign of zero never survives
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound, zero replaced by make() as for Min
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactInterval.op_Division(g3.ExactInterval,g3.ExactInterval) ; an interval bound: make() replaces a zero bound by -2^-1074 / +2^-1074 (Down / Up), so the sign of zero never survives
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.op_Division(g3.ExactInterval,g3.ExactInterval) ; an interval bound, zero replaced by make() as for Min
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.Sqrt(g3.ExactInterval) ; Max(0, a.Lo) feeds Math.Sqrt, whose +-0 result make() replaces by -2^-1074; Max(0, r.Lo) with r.Lo from make(), never zero, so the operands never tie and the result is +0 or r.Lo on every runtime
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.Square(g3.ExactInterval) ; both operands > 0 here (a.Lo < 0 < a.Hi), no zero; the result is squared into a bound
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactRayTriangle.SecondPoint(g3.Vector3d,g3.Vector3d) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the maxima only feed comparisons and an exponent
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactSlopeKernel.GradientBound(System.Int32) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the bound is returned
@@ -177,6 +190,15 @@ if M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedP
 if M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 if M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 if M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.ExactLimbSigns.PlaneSide(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger) ; 1 ; ExactLimbSignsTests.PlaneSide_MatchesBigInteger ; the #if NET block of limbs_of and load before it (used only by the NET branches of the members below)
+if M:g3.ExactLimbSigns.PlaneSide(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; 2 ; ExactLimbSignsTests.PlaneSide_MatchesBigInteger ; [SkipLocalsInit], and the stack branch against the BigInteger expression that the other branch returns
+if M:g3.ExactLimbSigns.PlaneSide(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; 2 ; ExactLimbSignsTests.PlaneSide_MatchesBigInteger ; as the four-term PlaneSide (W = 1)
+if M:g3.ExactLimbSigns.Dot(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; 2 ; ExactLimbSignsTests.Dot_MatchesBigInteger ; [SkipLocalsInit], and the stack branch against the BigInteger expression
+if M:g3.ExactLimbSigns.Det4(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3) ; 1 ; ExactLimbSignsTests.Det4_MatchesBigInteger ; the #if NET block of det3 before it (used only by the NET branches)
+if M:g3.ExactLimbSigns.Det4(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32@) ; 2 ; ExactLimbSignsTests.Det4_MatchesBigInteger ; [SkipLocalsInit], and the stack branch against Det4Big (ExactMeshArrangement.Det4)
+if M:g3.ExactLimbSigns.Orient2(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32,System.Int32,System.Int32@) ; 2 ; ExactLimbSignsTestsPlanar.Orient2_MatchesBigInteger ; [SkipLocalsInit], and the stack branch against Orient2Big
+if M:g3.ExactLimbSigns.InCircle(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32,System.Int32) ; 1 ; ExactLimbSignsTestsPlanar.InCircle_MatchesBigInteger ; the #if NET block of incircle_row before it (used only by the NET branch)
+if M:g3.ExactLimbSigns.InCircle(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32,System.Int32,System.Int32@) ; 2 ; ExactLimbSignsTestsPlanar.InCircle_MatchesBigInteger ; [SkipLocalsInit], and the stack branch against InCircleBig
 if M:g3.DoublePredicates.Orient2d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated (the monomial kernels of the exact predicates on doubles)
 if M:g3.DoublePredicates.Orient3d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 if M:g3.DoublePredicates.InCircle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
@@ -194,6 +216,12 @@ skiplocalsinit M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint
 skiplocalsinit M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated: each __i buffer is filled by __align (the coordinate's scaled mantissa) before its FixedInt exists, every other value is a FixedArith output from the arena, as Orient3dLPI; checked by SkipLocalsInitKernelTests
 skiplocalsinit M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; generated, as Orient3dLPI
 skiplocalsinit M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated, as Orient3dLPIExact
+skiplocalsinit M:g3.ExactLimbSigns.PlaneSide(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; the operand limbs are written by load (Span.Fill of every limb, then TryWriteBytes; the negation reads only written limbs), every other value is a FixedArith output from the arena (written before it is read); checked by SkipLocalsInitKernelTests
+skiplocalsinit M:g3.ExactLimbSigns.PlaneSide(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; as ExactLimbSigns.PlaneSide; the size arrays n[] are written in full first
+skiplocalsinit M:g3.ExactLimbSigns.Dot(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32@) ; as ExactLimbSigns.PlaneSide; the size arrays n[] are written in full first
+skiplocalsinit M:g3.ExactLimbSigns.Det4(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32@) ; as ExactLimbSigns.PlaneSide; the size arrays n[] are written in full first
+skiplocalsinit M:g3.ExactLimbSigns.Orient2(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32,System.Int32,System.Int32@) ; as ExactLimbSigns.PlaneSide; the size arrays n[] are written in full first
+skiplocalsinit M:g3.ExactLimbSigns.InCircle(g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,g3.ExactPoint3,System.Int32,System.Int32,System.Int32@) ; as ExactLimbSigns.PlaneSide; the size arrays n[] are written in full first
 skiplocalsinit M:g3.DoublePredicates.Orient2d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated (tools/PredicateCompiler, the monomial pass): load writes m[i] and e[i] of every input before a monomial reads them; the accumulators p and q are zeroed by the loop that follows their stackalloc, and add2 / compare read only those limbs; checked by SkipLocalsInitKernelTests
 skiplocalsinit M:g3.DoublePredicates.Orient3d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add3)
 skiplocalsinit M:g3.DoublePredicates.InCircle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add4)

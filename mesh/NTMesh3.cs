@@ -424,6 +424,25 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Double-precision <see cref="GetTriFrame"/>: the centroid origin and the axes keep double precision. The frame is right-handed
+        /// (X along the edge, Z the face normal). Requires a non-degenerate triangle.
+        /// </summary>
+        public Frame3d GetTriFrameD(int tID, int nEdge = 0)
+        {
+            int ti = 3 * tID;
+            int a = triangles[ti + (nEdge % 3)];
+            int b = triangles[ti + ((nEdge + 1) % 3)];
+            int c = triangles[ti + ((nEdge + 2) % 3)];
+            Vector3d v0 = new Vector3d(vertices[3 * a], vertices[3 * a + 1], vertices[3 * a + 2]);
+            Vector3d v1 = new Vector3d(vertices[3 * b], vertices[3 * b + 1], vertices[3 * b + 2]);
+            Vector3d v2 = new Vector3d(vertices[3 * c], vertices[3 * c + 1], vertices[3 * c + 2]);
+            Vector3d edge = (v1 - v0).Normalized;
+            Vector3d normal = MathUtil.Normal(ref v0, ref v1, ref v2);
+            Vector3d other = normal.Cross(edge);   // right-handed
+            return new Frame3d((v0 + v1 + v2) / 3, edge, other, normal);
+        }
+
         public Frame3f GetTriFrame(int tID, int nEdge = 0)
         {
             int ti = 3 * tID;
@@ -435,7 +454,7 @@ namespace g3
             Vector3d v2 = new Vector3d(vertices[3 * c], vertices[3 * c + 1], vertices[3 * c + 2]);
             Vector3f edge = (Vector3f)(v1 - v0).Normalized;
             Vector3f normal = (Vector3f)MathUtil.Normal(ref v0, ref v1, ref v2);
-            Vector3f other = edge.Cross(normal);
+            Vector3f other = normal.Cross(edge);   // right-handed, as DMesh3.GetTriFrame (edge.Cross(normal) was a reflection: Matrix3f.ToQuaternion needs a rotation)
             Vector3f center = (Vector3f)(v0 + v1 + v2) / 3;
             return new Frame3f(center, edge, other, normal);
         }

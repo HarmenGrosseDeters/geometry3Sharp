@@ -97,3 +97,10 @@ Findings:
   with a few very thin (but not flipped) UV triangles (max s1/s2 440). It now starts from LSCM when that is
   injective and keeps factorizations: 4.3–6.1 s at 48k vertices (3.6 s for the 58k cylinder).
 - BFF in disk mode distorts the developable cylinder strongly (a rectangle made round), as expected.
+
+## Spectral conformal spike (2026-11-17)
+
+`dotnet run --project benchmarks/ParameterizationBenchmark -c Release -- spectral [maxRings]` compares a pin-free spectral
+conformal map (Mullen et al. 2008, inverse power iteration on `SparseCholesky`; `SpectralConformal.cs`, not library code)
+with LSCM on the P1 cylinders, the P3 plate and the meshes above. Results and reading:
+[GEOGRAM_MEASUREMENTS_2026-11.md](../../docs/research/GEOGRAM_MEASUREMENTS_2026-11.md), item 1.

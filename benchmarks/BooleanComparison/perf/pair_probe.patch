@@ -1,0 +1,342 @@
+diff --git a/core/PairProbe.cs b/core/PairProbe.cs
+new file mode 100644
+index 00000000..be7ace7d
+--- /dev/null
++++ b/core/PairProbe.cs
+@@ -0,0 +1,122 @@
++// PROBE (perf/pair_probe.patch, never part of the library): counts and times the candidate pairs of the boolean's pair stage
++// (intersections.pairs: the self-join of each operand with touch_only, the pairs of the two operands with separated) and the
++// outcome of intersect() on the pairs that stay. G3_PAIR_PROBE=1: counters and the time of the sub-steps of the self-join
++// tasks (a few timestamps per task); =2: also a timestamp per pair (about 20 ns each; the overhead is stated in the report).
++// Results go into PhaseMilliseconds as "pairs.<class>_n" (count) and "pairs.<class>_us" (CPU microseconds summed over threads).
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++
++namespace g3
++{
++    internal static class PairProbe
++    {
++        public static readonly int Mode = int.TryParse(Environment.GetEnvironmentVariable("G3_PAIR_PROBE"), out int m) ? m : 0;
++        /// <summary> G3_PROBE_SERIAL=1: every parallel loop of the boolean runs serially on the calling thread (gParallel.SerialOnThisThread), so that the per-thread wall intervals of a 1-thread run are CPU time (on one core a second pool thread would be counted into every interval) </summary>
++        public static readonly bool SerialMain = Environment.GetEnvironmentVariable("G3_PROBE_SERIAL") == "1";
++        public static readonly bool On = Mode > 0, PerPair = Mode > 1, Filter = Mode > 2;
++
++        // decision points of touch_only (set by the code there), and the outcome classes
++        public const int DecDegenerate = 0, DecQuick1 = 1, DecQuick2 = 2, DecCoplanarRej = 3, DecCoplanarKept = 4, DecGeneralRej = 5, DecGeneralKept = 6, DecFilterReject = 7, DecFilterKept = 8, NDec = 9;
++        public static readonly string[] DecNames = { "degenerate", "quick1_reject", "quick2_reject", "coplanar_reject", "coplanar_kept", "general_reject", "general_kept", "filter_reject", "filter_kept" };
++        // intersect() outcomes
++        public const int OutSideT = 0, OutSideU = 1, OutCoplanar = 2, OutPrefilter = 3, OutApart = 4, OutMeet = 5, NOut = 6;
++        public static readonly string[] OutNames = { "side_t", "side_u", "coplanar", "prefilter_apart", "construct_apart", "meeting", };
++
++        [ThreadStatic] public static int Decision, Shared, Outcome;
++
++        public sealed class Acc
++        {
++            public long[] selfN = new long[4 * NDec], selfTicks = new long[4 * NDec];     // [shared][decision]
++            public long[] mpN = new long[3], mpTicks = new long[3];                       // separated: skipped (degenerate / culled), rejected, kept
++            public long[] outN = new long[NOut], outTicks = new long[NOut];
++            public long selfTaskTicks, selfTraverseTicks, selfTestTicks, selfBoxPairs, selfTasks;
++            public long mpQueryTicks, mpQueries, mpHits, mpTicksAll;
++            public long intersectTicks;
++            // mode 3: TriangleTriangleFilter.BeyondShared tried on the pairs that touch_only rejected by IntersectsBeyondShared(Coplanar):
++            // [shared][result: 0 Separate, 1 Intersecting (a contradiction), 2 Undecided]; time of the filter and of the exact test it would save
++            public long[] fN = new long[12], fTicks = new long[12], fOrigTicks = new long[12];
++            public void Clear()
++            {
++                Array.Clear(selfN, 0, selfN.Length); Array.Clear(selfTicks, 0, selfTicks.Length);
++                Array.Clear(mpN, 0, 3); Array.Clear(mpTicks, 0, 3);
++                Array.Clear(outN, 0, NOut); Array.Clear(outTicks, 0, NOut);
++                selfTaskTicks = selfTraverseTicks = selfTestTicks = selfBoxPairs = selfTasks = 0;
++                mpQueryTicks = mpQueries = mpHits = mpTicksAll = 0;
++                intersectTicks = 0;
++                Array.Clear(fN, 0, 12); Array.Clear(fTicks, 0, 12); Array.Clear(fOrigTicks, 0, 12);
++            }
++        }
++        static readonly List<Acc> all = new List<Acc>();
++        [ThreadStatic] static Acc tl;
++        public static Acc A
++        {
++            get {
++                Acc a = tl;
++                if (a == null) {
++                    a = new Acc();
++                    lock (all) all.Add(a);
++                    tl = a;
++                }
++                return a;
++            }
++        }
++        public static void EnterSerialIfAsked() { if (SerialMain) gParallel.SerialOnThisThread = true; }
++        public static long T() { return Stopwatch.GetTimestamp(); }
++        static long Us(long ticks) { return ticks * 1000000 / Stopwatch.Frequency; }
++
++        public static void Reset()
++        {
++            lock (all) foreach (Acc a in all) a.Clear();
++        }
++
++        public static void Snapshot(Dictionary<string, long> into)
++        {
++            if (On == false) return;
++            var s = new Acc();
++            lock (all)
++                foreach (Acc a in all) {
++                    for (int i = 0; i < s.selfN.Length; ++i) { s.selfN[i] += a.selfN[i]; s.selfTicks[i] += a.selfTicks[i]; }
++                    for (int i = 0; i < 3; ++i) { s.mpN[i] += a.mpN[i]; s.mpTicks[i] += a.mpTicks[i]; }
++                    for (int i = 0; i < NOut; ++i) { s.outN[i] += a.outN[i]; s.outTicks[i] += a.outTicks[i]; }
++                    s.selfTaskTicks += a.selfTaskTicks; s.selfTraverseTicks += a.selfTraverseTicks; s.selfTestTicks += a.selfTestTicks;
++                    s.selfBoxPairs += a.selfBoxPairs; s.selfTasks += a.selfTasks;
++                    s.mpQueryTicks += a.mpQueryTicks; s.mpQueries += a.mpQueries; s.mpHits += a.mpHits; s.mpTicksAll += a.mpTicksAll;
++                    s.intersectTicks += a.intersectTicks;
++                    for (int i = 0; i < 12; ++i) { s.fN[i] += a.fN[i]; s.fTicks[i] += a.fTicks[i]; s.fOrigTicks[i] += a.fOrigTicks[i]; }
++                }
++            for (int sh = 0; sh < 4; ++sh)
++                for (int d = 0; d < NDec; ++d) {
++                    into["pairs.self.s" + sh + "." + DecNames[d] + "_n"] = s.selfN[sh * NDec + d];
++                    if (PerPair) into["pairs.self.s" + sh + "." + DecNames[d] + "_us"] = Us(s.selfTicks[sh * NDec + d]);
++                }
++            into["pairs.self.tasks_n"] = s.selfTasks;
++            into["pairs.self.box_pairs_n"] = s.selfBoxPairs;
++            into["pairs.self.task_us"] = Us(s.selfTaskTicks);
++            into["pairs.self.traverse_us"] = Us(s.selfTraverseTicks);
++            into["pairs.self.test_loop_us"] = Us(s.selfTestTicks);
++            string[] mp = { "skipped", "separated", "kept" };
++            for (int i = 0; i < 3; ++i) {
++                into["pairs.mesh." + mp[i] + "_n"] = s.mpN[i];
++                if (PerPair) into["pairs.mesh." + mp[i] + "_us"] = Us(s.mpTicks[i]);
++            }
++            into["pairs.mesh.queries_n"] = s.mpQueries;
++            into["pairs.mesh.query_us"] = Us(s.mpQueryTicks);
++            into["pairs.mesh.all_us"] = Us(s.mpTicksAll);
++            for (int i = 0; i < NOut; ++i) {
++                into["pairs.intersect." + OutNames[i] + "_n"] = s.outN[i];
++                if (PerPair) into["pairs.intersect." + OutNames[i] + "_us"] = Us(s.outTicks[i]);
++            }
++            into["pairs.intersect.all_us"] = Us(s.intersectTicks);
++            if (Filter) {
++                string[] fr = { "separate", "intersecting", "undecided" };
++                for (int sh = 0; sh < 4; ++sh)
++                    for (int r = 0; r < 3; ++r) {
++                        into["pairs.filter.s" + sh + "." + fr[r] + "_n"] = s.fN[sh * 3 + r];
++                        into["pairs.filter.s" + sh + "." + fr[r] + "_us"] = Us(s.fTicks[sh * 3 + r]);
++                        into["pairs.filter.s" + sh + "." + fr[r] + "_exact_us"] = Us(s.fOrigTicks[sh * 3 + r]);
++                    }
++            }
++        }
++    }
++}
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 2cfe4b11..934a9dea 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1987,8 +1987,18 @@ namespace g3
+             clock.Lap("intersections.planes");
+             // (cancelled: the pairs left are skipped; Compute stops after this phase)
+             gParallel.ForRange(pairs.Count, (k) => {
+-                if (Cancellation.IsCancellationRequested == false)
+-                    intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                if (Cancellation.IsCancellationRequested == false) {
++                    if (PairProbe.On) {      // PROBE
++                        PairProbe.Acc pa = PairProbe.A;
++                        long t0 = PairProbe.T();
++                        intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                        long dt = PairProbe.T() - t0;
++                        pa.outN[PairProbe.Outcome]++;
++                        pa.outTicks[PairProbe.Outcome] += dt;
++                        pa.intersectTicks += dt;
++                    } else
++                        intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                }
+             });
+             clock.Lap("intersections.intersect");
+             CandidatePairs = pairs.Count;
+@@ -2158,24 +2168,35 @@ namespace g3
+                 return 0;
+             int self = 0;
+             hits.Clear();
++            // PROBE
++            PairProbe.Acc pa = PairProbe.On ? PairProbe.A : null;
++            long pt0 = 0, ptAll = 0;
++            if (pa != null) ptAll = pt0 = PairProbe.T();
+             tree.Query(box, hits);
++            if (pa != null) { long n = PairProbe.T(); pa.mpQueryTicks += n - pt0; pa.mpQueries++; pa.mpHits += hits.Count; pt0 = n; }
+             foreach (int kb in hits) {
+                 if (ma == mb && kb <= ka)
+                     continue;
+                 InputTriangle U = Triangles[MeshTriangles[mb][kb]];
+-                if (U.Degenerate || Culled[MeshTriangles[mb][kb]])
++                if (U.Degenerate || Culled[MeshTriangles[mb][kb]]) {
++                    if (pa != null) { pa.mpN[0]++; if (PairProbe.PerPair) { long n = PairProbe.T(); pa.mpTicks[0] += n - pt0; pt0 = n; } }
+                     continue;
++                }
+                 if (ma == mb) {
+                     if (touch_only(T, U))
+                         continue;
+-                } else if (separated(T, U))
++                } else if (separated(T, U)) {
++                    if (pa != null) { pa.mpN[1]++; if (PairProbe.PerPair) { long n = PairProbe.T(); pa.mpTicks[1] += n - pt0; pt0 = n; } }
+                     continue;
++                }
++                if (pa != null) { pa.mpN[2]++; if (PairProbe.PerPair) { long n = PairProbe.T(); pa.mpTicks[2] += n - pt0; pt0 = n; } }
+                 if (ma == mb)
+                     self++;
+                 if (found == null)
+                     found = new List<long>();
+                 found.Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
+             }
++            if (pa != null) pa.mpTicksAll += PairProbe.T() - ptAll;
+             return self;
+         }
+ 
+@@ -2215,17 +2236,45 @@ namespace g3
+                 List<Index2i> tasks = tree.SelfPairTasks(SelfJoinTasks);
+                 var found = new List<long>[tasks.Count];
+                 gParallel.ForRange(tasks.Count, () => new List<Index2i>(), (k, boxPairs) => {
++                    // PROBE
++                    PairProbe.Acc pa = PairProbe.On ? PairProbe.A : null;
++                    long pt0 = 0, ptTask = 0;
++                    if (pa != null) ptTask = pt0 = PairProbe.T();
+                     boxPairs.Clear();
+                     tree.SelfPairs(tasks[k], boxPairs);
++                    if (pa != null) { long n = PairProbe.T(); pa.selfTraverseTicks += n - pt0; pt0 = n; pa.selfTasks++; pa.selfBoxPairs += boxPairs.Count; }
++                    long ptLoop = pt0;
+                     List<long> list = null;
+                     foreach (Index2i bp in boxPairs) {
+                         int la = Math.Min(bp.a, bp.b), lb = Math.Max(bp.a, bp.b);
+                         int ka = map == null ? la : map[la], kb = map == null ? lb : map[lb];
+                         InputTriangle T = Triangles[tris[ka]], U = Triangles[tris[kb]];
+-                        if (T.Degenerate || U.Degenerate || touch_only(T, U))
++                        if (pa != null) {
++                            bool rejected;
++                            if (T.Degenerate || U.Degenerate) { PairProbe.Decision = PairProbe.DecDegenerate; PairProbe.Shared = 0; rejected = true; }
++                            else rejected = touch_only(T, U);
++                            int di = PairProbe.Shared * PairProbe.NDec + PairProbe.Decision;
++                            pa.selfN[di]++;
++                            long origTicks = 0;
++                            if (PairProbe.PerPair) { long n = PairProbe.T(); origTicks = n - pt0; pa.selfTicks[di] += origTicks; pt0 = n; }
++                            if (PairProbe.Filter && rejected && (PairProbe.Decision == PairProbe.DecGeneralRej || PairProbe.Decision == PairProbe.DecCoplanarRej)) {
++                                // (the original time of this pair: the interval just taken, origTicks; the filter's time: the next)
++                                Triangle3d fa = new Triangle3d(T.V0, T.V1, T.V2), fb = new Triangle3d(U.V0, U.V1, U.V2);
++                                long f0 = PairProbe.T();
++                                int fr = TriangleTriangleFilter.BeyondShared(new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), ref fa, new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]), ref fb);
++                                long f1 = PairProbe.T();
++                                int fi = PairProbe.Shared * 3 + (fr == TriangleTriangleFilter.Separate ? 0 : fr == TriangleTriangleFilter.Intersecting ? 1 : 2);
++                                pa.fN[fi]++; pa.fTicks[fi] += f1 - f0;
++                                pa.fOrigTicks[fi] += origTicks;
++                                pt0 = PairProbe.T();
++                            }
++                            if (rejected)
++                                continue;
++                        } else if (T.Degenerate || U.Degenerate || touch_only(T, U))
+                             continue;
+                         (list ?? (list = new List<long>())).Add(((long)tris[ka] << 32) | (uint)tris[kb]);
+                     }
++                    if (pa != null) { long n = PairProbe.T(); pa.selfTestTicks += n - ptLoop; pa.selfTaskTicks += n - ptTask; }
+                     found[k] = list;
+                 });
+                 foreach (List<long> list in found)
+@@ -2270,10 +2319,11 @@ namespace g3
+             // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
+             // coplanar, so the plane of one meets the other only in the edge)
+             int st = -1;       // (shared = 3: the general code, as before)
++            PairProbe.Shared = shared;      // PROBE
+             if (shared < 3) {
+                 st = one_side_except_shared(T, U);
+-                if (st > 0 || (st < 0 && shared < 2 && one_side_except_shared(U, T) > 0))
+-                    return true;
++                if (st > 0) { PairProbe.Decision = PairProbe.DecQuick1; return true; }
++                if (st < 0 && shared < 2 && one_side_except_shared(U, T) > 0) { PairProbe.Decision = PairProbe.DecQuick2; return true; }
+             }
+             // corners by point id, so that coincident (unwelded) vertices count as shared
+             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
+@@ -2284,11 +2334,18 @@ namespace g3
+             // never changes a decision of IntersectsBeyondShared), and decides 96 % of the pairs that reach here
+             // (docs/perf/BOOLEAN_THREAD_SCALING.md, section 7.1)
+             int decided = TriangleTriangleFilter.BeyondShared(pa, ref A, pb, ref B);
+-            if (decided != TriangleTriangleFilter.Undecided)
++            if (decided != TriangleTriangleFilter.Undecided) {
++                PairProbe.Decision = decided == TriangleTriangleFilter.Intersecting ? PairProbe.DecFilterKept : PairProbe.DecFilterReject;      // PROBE
+                 return decided != TriangleTriangleFilter.Intersecting;
+-            if (st == 0 && shared > 0)
+-                return ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
+-            return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
++            }
++            if (st == 0 && shared > 0) {
++                bool rc = ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
++                PairProbe.Decision = rc ? PairProbe.DecCoplanarRej : PairProbe.DecCoplanarKept;
++                return rc;
++            }
++            bool rg = ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
++            PairProbe.Decision = rg ? PairProbe.DecGeneralRej : PairProbe.DecGeneralKept;
++            return rg;
+         }
+ 
+         // the corners of U not shared with T against T's plane (T and U share at most two corners): 1 all strictly on
+@@ -2340,13 +2397,18 @@ namespace g3
+             Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
+             // sides with the exact double predicates (same sign as N . (v - a) on the integer grid)
+             int[] sT = { ExactPredicates.Orient3d(u0, u1, u2, t0), ExactPredicates.Orient3d(u0, u1, u2, t1), ExactPredicates.Orient3d(u0, u1, u2, t2) };
+-            if ((sT[0] > 0 && sT[1] > 0 && sT[2] > 0) || (sT[0] < 0 && sT[1] < 0 && sT[2] < 0))
++            if ((sT[0] > 0 && sT[1] > 0 && sT[2] > 0) || (sT[0] < 0 && sT[1] < 0 && sT[2] < 0)) {
++                PairProbe.Outcome = PairProbe.OutSideT;
+                 return;
++            }
+             int[] sU = { ExactPredicates.Orient3d(t0, t1, t2, u0), ExactPredicates.Orient3d(t0, t1, t2, u1), ExactPredicates.Orient3d(t0, t1, t2, u2) };
+-            if ((sU[0] > 0 && sU[1] > 0 && sU[2] > 0) || (sU[0] < 0 && sU[1] < 0 && sU[2] < 0))
++            if ((sU[0] > 0 && sU[1] > 0 && sU[2] > 0) || (sU[0] < 0 && sU[1] < 0 && sU[2] < 0)) {
++                PairProbe.Outcome = PairProbe.OutSideU;
+                 return;
++            }
+ 
+             if (sT[0] == 0 && sT[1] == 0 && sT[2] == 0) {
++                PairProbe.Outcome = PairProbe.OutCoplanar;
+                 intersect_coplanar(ti, ui);
+                 return;
+             }
+@@ -2356,8 +2418,10 @@ namespace g3
+             bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
+             if (apart) {
+                 // Stryker disable once all: without the early return the construction below decides the same (slower)
+-                if (checkPrefilter == false)
++                if (checkPrefilter == false) {
++                    PairProbe.Outcome = PairProbe.OutPrefilter;
+                     return;
++                }
+                 // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
+                 System.Threading.Interlocked.Increment(ref PrefilterRejected);
+             }
+@@ -2374,8 +2438,11 @@ namespace g3
+                 System.Threading.Interlocked.Increment(ref PrefilterChecked);
+             if (checkPrefilter && proper && apart != (c > 0))
+                 throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
+-            if (c > 0)
++            if (c > 0) {
++                PairProbe.Outcome = PairProbe.OutApart;
+                 return;
++            }
++            PairProbe.Outcome = PairProbe.OutMeet;
+             System.Threading.Interlocked.Increment(ref IntersectingPairs);
+             if (c == 0) {
+                 lock (T.Lock) T.AddPoint(lo);
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 2ff95842..2ed05adf 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -536,6 +536,8 @@ namespace g3
+             PhaseMilliseconds = new Dictionary<string, long>();
+             PhaseAllocatedBytes = new Dictionary<string, long>();
+             Counts = new Dictionary<string, long>();
++            if (PairProbe.On) PairProbe.Reset();      // PROBE
++            PairProbe.EnterSerialIfAsked();      // PROBE
+             var inputClock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+             arr = null;
+             bounds.Clear();
+@@ -609,6 +611,7 @@ namespace g3
+                 PhaseMilliseconds[kv.Key] = kv.Value;
+             foreach (var kv in arr.PhaseAllocatedBytes)
+                 PhaseAllocatedBytes[kv.Key] = kv.Value;
++            PairProbe.Snapshot(PhaseMilliseconds);      // PROBE
+             Counts["candidate_pairs"] = arr.CandidatePairs;
+             Counts["t3a_culled"] = arr.CulledCount;
+             Counts["t3a_cull_tests"] = arr.CullTests;
