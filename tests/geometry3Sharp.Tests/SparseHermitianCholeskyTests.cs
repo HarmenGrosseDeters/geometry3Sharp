@@ -124,6 +124,75 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EmptyMatrix_AndSingleUnknown()
+        {
+            var e = new SparseHermitianCholesky(0);
+            Assert.True(e.Factorize());
+            e.Solve(new double[0], new double[0]);
+            var one = new SparseHermitianCholesky(1);
+            one.Add(0, 0, 4, 0);
+            Assert.True(one.Factorize());
+            var x = new double[2];
+            one.Solve(new[] { 2.0, -6.0 }, x);
+            Assert.Equal(0.5, x[0], 14); Assert.Equal(-1.5, x[1], 14);
+            var neg = new SparseHermitianCholesky(1);
+            neg.Add(0, 0, -1, 0);
+            Assert.False(neg.Factorize());
+        }
+
+        [Fact]
+        public void NonFiniteAndOutOfRangeInput_FailsWithoutThrowing()
+        {
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity }) {
+                var h = new SparseHermitianCholesky(2);
+                h.Add(0, 0, 2, 0); h.Add(1, 1, 2, 0); h.Add(1, 0, bad, 0);
+                Assert.False(h.Factorize(), "off-diagonal " + bad);
+                var d = new SparseHermitianCholesky(2);
+                d.Add(0, 0, bad, 0); d.Add(1, 1, 2, 0);
+                Assert.False(d.Factorize(), "diagonal " + bad);
+            }
+            var o = new SparseHermitianCholesky(2);
+            o.Add(0, 0, 1, 0); o.Add(5, 0, 1, 0);
+            Assert.False(o.Factorize());
+            Assert.NotNull(o.Error);
+        }
+
+        [Fact]
+        public void FactorizeTwiceWithoutClear_GivesTheSameFactor()
+        {
+            var e = GridMatrix(8, 8, 4, 0.1);
+            var h = new SparseHermitianCholesky(64);
+            foreach (var t in e) h.Add(t.r, t.c, t.re, t.im);
+            Assert.True(h.Factorize());
+            var b = new double[128]; for (int k = 0; k < 128; ++k) b[k] = Math.Cos(k);
+            var x1 = new double[128]; h.Solve(b, x1);
+            Assert.True(h.Factorize());
+            var x2 = new double[128]; h.Solve(b, x2);
+            for (int k = 0; k < 128; ++k) Assert.Equal(BitConverter.DoubleToInt64Bits(x1[k]), BitConverter.DoubleToInt64Bits(x2[k]));
+        }
+
+        [Fact]
+        public void Solution_IsInvariantUnderPowersOfTwoScaling()
+        {
+            // A -> 2^k A gives x -> 2^-k x bit for bit (the pivot test is relative)
+            var e = GridMatrix(12, 12, 9, 0.1);
+            var b = new double[288]; for (int k = 0; k < 288; ++k) b[k] = Math.Sin(3 * k);
+            var xs = new List<double[]>();
+            foreach (double s in new[] { 1.0, 1024.0, 1.0 / 1024 }) {
+                var h = new SparseHermitianCholesky(144);
+                foreach (var t in e) h.Add(t.r, t.c, t.re * s, t.im * s);
+                Assert.True(h.Factorize());
+                var x = new double[288]; h.Solve(b, x);
+                for (int k = 0; k < 288; ++k) x[k] *= s;
+                xs.Add(x);
+            }
+            for (int k = 0; k < 288; ++k) {
+                Assert.Equal(BitConverter.DoubleToInt64Bits(xs[0][k]), BitConverter.DoubleToInt64Bits(xs[1][k]));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(xs[0][k]), BitConverter.DoubleToInt64Bits(xs[2][k]));
+            }
+        }
+
+        [Fact]
         public void Clear_AllowsANewMatrix_AndRepeatedRunsAreIdentical()
         {
             var e1 = GridMatrix(10, 10, 1, 0.1); var e2 = GridMatrix(10, 10, 2, 0.1);

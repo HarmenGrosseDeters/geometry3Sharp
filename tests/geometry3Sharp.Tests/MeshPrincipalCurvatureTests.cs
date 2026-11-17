@@ -116,7 +116,11 @@ namespace geometry3Sharp.Tests
                 foreach (int v in m.VertexIndices()) {
                     Assert.Equal(BitConverter.DoubleToInt64Bits(parallel.K1[v]), BitConverter.DoubleToInt64Bits(serial.K1[v]));
                     Assert.Equal(BitConverter.DoubleToInt64Bits(parallel.K2[v]), BitConverter.DoubleToInt64Bits(serial.K2[v]));
-                    Assert.Equal(BitConverter.DoubleToInt64Bits(parallel.Dir1[v].x), BitConverter.DoubleToInt64Bits(serial.Dir1[v].x));
+                    foreach (var (p, q) in new[] { (parallel.Dir1[v], serial.Dir1[v]), (parallel.Dir2[v], serial.Dir2[v]), (parallel.Normal[v], serial.Normal[v]) }) {
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.x), BitConverter.DoubleToInt64Bits(q.x));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.y), BitConverter.DoubleToInt64Bits(q.y));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(p.z), BitConverter.DoubleToInt64Bits(q.z));
+                    }
                     Assert.Equal(parallel.Valid[v], serial.Valid[v]);
                 }
             }
