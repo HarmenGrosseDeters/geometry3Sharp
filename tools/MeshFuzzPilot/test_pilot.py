@@ -106,6 +106,17 @@ class PilotTests(unittest.TestCase):
                 r = run('replay', str(p), ops=ops)
                 self.assertEqual(r.returncode, 0, ops + ': ' + r.stderr)
 
+    def test_nary_skips_a_shifted_copy_that_is_not_finite(self):
+        # campaign b30-n1-v3 artifact (46 bytes): an operand with a coordinate of -double.MaxValue, so the diagonal overflows and the
+        # third operand (the second shifted by twice the diagonal) is not finite: the boolean refuses it, which is no finding
+        data = bytes.fromhex('000203ff4b024bfe000203ff2efeff03fffffffffe03fe0000000041ffffffffffffffffefff000002000003fefe')
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'overflow.bin'
+            p.write_bytes(data)
+            r = run('replay', str(p), ops='nary,determinism')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('nary', r.stdout)
+
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             corpus = Path(tmp) / 'corpus'

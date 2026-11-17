@@ -75,6 +75,9 @@ public static partial class Program
         DMesh3 third = new DMesh3(c.B);
         double d = B30Scale(c.A, c.B);
         foreach (int v in third.VertexIndices()) third.SetVertex(v, third.GetVertex(v) + new Vector3d(2 * d, 0, 0));
+        // (an operand with a coordinate near double.MaxValue: the diagonal overflows and the shifted copy is not finite, which
+        // the boolean rightly refuses (crash 1377d9ea of campaign b30-n1-v3), so there is nothing to compare)
+        if (!AllFinite(third)) return;
         var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!nary.Compute()) throw new Finding($"{what}: n-ary union Compute() false: {nary.Error}");
         var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
