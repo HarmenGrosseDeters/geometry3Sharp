@@ -9,6 +9,10 @@ name: ABC chained booleans
 # Methods: ours, manifold (the Python package manifold3d, Apache-2.0) and CGAL EPECK, each as a black box on the runner (cgal_bool.cpp,
 # the repo's own driver, is built against the runner's libcgal-dev; GPL, the binary is not distributed; no CGAL source is read or ported).
 # One job: the chunk (about 8 GB) is downloaded once, to /mnt (the runner's second disk).
+# Geogram (method geogram; docs/research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md): geogram (BSD-3) is fetched at a pinned commit and
+# built on the runner by external/build_geogram.sh (from the ref the workflow runs on), without Triangle or any TetGen path (sparse
+# clone, both switches off, checked); the binary is not distributed. threads=1 pins the chains to core 0 (ours with
+# DOTNET_PROCESSOR_COUNT=1, geogram with GEOGRAM_THREADS=1); the default uses all cores.
 on:
   workflow_dispatch:
     inputs:
@@ -34,8 +38,16 @@ on:
         description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
         default: ''
       methods:
-        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck)'
+        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck, geogram)'
         default: 'ours,manifold,cgal_epeck'
+      threads:
+        description: 'Threads of the booleans: all (all cores) or 1 (pinned to core 0)'
+        default: 'all'
+        type: choice
+        options: ['all', '1']
+      rounding_budgets:
+        description: 'SafeRounding effort budgets of ours, comma-separated (ExactMeshBoolean.RoundingMaxPairTests; one run of the chains per budget, budget_min split across them, rows in one results.jsonl, each with rounding.max_pair_tests; the report shows the last row per step only; use with methods=ours; empty: the library default)'
+        default: ''
       listing_only:
         description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
         type: boolean
@@ -75,6 +87,12 @@ jobs:
           g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG lib/benchmarks/BooleanComparison/external/cgal_bool.cpp -o cgal_bool -lgmp -lmpfr
           dpkg -s libcgal-dev | grep '^Version'
           python3 -m pip install numpy manifold3d==3.0.1
+      - name: Build geogram_bool (geogram BSD-3 at a pinned commit, without Triangle and TetGen)
+        if: ${{ contains(format(',{0},', inputs.methods), ',geogram,') }}
+        run: |
+          sudo apt-get install -y -q cmake libtbb-dev
+          bash scripts/benchmarks/BooleanComparison/external/build_geogram.sh "$RUNNER_TEMP/geogram"
+          cp "$RUNNER_TEMP/geogram/geogram_bool" geogram_bool
       - name: Build the benchmark tool
         run: |
           dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
@@ -84,6 +102,8 @@ jobs:
           nproc >> lib_sha.txt
           dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
           python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
+          if [ -f "$RUNNER_TEMP/geogram/geogram_version.txt" ]; then cat "$RUNNER_TEMP/geogram/geogram_version.txt" >> lib_sha.txt; fi
+          echo "threads ${{ inputs.threads }}" >> lib_sha.txt
       - name: Download the chunk
         env:
           CHUNK: ${{ inputs.chunk }}
@@ -126,22 +146,47 @@ jobs:
           S=scripts/benchmarks/BooleanComparison
           python3 $S/data/abc_chained.py generate clean_raw.csv.clean chains.csv
           python3 $S/data/abc_chained.py manifest data chains.csv cases.jsonl --limit "$CHAINS" ${ONLY:+--only "$ONLY"}
-      - name: Run ours, manifold and CGAL EPECK on the chains
+      - name: Run the methods on the chains
         if: ${{ !inputs.listing_only }}
         env:
           CGAL_BOOL: ${{ github.workspace }}/cgal_bool
+          GEOGRAM_BOOL: ${{ github.workspace }}/geogram_bool
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
           TIMEOUT: ${{ inputs.timeout_s }}
           BUDGET_MIN: ${{ inputs.budget_min }}
           METHODS: ${{ inputs.methods }}
+          THREADS: ${{ inputs.threads }}
+          BUDGETS: ${{ inputs.rounding_budgets }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          if [ "$THREADS" = 1 ]; then export DOTNET_PROCESSOR_COUNT=1 GEOGRAM_THREADS=1; PIN="taskset -c 0"; else PIN=""; fi
+          if [ -z "$BUDGETS" ]; then
+            $PIN python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          else
+            # (the time budget split across the budgets; the rows of each run appended as it ends, so a run that fails or
+            # times out keeps the others; every row has rounding.max_pair_tests)
+            # (every budget runs, also after a failed one; the step fails if any run failed)
+            rc=0
+            n=$(echo "$BUDGETS" | tr ',' '\n' | grep -c .)
+            : > results.jsonl
+            for b in ${BUDGETS//,/ }; do
+              case "$b" in (*[!0-9]*) echo "::error::rounding_budgets: '$b' is not a whole number"; rc=1; continue;; esac
+              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" $PIN python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))" || rc=1
+              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null || true
+            done
+            exit $rc
+          fi
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
+        env:
+          METHODS: ${{ inputs.methods }}
+          THREADS: ${{ inputs.threads }}
         run: |
           set -o pipefail
           python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
+          if [[ ",$METHODS," == *",geogram,"* ]]; then
+            { echo; echo "### ours against Geogram (threads $THREADS)"; echo; python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py versus geogram results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

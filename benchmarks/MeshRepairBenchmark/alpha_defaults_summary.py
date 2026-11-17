@@ -17,9 +17,9 @@ import sys
 D = sys.argv[1]
 LIST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases", "alpha_defaults_list800.txt")
 LABEL = {"A": "A (defaults)", "B": "B (features)", "C": "C (budget 300k)", "D": "D (budget 300k, coarsening <= 1.5)",
-         "E": "E (budget 300k, coarsening <= 1.2)"}
-# the configurations that were run (B to E may be missing; A is the reference)
-CFG = [c for c in "ABCDE" if c == "A" or (os.path.exists(os.path.join(D, "raw", c + ".jsonl")) and os.path.getsize(os.path.join(D, "raw", c + ".jsonl")) > 0)]
+         "E": "E (budget 300k, coarsening <= 1.2)", "F": "F (PullPinchPoints)"}
+# the configurations that were run (B to F may be missing; A is the reference)
+CFG = [c for c in "ABCDEF" if c == "A" or (os.path.exists(os.path.join(D, "raw", c + ".jsonl")) and os.path.getsize(os.path.join(D, "raw", c + ".jsonl")) > 0)]
 LIMIT_S = 20.0
 TIMEOUT_S = float(os.environ.get("TIMEOUT_S", "400"))
 
@@ -190,6 +190,70 @@ for c in CFG[1:]:
         feat = [res[c][f].get("features") for f in pairs]
         nz = [x for x in feat if x and x != "0/0/0/0/0"]
         w(f"Sharp-feature pass changed something (features not 0/0/0/0/0): {len(nz)} meshes.")
+        w("")
+
+# -- the derived bounds of the raw wrap (RawWrapBounds in Program.cs; rows of benchmark versions without it are skipped)
+RAW = [("below bound", "raw_below_bound"), ("min angle", "raw_angle_min"), ("max angle", "raw_angle_max"),
+       ("vertex dist max / offset", "raw_vdist_max_off"), ("vertex dist min / offset", "raw_vdist_min_off"),
+       ("separation / offset", "raw_sep_off"), ("raw triangles", "raw_tris"), ("wrap_ms", "wrap_ms"), ("pipe_ms", "pipe_ms")]
+
+
+def raw_clean(r):
+    return r.get("raw_closed") is True and r.get("raw_bowties") == 0
+
+
+def flips(r):
+    v = (r.get("wrap_counts") or {}).get("manifold_flips")
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+raw_done = [f for f in done if all(is_result(res[c][f]) and "raw_below_bound" in res[c][f] for c in CFG)]
+if raw_done:
+    w("## Raw wrap: the derived bounds of the class doc")
+    w("")
+    w(f"Meshes with the raw-wrap metrics in every configuration: {len(raw_done)}. Below bound = triangles with a min angle below"
+      " asin(min(offset, alpha - offset) / 2 alpha); separation = the smallest distance between two vertices of the"
+      " triangulation; vertex distances to the input (AABB tree), all relative to the offset. Measured on MeshAlphaWrap's"
+      " result, before the sharp-feature pass of B.")
+    w("")
+    w("| config | meshes with a triangle below the bound | triangles below | min angle (min) | max angle (max) | "
+      "vertex dist max (max) | vertex dist min (min) | separation (min) | raw closed + no bowties | manifold flips (sum) | raw triangles (sum) | wrap_ms (sum) | pipe_ms (sum) |")
+    w("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for c in CFG:
+        rr = [res[c][f] for f in raw_done]
+        v = lambda k: [x for x in (num(r, k) for r in rr) if x is not None]
+        bel = v("raw_below_bound")
+        w(f"| {LABEL[c]} | {sum(1 for x in bel if x > 0)} | {fmt(sum(bel), 0)} | {fmt(min(v('raw_angle_min'), default=None), 3)} | "
+          f"{fmt(max(v('raw_angle_max'), default=None), 2)} | {fmt(max(v('raw_vdist_max_off'), default=None), 3)} | "
+          f"{fmt(min(v('raw_vdist_min_off'), default=None), 4)} | {fmt(min(v('raw_sep_off'), default=None), 4)} | "
+          f"{sum(1 for r in rr if raw_clean(r))} | {fmt(sum(x for x in (flips(r) for r in rr) if x is not None), 0)} | "
+          f"{fmt(sum(v('raw_tris')), 0)} | {fmt(sum(v('wrap_ms')), 0)} | {fmt(sum(v('pipe_ms')), 0)} |")
+    w("")
+    # per mesh, against A: a TSV of every mesh next to the summary, and here the meshes where a configuration differs in the
+    # count below the bound or in the clean flag
+    cols = ["file"] + [f"{c}_{k}" for c in CFG for _, k in RAW] + [f"{c}_flips" for c in CFG] + [f"{c}_raw_clean" for c in CFG]
+    with open(os.path.join(D, "raw_bounds_per_mesh.tsv"), "w") as tsv:
+        tsv.write("\t".join(cols) + "\n")
+        for f in raw_done:
+            vals = [f] + [fmt(num(res[c][f], k), 4) for c in CFG for _, k in RAW] + [fmt(flips(res[c][f]), 0) for c in CFG] \
+                + [str(raw_clean(res[c][f])) for c in CFG]
+            tsv.write("\t".join(vals) + "\n")
+    for c in CFG[1:]:
+        diff = [f for f in raw_done if num(res["A"][f], "raw_below_bound") != num(res[c][f], "raw_below_bound")
+                or raw_clean(res["A"][f]) != raw_clean(res[c][f])]
+        better = sum(1 for f in diff if (num(res[c][f], "raw_below_bound") or 0) < (num(res["A"][f], "raw_below_bound") or 0))
+        w(f"### {LABEL[c]} against A, per mesh ({len(diff)} meshes differ in the count below the bound or in clean; fewer below: {better})")
+        w("")
+        w("All meshes: `raw_bounds_per_mesh.tsv` next to this summary.")
+        w("")
+        w("| mesh | below A / " + c + " | min angle A / " + c + " | vertex dist max A / " + c + " | separation A / " + c
+          + " | clean A / " + c + " | raw tris A / " + c + " | wrap_ms A / " + c + " |")
+        w("|---|---|---|---|---|---|---|---|")
+        for f in diff:
+            a, b = res["A"][f], res[c][f]
+            pair = lambda k, nd: f"{fmt(num(a, k), nd)} / {fmt(num(b, k), nd)}"
+            w(f"| {f} | {pair('raw_below_bound', 0)} | {pair('raw_angle_min', 3)} | {pair('raw_vdist_max_off', 3)} | "
+              f"{pair('raw_sep_off', 3)} | {raw_clean(a)} / {raw_clean(b)} | {pair('raw_tris', 0)} | {pair('wrap_ms', 0)} |")
         w("")
 
 # -- times

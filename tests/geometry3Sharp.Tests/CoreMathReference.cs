@@ -1,5 +1,5 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
-// High-precision reference for exp, log, sin, cos, atan2 and the fused multiply-add, built from System.Numerics.BigInteger
+// High-precision reference for exp, log, sin, cos, atan2, acos, tan and the fused multiply-add, built from System.Numerics.BigInteger
 // only (fixed point with W = 1600 fractional bits); it shares no code with the vendored CORE-MATH port. The values are
 // rounded to nearest-even double from the exact / 2^-500 accurate result; a result that lies closer than 2^-200
 // quantum to a rounding boundary makes the reference throw instead of guessing.
@@ -237,6 +237,40 @@ namespace g3.Tests
                 if (r == 0) r = 0.0;
             }
             return negY ? -r : r;
+        }
+
+        // ------------------------------------------------------------------------------------------ acos, tan
+
+        /// <summary> acos(x) = atan2(sqrt(1 - x^2), x) for |x| &lt;= 1, in the fixed point of this class (finite x only) </summary>
+        public static BigInteger AcosFixed(double x)
+        {
+            BigInteger fx = FromDouble(x);
+            if (fx.IsZero) return HalfPi;
+            BigInteger root = ISqrt((One - Mul(fx, fx)) << W);          // sqrt(1 - x^2); exact to 2^-W
+            BigInteger angle = root.IsZero ? BigInteger.Zero : AtanFixed(Div(root, BigInteger.Abs(fx)));
+            return fx.Sign < 0 ? Pi - angle : angle;
+        }
+
+        public static double Acos(double x)
+        {
+            if (double.IsNaN(x) || !(x >= -1 && x <= 1)) return double.NaN;
+            if (x == 1) return 0.0;
+            if (x == -1) return Math.PI;                                // the double nearest pi
+            return RoundToDouble(AcosFixed(x), -W, true);
+        }
+
+        /// <summary> tan(x) = sin(x) / cos(x) for finite x, as a fixed point number (cos(x) is never 0 for a double) </summary>
+        public static BigInteger TanFixed(double x)
+        {
+            SinCosFixed(FromDouble(x), out BigInteger s, out BigInteger c);
+            return Div(s, c);
+        }
+
+        public static double Tan(double x)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x)) return double.NaN;
+            if (x == 0) return x;
+            return RoundToDouble(TanFixed(x), -W, true);
         }
 
         // ------------------------------------------------------------------------------------------ fma

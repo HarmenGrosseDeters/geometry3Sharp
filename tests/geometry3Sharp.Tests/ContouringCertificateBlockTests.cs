@@ -143,6 +143,27 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void LevelSet_EdgeInAnInsideFacePlane_Fails()
+        {
+            // a mesh edge (v0, v1) in the plane x = O.x + 20 h, over the face between the cells 19 and 20 of the block (#1016,
+            // M16): segment_face answers Degenerate for it in block_face. Without that, the edge is in no T(f) or M(f), the
+            // counts of the block miss the triangles that meet the face only along it, and the block is certified. The case
+            // was found by a search over tetrahedra with an edge in a grid plane (about one in ten of them certified with the guard removed)
+            double h = 0.05, X = O.x + 20 * h;
+            Vector3d v0 = new Vector3d(X, 0.028634054001855924, 0.03973650663226702), v1 = new Vector3d(X, 0.2516285005109054, -0.0596758542247002);
+            Vector3d v2 = new Vector3d(-0.2911530609033318, 0.09456837901886034, 0.07353282138017625), v3 = new Vector3d(0.2692313150993228, -0.02399654130344095, 0.044168626878349604);
+            DMesh3 tet = Tetrahedron(v0, v1, v2, v3);
+            DMesh3 clean = ContouringLevelSet.CleanCopy(tet) ?? ContouringLevelSet.CleanCopy(Reversed(tet));
+            Assert.NotNull(clean);
+            int comps, lcomps;
+            bool[] inL = ContouringLevelSet.Classify(clean, out comps, out lcomps);
+            var cert = new ContouringTopologyCertificate(clean, inL, Grid(clean, O, h));
+            var cells = new List<Vector3i>();
+            for (int z = 19; z <= 20; ++z) for (int y = 20; y <= 21; ++y) for (int x = 18; x <= 20; ++x) cells.Add(new Vector3i(x, y, z));
+            Assert.False(cert.Block(cells, 1));
+        }
+
         // ---- the contour side (Lemma 6.4), on node signs ----
 
         sealed class SignGrid : CertificateGrid

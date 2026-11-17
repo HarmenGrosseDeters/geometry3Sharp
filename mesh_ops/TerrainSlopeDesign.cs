@@ -2028,6 +2028,14 @@ namespace gs
         }
 
         /// <summary>
+        /// the angle of a strip's slope to the plan direction, acos of the clamped ratio: the correctly rounded CoreMath.Acos
+        /// (the same bits everywhere, monotone over neighbouring doubles; the composed AcosByAtan2 was neither exact nor monotone, #1060)
+        /// </summary>
+        internal static double FanAngle(double c) => CoreMath.Acos(c) / 0.75;
+
+        internal static double SlopeAngle(double ratio) => CoreMath.Acos(Math.Max(-1, Math.Min(1, ratio)));
+
+        /// <summary>
         /// the number of cone facets per turn for a facet share and the facets' scale sMax 1.1 D0 (TERRAIN.md 5.1): a direction is
         /// at most 3/4 theta from its nearest tangent plane, so the facet error is s D (1 - cos(3/4 theta)); -1 if more than
         /// max are needed (also when theta rounds to 0, where 2 pi / theta is infinite: #808)
@@ -2036,7 +2044,7 @@ namespace gs
         {
             if (!(facetShare > 0)) return -1;
             double c = 1 - facetShare / scale;
-            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.AcosByAtan2(c) / 0.75 : Math.PI / 8;
+            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? FanAngle(c) : Math.PI / 8;
             double n = Math.Ceiling(2 * Math.PI / theta);
             return n <= max ? (int)n : -1;
         }
@@ -2140,7 +2148,7 @@ namespace gs
             double dx = B.x - A.x, dy = B.y - A.y, L = Math.Sqrt(dx * dx + dy * dy);
             double g = (B.z - A.z) / L;
             double phiU = CoreMath.Atan2(dy, dx);
-            double betaB = CoreMath.AcosByAtan2(Math.Max(-1, Math.Min(1, g / pc.Sb)));
+            double betaB = SlopeAngle(g / pc.Sb);
             var sb = SlopeSpec.Rise(pc.Sb);
             fans(kernel, pc, B, A, phiU, betaB, theta, nTheta, rFan, sb, stripsAt[B], pc.FanB, pc.AngB);
             fans(kernel, pc, A, B, phiU + Math.PI, Math.PI - betaB, theta, nTheta, rFan, sb, stripsAt[A], pc.FanA, pc.AngA);

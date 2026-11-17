@@ -857,25 +857,30 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(1, (uvA[c] / a3[c]) / (uvA[0] / a3[0]), 6);
         }
 
-        [Trait("Category", "Slow")]
-        [Fact]
-        public void Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion()
+        // one case per mesh and method (#1035: eight Computes in one Fact took 10.9 s; each case is the same check, alone)
+        [Theory]
+        [InlineData("sphere", UVAtlasGenerator.Methods.Auto)]
+        [InlineData("sphere", UVAtlasGenerator.Methods.Charts)]
+        [InlineData("torus", UVAtlasGenerator.Methods.Auto)]
+        [InlineData("torus", UVAtlasGenerator.Methods.Charts)]
+        [InlineData("genus2", UVAtlasGenerator.Methods.Auto)]
+        [InlineData("genus2", UVAtlasGenerator.Methods.Charts)]
+        [InlineData("cube", UVAtlasGenerator.Methods.Auto)]
+        [InlineData("cube", UVAtlasGenerator.Methods.Charts)]
+        public void Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion(string name, UVAtlasGenerator.Methods method)
         {
-            var cases = new (string name, DMesh3 mesh)[] { ("sphere", Sphere()), ("torus", Torus()), ("genus2", GenusTwo()), ("cube", Cube(6)) };
-            foreach (var c in cases)
-                foreach (var method in new[] { UVAtlasGenerator.Methods.Auto, UVAtlasGenerator.Methods.Charts }) {
-                    var atlas = new UVAtlasGenerator(c.mesh) { Method = method };
-                    Assert.True(atlas.Compute(), $"{c.name} {method}: {atlas.Status} {atlas.Error}");
-                    Assert.Equal(UVAtlasStatus.Success, atlas.Status);
-                    AssertAtlas(c.mesh, atlas, 0.15, 1.1);
-                    Assert.True(atlas.SeamLength > 0);
-                    // the marching cubes mesh has vertices 1e-7 apart, which float UVs can not separate: reported,
-                    // not failed; the regular meshes survive the rounding exactly
-                    if (c.name == "genus2")
-                        Assert.True(atlas.FloatRoundingDefects > 0);
-                    else
-                        Assert.True(atlas.FloatRoundingDefects == 0 && atlas.StoredOverlap.OverlappingPairs == 0 && atlas.StoredOverlap.InvertedTriangles == 0);
-                }
+            DMesh3 mesh = name == "sphere" ? Sphere() : name == "torus" ? Torus() : name == "genus2" ? GenusTwo() : Cube(6);
+            var atlas = new UVAtlasGenerator(mesh) { Method = method };
+            Assert.True(atlas.Compute(), $"{name} {method}: {atlas.Status} {atlas.Error}");
+            Assert.Equal(UVAtlasStatus.Success, atlas.Status);
+            AssertAtlas(mesh, atlas, 0.15, 1.1);
+            Assert.True(atlas.SeamLength > 0);
+            // the marching cubes mesh has vertices 1e-7 apart, which float UVs can not separate: reported,
+            // not failed; the regular meshes survive the rounding exactly
+            if (name == "genus2")
+                Assert.True(atlas.FloatRoundingDefects > 0);
+            else
+                Assert.True(atlas.FloatRoundingDefects == 0 && atlas.StoredOverlap.OverlappingPairs == 0 && atlas.StoredOverlap.InvertedTriangles == 0);
         }
 
         [Fact]

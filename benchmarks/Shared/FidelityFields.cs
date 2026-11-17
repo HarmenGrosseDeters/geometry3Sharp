@@ -89,6 +89,27 @@ static class FidelityFields
             r["fm_q_in"] = Quality(f.ReferenceQuality);
         r["fm_q_out"] = Quality(f.MeshQuality);
         r["fm_ms"] = sw.ElapsedMilliseconds;
+        // BENCH_OUTER_INCREMENTAL=1: the same measures again with MeshFidelityMetrics.OuterFaceIncremental (fm_inc_*), to
+        // compare time, rounds, the faces judged not outer and the outer measures with the default
+        if (System.Environment.GetEnvironmentVariable("BENCH_OUTER_INCREMENTAL") == "1") {
+            var sw2 = Stopwatch.StartNew();
+            var g = new MeshFidelityMetrics(reference, result) { SurfaceSamples = samples, VolumeSamples = volumeSamples, RelativeThresholds = new[] { 0.001, 0.005, 0.01 }, Seed = seed, OuterFaceIncremental = true };
+            if (g.Compute()) {
+                r["fm_inc_ms"] = sw2.ElapsedMilliseconds;
+                r["fm_inc_rounds"] = g.OuterFaceRounds;
+                r["fm_inc_converged"] = g.OuterFacesConverged;
+                r["fm_inc_redo"] = g.OuterFaceRedoFaces;
+                r["fm_inc_face_share"] = g.OuterFaceShare;
+                r["fm_inc_oviou"] = g.OuterVolumeIoU;
+                var a = new HashSet<int>(f.OuterFaceRemovedIds ?? new int[0]);
+                var b = new HashSet<int>(g.OuterFaceRemovedIds ?? new int[0]);
+                int changed = 0;
+                foreach (int t in a) if (b.Contains(t) == false) changed++;
+                foreach (int t in b) if (a.Contains(t) == false) changed++;
+                r["fm_inc_changed"] = changed;
+                r["fm_inc_removed_base"] = a.Count;
+            }
+        }
     }
 
     public static Dictionary<string, object> Topology(MeshTopologySummary t)

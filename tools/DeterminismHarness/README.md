@@ -51,6 +51,8 @@ beyond 2^53 (ties, near-ties, sticky bits beyond the top 64 bits, the overflow b
 runtime follows: truncation toward zero on .NET 10 and .NET Framework 4.8 alike, not round-to-nearest (run 43505530553).
 `probe.slope-degrees` and `terrain.slope-design*` cover the terrain slope design, which called the platform libm until
 #836 (issue 802) and must now be identical on every platform.
+`coremath.acos` and `coremath.tan` run the correctly rounded `CoreMath.Acos` / `CoreMath.Tan` over 4096 random arguments and the edge arguments
+(the ends of the acos domain, the neighbourhood of pi / 2 and of huge arguments); unlike the `libm.*` cases they must be identical on every platform.
 
 ## Kernel and allow list (net48 / net10.0 measurement)
 

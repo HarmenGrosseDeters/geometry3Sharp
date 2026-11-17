@@ -42,7 +42,7 @@ static class Program
         return mesh;
     }
 
-    static DMesh3 Cap(double maxPolar, int rings, double sx = 1)
+    internal static DMesh3 Cap(double maxPolar, int rings, double sx = 1)
     {
         return Polar(rings, rings * 10 / 3, (r, a) => {
             double p = r * maxPolar;
@@ -50,7 +50,7 @@ static class Program
         }, 0.5);
     }
 
-    static DMesh3 Cylinder(int n)
+    internal static DMesh3 Cylinder(int n)
     {
         DMesh3 mesh = new DMesh3();
         int ns = 4 * n, nt = n;
@@ -112,6 +112,7 @@ static class Program
     static void Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "foldover") { FoldoverFreeComparison.Run(); return; }
+        if (args.Length > 0 && args[0] == "spectral") { SpectralComparison.Run(args.Length > 1 ? int.Parse(args[1]) : 120); return; }
         int maxRings = args.Length > 0 ? int.Parse(args[0]) : 120;
         var only = args.Length > 1 ? new HashSet<string>(args[1].Split(',')) : null;
         Want = (name) => only == null || only.Contains(name);

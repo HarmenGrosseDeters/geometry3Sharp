@@ -761,6 +761,15 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
   after the conversion to doubles (degenerate triangles).
 - **T6 is closed.** The remaining gap at 12 threads, about 1.4x summed, is in the range of the rounding, which CGAL
   does not do (without it, 1.14x).
+- **Geogram, measured (2026-11-17; [GEOGRAM_BOOLEAN_COMPARISON_2026-11.md](../research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md)).**
+  Ours against the public Geogram 1.10.2 (`mesh_boolean_operation`, BSD-3, built without Triangle and TetGen) on GitHub
+  runners.
+  - T6: median ratio ours / Geogram 0.36 at 1 thread and 0.46 at 4 cores. Volumes agree on all 294 operations. Ours 294
+    of 294 clean; Geogram leaves degenerate triangles in 42.
+  - ABC chains: Geogram fails its radial sort on 46-49 of the later steps (27 of about 31 ulp-shift placements); ours has
+    no failure.
+  - Lead: step 3 of the chains (operands that share A's surface), where ours is 1.1-2.2x slower than Geogram and than
+    CGAL. Not diagnosed.
 
 **Triage of the research ideas.**
 
@@ -776,6 +785,26 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 | S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
 | Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
 | EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
+
+**Research directions after 3.0 (prior-art check, 2026-11-17):**
+[BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](../research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) covers (1) rounding with a
+guarantee (partially known: the guarantee of Devillers et al. 2020 fits our drift bound and degenerate test on a grid
+of about 2^-19 of the diagonal when the box of all parts is at most 1.36 times the diagonal of the largest component
+and max |x| is below about 1e10 times that diagonal (an inference not yet proven, section 2.3 of the note);
+open are the output size and a local scheme; a 2-3 day falsification experiment) and (2) a certifying boolean
+(partially known building blocks, no certifying 3D mesh boolean found; a test-only checker for the classification as
+the first stage). Owner 2026-11-17: (2) stages 1-2 (stage 1 the test-only checker of the classification and selection, C3 + C4;
+stage 2 closedness and coverage, C1 + C5) are to be built as a correctness oracle for the robustness round; the experiment of (1) is not now (its gain on real data is the five RC4b cases).
+Built (2026-11-17, [QA.md 2.4a](../QA.md)): the checker (C0 inputs and culling, C1, C3, C4, C5 closedness and coverage)
+is the oracle of the boolean property campaigns and of a Nightly corpus; stage 3 (a simple exact recheck of the
+embedding, C2a) and a certified mode for users are not scheduled.
+
+**Octree-embedded BSPs / EMBER architecture: shelved (owner 2026-11-17).** The ideas that fit are built (the cull of
+T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -15 % in chains at 12 threads,
+extrapolated). What is left is a second, quantized
+plane-based kernel: a speed lever after the speed work stopped, months of work, and it gives up exact computation on
+the input doubles while still needing our rounding for double output. The plane-based representation stays a
+question for the design analysis of Exact Boolean 4.0 if that gets a use case.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.

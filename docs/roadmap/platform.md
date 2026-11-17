@@ -453,7 +453,7 @@ Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
 1. Coverage gate red on master since 2026-11-13 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
-2. Scheduled mutation runs: every scheduled run since 2026-11-02 is cancelled (none after 2026-11-09): same session.
+2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. Open: owner decision on the late-cron proposal there.
 3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists: same session.
 4. Done: #913 and the rest of #615 (#958) are merged.

@@ -76,12 +76,12 @@ this section names only what is in flight.
 - **Corpora:** ABC chained booleans (#1001, #1005, #1007, #1012: ours clean through all steps in 75 of 90 chains,
   Manifold 34, CGAL 4) and thingi-contact (#982, #992, #997) run on GitHub runners.
 - **Platform and CI:** coverage gate fixed (#959), runtime watch baseline (#960), the mutation process port (#958) and
-  the 7-part split (#913). In flight: #999 (xatlas report), #1006 (UV parameterization mutation shards), #1009
-  (benchmark `fm_ms` above 20 s). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+  the 7-part split (#913). In flight: #999 (xatlas report), #1006 (UV parameterization mutation shards); #1009
+  (benchmark `fm_ms` above 20 s) got `OuterFaceIncremental` as an opt-in (#1036, owner 2026-11-17); some inputs stay above 20 s with it, so #1009 stays open. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Determinism:** stage 0 and its obligations are merged; the cast audit is done (#973). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** contouring certificate stage 3 (growth of failing blocks) merged; uncertified cells at /128 651 -> 381,
   no wrong run certified. Refinement and transitions are not built under the stop rule; #944 closed, the surviving
-  mutant M16 is #1016. Metamorphic testing (#983, #984, #988). A Geogram survey for the open items is in review (#1017)
+  mutant M16 is #1016. Metamorphic testing (#983, #984, #988). The Geogram survey is merged (#1017); owner 2026-11-17: spectral conformal opt-in with an atlas A/B, RDR stage 1b not now
   ([sources-surveys.md](roadmap/sources-surveys.md)). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
 - **Robustness sweep leftovers** (owner 2026-11-17): relative tolerances S11-S13 and S16, the known failures R35
   (`MeshDeviation`), R13 and R15, double-precision frame queries (S6, S10), and the full-run test durations of #698.
@@ -114,7 +114,7 @@ In order:
 - The 3.0 completion gate (run 44013112256); then the roadmap status "3.0 complete".
 - The boolean bugfix round (RC1, RC3, the benchmark pinch class, the RC4 rerun), then the owner's campaign findings.
 - After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
-- The Geogram survey, then the owner picks what to adopt.
+- Geogram: the spectral conformal opt-in with an atlas A/B (owner 2026-11-17); RDR stage 1b not now.
 - The robustness sweep leftovers and #698 (sessions running).
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
@@ -160,7 +160,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 steps (1) and (2) merged in #416 and #407): [research.md](roadmap/research.md#smt-checks-with-z3)
-- Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
+- Mesh-kernel ideas and EMBER (EMBER / octree-BSP architecture shelved, owner 2026-11-17): [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)
 - Shared hotspots and leads for open tasks: [hotspots.md](roadmap/hotspots.md)

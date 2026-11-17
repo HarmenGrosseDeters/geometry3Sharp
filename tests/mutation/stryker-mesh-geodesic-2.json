@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/ExactMeshGeodesicDistance.cs{21887..1000000}"
+      "**/mesh_ops/ExactMeshGeodesicDistance.cs{22529..1000000}"
     ],
     "test-case-filter": "FullyQualifiedName~ExactMeshGeodesicDistanceTests",
     "coverage-analysis": "perTest",

@@ -14,6 +14,7 @@ using g3;
 ///        dotnet UVAtlasBenchmark.dll to-obj mesh out.obj      input for an external atlas tool
 ///        dotnet UVAtlasBenchmark.dll atlas mesh out.obj       UVAtlasGenerator (Auto, defaults), atlas as OBJ + time
 ///        dotnet UVAtlasBenchmark.dll evaluate mesh uv.obj|- --tool name --ms ms --status s   (same metrics for every tool)
+///        dotnet UVAtlasBenchmark.dll chart-ab mesh     per atlas chart: LSCM against SpectralConformalParameterization
 /// </summary>
 static class Program
 {
@@ -22,6 +23,7 @@ static class Program
         if (args.Length > 0 && args[0] == "to-obj") return ToObj(args);
         if (args.Length > 0 && args[0] == "atlas") return Atlas(args);
         if (args.Length > 0 && args[0] == "evaluate") return Evaluate(args);
+        if (args.Length > 0 && args[0] == "chart-ab") return ChartAB(args);
         var r = new Dictionary<string, object>();
         r["file"] = Path.GetFileName(args[0]);
         string method = args.Length > 1 ? args[1] : "auto";
@@ -207,6 +209,68 @@ static class Program
         Emit(r);
         return 0;
     }
+
+    /// <summary>
+    /// chart-ab mesh: the atlas (Auto, defaults), then on each of its charts (a disc, as the atlas cut it) LSCM (the
+    /// default) and SpectralConformalParameterization (the opt-in), one JSON line per chart: status, time, flipped plus
+    /// degenerate UV triangles, mean / max conformal and mean area distortion, exact injectivity, and the spectral
+    /// iterations and eigenvalues. Summary: spectral_ab.py.
+    /// </summary>
+    static int ChartAB(string[] args)
+    {
+        string file = Path.GetFileName(args[1]);
+        DMesh3 mesh = LoadMesh(args[1], out string error);
+        if (mesh == null) {
+            Emit(new Dictionary<string, object> { ["file"] = file, ["status"] = "load_failed", ["error"] = error });
+            return 0;
+        }
+        var gen = new UVAtlasGenerator(mesh);
+        gen.Compute();
+        if (gen.AtlasMesh == null) {
+            Emit(new Dictionary<string, object> { ["file"] = file, ["atlas"] = gen.Status.ToString() });
+            return 0;
+        }
+        var byChart = new SortedDictionary<int, List<int>>();
+        foreach (int t in gen.AtlasMesh.TriangleIndices()) {
+            int c = gen.TriangleChart[t];
+            if (!byChart.TryGetValue(c, out var l)) byChart[c] = l = new List<int>();
+            l.Add(t);
+        }
+        Func<DMesh3, ParameterizationResult, double, Dictionary<string, object>> describe = (cm, r, ms) => {
+            var d = new Dictionary<string, object> { ["status"] = r.Status.ToString(), ["ms"] = ms };
+            if (r.Distortion != null) {
+                d["fold"] = r.Distortion.FlippedTriangles + r.Distortion.DegenerateUVTriangles;
+                d["meanK"] = Num(r.Distortion.MeanConformal);
+                d["maxK"] = Num(r.Distortion.MaxConformal);
+                d["meanA"] = Num(r.Distortion.MeanAreaDistortion);
+                d["inj"] = UVOverlap.Compute(cm, r.UV).IsInjective;
+            }
+            return d;
+        };
+        foreach (var kv in byChart) {
+            DMesh3 cm = new DSubmesh3(gen.AtlasMesh, kv.Value).SubMesh;
+            // the order alternates per chart, so that neither method gets the warm caches of the chart mesh
+            ParameterizationResult l = null, s = null;
+            double lms = 0, sms = 0;
+            var sc = new SpectralConformalParameterization(cm);
+            for (int k = 0; k < 2; ++k) {
+                var sw = Stopwatch.StartNew();
+                if ((k == 0) == (kv.Key % 2 == 0)) { l = new LSCMParameterization(cm).Compute(); lms = sw.Elapsed.TotalMilliseconds; }
+                else { s = sc.Compute(); sms = sw.Elapsed.TotalMilliseconds; }
+            }
+            var spec = describe(cm, s, sms);
+            spec["it"] = sc.Iterations; spec["it2"] = sc.NextIterations;
+            spec["lam"] = Num(sc.Eigenvalue); spec["next"] = Num(sc.NextEigenvalue); spec["double"] = sc.NearlyDoubleEigenvalue;
+            Emit(new Dictionary<string, object> {
+                ["file"] = file, ["chart"] = kv.Key, ["tris"] = cm.TriangleCount,
+                ["method"] = kv.Key < gen.Charts.Count ? gen.Charts[kv.Key].Method : "?",
+                ["lscm"] = describe(cm, l, lms), ["spec"] = spec });
+        }
+        return 0;
+    }
+
+    // infinity and NaN as strings ("Infinity", "NaN"; float() in Python reads them)
+    static object Num(double x) => double.IsFinite(x) ? x : x.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));

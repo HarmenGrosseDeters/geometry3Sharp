@@ -200,7 +200,7 @@ Documented only, nothing planned yet.
 
 Order if one is picked up:
 1. The Minkowski / swept volume paper next to `MeshOffset` (the decision is made: A1 merged in #799), because both are offsets on our exact boolean kernel.
-2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run (draft #385).
+2. Shelved: the octree-BSP / EMBER architecture (owner 2026-11-17, [exact-boolean.md](exact-boolean.md#after-30-owner-2026-11-16)).
 3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task (its status is unverified).
 
 #### Award-winning papers (October 2026 survey)
@@ -346,19 +346,19 @@ wrap), Dai, Wang, Yan 2024 (feature-preserving shrink wrap), Juretić & Putz 201
 networks for meshing. The owner found it good; not read, the text is behind the same nature.com block.
 
 Order if one is picked up:
-1. The Gyroid-I-WP hybrid in `TpmsLattice` (paper 3), after its full text is read.
+1. Done: the Gyroid-I-WP hybrid in `TpmsLattice` (paper 3) is built (#907: `SecondType`, `Blend`, `TpmsBlendWeight`).
 2. Paper 1 as input to the exact imprint on `ExactMeshArrangement`, once nature.com is reachable.
 3. CWF only if a CVT remesher becomes a goal.
 
 ### Open for the future (2026-11-15)
 
-1. Full Thingi10K run (draft #385): the EMBER re-evaluation and the octree-BSP paper wait for it.
+1. Full Thingi10K run (draft #385). The EMBER / octree-BSP architecture is shelved (owner 2026-11-17, [exact-boolean.md](exact-boolean.md#after-30-owner-2026-11-16)), so it no longer waits for this run.
 2. The Minkowski / swept volume paper (Campen, Kobbelt 2010) next to `MeshOffset` (#799); not scheduled.
-3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first (spectral conformal map, an lfs yardstick for the 2D grading, true restricted Voronoi cells for RDR); a port is a decision with an A/B.
+3. Geogram: read 2026-11-17 ([GEOGRAM_SURVEY_2026-11.md](../research/GEOGRAM_SURVEY_2026-11.md)); nothing to adopt now, a few ideas to measure first; the top three were measured 2026-11-17 ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md): spectral conformal map an opt-in for discs, not the P1 fix; the lfs yardstick a metric, not a bound; true restricted Voronoi cells a go for RDR stage 1b). Owner 2026-11-17: the spectral conformal map is to be built as an opt-in with an atlas A/B; RDR stage 1b not now. A port is a decision with an A/B.
 4. Other permissive libraries: each row to check, none read yet; PyMesh, ManifoldPlus and Directional wait for a LICENSE file.
 5. Generalized winding numbers for rational curves (Phase 5 next research item 3, [research.md](research.md#phase-5-candidates-from-recent-research)).
 6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).
 7. PaMO probe ideas: none planned; a patent check comes first.
 8. alecjacobson/alpha-wrap as a second alpha wrap reference: not scheduled (owner: not now).
-9. Hybrid TPMS (Gyroid–I-WP blend with a user transition) in `TpmsLattice`, from Fang et al. 2026 above: a small candidate; read the full text first.
+9. Done: hybrid TPMS (Gyroid–I-WP blend with a user transition) in `TpmsLattice`, built in #907 (`TpmsLattice.SecondType`, `Blend`).
 10. The Scientific Reports papers above could only be read from their Crossref records (nature.com needs a cookie login); a full read waits for access.
