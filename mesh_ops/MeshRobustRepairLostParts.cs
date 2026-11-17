@@ -30,7 +30,7 @@ namespace gs
         {
             public double Diagonal;
             public Vector3d[] Samples;
-            /// <summary> a triangle of the part has a boundary edge (reported as MeshRobustRepair.LostFarOpenPart, else LostFarPart) </summary>
+            /// <summary> a triangle of the part has a boundary edge (reported as MeshRobustRepair.LostFarOpenPart, else LostFarPart or LostSeparatePart) </summary>
             public bool Open;
         }
 

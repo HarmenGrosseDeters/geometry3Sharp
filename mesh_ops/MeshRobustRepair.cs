@@ -376,6 +376,7 @@ namespace gs
             reset_outputs();
             PassedThroughTriangles = 0;
             PassThroughFellBack = false;
+            LostPartCheckSkipped = "not reached";
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
@@ -946,8 +947,10 @@ namespace gs
         public const string LostFarOpenPart = "scale disparity: an open part of the input is lost (parts apart compared to their size)";
         /// <summary>
         /// ResultReason of an Apply() that is false because a closed separable part of the input (see LostFarOpenPart) is not in the result,
-        /// where the components do not lie far apart in the sense of LostFarPart (which is reported there). The result stays in Mesh. Any
-        /// earlier ResultReason follows after "; "
+        /// where the components do not lie far apart in the sense of LostFarPart (which is reported there). "Far apart" is the far-part
+        /// switch of LostFarPart: two or more components and a triangle below the degenerate area of NotCleanReason, relative to all
+        /// triangles (also a sliver of the large part sets it), not a distance. The result stays in Mesh. Any earlier ResultReason follows
+        /// after "; "
         /// </summary>
         public const string LostSeparatePart = "a separate part of the input is lost (the result does not reach it)";
         /// <summary>

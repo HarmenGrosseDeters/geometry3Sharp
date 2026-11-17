@@ -282,13 +282,15 @@ decided with the coordinator or found by the tests and the review:
   - `LostSeparatePart`: a lost closed separable part outside the far-part case.
 
   A reason the stages set (eg an unclean solidify) is kept after `"; "`. g3cli maps the new reasons to `lost_far_open_part` and
-  `lost_separate_part`.
+  `lost_separate_part`. "Far" is the far-part switch's predicate (two or more components and a triangle below the degenerate area of
+  the scene, also a sliver of the large part), not a distance: on the corpus it holds for 234 of 800 inputs.
 - **Visible skips.** Why the check judged nothing is recorded in `LostPartCheckSkipped` (internal, for tests): off, no volume
   checks, empty, one part, too many components, no part judged, not reached.
 - **No underflow.** The part's diagonal and reach avoid squaring tiny lengths, so a part of 2^-600 in the frame is judged too.
 
-Procedural criterion (54 scenes of 3.1, with and without the check, one build): 28 cases true -> false (`LostFarPart` /
-`LostFarOpenPart`); the 29th, v1 r = 12 f = 8 (one box of two lost inside one part), stays true, out of scope as stated above. The
+Procedural criterion (54 scenes of 3.1, with and without the check, one build): 28 cases true -> false (reported as
+`LostFarPart` / `LostFarOpenPart` in that run, before `LostSeparatePart` existed; with it, the closed parts outside the far-part
+switch, eg two boxes at r = 16 f = 2, are `LostSeparatePart`); the 29th, v1 r = 12 f = 8 (one box of two lost inside one part), stays true, out of scope as stated above. The
 25 others are unchanged, and no result mesh differs (hash).
 
 Three existing tests had pinned a silent loss with `Apply()` true:

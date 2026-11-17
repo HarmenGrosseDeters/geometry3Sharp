@@ -13,7 +13,7 @@ namespace geometry3Sharp.Tests
     /// is one of the three paths traced in section 3.1, all of which returned true without the part on master 86e94029:
     /// - a clean box removed by the safe rounding's tiny test (the area relative to the largest component);
     /// - an open small sphere collapsed by MeshAutoRepair's cleanup, relative to the scene (the far-part mode is off for open inputs);
-    /// - two overlapping small boxes where the far-part switch does not fire, so no lost-part check ran.
+    /// - two overlapping small boxes, which no earlier check caught (at r = 16, f = 2 the far-part switch does not fire at all).
     /// A lost open part is reported as LostFarOpenPart, a lost closed part as LostFarPart where the components lie far apart (its meaning
     /// before), else as LostSeparatePart (coordinator 2026-11-17: LostFarPart keeps its meaning).
     /// The scenes are those of the study's sweep (an icosphere of subdivision 3 on a 2^-12 grid; the small part of half size 2^-r at 2^f on x).
@@ -117,7 +117,7 @@ namespace geometry3Sharp.Tests
         [InlineData("open", 20, 8, "LostFarOpenPart")]
         [InlineData("boxes", 16, 2, "LostSeparatePart")]
         [InlineData("boxes", 20, 16, "LostFarPart")]
-        public void SmallPartFarAway_IsKept_OrApplyIsFalseWithLostFarPart(string kind, int r, int f, string reason)
+        public void SmallPartFarAway_IsKept_OrApplyIsFalseWithALostPartReason(string kind, int r, int f, string reason)
         {
             var rr = new MeshRobustRepair(Scene(kind, r, f));
             bool ok = rr.Apply();
@@ -170,6 +170,13 @@ namespace geometry3Sharp.Tests
             rr.Mesh = Scene("box", 4, 2);
             Assert.True(rr.Apply(), rr.ResultReason);
             Assert.True(small_part_kept(rr.Mesh, 2));
+            // and an input outside the supported range after it: Apply() stops before the check, nothing of the earlier run is left
+            // (LostPartCheckSkipped is internal: read by reflection, as the reasons, so this file compiles on the base library)
+            rr.Mesh = Scene("box", 4, 2, p => 1e150 * p);
+            Assert.False(rr.Apply());
+            var skipped = typeof(MeshRobustRepair).GetProperty("LostPartCheckSkipped", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (skipped != null)
+                Assert.Equal("not reached", (string)skipped.GetValue(rr));
         }
 
         [Theory]
