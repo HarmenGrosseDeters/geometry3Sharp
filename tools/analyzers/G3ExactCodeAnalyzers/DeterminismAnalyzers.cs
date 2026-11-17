@@ -21,9 +21,16 @@ namespace G3ExactCodeAnalyzers
     /// if &lt;member doc id&gt; ; n ; test ; why          the n conditional-compilation blocks of a member, and the test that checks their branches
     /// cast &lt;member doc id&gt; ; n ; why               the n conversions of a double to an integer type in a member, and their guard
     /// skiplocalsinit &lt;member doc id&gt; ; argument    a [SkipLocalsInit] member, and why every buffer element is written before it is read
+    /// construct &lt;member doc id&gt; ; &lt;delegate-invocation | string-concatenation&gt; ; n ; why   the n delegate calls or string concatenations of a member, and why their result cannot depend on the environment
+    /// type &lt;file name&gt; ; &lt;type name&gt;                 only the named type (and what it contains) of this scope file is in the scope; a file with no such line is in it as a whole
     /// </code>
     /// Tags: [NET] a member of one side of an #if NET block (not used when NET is not defined); [sites] every member
-    /// that uses it needs a site line; [hash] it may be used only inside a GetHashCode implementation.
+    /// that uses it needs a site line; [assumed] a member of this assembly in a file outside the scope that the scope calls, taken
+    /// as an obligation of a later stage: its signature is on the list, its body is not pinned and not analyzed (no [body:]); [hash] it may be used only inside a GetHashCode implementation; [form] the reason of
+    /// each site line starts with the argument form and its tests, "P1 [Class.Test, ...] why" (P1 disjoint writes, P2 exact
+    /// commutative fold, P3 collect then canonicalize, P4 unique answer, P5 renaming invariance:
+    /// docs/design/DETERMINISM_PROOF.md section 4.3; P0: an ordered source, a list or an array in index order, no argument needed).
+    /// The delegate-invocation lines of 'construct' need the same form.
     /// </summary>
     public sealed class DeterministicApiList
     {
@@ -33,7 +40,7 @@ namespace G3ExactCodeAnalyzers
         {
             public string Id;
             public string Reason;
-            public bool NetOnly, Sites, Hash;
+            public bool NetOnly, Sites, Hash, Form, Assumed;
             /// <summary> [body:h]: the hash of the reviewed declaration of a geometry3Sharp member outside the scope (BodyHash) </summary>
             public string Body;
             public int Line;
@@ -41,7 +48,7 @@ namespace G3ExactCodeAnalyzers
 
         public sealed class Registration
         {
-            public string Kind;        // site, if, cast, skiplocalsinit
+            public string Kind;        // site, if, cast, skiplocalsinit, type (Member: the file name, Test: the type name)
             public string Member;
             public string Api;         // site only
             public int Count;          // if, cast
@@ -89,6 +96,20 @@ namespace G3ExactCodeAnalyzers
                         AddRegistration(list, new Registration { Kind = kind, Member = rest, Count = n, Reason = f[2], Line = line });
                         continue;
                     }
+                    case "type": {
+                        if (f.Length != 2 || rest.Length == 0 || f[1].Length == 0 || rest.IndexOf(' ') >= 0 || f[1].IndexOf(' ') >= 0) { list.Errors.Add(line + ": type <file name> ; <type name>"); continue; }
+                        list.Registrations.Add(new Registration { Kind = kind, Member = rest, Test = f[1], Reason = f[1], Line = line });
+                        continue;
+                    }
+                    case "construct": {
+                        // construct <member> ; <pseudo id> ; n ; why
+                        string[] g = l.Split(new[] { ';' }, 4, StringSplitOptions.None).Select(x => x.Trim()).ToArray();
+                        int n;
+                        string who = g[0].Substring(g[0].IndexOf(' ') + 1).Trim();
+                        if (g.Length != 4 || !int.TryParse(g[2], out n) || n <= 0 || g[1].Length == 0 || g[3].Length == 0 || g[1].IndexOf(' ') >= 0) { list.Errors.Add(line + ": construct <member> ; <pseudo id> ; n ; why"); continue; }
+                        AddRegistration(list, new Registration { Kind = kind, Member = who, Api = "construct:" + g[1], Count = n, Reason = g[3], Line = line });
+                        continue;
+                    }
                     case "skiplocalsinit": {
                         if (f.Length != 2 || f[1].Length == 0) { list.Errors.Add(line + ": skiplocalsinit <member> ; argument"); continue; }
                         AddRegistration(list, new Registration { Kind = kind, Member = rest, Reason = f[1], Line = line });
@@ -105,6 +126,8 @@ namespace G3ExactCodeAnalyzers
                     if (tag == "NET") e.NetOnly = true;
                     else if (tag == "sites") e.Sites = true;
                     else if (tag == "hash") e.Hash = true;
+                    else if (tag == "form") e.Form = true;
+                    else if (tag == "assumed") e.Assumed = true;
                     else if (tag.StartsWith("body:", StringComparison.Ordinal) && tag.Length == 21 && tag.Substring(5).All(ch => "0123456789abcdef".IndexOf(ch) >= 0)) {
                         if (e.Body != null) list.Errors.Add(line + ": two [body:] tags");
                         e.Body = tag.Substring(5);
@@ -120,6 +143,14 @@ namespace G3ExactCodeAnalyzers
             return list;
         }
 
+        /// <summary> the pseudo ids that a member may register by count ('construct' lines): a call of a delegate (the callee is
+        /// chosen by the caller of the member: the line names the argument why its result cannot depend on the environment) and
+        /// a string concatenation (the text of exception messages and diagnostics) </summary>
+        public static bool Countable(string pseudo)
+        {
+            return pseudo == "construct:delegate-invocation" || pseudo == "construct:string-concatenation" || pseudo == "construct:interface-invocation";
+        }
+
         static bool IsDocId(string id)
         {
             return id != null && id.Length > 2 && id[1] == ':' && "TMFPE".IndexOf(id[0]) >= 0 && id.IndexOf(' ') < 0;
@@ -127,7 +158,7 @@ namespace G3ExactCodeAnalyzers
 
         static void AddRegistration(DeterministicApiList list, Registration r)
         {
-            if (!IsDocId(r.Member) || (r.Kind == "site" && !IsDocId(r.Api)))
+            if (!IsDocId(r.Member) || (r.Kind == "site" && !IsDocId(r.Api)) || (r.Kind == "construct" && !Countable(r.Api)))
                 list.Errors.Add(r.Line + ": " + r.Kind + ": not a documentation id: '" + (IsDocId(r.Member) ? r.Api : r.Member) + "'");
             else
                 list.Registrations.Add(r);
@@ -171,7 +202,7 @@ namespace G3ExactCodeAnalyzers
         }
 
         static readonly DiagnosticDescriptor ApiRule = Rule(ApiId, "External member not on the determinism allow list",
-            "Proof scope: '{0}' is not on the allow list " + DeterministicApiList.FileName + " (add it with the reason why its result is specified on every runtime, and the regenerated ledger line in docs/design/DETERMINISM_PROOF.md 5.2)");
+            "Proof scope: '{0}' is not on the allow list " + DeterministicApiList.FileName + " (add it with the reason why its result is specified on every runtime, and the regenerated ledger line in docs/design/DETERMINISM_PROOF.md 5.4)");
         static readonly DiagnosticDescriptor RestrictedRule = Rule(RestrictedId, "Restricted member used where its restriction does not allow it",
             "Proof scope: '{0}' {1}");
         static readonly DiagnosticDescriptor ConditionalRule = Rule(ConditionalId, "Unregistered conditional compilation",
@@ -207,6 +238,9 @@ namespace G3ExactCodeAnalyzers
             public readonly ConcurrentDictionary<string, bool> UsedEntries = new ConcurrentDictionary<string, bool>();
             public readonly ConcurrentDictionary<int, bool> UsedLines = new ConcurrentDictionary<int, bool>();
             public SyntaxTree FirstScopeTree;
+            /// <summary> file name -> the types that alone are in the scope there (the 'type' lines) </summary>
+            public Dictionary<string, List<DeterministicApiList.Registration>> TypeScopes;
+            public readonly ConcurrentDictionary<SyntaxTree, TextSpan[]> TypeSpans = new ConcurrentDictionary<SyntaxTree, TextSpan[]>();
             public readonly object Lock = new object();
             public bool NetDefined;
             public readonly ConcurrentDictionary<string, bool> Directives = new ConcurrentDictionary<string, bool>();
@@ -218,6 +252,13 @@ namespace G3ExactCodeAnalyzers
             AdditionalText file = ctx.Options.AdditionalFiles.FirstOrDefault(f =>
                 string.Equals(System.IO.Path.GetFileName(f.Path), DeterministicApiList.FileName, StringComparison.OrdinalIgnoreCase));
             s.List = DeterministicApiList.Parse(file?.GetText(ctx.CancellationToken)?.ToString() ?? "");
+            s.TypeScopes = new Dictionary<string, List<DeterministicApiList.Registration>>(StringComparer.Ordinal);
+            foreach (DeterministicApiList.Registration r in s.List.Registrations)
+                if (r.Kind == "type") {
+                    List<DeterministicApiList.Registration> l;
+                    if (!s.TypeScopes.TryGetValue(r.Member, out l)) s.TypeScopes[r.Member] = l = new List<DeterministicApiList.Registration>();
+                    l.Add(r);
+                }
             foreach (SyntaxTree t in ctx.Compilation.SyntaxTrees) {
                 if (t.Options.PreprocessorSymbolNames.Contains("NET"))
                     s.NetDefined = true;
@@ -232,7 +273,7 @@ namespace G3ExactCodeAnalyzers
                 OperationKind.DynamicInvocation, OperationKind.DynamicMemberReference, OperationKind.DynamicObjectCreation,
                 OperationKind.DynamicIndexerAccess, OperationKind.Range, OperationKind.UsingDeclaration, OperationKind.RecursivePattern,
                 OperationKind.ListPattern, OperationKind.SlicePattern, OperationKind.TypeParameterObjectCreation,
-                OperationKind.FunctionPointerInvocation);
+                OperationKind.FunctionPointerInvocation, OperationKind.TupleBinary);
             ctx.RegisterOperationAction(c => OnFunction(c, s), OperationKind.LocalFunction, OperationKind.AnonymousFunction);
             ctx.RegisterOperationBlockStartAction(c => OnBlockStart(c, s));
             ctx.RegisterSemanticModelAction(c => OnModel(c, s));
@@ -254,6 +295,49 @@ namespace G3ExactCodeAnalyzers
             });
         }
 
+        /// <summary> a position of a scope file: in the scope as a whole, or, if the list restricts the file to named types
+        /// ('type' lines), inside one of them (spans by the syntax of the type declarations, found anywhere in the file) </summary>
+        static bool InScopeAt(State s, SyntaxTree tree, TextSpan span)
+        {
+            if (!InScope(s, tree))
+                return false;
+            List<DeterministicApiList.Registration> types;
+            if (!s.TypeScopes.TryGetValue(System.IO.Path.GetFileName(tree.FilePath), out types))
+                return true;
+            foreach (TextSpan t in TypeSpansOf(s, tree, types))
+                if (t.Contains(span.Start))
+                    return true;
+            return false;
+        }
+
+        /// <summary> a span of a scope file that touches the scope: inside it, or (for a directive block) overlapping one of the named types </summary>
+        static bool TouchesScope(State s, SyntaxTree tree, TextSpan span)
+        {
+            if (!InScope(s, tree))
+                return false;
+            List<DeterministicApiList.Registration> types;
+            if (!s.TypeScopes.TryGetValue(System.IO.Path.GetFileName(tree.FilePath), out types))
+                return true;
+            foreach (TextSpan t in TypeSpansOf(s, tree, types))
+                if (t.OverlapsWith(span) || t.Contains(span.Start))
+                    return true;
+            return false;
+        }
+
+        static TextSpan[] TypeSpansOf(State s, SyntaxTree tree, List<DeterministicApiList.Registration> types)
+        {
+            return s.TypeSpans.GetOrAdd(tree, t => {
+                var spans = new List<TextSpan>();
+                foreach (BaseTypeDeclarationSyntax d in t.GetRoot().DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
+                    foreach (DeterministicApiList.Registration r in types)
+                        if (d.Identifier.Text == r.Test) {
+                            spans.Add(d.Span);
+                            lock (s.Lock) s.UsedLines[r.Line] = true;
+                        }
+                return spans.ToArray();
+            });
+        }
+
         /// <summary> the member that holds an operation: lambdas and local functions belong to their enclosing member </summary>
         public static ISymbol Holder(ISymbol s)
         {
@@ -266,6 +350,9 @@ namespace G3ExactCodeAnalyzers
         {
             if (s is IMethodSymbol m && m.ReducedFrom != null)
                 s = m.ReducedFrom;
+            // (the element of a tuple, also a named one, is the field ItemN of its System.ValueTuple type)
+            if (s is IFieldSymbol f && f.CorrespondingTupleField != null)
+                s = f.CorrespondingTupleField;
             return s.OriginalDefinition.GetDocumentationCommentId();
         }
 
@@ -287,7 +374,7 @@ namespace G3ExactCodeAnalyzers
             if (refs.Length == 0)
                 return false;
             foreach (SyntaxReference r in refs)
-                if (InScope(s, r.SyntaxTree))
+                if (InScopeAt(s, r.SyntaxTree, r.Span))
                     return false;
             return true;
         }
@@ -324,7 +411,9 @@ namespace G3ExactCodeAnalyzers
                 case ICompoundAssignmentOperation ca when ca.OperatorMethod == null && ca.Target.Type?.SpecialType == SpecialType.System_String:
                     return "construct:string-concatenation";
                 case IInterpolatedStringOperation _: return "construct:interpolated-string";
-                case ITupleOperation _: return "construct:tuple";
+                // (a tuple literal of up to 7 elements is a call of the constructor of System.ValueTuple`N, a member like any other: UsedMembers;
+                // a longer one nests a ValueTuple`8 and stays a pseudo id)
+                case ITupleOperation t when TupleConstructor(t) == null: return "construct:tuple";
                 case IAwaitOperation _: return "construct:await";
                 case IAnonymousObjectCreationOperation _: return "construct:anonymous-type";
                 case IRangeOperation _: return "construct:range";
@@ -335,6 +424,12 @@ namespace G3ExactCodeAnalyzers
                 // (the target is chosen at run time: what it computes is not visible here)
                 case IFunctionPointerInvocationOperation _: return "construct:function-pointer-call";
                 case IInvocationOperation di when di.TargetMethod.MethodKind == MethodKind.DelegateInvoke: return "construct:delegate-invocation";
+                // a call of a member of an interface declared in this assembly (a struct visitor of a generic method, say): the
+                // implementation is chosen by the caller and may lie outside the scope, so it is registered by count, like a delegate
+                case IInvocationOperation ii when ii.TargetMethod.ContainingType?.TypeKind == TypeKind.Interface
+                    && SymbolEqualityComparer.Default.Equals(ii.TargetMethod.ContainingAssembly, ii.SemanticModel?.Compilation.Assembly):
+                    return "construct:interface-invocation";
+                case ITupleBinaryOperation _: return "construct:tuple-equality";
                 case ISlicePatternOperation _: return "construct:slice-pattern";
                 case IBinaryOperation b when b.OperatorMethod == null && (b.OperatorKind == BinaryOperatorKind.Equals || b.OperatorKind == BinaryOperatorKind.NotEquals)
                     && b.LeftOperand.Type?.SpecialType == SpecialType.System_String && b.RightOperand.Type?.SpecialType == SpecialType.System_String:
@@ -359,12 +454,23 @@ namespace G3ExactCodeAnalyzers
                 && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && n.TypeArguments[0].SpecialType == SpecialType.System_Decimal));
         }
 
+        /// <summary> the constructor of the System.ValueTuple type that a tuple literal builds (null: more than 7 elements) </summary>
+        static IMethodSymbol TupleConstructor(ITupleOperation t)
+        {
+            var type = t.Type as INamedTypeSymbol;
+            if (type == null || !type.IsTupleType || type.TupleElements.Length > 7)
+                return null;
+            INamedTypeSymbol under = type.TupleUnderlyingType ?? type;
+            return under.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == type.TupleElements.Length);
+        }
+
         /// <summary> the members an operation calls or reads (its own; not those of its children) </summary>
         static void UsedMembers(IOperation op, Compilation compilation, List<ISymbol> used)
         {
             switch (op) {
                 case IInvocationOperation i: used.Add(i.TargetMethod); break;
                 case IObjectCreationOperation o: if (o.Constructor != null) used.Add(o.Constructor); break;
+                case ITupleOperation tu: { IMethodSymbol tc = TupleConstructor(tu); if (tc != null) used.Add(tc); break; }
                 case IPropertyReferenceOperation p: used.Add(p.Property); break;
                 case IFieldReferenceOperation f: used.Add(f.Field); break;
                 case IMethodReferenceOperation r: used.Add(r.Method); break;
@@ -413,16 +519,17 @@ namespace G3ExactCodeAnalyzers
         static void OnOperation(OperationAnalysisContext c, State s)
         {
             IOperation op = c.Operation;
-            if (!InScope(s, op.Syntax.SyntaxTree))
+            if (!InScopeAt(s, op.Syntax.SyntaxTree, op.Syntax.Span))
                 return;
             var used = new List<ISymbol>();
             UsedMembers(op, s.Compilation, used);
             ISymbol holder = Holder(c.ContainingSymbol);
             string holderId = holder?.GetDocumentationCommentId() ?? "";
             string hidden = HiddenCall(op);
-            if (hidden != null)
+            if (hidden != null && !DeterministicApiList.Countable(hidden))
                 c.ReportDiagnostic(Diagnostic.Create(ApiRule, op.Syntax.GetLocation(), Props(hidden, holderId), hidden));
-            foreach (ISymbol m in used) {
+            foreach (ISymbol m0 in used) {
+                ISymbol m = m0 is IFieldSymbol tf && tf.CorrespondingTupleField != null ? tf.CorrespondingTupleField : m0;
                 string id = DocId(m);
                 DeterministicApiList.Entry e = null;
                 bool listed = id != null && External(s, m) && s.List.Entries.TryGetValue(id, out e);
@@ -443,11 +550,19 @@ namespace G3ExactCodeAnalyzers
                     if (r == null)
                         c.ReportDiagnostic(Diagnostic.Create(RestrictedRule, op.Syntax.GetLocation(), Props(id, holderId),
                             id, "is a restricted entry: '" + holderId + "' needs a 'site' line with the justification"));
-                    else
+                    else {
                         s.UsedLines[r.Line] = true;
+                        if (e.Form && !FormReason.IsMatch(r.Reason))
+                            c.ReportDiagnostic(Diagnostic.Create(RestrictedRule, op.Syntax.GetLocation(), Props(id, holderId),
+                                id, "needs an argument form and its tests in the site line of '" + holderId + "': 'P1' to 'P5', then '[Class.Test, ...]', then the reason"));
+                    }
                 }
             }
         }
+
+        /// <summary> the reason of a site of a [form] entry: "P3 [Class.Test, Class.Other] why" </summary>
+        public static readonly System.Text.RegularExpressions.Regex FormReason = new System.Text.RegularExpressions.Regex(
+            @"^P[0-5] \[[A-Za-z0-9_.]+(, [A-Za-z0-9_.]+)*\] \S", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         static ImmutableDictionary<string, string> Props(string id, string member, int count = -1)
         {
@@ -491,10 +606,16 @@ namespace G3ExactCodeAnalyzers
 
         static void OnBlockStart(OperationBlockStartAnalysisContext c, State s)
         {
-            if (c.OperationBlocks.Length == 0 || !InScope(s, c.OperationBlocks[0].Syntax.SyntaxTree))
+            if (c.OperationBlocks.Length == 0 || !InScopeAt(s, c.OperationBlocks[0].Syntax.SyntaxTree, c.OperationBlocks[0].Syntax.Span))
                 return;
             ISymbol holder = Holder(c.OwningSymbol);
             var casts = new List<IOperation>();
+            var hiddenOps = new List<KeyValuePair<string, IOperation>>();
+            c.RegisterOperationAction(oc => {
+                string h = HiddenCall(oc.Operation);
+                if (h != null && DeterministicApiList.Countable(h))
+                    lock (hiddenOps) hiddenOps.Add(new KeyValuePair<string, IOperation>(h, oc.Operation));
+            }, OperationKind.Binary, OperationKind.CompoundAssignment, OperationKind.Invocation);
             c.RegisterOperationAction(oc => {
                 bool cast = oc.Operation is IConversionOperation v && IsFloatToIntegerCast(v);
                 // (foreach (int i in doubles) converts each element explicitly)
@@ -515,6 +636,19 @@ namespace G3ExactCodeAnalyzers
                             string pseudo = "construct:unmodelled-" + o.Syntax.Kind();
                             ec.ReportDiagnostic(Diagnostic.Create(ApiRule, o.Syntax.GetLocation(), Props(pseudo, holder.GetDocumentationCommentId()), pseudo));
                         }
+                foreach (IGrouping<string, KeyValuePair<string, IOperation>> g in hiddenOps.GroupBy(x => x.Key)) {
+                    string hid = holder.GetDocumentationCommentId() ?? "";
+                    DeterministicApiList.Registration cr = s.List.Find("construct", hid, g.Key);
+                    if (cr != null)
+                        s.UsedLines[cr.Line] = true;
+                    if (cr != null && (g.Key == "construct:delegate-invocation" || g.Key == "construct:interface-invocation") && !DeterminismScopeAnalyzer.FormReason.IsMatch(cr.Reason))
+                        ec.ReportDiagnostic(Diagnostic.Create(ApiRule, g.First().Value.Syntax.GetLocation(), Props(g.Key, hid, g.Count()),
+                            g.Key + " in '" + hid + "': the line needs an argument form and its tests: 'P1' to 'P5', then '[Class.Test, ...]', then the reason"));
+                    if (cr != null && cr.Count == g.Count())
+                        continue;
+                    foreach (var kv in g)
+                        ec.ReportDiagnostic(Diagnostic.Create(ApiRule, kv.Value.Syntax.GetLocation(), Props(g.Key, hid, g.Count()), g.Key + " (" + g.Count() + " in '" + hid + "', registered: " + (cr?.Count ?? 0) + ")"));
+                }
                 if (casts.Count == 0)
                     return;
                 // (one context per member: its blocks, with its lambdas and local functions; each accessor is a member)
@@ -600,6 +734,17 @@ namespace G3ExactCodeAnalyzers
                 }
                 if (!tr.IsKind(SyntaxKind.IfDirectiveTrivia) && !tr.IsKind(SyntaxKind.ElifDirectiveTrivia))
                     continue;
+                // (the forbidden directives above are checked in the whole file, also outside the scope's types: a pragma
+                // or #define there reaches into them)
+                // (an #if ... #endif block that surrounds the type, its attributes or one of two versions of it is in the scope
+                // although its #if line lies before the type's span)
+                TextSpan block = new TextSpan(tr.SpanStart, 0);
+                if (tr.GetStructure() is DirectiveTriviaSyntax bd) {
+                    DirectiveTriviaSyntax lastd = bd.GetRelatedDirectives().LastOrDefault();
+                    if (lastd != null && lastd.Span.End > tr.SpanStart) block = TextSpan.FromBounds(tr.SpanStart, lastd.Span.End);
+                }
+                if (!TouchesScope(s, tree, block))
+                    continue;
                 // by position, the same whatever the #if disables (the token that carries the trivia is not: it depends
                 // on the target framework): the innermost member whose span holds the directive; else, for an #if around
                 // an attribute or around whole members, the first member whose span ends after the block's #endif (the
@@ -676,7 +821,7 @@ namespace G3ExactCodeAnalyzers
         static void OnFunction(OperationAnalysisContext c, State s)
         {
             IMethodSymbol f = (c.Operation as ILocalFunctionOperation)?.Symbol ?? (c.Operation as IAnonymousFunctionOperation)?.Symbol;
-            if (f == null || !HasSkipLocalsInit(f) || !InScope(s, c.Operation.Syntax.SyntaxTree))
+            if (f == null || !HasSkipLocalsInit(f) || !InScopeAt(s, c.Operation.Syntax.SyntaxTree, c.Operation.Syntax.Span))
                 return;
             string id = Holder(c.ContainingSymbol)?.GetDocumentationCommentId() ?? "";
             DeterministicApiList.Registration r = s.List.Find("skiplocalsinit", id);
@@ -695,7 +840,7 @@ namespace G3ExactCodeAnalyzers
             // not a method's own one)
             DeterministicApiList.Registration r = s.List.Find("skiplocalsinit", source.GetDocumentationCommentId() ?? "\0");
             foreach (Location loc in m.Locations) {
-                if (!loc.IsInSource || !InScope(s, loc.SourceTree))
+                if (!loc.IsInSource || !InScopeAt(s, loc.SourceTree, loc.SourceSpan))
                     continue;
                 if (r != null) { s.UsedLines[r.Line] = true; continue; }
                 c.ReportDiagnostic(Diagnostic.Create(SkipLocalsInitRule, loc, Props(id, id), id));
@@ -796,6 +941,12 @@ namespace G3ExactCodeAnalyzers
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values.OrderBy(x => x.Line)) {
                 ISymbol m = DocumentationCommentId.GetFirstSymbolForDeclarationId(e.Id, s.Compilation);
                 bool own = m != null && SymbolEqualityComparer.Default.Equals(m.ContainingAssembly, s.Compilation.Assembly) && m.DeclaringSyntaxReferences.Length > 0;
+                if (e.Assumed) {
+                    // (an obligation of a later stage: the member exists in this assembly, outside the scope, and is not pinned)
+                    if (!own || e.Body != null)
+                        c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "[assumed] is for a member of this assembly without a [body:] tag; '" + e.Id + "' is " + (own ? "pinned" : "not one")));
+                    continue;
+                }
                 if (!own) {
                     if (e.Body != null && m != null)
                         c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "[body:] pins declarations of this assembly only; '" + e.Id + "' has none here"));
@@ -844,10 +995,10 @@ namespace G3ExactCodeAnalyzers
             }
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values)
                 if (!s.UsedEntries.ContainsKey(e.Id) && (s.NetDefined || !e.NetOnly))
-                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.2)"));
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.4)"));
             foreach (DeterministicApiList.Registration r in s.List.Registrations)
                 if (!s.UsedLines.ContainsKey(r.Line) && (s.NetDefined || !NetOnlyRegistration(s, r)))
-                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(r.Api ?? r.Member, r.Member), r.Line, r.Kind + " '" + r.Member + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.2)"));
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(r.Api ?? r.Member, r.Member), r.Line, r.Kind + " '" + r.Member + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.4)"));
         }
 
         // a registration whose construct exists only when NET is defined: a site of a [NET] entry, a [SkipLocalsInit]

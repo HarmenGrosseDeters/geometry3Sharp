@@ -132,7 +132,7 @@ In order:
    features (hard problem 4) are answered by lever 6 K (#736, opt-in).
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
-measurement); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
+measurement; stage 1, the exact building blocks, in review: DETERMINISM_PROOF.md 5.4); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
 output). Last, by "depth over breadth" (owner 2026-11-10):
 CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 

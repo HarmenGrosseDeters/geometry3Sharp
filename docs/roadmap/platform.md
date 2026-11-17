@@ -198,7 +198,11 @@ Part of the [roadmap](../ROADMAP.md).
   sum of the components, which overflows to infinity for large finite components.
 - **Determinism proof, option A ([design/DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md)):** stage 0 is merged
   (#871, task brief #859: the closed-world analyzer rules G3D0001-9 over the exact kernel, with a generated ledger
-  checked by `DeterminismScopeAnalyzerTests`). The exact fallback monomial kernels (#769, for #711) are merged. Open:
+  checked by `DeterminismScopeAnalyzerTests`). Stage 1 (owner 2026-11-17: `ExactTriangulation2`, `ExactPlanarSimplify`,
+  `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is in review: type-level scope, tuples, counted
+  delegate calls, argument forms with their tests on every sort, enumeration and parallel site; open items O1 to O5 there
+  (O1, the culture of `SnapRounding2.Diagnostics` text, is an owner decision). Stage 2 (`ExactMeshArrangement`,
+  `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Open:
   two codex drafts, reviewed as correct, which the determinism session takes over: #891 (#804, saturating double-to-int
   casts in the grid indexers) and #892 (#803, sign-of-zero consistent Min / Max in `AxisAlignedBox3d`); and #789
   (ExactPoint3 hash values are seeded per process; a test that the shard choice does not change results).
