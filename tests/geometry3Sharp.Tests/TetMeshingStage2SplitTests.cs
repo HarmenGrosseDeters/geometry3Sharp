@@ -164,7 +164,7 @@ namespace geometry3Sharp.Tests
 
         // the merge of u into w, combinatorially: valid iff no tet appears twice and every triangle is in at most two tets, with the
         // boundary triangles (in one tet) the same as before
-        static bool MergeIsAComplex(List<Index4i> tets, int u, int w)
+        static bool MergeIsAComplex(List<Index4i> tets, Dictionary<int, List<int>> vt, int u, int w)
         {
             Func<Index4i, List<Index3i>> faces = (t) => Enumerable.Range(0, 4).Select(i => new Index3i(t[Delaunay3.FacetIndices[i, 0]], t[Delaunay3.FacetIndices[i, 1]], t[Delaunay3.FacetIndices[i, 2]])).ToList();
             Func<Index3i, (int, int, int)> key = (f) => { var s = new[] { f.a, f.b, f.c }; Array.Sort(s); return (s[0], s[1], s[2]); };
@@ -179,9 +179,12 @@ namespace geometry3Sharp.Tests
             };
             // only the tets at u, w and their neighbours matter (the merge changes nothing else; the face counts and vertex links
             // near the merge are complete over these)
+            // (vt: vertex -> indices into tets)
             var region = new HashSet<int> { u, w };
-            foreach (Index4i t in tets) if (t.a == u || t.b == u || t.c == u || t.d == u || t.a == w || t.b == w || t.c == w || t.d == w) for (int i = 0; i < 4; ++i) region.Add(t[i]);
-            tets = tets.Where(t => region.Contains(t.a) || region.Contains(t.b) || region.Contains(t.c) || region.Contains(t.d)).ToList();
+            foreach (int x in new[] { u, w }) foreach (int k in vt[x]) for (int i = 0; i < 4; ++i) region.Add(tets[k][i]);
+            var local = new SortedSet<int>();
+            foreach (int x in region) foreach (int k in vt[x]) local.Add(k);
+            tets = local.Select(k => tets[k]).ToList();
             var merged = new List<Index4i>();
             foreach (Index4i t in tets) {
                 bool hu = t.a == u || t.b == u || t.c == u || t.d == u, hw = t.a == w || t.b == w || t.c == w || t.d == w;
@@ -244,11 +247,13 @@ namespace geometry3Sharp.Tests
             var noPairs = new List<(int, int)>();
             for (int round = 0; round < 2; ++round) {
                 List<Index4i> tets = imp.AliveTets();
+                var vt = new Dictionary<int, List<int>>();
+                for (int k = 0; k < tets.Count; ++k) for (int i = 0; i < 4; ++i) { if (!vt.TryGetValue(tets[k][i], out var l)) vt[tets[k][i]] = l = new List<int>(); l.Add(k); }
                 for (int u = 0; u < imp.VertexCount && yes + no < 1500 * (round + 1); ++u) {
                     if (imp.IsBoundaryVertex(u)) continue;
                     foreach (int w in imp.Neighbours(u)) {
                         bool link = imp.LinkCondition(u, w);
-                        Assert.Equal(MergeIsAComplex(tets, u, w), link);
+                        Assert.Equal(MergeIsAComplex(tets, vt, u, w), link);
                         if (link) yes++; else { no++; noPairs.Add((u, w)); }
                     }
                 }
