@@ -331,6 +331,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Triangulation_HugeFace_IsFanAndFast()
+        {
+            int n = 20000;
+            DPolyMesh m = new DPolyMesh();
+            for (int k = 0; k < n; ++k) m.AppendVertex(Math.Cos(2 * Math.PI * k / n), Math.Sin(2 * Math.PI * k / n), 0);
+            m.AppendFace(Enumerable.Range(0, n).ToArray());
+            int[] map;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            DMesh3 mesh = m.ToDMesh3(out map);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), "took " + watch.Elapsed);
+            Assert.Equal(n - 2, mesh.TriangleCount);
+            Assert.Equal(new Index3i(0, 5, 6), PolyMeshTestUtil.Triangulate(m, 0)[4]);
+            // a repeated vertex in a large face is still found
+            DPolyMesh r = new DPolyMesh();
+            for (int k = 0; k < 40; ++k) r.AppendVertex(k, k * k, 0);
+            r.AppendFace(Enumerable.Range(0, 30).Concat(new[] { 7 }).ToArray());
+            Assert.False(r.IsFaceValid(0));
+        }
+
+        [Fact]
+        public void Obj_NegativeGroupsRoundTrip()
+        {
+            DPolyMesh m = new DPolyMesh();
+            m.AppendVertex(0, 0, 0); m.AppendVertex(1, 0, 0); m.AppendVertex(0, 1, 0);
+            m.AppendTriangle(0, 1, 2, -3);
+            m.AppendTriangle(0, 1, 2, 5);
+            Assert.True(PolyMeshTestUtil.Same(m, PolyMeshTestUtil.ReadObj(PolyMeshTestUtil.ObjText(m))));
+        }
+
+        [Fact]
         public void Triangulation_SelfIntersectingBowtie_IsDeterministicAndComplete()
         {
             DPolyMesh m = new DPolyMesh();

@@ -261,7 +261,7 @@ The types live in `mesh/SimpleQuadMesh.cs` and `io/MeshIOUtil.cs`, so that no pr
 - **Triangulation rule** (deterministic, documented on the class): a triangle is itself; larger faces are ear-clipped in the plane of
   the Newell normal, scanning the corners 1, 2, ..., n-1, 0 and cutting the first convex corner whose triangle holds no other vertex
   of the remaining ring (boundary counts as inside; vertices at the same position as an ear corner are ignored); no ear: corner 1 is
-  cut anyway; zero normal: fan from vertex 0. A convex planar face is the fan from its vertex 0. The decisions are signs of sums of
+  cut anyway; zero normal, or more than 256 vertices (bounds the work on hostile input): fan from vertex 0. A convex planar face is the fan from its vertex 0. The decisions are signs of sums of
   products of coordinate differences, so a power-of-two scale of the vertices gives the same triangles bit for bit; other
   similarities give the same triangles unless a corner is within rounding of straight.
 - **Writers** (`PolyMeshIO.WriteOBJ`, `WritePLY` ascii and binary little endian, `WriteFile`): doubles as shortest round-trip text

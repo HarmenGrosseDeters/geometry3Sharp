@@ -452,7 +452,7 @@ namespace g3
     /// the remaining ring (on the boundary counts as inside; vertices at the same position as a corner of the ear
     /// are ignored). Triangles keep the orientation of the face ring. A convex planar face therefore becomes a fan
     /// from its vertex 0. If no ear exists (self-intersecting or fully degenerate ring), corner 1 is cut anyway,
-    /// and a face with a zero Newell normal is a fan from vertex 0. The rule uses only comparisons of sums of
+    /// and a face with a zero Newell normal, or with more than <see cref="MaxEarClipVertices"/> (256) vertices, is a fan from vertex 0. The rule uses only comparisons of sums of
     /// products of coordinate differences, so a power-of-two scale of the vertices gives the same triangles.
     /// </summary>
     public class DPolyMesh
@@ -641,9 +641,16 @@ namespace g3
             for (int k = a; k < b; ++k) {
                 int v = indices[k];
                 if (v < 0 || v >= nv) return false;
-                for (int j = a; j < k; ++j)
-                    if (indices[j] == v) return false;
             }
+            if (b - a <= 16) {
+                for (int k = a; k < b; ++k)
+                    for (int j = a; j < k; ++j)
+                        if (indices[j] == indices[k]) return false;
+                return true;
+            }
+            HashSet<int> seen = new HashSet<int>();
+            for (int k = a; k < b; ++k)
+                if (seen.Add(indices[k]) == false) return false;
             return true;
         }
 
@@ -674,10 +681,19 @@ namespace g3
                 triangles.Add(new Index3i(indices[start], indices[start + 1], indices[start + 2]));
                 return 1;
             }
+            if (n > MaxEarClipVertices) {
+                // (ear clipping is quadratic or worse in the face size; a face this large is a fan)
+                for (int k = 1; k + 1 < n; ++k)
+                    triangles.Add(new Index3i(indices[start], indices[start + k], indices[start + k + 1]));
+                return n - 2;
+            }
             List<int> ring = new List<int>(n);
             for (int k = 0; k < n; ++k) ring.Add(indices[start + k]);
             return EarClip(ring, triangles);
         }
+
+        /// <summary> faces with more vertices than this are a fan from their vertex 0, not ear-clipped (bounds the work of a hostile face) </summary>
+        public const int MaxEarClipVertices = 256;
 
         int EarClip(List<int> ring, List<Index3i> triangles)
         {

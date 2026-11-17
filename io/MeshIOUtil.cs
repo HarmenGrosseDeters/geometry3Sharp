@@ -144,7 +144,7 @@ namespace g3
 	/// materials and objects are ignored. A face with fewer than 3 corners or an index that is zero, unparseable or
 	/// beyond the vertices is skipped with a warning (<c>warnings</c>); repeated vertices are kept (see
 	/// <see cref="DPolyMesh.Validate"/>). A group named "mmGroup{k}" is group k, any other name gets the next free
-	/// group number starting at 1 (in order of appearance); faces before the first "g" line are in group 0.
+	/// group number starting at 1 (in order of appearance; such a name before an "mmGroup{k}" name with the same number merges the two groups, so do not mix the two kinds); faces before the first "g" line are in group 0.
 	/// A file without vertices or faces returns <see cref="IOCode.GarbageDataError"/>.
 	/// </summary>
 	public static class PolyMeshIO
@@ -359,7 +359,7 @@ namespace g3
 					int id;
 					if (!names.TryGetValue(name, out id)) {
 						int k;
-						if (name.StartsWith("mmGroup", StringComparison.Ordinal) && int.TryParse(name.Substring(7), NumberStyles.None, CultureInfo.InvariantCulture, out k))
+						if (name.StartsWith("mmGroup", StringComparison.Ordinal) && int.TryParse(name.Substring(7), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out k))
 							id = k;
 						else {
 							while (used.Contains(nextGroup)) nextGroup++;
