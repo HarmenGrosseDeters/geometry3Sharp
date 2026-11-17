@@ -274,13 +274,16 @@ C5's closedness and coverage, test-only, over an internal recording of the boole
 Against the criteria of section 3.6:
 - **Linear in practice:** C1, C3 and C4 are linear in the pieces plus one ray per anchor; the anchors were one per
   connected set of pieces (1-2 on the test solids, more only with a Difference's early-out, which needs one per connected
-  set under its comparison rule). On two overlapping spheres (696 pieces) C1 + C3 + C4 took about 120 ms against about
-  370 ms of the boolean (a third, not a few percent: BigInteger on every sign, no floating-point filter), C5 about 220 ms.
+  set under its comparison rule). On two overlapping spheres (696 pieces, warm) C1 + C3 + C4 took about 30 ms against
+  4 ms of the boolean, C5 about 65 ms: **not** a few percent of the boolean, as BigInteger decides every sign without a
+  floating-point filter. Fine for a test oracle; a certified mode for users would need filters (and their bounds).
 - **Not a re-run of the classification:** no ray per patch; the classification's carried, per-patch and filtered paths
   are not used. The coplanar stacks are recomputed (quadratic per plane, fine for the test meshes).
 - **Every mutation killed:** the four of section 3.6 (a patch's winding pair off by one, two patches' pairs swapped, a
   nested component without its anchor, A and B swapped in a difference) and those of the selection, the pieces and the
-  result (counts in QA.md 2.4a). A nested component read as outside is caught only by its anchor ray, as expected.
+  result, and a wrongly culled component (counts in QA.md 2.4a). A nested component read as outside is caught only by
+  its anchor ray, as expected. The review found that the first version trusted the early-out's culling (a component
+  culled by mistake was invisible); C0 now checks every culled triangle against the culling mesh.
 - **Limits found:** the early-out of an Intersection culls against both meshes, and a comparison rule for that case
   would be circular (a region that is wrongly read as outside both meshes could pass): such runs are `n/a`, the oracle
   runs Intersection without the early-out. Open inputs are out of the class (section 3.3).

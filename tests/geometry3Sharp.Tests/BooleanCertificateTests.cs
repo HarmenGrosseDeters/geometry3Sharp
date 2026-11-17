@@ -168,7 +168,13 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Timing()
+        public void Timing_IsLogged()
+        {
+            // (the last of three runs: the first includes the JIT)
+            for (int run = 0; run < 3; ++run) TimeOnce(run == 2);
+        }
+
+        void TimeOnce(bool report)
         {
             var (a, b) = Solids["spheres overlapping"]();
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -177,7 +183,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", c.CheckPieces()); long t1 = sw.ElapsedMilliseconds; sw.Restart();
             Assert.Equal("", c.CheckClassification()); long t2 = sw.ElapsedMilliseconds; sw.Restart();
             Assert.Equal("", c.CheckResult()); long t3 = sw.ElapsedMilliseconds;
-            log.WriteLine($"pieces {c.PieceCorners.Length} boolean {t0} C1 {t1} C3/C4 {t2} C5 {t3} ms, anchors {c.Anchors}, coverage tests {c.CoverageTests}");
+            if (report) log.WriteLine($"pieces {c.PieceCorners.Length} boolean {t0} C1 {t1} C3/C4 {t2} C5 {t3} ms, anchors {c.Anchors}, coverage tests {c.CoverageTests}");
         }
 
         [Fact]
@@ -532,6 +538,8 @@ namespace geometry3Sharp.Tests
             Assert.False(BooleanCertificate.PointNearTriangle(G(2, 2), new[] { o, o, x }, 1.0));
             Assert.False(BooleanCertificate.PointNearTriangle(G(2, 2), new[] { o, G(2, 0), x }, 1.0));
             Assert.True(BooleanCertificate.PointNearTriangle(G(6, 0), new[] { o, G(2, 0), x }, 2.0));
+            // (beyond the end of the segments: the distance to the end point, not to the line)
+            Assert.False(BooleanCertificate.PointNearTriangle(G(7, 1), new[] { o, G(2, 0), x }, 2.0));
             Assert.False(BooleanCertificate.PointNearTriangle(G(7, 0), new[] { x, x, x }, 2.0));
             Assert.True(BooleanCertificate.PointNearTriangle(G(1, 1, 1), new[] { o, x, G(0, 4) }, 1.0));
             Assert.False(BooleanCertificate.PointNearTriangle(G(1, 1, 2), new[] { o, x, G(0, 4) }, 1.0));

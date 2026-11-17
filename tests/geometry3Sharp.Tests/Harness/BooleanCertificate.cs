@@ -16,6 +16,10 @@ namespace geometry3Sharp.Tests
     /// result before the rounding) as a witness and checks it against the input meshes with its own exact tests, without
     /// the classification code it checks:
     ///
+    /// - C0 inputs: the arrangement's meshes are the caller's (reversed triangles as many as ReorientedTriangles), each
+    ///   non-degenerate input triangle is in the arrangement once, every culled triangle meets no triangle of the
+    ///   culling mesh and lies outside it (an exact ray per connected set), and the rounding's bound is at most the
+    ///   documented one from the boolean's settings.
     /// - C1 pieces: every arrangement piece is a non-degenerate triangle in the plane of its source triangle, inside it,
     ///   oriented like it; the pieces of a source tile it (the directed edges pair up inside, the unpaired ones run along
     ///   the source's edges in its direction, and the projected areas add up exactly to the source's: a positive chain
@@ -32,7 +36,8 @@ namespace geometry3Sharp.Tests
     ///   front is inside; no other piece is kept.
     /// - C5 result: the result before rounding (E_s, with its exact vertices) is the kept pieces (E) as an oriented point
     ///   set: per exact plane, the boundary of E minus E_s is zero (directed edges per supporting line, swept as signed
-    ///   intervals), and a bounded plane chain with zero boundary is zero. The rounded result R is closed and oriented
+    ///   intervals), and a bounded plane chain with zero boundary is zero; the unsigned areas per plane are equal too (E
+    ///   covers a point at most once, so a two-sided sheet in E_s, which the chain cancels, shows there). The rounded result R is closed and oriented
     ///   (every directed edge once, with its reverse once), and R and E_s lie within delta of each other (Delta: the
     ///   rounding's bound MaxLength plus a few ulps of the coordinates): a triangle is within delta of a convex triangle
     ///   iff its corners are (the distance to a convex set is convex), checked with exact squared distances, the
@@ -50,8 +55,10 @@ namespace geometry3Sharp.Tests
     ///
     /// Cost: linear in the pieces for C1, C3 and C4 (hash maps of edges and points, a sort per edge), plus one ray per
     /// anchor (linear in the input triangles each), the coplanar stacks quadratic per plane (fine for the procedural test
-    /// meshes; a large flat region of many triangles would want a 2D grid), and C5 near-linear by a uniform grid. All
-    /// signs are decided with BigInteger arithmetic on the exact points (no floating-point predicate decides anything).
+    /// meshes; a large flat region of many triangles would want a 2D grid), the culled triangles against the culling
+    /// mesh's (with a box test; quadratic in the worst case), and C5 near-linear by a uniform grid. All signs are decided
+    /// with BigInteger arithmetic on the exact points (the culled triangles by the library's exact ExactTriangleIntersection
+    /// on the input doubles), so it costs several times the boolean: a test oracle, not a mode for users.
     /// </summary>
     internal sealed class BooleanCertificate
     {

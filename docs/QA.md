@@ -327,7 +327,17 @@ Where it runs: `BooleanCertificateTests` (the box and tetrahedron families of th
 representation changes, spheres, nested, hollow, self-intersecting and duplicated solids, a winding predicate, the
 similarities of `Similarity.All()`); every case of the CsCheck campaigns `ExactBooleanPropertyTests` (boxes, directed
 families, tetrahedra; so `G3_PROPERTY_SAMPLES` campaigns use it as their oracle); and a Nightly corpus of random spheres,
-tetrahedra and boxes (`Certifies_RandomSolids_Nightly`, 480 booleans, about 16 s). Teeth: MUTATIONS_TEXT
+tetrahedra and boxes (`Certifies_RandomSolids_Nightly`, 480 booleans with its seed, about 13 s). Teeth: 150 mutations
+of the winding numbers (a patch's winding number of one mesh off by one, two patches' values swapped; the selection
+made to agree, so that only C3 can see them; 6 equivalent ones under the early-out skipped), a nested component read as
+outside (caught only by its anchor ray), 114 mutations of the selection (keep, flip, a coplanar copy kept, A and B
+swapped in a difference), a wrongly culled component and a culled triangle that meets the culling mesh, mutations of
+the inputs, the bound, the pieces (each C1 condition on its own) and the result (a triangle removed or reversed, a
+vertex moved, a two-sided sheet, a moved exact vertex): all caught. The checker itself is a test file, so Stryker does
+not mutate it; a scripted hand sweep of 34 mutants (each condition and sign of the checker switched off or reversed) is
+killed by `BooleanCertificateTests`. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
+C5 65 ms: several times the boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
+
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
 
