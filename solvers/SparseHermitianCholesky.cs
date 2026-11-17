@@ -39,6 +39,8 @@ namespace g3
         double[] LxRe, LxIm;
         int[] apColPtr, apRow, apSrc;
         bool factored;
+        // test switch: run the scalar kernels even where the vector kernels are available (the results are the same bits)
+        internal bool ForceScalarKernels;
         // values of L and the analysis arrays (ordering, structure of L, supernodes, permuted pattern of A), for tests
         internal double[][] FactorValues { get { return new[] { LxRe, LxIm }; } }
         internal int[][] AnalysisArrays { get { return new[] { perm, Lp, Li, snFirst, snVal, snRowPtr, snRows, colSnode, apColPtr, apRow, apSrc }; } }
@@ -177,6 +179,8 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, off = snVal[J];
             int kw = snFirst[K + 1] - snFirst[K], krp = snRowPtr[K], kh = snRowPtr[K + 1] - krp, koff = snVal[K];
+            bool vec = !ForceScalarKernels && SparseHermitianCholeskyKernels.VectorPath;
+            double* rr = stackalloc double[4], ri = stackalloc double[4];
             fixed (double* LR = LxRe, LI = LxIm)
             fixed (int* rows = snRows, rel = relmap) {
                 int* krows = rows + krp;
@@ -185,9 +189,16 @@ namespace g3
                     double* ar = KR + i * kw, ai = KI + i * kw;
                     int dbase = off + rel[krows[i]] * w - f;
                     int cend = Math.Min(i + 1, p1);
-                    for (int c = p0; c < cend; ++c) {
+                    int c = p0;
+                    // four rows c at once (each product keeps its own order of operations)
+                    if (vec)
+                        for (; c + 4 <= cend; c += 4) {
+                            SparseHermitianCholeskyKernels.Dotc4Cols(ar, ai, KR + c * kw, KI + c * kw, kw, kw, rr, ri, true);
+                            for (int q = 0; q < 4; ++q) { LR[dbase + krows[c + q]] -= rr[q]; LI[dbase + krows[c + q]] -= ri[q]; }
+                        }
+                    for (; c < cend; ++c) {
                         double dr, di;
-                        dotc(ar, ai, KR + c * kw, KI + c * kw, kw, out dr, out di);
+                        SparseHermitianCholeskyKernels.Dotc(ar, ai, KR + c * kw, KI + c * kw, kw, out dr, out di, vec);
                         LR[dbase + krows[c]] -= dr; LI[dbase + krows[c]] -= di;
                     }
                 }
@@ -199,43 +210,51 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
+            bool vec = !ForceScalarKernels && SparseHermitianCholeskyKernels.VectorPath;
+            double* rr = stackalloc double[4], ri = stackalloc double[4];
             fixed (double* LR = LxRe, LI = LxIm) {
                 double* BR = LR + off, BI = LI + off;
-                for (int i = 0; i < h; ++i) {
-                    double* lr = BR + i * w, li = BI + i * w;
-                    int m = Math.Min(i, w);
-                    for (int c = 0; c < m; ++c) {
-                        double dr, di;
-                        dotc(lr, li, BR + c * w, BI + c * w, c, out dr, out di);
-                        lr[c] = (lr[c] - dr) * inv[c]; li[c] = (li[c] - di) * inv[c];
-                    }
-                    if (i < w) {
-                        double dr, di;
-                        dotc(lr, li, lr, li, i, out dr, out di);        // |L_i,:i|^2 (dr), di = 0
-                        double d = lr[i] - dr;
-                        if (!(d > 1e-14 * Math.Abs(diagA[f + i])) || double.IsInfinity(d)) {
-                            Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + i] + ")";
-                            return false;
+                int i = 0;
+                while (i < h) {
+                    // four rows at once: their entries left of the first row's index only need earlier rows, so the
+                    // four products run side by side (each product keeps its own order of operations)
+                    int nr = vec && i + 4 <= h ? 4 : 1;
+                    int cl = 0;
+                    if (nr == 4) {
+                        cl = Math.Min(i, w);
+                        double* L0R = BR + i * w, L0I = BI + i * w;
+                        for (int c = 0; c < cl; ++c) {
+                            SparseHermitianCholeskyKernels.Dotc4Rows(L0R, L0I, w, BR + c * w, BI + c * w, c, rr, ri, true);
+                            for (int q = 0; q < 4; ++q) {
+                                L0R[q * w + c] = (L0R[q * w + c] - rr[q]) * inv[c]; L0I[q * w + c] = (L0I[q * w + c] - ri[q]) * inv[c];
+                            }
                         }
-                        lr[i] = Math.Sqrt(d); li[i] = 0;
-                        inv[i] = 1.0 / lr[i];
                     }
+                    for (int q = 0; q < nr; ++q) {
+                        int row = i + q;
+                        double* lr = BR + row * w, li = BI + row * w;
+                        int m = Math.Min(row, w);
+                        for (int c = cl; c < m; ++c) {
+                            double dr, di;
+                            SparseHermitianCholeskyKernels.Dotc(lr, li, BR + c * w, BI + c * w, c, out dr, out di, vec);
+                            lr[c] = (lr[c] - dr) * inv[c]; li[c] = (li[c] - di) * inv[c];
+                        }
+                        if (row < w) {
+                            double dr, di;
+                            SparseHermitianCholeskyKernels.Dotc(lr, li, lr, li, row, out dr, out di, vec);        // |L_i,:i|^2 (dr), di = 0
+                            double d = lr[row] - dr;
+                            if (!(d > 1e-14 * Math.Abs(diagA[f + row])) || double.IsInfinity(d)) {
+                                Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
+                                return false;
+                            }
+                            lr[row] = Math.Sqrt(d); li[row] = 0;
+                            inv[row] = 1.0 / lr[row];
+                        }
+                    }
+                    i += nr;
                 }
             }
             return true;
-        }
-
-        // sum over k of a[k] conj(b[k]) (a, b given as real and imaginary parts), four partial sums
-        static unsafe void dotc(double* ar, double* ai, double* br, double* bi, int n, out double re, out double im)
-        {
-            double r0 = 0, r1 = 0, i0 = 0, i1 = 0;
-            int k = 0;
-            for (; k + 2 <= n; k += 2) {
-                r0 += ar[k] * br[k] + ai[k] * bi[k]; i0 += ai[k] * br[k] - ar[k] * bi[k];
-                r1 += ar[k + 1] * br[k + 1] + ai[k + 1] * bi[k + 1]; i1 += ai[k + 1] * br[k + 1] - ar[k + 1] * bi[k + 1];
-            }
-            for (; k < n; ++k) { r0 += ar[k] * br[k] + ai[k] * bi[k]; i0 += ai[k] * br[k] - ar[k] * bi[k]; }
-            re = r0 + r1; im = i0 + i1;
         }
 
         /// <summary> solve A x = b (interleaved vectors of 2 N numbers; b is not modified; x and b may be the same array) </summary>
