@@ -886,10 +886,12 @@ namespace gs
                     string targetLimit = "";
                     if (target > 0) {
                         AlphaWrapTarget = target;
-                        if (wrapped == raw)
-                            targetLimit = TargetLimitNotSimplified;
+                        if (wrapped == raw) {
+                            if (raw.TriangleCount > target)
+                                targetLimit = TargetLimitNotSimplified;
+                        }
                         else if (wrapped.TriangleCount > target) {
-                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, Math.Max(0.5, WrapTargetMaxDistance) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
+                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
                             end_phase("wrap.target");
                             if (CancelF())
                                 return false;
@@ -1297,7 +1299,9 @@ namespace gs
         /// certifies each of its new triangles, exactly as it puts them into the mesh, within 0.95 maxDistance of wrap
         /// (AlphaWrapQualityPass.accept, TriangleDeviationBounds.IsWithin), and the triangles it does not touch keep the
         /// certificate of simplified (AlphaWrapQualityPassTests.ImproveWrapQuality_CertifiedByConstruction checks it). If
-        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before.
+        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before. (After a reduction to a
+        /// target with WrapTargetMaxDistance above 0.5 the untouched triangles keep the larger distance of ReduceToTarget, the new ones are
+        /// held to 0.95 of the half offset passed here: the result is within the larger of the two.)
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)

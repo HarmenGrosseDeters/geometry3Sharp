@@ -238,6 +238,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshRobustRepair.TargetLimitQualityPass, split.AlphaWrapTargetLimit);
         }
 
+        // a target above the raw wrap without the simplification is reached: no limit is reported
+        [Fact]
+        public void WithoutSimplification_RawWrapWithinTarget_NoLimit()
+        {
+            MeshRobustRepair r = Repair(Flat(), x => { x.SimplifyAlphaWrap = false; x.WrapTargetTriangles = 1000000; });
+            Assert.Equal("", r.AlphaWrapTargetLimit);
+            Assert.Equal(r.Mesh.TriangleCount, r.AlphaWrapTargetReached);
+        }
+
+        // a NaN distance counts as half an offset, like a smaller one
+        [Fact]
+        public void NaNDistance_CountsAsHalfAnOffset()
+        {
+            string h = AlphaWrapManifoldStepTests.Hash(Repair(Flat(), x => x.WrapTargetFactor = 1).Mesh);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(Repair(Flat(), x => { x.WrapTargetFactor = 1; x.WrapTargetMaxDistance = double.NaN; }).Mesh));
+        }
+
         // a target without the simplification: nothing to continue, the limit says so, the raw wrap is the result
         [Fact]
         public void WithoutSimplification_LimitSaysSo()
