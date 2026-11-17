@@ -49,6 +49,22 @@ static class Program
         return c;
     }
 
+    // complex Hermitian matrix with the pattern of Grid2 (bs=1), the structure of the CrossField system of CrossField
+    static SparseHermitianCholesky HermitianGrid(int nx, int ny)
+    {
+        ulong s = 1; var c = new SparseHermitianCholesky(nx * ny);
+        for (int y = 0; y < ny; ++y)
+            for (int x = 0; x < nx; ++x) {
+                int a = y * nx + x; c.Add(a, a, 8.0 + (Next(ref s) % 64) / 64.0, 0);
+                foreach (var q in new[] { new[] { x + 1, y }, new[] { x, y + 1 }, new[] { x + 1, y + 1 } }) {
+                    if (q[0] >= nx || q[1] >= ny) continue;
+                    int b = q[1] * nx + q[0];
+                    c.Add(b, a, -((Next(ref s) % 128) / 128.0 + 0.25), (Next(ref s) % 64) / 64.0 - 0.5);
+                }
+            }
+        return c;
+    }
+
     static int Main(string[] args)
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
@@ -80,6 +96,23 @@ static class Program
             }
             Console.WriteLine($"| {cs.name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} | {h:x16} |");
             if (h.ToString("x16") != cs.hash) { Console.Error.WriteLine("solution hash differs from the scalar code: expected " + cs.hash); bad = true; }
+        }
+        foreach (var (name, nx, hash) in new[] { ("hermitian grid2d n=40000", 200, "dc5d10357e466a03"), ("hermitian grid2d n=60000", 245, "5d513cbc4bee6470") }) {
+            if (!Regex.IsMatch(name, only)) continue;
+            double bf = double.MaxValue, bs = double.MaxValue; long nnz = 0; ulong h = 0;
+            for (int r = 0; r < reps; ++r) {
+                var c = HermitianGrid(nx, nx);
+                var sw = Stopwatch.StartNew();
+                if (!c.Factorize()) throw new Exception(c.Error);
+                bf = Math.Min(bf, sw.Elapsed.TotalSeconds);
+                nnz = c.FactorNonZeros;
+                var b = new double[2 * c.N]; for (int i = 0; i < b.Length; ++i) b[i] = 1 + (i % 7) / 7.0;
+                var x = new double[2 * c.N];
+                sw.Restart(); for (int k = 0; k < 5; ++k) c.Solve(b, x); bs = Math.Min(bs, sw.Elapsed.TotalMilliseconds / 5);
+                h = 1469598103934665603UL; foreach (double v in x) { h ^= (ulong)BitConverter.DoubleToInt64Bits(v); h *= 1099511628211UL; }
+            }
+            Console.WriteLine($"| {name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} | {h:x16} |");
+            if (h.ToString("x16") != hash) { Console.Error.WriteLine("solution hash differs from the previous code: expected " + hash); bad = true; }
         }
         return bad ? 1 : 0;
     }
