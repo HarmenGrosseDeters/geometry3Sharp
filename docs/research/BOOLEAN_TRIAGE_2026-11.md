@@ -245,3 +245,61 @@ involved: the arrangement and classification of these cases are not suspected, a
 No case points at the arrangement, the classification or the assembly. Every listed result is winding-closed. Where
 re-run (#993 p0009 / p0021, #994 p0012 / p0021), the results with and without `SafeRounding` are identical. In the
 abc-chained rows the volume identities hold to 8.5e-10 or better wherever the rounding removed nothing.
+
+## Comparison with Manifold's conventions (coordinator request, 2026-11-17)
+
+Manifold (Apache-2.0; wiki "Manifold-Library", section "Mesh Boolean") was used as a design reference only; no code was
+read or taken from it.
+
+**1. Touching and coplanar cases.** Manifold breaks exact ties by symbolic perturbation: the first operand is pushed
+outward for a union and inward for a difference or intersection. As a result, touching solids merge in a union, an
+equal-height difference gives a through-hole, and A - A is empty. Our boolean computes the exact *regularized* result
+instead (the closure of the interior). On the cases where the two definitions agree, it gives the same answers
+(measured on master with boxes):
+
+| case | expected | ours |
+|---|---|---|
+| A - A | empty | empty |
+| A ∪ A | A | A (12 triangles, V 8) |
+| two cubes touching in a face, union | one box, V 16 | one closed component, V 16, no contacts |
+| a cube on part of a face, union | one solid, V 10 | one closed component, V 10 |
+| two cubes touching in a face, intersection | empty | empty |
+| equal-height difference (box minus a box of the same height) | through-hole, V 6, genus 1 | closed, V 6, Euler characteristic 0 |
+| flush pocket (B's top coplanar with A's top) | V 7 | closed, V 7, clean |
+
+The one difference is an **edge or vertex contact**. There the regularized solid really is pinched, for example two
+cubes touching along an edge, or the RC2 repros. We return the pinch exactly: one non-manifold edge, split into two
+components with duplicated vertices. Manifold's perturbation would decide it by operation: merge across a zero-width
+bridge in a union, or keep the pieces apart.
+
+Per issue:
+- **#985:** no coplanar classification is involved. With `SafeRounding = false` all six families give the correct
+  closed union. The bug is in the rounding (RC1).
+- **#993:** the exact regularized A - mirror(A) has edge pinches on and near the mirror plane. We return them split,
+  with no coincident or doubled faces, and the volume identities hold where nothing was removed. That is no deviation in
+  the coplanar classification; only the representation of the pinch differs from what perturbation would produce.
+- **#994:** the shared face is removed (no coincident triangles), as both conventions require. The remaining
+  non-manifold edges are true pinches at the edge of the contact region (RC2). The coplanar patches are classified
+  correctly.
+
+**2. Pinches versus holes.** Classification of every non-clean `ours` result, from the stored rows (abc-chained: clean
+inputs only):
+
+| run | edge pinch ("not closed" by the eval) | vertex pinch ("bowties") | rounding not clean (RC4) | inside-out (RC3) | real hole (not winding-closed) |
+|---|---|---|---|---|---|
+| abc-chained, 39 results | 15 | 14 | 9 | 1 | **0** |
+| thingi-contact, all 5 variants, 29 results | 10 | 16 | 3 | 0 | **0** |
+
+None of the failures is a hole. Every result is winding-closed.
+
+Would splitting pinch vertices and edges make them clean? Our output already splits them: `Contacts` counts the
+positions with duplicated vertices, and non-manifold edges are split into manifold pairs, as in Manifold. They are
+reported as not clean for two reasons, both outside the library's result:
+- the eval welds them back by position (RC2);
+- on the unwelded output, `NotCleanReason`'s self-intersection test counts triangles that touch at a duplicated
+  position, because it compares vertex ids and not positions (`MeshRepairMetrics.SelfIntersections`).
+
+The rounding's exact check knows the contacts (`SharedPositionsTouch`), and by that check the 29 pinch results of
+abc-chained and the 26 of thingi-contact are clean. That is 29 of 39 and 26 of 29 non-clean results. Whether
+`NotCleanReason` should accept such contacts is an owner decision, and this triage leaves it unchanged. The benchmark eval
+can report them as "edge contacts" / "bowties" without that change (RC2's fix).
