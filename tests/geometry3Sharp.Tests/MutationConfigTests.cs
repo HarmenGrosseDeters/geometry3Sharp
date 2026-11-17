@@ -163,7 +163,7 @@ namespace geometry3Sharp.Tests
             string root = RepoRoot();
             Assert.NotNull(root);
             var filters = TestFilters(root);
-            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-4"]));
+            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-2"]));
             Assert.Equal(8, shared.Count);
             // (owner 2026-11-15, #843: the prefixes had grown the set to 339 tests, about 189 s, and every part timed out in
             // its coverage pass: ExactMeshBooleanTests is the class itself, not the open-winding classes named after it,
@@ -187,6 +187,21 @@ namespace geometry3Sharp.Tests
                     // (the pair budget's growth with the defects, RC4a)
                     "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-5"] = new[] { sliverStage },
+                // (ghost_list to drop: the checks of the check mode, check_bounds, check_ghosts and check_all_bounds, and
+                // the references; gate run 44013112256; about 10 s, 9 s of them
+                // Searches_IncrementalAfterEdits (Slow): the local run of the part took 47 minutes)
+                ["stryker-mesh-rounding-4"] = new[] {
+                    "FullyQualifiedName~MeshRoundingRepairFilterTests.FilterDecisions_AgreeWithExactTest",
+                    "FullyQualifiedName~MeshRoundingRepairFilterTests.BoundaryPairs_FilterAgreesWithExactTest",
+                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
+                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits" },
+                // (ulp to try_move: the separation of false contacts, try_separate, and the removal of contact vertices,
+                // try_remove_vertex and runs3; gate run 44013112256; about 11 s with Searches_IncrementalAfterEdits: the local
+                // run of the part took 80 minutes)
+                ["stryker-mesh-rounding-7"] = new[] {
+                    "FullyQualifiedName~ExactBooleanContactCountTests", "FullyQualifiedName~ExactBooleanRoundingContactsTests",
+                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
+                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits" },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
