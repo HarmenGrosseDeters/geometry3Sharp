@@ -635,6 +635,7 @@ namespace g3
             EvaluationLimitReached = false;
             StoppedByPairTests = false;
             pairBudget = MaxPairTests;      // (until the defects are counted; also where Apply returns before)
+            evaluations = pairTests = 0;
             if (SharedPositionsTouch == false)
                 atPosition = null;
             // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the

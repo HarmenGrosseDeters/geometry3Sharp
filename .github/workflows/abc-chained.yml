@@ -145,14 +145,16 @@ jobs:
           else
             # (the time budget split across the budgets; the rows of each run appended as it ends, so a run that fails or
             # times out keeps the others; every row has rounding.max_pair_tests)
-            set +e
+            # (every budget runs, also after a failed one; the step fails if any run failed)
+            rc=0
             n=$(echo "$BUDGETS" | tr ',' '\n' | grep -c .)
             : > results.jsonl
             for b in ${BUDGETS//,/ }; do
-              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))"
-              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null
+              case "$b" in (*[!0-9]*) echo "::error::rounding_budgets: '$b' is not a whole number"; rc=1; continue;; esac
+              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))" || rc=1
+              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null || true
             done
-            set -e
+            exit $rc
           fi
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
