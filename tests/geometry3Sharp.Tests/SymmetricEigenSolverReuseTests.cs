@@ -66,6 +66,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ConvergedSolve_ThenNoConvergence_EqualsAFreshSolver()
+        {
+            var rnd = new Random(11);
+            var reused = new SymmetricEigenSolver(4, 1);
+            // (a diagonal matrix converges at once; the random ones do not within one iteration)
+            var diag = new double[16]; diag[0] = 3; diag[5] = 1; diag[10] = 2; diag[15] = 4;
+            Assert.NotEqual(SymmetricEigenSolver.NO_CONVERGENCE, reused.Solve(diag, SymmetricEigenSolver.SortType.Decreasing));
+            double[] a = RandomSymmetric(rnd, 4, 1);
+            var fresh = new SymmetricEigenSolver(4, 1);
+            Assert.Equal(SymmetricEigenSolver.NO_CONVERGENCE, fresh.Solve((double[])a.Clone(), SymmetricEigenSolver.SortType.Decreasing));
+            Assert.Equal(SymmetricEigenSolver.NO_CONVERGENCE, reused.Solve((double[])a.Clone(), SymmetricEigenSolver.SortType.Decreasing));
+            double[] e1 = fresh.GetEigenvalues(), e2 = reused.GetEigenvalues();
+            for (int i = 0; i < 4; ++i) Assert.Equal(Bits(e1[i]), Bits(e2[i]));
+            for (int c = 0; c < 4; ++c) {
+                double[] v1 = fresh.GetEigenvector(c), v2 = reused.GetEigenvector(c);
+                for (int i = 0; i < 4; ++i) Assert.Equal(Bits(v1[i]), Bits(v2[i]));
+            }
+        }
+
+        [Fact]
         public void Constructor_DoesNotAllocateForMaxIterations()
         {
             new SymmetricEigenSolver(3, 4096);   // (JIT)
@@ -75,6 +95,7 @@ namespace geometry3Sharp.Tests
             Assert.True(perSolver < 2048, "bytes per solver: " + perSolver);   // was about 196 KB
         }
 
+#if NET8_0_OR_GREATER   // (on .NET Framework Array.Sort with a delegate allocates)
         [Fact]
         public void RepeatedSolve_AllocatesNothing()
         {
@@ -86,6 +107,7 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 100; ++i) { Array.Copy(a, work, 9); solver.Solve(work, SymmetricEigenSolver.SortType.Decreasing); }
             Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
         }
+#endif
 
         // ---- the contours built with per-worker solvers
 

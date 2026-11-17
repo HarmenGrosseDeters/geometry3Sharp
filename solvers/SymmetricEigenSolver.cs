@@ -87,6 +87,9 @@ namespace g3
                 Tridiagonalize();
 
                 mGivens.Clear();
+                // (as a fresh solver: a solve that does not converge leaves the permutation and the rotation flag untouched)
+                Array.Clear(mPermutation, 0, mSize);
+                mIsRotation = -1;
                 for (int j = 0; j < mMaxIterations; ++j) {
                     int imin = -1, imax = -1;
                     for (int i = mSize - 2; i >= 0; --i) {
