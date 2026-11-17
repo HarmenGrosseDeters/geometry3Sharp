@@ -5,7 +5,7 @@ A = library defaults, B = BENCH_WRAP_FEATURES=1, C = BENCH_WRAP_BUDGET=300000; t
 (sample800_2611), wrappipe, diagonal/300, offset/3000, full fidelity, TIMEOUT=400, one process at a time.
 
 Reads <dir>/raw/A.jsonl, B.jsonl, C.jsonl and <dir>/wall.tsv (the merge of the shards, see alpha_defaults.py) and the mesh
-list; prints the summary as markdown to stdout. Only meshes with a row in all three configurations enter the comparison.
+list; prints the summary as markdown to stdout. Only meshes with a row in every configuration that was run enter the comparison.
 Usage: python3 -I alpha_defaults_summary.py <dir> [<list>] > summary.md
 """
 import json
@@ -16,8 +16,10 @@ import sys
 
 D = sys.argv[1]
 LIST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases", "alpha_defaults_list800.txt")
-CFG = ["A", "B", "C"]
-LABEL = {"A": "A (defaults)", "B": "B (features)", "C": "C (budget 300k)"}
+LABEL = {"A": "A (defaults)", "B": "B (features)", "C": "C (budget 300k)", "D": "D (budget 300k, coarsening <= 1.5)",
+         "E": "E (budget 300k, coarsening <= 1.2)"}
+# the configurations that were run (B to E may be missing; A is the reference)
+CFG = [c for c in "ABCDE" if c == "A" or (os.path.exists(os.path.join(D, "raw", c + ".jsonl")) and os.path.getsize(os.path.join(D, "raw", c + ".jsonl")) > 0)]
 LIMIT_S = 20.0
 TIMEOUT_S = float(os.environ.get("TIMEOUT_S", "400"))
 
@@ -90,7 +92,7 @@ out = []
 w = out.append
 w("# alpha-defaults-800: summary")
 w("")
-w(f"Meshes with a row in all three configurations: **{len(done)} of {len(files)}**. "
+w(f"Meshes with a row in all {len(CFG)} configurations ({', '.join(CFG)}): **{len(done)} of {len(files)}**. "
   "Times are the benchmark's own (ms) unless marked wall (wall clock per process, from `wall.tsv`).")
 w("")
 
@@ -120,7 +122,7 @@ w("A timeout is a row with `timeout_or_crash` and wall time at or above 400 s, a
 w("")
 
 # -- against A
-for c in ["B", "C"]:
+for c in CFG[1:]:
     w(f"## {LABEL[c]} against A")
     w("")
     pairs = [f for f in done if is_result(res["A"][f]) and is_result(res[c][f])]
@@ -177,7 +179,7 @@ for c in ["B", "C"]:
       " ratio, smallest angle ratio).")
     w("")
     # coarsening / features
-    if c == "C":
+    if c in ("C", "D", "E"):
         co = [num(res[c][f], "wrap_coarsening") for f in pairs]
         co = [x for x in co if x is not None]
         coarse = [x for x in co if x > 1.0]
@@ -211,7 +213,7 @@ w("")
 if len(done) and all(is_result(res[c][f]) for c in CFG for f in done):
     pass
 base_pipe = sum(num(res["A"][f], "pipe_ms") or 0 for f in done if is_result(res["A"][f]))
-for c in ["B", "C"]:
+for c in CFG[1:]:
     tot = sum(num(res[c][f], "pipe_ms") or 0 for f in done if is_result(res[c][f]))
     if base_pipe:
         w(f"{LABEL[c]} pipe_ms sum / A: {tot / base_pipe:.3f}.")
