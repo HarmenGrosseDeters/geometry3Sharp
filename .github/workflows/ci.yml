@@ -145,6 +145,7 @@ jobs:
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+          python3 -m unittest discover -s benchmarks/UVAtlasBenchmark -p 'test_compare_report.py' -v
           python3 benchmarks/MeshRepairBenchmark/test_alpha_defaults.py
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_contact.py' -v
