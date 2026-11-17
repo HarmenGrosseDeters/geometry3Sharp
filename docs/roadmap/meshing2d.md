@@ -11,7 +11,7 @@ Part of the [roadmap](../ROADMAP.md).
   2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Since the inventory of 2026-11-12: the provenance delta
   6b-4 (#677, no (A) finding), the fixes of #637, #695, #723, #728/#729, #748, #863 and #864 part A (#876), and the #870
   oracle fix #880 (10 of 11 dumps) are merged; the last #870 dump (d6710852) is fixed by #936 (#870 closed); the SplitTriangle
-  breakdown is measured and the speed item dropped (#909); the oracle on wide-exponent inputs is faster (#947, #975, merged 2026-11-16);
+  breakdown is measured and the speed item dropped (#909); the oracle on wide-exponent inputs is faster (#947 closed, fixed by #975, merged 2026-11-16);
 #986 (`Empty` at an aspect ratio of 2^±41) is settled as a documented limit (#1028, merged 2026-11-17, owner 2026-11-17). Nothing
 is actionable: what is left is blocked on inputs, or research (owner decision rule 2026-11-16, see the end of this file).
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
@@ -327,7 +327,7 @@ Mesher bugfix merged in #360 (refuse a reroute through a refinement vertex onto 
 
 The oracle's own SRR restore (Belussi et al. 2016, independent of SnapRounding2) merged in #362: the restore pins flipped (10 false rejections VALID, 3 false acceptances and the M2 wedge rejected, one hidden false acceptance of the interim found); Prop. 4.14/D14 followed over Listing 2, the discrepancy recorded.
 
-Then (all merged 2026-11-03/04, #367, #372, #370, #373 below): the hull model with coverage (a topological rule: no link shared by refinement, 0 on Herne with #360's rule; refinement pinches at a single vertex, 2-217 per Herne run and 13 in 12 fuzz inputs, are a known violation of the strict Q17 decision, counted with a ratchet), then the pinch fix in the mesher before the lenses plus coverage against the input-only domain).
+Then (merged 2026-11-04, see below): the hull model with coverage (a topological rule: no link shared by refinement, 0 on Herne with #360's rule; refinement pinches at a single vertex, 2-217 per Herne run and 13 in 12 fuzz inputs, are a known violation of the strict Q17 decision, counted with a ratchet), then the pinch fix in the mesher before the lenses plus coverage against the input-only domain).
 
 Merged 2026-11-04: #367 (oracle: hull model, RefinementCoincidence rule, RefinementPinch as a counted known violation with fuzz and Herne ratchets, ChainSkipsHotPixel, opt-in --snapped-area), #372 (bugfix: when every outer ring collapses in snapping the domain is empty, not the hull; 10 star-fuzz seeds), #370 (lenses (A): Chew's deletion before a bisection; cq Herne q20 -17/-175/-72 triangles; the Herne cq 371800 q20 pinch ratchet temporarily 85 -> 92, to be brought back to <= 85 by (1)).
 
@@ -434,7 +434,9 @@ The **stage 6b provenance check** (medium, report only; started 2026-11-02 after
 
 Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code, structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in MESHING2D_SNAP.md.
 
-### Open for the future (2026-11-17)
+### Open for the future (2026-11-15)
+
+Status 2026-11-17 (the heading keeps its date: ROADMAP.md links to it).
 
 Done and removed from this list: #870 (the last dump `d6710852`, the O11 excuse from the mesher's provenance, #936), #986 (a
 documented limit, #1028, 2026-11-17),
