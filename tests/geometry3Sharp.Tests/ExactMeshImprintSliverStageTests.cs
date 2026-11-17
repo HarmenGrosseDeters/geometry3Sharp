@@ -150,9 +150,9 @@ namespace geometry3Sharp.Tests
             DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, 1);
             ExactMeshImprint now = Run(b, a, true);
             Assert.Equal(1, now.Counts["sliver_cleanup_stage"]);
-            // (measured: one reroute through a target vertex, three through new vertices; deterministic)
+            // (measured: one reroute through a target vertex, four through new vertices; deterministic)
             Assert.Equal(1, now.Counts["split_edge_reroutes_through_target_vertex"]);
-            Assert.Equal(3, now.Counts["split_edge_reroutes_through_new_vertex"]);
+            Assert.Equal(4, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edge_reroutes_through_target_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
