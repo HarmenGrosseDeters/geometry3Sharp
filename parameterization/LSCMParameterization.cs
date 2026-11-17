@@ -16,9 +16,10 @@ namespace g3
     /// result is scaled to the surface area. On a surface that is not developable the map depends on which vertices
     /// are pinned (beyond a similarity), so a mirror-symmetric input gives a mirror-symmetric map only with pins at a
     /// mirrored pair (set PinnedVertices; the automatic pair need not be one, eg when two mirrored pairs are equally
-    /// far apart). Triangles can flip on strongly curved inputs (and on annuli the free inner boundary can collapse):
-    /// such a map is reported as ParameterizationStatus.FlippedTriangles, not as a success; use SLIM for a guaranteed
-    /// flip-free map.
+    /// far apart). Triangles can flip on strongly curved inputs (and on annuli the free inner boundary can collapse,
+    /// or nearly collapse): such a map is reported as ParameterizationStatus.FlippedTriangles, not as a success (a
+    /// near-collapse counts as degenerate, ParameterizationDistortion.DegenerateUVTriangles); use SLIM for a
+    /// guaranteed flip-free map.
     /// </summary>
     /// <example>
     /// var lscm = new LSCMParameterization(mesh);

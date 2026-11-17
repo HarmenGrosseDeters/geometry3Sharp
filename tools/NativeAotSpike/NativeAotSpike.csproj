@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Feasibility spike of docs/design/NATIVE_AOT_FEASIBILITY.md: a C ABI over ExactMeshBoolean / ExactMeshImprint,
+       built as a NativeAOT shared library (dotnet publish -c Release -r linux-x64 -p:NativeLib=Shared).
+       Not packed, not part of the NuGet package. A plain build (no PublishAot) only produces the managed class library
+       that the driver and the tests use. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace>G3Native</RootNamespace>
+    <AssemblyName>g3native</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IlcOptimizationPreference Condition="'$(IlcOptimizationPreference)' == ''">Speed</IlcOptimizationPreference>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PublishNative)' == 'true'">
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="driver\**" />
+    <Compile Remove="bin\**;obj\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+  </ItemGroup>
+</Project>

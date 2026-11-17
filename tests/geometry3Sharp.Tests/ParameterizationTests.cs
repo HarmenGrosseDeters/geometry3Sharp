@@ -427,14 +427,14 @@ namespace geometry3Sharp.Tests
             Assert.True(MaxEdgeLengthError(mesh, r.UV) < 1e-6);
         }
 
-        /// <summary> open cylinder (an annulus) of the given sides and rings, radius 1, rings 0.6 apart, no seam </summary>
-        static DMesh3 SeamlessCylinder(int sides, int rings)
+        /// <summary> open cylinder (an annulus) of the given sides and rings, radius 1, rings dz apart (default 0.6), no seam </summary>
+        static DMesh3 SeamlessCylinder(int sides, int rings, double dz = 0.6)
         {
             var m = new DMesh3();
             for (int j = 0; j <= rings; ++j)
                 for (int i = 0; i < sides; ++i) {
                     double a = 2 * Math.PI * i / sides;
-                    m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), 0.6 * j));
+                    m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), dz * j));
                 }
             for (int j = 0; j < rings; ++j)
                 for (int i = 0; i < sides; ++i) {
@@ -481,6 +481,68 @@ namespace geometry3Sharp.Tests
             DMesh3 flat = Invariance.Transformed(FlatAnnulus(), sim);
             Assert.True(new LSCMParameterization(flat).Compute().Succeeded);
             Assert.True(new ARAPParameterization(flat).Compute().Succeeded);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void LSCM_NearCollapsedRing_IsNotSuccess_InvariantUnderSimilarities(string name)
+        {
+            // #1049: on the open cylinder 48 x 12 of height 3.6 LSCM squeezes the far ring to a near-segment (UV shape
+            // ratios down to 1e-11 of the surface's, mean conformal distortion 1.5e8) without a flipped triangle, and
+            // above the 1e-12 rule for degenerate triangles because the surface triangles are fat: it said Success.
+            // Now FlippedTriangles (the near-collapsed triangles count as degenerate), with the map kept, under every
+            // similarity (at the rotated millimetre UTM coordinates the collapse rounds to 2 flips instead, mean conformal
+            // 1.5e3); a 2^k scale gives the same map, scaled, bit for bit, and the reused instance the same again.
+            // A healthy map of a cylinder (the frustum, top radius 0.9: no collapse, max conformal 2.5) stays a success.
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m0 = SeamlessCylinder(48, 12, 0.3), m = Invariance.Transformed(m0, sim);
+            ParameterizationResult l0 = new LSCMParameterization(m0).Compute();
+            var lscm = new LSCMParameterization(m);
+            Vector2d[] firstUV = null;
+            foreach (int pass in new[] { 0, 1 }) {
+                ParameterizationResult l = lscm.Compute();
+                if (firstUV == null) firstUV = l.UV;
+                else Assert.Equal(firstUV, l.UV);
+                Assert.True(l.Status == ParameterizationStatus.FlippedTriangles, $"pass {pass}: {l.Status}, mean conformal {l.Distortion?.MeanConformal}");
+                Assert.True(l.UV != null && Bad(l.Distortion) > 0 && l.Distortion.MeanConformal > 100, $"pass {pass}: flipped {l.Distortion.FlippedTriangles}, degenerate {l.Distortion.DegenerateUVTriangles}, mean conformal {l.Distortion.MeanConformal}");
+                Assert.Equal(Bad(l.Distortion), Bad(ParameterizationDistortion.Compute(m, l.UV)));
+                if (sim.IsExact) {
+                    Assert.Equal(Bad(l0.Distortion), Bad(l.Distortion));
+                    foreach (int v in m.VertexIndices())
+                        Assert.Equal(sim.Scale * l0.UV[v], l.UV[v]);
+                }
+            }
+            DMesh3 frustum = SeamlessCylinder(48, 12, 0.3);
+            foreach (int v in frustum.VertexIndices()) {
+                Vector3d p = frustum.GetVertex(v);
+                double s = 1 - 0.1 * p.z / 3.6;
+                frustum.SetVertex(v, new Vector3d(s * p.x, s * p.y, p.z));
+            }
+            ParameterizationResult f = new LSCMParameterization(Invariance.Transformed(frustum, sim)).Compute();
+            Assert.True(f.Succeeded, f.Error);
+            Assert.True(f.Distortion.MaxConformal < 3 && Bad(f.Distortion) == 0, $"frustum: max conformal {f.Distortion.MaxConformal}");
+        }
+
+        [Fact]
+        public void ParameterizationDistortion_NearCollapsedFatTriangle_IsDegenerate()
+        {
+            // the near-collapse rule alone, on one fat (equilateral) surface triangle: an image squeezed to a shape
+            // ratio 1e-9 or 0.5e-8 of the surface's (above the 1e-12 rule) is degenerate, one squeezed to 2e-8 or 1e-7 is
+            // not. Scale-free: the same at 2^-40 and 2^40, and near the ends of the range of TriangleFrame (which squares
+            // the components of an edge cross product), 2^-240 and 2^240
+            foreach (double scale in new[] { 1.0, Math.Pow(2, -40), Math.Pow(2, 40), Math.Pow(2, -240), Math.Pow(2, 240) }) {
+                var m = new DMesh3();
+                m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(scale, 0, 0));
+                m.AppendVertex(new Vector3d(0.5 * scale, 0.5 * Math.Sqrt(3) * scale, 0));
+                m.AppendTriangle(0, 1, 2);
+                foreach (var (squeeze, degenerate) in new[] { (1e-9, 1), (0.5e-8, 1), (2e-8, 0), (1e-7, 0), (1.0, 0) }) {
+                    var uv = new Vector2d[3];
+                    for (int v = 0; v < 3; ++v) { Vector3d p = m.GetVertex(v); uv[v] = new Vector2d(p.x, squeeze * p.y); }
+                    ParameterizationDistortion d = ParameterizationDistortion.Compute(m, uv);
+                    Assert.Equal(0, d.FlippedTriangles);
+                    Assert.True(d.DegenerateUVTriangles == degenerate, $"scale {scale}, squeeze {squeeze}: {d.DegenerateUVTriangles}");
+                }
+            }
         }
 
         [Fact]

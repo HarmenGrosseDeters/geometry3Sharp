@@ -37,6 +37,37 @@ class Select(unittest.TestCase):
         self.assertEqual(ad.CONFIG_ENV["C"], {"BENCH_WRAP_BUDGET": "300000"})
         self.assertEqual(ad.CONFIG_ENV["D"], {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.5"})
         self.assertEqual(ad.CONFIG_ENV["E"], {"BENCH_WRAP_BUDGET": "300000", "BENCH_WRAP_COARSEN_CAP": "1.2"})
+        self.assertEqual(ad.CONFIG_ENV["F"], {"BENCH_WRAP_PULL": "1"})
+        self.assertIn("BENCH_WRAP_PULL", ad.UNSET)
+
+
+class RawBoundsSummary(unittest.TestCase):
+    # the raw-wrap section (A against F, the quality-aware manifold step): aggregates, the per-mesh table of the meshes that
+    # differ, and the TSV of every mesh
+    def test_raw_bounds_section_and_tsv(self):
+        def row(f, below, amin, vmax, flips, closed=True):
+            return {"file": f, "after_tris": 10, "raw_tris": 100 + below, "raw_below_bound": below, "raw_angle_min": amin,
+                    "raw_angle_max": 170.0, "raw_vdist_max_off": vmax, "raw_vdist_min_off": 1.0, "raw_sep_off": 1.2,
+                    "raw_closed": closed, "raw_bowties": 0, "wrap_ms": 50, "pipe_ms": 80, "wrap_status": "Success",
+                    "wrap_counts": {"manifold_flips": flips}}
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, "raw"))
+            a = [row("1.stl", 3, 0.5, 1.0, 12), row("2.stl", 0, 3.0, 1.0, 0)]
+            f = [row("1.stl", 0, 2.9, 1.8, 1), row("2.stl", 0, 3.0, 1.0, 0)]
+            for c, rows in (("A", a), ("F", f)):
+                open(os.path.join(t, "raw", c + ".jsonl"), "w").write("".join(json.dumps(r) + "\n" for r in rows))
+            lst = os.path.join(t, "list.txt")
+            open(lst, "w").write("1\n2\n")
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "alpha_defaults_summary.py"), t, lst], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("## Raw wrap: the derived bounds of the class doc", r.stdout)
+            self.assertIn("| A (defaults) | 1 | 3 | 0.500 |", r.stdout)
+            self.assertIn("| F (PullPinchPoints) | 0 | 0 | 2.900 |", r.stdout)
+            self.assertIn("(1 meshes differ in the count below the bound or in clean; fewer below: 1)", r.stdout)
+            self.assertIn("| 1.stl | 3 / 0 | 0.500 / 2.900 | 1.000 / 1.800 |", r.stdout)
+            tsv = open(os.path.join(t, "raw_bounds_per_mesh.tsv")).read().splitlines()
+            self.assertEqual(len(tsv), 3)
+            self.assertTrue(tsv[0].startswith("file\tA_raw_below_bound"))
 
 
 class RunAndMerge(unittest.TestCase):

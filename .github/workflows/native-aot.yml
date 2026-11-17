@@ -1,0 +1,43 @@
+# NativeAOT feasibility spike (docs/design/NATIVE_AOT_FEASIBILITY.md): the C ABI of tools/NativeAotSpike published as a
+# shared library, a C caller (self test) and the bit-for-bit comparison of its results with the managed library.
+# Not part of the PR gate and not packed: it runs when the spike changes, and on demand.
+name: native-aot
+
+on:
+  pull_request:
+    paths:
+      - 'tools/NativeAotSpike/**'
+      - '.github/workflows/native-aot.yml'
+  workflow_dispatch:
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, rid: linux-x64 }
+          # no macOS job: GitHub's macOS runners are not available for this repository at the moment (owner 2026-11-17);
+          # add { os: macos-14, rid: osx-arm64 } back when they are
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish, C self test, bit identity against the managed library
+        run: tools/NativeAotSpike/run_spike.sh ${{ matrix.rid }} "$RUNNER_TEMP/spike"
+      - name: Size
+        run: ls -l "$RUNNER_TEMP"/spike/native/g3native.* | tee -a "$GITHUB_STEP_SUMMARY"
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      # the publish needs the MSVC linker, which the runner image has; the C caller is not run here (see the design note)
+      - run: dotnet publish tools/NativeAotSpike -c Release -r win-x64 -p:PublishNative=true -o spike-out
+      - run: Get-ChildItem spike-out | Format-Table Name, Length

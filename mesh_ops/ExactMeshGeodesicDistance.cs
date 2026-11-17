@@ -15,14 +15,19 @@ namespace g3
     ///    surface path), and the unfolded source as a disk (centre and radius) carried by rigid frame changes (A.2);
     ///  - a piece is removed from a window only when a real path is certainly shorter over the whole piece (A4), when
     ///    another window subsumes it (its disk, sigma interval and outer interval contain it), or by merging two pending
-    ///    windows of the same origin and nearly the same position (A6);
+    ///    windows of the same origin and nearly the same position, at most one of them with a nonempty inner interval (A6);
     ///  - windows on boundary edges are terminal: they record the bounds of their edge ends (M1);
     ///  - boundary vertices and vertices that are not certainly convex, flat vertices included, are pseudo-sources (A5,
     ///    review S1); the continuation windows of A7 are not used (they duplicate the ordinary windows on flat regions, an
     ///    open item of the design note).
-    /// Reach (measured, net10 Release): terrains up to 41 x 41 well under a second, a plane 41 x 41 in about 4 s, the
-    /// exactly aligned ridge of gate 3 only up to about 21 x 21 (at 41 x 41 it reaches the window limit). On flat regions
-    /// Upper is up to about 1.3% above the distance; Lower is tight. A limit ends with WindowLimit and NaN arrays.
+    /// Reach (measured, net10 Release, benchmarks/GeodesicOracleBenchmark): terrains of 41 x 41 vertices in half a second
+    /// and of 101 x 101 in about 3 s, a plane or a saddle of 41 x 41 in 2-3 s, the exactly aligned ridge of gate 3 of
+    /// 41 x 41 in about 5 s; a plane of 101 x 101 reaches the window limit. Width (measured, #1058): (Upper - Lower) / Lower
+    /// is at most about 2e-8 on planes, on domes and saddles from exactly flat to curved (k (x^2 +- y^2), k from 1e-8 to
+    /// 0.3), on terrains and on the aligned ridge, from a centre, edge or corner source; it comes from Lower's re-emission
+    /// margins (1e-9 per emission, A5), and Upper is as tight. A measured figure on procedural grids, not an a-priori
+    /// bound: Upper may fall back to edge paths where windows keep no inner interval (eg the degenerate projections of
+    /// S2). A limit ends with WindowLimit and NaN arrays.
     /// The result is deterministic (serial, every operation IEEE-rounded and widened) and scales exactly with 2^k scalings
     /// of the input (away from overflow and the subnormal range).
     /// </summary>
@@ -34,7 +39,7 @@ namespace g3
         /// <summary> limit on the windows created; passing it ends Compute with WindowLimit (never with a wrong bound). The count
         /// is checked between propagation steps, so Windows can end somewhat above the limit (by the windows of one step). The default
         /// keeps one Compute below about 20 s (a flat plane of 101 x 101 vertices reaches it; a terrain of that size needs
-        /// about 130000 windows, 4 s) </summary>
+        /// about 125000 windows, 3 s; benchmarks/GeodesicOracleBenchmark) </summary>
         public int MaxWindows = 300_000;
 
         // the compaction of the dead (emptied) windows of a side list: speed only, the scan skips dead windows anyway.
@@ -400,6 +405,11 @@ namespace g3
                     // relative to the mesh's length scale (no absolute constants: 2^k scalings give the same decisions)
                     bool near = !b.Done && nr <= 2 * mr && Math.Max(b.R, nr) <= 1e-11 * (scale + Math.Abs(b.Cx) + Math.Abs(b.Cy))
                         && Math.Abs(b.SigHi - w.SigHi) <= 1e-12 * (scale + Math.Abs(b.SigHi)) && Math.Abs(b.SigLo - w.SigLo) <= 1e-12 * (scale + Math.Abs(b.SigHi));
+                    // A6 keeps the inner interval of only one partner, so it merges only when at most one has a nonempty
+                    // inner interval. Two (eg the two halves of a fan split at a vertex, whose rays meet again) stay two
+                    // windows: skipping a merge removes nothing, so it is always sound. #1058: dropping the second half left
+                    // Upper on edge paths, up to 8% above the distance on planes and nearly flat domes
+                    if (near && b.I1 > b.I0 && w.I1 > w.I0) near = false;
                     if (near) {
                         var keep = new List<(double l, double r)>(); bool merged = false;
                         foreach (var sg in segs) {
@@ -408,7 +418,10 @@ namespace g3
                         }
                         if (merged) {
                             ++Merges; b.R = Math.Max(b.R, nr); b.SigLo = Math.Min(b.SigLo, w.SigLo); b.SigHi = Math.Max(b.SigHi, w.SigHi);
-                            // the inner interval of only one of them (A6)
+                            // the inner interval of only one of them (A6): the nonempty one. w's is clipped to the merged
+                            // outer interval (a subset of a realised set is realised, and w's witness lies in the merged disk);
+                            // an empty interval (I0 > I1) stays empty under the clip
+                            if (!(b.I1 > b.I0)) { b.I0 = Math.Max(w.I0, b.O0); b.I1 = Math.Min(w.I1, b.O1); }
                             Record(b, L, ev.a, ev.b);
                             queue.Enqueue(oi, Fn(b, Box(b), b.O0, b.O1).Lo);
                         }

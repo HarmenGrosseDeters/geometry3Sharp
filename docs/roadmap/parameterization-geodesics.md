@@ -31,6 +31,10 @@ Part of the [roadmap](../ROADMAP.md).
   the 10^4 target; Upper up to 1.3 % loose on flat regions. Open: A7 (continuation windows) with duplicate control, since
   it duplicates windows on flat regions (GEODESICS.md 6b); the flat-tie redesign; the heat-method tests against the
   oracle. Before merge: an unanchored review and the exact-code review, routed by the coordinator.
+  **#1058 (2026-11-17):** the 1.3 % was the plane from a corner source; measured, Upper was up to 8.2 % loose on flat and
+  nearly flat input (planes, domes and saddles with k <= 1e-5) because A6 merging dropped one of two inner intervals.
+  A6 now merges only when at most one is nonempty: width at most about 2e-8 on the whole procedural family, 2-7 times
+  fewer windows on flat input, the ridge 41² completes in 5.7 s (GEODESICS.md 6c, `benchmarks/GeodesicOracleBenchmark`).
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
@@ -93,5 +97,5 @@ Part of the [roadmap](../ROADMAP.md).
 1. #869 (draft): `ExactMeshGeodesicDistance` as a certified test oracle; reviews before ready; reach on flat / aligned inputs below 10^4 vertices.
 2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b), after #869; then a public class for 10^5 vertices (no issue).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
-4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): an opt-in for disc charts is an owner decision with an atlas A/B ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
+4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts, to be built with an atlas A/B ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

@@ -8,7 +8,7 @@
     "mutate": [
       "**/parameterization/UVAtlasGenerator.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~UVAtlasTests.|FullyQualifiedName~ParameterizationTests.|FullyQualifiedName~ParameterizationIssueCasesTests.|FullyQualifiedName~ParameterizationFlippedMapTests.|FullyQualifiedName~FoldoverFreeTests.|FullyQualifiedName~FoldoverFreeToleranceTests.",
+    "test-case-filter": "FullyQualifiedName~UVAtlasTests.|FullyQualifiedName~ParameterizationTests.|FullyQualifiedName~ParameterizationIssueCasesTests.|FullyQualifiedName~ParameterizationFlippedMapTests.|FullyQualifiedName~FoldoverFreeTests.|FullyQualifiedName~FoldoverFreeToleranceTests.|FullyQualifiedName~SpectralConformalParameterizationTests.",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

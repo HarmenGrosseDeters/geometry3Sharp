@@ -415,9 +415,12 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
-  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). Later item (coordinator 2026-11-13): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
-  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
-  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
+  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). **Done (coordinator task 2026-11-17, owner approved):** `CoreMath.Acos` and
+  `CoreMath.Tan`, correctly rounded, ported from CORE-MATH through CoreMathSharp (MIT, `docs/SOURCES.md`); verified bit for bit against the
+  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. The callers are **not** switched:
+  `CoreMath.AcosByAtan2` (composed from `Atan2` and `Sqrt`, within about 1.6 ulps of the true value, not monotone in the last ulp for |c| < 1/2) is
+  what `TerrainSlopeDesign` uses, and `Acos` differs from it in about 12 % of the test arguments (uniform and near the ends) by one ulp (`CoreMathAcosTanTests`), so a swap
+  changes terrain output bits: an owner decision, with the benchmark (`benchmarks/CoreMathBenchmark`: `Acos` is cheaper than the composed version).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean

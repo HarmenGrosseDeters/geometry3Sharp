@@ -576,6 +576,8 @@ class Program
         // BENCH_WRAP_COARSEN_CAP: MeshAlphaWrap.MaxAlphaCoarsening, the limit of the coarsening the budget applies (unset: no limit)
         string coarsenCap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
         if (coarsenCap != null) wrap.MaxAlphaCoarsening = double.Parse(coarsenCap, inv);
+        // BENCH_WRAP_PULL=1: MeshAlphaWrap.PullPinchPoints (the quality-aware manifold step, docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md)
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_PULL") == "1") wrap.PullPinchPoints = true;
         wrap.Compute();
         long wrapMs = sw.ElapsedMilliseconds;
         r["wrap_ms"] = wrapMs;
@@ -632,7 +634,51 @@ class Program
         // the raw wrap's triangle quality (angles only; raw_tris for the size)
         r["raw_tris"] = raw.TriangleCount;
         Quality(raw, r, "raw", false);
+        // (the wrap's own result, also with BENCH_WRAP_FEATURES, whose pass replaces raw above: the bounds are those of the wrap)
+        RawWrapBounds(wrap, input, wrap.Result, r);
         return result;
+    }
+
+    // the derived bounds of the MeshAlphaWrap class doc on the raw wrap (after the timing): raw_below_bound = triangles with a min
+    // angle below asin(b / 2 alpha), b = (1 - 1e-5) min(offset, alpha - offset) (raw_angle_bound, degrees); raw_sep_off = the
+    // smallest distance between two triangulation vertices (without the box corners; a nearest neighbour is joined by a Delaunay
+    // edge) / offset; raw_vdist_min_off / raw_vdist_max_off = the distances of the result vertices to the input / offset;
+    // raw_closed, raw_bowties
+    static void RawWrapBounds(MeshAlphaWrap wrap, DMesh3 input, DMesh3 raw, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        double alpha = wrap.UsedAlpha, off = wrap.UsedOffset;
+        double lo = Math.Asin((1 - 1e-5) * Math.Min(off, alpha - off) / (2 * alpha)) * 180 / Math.PI;
+        int below = 0;
+        foreach (int tid in raw.TriangleIndices()) {
+            raw.GetTriVertices(tid, ref vA, ref vB, ref vC);
+            double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
+            if (Math.Min(a0, Math.Min(a1, a2)) < lo) below++;
+        }
+        r["raw_angle_bound"] = Math.Round(lo, 4);
+        r["raw_below_bound"] = below;
+        Delaunay3 dt = wrap.Triangulation;
+        double sep = double.MaxValue;
+        foreach (int c in dt.CellIndices())
+            for (int i = 0; i < 4; ++i)
+                for (int j = i + 1; j < 4; ++j) {
+                    int a = dt.CellVertex(c, i), b = dt.CellVertex(c, j);
+                    if (a >= 8 && b >= 8) sep = Math.Min(sep, dt.GetVertex(a).Distance(dt.GetVertex(b)));
+                }
+        r["raw_sep_off"] = sep / off;
+        if (input.TriangleCount > 0) {
+            var tree = new DMeshAABBTree3(input, true);
+            double dmin = double.MaxValue, dmax = 0;
+            foreach (Vector3d v in raw.Vertices()) {
+                int t = tree.FindNearestTriangle(v);
+                if (t < 0) continue;
+                double d = Math.Sqrt(MeshQueries.TriDistanceSqr(input, t, v));
+                dmin = Math.Min(dmin, d); dmax = Math.Max(dmax, d);
+            }
+            r["raw_vdist_min_off"] = dmin / off;
+            r["raw_vdist_max_off"] = dmax / off;
+        }
+        r["raw_closed"] = raw.IsClosed();
+        r["raw_bowties"] = MeshIterators.BowtieVertices(raw).Count();
     }
 
     // CGAL's alpha wrap (external/cgal_wrap.cpp, path in CGAL_WRAP; GPL, for comparison only) on the input file,
