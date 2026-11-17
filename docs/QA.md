@@ -499,7 +499,7 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
   11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
   visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
-  for a full run of all 25 shards is not confirmed or refuted yet.
+  for a full run of all 25 shards (45 mesh shards since #1006) is not confirmed or refuted yet.
 - `coverage.yml` ended red in every run since 11-12 (the changed-line gate, a separate matter).
 - Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
   run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
