@@ -251,7 +251,7 @@ Stage 0 (owner 2026-11-17: use case chained booleans with exact intermediates, t
 plane-based provenance (derived bounds 7B+14 / 6B+12 bits; no measured vertex beyond them). Exact intermediates with one
 final rounding fix all 6 unclean abc-chained results (of 266; three are RC4b cases) and make no result worse, but
 they regress on procedural contact chains of 5 or more steps (21 of 108 newly unclean, slabs at the final rounding's
-effort limit). Verdict: go for stage 1 only (a lazy CSG `ExactMesh` over the existing n-ary boolean, effort S); no-go for
+effort limit). Verdict: go for stage 1 only (a lazy CSG `ExactMesh` over the existing n-ary boolean, with pruning by the expression, effort S-M); no-go for
 the materialized provenance build (stages 2-4) until a consumer needs exact intermediates without knowing the next
 operation.
 
