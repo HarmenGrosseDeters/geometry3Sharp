@@ -44,7 +44,7 @@ rows to 301 rows that are closed and not clean.
 | [RC1](#rc1-saferounding-removes-the-whole-result-of-an-anisotropic-solid) SafeRounding removes a whole thin component, here the whole result, and reports Success and clean | #985 (all) | `mesh_ops/MeshRoundingRepair.cs` | library defect | no exact code; the test it changes is a geometric bound, so review it like one; no mutation gate |
 | [RC2](#rc2-edge-contacts-of-the-exact-solid-read-as-not-closed-by-the-benchmark-eval) Edge contacts of the exact solid read as "not closed" / self-intersecting by the benchmark eval | #994 (2 of 2), #993 (7 of 8 differences, plus the p0011 intersection), #1010 (8 of the 10 "not closed"), #1011 (7 of 12) | `benchmarks/BooleanComparison/Program.cs` (eval) | oracle artefact | no |
 | [RC3](#rc3-inside-out-from-a-floating-point-volume-sign-of-sub-ulp-slivers) "Inside-out" from a floating-point volume sign of sub-ulp slivers | #1010 (iud p0017) | `mesh_ops/MeshPostRepairCleanup.cs` (`FindInvertedComponents`, used by `NotCleanReason`) | oracle false positive; **owner decision** (NotCleanReason semantics) | adds an error bound: yes, mutation gate |
-| [RC4](#rc4-the-rounding-repair-leaves-defects-roundingclean--false-on-near-coincident-surfaces) The rounding repair leaves defects (`RoundingClean == false`, Status Success) | #1011 (5 of 12), #1010 (4 of 19), #993 (p0011 difference) | `MeshRoundingRepair` | documented limit, real defects; **not diagnosed further** (needs a runner rerun) | depends on the fix |
+| [RC4](#rc4-the-rounding-repair-leaves-defects-roundingclean--false-on-near-coincident-surfaces) The rounding repair leaves defects (`RoundingClean == false`, Status Success) | #1011 (5 of 12), #1010 (4 of 19), #993 (p0011 difference) | `MeshRoundingRepair` | documented limit, real defects; diagnosed by the rerun of 2026-11-17 ([below](#diagnosis-from-the-rerun)): **RC4a**, the effort limit (iud p0005 / p0021 union and intersection; which of its two caps is not in the rows), and **RC4b**, the drift bound (ucd p0007, iud p0020; dui p0029, iud p0022 and iud p0029 reach the effort limit too) | RC4a: no exact code (a budget); RC4b: kept (owner 2026-11-17) |
 
 The remaining "bowties" results of #993 / #1010 / #1011 are vertex contacts of the exact solid with the rounding clean.
 They are expected for solids that touch at a vertex, like RC2 at a point, and no case was found that is not.
@@ -263,12 +263,10 @@ the 39 non-clean `ours` results with clean inputs: #1011 has iud p0005 s3 (union
 ucd p0007 (each step 3, difference), which is 4; 5 + 4 = 9. The 39 come from 36 rows (chain steps). Their "not closed" label is again
 the RC2 eval: it rests on the contacts these results also have, which here include contacts the rounding made.
 
-**Not diagnosed further, and why.** The rows hold only the initial counts (`rounding_intersections`,
-`rounding_degenerate`, `rounding_false_contacts`), not the remaining ones or why the repair stopped
-(`EvaluationLimitReached` at `RoundingMaxPairTests` = 5M, an edit rejected by the bound: `SmallestRejectedDrift`,
-`ScaleDisparity`). Telling "budget" from "bound" from "no edit exists" needs those fields. The models are ABC files (runner
-only), and the chains reach pair 29, so a rerun is the full 30-chain job of `abc-chained.yml` (up to 240 minutes). I did
-not start it for a diagnosis-only task.
+**First triage (superseded by the rerun below).** The rows of the first run held only the initial counts
+(`rounding_intersections`, `rounding_degenerate`, `rounding_false_contacts`), not the remaining ones or why the repair
+stopped, and a rerun of the full 30-chain job was not started for the diagnosis-only task. #1021 added the fields and a
+`chains` filter, and the rerun of 2026-11-17 is the diagnosis below.
 
 Procedurally, 54 chains gave no `RoundingClean == false` case. The probe was a scratch program, not committed; the
 parameters are given here so it can be rebuilt. Each model is snapped to float32 per coordinate:
@@ -284,14 +282,53 @@ parameters are given here so it can be rebuilt. Each model is snapped to float32
 That is 3 shapes × 6 placements × 3 chains = 54. The CAD models' many large coplanar faces next to a 1-ulp copy seem to
 be needed. That is a guess, not a measured result.
 
-**Proposed next step (first commit of the RC4 PR, not a fix yet):** add `rounding_remaining_intersections`,
-`rounding_remaining_degenerate`, `rounding_remaining_false_contacts`, `rounding_evaluation_limit`,
-`rounding_smallest_rejected_drift` and `rounding_max_drift` to the rows (`benchmarks/BooleanComparison/Program.cs`), and a
-`chains` filter input to `abc-chained.yml` (for example `iud:0005,iud:0021`) for a run of a few minutes. Then decide:
-budget (raise or scale `RoundingMaxPairTests` with the pieces), bound (near-coincident surfaces need moves larger than
-the ulp term), or no local edit (a candidate for removing the 1-ulp slab pairs as RC1/RC3's thin components). **Risk / gate:**
-unknown until then. A change to `MeshRoundingRepair`'s bounds is reviewed like an error bound. The exact code is not
-involved: the arrangement and classification of these cases are not suspected, and all results are winding-closed.
+**What was proposed then** (done in #1021): the remaining defects, the effort limit, the smallest rejected edit and the
+drift in the rows, and a `chains` filter for a short rerun.
+
+<a id="diagnosis-from-the-rerun"></a>**Diagnosis from the rerun (2026-11-17).** GitHub run
+[44031088444](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/44031088444), master 8f27f360 (with #1027 and
+#1021). It ran the seven RC4 chains with `ours` only, and its raw rows are on `runs/abc-chained`, folder `run-44031088444`.
+The `rounding` fields of #1021 split the cases into two groups. #993 p0011 (a Thingi10K mirror pair, not an abc
+chain) was not part of the rerun. "Bound" below is `MaxLength`, the larger of the relative term (1e-5 of the largest
+component's diagonal), the ulp term and the absolute term: 7.4e-6 to 1.34e-5 in these rows.
+
+| chain, step 3 | op | evaluation limit | smallest edit rejected before the limit / bound | max drift / bound | remaining (intersecting pairs / degenerate / false contacts) | initial |
+|---|---|---|---|---|---|---|
+| iud p0005 | union | **yes** | none rejected | 1e-11 | 4170 / 79124 / 1815 | 17788 / 129688, 266k pieces |
+| iud p0005 | intersection | **yes** | none rejected | 0.16 | 120 / 40862 / 0 | 14313 / 99740 |
+| iud p0021 | union | **yes** | none rejected | 1e-11 | 2835 / 35444 / 578 | 22776 / 82716, 192k pieces |
+| iud p0021 | intersection | **yes** | 663 | 4e-5 | 0 / 825 / 0 | 10466 / 63276 |
+| ucd p0007 | difference | no | **1.12** | 0.73 | 0 / 8 / 4 | 298 / 860 |
+| iud p0020 | difference | no | **1.04** | 0.76 | 0 / 4 / 2 | 94 / 174 |
+| dui p0029 | difference | yes | 1.004 | **0.985** | 9 / 0 / 0 | 277 / 992 |
+| iud p0022 | difference | yes | 1.001 | **0.986** | 48 / 7 / 2 | 570 / 1032 |
+| iud p0029 | difference | yes | 1.13 | **0.985** | 10 / 0 / 0 | 6560 / 20241 |
+
+- **RC4a, the effort limit** (iud p0005 and p0021, union and intersection; C a 1-ulp copy of A): the repair stops at its
+  effort limit (`EvaluationLimitReached`). That flag is set by either cap: `MaxPairTests` (5M exact pair tests) or the
+  evaluation cap of `MaxEvaluationsPerDefect` (10000 + 50 per initial defect, MeshRoundingRepair.cs:199, :208, :695).
+  The rows do not show which; the RC4a measurement adds that counter. Before the limit, the bound rejected no edit in
+  three of the four (none rejected before the limit; the p0021 intersection rejected one at 663 times the bound). These
+  are 189–266k pieces with 63–130k initial degenerate
+  triangles: the slivers between A and its copy one ulp off. The step-3 differences of the same chains are empty and clean
+  (235–250 components removed), as decided on 2026-11-16. A larger budget would be an owner decision on cost: the default is 5M, and
+  the earlier "cost-weighted rounding budget" (roadmap/exact-boolean.md, item 3 near line 463) was dropped on 2026-11-12. So
+  would one scaled by the pieces or by the defect count. Removing the 1-ulp slab pairs before the repair would be the other
+  lever, the thin-component removal of SAFE_ROUNDING.md (the scale paragraph, with the RC1 rule) and RC1 / RC3 above.
+- **RC4b, the drift bound** (the five differences). Only ucd p0007 and iud p0020 are clean bound cases: they do not reach
+  the effort limit, and the smallest edit that would repair the rest is 1.04–1.12 times `MaxLength`. In dui p0029,
+  iud p0022 and iud p0029 the edits used 0.985 of the drift budget, the next one was rejected, and the effort limit was
+  reached as well, so bound and limit cannot be separated there. The bound is the owner's (`MaxLength`, above), and the
+  owner keeps it (2026-11-17): a documented limit.
+
+Not a defect of the arrangement or of the classification: every result is winding-closed, and the volume identities hold
+as in the first run. Both groups are documented limits (`Compute()` succeeds with `RoundingClean == false`), so a change of
+the budget, of the bound, or of slab removal is an owner decision. With #1021 the eval now classifies the pinches of these
+results (`pinch_edges`, `pinch_vertices`). The two unions are still "not closed" after the pinch split. It was not checked
+whether that comes from the false contacts the rounding left (`remaining_false_contacts` 1815 and 578).
+
+Side observation: iud p0029 step 1, difference, now has `RoundingClean == false` with `ScaleDisparity` 1 (a thin
+component kept because it holds volume, the pre-existing rule; not KeepWhenEmptied). NotCleanReason calls it clean.
 
 ## Not found
 
