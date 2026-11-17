@@ -194,5 +194,10 @@ is correct behaviour), terrain mutation survivors (#908), the `Acos` of `Terrain
 2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks. Berms and
    inter-ramp checks and the GeoTIFF reader: later (owner 2026-11-17).
 3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
-4. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 are being fixed in #1077 (open, with the
+4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes): (1) `TerrainSafety`'s
+   segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
+   `TerrainVolumeDifference`'s height check (`DMeshAABBTree3`) to `TriangleQuadtree2d`. First step when terrain resumes: an
+   upper-bound measurement on procedural inputs, including a long-segment worst case; a PR only above the 10 % bar. Not now:
+   `Arrangement2d.find_intersecting_edges` (linear scan, TODO; no internal caller) and the bin grid of `MeshInsertUVPolyCurve` (minor).
+5. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 are being fixed in #1077 (open, with the
    `rounding-4` and `rounding-7` ones; Exact Boolean 3.0 gate).
