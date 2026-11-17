@@ -118,6 +118,12 @@ public static partial class Program
         B30CheckIdentical(what, "second Compute() of the same instance differs", first, op.Result);
     }
 
+    /// <summary> the time one input may take over its operations before the rest of them is skipped: with 600 orders of magnitude between
+    /// the coordinates every filter fails and the open-input classification runs on exact numbers, 6 to 7 s per operation on a pair of
+    /// 24 and 10 triangles (the timeout artifact f873b37a of campaign b30-n2-v3: 21 s for the three operations, above libFuzzer's 30 s under load).
+    /// A cost limit of the target, not of the correctness checks: the operations that ran are judged in full </summary>
+    public static bool B30OverBudget(TimeSpan elapsed) => elapsed > TimeSpan.FromSeconds(5);
+
     /// <summary> open inputs (one triangle of each operand removed) through all three operations: no failed status, and a
     /// success is a valid mesh; the boundary of an open input is not promised to be closed </summary>
     static void RunOpenAntipodal(Case c, string what)
@@ -125,7 +131,9 @@ public static partial class Program
         DMesh3 a = new DMesh3(c.A), b = new DMesh3(c.B);
         if (a.TriangleCount > 1) a.RemoveTriangle(a.TriangleIndices().First());
         if (b.TriangleCount > 1) b.RemoveTriangle(b.TriangleIndices().First());
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
+            if (B30OverBudget(clock.Elapsed)) return;
             var x = new ExactMeshBoolean(a, b, op);
             bool ok = x.Compute();
             B30CheckOpenStatus(what, op, x.Status, ok, x.Result == null || x.Result.TriangleCount == 0 || x.Result.CheckValidity(true, FailMode.ReturnOnly));

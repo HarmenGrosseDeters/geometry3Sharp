@@ -668,6 +668,8 @@ public static partial class Program
         ExpectFinding("an n-ary volume that is half the chain's", () => B30CheckVolumes("t", "n-ary", 1, 2, 1e-9), "n-ary");
         ExpectFinding("a NaN volume", () => B30CheckVolumes("t", "n-ary", double.NaN, 1, 1e-9), "n-ary");
         if (Math.Abs(B30Volume(cube) - 1) > 1e-12) throw new InvalidOperationException("the unit cube must have the volume 1: " + B30Volume(cube));
+        if (B30OverBudget(TimeSpan.FromSeconds(4)) || !B30OverBudget(TimeSpan.FromSeconds(6)))
+            throw new InvalidOperationException("the time budget of an input is 5 s");
         var T = ExactMeshBoolean.Operations.Union;
         B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.Success, true, true);
         B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.RoundingNotClean, false, false);
