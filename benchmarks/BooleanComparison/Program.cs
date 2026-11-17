@@ -18,6 +18,9 @@
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
 //                                        scale differences) and iterated sequences; writes <dir>/cases.jsonl
 //   run <A.off> <B.off> <op> <out.off>   ExactMeshBoolean; prints {"ms":..} (boolean only, without I/O)
+//   imprint <A.off> <B.off> <method> <op>
+//                                        the imprint comparison (ImprintCompare.cs): exact_imprint / float_cut with op a_by_b or b_by_a,
+//                                        exact_union / float_union with op union; prints one JSON line with the status, ms and checks
 //                                        (run and obb: BOOLCMP_SAFE_ROUNDING=0|1 sets ExactMeshBoolean.SafeRounding)
 //   obb --request <r.json> --result <r.json> [--write-last-only]
 //                                        runner for the Open Boolean Benchmark protocol (obb-runner/README.md)
@@ -62,6 +65,7 @@ static class Program
             case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
             case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
             case "thingi-contact": return ThingiContact.Pair(args.Skip(1).ToArray());
+            case "imprint": return ImprintCompare.Run(args.Skip(1).ToArray());
             case "abc-chain-inputs": return AbcChained.Inputs(args.Skip(1).ToArray());
             case "chain-step": return AbcChained.Step(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
