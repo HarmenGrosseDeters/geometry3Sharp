@@ -36,8 +36,8 @@ namespace geometry3Sharp.Tests
 
         static Vector3d V(double x, double y, double z) => new Vector3d(x, y, z);
 
-        // the four points with the coordinates permuted: (x, y, z) -> (y, z, x) k times, so the same quad lies in the plane
-        // x = const, y = const or z = const
+        // the point with its coordinates permuted: k = 1 gives (z, x, y), k = 2 gives (y, z, x), so a quad in the plane z = 1
+        // lies in x = 1 (k = 1) or y = 1 (k = 2)
         static Vector3d Perm(Vector3d p, int k) => k == 0 ? p : k == 1 ? V(p.z, p.x, p.y) : V(p.y, p.z, p.x);
 
         [Theory]
@@ -95,8 +95,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FlatConvex_SimilarityInvariant()
         {
-            // the decision is exact, so it does not change under the scales by 2^k of Similarity.All() (exact in doubles;
-            // the rotations and translations round the points, so the four may leave their plane)
+            // the decision is exact, so it does not change under the scales by 2^k of Similarity.All(), which map these
+            // points exactly (IsExact; the others round them, and four rounded points may leave their plane)
             var quads = new[] {
                 new[] { V(0, 0, 0), V(2, 2, 6), V(2, 0, 2), V(0, 2, 4) },
                 new[] { V(0, 0, 1), V(4, 0, 1), V(2, 0, 1), V(2, 3, 1) },

@@ -188,7 +188,8 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-5"] = new[] { sliverStage },
                 // (ghost_list to drop: the checks of the check mode, check_bounds, check_ghosts and check_all_bounds, and
-                // the references; gate run 44013112256, about 3 s)
+                // the references; gate run 44013112256; about 10 s, 9 s of them
+                // Searches_IncrementalAfterEdits (Slow): the local run of the part took 47 minutes)
                 ["stryker-mesh-rounding-4"] = new[] {
                     "FullyQualifiedName~MeshRoundingRepairFilterTests.FilterDecisions_AgreeWithExactTest",
                     "FullyQualifiedName~MeshRoundingRepairFilterTests.BoundaryPairs_FilterAgreesWithExactTest",
