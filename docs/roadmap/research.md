@@ -566,7 +566,7 @@ Ordered by expected value for the library.
      have p01 >= 10° (section 12, #885). The floor on 100 % is still open.
    - 2026-11-17 (TET_MESHING.md section 16): diagnosis of the tets left (all touch the boundary; needles and wedges on short wrap
      edges, local optima, not the exact checks) and the lever, edge splits with roll-back (boundary edges in place) and interior
-     edge contraction in stage 2: 37 of 40 with every tet >= 10° (17 on master), worst 6.4° (839690). Exudation not needed.
+     edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690). Exudation not needed.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -634,8 +634,8 @@ Done and removed from this list: #721 closed (the plateau variant of the positio
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
 1. Hard problem 11, determinism proof: #804 (casts audited and converted, #973, closed 2026-11-16), then the net48 / net10 measurement (#929, local).
-2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (37 of 40 with the edge splits of TET_MESHING.md section 16;
-   839690, 113956, 46460 left); sliver exudation not needed by the diagnosis.
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (36 of 40 with the edge splits of TET_MESHING.md section 16;
+   839690, 120628, 46460, 113956 left); sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).

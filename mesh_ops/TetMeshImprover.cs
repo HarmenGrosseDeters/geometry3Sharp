@@ -122,8 +122,11 @@ namespace gs
             return (a, b, c);
         }
 
-        // undo journal of a split: tets added (id) and removed (id, tet)
-        List<(int id, Index4i t, bool added)> tetLog;
+        // undo journal of a split: tets added (id; fromFree: popped from the free stack, else appended) and removed (id, tet; its
+        // id pushed on the free stack). Undone in reverse order, these stack operations restore the stack exactly
+        List<(int id, Index4i t, bool added, bool fromFree)> tetLog;
+        // undo journal of a split's grid registrations: the lists appended to (each append is at the list's end)
+        List<List<int>> gridLog;
 
         // per vertex: bumped whenever a tet at the vertex is added or removed, or the vertex moves (memo of failed operations)
         readonly List<int> ver = new List<int>();
@@ -133,10 +136,11 @@ namespace gs
         int add_tet(Index4i t)
         {
             int id;
-            if (free.Count > 0) { id = free.Pop(); tets[id] = t; alive[id] = true; }
+            bool fromFree = free.Count > 0;
+            if (fromFree) { id = free.Pop(); tets[id] = t; alive[id] = true; }
             else { id = tets.Count; tets.Add(t); alive.Add(true); }
             for (int i = 0; i < 4; ++i) { vtets[t[i]].Add(id); bump(t[i]); }
-            tetLog?.Add((id, t, true));
+            tetLog?.Add((id, t, true, fromFree));
             return id;
         }
 
@@ -146,7 +150,7 @@ namespace gs
             for (int i = 0; i < 4; ++i) { vtets[t[i]].Remove(id); bump(t[i]); }
             alive[id] = false;
             free.Push(id);
-            tetLog?.Add((id, t, false));
+            tetLog?.Add((id, t, false, false));
         }
 
         /// <summary> smallest dihedral angle in degrees; -1 if not exactly positively oriented </summary>
@@ -219,7 +223,7 @@ namespace gs
 
         /// <summary>
         /// (diagnosis) for every tet left below TargetDegrees: its shape, how it touches the boundary, and why each operation fails
-        /// on it (side-effect free: the operations run with dry set). Adds "diag_*" counts.
+        /// on it (side-effect free: the operations run with dry set; splits are not tried). Adds "diag_*" counts.
         /// </summary>
         internal void Diagnose()
         {
@@ -244,6 +248,7 @@ namespace gs
                 string touch = nf > 0 ? "facet" + nf : ne > 0 ? "edge" + ne : nv > 0 ? "vertex" + nv : "interior";
                 string shape = Shape(pos[t.a], pos[t.b], pos[t.c], pos[t.d]);
                 inc("diag_touch_" + touch); inc("diag_shape_" + shape);
+                bool can = false;
                 // the shortest edge: boundary edge, chord between two boundary vertices, or with an interior end; ratio to the longest
                 int sa = -1, sb = -1; double smin = double.MaxValue, smax = 0;
                 for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) { double l = pos[t[i]].Distance(pos[t[j]]); smax = Math.Max(smax, l); if (l < smin) { smin = l; sa = t[i]; sb = t[j]; } }
@@ -251,15 +256,17 @@ namespace gs
                 if (shape == "needle" || shape == "wedge") {
                     inc("diag_short_" + sk);
                     if (Contraction) {
-                        try_contract(sa, sb); string r1 = lastContract; try_contract(sb, sa); string r2 = lastContract;
+                        if (try_contract(sa, sb)) can = true;
+                        string r1 = lastContract;
+                        if (try_contract(sb, sa)) can = true;
+                        string r2 = lastContract;
                         inc("diag_contract_" + sk + "_" + (string.CompareOrdinal(r1, r2) < 0 ? r1 + "_" + r2 : r2 + "_" + r1));
                         if (BoundarySlideLimit > 0) shape += "/short_in_caps:" + (smin / BoundarySlideLimit).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "/long_in_caps:" + (smax / BoundarySlideLimit).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
                     }
                 }
                 shape += "/" + sk + ":" + (smin / smax).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                // operations, as improve() would try them
+                // operations, as improve() would try them (all but the splits, which have no dry run)
                 var why = new List<string>();
-                bool can = false;
                 for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) {
                     int a = t[i], b = t[j];
                     bool be = bedges.Contains(a < b ? (a, b) : (b, a));
@@ -337,6 +344,14 @@ namespace gs
         internal int VertexCount => pos.Count;
         /// <summary> (tests) the alive tets </summary>
         internal List<Index4i> AliveTets() { var r = new List<Index4i>(); for (int id = 0; id < tets.Count; ++id) if (alive[id]) r.Add(tets[id]); return r; }
+        /// <summary> (tests) the improver's internal state, in order: per vertex its tet ids and boundary face ids, the free tet ids </summary>
+        internal string StateForTest()
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int v = 0; v < vtets.Count; ++v) { sb.Append(string.Join(",", vtets[v])).Append('|').Append(string.Join(",", vfaces[v])).Append(';'); }
+            sb.Append('#').Append(string.Join(",", free)).Append('#').Append(tets.Count);
+            return sb.ToString();
+        }
         /// <summary> (tests) the neighbours of v </summary>
         internal SortedSet<int> Neighbours(int v) { var r = new SortedSet<int>(); foreach (int id in vtets[v]) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (t[i] != v) r.Add(t[i]); } return r; }
 
@@ -557,9 +572,14 @@ namespace gs
             foreach (int id in vtets[a]) if (idx2(tets[id], b)) ringT.Add(id);
             if (ringT.Count == 0) return false;
             // the neighbourhood: tets at a, b and the ring vertices
-            var nb = new HashSet<int> { a, b };
-            foreach (int id in ringT) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) nb.Add(t[i]); }
+            var nbSet = new HashSet<int> { a, b };
+            var nb = new List<int> { a, b };
+            foreach (int id in ringT) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (nbSet.Add(t[i])) nb.Add(t[i]); }
             double old = nbmin(nb);
+            // what the undo restores besides the journal: the order of the tet lists at the neighbourhood (later sums run over
+            // them), and the vertices' versions (a refused split must not look like a change to the memo)
+            var vtetsSnap = new List<(int, List<int>, int)>();
+            foreach (int x in nb) vtetsSnap.Add((x, new List<int>(vtets[x]), ver_of(x)));
             Vector3d m = SplitPointForTest != null ? SplitPointForTest(pos[a], pos[b]) : 0.5 * (pos[a] + pos[b]);
             // the new vertex. Its slide cap is measured from the midpoint of the edge's first positions, which lies on the wrap surface
             // (up to rounding): boundary edges only ever get split, so each lies in one wrap triangle; and the vertex starts within the
@@ -575,7 +595,9 @@ namespace gs
             while (slideMargin.Count < v) slideMargin.Add(0);
             slideMargin.Add(margin);
             boundaryVertex.Add(be);
-            tetLog = new List<(int, Index4i, bool)>();
+            tetLog = new List<(int, Index4i, bool, bool)>();
+            gridLog = new List<List<int>>();
+            var vfacesSnap = new List<(int, List<int>)>();
             var countsBefore = new Dictionary<string, long>(Counts);
             var faceLog = new List<(int f, Index3i t)>();
             int nfaces0 = bfaces.Count;
@@ -595,6 +617,7 @@ namespace gs
                     Index3i t = bfaces[f];
                     if (!(t.a == b || t.b == b || t.c == b)) continue;
                     faceLog.Add((f, t));
+                    for (int j = 0; j < 3; ++j) if (!vfacesSnap.Exists(e => e.Item1 == t[j])) vfacesSnap.Add((t[j], new List<int>(vfaces[t[j]])));
                     boundaryFaces.Remove(key(t.a, t.b, t.c));
                     for (int j = 0; j < 3; ++j) vfaces[t[j]].Remove(f);
                     Index3i f1 = t, f2 = t;
@@ -612,34 +635,41 @@ namespace gs
                     bool moved = be ? try_smooth_boundary(v) : try_smooth(v);
                     if (!moved) break;
                 }
-                foreach (int x in new List<int>(nb)) if (x != v) try_edge_removal(v, x);
+                foreach (int x in nb) try_edge_removal(v, x);
                 nb.Add(v);
                 double now = nbmin(nb);
                 ok = now > old || IgnoreQualityForTest;
             }
             if (ok) {
                 Counts["insertions"]++;
-                tetLog = null;
+                tetLog = null; gridLog = null;
                 return true;
             }
-            // undo
+            // undo, in reverse: tets, alive and the free stack exactly as before
             var tl = tetLog; tetLog = null;
             for (int k = tl.Count - 1; k >= 0; --k) {
-                var (id, t, added) = tl[k];
-                if (added) remove_tet(id);
-                else { // re-add at the same id
-                    tets[id] = t; alive[id] = true; for (int i = 0; i < 4; ++i) vtets[t[i]].Add(id);
-                    // the id is on the free stack (pushed by remove_tet): take it off
-                    var tmp = new Stack<int>(); while (free.Count > 0) { int x = free.Pop(); if (x == id) break; tmp.Push(x); } while (tmp.Count > 0) free.Push(tmp.Pop());
+                var (id, t, added, fromFree) = tl[k];
+                for (int i = 0; i < 4; ++i) { if (added) vtets[t[i]].Remove(id); else vtets[t[i]].Add(id); }
+                if (added) {
+                    alive[id] = false;
+                    if (fromFree) free.Push(id);
+                    else { tets.RemoveAt(tets.Count - 1); alive.RemoveAt(alive.Count - 1); }   // the last appended id
+                } else {
+                    tets[id] = t; alive[id] = true;
+                    free.Pop();                                     // remove_tet pushed id last among what is still on the stack
                 }
             }
+            foreach (var (x, l, vv) in vtetsSnap) { vtets[x].Clear(); vtets[x].AddRange(l); ver[x] = vv; }
+            var gl = gridLog; gridLog = null;
+            for (int k = gl.Count - 1; k >= 0; --k) gl[k].RemoveAt(gl[k].Count - 1);
             if (be) {
                 for (int f = bfaces.Count - 1; f >= nfaces0; --f) { Index3i t = bfaces[f]; boundaryFaces.Remove(key(t.a, t.b, t.c)); for (int j = 0; j < 3; ++j) vfaces[t[j]].Remove(f); }
                 bfaces.RemoveRange(nfaces0, bfaces.Count - nfaces0);
                 foreach (var (f, t) in faceLog) {
-                    Index3i cur = bfaces[f]; boundaryFaces.Remove(key(cur.a, cur.b, cur.c)); for (int j = 0; j < 3; ++j) vfaces[cur[j]].Remove(f);
-                    bfaces[f] = t; boundaryFaces.Add(key(t.a, t.b, t.c)); for (int j = 0; j < 3; ++j) vfaces[t[j]].Add(f);
+                    Index3i cur = bfaces[f]; boundaryFaces.Remove(key(cur.a, cur.b, cur.c));
+                    bfaces[f] = t; boundaryFaces.Add(key(t.a, t.b, t.c));
                 }
+                foreach (var (x, l) in vfacesSnap) { vfaces[x].Clear(); vfaces[x].AddRange(l); }
             }
             pos.RemoveAt(v); orig.RemoveAt(v); vtets.RemoveAt(v); vfaces.RemoveAt(v); boundaryVertex.RemoveAt(v); slideMargin.RemoveAt(v);
             // the counts of the undone operations go, the refusal stays
@@ -653,7 +683,7 @@ namespace gs
         double slide_margin(int v) { return v < slideMargin.Count ? slideMargin[v] : 0; }
         double slide_limit(int v) { return BoundarySlideLimit - slide_margin(v); }
 
-        double nbmin(HashSet<int> nb)
+        double nbmin(List<int> nb)
         {
             double q = 180;
             var seen = new HashSet<int>();
@@ -668,8 +698,8 @@ namespace gs
             for (int j = 0; j < 3; ++j) vfaces[t[j]].Add(f);
             if (cell == 0) return;            // the grid is built later from orig (which has the new vertex)
             AxisAlignedBox3d b = reach_box(f);
-            if (cell_count(b) > MaxCellsPerFace) bigFaces.Add(f);
-            else foreach (var k in cells(b)) { if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(); l.Add(f); }
+            if (cell_count(b) > MaxCellsPerFace) { bigFaces.Add(f); gridLog?.Add(bigFaces); }
+            else foreach (var k in cells(b)) { if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(); l.Add(f); gridLog?.Add(l); }
         }
 
         // the faces at v against the other boundary faces near them (exact)
@@ -741,6 +771,7 @@ namespace gs
                 if (!(q > old) && !IgnoreQualityForTest) return false;
                 if (q < 0) return false;
             }
+            lastContract = "ok";
             if (dry) return true;
             var changed = new List<Index4i>();
             foreach (int id in new List<int>(su)) {

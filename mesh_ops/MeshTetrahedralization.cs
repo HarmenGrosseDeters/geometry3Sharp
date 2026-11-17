@@ -125,6 +125,7 @@ namespace gs
         public bool Compute()
         {
             Result = null;
+            DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
                 RefineMinAngleDegrees = SurfaceMinAngleDegrees };

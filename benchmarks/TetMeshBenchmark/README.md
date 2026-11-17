@@ -104,7 +104,7 @@ Switches from the environment (benchmark only): `G3_TET_SPLIT=0`, `G3_TET_CONTRA
 
 | | master | splits + contractions |
 |---|---|---|
-| every tet >= 10 degrees | 17 / 40 | 37 / 40 |
-| worst smallest dihedral | 3.17 | 6.40 |
-| time median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.74 s / 11.0 s / 47.9 s |
-| refinement + improvement per tet, median | 55 us | 73 us |
+| every tet >= 10 degrees | 17 / 40 | 36 / 40 |
+| worst smallest dihedral | 3.17 | 6.11 |
+| time median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.81 s / 14.6 s / 54.9 s |
+| refinement + improvement per tet, median | 55 us | 78 us |

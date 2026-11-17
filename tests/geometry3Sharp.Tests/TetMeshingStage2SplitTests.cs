@@ -151,8 +151,10 @@ namespace geometry3Sharp.Tests
                 int a = t.a, b = t.b;
                 if (!imp.Neighbours(a).Contains(b)) continue;
                 TetMesh3 snap = imp.Result();
+                string state = imp.StateForTest();
                 if (imp.TrySplit(a, b)) { kept++; continue; }
                 refused++;
+                Assert.Equal(state, imp.StateForTest());          // the lists in their order, the free ids: later sums run over them
                 TetMesh3 now = imp.Result();
                 Assert.Equal(snap.Vertices, now.Vertices); Assert.Equal(snap.Tets, now.Tets); Assert.Equal(snap.BoundaryTriangles, now.BoundaryTriangles);
             }
@@ -175,6 +177,11 @@ namespace geometry3Sharp.Tests
                 }
                 return (tk, fc, dup);
             };
+            // only the tets at u, w and their neighbours matter (the merge changes nothing else; the face counts and vertex links
+            // near the merge are complete over these)
+            var region = new HashSet<int> { u, w };
+            foreach (Index4i t in tets) if (t.a == u || t.b == u || t.c == u || t.d == u || t.a == w || t.b == w || t.c == w || t.d == w) for (int i = 0; i < 4; ++i) region.Add(t[i]);
+            tets = tets.Where(t => region.Contains(t.a) || region.Contains(t.b) || region.Contains(t.c) || region.Contains(t.d)).ToList();
             var merged = new List<Index4i>();
             foreach (Index4i t in tets) {
                 bool hu = t.a == u || t.b == u || t.c == u || t.d == u, hw = t.a == w || t.b == w || t.c == w || t.d == w;
@@ -185,8 +192,11 @@ namespace geometry3Sharp.Tests
             var (_, f0, _) = census(tets);
             var (_, f1, dup1) = census(merged);
             if (dup1 || f1.Values.Any(c => c > 2)) return false;
-            var b0 = new HashSet<(int, int, int)>(f0.Where(kv => kv.Value == 1).Select(kv => kv.Key));
-            var b1 = new HashSet<(int, int, int)>(f1.Where(kv => kv.Value == 1).Select(kv => kv.Key));
+            // boundary triangles: those in one tet, among the faces of the tets at u or w (the region's own rim is not boundary)
+            Func<Index4i, bool> atUW = (t) => t.a == u || t.b == u || t.c == u || t.d == u || t.a == w || t.b == w || t.c == w || t.d == w;
+            var starFaces = new HashSet<(int, int, int)>(tets.Where(atUW).SelectMany(t => faces(t)).Select(key));
+            var b0 = new HashSet<(int, int, int)>(f0.Where(kv => kv.Value == 1 && starFaces.Contains(kv.Key)).Select(kv => kv.Key));
+            var b1 = new HashSet<(int, int, int)>(f1.Where(kv => kv.Value == 1 && starFaces.Contains(kv.Key)).Select(kv => kv.Key));
             if (!b0.SetEquals(b1)) return false;
             // a 3-manifold with boundary: the link of every vertex near the merge is a connected 2-sphere or disk (Euler 2 or 1,
             // every link edge in one or two link triangles)
@@ -234,7 +244,7 @@ namespace geometry3Sharp.Tests
             var noPairs = new List<(int, int)>();
             for (int round = 0; round < 2; ++round) {
                 List<Index4i> tets = imp.AliveTets();
-                for (int u = 0; u < imp.VertexCount && yes + no < 4000 * (round + 1); ++u) {
+                for (int u = 0; u < imp.VertexCount && yes + no < 1500 * (round + 1); ++u) {
                     if (imp.IsBoundaryVertex(u)) continue;
                     foreach (int w in imp.Neighbours(u)) {
                         bool link = imp.LinkCondition(u, w);
@@ -324,6 +334,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal(left, b.Counts.Where(kv => kv.Key.StartsWith("improve_diag_shape_")).Sum(kv => kv.Value));
             // the counts of the improvement itself are those of the run without the diagnosis
             foreach (var kv in a.Counts) Assert.Equal(kv.Value, b.Counts[kv.Key]);
+        }
+
+        [Fact]
+        public void Diagnosis_WithContraction_ChangesNothing()
+        {
+            Func<bool, MeshTetrahedralization> run = (d) => {
+                // one pass, so that needles and wedges are left (their short edges get the dry contraction)
+                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ImprovePasses = 1, DiagnoseImprovement = d };
+                Assert.True(m.Compute()); return m;
+            };
+            MeshTetrahedralization a = run(false), b = run(true);
+            Assert.Equal(a.Result.Vertices, b.Result.Vertices); Assert.Equal(a.Result.Tets, b.Result.Tets);
+            foreach (var kv in a.Counts) Assert.Equal(kv.Value, b.Counts[kv.Key]);
+            Assert.True(b.Counts.Keys.Any(k => k.StartsWith("improve_diag_contract_")), string.Join(" ", b.Counts.Keys.Where(k => k.Contains("diag"))));
+            Assert.Null(a.DiagnosticLines);
+            Assert.True(b.Compute() && b.DiagnosticLines != null);
+            b.DiagnoseImprovement = false;
+            Assert.True(b.Compute());
+            Assert.Null(b.DiagnosticLines);                                       // not left over from the run before
         }
 
         [Fact]

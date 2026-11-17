@@ -789,8 +789,9 @@ degrees after edge removal and face removal, in `TetMeshImprover`:
   tet (a, b, c, m) of each old triangle is checked exactly against the input (`TetTouchesMesh`) and the four new triangles against the
   other boundary triangles (exact, as boundary moves). Then the new vertex is smoothed (8 steps; boundary moves with all their exact
   checks for a boundary vertex) and the edges at it get edge removal. The split is kept only if the smallest dihedral angle of all
-  tets at the edge's ring vertices strictly increases; otherwise it is undone exactly (journal of tets and boundary triangles;
-  test: the result is bit for bit the one before). A failed split is not retried until a vertex of its tet's 1-ring changes.
+  tets at the edge's ring vertices strictly increases; otherwise it is undone exactly (journal of tets, boundary
+  triangles and grid entries; the free list of tet ids, the order of the per-vertex lists and the vertices' versions are restored,
+  so a refused split leaves the improver's state as it was; test: the result is bit for bit the one before). A failed split is not retried until a vertex of its tet's 1-ring changes.
 - Order per tet: edge removal, face removal, contraction, split, smoothing, boundary moves; at most 50 passes (`ImprovePasses`,
   was 20). Splits before smoothing measured better (31 against 21 of 40 at 20 passes): smoothing first spends the slide budget.
 
@@ -807,27 +808,29 @@ test `Similarity_ValidAndPow2ScalesBitForBit`). Scale-free and serial: 2^k scali
 | Measure (40 meshes) | master (stage 2) | with splits and contractions (default) |
 |---|---|---|
 | valid (exact), boundary without self-intersection | 40 / 40, 40 / 40 | 40 / 40, 40 / 40 |
-| **every tet >= 10 degrees** | 17 | **37** |
+| **every tet >= 10 degrees** | 17 | **36** |
 | p01 >= 10 degrees / smallest >= 1 degree | 39 / 40 | 40 / 40 |
-| tets below 10 degrees, all meshes | 361 | 47 |
-| worst smallest dihedral / median | 3.17 / 9.57 | 6.40 (839690) / 10.02 |
-| tets, median / max | 4.4k / 17.0k | 4.4k / 17.6k |
-| time (wrap, refinement, improvement), median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.74 s / 11.0 s / 47.9 s |
-| refinement + improvement per tet, median | 55 us | 73 us |
-| splits / contractions, all meshes | | 2061 / 490 |
+| tets below 10 degrees, all meshes | 361 | 63 |
+| worst smallest dihedral / median | 3.17 / 9.57 | 6.11 (839690) / 10.02 |
+| tets, median / max | 4.4k / 17.0k | 4.4k / 17.7k |
+| time (wrap, refinement, improvement), median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.81 s / 14.6 s / 54.9 s |
+| refinement + improvement per tet, median | 55 us | 78 us |
+| splits / contractions, all meshes | | 2014 / 493 |
 
-Left: 839690 (6.40 degrees, 5.4 s instead of 1.6 s: most split attempts there fail), 113956 (9.9), 46460 (9.1). In probes
-113956 reached 10.0 (the trajectory depends on the caps), and 46460 reaches 10.01 with a slide cap of one offset; 839690 stays
-below 8 degrees in every variant tried (needles on short boundary edges with rings of more than 8 tets around their long edges).
+Left: 839690 (6.11 degrees, 4.6 s instead of 1.6 s: most split attempts there fail), 120628 (8.84), 46460 (9.10), 113956 (9.57).
+The count is sensitive to choices between equal candidates: versions of this code that differed only in the order of lists after
+a refused split, or in the rounding margin of the cap, gave 37 and 38 (113956 and 120628 at >= 10.0); 46460 reaches 10.01 with a
+slide cap of one offset; 839690 stays below 8 degrees in every variant tried (needles on short boundary edges with rings of more
+than 8 tets around their long edges).
 
 `dev_out_max_rel` (boundary vertices to the input) rises from 0.0025 to 0.050 of the diagonal: a sampling effect, not a moved
 surface. The split vertices lie on the wrap's triangles, and the wrap's edge midpoints are already 0.050 of the diagonal from the
 input on master (alpha = diagonal / 20 in concave places); master's vertex sample saw only the wrap vertices (one offset away).
 The boundary itself stays within 0.5 offsets of the wrap surface, as before.
 
-Time: T5 (25 us per tet) was already missed by stage 2 on master (median 55 us); this adds a third. Not done: the per-attempt cost
+Time: T5 (25 us per tet) was already missed by stage 2 on master (median 55 us); this adds about 40 %. Not done: the per-attempt cost
 of a split on meshes like 839690 (smoothing with the exact checks dominates).
 
 Owner decisions: (1) the default: `SplitEdges` and `ContractEdges` on, `ImprovePasses` 50 (this PR; the output of
-`MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last three meshes: accept
-37 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).
+`MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last four meshes: accept
+36 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).
