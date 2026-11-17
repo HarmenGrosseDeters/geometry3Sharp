@@ -59,7 +59,17 @@ from the rest (a unit tetrahedron 1e8 away from two unit spheres) made the diago
 degenerate, the bound 1732, and the union came out empty, reported clean. Edits stay within one component, so the drift
 bound is checked with the edit's component and the theorem below holds per component. Tiny components are still
 removed relative to the largest one (as decided above); the limit of this: a long thin component still sets the
-diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. A diagonal that is
+diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. **Not all of a thin
+input's result (#985, owner 2026-11-17, option a):** where an exact input of `ExactMeshBoolean` is itself thin or tiny by
+these tests (`IsThinOrTiny`: a flattened or needle-like solid, thin or tiny by its own diagonal) and every component of the
+result would be removed, nothing is removed (`KeepWhenEmptied`): every component stays, so no cavity is lost, each is
+counted in `ScaleDisparity` and `KeptWhenEmptied`, and the repair is not clean. The edits before the removal stay applied:
+within the isotropic bound they can change such a slab far beyond its thickness, or turn it inside out, which
+`NotCleanReason` then reports. Fat inputs whose result is only thin pieces (the slivers of nearly coincident surfaces,
+A - A') are removed as before: an empty result, clean. The input test judges each input by its largest component, as the removal judges
+the result (two fat parts far apart are not tiny). With `StrictRounding` a kept result fails (`RoundingNotClean`), where
+the empty result succeeded before. `MeshRobustRepair` sends a resolve that kept components this way to
+its wrap fallback, as it did with the empty result. Before, the result was empty and reported clean. A diagonal that is
 not finite (coordinates that are not, or finite ones whose extent overflows, beyond about 1e154) makes the size NaN
 whatever the order of the components: every edit is rejected, nothing is removed as tiny or thin (an infinite size would
 remove every closed component as tiny), and the repair is not clean (`ScaleNotFinite`). A closed component that the bound takes as thin but that holds

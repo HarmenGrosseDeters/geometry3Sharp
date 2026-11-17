@@ -1305,7 +1305,9 @@ namespace gs
                 SeparatedRounding = null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
-                if (res == null || res.TriangleCount == 0) {
+                // (a rounding that kept components only because their removal would have emptied a thin input's result,
+                // #985: not clean, as an empty result was before; the wrap fallback takes it, as it did then)
+                if (res == null || res.TriangleCount == 0 || (resolve.Rounding != null && resolve.Rounding.KeptWhenEmptied > 0)) {
                     ExactResolveReason = resolve.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean
                         ? "rounding not clean (StrictRounding)" : "resolve failed";
                     return null;
