@@ -1,9 +1,11 @@
-# T6 of Exact Boolean 3.0 (docs/roadmap/exact-boolean.md): time ratio ours / CGAL EPECK on 1k-100k triangles.
+# T6 of Exact Boolean 3.0 (docs/roadmap/exact-boolean.md): time ratio ours / CGAL EPECK on 1k-100k triangles, and the same case set
+# against Geogram (docs/research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md).
 # Helper of .github/workflows/t6-cgal.yml; no meshes are part of the repository, they are fetched at run time.
 #
 #   python3 perf/t6.py pairs <out.csv>                   the pairs of the case set (see below) as a pair list
 #   python3 perf/t6.py fetch <dir> <pairs.csv>           the models of the pair list -> <dir>/meshes (huggingface)
-#   python3 perf/t6.py report <label=results.jsonl>...   Markdown tables: ratios, clean rates, refusals, worst 5
+#   python3 perf/t6.py report [--other M] <label=results.jsonl>...   Markdown tables: ratios ours / M, clean rates, refusals,
+#                                                        volume agreement, worst 5 (M: cgal_epeck, the default, or geogram)
 #
 # Case set: the fixed 100-pair CGAL sample (thingi-pairs/pairs_cgal_sample.csv) restricted to pairs whose operands
 # have 1k-100k triangles in total (A + B); if that leaves fewer than MIN_PAIRS, pairs of pairs.csv of that size class
@@ -20,6 +22,10 @@ BUCKETS = [("1k-10k", 1000, 10000), ("10k-100k", 10000, 100001)]
 MIN_PAIRS = 50
 SEED_TOPUP = 20261115
 OPS = ["union", "intersection", "difference"]
+NAMES = {"cgal_epeck": "CGAL", "geogram": "Geogram", "manifold": "Manifold"}
+# volumes of two results agree if they differ by at most this, relative to the volume of the inputs (vA + vB): rounding the result
+# to doubles moves a volume by far less, a wrong classification of a part by about its volume
+VOL_TOL = 1e-6
 
 def read_pairs(name):
     with open(os.path.join(tp.LISTS, name)) as f:
@@ -88,18 +94,27 @@ def bucket_of(file, tris):
             return name
     return None
 
-def analyse(rows, tris):
-    """rows: {(file, method): row}. -> per bucket {ratios, per method counters}, and all ratio records"""
+def vol_diff(a, g, op):
+    """|volume of ours - volume of the other| / (vA + vB), or None if a volume or the input volumes are missing"""
+    va, vg = a.get(f"{op}_volume"), g.get(f"{op}_volume")
+    inp = a.get("input") or {}
+    scale = (inp.get("vA") or 0) + (inp.get("vB") or 0)
+    if va is None or vg is None or not scale > 0:
+        return None
+    return abs(va - vg) / scale
+
+def analyse(rows, tris, other="cgal_epeck"):
+    """rows: {(file, method): row}. -> per bucket {ratios, volume differences, per method counters}, and all ratio records"""
     out, recs = {}, []
     files = sorted({f for f, _ in rows})
     for f in files:
         b = bucket_of(f, tris)
         if b is None:
             continue
-        o = out.setdefault(b, {"pairs": 0, "ratios": [], "m": {m: dict(ops=0, ok=0, clean=0, empty=0, unclean={}, rejected=0, bad=0, timeout=0)
-                                                              for m in ("ours", "cgal_epeck")}})
+        o = out.setdefault(b, {"pairs": 0, "ratios": [], "vdiff": [], "m": {m: dict(ops=0, ok=0, clean=0, empty=0, unclean={}, rejected=0, bad=0, timeout=0)
+                                                                            for m in ("ours", other)}})
         o["pairs"] += 1
-        for m in ("ours", "cgal_epeck"):
+        for m in ("ours", other):
             r = rows.get((f, m))
             c = o["m"][m]
             for op in OPS:
@@ -115,45 +130,89 @@ def analyse(rows, tris):
                     elif reason == "empty": c["empty"] += 1
                     else: c["unclean"][reason] = c["unclean"].get(reason, 0) + 1
         for op in OPS:
-            a, g = rows.get((f, "ours")), rows.get((f, "cgal_epeck"))
-            if a and g and a.get(f"{op}_status") == "ok" and g.get(f"{op}_status") == "ok" and g.get(f"{op}_ms"):
-                ratio = a[f"{op}_ms"] / g[f"{op}_ms"]
-                o["ratios"].append(ratio)
-                recs.append(dict(bucket=b, file=f, op=op, ratio=ratio, ours=a[f"{op}_ms"], cgal=g[f"{op}_ms"],
-                                 phases=a.get(f"{op}_phases"), tris=a.get(f"{op}_tris")))
+            a, g = rows.get((f, "ours")), rows.get((f, other))
+            if a and g and a.get(f"{op}_status") == "ok" and g.get(f"{op}_status") == "ok":
+                dv = vol_diff(a, g, op)
+                if dv is not None:
+                    o["vdiff"].append(dv)
+                if g.get(f"{op}_ms"):
+                    ratio = a[f"{op}_ms"] / g[f"{op}_ms"]
+                    o["ratios"].append(ratio)
+                    recs.append(dict(bucket=b, file=f, op=op, ratio=ratio, ours=a[f"{op}_ms"], other=g[f"{op}_ms"],
+                                     phases=a.get(f"{op}_phases"), tris=a.get(f"{op}_tris"), vdiff=dv))
     return out, recs
 
-def report(label, rows, tris):
-    out, recs = analyse(rows, tris)
+def all_clean(counters):
+    return all(c["ok"] == c["clean"] + c["empty"] and c["bad"] == c["timeout"] == c["rejected"] == 0 for c in counters)
+
+def report(label, rows, tris, other="cgal_epeck"):
+    out, recs = analyse(rows, tris, other)
+    n = NAMES.get(other, other)
     lines = [f"### {label}", "",
-             "| bucket | pairs | ops (both ok) | median ratio | p90 | max | ours clean | ours empty | ours unclean | ours refused | ours failed / timeout | "
-             "CGAL clean | CGAL empty | CGAL unclean | CGAL refused | CGAL failed / timeout |",
-             "|" + "---|" * 16]
+             f"Ratio: time of ours / time of {n} (below 1: ours is faster). Volumes agree: |difference| <= {VOL_TOL:g} (vA + vB).", "",
+             "| bucket | pairs | ops (both ok) | median ratio | p90 | max | volumes agree | max volume diff | ours clean | ours empty | ours unclean | ours refused | ours failed / timeout | "
+             f"{n} clean | {n} empty | {n} unclean | {n} refused | {n} failed / timeout |",
+             "|" + "---|" * 18]
     for name, _, _ in BUCKETS:
         o = out.get(name)
         if not o:
             continue
-        r, a, g = o["ratios"], o["m"]["ours"], o["m"]["cgal_epeck"]
+        r, a, g = o["ratios"], o["m"]["ours"], o["m"][other]
         un = lambda c: ", ".join(f"{k} {v}" for k, v in sorted(c["unclean"].items())) or "0"
-        lines.append(f"| {name} | {o['pairs']} | {len(r)} | {st.median(r):.2f} | {pct(r, 90):.2f} | {max(r):.2f} | {a['clean']}/{a['ops']} | {a['empty']} | {un(a)} | "
+        med = lambda v, f: f(v) if v else float("nan")
+        vd = o["vdiff"]
+        lines.append(f"| {name} | {o['pairs']} | {len(r)} | {med(r, st.median):.2f} | {pct(r, 90):.2f} | {med(r, max):.2f} | "
+                     f"{sum(1 for x in vd if x <= VOL_TOL)}/{len(vd)} | {med(vd, max):.1e} | {a['clean']}/{a['ops']} | {a['empty']} | {un(a)} | "
                      f"{a['rejected']} | {a['bad']} / {a['timeout']} | {g['clean']}/{g['ops']} | {g['empty']} | {un(g)} | {g['rejected']} | {g['bad']} / {g['timeout']} |")
     allr = [x for o in out.values() for x in o["ratios"]]
     ours = [o["m"]["ours"] for o in out.values()]
-    allclean = all(c["ok"] == c["clean"] + c["empty"] and c["bad"] == c["timeout"] == c["rejected"] == 0 for c in ours)
-    lines += ["", f"All buckets: median ratio {st.median(allr):.2f}, p90 {pct(allr, 90):.2f}, max {max(allr):.2f} over {len(allr)} operations.",
-              f"All-clean (every result of ours clean or correctly empty, no refusal, failure or timeout): **{'yes' if allclean else 'no'}**.", ""]
+    allclean = all_clean(ours)
+    other_clean = all_clean([o["m"][other] for o in out.values()])
+    allv = [x for o in out.values() for x in o["vdiff"]]
+    lines += ["", f"All buckets: median ratio {st.median(allr) if allr else float('nan'):.2f}, p90 {pct(allr, 90):.2f}, "
+                  f"max {max(allr) if allr else float('nan'):.2f} over {len(allr)} operations; volumes agree in "
+                  f"{sum(1 for x in allv if x <= VOL_TOL)} of {len(allv)}.",
+              f"All-clean (every result of ours clean or correctly empty, no refusal, failure or timeout): **{'yes' if allclean else 'no'}**; "
+              f"of {n}: **{'yes' if other_clean else 'no'}**.", ""]
     worst = sorted(recs, key=lambda x: -x["ratio"])[:5]
-    lines += ["Five worst ratios (ours phases in ms):", "", "| pair | op | bucket | ours ms | CGAL ms | ratio | result tris | phases |", "|---|---|---|---|---|---|---|---|"]
+    lines += ["Five worst ratios (ours phases in ms):", "", f"| pair | op | bucket | ours ms | {n} ms | ratio | result tris | phases |", "|---|---|---|---|---|---|---|---|"]
     for w in worst:
         ph = ", ".join(f"{k} {v:.0f}" for k, v in sorted((w["phases"] or {}).items(), key=lambda kv: -kv[1]) if isinstance(v, (int, float))) or "–"
-        lines.append(f"| {w['file']} | {w['op']} | {w['bucket']} | {w['ours']} | {w['cgal']} | {w['ratio']:.2f} | {w['tris']} | {ph} |")
+        lines.append(f"| {w['file']} | {w['op']} | {w['bucket']} | {w['ours']} | {w['other']} | {w['ratio']:.2f} | {w['tris']} | {ph} |")
     return "\n".join(lines) + "\n"
 
 def cmd_report(args):
+    other = "cgal_epeck"
+    if args[:1] == ["--other"]:
+        other, args = args[1], args[2:]
     tris = tris_of()
     for a in args:
         label, path = a.split("=", 1)
-        print(report(label, load(path), tris))
+        print(report(label, load(path), tris, other))
+    vols = volume_disagreements([load(a.split("=", 1)[1]) for a in args], other)
+    if vols:
+        n = NAMES.get(other, other)
+        print(f"Volumes that disagree (> {VOL_TOL:g} of vA + vB), in any of the runs above:\n\n| pair | op | ours volume | {n} volume | diff / (vA + vB) |\n|---|---|---|---|---|")
+        for f, op, va, vg, dv in vols:
+            print(f"| {f} | {op} | {va:.9g} | {vg:.9g} | {dv:.1e} |")
+        print()
+
+def volume_disagreements(runs, other):
+    """(file, op, ours volume, other volume, diff) of every operation, both ok, whose volumes disagree, first run that shows it"""
+    seen, out = set(), []
+    for rows in runs:
+        for (f, m), a in sorted(rows.items()):
+            g = rows.get((f, other))
+            if m != "ours" or not g:
+                continue
+            for op in OPS:
+                if (f, op) in seen or a.get(f"{op}_status") != "ok" or g.get(f"{op}_status") != "ok":
+                    continue
+                dv = vol_diff(a, g, op)
+                if dv is not None and dv > VOL_TOL:
+                    seen.add((f, op))
+                    out.append((f, op, a[f"{op}_volume"], g[f"{op}_volume"], dv))
+    return out
 
 if __name__ == "__main__":
     a = sys.argv[1:]

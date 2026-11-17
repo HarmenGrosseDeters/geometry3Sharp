@@ -13,6 +13,8 @@
 #   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
 #                                                           (--budget: no new chain is started after S seconds; finished chains are kept)
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
+#   python3 data/abc_chained.py versus <other> results.jsonl...   per step: time ratio ours / <other> of the chosen operation and
+#                                                           agreement of the volumes, over the chains where both results are ok
 #
 # Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
 import csv, json, math, os, re, shutil, struct, subprocess, sys, tempfile, time
@@ -496,6 +498,68 @@ def cmd_summary(files):
         for (k, m), v in sorted(runner.items()):
             print(f"- {k} {m}: {v}")
 
+# --- versus: ours against one other method, step by step
+
+VOL_TOL = 1e-6      # as perf/t6.py: |volume difference| / (vA + vB) of the step's inputs
+
+def pct(v, p):
+    v = sorted(v)
+    return v[min(len(v) - 1, int(p / 100 * len(v)))] if v else float("nan")
+
+def versus(rows, other):
+    """per step k: {ratios, vdiff} over the chains where the chosen operation of step k is ok for ours and for other. From step 2 on
+    each method works on its own previous result, so the inputs differ by the rounding of the two methods (step 1 is the same input)."""
+    steps = {}
+    for r in rows:
+        if "step" in r and "op" in r and "error" not in r and r.get("method") in ("ours", other):
+            steps[(r["file"], r["method"], r["step"])] = r                    # the last row of a step wins, as in summary
+    out = {}
+    for (name, m, k), a in sorted(steps.items()):
+        g = steps.get((name, other, k))
+        if m != "ours" or g is None or g.get("op") != a["op"]:
+            continue
+        op = a["op"]
+        if a.get(f"{op}_status") != "ok" or g.get(f"{op}_status") != "ok":
+            continue
+        o = out.setdefault(k, {"ratios": [], "vdiff": [], "worst": []})
+        if g.get(f"{op}_ms") and a.get(f"{op}_ms") is not None:
+            o["ratios"].append(a[f"{op}_ms"] / g[f"{op}_ms"])
+        inp = a.get("input") or {}
+        scale = (inp.get("vA") or 0) + (inp.get("vB") or 0)
+        va, vg = a.get(f"{op}_volume"), g.get(f"{op}_volume")
+        if va is not None and vg is not None and scale > 0:
+            dv = abs(va - vg) / scale
+            o["vdiff"].append(dv)
+            if dv > VOL_TOL:
+                o["worst"].append((dv, name, op, va, vg))
+    return out
+
+def cmd_versus(other, files):
+    rows = []
+    for f in files:
+        with open(f) as fh:
+            rows += [json.loads(l) for l in fh if l.strip()]
+    out = versus(rows, other)
+    print(f"Ratio: time of ours / time of {other} for the chosen operation of the step (below 1: ours is faster); volumes agree: "
+          f"|difference| <= {VOL_TOL:g} (vA + vB of the step's inputs).\n")
+    print("| step | both ok | median ratio | p90 | max | volumes agree | max volume diff |")
+    print("|---|---|---|---|---|---|---|")
+    allr, allv = [], []
+    for k in sorted(out):
+        o = out[k]
+        r, v = o["ratios"], o["vdiff"]
+        allr += r
+        allv += v
+        print(f"| {k + 1} | {len(r)} | {st.median(r) if r else float('nan'):.2f} | {pct(r, 90):.2f} | {max(r) if r else float('nan'):.2f} | "
+              f"{sum(1 for x in v if x <= VOL_TOL)}/{len(v)} | {max(v) if v else float('nan'):.1e} |")
+    print(f"| all | {len(allr)} | {st.median(allr) if allr else float('nan'):.2f} | {pct(allr, 90):.2f} | {max(allr) if allr else float('nan'):.2f} | "
+          f"{sum(1 for x in allv if x <= VOL_TOL)}/{len(allv)} | {max(allv) if allv else float('nan'):.1e} |")
+    worst = sorted((w + (k,) for k, o in out.items() for w in o["worst"]), reverse=True)
+    if worst:
+        print(f"\nVolumes that disagree: {len(worst)}\n\n| chain | step | op | ours volume | {other} volume | diff / (vA + vB) |\n|---|---|---|---|---|---|")
+        for dv, name, op, va, vg, k in worst[:20]:
+            print(f"| {name} | {k + 1} | {op} | {va:.9g} | {vg:.9g} | {dv:.1e} |")
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     def opt(name, default=None, cast=str):
@@ -512,4 +576,5 @@ if __name__ == "__main__":
                                                      opt("--only", None, lambda s: [x for x in s.split(",") if x]))
     elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int), opt("--budget", None, int))
     elif a[:1] == ["summary"]: cmd_summary(a[1:])
+    elif a[:1] == ["versus"]: cmd_versus(a[1], a[2:])
     else: sys.exit(__doc__)

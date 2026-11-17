@@ -17,7 +17,7 @@
 # identities, analytically known volumes) and deleted.
 # Each run gets a status: ok, rejected (the tool refuses the input), failed (the tool reports a failure on an
 # accepted input), crash (abnormal termination), timeout.
-# Tool locations: environment variables CGAL_BOOL, CHERCHI_BOOL, MANIFOLD_PYTHON (see README.md).
+# Tool locations: environment variables CGAL_BOOL, CHERCHI_BOOL, MANIFOLD_PYTHON, GEOGRAM_BOOL (see README.md).
 # The imprint methods (README.md, "Imprint: ExactMeshImprint against MeshMeshCut"): exact_imprint and float_cut run the operations
 # a_by_b and b_by_a (the curves of B cut into A, and of A into B), exact_union and float_union the operation union; the tool reports
 # the checks of the result itself (BooleanComparison imprint), so eval is not run for them. A thrown exception is the status
@@ -45,6 +45,8 @@ def commands(method, op, a, b, out):
         return tool + ["run", a, b, op, out + ".off"]
     if method in ("cgal_epick", "cgal_epeck"):
         return [os.environ["CGAL_BOOL"], method.split("_")[1], op, a, b, out + ".off"]
+    if method == "geogram":
+        return [os.environ["GEOGRAM_BOOL"], op, a, b, out + ".off"]
     if method == "cherchi":
         return [os.environ["CHERCHI_BOOL"], {"difference": "subtraction"}.get(op, op), a, b, out + ".obj"]
     if method == "manifold":
@@ -125,7 +127,8 @@ KINDS = {"boolean-union": "union", "boolean-intersection": "intersection", "bool
 
 def run_sequence(method, request, d, timeout):
     """Runs all operations; writes <method>_final.(off|obj) to d. ours and manifold run the request in memory
-    (Open Boolean Benchmark runners), CGAL its own list format in memory, Cherchi et al. one process per boolean."""
+    (Open Boolean Benchmark runners), CGAL and Geogram the list format of cgal_bool seq in memory, Cherchi et al. one process per
+    boolean."""
     ops = request["runs"][0]["operations"]
     final = os.path.join(d, f"{method}_final")
     t0 = time.perf_counter()
@@ -157,11 +160,12 @@ def run_sequence(method, request, d, timeout):
             if res["ok"]:
                 last = run["ops"][-1]["file"]
                 shutil.move(last, final + os.path.splitext(last)[1])
-    elif method in ("cgal_epick", "cgal_epeck"):
+    elif method in ("cgal_epick", "cgal_epeck", "geogram"):
         lines = [f"load {o['path']}" if o["op"] == "load-mesh" else f"{KINDS[o['op']]} {o['args'][0]} {o['args'][1]}" for o in ops]
         fops = os.path.join(d, method + "_ops.txt")
         open(fops, "w").write("\n".join(lines) + "\n")
-        p, wall = execute([os.environ["CGAL_BOOL"], method.split("_")[1], "seq", fops, final + ".off"], timeout)
+        cmd = [os.environ["GEOGRAM_BOOL"], "seq"] if method == "geogram" else [os.environ["CGAL_BOOL"], method.split("_")[1], "seq"]
+        p, wall = execute(cmd + [fops, final + ".off"], timeout)
         if p is None:
             res = {"ok": False, "error": "timeout", "status": "timeout"}
         else:
