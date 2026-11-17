@@ -258,7 +258,7 @@ static class ChainExact
     // The canonical (reduced) value of a point on the grid has at most the bits of any representation of it, so a vertex
     // of value class c obeys num <= numBound(c) + max(0, s), W <= wBound(c) + max(0, -s) in input coordinates (x = grid * 2^s).
     // Classes (design note, section 2, B the grid bits): input vertex; LPI of an input edge and a face plane (4B+8 / 3B+6);
-    // TPI of three face planes (7B+14 / 6B+12); TPI with edge planes (up to 12B+22 / 9B+18).
+    // TPI of three face planes (7B+14 / 6B+12); any construction of the arrangement, edge planes included (10B+20 / 9B+18).
     static void Bits(ExactPoint3[] v, int B, int s, Dictionary<string, object> row)
     {
         int maxNum = 0, maxW = 0, doubles = 0, inLpi = 0, inTpi = 0, inEdgeTpi = 0, beyond = 0;
@@ -271,7 +271,7 @@ static class ChainExact
             if (IsDouble(p.X, p.W) && IsDouble(p.Y, p.W) && IsDouble(p.Z, p.W)) doubles++;
             else if (nb <= 4 * B + 8 + ns && wb <= 3 * B + 6 + ws) inLpi++;
             else if (nb <= 7 * B + 14 + ns && wb <= 6 * B + 12 + ws) inTpi++;
-            else if (nb <= 12 * B + 22 + ns && wb <= 9 * B + 18 + ws) inEdgeTpi++;
+            else if (nb <= 10 * B + 20 + ns && wb <= 9 * B + 18 + ws) inEdgeTpi++;
             else beyond++;
         }
         row["exact_double_vertices"] = doubles;

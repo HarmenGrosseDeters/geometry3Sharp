@@ -1,0 +1,360 @@
+# Exact Boolean 4.0: design analysis (stage 0)
+
+Status: stage 0, design and measurement only (owner decision 2026-11-17). No library code is changed. The measurement code is
+benchmark code: `chain-exact` / `chain-exact-proc` in `benchmarks/BooleanComparison` (`ChainExact.cs`), the driver and
+summary `benchmarks/BooleanComparison/chain_exact.py`, and the method `ours_exact` of the abc-chained class
+(`data/abc_chained.py`, `.github/workflows/abc-chained.yml`).
+
+What 4.0 is ([roadmap](../roadmap/exact-boolean.md), "Exact Boolean 4.0"; [pre-study](EXACT_BOOLEAN_30_PRESTUDY.md)
+section 4, target T4): exact output with provenance. Triangles keep their source plane and vertices their construction over
+the original double inputs, so chained booleans stay exact with one rounding at the end and coplanar faces stay mergeable.
+Consumers: chained booleans with exact intermediate results (the use case), then tet meshing of boolean results.
+
+## Summary and verdict
+
+1. **The key claim holds, with conditions.** Under plane-based provenance the bit length of every vertex of a chain result is
+   bounded by a constant that does not depend on the number of steps k: at most 7B+14 bits per numerator and 6B+12 for the
+   common denominator (B the bits of the input grid, about 54-58 for the inputs here), for any k, if (C1) every face keeps
+   its original source plane, (C2) every vertex is kept as an input double, an LPI of an original edge, or a TPI of three
+   original planes, (C3) vertices with only two incident planes are removed after each step (`ExactPlanarSimplify` does
+   that today) and (C4) the rounding's contact split does not put new midpoints into the exact result
+   ([section 2](#2-bit-length-bounds)). Without (C2), as nested constructions, the degree grows by a factor of 5 to 9 per step.
+2. **Measured, no vertex is beyond the bounds.** The exact chain results of 480 procedural steps (k = 1..8) and of the ABC
+   chains (see section 4.2) are measured, and no vertex exceeds the derived bounds. The largest numerator stays flat along
+   the chain (procedural generic chains: 195 bits at step 1, 314 at step 2, then 369-378 from step 3 to step 8). Measured
+   as the one-pass n-ary boolean over the original operands, which gives the same solid as an exact chain
+   ([section 4](#4-measurements-the-upper-bound-before-any-build)).
+3. **The quality gain on the clean metric is not there.** On the procedural chains with exact contacts (1-ulp copies,
+   mirrors, face contacts) exact intermediates with one final rounding are **less** often clean than today's
+   round-each-step: 3 results become clean, 21 become unclean, 6 are unclean either way (of 228). The exact chain carries
+   every sub-ulp slab forward to the final rounding, which then hits its effort limit (RC4a), while today each step's
+   rounding removes or merges the slab where it appears. On generic chains (no exact contacts) both are clean on all 240
+   results. ABC: [section 4.2](#42-abc-chained).
+4. **What exact intermediates do give:** exact volumes and identities along the chain (today's chained volume is off by up
+   to 4.8e-4 relative where a step removed components, median 1e-11 to 1e-16), fewer triangles (today's chained results have
+   up to 1.76 times the triangles of the exact ones at step 8; coplanar faces stay mergeable), and a cost saving of at most
+   the k − 1 roundings, 13-32 % of a step on generic chains and 25-81 % on the contact chains (upper bound, before the cost
+   of implicit inputs, which is not measured).
+5. **A cheap form exists already.** For a chain whose operations are known before the result is needed, the one-pass n-ary
+   boolean (`ExactMeshBoolean(meshes, windingPredicate)`) *is* the exact chain with one rounding. A lazy `ExactMesh` as a
+   CSG expression over double sources costs effort S. On these chains the one pass over all operands took 0.2-0.7 of the
+   summed chained time (median), but it loses on long, dense trees (pre-study section 3, from n = 16 on).
+
+**Verdict: no-go for the full 4.0 build (effort L) now; go for stage 1 only (lazy expression, effort S), if the owner wants
+exact chain results as an API.** The full build would buy exactness and size, not cleanness. Its use cases are a consumer
+that stays exact between steps without knowing the next operation (interactive or persistent modelling) and the tet mesher
+on exact input. Neither is a current request. Re-open the full build when such a consumer exists, after the slab removal
+before the repair (the RC4a lever, `SAFE_ROUNDING.md`). That removal is what decides whether the single final rounding
+can be clean on contact chains ([section 6](#6-stage-plan)).
+
+## 1. Representation options
+
+The arrangement already stores every new point as a construction over the input points
+(`ExactMeshArrangement.PointKind`): `Input` (an input double), `EdgePlane` (an LPI: input edge crossing a plane),
+`Segments` (two coplanar input edges crossing), `Planes` (a TPI of three planes; a plane is a triangle plane or, per edge,
+the plane through the edge perpendicular to the triangle) and `Rational` (given exactly). Every input coordinate is converted
+exactly to one integer grid (coordinate = integer · 2^ScaleExp, centered). The planes come from the input doubles
+(`InputTriangle.P`, `EdgePlanes`). `merge_points` gives coincident points of different constructions one id. The exact
+values are computed on demand as canonical rationals (`ExactPoint3`, or fixed width, `FIXED_WIDTH_EXACT_POINTS.md`).
+
+| | (a) constructions over the original doubles | (b) plane-based (three input planes) | (c) rational / homogeneous coordinates |
+|---|---|---|---|
+| a vertex is | `Input`, `EdgePlane`, `Segments`, `Planes` with keys into the **original** meshes (the arrangement's kinds, the pre-study sketch) | an input double, or TPI(F1, F2, F3) of three original face planes (edge planes only on open boundaries) | canonical X/W, Y/W, Z/W (`ExactPoint3`) |
+| a face is | a piece of an original triangle: source (mesh, triangle) | the same; each edge also has its carrier plane (the neighbour's source plane) | three rational corners; the plane computed from them |
+| exactness | exact | exact | exact |
+| bits along a chain | constant **if** step-k points are re-expressed over the originals (canonicalization, C2); as nested constructions (a step-k LPI of a step-(k−1) edge) the degree grows 5-9x per step | constant: every genuine vertex is a TPI of original planes (section 2.3) | the *values* of genuine vertices are bounded as in (b); planes recomputed from corners have unreduced coefficients of about 21B bits and need a gcd per triangle to get back to the original plane; values of points that are not genuine (diagonal crossings) grow if they survive a step |
+| memory per vertex | kind 1 B + 3 keys 24 B + approximation 24 B + error 8 B, about 57 B; the original meshes stay alive | 3 plane ids 12 B + approximation and error 32 B, about 44 B; plus the source planes (about 4 × 3B bits each, once per used source triangle) | measured 143-707 bits mean per vertex (section 4), as four `BigInteger`s about 180-250 B with object overhead; fixed width where it fits |
+| arrangement input path | an operand's vertices become implicit input points; its triangles keep their source plane key; constructions from step-k edges must be mapped back to original keys | the same, and the edges carry planes, so a crossing with a crease edge is TPI(F, F', G) directly | rational input points: the grid conversion, the filters (inputs are no longer exact doubles) and every exact stage take rationals; no bookkeeping |
+| exact predicates needed | today's, on implicit points whose arguments are original doubles, plus one nested form for diagonal crossings | the same | today's predicates with rational inputs of about 7B bits: new filters, exact stages about 8x wider |
+
+Reading: (a) and (b) are the same idea at two granularities. (a) keeps today's point kinds, including LPIs and the
+coplanar `Segments` points, which are smaller than a TPI. (b) normalizes every genuine vertex to three face planes, which
+gives the smallest uniform bound and makes coplanarity a matter of plane ids. Both need the same canonicalization step at
+the end of each boolean. (c) is the simplest input path but pays at every exact stage and in memory, and it relies on gcd
+reduction to recover the planes. A practical 4.0 is (a) with (b)'s carrier planes on edges: the arrangement's own kinds,
+plus a map from a step's points back to original keys.
+
+Prior art ([section 7](#7-literature-check)): plane-based booleans (Sugihara and Iri 1989, Fortune 1997, Bernstein and
+Fussell 2009, Campen and Kobbelt 2010, Nehring-Wirxel et al. 2021, EMBER 2022) quantize the input once to short integers
+(about 26 bits in EMBER) so that fixed-width integers suffice and iterated CSG stays closed. We keep the original doubles
+(B ≈ 54-58 here), so the same structure gives 7B+14 ≈ 400 bits instead of their fixed 256-bit kernels. Indirect
+predicates (Attene 2020, Cherchi et al. 2020 / 2022) are what the arrangement already uses. Lévy 2025 computes the
+co-refinement exactly and names the rounding to doubles as the open part (the same status as our SafeRounding).
+
+## 2. Bit-length bounds
+
+### 2.1 Setting
+
+Input coordinates on the common grid: integers with |x| < 2^B. (The arrangement centers the grid, which only makes the
+magnitudes smaller; the bounds below hold for the uncentered values.) A canonical rational (`ExactPoint3`: gcd 1, W > 0)
+has at most the bits of any representation of the same point, so a bound on the value of one construction bounds the
+stored value whatever construction produced it. "n bits" means |v| < 2^n. In input coordinates (x = grid · 2^s) add max(0, s)
+to numerators and max(0, −s) to W. The measurement does this. Hadamard: |det M| ≤ ∏ of the row norms, and also ≤ ∏ of the
+column norms; 3^{3/2} < 2^3.
+
+### 2.2 Per construction
+
+| construction | normal / offset bits | point numerators X | point denominator W | derivation |
+|---|---|---|---|---|
+| input vertex | | B (W a power of two) | | |
+| face plane F of (p, q, r) | n_F = 2B+3, d_F = 3B+5 | | | u = q−p, v = r−p, \|u_i\|, \|v_i\| < 2^{B+1}; \|N_i\| = \|u_j v_k − u_k v_j\| < 2·2^{2B+2}; \|N·p\| < 3·2^{2B+3}·2^B < 2^{3B+5} |
+| edge plane E of edge (p, q) of F | n_E = 3B+5, d_E = 4B+7 | | | E = (q−p) × N: \|E_i\| < 2·2^{B+1}·2^{2B+3}; \|E·p\| < 3·2^{3B+5}·2^B |
+| LPI(input edge, F) (`EdgePlane`) | | 4B+8 | 3B+6 | W = N·(q−p) < 3·2^{2B+3}·2^{B+1}; X = W p + (d − N·p)(q−p): 2^{4B+6} + (2^{3B+5} + 3·2^{3B+3})·2^{B+1} = 2.75·2^{4B+6} |
+| LPI(input edge, E) | | 5B+10 | 4B+8 | the same with n_E, d_E: 2^{5B+8} + 1.75·2^{5B+8} |
+| two coplanar input edges (`Segments`) | | 3B+5 | 2B+3 | 2D: W = d1 × d2 < 2·2^{2B+2}; X = p1 W + ((p2−p1) × d2) d1 < 2^{3B+3} + 2^{2B+3}·2^{B+1} (the dropped coordinate likewise, the point lies on edge 1) |
+| TPI(F, F, F) (`Planes`) | | **7B+14** | **6B+12** | W = det of the normals: rows ∏ √3·2^{2B+3} < 2^{6B+12}; X_i: columns (D, N_j, N_k): √3·2^{3B+5} · (√3·2^{2B+3})^2 < 2^{7B+14} |
+| TPI with one edge plane (F, F, E) | | 10B+18 | 7B+14 | W rows: 2(2B+3) + (3B+5) + 3; X rows: \|row\| ≤ 2^{d}·(1 + 2^{1+2(n−d)})^{1/2}, and d − n ≥ B+2, so ∏ < 2^{Σd+1} = 2^{10B+18} |
+| TPI (F, E, E) | | 10B+20 | 8B+16 | W rows; X columns: √3·2^{4B+7}·(√3·2^{3B+5})^2 |
+| TPI (E, E, E) | | 10B+20 | 9B+18 | W rows 3(3B+5) + 3; X columns as above |
+
+So every point of today's arrangement has X ≤ 10B+20 and W ≤ 9B+18 bits, and every point built from face planes only
+(the plane-based form) has X ≤ 7B+14 and W ≤ 6B+12. With B = 54: 560 / 504 and 392 / 336 bits. The pre-study's measured
+175-300 bits are below these (most vertices are input doubles or LPIs). The measurement classifies each exact vertex into
+the nested envelopes double ⊂ LPI(F) (4B+8 / 3B+6) ⊂ TPI(F, F, F) ⊂ any construction (10B+20 / 9B+18). The envelopes are
+value bounds, not kinds: an LPI with an edge plane falls into the TPI(F, F, F) envelope.
+
+### 2.3 Per chain step: when the degree stays constant
+
+**Claim.** Let R_k be the exact result of a chain of k regularized booleans of closed meshes, with every face a piece of an
+original input triangle (C1). Then every vertex of R_k after removal of the vertices with two incident planes (C3) is
+either an original input vertex, or a point on an original edge (an LPI), or the intersection of three original face planes
+with independent normals. So its value obeys the bounds of 2.2 for every k.
+
+*Proof sketch.* Faces: a boolean only cuts and selects pieces of its operands' faces, so by induction every face of R_k
+lies in an original plane (C1). Vertices: take a vertex v that is neither an input vertex nor on an original edge. Group
+the faces around v (per manifold fan; split pinches are separate fans) into maximal regions of one plane. If all incident
+planes contain a common line L, then every edge between two consecutive regions lies in two distinct planes through L, so
+on L. Then v has only two edge directions and two regions, and it is a vertex with two incident planes. (C3) removes it,
+and `ExactPlanarSimplify` does exactly that: it removes a new point inside a flat region, or on a straight edge between two
+regions of different planes, if its fan is closed and manifold. Otherwise the incident planes share no line, so their
+normals span R^3, and three of them with independent normals meet only at v: v = TPI(F1, F2, F3). Points on original edges
+are LPIs, or TPI(F_left, F_right, G) where the edge is a crease. ∎
+
+**Conditions** (where the claim fails, the bits are bounded per step but can grow along the chain):
+- (C2) the representation must actually re-express a step-k vertex over original planes (canonicalization). Kept as a
+  nested construction (an LPI of a step-(k−1) edge with a step-(k−1) plane), the degree grows. For points of h bits, a plane
+  through three of them has 3x3 minors of 3h+3 bits, an LPI of a segment of two of them has 5h+6 bits and a TPI of three
+  such planes 9h+12 bits. Starting from B = 54, three nested TPI levels give about 9^3·B ≈ 39 000 bits: this is the
+  growth the pre-study meant by "thousands of bits per step".
+- (C3) a vertex with two incident planes that the simplification cannot remove (a fan that is not closed or not manifold,
+  e.g. at a contact) has no TPI form. Its value is that of whatever construction made it.
+- (C4) the rounding splits edges where solids touch at exact midpoints (`ResultExactVertices`). A midpoint of two
+  TPI(F, F, F) points has 13B+27 / 12B+25 bits, and midpoints of midpoints grow. An exact result must keep the contact
+  without new midpoints (duplicated vertices at the TPI positions are enough).
+- Open inputs: a boundary edge has no second face plane. Its carrier is the original edge (points on it are LPIs) or its
+  edge plane (TPIs with E, 10B+20 / 9B+18). Still constant along a chain.
+
+**Inside a step** the arrangement of R_{k−1} with X_k also has points that are not vertices of R_k. A crossing of X_k's
+plane G with a crease edge of R_{k−1} is TPI(F, F', G) (constant). A crossing with a *diagonal* of R_{k−1}'s triangulation
+(an edge inside one planar region) is a nested LPI(segment(P, Q), G) with P, Q TPI(F, F, F) points: π·P̂ = N_G·X_P − d_G
+W_P < 3·2^{2B+3}·2^{7B+14} + 2^{3B+5}·2^{6B+12} = 2^{9B+19}, so X < 2·2^{9B+19}·2^{7B+14} = 2^{16B+34} and W < 2^{15B+32}.
+Such a point lies on the line F ∩ G of two regions, so (C3) removes it after the step, unless a third region meets there,
+in which case it is a TPI. The bound is one nesting level, the same at every step. Passing the operand's planar regions as
+polygons, whose edges all have carrier planes, avoids diagonals and with them the nested form.
+
+**Does the degree stay constant along a chain?** Yes, for closed results under (C1)-(C4). The measurement confirms it on
+480 procedural steps (section 4.1). The per-step points are bounded by the one-nesting bound 16B+34 / 15B+32.
+
+## 3. Where it plugs in
+
+**ExactMeshArrangement input path.** Today: `inputCoords` (doubles), converted exactly to the grid (`ScaleExp`, `Center`
+from all inputs), points of kind `Input`, planes computed from the corners when first needed (`InputTriangle.P`,
+`EdgePlanes`). For an exact operand:
+- the grid is set from the **original** sources of all operands (an exact operand registers its source meshes), so that
+  keys of original points and planes are valid in this arrangement;
+- an operand vertex enters as an implicit point with its original key (`EdgePlane`, `Segments`, `Planes` over original
+  keys; `merge_points` already unifies coincident constructions);
+- an operand triangle takes its source plane key instead of computing a plane from its corners (C1). Its edge planes
+  (perpendicular through the edge) are not defined over originals for a triangle with implicit corners. They are used in
+  some exact stages of coincident constructions (`EdgePlanes`) and must be replaced by the edge's carrier plane (the
+  neighbour's source plane) or by a nested form;
+- new keys for "a crossing of a diagonal" (the nested LPI above), with its own filter;
+- `PlaneOf(key)` addresses planes of the triangles in the arrangement. A source-plane table (planes of original triangles
+  that are not part of this arrangement's surface) is needed.
+
+**Predicates and filters.** Reused as they are: plane side of an implicit point against an original plane (the planes stay
+built from doubles), orient2d / incircle of implicit points in the CDT (the points inside a triangle are implicit
+today). New, each with an error-bound derivation and the exact-code review:
+1. the filter of the nested diagonal crossing: its approximation from the approximations of P and Q (each with its
+   bound) and the double plane, and the forward error bound of π·P̂, as for the other kinds (Attene 2020's scheme);
+2. candidate pair and tri-tri tests with implicit corners: today's prefilter takes double corners (`TRITRI_PREFILTER.md`),
+   with implicit corners it needs boxes from approximation ± error and sign tests of implicit corners against planes
+   (existing kind of test, new bound for the box);
+3. classification: an exact ray against a triangle with implicit corners (`ExactRayTriangle` takes doubles). The
+   alternative without new predicates is to classify a piece against R_{k−1} through the winding numbers of the
+   **original** operands (R_{k−1} = f(w_0..w_{k−1}), the one-pass predicate): today's exact code on double meshes, at a cost
+   that grows with k;
+4. `ExactPlanarSimplify` groups by normalized integer planes of the source triangles. With source plane ids it needs no
+   change, and coplanar faces of different steps merge exactly (today they do not after rounding: the 1.76x triangles).
+
+Every new bound gets its derivation in the stage note and the stronger-model review (CLAUDE.md, exact code).
+
+**Final SafeRounding.** Unchanged: `MeshRoundingRepair` takes the exact result (it does so today from the arrangement's
+points). The measurement shows that its cost and its effort limit become the bottleneck on contact chains (section 4).
+
+**API shape (additive, compatible with 1.0.324; `NotCleanReason` / `MeshRepairMetrics` semantics unchanged).** As the
+pre-study sketch, in two forms:
+
+```csharp
+public sealed class ExactMesh                              // new
+{
+    // stage 1 (lazy): a CSG expression over double sources; materialized by one n-ary ExactMeshBoolean
+    public static ExactMesh FromDMesh(DMesh3 m);
+    public ExactMesh Union(ExactMesh b); public ExactMesh Difference(ExactMesh b); public ExactMesh Intersection(ExactMesh b);
+    public DMesh3 Round(Action<ExactMeshBoolean> configure = null);   // today's SafeRounding result, one rounding
+    public double ExactVolumeSign();                                  // optional, exact volume sign (RC3 code)
+    // stage 2+ (materialized provenance): the same type, with the exact result stored
+    public int TriangleCount, VertexCount;
+    public ExactPoint3 GetVertex(int v);                    // value on demand
+    public int SourcePlane(int t);                          // (source mesh, triangle)
+}
+// ExactMeshBoolean (new members only): public bool ExactOutput; public ExactMesh ExactResult;
+//   public ExactMeshBoolean(ExactMesh a, ExactMesh b, Operations op);
+```
+
+## 4. Measurements: the upper bound before any build
+
+**Method.** A 4.0 step does not exist yet, so the exact chain is measured by what it must compute. Regularized booleans
+act cell by cell on the arrangement of all operands: a regular closed set that is a union of closed 3-cells is determined
+by its cells, and each operation is a set operation on the cells. So the k-th result of an exact chain is the one-pass
+n-ary `ExactMeshBoolean` over the original operands X0..Xk with the composed winding predicate. Its unrounded vertices are
+the exact chain result's vertices, all constructions over the original doubles. The triangulation can differ from a
+step-by-step 4.0, the solid cannot. Per step (`chain-exact`):
+- **chained**: today, `ExactMeshBoolean(R_{k−1} rounded, X_k)`, default settings;
+- **onepass**: the one-pass boolean with SafeRounding (exact intermediates, one final rounding);
+- **exact**: the same unrounded with `ComputeExactVertices` (vertices, triangles, bits; each vertex against the bounds of
+  2.2 from the grid bits B of the operands).
+
+"Clean" is as the abc-chained eval counts it: `NotCleanReason(result, false)` empty (or an empty result), and
+`RoundingClean`. "Unclean only chained" means intermediate rounding made it, "unclean in both" means the final rounding
+(RC4), and "unclean only one pass" means exact intermediates made it worse.
+
+### 4.1 Procedural chains (k = 1..8, local)
+
+`python3 benchmarks/BooleanComparison/chain_exact.py proc rows.jsonl --seeds 30 --steps 8`, master ed7114e0 plus this
+branch's benchmark code, 4 cores, single runs (the step-1 times include the JIT). Shapes as in the RC4 triage probe
+(normalized-cube sphere, capped cylinder, rotated grid box, float32 coordinates).
+- **generic**: shapes at random rotations, scales and offsets (no exact contacts), operations union, union, difference,
+  intersection, repeating;
+- **mixed**: exact placements against X0 (`ContactTransforms`), cycling partial-overlap, ulp-shift (a copy of X0 one ulp
+  off), face-contact, mirror; operations union, difference, union, intersection, repeating.
+
+| family | step | chained clean | one pass clean | unclean only chained | unclean in both | unclean only one pass | median tris chained / exact | median ms chained (rounding) | max X / W bits | mean bits / vertex | vertices: double / ≤LPI / ≤TPI(F,F,F) / ≤any / beyond |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| generic | 1 | 30/30 | 30/30 | 0 | 0 | 0 | 912 / 912 | 348 (32) | 195 / 196 | 283 | 8739/1765/0/0/0 |
+| generic | 2 | 30/30 | 30/30 | 0 | 0 | 0 | 1091 / 1065 | 28 (4) | 314 / 315 | 361 | 11039/4232/30/0/0 |
+| generic | 4 | 30/30 | 30/30 | 0 | 0 | 0 | 831 / 680 | 23 (3) | 375 / 375 | 646 | 4449/6318/178/0/0 |
+| generic | 6 | 30/30 | 30/30 | 0 | 0 | 0 | 1564 / 1341 | 24 (7) | 377 / 378 | 491 | 11498/8361/292/0/0 |
+| generic | 8 | 30/30 | 30/30 | 0 | 0 | 0 | 532 / 384 | 26 (4) | 376 / 377 | 684 | 3037/4647/216/0/0 |
+| mixed | 1 | 30/30 | 30/30 | 0 | 0 | 0 | 1059 / 1059 | 346 (35) | 113 / 114 | 143 | 10698/1745/0/0/0 |
+| mixed | 2 | 30/30 | 30/30 | 0 | 0 | 0 | 1088 / 1187 | 164 (101) | 210 / 212 | 258 | 11631/4542/0/0/0 |
+| mixed | 3 | 30/30 | 30/30 | 0 | 0 | 0 | 1254 / 1282 | 12 (5) | 210 / 212 | 204 | 17014/5346/0/0/0 |
+| mixed | 4 | 23/30 | 26/30 | 3 | 4 | 0 | 444 / 569 | 128 (104) | 216 / 218 | 408 | 2018/25476/0/0/0 |
+| mixed | 5 | 25/27 | 19/27 | 0 | 2 | 6 | 972 / 1094 | 11 (3) | 209 / 211 | 343 | 7646/23905/0/0/0 |
+| mixed | 6 | 27/27 | 22/27 | 0 | 0 | 5 | 1142 / 1177 | 60 (27) | 212 / 215 | 374 | 7330/16061/0/0/0 |
+| mixed | 7 | 27/27 | 22/27 | 0 | 0 | 5 | 1562 / 1602 | 16 (7) | 212 / 215 | 219 | 12939/16926/0/0/0 |
+| mixed | 8 | 27/27 | 22/27 | 0 | 0 | 5 | 830 / 703 | 51 (16) | 212 / 214 | 434 | 1310/20812/0/0/0 |
+
+(Generic steps 3, 5 and 7 are like their neighbours: max bits 369-377, all clean. B = 54-58: TPI(F, F, F) bounds 392-420 /
+336-360 bits plus the scale term. The full table is printed by `chain_exact.py summary`.)
+
+Totals over 468 results computed both ways: chained clean 459, one pass clean 441. Unclean only chained: 3 (the step-4
+intersections with the mirror copy of seeds 5, 19 and 22: intermediate rounding). Unclean in both: 6 (the final rounding).
+Unclean only one pass: 21 (seeds 3, 6, 9, 12, 24, 27, 30, steps 5-8). Of the 28 unclean one-pass results, 23 reached the
+repair's evaluation limit (today's chain: 3 of its 9), and 17 have degenerate triangles left. In three mixed chains (seeds 7, 15, 16) the step-4
+intersection is a thin solid that both roundings remove (an empty, clean result), so today's chain ends there. The exact
+chain goes on with the thin solid, and steps 5-8 are not compared.
+
+**Why exact intermediates are worse here.** A ulp-shift copy makes 1-ulp slabs between X0 and its copy. Today the step
+that creates them rounds them away: it removes them as components (`removed comps`, e.g. 48 and 130 in seeds 3 and 6,
+step 6) or merges them, and later steps start from a clean double mesh. The exact chain keeps every slab exactly (they are
+part of the exact solid), and every later final rounding must repair all of them at once: the unclean one-pass results have a median of 4259 exact
+triangles, against 2274 for today's results of the same steps. The final rounding then hits the evaluation limit or leaves degenerate triangles. So the single final
+rounding is not easier than k roundings; with exact contacts it is harder.
+
+**Size and drift.** The largest numerator is flat along the chain (generic: 195 → 314 → 369-378 bits at steps 1, 2, 3-8;
+mixed: 113 → 209-216). No vertex is beyond the envelopes of 2.2. The generic chains have TPI(F, F, F) vertices from step 2
+on (up to 374 per step summed), the mixed chains none: their contacts are axis-aligned shifts, so LPIs suffice. Mean bits
+per vertex 143-707 (four integers, against 256 for three doubles), growing with the share of implicit vertices (input
+doubles: 83 % at step 1, 38 % at step 8 in the generic chains). Today's chained results carry 1.00-1.28x the exact
+triangles (median per step), up to 1.76x at step 8 (coplanar faces no longer exactly coplanar). Their volume deviates from
+the exact one by a relative 1e-16 (median) to 6.6e-11 on generic chains, and up to 4.8e-4 on mixed chains where a step
+removed components.
+
+**Time.** Today's step on these small inputs: median 11-164 ms, of which the rounding is 13-32 % (generic) and 25-81 %
+(mixed). A 4.0 step saves the rounding of k − 1 of k steps, at most that share, minus the unmeasured overhead of implicit
+inputs (new filters, wider exact stages). The one pass over all operands (stage 1) took 0.21-0.70 (median) of the summed
+chained time for the final result at k = 2..8, with a maximum of 7.6 where the one pass rounded a long slab chain.
+Single runs on 1-3k triangles: the per-step numbers are noise-level, the ratios are what counts.
+
+### 4.2 abc-chained
+
+Workflow `abc-chained.yml` with `methods=ours_exact` (GitHub-hosted runner, one job), 30 chains per variant (ucd, dui, iud),
+three steps each; rows on `runs/abc-chained`, folder `run-<id>`. Results: ABC_RESULTS_PENDING
+
+### 4.3 What quality gain is realistic
+
+- **Cleanness:** none on generic chains (all clean either way). Negative on contact chains as long as the final rounding
+  is today's: exact intermediates move the RC4a / RC4b cases from "repaired at the step where they appear" to "all at once
+  at the end". A gain needs the slab removal before the repair first (SAFE_ROUNDING.md, the thin-component rule with RC1);
+  with it, the measured worse cases are the lever.
+- **Exactness:** volume identities exact along the chain (today up to 4.8e-4 relative after a removal). Coplanar merging
+  keeps chained results 1.0-1.8x smaller. Fixes today's "unclean only chained" class (3 of 228 contact results, 0 of 240
+  generic).
+- **Time:** at most the rounding share of k − 1 steps (13-81 % of a step on these inputs, the pre-study measured 29 % on
+  Thingi models), before the overhead of implicit inputs.
+
+## 5. Honest limits
+
+- The final rounding keeps RC4a (the effort limit on 1-ulp slabs) and RC4b (the drift bound): an exact chain ends with
+  today's rounding, and on contact chains it gives it more to do, not less (section 4.1).
+- Consumers that need doubles (STL, the remesher, the tet mesher, every `DMesh3` API) gain only inside a chain: one
+  rounding instead of k. A single boolean gains nothing.
+- The tet mesher on exact input needs predicates on implicit points everywhere (`Orient3dLPI` / `TPI` exist, the rest does
+  not), a project of its own.
+- The bounds are worst-case value bounds. Exact fallbacks on 400-560-bit operands are several times the cost of today's
+  (about 200 bits), and their share on implicit inputs is not measured: the main cost risk of a build.
+- The one-pass measurement is a proxy for the solid and the vertex values, not for the triangulation or the time of a
+  step-by-step 4.0.
+- Memory: provenance keeps all source meshes of a chain alive; rationals cost 180-250 B per vertex against 24 B.
+
+## 6. Stage plan
+
+| stage | content | effort | risk | go / no-go gate | owner decisions |
+|---|---|---|---|---|---|
+| 0 | this note: options, bounds, measurement | done | | **no-go for the full build now** (sections 4-5); go for stage 1 only on request | whether exact chain results are wanted as an API at all |
+| 1 | lazy `ExactMesh`: a CSG expression over double sources, `Round()` = one n-ary `ExactMeshBoolean` (exists); invariance over `Similarity.All()`, reuse and determinism tests; benchmark against chained | S (3-5 days) | low: no exact code changes | the one pass over the expression stays within 2x of the summed chained time on the abc-chained and procedural chains, results clean at least as often as chained once the slab removal exists | the API name and shape (additive); whether `Round` may differ from the chained result (it does: exact, fewer triangles) |
+| 1b | prerequisite for any cleanness gain: thin-slab removal before the repair (the RC4a lever; RC1 rule) | M | medium: changes rounding outputs | the mixed chains of 4.1: one pass clean at least as often as chained | changes SafeRounding's outputs (owner decision) |
+| 2 | materialized provenance: exact result stored as (a) + carrier planes; canonicalization after each step; arrangement input path from provenance (source-plane table, grid from sources) | M-L (3-5 weeks) | high: new keys in the exact code, new filters | per-step time ≤ today's step without its rounding × 1.5 on abc-chained; all values within the bounds of 2.2 (test); no new unclean result | only if a consumer needs exact intermediates without knowing the next operation (interactive or persistent modelling) |
+| 3 | nested diagonal crossings (or polygon input) and classification on implicit operands (winding of the original operands, or a new ray predicate) | M | high: new error bounds, exact review and mutation gate | the incremental mutation run above its threshold; every new bound reviewed | |
+| 4 | tet meshing of exact results | L (own project) | high | | separate decision |
+
+## 7. Literature check
+
+Searched 2026-11-17 (plane-based iterated booleans, bounded-degree exact constructions, exact output of mesh booleans).
+Papers only, no code read.
+- K. Sugihara, M. Iri, *A solid modelling system free from topological inconsistency*, J. Inf. Process. 12(4), 1989:
+  plane-based solids with integer planes.
+- S. Fortune, *Polyhedral modelling with multiprecision integer arithmetic*, CAD 29(2), 123-133, 1997,
+  doi:10.1016/S0010-4485(96)00041-3: face planes as the primary geometry, vertices implicit, bounded precision per
+  predicate (abstract and summaries read).
+- G. Bernstein, D. Fussell, *Fast, exact, linear booleans*, SGP 2009: plane-based polygons with fixed-precision plane
+  coefficients; closed under booleans.
+- M. Campen, L. Kobbelt, *Exact and robust (self-)intersections for polygonal meshes*, CGF 29(2), 2010: plane-based BSP in an
+  octree.
+- J. Nehring-Wirxel, P. Trettner, L. Kobbelt, *Fast exact booleans for iterated CSG using octree-embedded BSPs*, CAD 2021,
+  arXiv 2103.02486: plane-based with integer inputs and 256-bit arithmetic, for iterated CSG (abstract read).
+- P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER: exact mesh booleans via efficient & robust local arrangements*, ACM TOG
+  41(4), 2022: plane-based, quantized input, output stays plane-based (earlier notes, prior-art survey).
+- M. Attene, *Indirect predicates for geometric constructions*, CAD 2020; G. Cherchi, M. Livesu, R. Scateni, M. Attene,
+  *Fast and robust mesh arrangements using floating-point arithmetic*, ACM TOG 39(6), 2020; G. Cherchi, F. Pellacini,
+  M. Attene, M. Livesu, *Interactive and robust mesh booleans*, ACM TOG 41(6), 2022, arXiv 2205.14151: implicit points
+  LPI / TPI with filters over the double inputs (the arrangement's basis).
+- B. Lévy, *Exact predicates, exact constructions and combinatorics for mesh CSG*, arXiv 2405.12949 (v2 2025), ACM TOG: exact
+  co-refinement with expansion and multi-precision kernels; the conversion to doubles named as the open part.
+- trueform, arXiv 2607.15905 (2026): reports that exact expansions grow to tens of thousands of components in degenerate
+  compositions (a vendor paper, only its summary of Lévy's kernels read).
+
+No work was found that bounds the bits of iterated booleans over unquantized double inputs, or that measures whether exact
+intermediates make the final rounding easier. The quantized plane-based systems avoid the question by never rounding
+between steps and fixing the input precision.
