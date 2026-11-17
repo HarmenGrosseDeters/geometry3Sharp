@@ -83,6 +83,17 @@ class PilotTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('tree-nearest', r.stdout)      # the operation ran (the case was decoded and judged)
 
+    def test_nary_judges_closed_operands_only(self):
+        # campaign b30-n1 artifact (165 bytes): two open boxes (one folded) whose n-ary union and pairwise chain differ in volume;
+        # the volume is a contract of closed operands only, so this is not a finding (with a closed bottom the two agree)
+        data = bytes.fromhex('2e' * 54 + 'dd091d01fe0327000000602e000010fe002e2e' + '00' * 61 + '2e' * 30 + '16')
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'open-nary.bin'
+            p.write_bytes(data)
+            r = run('replay', str(p), ops='nary,determinism')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('nary', r.stdout)
+
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             corpus = Path(tmp) / 'corpus'

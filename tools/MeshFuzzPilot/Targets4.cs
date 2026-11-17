@@ -43,6 +43,10 @@ public static partial class Program
     /// <summary> n-ary union of three operands against the chain of pairwise unions: same volume </summary>
     static void RunNary(Case c, string what)
     {
+        // volumes are compared, which is only a contract for closed operands: an open operand is a generalized winding
+        // number, and the chain feeds an intermediate result into the next union (the crash 04511314 of campaign b30-n1:
+        // two open boxes, one folded, gave -1.7e-71 against -3.4e-71; with a closed bottom the two agree to 15 digits)
+        if (!c.A.IsClosed() || !c.B.IsClosed()) return;
         DMesh3 third = new DMesh3(c.B);
         double d = B30Scale(c.A, c.B);
         foreach (int v in third.VertexIndices()) third.SetVertex(v, third.GetVertex(v) + new Vector3d(2 * d, 0, 0));
@@ -107,6 +111,7 @@ public static partial class Program
     /// <summary> SafeRounding against the plain arrangement: when both succeed and the plain result is clean, the volumes agree </summary>
     static void RunRoundingEquivalence(Case c, string what)
     {
+        if (!c.A.IsClosed() || !c.B.IsClosed()) return;   // volumes are judged on closed operands only (see RunNary)
         var plain = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         var safe = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
         bool okP = plain.Compute(), okS = safe.Compute();
