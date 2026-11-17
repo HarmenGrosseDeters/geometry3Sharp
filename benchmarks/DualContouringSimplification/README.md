@@ -195,5 +195,5 @@ alternating before / after, the better of the two):
 | sphere | 4 | 2279 | 1942 | -15 % | 2025 | 807 | 045365CE274438E8 |
 
 (The hash is of this benchmark's own vertex and triangle bits; it is the same before and after on every row. The GC pause
-column of `--alloc` is the pause during the third run; it fell on bracket, 1 thread, from 510 to 348 ms and by about 10 % on
-the others.)
+column of `--alloc` is the pause during the third run; at 1 thread it fell from 510 to 348 ms (bracket) and 878 to 748 ms (sphere); csg is within noise (748 / 782 to 758 / 705 ms), and
+the 4-thread pauses vary by run.)
