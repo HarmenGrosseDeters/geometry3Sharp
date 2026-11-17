@@ -968,7 +968,7 @@ last place of the largest coordinate beyond the relative bound, or `--rounding-a
 the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
 `RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
 the diagonal, `RoundingMaxDisplacement`), `--rounding-max-pair-tests` its effort budget (default 5M exact pair tests,
-`RoundingMaxPairTests`; past it the repair stops and reports `rounding.evaluation_limit_reached`). `repair` takes the same five options for its exact stage (`MeshRobustRepair`), where a
+`RoundingMaxPairTests`; past it the repair stops and reports `rounding.evaluation_limit_reached`); the budget grows with the initial defects D to min(max(1, D / `--rounding-defect-scale`), `--rounding-max-growth`) times that (defaults 50000 and 4; `RoundingPairTestsDefectScale`, `RoundingPairTestsMaxGrowth`, also on `MeshRobustRepair` and `ExactMeshImprint`). `repair` takes the same seven options for its exact stage (`MeshRobustRepair`), where a
 strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
 after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.

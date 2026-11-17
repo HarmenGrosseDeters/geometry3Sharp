@@ -85,6 +85,10 @@ namespace g3
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> (grown with the defects at the defaults of MeshRoundingRepair.PairTestsDefectScale) </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary> compute ResultExactVertices </summary>
         public bool ComputeExactVertices = false;
         /// <summary> the largest number of pieces (triangles of the arrangement) Compute() takes on; with more it stops with BudgetExceeded. 0: no limit </summary>
@@ -471,7 +475,8 @@ namespace g3
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
+                MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests,
+                PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth
             };
             Rounding.Apply();
             if (Cancellation.IsCancellationRequested)

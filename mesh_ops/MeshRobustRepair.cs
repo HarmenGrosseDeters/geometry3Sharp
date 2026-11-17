@@ -133,6 +133,10 @@ namespace gs
         /// defects by up to 4 times (MeshRoundingRepair.PairTestsDefectScale, PairTestsMaxGrowth, at their defaults)
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale), passed to the exact resolve and to the repair after SeparateTouchingVertices </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary>
         /// ExactMeshBoolean.StrictRounding for the exact resolve (and the relative bound only for the repair after
         /// SeparateTouchingVertices): a resolve whose rounding is not clean within the relative bound fails
@@ -1299,7 +1303,8 @@ namespace gs
                 var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
-                    RoundingMaxPairTests = RoundingMaxPairTests
+                    RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,
+                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;
@@ -1352,7 +1357,8 @@ namespace gs
                         // make, are possible now)
                         var rounding = new MeshRoundingRepair(res) {
                             MaxDisplacement = RoundingMaxDisplacement, UlpFactor = StrictRounding ? 0 : RoundingUlpFactor,
-                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance, MaxPairTests = RoundingMaxPairTests
+                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance, MaxPairTests = RoundingMaxPairTests,
+                            PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth
                         };
                         rounding.Apply();
                         SeparatedRounding = rounding;
