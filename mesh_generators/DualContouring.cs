@@ -1598,12 +1598,7 @@ namespace g3
         internal Vector3d[] HermiteNormals { get { return genNormals; } }
         internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
 
-        internal Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
-        {
-            return solve_qef(new SymmetricEigenSolver(3, 64), cellMin, cellSize, edges, points, normals, out massPoint, out planeNormal, out isFeature);
-        }
-
-        /// <summary> as above, with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
+        /// <summary> solve the QEF of one cell with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
         internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
         {
             Vector3d mass = Vector3d.Zero;

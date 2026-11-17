@@ -86,6 +86,55 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---- extreme sizes (R35): the meshes are scaled by a power of two for the queries; where they cannot be, the scale stays 1 ----
+
+        static void AssertHeights(MeshDeviation d, DMesh3 mesh, double h)
+        {
+            foreach (int v in mesh.VertexIndices()) {
+                Assert.True(double.IsFinite(d.VertexDeviation[v]));
+                Assert.True(Math.Abs(Math.Abs(d.VertexDeviation[v]) - h) <= 1e-9 * h, $"vertex {v}: {d.VertexDeviation[v]} vs {h}");
+            }
+        }
+
+        [Fact]
+        public void ExtremeScale_MeshesOfVeryDifferentExtent_AreNotScaled_ButStillCorrect()
+        {
+            // the extents 2^-150 and 2^-120 are both far below 2^-100, but differ by more than 2^20: no common scale (extreme_scale
+            // returns 1); the squares are still normal numbers (2^-240), so the deviation, a plane's distance, is right
+            double e1 = Math.Pow(2, -150), e2 = Math.Pow(2, -120), h = Math.Pow(2, -151);
+            DMesh3 mesh = Grid(0, 0, e1, e1, 3, (x, y) => h), reference = Grid(0, 0, e2, e2, 3);
+            var d = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned };
+            Assert.True(d.Compute());
+            AssertHeights(d, mesh, h);
+        }
+
+        [Fact]
+        public void ExtremeScale_AFarCoordinateThatTheCommonScaleWouldMakeSubnormal_StaysUnscaled()
+        {
+            // two huge meshes (2^110 and 2^130: scales 2^-110 and 2^-130, within 2^20 of each other): the common scale is the smaller,
+            // 2^-130, and a coordinate 2^-900 of the first would become 2^-1030, a subnormal (not exact): no scaling; at scale 1 the
+            // squares (2^220) are fine and the deviation of the plane is right
+            double e1 = Math.Pow(2, 110), e2 = Math.Pow(2, 130), h = Math.Pow(2, 100), tiny = Math.Pow(2, -900);
+            DMesh3 mesh = Grid(0, tiny, e1, e1, 3), reference = Grid(0, 0, e2, e2, 3, (x, y) => h);
+            Assert.Equal(tiny, mesh.GetVertex(0).y);
+            var d = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned };
+            Assert.True(d.Compute());
+            AssertHeights(d, mesh, h);
+        }
+
+        [Fact]
+        public void ExtremeScale_CancelledDuringTheScaledRun_ReturnsFalse()
+        {
+            // the scaled copies are evaluated by a nested run that carries the cancel function: a cancelled run is not a result
+            double e = Math.Pow(2, -150);
+            DMesh3 mesh = Grid(0, 0, e, e, 3, (x, y) => e / 4), reference = Grid(0, 0, 2 * e, 2 * e, 3);
+            var d = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned };
+            Assert.True(d.Compute());
+            AssertHeights(d, mesh, e / 4);
+            var cancelled = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned, CancelF = () => true };
+            Assert.False(cancelled.Compute());
+        }
+
         [Fact]
         public void PseudoNormal_SignsAtEdgesAndVertices()
         {
