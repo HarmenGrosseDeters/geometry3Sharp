@@ -441,7 +441,7 @@ Problems where the library already has a head start and that could be researched
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
 design note, started 2026-11-10; a scale-free repair study is running, 2026-11-17), 3 together with the leads of 1 (D1 has merged;
-the Fable research session of 2026-11-12 ended with #721 closed: 1 has no guarantee, its plateau variant stays a design; 3's
+the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
 closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
 addressed, see there). Done: 2 (D1, #513, merged 2026-11-11 as Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal;
