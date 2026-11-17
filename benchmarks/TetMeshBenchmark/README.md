@@ -108,3 +108,18 @@ Switches from the environment (benchmark only): `G3_TET_SPLIT=0`, `G3_TET_CONTRA
 | worst smallest dihedral | 3.17 | 6.11 |
 | time median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.81 s / 14.6 s / 54.9 s |
 | refinement + improvement per tet, median | 55 us | 78 us |
+
+### Runner sample of stage P1 (TET_MESHING.md sections 17.5 and 17.8, 2026-11-17)
+
+`.github/workflows/tet-sample.yml` (on demand; ask the coordinator first, runner budget) runs `compare/run_sample_shard.sh` on up to 6
+runners: `refine <id>.stl <alpha> 600` for every id of `compare/thingi-sample-ids.txt` (500 Thingi10K ids, fetched at run time, never
+committed) and every alpha of its input `alphas` (base first), with `G3_TET_WRAP_TIME=0` (skips the separate timing wrap: `wrap_s` is 0
+and `refine_s` the whole `Compute`). `compare/summarize_sample.py <dir> 20 40 80` prints the table and the go / no-go of 17.5. The
+`counts` of a `refine` row start with `input_tris=<n>`. Rows of run 44122189889: `results/thingi10k-sample500-alpha{20,40,80}-2026-11-17.csv`.
+
+| 500 meshes | / 20 | / 40 (default since P1) | / 80 |
+|---|---:|---:|---:|
+| every tet >= 10 degrees | 461 | 494 | 499 |
+| input to boundary max, median | 0.0343 | 0.0228 | 0.0135 |
+| time median / max (s) | 0.64 / 8.6 | 0.83 / 9.8 | 1.41 / 11.7 |
+| tets, median | 4.1k | 7.3k | 19.5k |

@@ -15,6 +15,10 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TetMeshingStage2SplitTests
     {
+        /// <summary> the wrap resolution these mechanism tests were built on (the default up to TET_MESHING.md 17.5): at the finer
+        /// default the bad tets they act on (peels, splits, diagnoses) are gone, so they pin it </summary>
+        internal const double MechanismAlpha = 20;
+
         // the stage-1 result (no improvement) and an improver on it, as MeshTetrahedralization sets it up
         static (MeshTetrahedralization, TetMeshImprover) Plain(DMesh3 input, double alpha = 20, double offset = 600)
         {
@@ -38,9 +42,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Splits_LiftTheThinTorusToTenDegrees_AndKeepTheInvariants()
         {
-            var off = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ContractEdges = false };
+            var off = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha, SplitEdges = false, ContractEdges = false };
             Assert.True(off.Compute());
-            var on = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin"));
+            var on = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha };
             Assert.True(on.Compute(), on.Status.ToString());
             TetMeshingStage2Tests.Invariants(on);
             double before = TetMeshQuality.Measure(off.Result).MinDihedral.Worst, after = TetMeshQuality.Measure(on.Result).MinDihedral.Worst;
@@ -327,9 +331,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Diagnosis_ChangesNothing_AndListsEveryTetLeft()
         {
-            var a = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ContractEdges = false };
+            var a = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha, SplitEdges = false, ContractEdges = false };
             Assert.True(a.Compute());
-            var b = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ContractEdges = false, DiagnoseImprovement = true };
+            var b = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha, SplitEdges = false, ContractEdges = false, DiagnoseImprovement = true };
             Assert.True(b.Compute());
             Assert.Equal(a.Result.Vertices, b.Result.Vertices); Assert.Equal(a.Result.Tets, b.Result.Tets);
             int left = a.Result.Tets.Count(t => TetMeshImprover.Quality(a.Result.Vertices[t.a], a.Result.Vertices[t.b], a.Result.Vertices[t.c], a.Result.Vertices[t.d]) < 10);
@@ -346,7 +350,7 @@ namespace geometry3Sharp.Tests
         {
             Func<bool, MeshTetrahedralization> run = (d) => {
                 // one pass, so that needles and wedges are left (their short edges get the dry contraction)
-                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ImprovePasses = 1, DiagnoseImprovement = d };
+                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { RelativeAlpha = MechanismAlpha, SplitEdges = false, ImprovePasses = 1, DiagnoseImprovement = d };
                 Assert.True(m.Compute()); return m;
             };
             MeshTetrahedralization a = run(false), b = run(true);

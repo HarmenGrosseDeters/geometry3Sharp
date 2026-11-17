@@ -81,6 +81,8 @@ is missing from `SHARED` in `tools/ci_scope.py` fails there):
 python3 -m unittest discover -s tools -p 'test_ci_scope.py'
 python3 -m unittest discover -s tools -p 'test_trx_durations.py'
 python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
+python3 -m unittest discover -s tools -p 'test_gate_check.py'
+python3 -m unittest discover -s tools -p 'test_review_triggers.py'
 ```
 
 A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
@@ -112,7 +114,8 @@ without a PR, or a PR with a merge conflict, which GitHub does not run: resolve 
 
 Before a PR is marked ready or merged, review its diff (`/code-review`, or an agent that gets the code but not
 the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md)
-(the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
+(the fault classes earlier reviews found): the classes whose diff trigger matches the diff, found by reading it or with
+`python3 tools/review_triggers.py <base>...<head>`; the review names the classes it checked. Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
 `mesh_ops/ExactMesh*` always get this review, including a check of every new error bound. Mutation runs gate a merge
 only for PRs that touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or

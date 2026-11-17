@@ -1,0 +1,115 @@
+name: Tet meshing runner sample
+
+# The runner sample of docs/design/TET_MESHING.md section 17.5 (stage P1, owner 2026-11-17): MeshTetrahedralization on 500 Thingi10K meshes
+# (benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt, every 20th id of metadata/file_ids.txt from index 7, disjoint from the
+# 40-mesh subset) at each alpha of `alphas`, all alphas of a mesh on the same runner, one process at a time. Meshes are fetched at run
+# time and never committed or published; the per-mesh CSVs and SUMMARY.md (the go / no-go of 17.5, summarize_sample.py) go to the data
+# branch runs/tet-meshing, never merged. Runs on demand only (workflow_dispatch; ask the coordinator first, runner budget).
+on:
+  workflow_dispatch:
+    inputs:
+      alphas:
+        description: relative alphas, the base (master's default) first, then the candidates coarsest first
+        default: '20 40 80'
+      shards:
+        description: number of shard jobs (runners), 1-6
+        default: '6'
+      timeout_s:
+        description: timeout per mesh and alpha (s)
+        default: '600'
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  ALPHAS: ${{ inputs.alphas || '20 40 80' }}
+  SHARDS: ${{ inputs.shards || '6' }}
+  TIMEOUT_S: ${{ inputs.timeout_s || '600' }}
+
+concurrency:
+  group: tet-sample
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        run: echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(6, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
+
+  shard:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build benchmarks/TetMeshBenchmark -c Release
+      - name: Run shard (one process at a time)
+        run: |
+          n=$(python3 -c "print(max(1, min(6, int('$SHARDS'))))")
+          nproc > out-machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> out-machine.txt
+          bash benchmarks/TetMeshBenchmark/compare/run_sample_shard.sh ${{ matrix.shard }} "$n" \
+            benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$RUNNER_TEMP/meshes" out "$TIMEOUT_S" $ALPHAS
+          mv out-machine.txt out/machine-${{ matrix.shard }}.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: out/
+
+  publish:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: actions/checkout@v4
+        with:
+          ref: runs/tet-meshing
+          path: data
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Merge, summarize, push to runs/tet-meshing
+        run: |
+          dir=data/sample/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
+          mkdir -p "$dir"
+          for a in $ALPHAS; do cat art/shard-*/a$a-*.csv 2>/dev/null | sort > "$dir/a$a.csv" || true; done
+          cat art/shard-*/machine-*.txt > "$dir/machines.txt" 2>/dev/null || true
+          base=${ALPHAS%% *}; cands=${ALPHAS#* }
+          {
+            echo "# Tet meshing runner sample, run ${{ github.run_id }}"
+            echo
+            echo "- geometry3Sharp commit: ${{ github.sha }}; \`TetMeshBenchmark refine <id>.stl <alpha> 600\` per mesh and alpha (G3_TET_WRAP_TIME=0)"
+            echo "- $(grep -c . src/benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt) ids of benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt; $SHARDS shards (ubuntu-latest, machines.txt); timeout $TIMEOUT_S s per mesh and alpha; relative offset 600"
+            echo "- Rule: docs/design/TET_MESHING.md section 17.5 (benchmarks/TetMeshBenchmark/compare/summarize_sample.py)"
+            echo
+            python3 -I src/benchmarks/TetMeshBenchmark/compare/summarize_sample.py "$dir" $base $cands
+          } > "$dir/SUMMARY.md"
+          cat "$dir/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
+          cd data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sample
+          git commit -q -m "Tet meshing runner sample, run ${{ github.run_id }}"
+          for i in 1 2 3 4; do git push origin HEAD:runs/tet-meshing && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-meshing; done
+          echo "push to runs/tet-meshing failed"; exit 1

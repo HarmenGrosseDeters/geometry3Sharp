@@ -249,6 +249,16 @@ target T4): an additive `ExactMesh` whose triangles keep their source plane and 
 the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
 coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
 bounds per construction, the arrangement's input path from constructions, consumers: chained booleans, tet meshing).
+Stage 0 (owner 2026-11-17: use case chained booleans with exact intermediates, then tet meshing) is
+[EXACT_BOOLEAN_40_DESIGN.md](../design/EXACT_BOOLEAN_40_DESIGN.md). It finds the degree constant along a chain under
+plane-based provenance (derived bounds 7B+14 / 6B+12 bits; no measured vertex beyond them). Exact intermediates with one
+final rounding make all 6 unclean abc-chained results clean (of 266; 4 non-empty, 2 by removing a thin exact solid; three
+are RC4b cases) and make no result worse, but they regress on procedural contact chains of 5 or more steps (21 of 108 newly
+unclean, slabs at the final rounding's effort limit). Verdict: go for stage 1 only (a lazy CSG `ExactMesh` over the existing
+n-ary boolean, effort S, no exact-code change; the cull by the expression is a separate reviewed exact-code step, gated by
+an order-balanced time measurement); no-go for
+the materialized provenance build (stages 2-4) until a consumer needs exact intermediates without knowing the next
+operation.
 
 **T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
 2026-11-13, option 1; #843, merged 2026-11-15): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %
@@ -864,7 +874,9 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
    2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
    mask, the `MeshRoundingRepair` locks, the class, tests, the `ExactImprint` benchmark: about half the time of the boolean on closed sphere pairs); the
-   deprecation decision for `MeshMeshCut` / `MeshBoolean` follows once the imprint has run in the nightly / corpus.
+   deprecation decision for `MeshMeshCut` / `MeshBoolean` followed the imprint corpus run (run 44017929170,
+   [IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md)): **decided, owner 2026-11-17**, both are `[Obsolete]` warnings (no error, no API break)
+   pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16), mesh-kernel ideas.

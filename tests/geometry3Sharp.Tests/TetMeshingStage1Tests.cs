@@ -15,6 +15,10 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TetMeshingStage1Tests
     {
+        /// <summary> the wrap resolution these mechanism tests were built on (the default up to TET_MESHING.md 17.5): at the finer
+        /// default the bad tets they act on (peels, splits, diagnoses) are gone, so they pin it </summary>
+        internal const double MechanismAlpha = 20;
+
         static DMesh3 Sphere(double r, int n) => new Sphere3Generator_NormalizedCube() { Radius = r, EdgeVertices = n }.Generate().MakeDMesh();
         static DMesh3 Box() => new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.25, 0.125), new Vector3d(0.5, 0.25, 0.125)) }.Generate().MakeDMesh();
         static DMesh3 TwoSpheres()
@@ -99,14 +103,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Peeling_LiftsTheBoxToTenDegrees()
         {
-            var box = new MeshTetrahedralization(Box()) { Improve = false };
+            var box = new MeshTetrahedralization(Box()) { RelativeAlpha = MechanismAlpha, Improve = false };
             Assert.True(box.Compute());
             Assert.True(box.Counts["peeled"] > 0);
             // (a measured value of the box wrap: 10.0 degrees with the serial carving, 9.28 with the round-based carving of
             // Alpha Wrap 3.0 lever (B), #774, whose box wrap differs; >= 10 is stage 2's target, TET_MESHING.md T4)
             Assert.True(TetMeshQuality.Measure(box.Result).MinDihedral.Worst >= 9.0, TetMeshQuality.Measure(box.Result).MinDihedral.Worst.ToString());
             BoundaryFromWrapAroundInput(box, box.Result);
-            var plain = new MeshTetrahedralization(Box()) { Improve = false, PeelBoundarySlivers = false };
+            var plain = new MeshTetrahedralization(Box()) { RelativeAlpha = MechanismAlpha, Improve = false, PeelBoundarySlivers = false };
             Assert.True(plain.Compute());
             Assert.True(TetMeshQuality.Measure(plain.Result).MinDihedral.Worst < 5);
         }
@@ -173,7 +177,7 @@ namespace geometry3Sharp.Tests
             var a = Sphere(1, 12); var b = Sphere(1, 12);
             foreach (int v in b.VertexIndices()) b.SetVertex(v, b.GetVertex(v) + new Vector3d(1.2, 0.3, 0));
             new MeshEditor(a).AppendMesh(b);
-            var tm = new MeshTetrahedralization(a) { Improve = false };
+            var tm = new MeshTetrahedralization(a) { RelativeAlpha = MechanismAlpha, Improve = false };
             Assert.True(tm.Compute());
             Assert.True(tm.Counts["peeled_in_sweep"] > 0, tm.Counts["peeled_in_sweep"] + " of " + tm.Counts["peeled"]);
             NothingPeelableLeft(tm);

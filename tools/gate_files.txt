@@ -1,0 +1,64 @@
+# Gate files: files that define or run the checks that judge a pull request (docs/QA.md, "Gate-change check").
+# A PR that changes one of them needs the label `gate-change` (set by the owner, or by the coordinator for a change that keeps or tightens the checks; docs/QA.md 2.8a), so a change cannot loosen its own checks.
+# Format: one `glob | reason` per line; `#` starts a comment line. Globs match the whole repository-relative path:
+# `*` and `?` stay inside one path segment, `**/` matches any number of directories (also none), a trailing `/**` matches everything below.
+# The check reads this file from the BASE branch (.github/workflows/gate-change.yml), so a PR cannot edit its own list.
+
+# --- the check itself
+tools/gate_files.txt | this list
+tools/gate_check.py | the script that applies this list
+tools/test_gate_check.py | the tests of that script
+.github/** | workflows (what runs, with which thresholds, on which triggers, the gate-change check), composite actions, CODEOWNERS
+.github/copilot-instructions.md | agent instructions (bind agents like CLAUDE.md)
+
+# --- rules for agents and reviews
+CLAUDE.md | binding project rules (test time, test requirements, review, merge gates)
+AGENTS.md | agent rules
+docs/AGENT_WORKFLOW.md | merge, review and cost rules
+docs/REVIEW_CHECKLIST.md | the checklist every review uses
+
+# --- build-time rules that fail the build
+.editorconfig | analyzer severities and the list of exact files (G3E/G3D analyzers)
+addons/**/.editorconfig | analyzer severities of the add-ons
+BannedSymbols.txt | banned APIs in the exact code
+DeterministicApis.txt | allow list of the determinism proof scope
+core/ExactCodeAllowList.cs | parallel loops allowed in the exact code
+tools/analyzers/** | the analyzers G3E0001-3 and G3D0001-9
+geometry3Sharp.csproj | wires analyzers, banned symbols and package validation
+geometry3Sharp_netstandard.csproj | wires analyzers, banned symbols and package validation (dotnet pack)
+CompatibilitySuppressions.xml | intentional API breaks against 1.0.324
+**/CompatibilitySuppressions.xml | intentional API breaks (any project)
+.config/** | the versions of the tools CI runs (Stryker.NET)
+
+# --- test-time rule, time-rule job inputs
+tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt | tests allowed above 5 s (may only shrink)
+tools/*.py | CI scripts and their tests (scope, trx durations, new tests on base, changed-line coverage, schedule guard, runtime watch)
+tools/ReaderFuzzPilot/** | reader fuzz tool and its tests, run by CI
+tools/MeshFuzzPilot/** | mesh fuzz tool and its tests, run by CI
+tools/PredicateCompiler/** | the generator that GeneratedPredicatesTests checks the exact predicates against
+tools/FPTaylorPilot/** | error-bound pilot and its tests, run by CI
+tools/runtime-watch/** | cases of the runtime watch (nightly extreme cases)
+tools/coverage/** | mutant coverage checks and their unmeasurable-line list and validation data
+tests/coverage.runsettings | coverage collection settings
+tests/**/*.csproj | what the test projects compile, include and exclude, package versions
+tests/geometry3Sharp.Tests/property_validation/check_mutations.py | mutation check of the property tests
+
+# --- mutation testing
+tests/mutation/stryker-*.json | mutated files, test filters and thresholds per shard
+tests/mutation/*.py | shard selection, baseline and incremental run logic
+tests/mutation/*.sh | mutation run scripts
+tests/mutation/*.ps1 | mutation run scripts
+tests/mutation/*.runsettings | mutation coverage selection settings
+tests/mutation/BASELINE_FORMAT | format of the mutation baseline
+tests/mutation/test-filters/** | the tests each shard runs
+
+# --- other acceptance gates (golden rows, ratchets, design numbers checked by tests)
+benchmarks/Meshing2Benchmark/*.cs | the code of the `ci` and `golden verify-changes` gates
+benchmarks/**/test_*.py | Python tests of benchmark tools, run by CI
+benchmarks/Meshing2Benchmark/golden/** | golden rows of the 2D mesher acceptance gate
+benchmarks/Meshing2Benchmark/herne_ratchet.py | fixed limits of known violations
+benchmarks/Meshing2Benchmark/corpus/alkis_known.json | known violations of the ALKIS corpus
+benchmarks/Meshing2Benchmark/rechecks/historical-exceptions.json | exceptions of the 2D mesher rechecks
+docs/design/FIXED_WIDTH_EXACT_POINTS.md | bound table that GeneratedPredicatesTests checks against the generator
+docs/design/DETERMINISM_PROOF.md | stage 0 ledger that DeterminismScopeAnalyzerTests checks against DeterministicApis.txt
+tests/geometry3Sharp.Tests/Harness/** | the invariance harness and the result oracles every operation is judged by

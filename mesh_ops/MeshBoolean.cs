@@ -26,6 +26,7 @@ namespace g3
     /// Prefer <see cref="ExactMeshBoolean"/> (exact, robust, all operations, closed result), or
     /// <see cref="gs.MeshWindingNumberBoolean"/> for a volumetric result from broken input.
     /// </summary>
+    [Obsolete("MeshBoolean is floating-point and not robust (see docs/ROBUSTNESS_SWEEP.md R6). Use ExactMeshBoolean instead.")]
     public class MeshBoolean
     {
         /// <summary> first input mesh (not modified) </summary>

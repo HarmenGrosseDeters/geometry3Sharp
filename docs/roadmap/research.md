@@ -106,6 +106,8 @@ Part of the [roadmap](../ROADMAP.md).
      Production quality (owner 2026-11-17): gap study and staged plan P1-P5 in TET_MESHING.md section 17 (surface fidelity
      first; at alpha = diagonal / 40 or / 80 every tet >= 10° on 40 of 40; stage P1 = finer default alpha + a runner sample,
      go / no-go fixed in 17.5; owner decisions 17.7).
+     P1 done (17.8): 500-mesh runner sample; default alpha diagonal / 40 as a documented exception to the 17.5 rule (every tet
+     >= 10° on 494 of 500, 461 at / 20; 1.3x the time); the 6 meshes left go to the parked lever #1072. Next: P2 (scope to the owner).
   4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: the next
      Phase 5 item, ahead of items 1-3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
@@ -209,7 +211,7 @@ Part of the [roadmap](../ROADMAP.md).
      #741 (2026-11-13, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
      `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
      oracle).
-  Then: quad remeshing (L, licences to check), feature-preserving offsets
+  Then: quad remeshing (L; feasibility study and staged plan 2026-11-17: [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
@@ -324,7 +326,10 @@ in the tool project.
   quad split (#800). A2 (topology certificate) shelved 2026-11-13 after the probe (design note section 11: certified
   share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
   #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
-- Quad remeshing (Instant Meshes 2015, QuadWild 2021)
+- Quad remeshing (Instant Meshes 2015, QuadWild 2021): study and plan in [QUAD_REMESHING.md](../design/QUAD_REMESHING.md).
+  Owner 2026-11-17: quad-dominant stages 1, 2 and 5 (one PR per stage; pure quads, features, MIQ / QEx, QuadWild out);
+  paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
+  OBJ / PLY writers and conversion to and from DMesh3
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
@@ -440,7 +445,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
-design note, started 2026-11-10; a scale-free repair study started 2026-11-17 (owner), no PR yet), 3 together with the leads of 1 (D1 has merged;
+design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 open, PR #1095), 3 together with the leads of 1 (D1 has merged;
 the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
 closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
@@ -584,6 +589,7 @@ Ordered by expected value for the library.
      edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690). Exudation not needed.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
+     At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -610,9 +616,15 @@ Ordered by expected value for the library.
    - Problem: cleanups relative to all triangles erode or drop far parts. Design note
      [ROBUST_REPAIR_SCALE_FREE.md](../design/ROBUST_REPAIR_SCALE_FREE.md) (#547); option A with guard G merged in #560,
      B stage 0 in #578.
-   - Open: a scale-free formulation of the repair stage, so that no cleanup depends on the global box.
-   - Related: the 183 `robust` misses of the strict criterion, 137 of them Hausdorff >= 1 % after solidify
-     ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).
+   - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
+     effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
+     component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
+     No input has a small separable part (box rule: all at least 8.46 % of the scene). Open: bugfix F1, report the loss (29 of 54
+     procedural scenes lose a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
+     for open inputs, the post-resolve cleanup).
+   - The earlier pointer to "183 `robust` misses" is stale: on master 86e94029 the strict misses are 252 of 800 (first 123, holdout
+     129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 is probably 400 - 217 of the holdout run of
+     2026-10-25, before the exact resolve stage.)
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
@@ -670,6 +682,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    rule (upper bound one run). Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
-7. Hard problem 9 (scale-free repair): study started 2026-11-17 (owner), no PR yet. Hard problem 8 (open operands: correctness fixed in #528, only
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 open
+   ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
 8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).

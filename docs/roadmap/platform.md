@@ -201,7 +201,7 @@ Part of the [roadmap](../ROADMAP.md).
   checked by `DeterminismScopeAnalyzerTests`). Stage 1 (owner 2026-11-17: `ExactTriangulation2`, `ExactPlanarSimplify`,
   `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is merged (#1076, 2026-11-17): type-level scope, tuples, counted
   delegate calls, argument forms with their tests on every sort, enumeration and parallel site; open items O1 to O5 there
-  (O1: done 2026-11-17, the `SnapRounding2.Diagnostics` text is culture-invariant). Stage 2 (`ExactMeshArrangement`,
+  (O1: done 2026-11-17, #1092, the `SnapRounding2.Diagnostics` text is culture-invariant). Stage 2 (`ExactMeshArrangement`,
   `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Closed:
   #891 (saturating double-to-int casts in the grid indexers) and #892 (sign-of-zero consistent Min / Max in
   `AxisAlignedBox3d`), both 2026-11-15, and #789 (the shard-choice test, #934). Open: the guard-limit int overflow in

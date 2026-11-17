@@ -26,7 +26,10 @@ What no formulation removes: disparity inside one part (a small feature inside t
 **Recommendation.** A now, as its own small PR. Then the cheap part of B (clean closed parts pass through untouched), and the full B
 in stages behind a measured gate. D (a scale-free cleanliness criterion next
 to `NotCleanReason`) is an owner decision about the status of far parts. C (local tolerances inside every stage) not now. Details in
-section 6, owner questions in section 7. Nothing is implemented; no library code was changed for this note. Built since: A with G (#560) and B stage 0 (#578).
+section 6, owner questions in section 7. Nothing is implemented; no library code was changed for this note. Built since: A with G (#560) and B stage 0 (#578). Study of the
+larger effort (2026-11-17): [ROBUST_REPAIR_SCALE_FREE_STUDY.md](ROBUST_REPAIR_SCALE_FREE_STUDY.md), no-go on the corpus, bugfix F1 (report the loss). Its
+sweep shows that B stage 0 does not remove the deletion of clean far boxes expected in 5.2: the union check sends them back to the
+whole-scene repair, whose rounding removes them.
 
 Read with: `RepairCampaignFindings` (F1 to F5), [QA.md](../QA.md) 2.5a (supported range), [ROBUSTNESS_SWEEP.md](../ROBUSTNESS_SWEEP.md)
 (R29), [alpha-wrap-and-repair.md](../roadmap/alpha-wrap-and-repair.md), #537 (F4), #543 (F5).

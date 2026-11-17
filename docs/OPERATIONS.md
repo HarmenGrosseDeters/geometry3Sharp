@@ -307,7 +307,9 @@ and set `PreventNormalFlips` (edge flips and collapses) and `MinTriangleQuality`
 moves); without them a coarse L-shaped part loses a leg and a flat fan folds (docs/ISSUE_CASE_FINDINGS.md, S2 and S3).
 `Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2, the recommended robust setting: on 20 Thingi10K meshes remeshed at the mean edge length it removed all degenerate triangles, raised the median p01 minimum angle from 1.3 to 5.7 degrees and cut the slivers by 80 %, at +40 % time; higher values gain nothing, [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 7) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
-triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
+triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark;
+the 17x was measured before later speedups, [REMESHER_PHASE2_MEASURED.md](perf/REMESHER_PHASE2_MEASURED.md) has 42x alone and 19x with `MinTriangleQuality` 0.2).
+`Remesher.ApplySafePreset()` (`g3cli remesh --safe`) sets both: opt-in, about 19x the default, no new self-intersecting pairs on the measured Thingi10K set.
 `MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
 creases, eg the apex of a cone with many slices, by their angle deficit.
 `PreserveBoundaryAndFeatures` also pins bowtie vertices (fans of triangles meeting only at a vertex, eg two cones tip
@@ -968,7 +970,7 @@ last place of the largest coordinate beyond the relative bound, or `--rounding-a
 the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
 `RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
 the diagonal, `RoundingMaxDisplacement`), `--rounding-max-pair-tests` its effort budget (default 5M exact pair tests,
-`RoundingMaxPairTests`; past it the repair stops and reports `rounding.evaluation_limit_reached`). `repair` takes the same five options for its exact stage (`MeshRobustRepair`), where a
+`RoundingMaxPairTests`; past it the repair stops and reports `rounding.evaluation_limit_reached`); the budget grows with the initial defects D to min(max(1, D / `--rounding-defect-scale`), `--rounding-max-growth`) times that (defaults 50000 and 4; `RoundingPairTestsDefectScale`, `RoundingPairTestsMaxGrowth`, also on `MeshRobustRepair` and `ExactMeshImprint`). `repair` takes the same seven options for its exact stage (`MeshRobustRepair`), where a
 strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
 after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
