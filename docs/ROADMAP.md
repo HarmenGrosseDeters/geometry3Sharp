@@ -94,10 +94,9 @@ the future" list, ordered by priority; this section names only what is in flight
 
 Checked on 2026-11-17 (evening).
 
-- **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`,
-  `claude/geogram-boolean-comparison-wip`); sessions cannot delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Terrain:** berms and inter-ramp checks, the GeoTIFF reader and the showcase are "later" (owner 2026-11-17); the
-  slope envelope construction and 3D blocks are still open owner decisions. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
+- **Branch deletion:** the owner deletes them (owner 2026-11-17): a list of branches whose PRs are merged or closed, plus
+  `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`; sessions cannot delete
+  branches; `runs/*` branches hold run data and stay. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - **#1064 levers** (if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
   `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop.
 
@@ -105,7 +104,9 @@ Decided on 2026-11-17 (owner): split pinches stay "not clean" in `NotCleanReason
 their own class); the cleanup never empties a non-empty result (RC1); the inside-out check gets an exact volume sign
 (RC3); #846 stays off; #986 option (A); `Obsolete` on `MeshMeshCut` / `MeshBoolean`; tet P1 default diag/40; the
 terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 stage 0 started; no diagnosis of the
-step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there.
+step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
+(with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text becomes culture-invariant (O1); tet 16.2: the boundary
+bound is restated against the peeled surface (no code change, P1 494/500 kept).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B

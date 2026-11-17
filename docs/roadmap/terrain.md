@@ -40,8 +40,8 @@ Part of the [roadmap](../ROADMAP.md).
   limit, #696, closed 2026-11-15, the extreme frame runs in Nightly; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
-distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). Still owner decisions: the slope-envelope construction,
-3D blocks; berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14); the sector polygons are parked (owner 2026-11-16). The slope-envelope construction, 3D blocks,
+berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): done (#752, merged 2026-11-13; resumed by
   the owner 2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
@@ -193,8 +193,8 @@ Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, sh
 is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
 1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
-2. Owner decisions: the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks. Berms and
-   inter-ramp checks and the GeoTIFF reader: later (owner 2026-11-17).
+2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks,
+   berms and inter-ramp checks and the GeoTIFF reader.
 3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
 4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes): (1) `TerrainSafety`'s
    segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
