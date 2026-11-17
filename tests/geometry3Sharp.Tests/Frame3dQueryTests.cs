@@ -313,7 +313,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RayHitPointFrameD_TheNamedTriangleIsMissed_NoHit()
         {
-            // the ray passes beside the triangle the spatial names: false, the frame stays the default one
+            // the ray passes beside the triangle the spatial names: false, and the out frame is the default one
             DMesh3 mesh = Sphere();
             int tid = mesh.TriangleIndices().First();
             Vector3d c = mesh.GetTriCentroid(tid);

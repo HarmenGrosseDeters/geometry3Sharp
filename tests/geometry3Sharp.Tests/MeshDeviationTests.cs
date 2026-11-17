@@ -91,7 +91,7 @@ namespace geometry3Sharp.Tests
         static void AssertHeights(MeshDeviation d, DMesh3 mesh, double h)
         {
             foreach (int v in mesh.VertexIndices()) {
-                Assert.True(double.IsFinite(d.VertexDeviation[v]));
+                Assert.False(double.IsNaN(d.VertexDeviation[v]) || double.IsInfinity(d.VertexDeviation[v]));
                 Assert.True(Math.Abs(Math.Abs(d.VertexDeviation[v]) - h) <= 1e-9 * h, $"vertex {v}: {d.VertexDeviation[v]} vs {h}");
             }
         }
@@ -131,8 +131,12 @@ namespace geometry3Sharp.Tests
             var d = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned };
             Assert.True(d.Compute());
             AssertHeights(d, mesh, e / 4);
-            var cancelled = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned, CancelF = () => true };
+            // (cancelled only from the second call on: the first, in the nested run's own check, passes, so the scaled path ran)
+            int calls = 0;
+            var cancelled = new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned, CancelF = () => ++calls > 1 };
             Assert.False(cancelled.Compute());
+            Assert.True(calls > 1);
+            Assert.False(new MeshDeviation(mesh, reference) { Sign = MeshDeviation.Signs.Unsigned, CancelF = () => true }.Compute());
         }
 
         [Fact]

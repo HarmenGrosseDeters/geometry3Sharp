@@ -42,7 +42,7 @@ namespace geometry3Sharp.Tests
 
         // the generator uses Math.Sin / Cos, which differ in the last bit between runtimes (docs/design/DETERMINISM.md C1): the
         // vertices are snapped to a grid of 2^-24, exactly, so that the input is the same on net48 and net10
-        static DMesh3 Snapped(DMesh3 m)
+        internal static DMesh3 Snapped(DMesh3 m)
         {
             const double grid = 1.0 / (1 << 24);
             foreach (int v in m.VertexIndices().ToArray()) {

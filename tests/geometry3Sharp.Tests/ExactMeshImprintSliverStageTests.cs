@@ -47,13 +47,7 @@ namespace geometry3Sharp.Tests
         // a capped cone frustum with five slices (snapped to a grid of 2^-24 like ExactMeshImprintSliverTests.Shape: the same input on every runtime)
         static DMesh3 FiveSliceCylinder()
         {
-            DMesh3 m = new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 5 }.Generate().MakeDMesh();
-            const double grid = 1.0 / (1 << 24);
-            foreach (int v in m.VertexIndices().ToArray()) {
-                Vector3d q = m.GetVertex(v);
-                m.SetVertex(v, new Vector3d(Math.Round(q.x / grid) * grid, Math.Round(q.y / grid) * grid, Math.Round(q.z / grid) * grid));
-            }
-            return m;
+            return ExactMeshImprintSliverTests.Snapped(new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 5 }.Generate().MakeDMesh());
         }
 
         [Theory]
