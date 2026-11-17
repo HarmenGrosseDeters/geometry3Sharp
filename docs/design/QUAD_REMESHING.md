@@ -344,6 +344,41 @@ irregular-vertex gate, and the quad share of 95 % is borderline without it. Stag
 
 **Owner decision 2026-11-17:** stage 2 merges as quad-dominant remeshing with the missed gates recorded as open (irregular vertices 6 to 12 x the field singularities; quads below 95 % on 4 of the 8 shapes). Next is stage 3B (the QuadriFlow min-cost flow, from the paper only: Huang et al. 2018), starting with a small upper-bound measurement of how far the flow cuts the irregular count on the sphere and torus.
 
+### 4.3 Stage 3B upper bound (2026-11-17)
+
+**Status: parked, not a verdict on option B.** The measurement below used a formulation written from memory of the QuadriFlow
+paper's structure plus own derivations (no QuadriFlow, Instant Meshes or other code read). A second, bounded measurement from the
+paper itself could not be done: the paper was not reachable from the worker session (the fetch host was outside the network
+allowlist, a direct download was denied, and the formulation is not reconstructed from memory again). Option B resumes when the
+papers (Huang et al. 2018; for option C Bommes, Lempfer, Kobbelt, "Global Structure Optimization of Quadrilateral Meshes", CGF 30(2),
+2011; Tarini et al., "Simple Quad Domains for Field Aligned Mesh Parametrization", TOG 30(6), 2011) are available to a session.
+
+Prototype (a throwaway, not committed): per mesh edge an integer diff in the frame of its lower vertex, target = the difference of the two
+vertices' position field lattice points in lattice units, rounded. Constraint: the (frame-rotated) diffs sum to zero around every
+face; the three edges of a face whose frame holonomy is not the identity are fixed to 0. Cost: L1 distance to the real target, two
+tiers per direction, |diff| <= 1. The constraint rows were signed by a BFS so that the matrix is a network matrix; the columns that
+stay unbalanced (they close around the singularities, 340-1250 arcs) were frozen. Solver: successive shortest paths with
+potentials and Dijkstra (Ahuja, Magnanti, Orlin, Network Flows, 9.7). Extraction: the stage 2 extraction and cleanup on the repaired
+diffs (zero diff merges, unit diff links).
+
+| shape (s = 0.1, ratio 0.5) | field singularities | stage 2 irregular | extraction, unrepaired diffs | after the flow | gate (singularities + 10 % of stage 2) |
+|---|---|---|---|---|---|
+| sphere | 8 | 77 | 80 | 127 (triangles 70 to 156, quads 94.5 to 87.5 %) | about 16 |
+| torus | 12 | 76 | 77 | 85 (triangles 71 to 98, quads 94.9 to 92.9 %) | about 20 |
+| torus, `align` 10 (0 singularities) | 0 | 108 | 108 | 175, not manifold | about 11 |
+
+- The flow removes the face violations (sphere 79 to 6 faces, torus 85 to 2, aligned torus 95 to 0) but not the irregular vertices.
+  The aligned torus has no frozen column: the diffs are fully consistent and the extraction is still worse.
+- Finer input does not help (ratio 0.25 / 0.17): sphere 72 / 75 to 101 / 149, torus 64 / 65 to 95 / 96.
+- Cause seen: the repairs relabel thin strings of vertices (clusters of at most 2 vertices: about 1 to 24-290), so extra valence 5
+  and 6 vertices appear. The excess to route is about 45 units whatever the resolution, and a unit travels 20-70 edges.
+- Time: 0.15-0.25 s for the flow at 6-7k vertices (stage 2: 0.3 s), 1.2 s at 55k vertices: time is not the blocker.
+
+Not measured, so open: the paper's exact flow network and its handling of the unbalanced columns (SAT step), the global position
+solve, flip and fragment removal, and a compactness term in the cost. The share of the irregular vertices that the frozen columns
+explain was not isolated (the aligned torus shows the inconsistency is not only theirs). Next: B again from the paper, or option C
+(local cleanup of the valence 5 / triangle dipoles) with an upper bound first.
+
 ## 5. Limits and recommendation
 
 Limits:
