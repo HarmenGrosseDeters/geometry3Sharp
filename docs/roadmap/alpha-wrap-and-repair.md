@@ -544,7 +544,11 @@ guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spik
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).
-   Output-changing, gated by an 800 run.
+   Output-changing, gated by an 800 run. Built in #1045 as the opt-in `MeshAlphaWrap.PullPinchPoints`, default off
+   (design: [ALPHA_WRAP_MANIFOLD_QUALITY.md](../design/ALPHA_WRAP_MANIFOLD_QUALITY.md)). Where no point on the offset surface
+   keeps the separation, the pinch refinement uses the projected circumcenter pulled back to the separation depth, at most 2
+   offsets out, so the spots become manifold by carving. Relaxed promise: vertices in [offset, 2 offset]. 800-run table in
+   #1045. Switching it on by default is the owner's decision.
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363).
 5. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).

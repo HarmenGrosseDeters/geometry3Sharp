@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
         internal static DMesh3 Input() { return AlphaWrapTests.Ellipsoid(5, 0.3, 0.45); }
         const double RelAlpha = 100, RelOffset = 1000;
 
-        static string Fingerprint(MeshAlphaWrap w)
+        internal static string Fingerprint(MeshAlphaWrap w)
         {
             // the result bit for bit and the counts that are not timings
             var counts = w.Counts.Where(kv => !kv.Key.EndsWith("_ms")).OrderBy(kv => kv.Key, StringComparer.Ordinal)
