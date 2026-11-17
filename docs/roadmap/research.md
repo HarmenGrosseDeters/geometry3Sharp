@@ -624,9 +624,12 @@ Ordered by expected value for the library.
     Papers to start from: Ju & Udeshi 2006 (intersection-free contouring on an octree grid), Schaefer, Ju & Warren
     2007 (manifold DC), Nielson 2004 (dual marching cubes), and newer DC variants (papers only, licences as usual).
     Serves B above, `WindingContouring`'s repair use and later TPMS / implicit inputs.
-14. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
-    form needs component labels that survive the edge operations, with a correctness argument
-    ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
+14. ~~**Remesher: a cheaper exact `RejectInvertingPasses`.**~~ Closed 2026-11-17
+    ([INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)): the copy is at most 8.6 % of the run (about 10 %
+    with its garbage collection), so no realistic replacement of it reaches 10 %; the combinations with a higher
+    ceiling (component labels kept through the edge operations, plus an undo log in `DMesh3` or reused snapshot
+    buffers; above 10 % in only 4 of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to about
+    75k triangles) are parked as owner options.
 
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
 
