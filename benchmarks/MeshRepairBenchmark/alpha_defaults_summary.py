@@ -213,7 +213,8 @@ if raw_done:
     w("")
     w(f"Meshes with the raw-wrap metrics in every configuration: {len(raw_done)}. Below bound = triangles with a min angle below"
       " asin(min(offset, alpha - offset) / 2 alpha); separation = the smallest distance between two vertices of the"
-      " triangulation; vertex distances to the input (AABB tree), all relative to the offset.")
+      " triangulation; vertex distances to the input (AABB tree), all relative to the offset. Measured on MeshAlphaWrap's"
+      " result, before the sharp-feature pass of B.")
     w("")
     w("| config | meshes with a triangle below the bound | triangles below | min angle (min) | max angle (max) | "
       "vertex dist max (max) | vertex dist min (min) | separation (min) | raw closed + no bowties | manifold flips (sum) | raw triangles (sum) | wrap_ms (sum) | pipe_ms (sum) |")

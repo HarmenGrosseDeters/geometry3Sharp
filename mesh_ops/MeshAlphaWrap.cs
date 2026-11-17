@@ -35,8 +35,8 @@ namespace gs
     ///     whose new triangles touch the input), their vertices stay at least about 0.35 Offset away (measured);
     ///   - the vertices lie on the offset surface (up to rounding; with the opt-in PullPinchPoints between Offset and 2 Offset
     ///     from the input), so between them the result can come closer
-    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
-    ///     where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
+    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha (2 Offset + Alpha
+    ///     with PullPinchPoints) where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
     ///     up to 8.8 (Offset + Alpha) without RefineNonManifold, 1.1 with it, on an 800 mesh Thingi10K sample).
     /// Alpha controls the detail: cavities and gaps narrower than about 2 * Alpha are not entered (they are
     /// wrapped over), and the result has triangles with a circumradius of at most about Alpha. Smaller Alpha =
@@ -167,8 +167,10 @@ namespace gs
         /// it is used only if it is at most 2 Offset from the input.
         /// With it, most spots become manifold by carving instead of being left to the manifold step. The manifold step put large
         /// facets on the result there, with no angle bound and far from the input: those were the result triangles below the angle
-        /// bound (docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md; 480 procedural wraps: 78 such triangles on 43 wraps, 0 with the option,
-        /// +0.55 % triangles, about the same time).
+        /// bound (docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md; 480 procedural wraps: 78 such triangles on 43 wraps, 0 on those with
+        /// the option, +0.55 % triangles, about the same time). This is a measurement, not a bound: the remaining flips can still
+        /// expose such facets (section 4 of the note: 1 triangle in one rotated frame, 0 there without the option).
+        /// Counts["pinch_pulled_points"]: the pulled points inserted.
         /// <para>Relaxed promise: with this option the result vertices lie between Offset and 2 Offset from the input (up to
         /// rounding), not on the offset surface. All other guarantees of the class doc are the same: closed, manifold, the input
         /// strictly inside, the separation and the angle bound on triangles with a circumradius of at most Alpha. The facets the
@@ -1414,7 +1416,7 @@ namespace gs
 
         WrapStatus refine_non_manifold(bool confirm = true)
         {
-            long rounds = 0, points = 0, cells = 0, skipped = 0;
+            long rounds = 0, points = 0, cells = 0, skipped = 0, pulled = 0;
             var pinch = new List<int>();
             var stamps = new List<int>();
             WrapStatus status = WrapStatus.Success;
@@ -1462,8 +1464,10 @@ namespace gs
                         status = WrapStatus.PointLimitReached;
                         break;
                     }
-                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3))
+                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3)) {
                         inserted++;
+                        if (lastPinchPulled) pulled++;
+                    }
                     else
                         skipped++;
                 }
@@ -1483,6 +1487,8 @@ namespace gs
             add_count("pinch_cells", cells);
             // cells without a qualifying point (or whose point the triangulation rejected): left to the manifold step
             add_count("pinch_skipped", skipped);
+            // (PullPinchPoints: the inserted points of those, not on the offset surface)
+            if (PullPinchPoints) add_count("pinch_pulled_points", pulled);
             return status;
         }
 
@@ -1681,8 +1687,12 @@ namespace gs
         }
 
         // a Steiner point for the outside cell c at a pinch (see refine_non_manifold), false if neither candidate qualifies
+        // (the last pinch_point returned a pulled point: refine_non_manifold counts it once it is inserted)
+        bool lastPinchPulled;
+
         bool pinch_point(int c, out Vector3d p)
         {
+            lastPinchPulled = false;
             double depth = Math.Min(offset, alpha - offset);
             Vector3d cc = circumcenter(c);
             if (MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)) {
@@ -1704,7 +1714,7 @@ namespace gs
             // PullPinchPoints: the projected center pulled back towards the center until it lies the depth inside the
             // circumsphere, if that point is at most PullMaxOffsets offsets from the input (see the option)
             if (PullPinchPoints && pulled_pinch_point(c, cc, depth, out p)) {
-                add_count("pinch_pulled_points", 1);
+                lastPinchPulled = true;
                 return true;
             }
             // on the retry only, a cell with a box corner (flat input: the huge cells above and below a plane of Steiner points) that neither
@@ -1724,16 +1734,20 @@ namespace gs
         // the point x = cc + (q - cc) (r - depth) / |q - cc| on the segment from the circumcenter cc of the outside cell c (radius r)
         // to the point q of the offset surface closest to cc, used where q lies less than the depth inside the circumsphere:
         //   - separation: the circumsphere is empty, so every vertex is at least r from cc, and at least r - |x - cc| = depth
-        //     from x (|x - cc| in floating point, as the depth test of the first candidate; x inside the sphere exactly);
-        //   - offset: the distance to the input falls linearly along the segment towards the closest input point, so
-        //     d(x) = d(cc) - (r - depth) > d(q) = offset (up to rounding: q is on the offset surface up to rounding);
-        //   - band: x is used only if d(x) <= PullMaxOffsets * offset.
+        //     from x (in floating point, as the depth test of the first candidate: cc is rounded, for a sliver by more than an
+        //     ulp, so r is the smallest distance from cc to the cell's four vertices; x inside the sphere exactly);
+        //   - offset: where d(cc) > offset (an outside cell's circumcenter normally is: a gate whose dual edge crosses the offset
+        //     surface gets a rule 1 point instead), the distance to the input falls linearly along the segment towards the closest
+        //     input point, so d(x) = d(cc) - (r - depth) > d(q) = offset. Not assumed: d(x) is checked;
+        //   - band: x is used only if offset <= d(x) <= PullMaxOffsets * offset.
         bool pulled_pinch_point(int c, Vector3d cc, double depth, out Vector3d p)
         {
             p = Vector3d.Zero;
             if (!(MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)))
                 return false;
-            double r = cc.Distance(dt.GetVertex(dt.CellVertex(c, 0)));
+            double r = double.MaxValue;
+            for (int j = 0; j < 4; ++j)
+                r = Math.Min(r, cc.Distance(dt.GetVertex(dt.CellVertex(c, j))));
             if (!(r > depth) || !project_to_offset(c, 0, cc, out Vector3d q))
                 return false;
             double len = cc.Distance(q);
@@ -1742,7 +1756,10 @@ namespace gs
             if (!(len > r - depth))
                 return false;
             Vector3d x = cc + (q - cc) * ((r - depth) / len);
-            if (!(dt.InCircumsphere(c, x) > 0) || !(oracle.Distance(x) <= PullMaxOffsets * offset))
+            if (!(dt.InCircumsphere(c, x) > 0))
+                return false;
+            double dx = oracle.Distance(x);
+            if (!(dx >= offset && dx <= PullMaxOffsets * offset))
                 return false;
             p = x;
             return true;

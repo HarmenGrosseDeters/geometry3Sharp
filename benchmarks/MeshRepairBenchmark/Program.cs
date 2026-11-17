@@ -634,7 +634,8 @@ class Program
         // the raw wrap's triangle quality (angles only; raw_tris for the size)
         r["raw_tris"] = raw.TriangleCount;
         Quality(raw, r, "raw", false);
-        RawWrapBounds(wrap, input, raw, r);
+        // (the wrap's own result, also with BENCH_WRAP_FEATURES, whose pass replaces raw above: the bounds are those of the wrap)
+        RawWrapBounds(wrap, input, wrap.Result, r);
         return result;
     }
 

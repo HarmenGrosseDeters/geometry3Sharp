@@ -122,10 +122,11 @@ jobs:
           CONFIGS: ${{ inputs.configs }}
           TIMEOUT_S: ${{ inputs.timeout_s }}
         run: |
-          # no new mesh after 310 min minus the worst case of one mesh (3 x timeout): the shard ends before the 345 min job limit
+          # no new mesh after 310 min minus the worst case of one mesh (one timeout per configuration): the shard ends before the
+          # 345 min job limit
           [ -s "$RUNNER_TEMP/ids.txt" ] || { echo "empty shard"; exit 0; }
           python3 benchmarks/MeshRepairBenchmark/alpha_defaults.py run "$RUNNER_TEMP/ids.txt" "$GITHUB_WORKSPACE/out" \
-            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((310 - 3 * TIMEOUT_S / 60))"
+            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((310 - ${#CONFIGS} * TIMEOUT_S / 60))"
       - name: Shard summary
         if: always()
         run: |
