@@ -420,10 +420,9 @@ Problems where the library already has a head start and that could be researched
   call the `System.Math` transcendentals (analyzer check).
   `TerrainSlope*` moved to `CoreMath` (#836, closing #802). **Done (coordinator task 2026-11-17, owner approved):** `CoreMath.Acos` and
   `CoreMath.Tan`, correctly rounded, ported from CORE-MATH through CoreMathSharp (MIT, `docs/SOURCES.md`); verified bit for bit against the
-  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. The callers are **not** switched:
-  `CoreMath.AcosByAtan2` (composed from `Atan2` and `Sqrt`, within about 1.6 ulps of the true value, not monotone in the last ulp for |c| < 1/2) is
-  what `TerrainSlopeDesign` uses, and `Acos` differs from it in about 12 % of the test arguments (uniform and near the ends) by one ulp (`CoreMathAcosTanTests`), so a swap
-  changes terrain output bits: an owner decision, with the benchmark (`benchmarks/CoreMathBenchmark`: `Acos` is cheaper than the composed version).
+  BigInteger reference (`CoreMathAcosTanTests`), harness cases `coremath.acos` / `coremath.tan`. **Switched (owner 2026-11-17):** `TerrainSlopeDesign` calls `CoreMath.Acos` instead of the composed `CoreMath.AcosByAtan2`
+  (within about 1.6 ulps, not monotone in the last ulp for |c| < 1/2; it differed from `Acos` by one ulp in about 12 % of the test arguments, `CoreMathAcosTanTests`);
+  `Acos` is cheaper (`benchmarks/CoreMathBenchmark`). `AcosByAtan2` stays for tests and the benchmark only.
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean

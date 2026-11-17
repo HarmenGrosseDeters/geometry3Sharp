@@ -1,6 +1,6 @@
 # CoreMathBenchmark
 
-Cost of the correctly rounded `g3.CoreMathPort.CoreMath` (sin, cos, tan, atan2, acos, exp, log and the fused multiply-add; the composed `AcosByAtan2` for comparison)
+Cost of the correctly rounded `g3.CoreMathPort.CoreMath` (sin, cos, tan, atan2, acos, exp, log and the fused multiply-add; the composed `AcosByAtan2`, which no library code uses any more, for comparison)
 against `System.Math`, in ns per call, on 2^16 seeded random arguments. On net10.0 `CoreMath.FusedMultiplyAdd` is
 the hardware `Math.FusedMultiplyAdd`; on net48 (the netstandard2.0 build) it is the software version.
 
