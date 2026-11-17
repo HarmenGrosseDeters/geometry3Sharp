@@ -15,10 +15,10 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// The closed world of the determinism proof scope, stage 0 (docs/design/DETERMINISM_PROOF.md, issue 859): the rules
+    /// The closed world of the determinism proof scope, stages 0 and 1 (docs/design/DETERMINISM_PROOF.md, issue 859): the rules
     /// G3D0001-9 of tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs on small sources, the allow list
     /// DeterministicApis.txt (well formed, every member and test it names exists), the scope in .editorconfig (exactly the
-    /// kernel files) and the stage 0 ledger of the design note, which is generated from the list.
+    /// kernel and the stage 1 files) and the ledger of the design note, which is generated from the list.
     /// </summary>
     public class DeterminismScopeAnalyzerTests
     {
@@ -109,7 +109,12 @@ namespace geometry3Sharp.Tests
         [InlineData("static string M(int x) { return \"x = \" + x; }", "construct:string-concatenation")]
         [InlineData("static string M(string a) { a += \"!\"; return a; }", "construct:string-concatenation")]
         [InlineData("static string M(double x) { return $\"{x}\"; }", "construct:interpolated-string")]
-        [InlineData("static object M(int a) { return (a, 2); }", "construct:tuple")]
+        // (a tuple literal of up to 7 elements is the constructor of its ValueTuple type; a longer one stays a pseudo id)
+        [InlineData("static object M(int a) { return (a, 2); }", "M:System.ValueTuple`2.#ctor(`0,`1)")]
+        [InlineData("static object M(int a) { return (a, 2, 3); }", "M:System.ValueTuple`3.#ctor(`0,`1,`2)")]
+        [InlineData("static int M((int x, int y) t) { return t.y; }", "F:System.ValueTuple`2.Item2")]
+        [InlineData("static int M(int a) { var (x, y) = (a, 2); return x + y; }", "M:System.ValueTuple`2.#ctor(`0,`1)")]
+        [InlineData("static object M(int a) { return (a, 2, 3, 4, 5, 6, 7, 8); }", "construct:tuple")]
         [InlineData("static object M(int a) { return new { a }; }", "construct:anonymous-type")]
         [InlineData("static async System.Threading.Tasks.Task M(System.Threading.Tasks.Task t) { await t; }", "construct:await")]
         [InlineData("static int[] M(int[] a) { return a[1..]; }", "construct:range")]
@@ -550,6 +555,101 @@ namespace geometry3Sharp.Tests
             Assert.All(d, x => { Assert.Equal(DeterminismScopeAnalyzer.CastId, x.Id); Assert.Equal("2", x.Properties[DeterminismScopeAnalyzer.CountProperty]); });
         }
 
+        // ---- stage 1: the type scope, tuples, counted constructs, argument forms, assumed members ----
+
+        [Fact]
+        public void TypeScope_RestrictsAScopeFileToItsTypes()
+        {
+            string source = Usings + "static class A { static double M(double x) { return Math.Sqrt(x); } } static class B { static double M(double x) { return Math.Abs(x); } "
+                + "\n#if NET\n static int N() { return 1; }\n#endif\n }";
+            string sqrt = "M:System.Math.Sqrt(System.Double) ; sqrt\n";
+            // without a 'type' line the whole file is in the scope: Abs in B is unlisted, and so is the #if block of B
+            var d = Analyze(source, sqrt);
+            Assert.Equal(new[] { "M:System.Math.Abs(System.Double)" }, Ids(d, DeterminismScopeAnalyzer.ApiId));
+            Assert.Single(Ids(d, DeterminismScopeAnalyzer.ConditionalId));
+            // with it only A is: B's calls and blocks are not looked at
+            Assert.Empty(Analyze(source, sqrt + "type Kernel.cs ; A"));
+            // A's own unlisted call is still reported
+            Assert.Equal(new[] { "M:System.Math.Sqrt(System.Double)" }, Ids(Analyze(source, "type Kernel.cs ; A"), DeterminismScopeAnalyzer.ApiId));
+            // a type that is not in the file is an unused line (the scope would silently be empty)
+            Assert.Contains(Analyze(source, sqrt + "type Kernel.cs ; Missing"), x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+            // nested types belong to their type
+            string nested = Usings + "static class A { static class N { static double M(double x) { return Math.Sqrt(x); } } } static class B { static double M(double x) { return Math.Abs(x); } }";
+            Assert.Equal(new[] { "M:System.Math.Sqrt(System.Double)" }, Ids(Analyze(nested, "type Kernel.cs ; A"), DeterminismScopeAnalyzer.ApiId));
+        }
+
+        [Fact]
+        public void TypeScope_ForbiddenDirectives_ReachIntoTheType_AndAreReportedInTheWholeFile()
+        {
+            // a pragma before the type switches off the rules inside it: reported although it lies outside the type
+            string source = "#pragma warning disable G3D0001\n" + Usings + "static class B { } static class A { static double M(double x) { return Math.Sqrt(x); } }";
+            Assert.Contains(Analyze(source, "type Kernel.cs ; A"), x => x.Id == DeterminismScopeAnalyzer.DirectiveId);
+        }
+
+        [Fact]
+        public void TypeScope_MembersOutsideTheType_AreExternal_AndMayBeAssumed()
+        {
+            string source = Usings + "static class A { static int M() { return B.F(2); } } static class B { internal static int F(int x) { return x + 1; } }";
+            string list = "type Kernel.cs ; A\n";
+            Assert.Equal(new[] { "M:B.F(System.Int32)" }, Ids(Analyze(source, list), DeterminismScopeAnalyzer.ApiId));
+            // assumed: on the list without a pinned body (a later stage owns it)
+            Assert.Empty(Analyze(source, list + "M:B.F(System.Int32) ; [assumed] stage 2 obligation S2-0"));
+            // pinned: its declaration is hashed, as for any member of the assembly outside the scope
+            Assert.Contains(Analyze(source, list + "M:B.F(System.Int32) ; plain reason"), x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+            // assumed is for the assembly's own members, and not together with a pin
+            Assert.Contains(Analyze(source, list + "M:B.F(System.Int32) ; [assumed][body:0123456789abcdef] pinned and assumed"), x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+            Assert.Contains(Analyze(source, list + "M:B.F(System.Int32) ; [assumed] ok\nM:System.Math.Abs(System.Double) ; [assumed] not a member of the assembly"), x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+            // an assumed entry that nothing uses is unused like any other
+            Assert.Contains(Analyze(source, list + "M:B.F(System.Int32) ; [assumed] ok\nM:B.G ; [assumed] unused"), x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+        }
+
+        [Fact]
+        public void DelegateInvocations_MustBeRegistered_WithTheirCount_AndAForm()
+        {
+            string source = Usings + "static class C { static int M(Func<int, int> f) { return f(1) + f(2); } }";
+            const string invoke = "M:System.Func`2.Invoke(`0) ; a delegate call\n";
+            const string member = "M:C.M(System.Func{System.Int32,System.Int32})";
+            Assert.Equal(2, Ids(Analyze(source, invoke), DeterminismScopeAnalyzer.ApiId).Count(x => x == "construct:delegate-invocation"));
+            Assert.Empty(Analyze(source, invoke + "construct " + member + " ; delegate-invocation ; 2 ; P4 [T.M] the callback is an exact predicate"));
+            // a wrong count, a missing form and an unknown form are reported
+            Assert.NotEmpty(Analyze(source, invoke + "construct " + member + " ; delegate-invocation ; 1 ; P4 [T.M] x"));
+            Assert.NotEmpty(Analyze(source, invoke + "construct " + member + " ; delegate-invocation ; 2 ; the callback is an exact predicate"));
+            Assert.NotEmpty(Analyze(source, invoke + "construct " + member + " ; delegate-invocation ; 2 ; P6 [T.M] x"));
+            Assert.NotEmpty(Analyze(source, invoke + "construct " + member + " ; delegate-invocation ; 2 ; P4 x"));
+            // a registration of another member or of another construct does not count
+            Assert.NotEmpty(Analyze(source, invoke + "construct M:C.N ; delegate-invocation ; 2 ; P4 [T.M] x"));
+            Assert.NotEmpty(Analyze(source, invoke + "construct " + member + " ; string-concatenation ; 2 ; x"));
+        }
+
+        [Fact]
+        public void StringConcatenations_MustBeRegistered_WithTheirCount()
+        {
+            string source = Usings + "static class C { static string M(int a) { string s = \"a\" + a; s += \"b\"; return s; } }";
+            const string member = "M:C.M(System.Int32)";
+            Assert.Equal(2, Ids(Analyze(source, ""), DeterminismScopeAnalyzer.ApiId).Count(x => x == "construct:string-concatenation"));
+            Assert.Empty(Analyze(source, "construct " + member + " ; string-concatenation ; 2 ; a message"));
+            Assert.NotEmpty(Analyze(source, "construct " + member + " ; string-concatenation ; 3 ; a message"));
+            // the other pseudo ids cannot be registered
+            var d = Analyze(Usings + "static class C { static object M(int a) { return new { a }; } }", "construct M:C.M(System.Int32) ; anonymous-type ; 1 ; x");
+            Assert.Contains(d, x => x.Id == DeterminismScopeAnalyzer.UnusedId);
+            Assert.Contains("construct:anonymous-type", Ids(d, DeterminismScopeAnalyzer.ApiId));
+        }
+
+        [Fact]
+        public void FormEntries_NeedTheArgumentForm_AndTheTestsInEverySiteLine()
+        {
+            string source = Usings + "static class C { static double M(double x) { return Math.Abs(x); } }";
+            const string entry = "M:System.Math.Abs(System.Double) ; [sites][form] folds\n";
+            const string site = "site M:System.Math.Abs(System.Double) @ M:C.M(System.Double) ; ";
+            Assert.Empty(Analyze(source, entry + site + "P3 [DeterminismStage1Tests.A] sorted by a total order"));
+            Assert.Empty(Analyze(source, entry + site + "P0 [T.A, T.B] a list in index order"));
+            Assert.Equal(0, Analyze(source, entry + site + "P3 [T.A] x").Count);
+            foreach (string bad in new[] { "sorted by a total order", "P3 sorted", "P3 [] x", "P7 [T.A] x", "P3 [T.A]", "[T.A] P3 x", "P3 [T A] x" })
+                Assert.Contains(Analyze(source, entry + site + bad), x => x.Id == DeterminismScopeAnalyzer.RestrictedId);
+            // an entry without [form] takes any reason
+            Assert.Empty(Analyze(source, "M:System.Math.Abs(System.Double) ; [sites] folds\n" + site + "compared only"));
+        }
+
         // ---- G3D0008: [SkipLocalsInit] ----
 
         [Fact]
@@ -629,13 +729,30 @@ namespace geometry3Sharp.Tests
             foreach (DeterministicApiList.Entry e in list.Entries.Values) {
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(e.Id, c).FirstOrDefault();
                 Assert.True(s != null, "no symbol for " + e.Id);
-                // (the library's own members carry the hash of their reviewed declaration; the build checks it)
-                Assert.True((e.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal)) == (e.Body != null), e.Id);
+                // (the library's own members carry the hash of their reviewed declaration, the assumed ones of a later stage the tag
+                // [assumed] instead, and the implicit constructors of a class neither; the build checks it)
+                bool own = e.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal);
+                Assert.True(!(e.Assumed && e.Body != null), e.Id);
+                Assert.True(!own || e.Body != null || e.Assumed || e.Id.Contains(".#ctor"), e.Id);
+                Assert.True(own || (e.Body == null && !e.Assumed), e.Id);
                 Assert.True(e.Reason.Length >= 5, e.Id);
             }
             var tests = typeof(DeterminismScopeAnalyzerTests).Assembly.GetTypes()
                 .SelectMany(t => t.GetMethods().Select(m => t.Name + "." + m.Name)).ToImmutableHashSet();
+            // the argument forms of the stage 1 lines name tests ("P3 [Class.Test, ...] why"): every one exists
+            foreach (string reason in list.Registrations.Where(x => x.Kind == "site" && list.Entries[x.Api].Form || x.Kind == "construct" && x.Api == "construct:delegate-invocation").Select(x => x.Reason)) {
+                System.Text.RegularExpressions.Match fm = System.Text.RegularExpressions.Regex.Match(reason, @"^(P[0-5]) \[([^\]]+)\]");
+                Assert.True(fm.Success, reason);
+                foreach (string test in fm.Groups[2].Value.Split(new[] { ", " }, StringSplitOptions.None))
+                    Assert.True(tests.Contains(test), "no test " + test + " named by: " + reason);
+            }
             foreach (DeterministicApiList.Registration r in list.Registrations) {
+                if (r.Kind == "type") {
+                    // (a file of the scope that the editorconfig names, and a type of it)
+                    string file = Directory.GetFiles(ExactCodeAnalyzerTests.RepoRoot(), r.Member, SearchOption.AllDirectories).Single(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar));
+                    Assert.Matches(@"\b(class|struct) " + r.Test + @"\b", File.ReadAllText(file));
+                    continue;
+                }
                 ISymbol member = DocumentationCommentId.GetSymbolsForDeclarationId(r.Member, c).FirstOrDefault();
                 Assert.True(member != null, "no member for " + r.Kind + " " + r.Member);
                 Assert.Equal("geometry3Sharp", member.ContainingAssembly.Name);
@@ -666,6 +783,9 @@ namespace geometry3Sharp.Tests
             "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
+        /// <summary> the files of stage 1 (the exact building blocks); ExactMeshArrangement.cs is in the scope for its class TriangleBoxTree only (a 'type' line) </summary>
+        public static readonly string[] Stage1 = { "mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs", "comp_geom/SnapRounding2.cs", "mesh_ops/ExactMeshArrangement.cs" };
+
         static readonly string[] ScopeRules = { DeterminismScopeAnalyzer.ApiId, DeterminismScopeAnalyzer.RestrictedId, DeterminismScopeAnalyzer.ConditionalId,
             DeterminismScopeAnalyzer.CastId, DeterminismScopeAnalyzer.DirectiveId, DeterminismScopeAnalyzer.SkipLocalsInitId, DeterminismScopeAnalyzer.UnusedId };
 
@@ -674,21 +794,24 @@ namespace geometry3Sharp.Tests
         {
             string root = ExactCodeAnalyzerTests.RepoRoot();
             AnalyzerConfigSet set = ExactCodeAnalyzerTests.EditorConfig(root);
-            foreach (string f in Kernel) {
+            foreach (string f in Kernel.Concat(Stage1)) {
                 Assert.True(File.Exists(Path.Combine(root, f)), f);
                 foreach (string id in ScopeRules)
                     Assert.True(ExactCodeAnalyzerTests.Severity(set, root, f, id) == ReportDiagnostic.Error, f + " " + id);
             }
-            // every other library file is outside stage 0, also the exact files of the later stages
-            var kernel = Kernel.ToImmutableHashSet();
+            // every other library file is outside stages 0 and 1, also the exact files of the later stage
+            var kernel = Kernel.Concat(Stage1).ToImmutableHashSet();
             var others = Directory.GetFiles(Path.Combine(root, "math"), "*.cs", SearchOption.AllDirectories)
                 .Concat(Directory.GetFiles(Path.Combine(root, "mesh_ops"), "Exact*.cs"))
                 .Concat(Directory.GetFiles(Path.Combine(root, "intersection"), "*.cs"))
                 .Concat(Directory.GetFiles(Path.Combine(root, "comp_geom"), "*.cs"))
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
                 .Where(f => !kernel.Contains(f)).ToList();
-            Assert.Contains("mesh_ops/ExactMeshArrangement.cs", others);
-            Assert.Contains("comp_geom/SnapRounding2.cs", others);
+            Assert.Contains("mesh_ops/ExactMeshBoolean.cs", others);
+            Assert.Contains("comp_geom/ConstrainedMesh2.cs", others);
+            // the one file that is in the scope for a type only: ExactMeshArrangement.cs, for TriangleBoxTree (stage 2 owns the rest)
+            var types = DeterministicApiList.Parse(ListText()).Registrations.Where(x => x.Kind == "type").Select(x => x.Member + ":" + x.Test).ToList();
+            Assert.Equal(new[] { "ExactMeshArrangement.cs:TriangleBoxTree" }, types);
             foreach (string f in others)
                 foreach (string id in ScopeRules)
                     Assert.True(ExactCodeAnalyzerTests.Severity(set, root, f, id) == ReportDiagnostic.Suppress, f + " " + id);
@@ -739,20 +862,28 @@ namespace geometry3Sharp.Tests
             Assert.Equal(14, System.Text.RegularExpressions.Regex.Matches(ec, @"dotnet_diagnostic\.G3D\d{4}\.severity").Count);
         }
 
-        /// <summary> the stage 0 ledger as the design note states it, generated from the list </summary>
+        /// <summary> the ledger of stages 0 and 1 as the design note states it, generated from the list </summary>
         public static string Ledger(DeterministicApiList list)
         {
             var e = list.Entries.Values.ToList();
             var r = list.Registrations;
             int ifs = r.Where(x => x.Kind == "if").Sum(x => x.Count), casts = r.Where(x => x.Kind == "cast").Sum(x => x.Count);
-            return "**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): "
-                + e.Count + " external members (" + e.Count(x => x.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal))
-                + " of them geometry3Sharp members declared outside the kernel, " + e.Count(x => x.NetOnly) + " only on the `#if NET` side), "
-                + e.Count(x => x.Sites) + " restricted to registered sites (" + r.Count(x => x.Kind == "site") + " sites), "
+            Func<DeterministicApiList.Registration, bool> delegates = x => x.Kind == "construct" && x.Api == "construct:delegate-invocation";
+            Func<DeterministicApiList.Registration, bool> concats = x => x.Kind == "construct" && x.Api == "construct:string-concatenation";
+            Func<DeterministicApiList.Entry, bool> own = x => x.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal);
+            return "**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): "
+                + e.Count + " external members (" + e.Count(own) + " of them geometry3Sharp members declared outside the scope: "
+                + e.Count(x => own(x) && x.Body != null) + " pinned, " + e.Count(x => x.Assumed) + " assumed as obligations of stage 2; "
+                + e.Count(x => x.NetOnly) + " only on the `#if NET` side), "
+                + e.Count(x => x.Sites) + " restricted to registered sites (" + r.Count(x => x.Kind == "site") + " sites, "
+                + r.Count(x => x.Kind == "site" && list.Entries[x.Api].Form) + " of them with an argument form and its tests), "
                 + e.Count(x => x.Hash) + " restricted to `GetHashCode` implementations; "
                 + ifs + " conditional-compilation blocks in " + r.Count(x => x.Kind == "if") + " members; "
-                + casts + " `double` to integer conversions in " + r.Count(x => x.Kind == "cast") + " member(s); "
-                + r.Count(x => x.Kind == "skiplocalsinit") + " `[SkipLocalsInit]` members.";
+                + casts + " `double` to integer conversions in " + r.Where(x => x.Kind == "cast").Select(x => x.Member).Distinct().Count() + " member(s); "
+                + r.Count(x => x.Kind == "skiplocalsinit") + " `[SkipLocalsInit]` members; "
+                + r.Where(delegates).Sum(x => x.Count) + " delegate calls in " + r.Count(delegates) + " members and "
+                + r.Where(concats).Sum(x => x.Count) + " string concatenations in " + r.Count(concats) + " members, registered; "
+                + r.Count(x => x.Kind == "type") + " file restricted to a named type.";
         }
 
         [Fact]
@@ -761,7 +892,7 @@ namespace geometry3Sharp.Tests
             string root = ExactCodeAnalyzerTests.RepoRoot();
             string doc = File.ReadAllText(Path.Combine(root, "docs", "design", "DETERMINISM_PROOF.md")).Replace("\r\n", "\n");
             string ledger = Ledger(DeterministicApiList.Parse(ListText()));
-            Assert.True(doc.Contains(ledger), "docs/design/DETERMINISM_PROOF.md section 5.2 must contain: " + ledger);
+            Assert.True(doc.Contains(ledger), "docs/design/DETERMINISM_PROOF.md section 5.4 must contain: " + ledger);
         }
     }
 }

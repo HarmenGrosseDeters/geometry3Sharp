@@ -23,6 +23,13 @@ and with `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 on x64), on Windows (net10.0, net48
 optionally macOS arm64, then compares the traces. It is not part of the PR gate: it runs on pull requests that change
 the harness, `benchmarks/CoreMathBenchmark` or the workflow, and on demand.
 
+## Stage 1 cases
+
+`Stage1.cs` adds the cases `stage1.*` for the exact building blocks of the determinism proof stage 1
+([DETERMINISM_PROOF.md](../../docs/design/DETERMINISM_PROOF.md) 5.4): `SnapRounding2` (value-tuple keys, whose hashes are seeded per
+process on .NET; each case also runs the input with its segments reversed), `ExactTriangulation2` and `TriangleBoxTree` (the parallel
+build, above `ParallelBuildFrom`, on random and tied boxes). `ExactPlanarSimplify` runs inside the `boolean.*` cases.
+
 ## Schedule adversary
 
 `adversary` is the first piece of the environment adversary of
