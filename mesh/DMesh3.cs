@@ -819,7 +819,8 @@ namespace g3
 
 
         /// <summary>
-        /// Double-precision <see cref="GetVertexFrame"/>: origin and axes keep double precision.
+        /// Double-precision <see cref="GetVertexFrame"/>: origin and axes keep double precision. Requires vertex normals and a vertex
+        /// with an edge that is not parallel to the normal.
         /// </summary>
         public Frame3d GetVertexFrameD(int vID, bool bFrameNormalY = false)
         {
@@ -848,6 +849,7 @@ namespace g3
 
         /// <summary>
         /// Double-precision <see cref="GetTriFrame"/>: the centroid origin and the axes keep double precision.
+        /// Requires a non-degenerate triangle.
         /// </summary>
         public Frame3d GetTriFrameD(int tID, int nEdge = 0)
         {

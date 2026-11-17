@@ -425,7 +425,8 @@ namespace g3
 
 
         /// <summary>
-        /// Double-precision <see cref="GetTriFrame"/>: the centroid origin and the axes keep double precision.
+        /// Double-precision <see cref="GetTriFrame"/>: the centroid origin and the axes keep double precision. The frame is right-handed
+        /// (X along the edge, Z the face normal). Requires a non-degenerate triangle.
         /// </summary>
         public Frame3d GetTriFrameD(int tID, int nEdge = 0)
         {
@@ -438,7 +439,7 @@ namespace g3
             Vector3d v2 = new Vector3d(vertices[3 * c], vertices[3 * c + 1], vertices[3 * c + 2]);
             Vector3d edge = (v1 - v0).Normalized;
             Vector3d normal = MathUtil.Normal(ref v0, ref v1, ref v2);
-            Vector3d other = edge.Cross(normal);
+            Vector3d other = normal.Cross(edge);   // right-handed (the float method uses edge.Cross(normal), a reflection)
             return new Frame3d((v0 + v1 + v2) / 3, edge, other, normal);
         }
 

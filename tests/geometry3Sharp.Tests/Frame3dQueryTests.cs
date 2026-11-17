@@ -173,12 +173,41 @@ namespace geometry3Sharp.Tests
             Assert.True(ex < axisTol && ey < axisTol && ez < axisTol, "axis differences " + ex + " " + ey + " " + ez);
         }
 
-        [Fact]
-        public void NTMesh3_GetTriFrameD_MatchesFloat()
+        // The float NTMesh3.GetTriFrame builds a reflection (X x Y = -Z); the D variant is a proper right-handed frame, equal to DMesh3's.
+        [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NTMesh3_GetTriFrameD_IsRightHandedAndInvariant(string name)
         {
-            var m = new NTMesh3(Sphere());
+            Similarity s = S(name);
+            DMesh3 d = Sphere();
+            var m = new NTMesh3(d); var mt = new NTMesh3(Invariance.Transformed(d, s));
             foreach (int tid in m.TriangleIndices().Take(25))
-                for (int e = 0; e < 3; e++) AssertClose(m.GetTriFrame(tid, e), m.GetTriFrameD(tid, e));
+                for (int e = 0; e < 3; e++) {
+                    Frame3d f = m.GetTriFrameD(tid, e), ft = mt.GetTriFrameD(tid, e);
+                    Assert.True((f.X.Cross(f.Y) - f.Z).Length < 1e-12, "right-handed");
+                    Assert.True((f.Z - m.GetTriNormal(tid)).Length < 1e-9, "z is the face normal");
+                    AssertFrame(f, ft, s);
+                    if (name == "identity") {
+                        Frame3d g = d.GetTriFrameD(tid, e);
+                        Assert.True((f.Origin - g.Origin).Length < 1e-12 && (f.X - g.X).Length < 1e-9 && (f.Y - g.Y).Length < 1e-9 && (f.Z - g.Z).Length < 1e-9);
+                    }
+                }
+        }
+
+        [Fact]
+        public void SurfaceFrameD_InvalidTriangleThrows_AndFaceNormalWithoutVertexNormals()
+        {
+            DMesh3 mesh = Sphere();
+            Assert.Throws<Exception>(() => MeshQueries.SurfaceFrameD(mesh, 100000, Vector3d.Zero));
+            var plain = new DMesh3(mesh); plain.DiscardVertexNormals();
+            Assert.False(plain.HasVertexNormals);
+            var tree = new DMeshAABBTree3(plain, true);
+            Vector3d q = Queries[0];
+            Frame3d a = MeshQueries.NearestPointFrameD(plain, tree, q), b = MeshQueries.NearestPointFrameD(mesh, new DMeshAABBTree3(mesh, true), q, true);
+            Assert.True((a.Origin - b.Origin).Length < 1e-15 && (a.Z - b.Z).Length < 1e-12);
+            int tid = tree.FindNearestTriangle(q);
+            Assert.True((MeshQueries.SurfaceFrameD(plain, tid, q).Z - plain.GetTriNormal(tid)).Length < 1e-9);
+            Assert.True(MeshQueries.RayHitPointFrameD(plain, tree, new Ray3d(q, (-q).Normalized), out Frame3d h));
+            Assert.True((h.Z - plain.GetTriNormal(tree.FindNearestHitTriangle(new Ray3d(q, (-q).Normalized)))).Length < 1e-9);
         }
 
         [Fact]
