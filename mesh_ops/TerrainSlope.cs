@@ -85,6 +85,8 @@ namespace gs
         internal const int TanCacheSize = 4096;
         internal static int TanCacheCount { get { return tanCache.Count; } }
         internal static void ClearTanCache() { tanCache.Clear(); }
+        /// <summary> tests: whether the cache holds the angle (the global count is shared with every test that reaches TanLowerBound) </summary>
+        internal static bool TanCacheContains(double a) { return tanCache.ContainsKey(BitConverter.DoubleToInt64Bits(a)); }
 
         static readonly System.Collections.Concurrent.ConcurrentDictionary<long, double> tanCache =
             new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
