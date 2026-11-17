@@ -4,6 +4,7 @@ using System.Linq;
 using g3;
 using gs;
 
+#pragma warning disable CS0618 // the fuzz pilot still exercises the deprecated float MeshMeshCut
 namespace MeshFuzzPilot;
 
 /// <summary>

@@ -3,6 +3,7 @@ using System.Linq;
 using g3;
 using Xunit;
 
+#pragma warning disable CS0618 // tests of the deprecated float MeshBoolean (behaviour stays pinned)
 namespace geometry3Sharp.Tests
 {
     /// <summary>

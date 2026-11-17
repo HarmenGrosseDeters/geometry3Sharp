@@ -428,8 +428,8 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MeshTopology**: Extract mesh sharp-edge-path topology based on crease angle
 - **MeshAssembly**: Decompose mesh into submeshes based on connected solids and open patches
 - **MeshSpatialSort**: sorts set of mesh components into "solids" (each solid is outer mesh and contained cavity meshes)
-- **MeshMeshCut**: Cut one mesh with another, and optionally remove contained regions
-- **MeshBoolean**: Apply **MeshMeshCut** to each of a pair of meshes, and then try to resample cut boundaries so they have same vertices. **This is not a robust mesh boolean!**
+- **MeshMeshCut** (obsolete, use **ExactMeshImprint**): Cut one mesh with another, and optionally remove contained regions
+- **MeshBoolean**: Apply **MeshMeshCut** to each of a pair of meshes, and then try to resample cut boundaries so they have same vertices. **This is not a robust mesh boolean!** Obsolete: use **ExactMeshBoolean**.
 - **SimpleHoleFiller**: topological filling of an open boundary edge loop. No attempt to preserve shape whatsoever!
 - **SmoothedHoleFill**: fill hole in mesh smoothly, ie with (approximate) boundary tangent continuity
 - **MinimalHoleFill**: construct "minimal" fill that is often developable (recovers sharp edges well)

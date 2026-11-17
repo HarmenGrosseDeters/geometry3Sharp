@@ -7,6 +7,7 @@ using g3;
 using gs;
 using Xunit;
 
+#pragma warning disable CS0618 // tests of the deprecated float classes (their behaviour stays pinned until they are removed)
 namespace geometry3Sharp.Tests
 {
     /// <summary>
@@ -53,6 +54,19 @@ namespace geometry3Sharp.Tests
             // it must also finish without an exception and leave a valid mesh
             Assert.Null(error);
             Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
+        }
+
+        // --- float MeshMeshCut / MeshBoolean are deprecated (owner 2026-11-17): a warning, never an error ---
+
+        [Theory]
+        [InlineData(typeof(MeshMeshCut), "ExactMeshImprint")]
+        [InlineData(typeof(MeshBoolean), "ExactMeshBoolean")]
+        public void FloatMeshMeshCutAndMeshBoolean_AreObsoleteWarnings_PointingToTheExactApi(Type t, string replacement)
+        {
+            ObsoleteAttribute a = t.GetCustomAttribute<ObsoleteAttribute>();
+            Assert.NotNull(a);
+            Assert.False(a.IsError);
+            Assert.Contains(replacement, a.Message);
         }
 
         // --- Colorf: new Colorf(1,0,0) silently takes the byte constructor ---

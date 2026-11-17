@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // the benchmark measures the deprecated float MeshMeshCut
 // Cost of MeshMeshCut.RefuseContact (the exact look for contact before the cut): Compute() of a sphere cut by a second sphere (a transversal cut,
 // so the look finds nothing and the cut runs), with the look off (RefuseContact = false: the code path of the base library) and on, in ms, median of
 // the runs. Usage: MeshMeshCutContactBenchmark [resolution] [runs]
