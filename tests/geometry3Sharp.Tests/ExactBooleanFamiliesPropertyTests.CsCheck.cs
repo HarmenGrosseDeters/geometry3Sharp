@@ -26,9 +26,9 @@ namespace geometry3Sharp.Tests
         // ---------------------------------------------------------------- helpers
 
         /// <summary> one boolean; the first error of the sequence is kept in error </summary>
-        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, ref string error)
+        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, ref string error, bool safeRounding = true)
         {
-            DMesh3 r = BooleanOracle.Run(a, b, op, out string err);
+            DMesh3 r = BooleanOracle.Run(a, b, op, out string err, safeRounding);
             if (error == "" && err != "") error = err;
             return r;
         }
@@ -127,8 +127,11 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 a = x.a, b = x.b;
             string e = "";
-            DMesh3 u = Run(a, b, Ops.Union, ref e), i = Run(a, b, Ops.Intersection, ref e);
-            DMesh3 d = Run(a, b, Ops.Difference, ref e), d2 = Run(b, a, Ops.Difference, ref e);
+            // (without SafeRounding: the repair removes closed components thinner than RoundingMaxDisplacement (1e-5) of the diagonal, so a thin
+            // intersection vanishes while the difference keeps its hole: B-A = 7.99999936 with A&B empty for a sliver of 6e-7, seed 000000000Tpoh
+            // of campaign 1112; the identities are those of the exact arrangement, the repair's contract has its own tests)
+            DMesh3 u = Run(a, b, Ops.Union, ref e, false), i = Run(a, b, Ops.Intersection, ref e, false);
+            DMesh3 d = Run(a, b, Ops.Difference, ref e, false), d2 = Run(b, a, Ops.Difference, ref e, false);
             if (e != "") return e;
             double tol = 4 * BooleanOracle.VolumeTolerance(a, b);
             double va = BooleanOracle.Volume(a), vb = BooleanOracle.Volume(b), vi = BooleanOracle.Volume(i);
