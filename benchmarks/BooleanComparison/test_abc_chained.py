@@ -227,6 +227,201 @@ class SummaryTests(unittest.TestCase):
         cells = [l.split("|") for l in self.summary(rows).splitlines() if l.startswith("| ucd")][0]
         self.assertEqual(cells[4].strip(), "1/0/0")
 
+def unwelded_cube_obj(path, jitter=0.0, side=1.0):
+    """a cube as ABC writes tessellations: one quad per face with its own four vertices (24 vertices), normals, `f a//n ...` indices"""
+    corners = [(x, y, z) for x in (0, side) for y in (0, side) for z in (0, side)]
+    faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]      # outward orientation
+    lines, n = [], 0
+    for fi, face in enumerate(faces):
+        for k, c in enumerate(face):
+            x, y, z = corners[c]
+            lines.append(f"v {x + jitter * ((fi + k) % 3)!r} {y!r} {z!r}")
+        lines.append("vn 0 0 1")
+    for fi in range(6):
+        b = 4 * fi + 1
+        lines.append(f"f {b}//{fi + 1} {b + 1}//{fi + 1} {b + 2}//{fi + 1} {b + 3}//{fi + 1}")
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+class WeldTests(unittest.TestCase):
+    def test_read_obj_handles_face_formats_negative_indices_and_polygons(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "m.obj")
+            open(path, "w").write("# c\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvn 0 0 1\nvt 0 0\nf 1/1/1 2/2/1 3/3/1 4/4/1\nf -4//1 -3//1 -2\n")
+            v, t = ac.read_obj(path)
+        self.assertEqual(len(v), 4)
+        self.assertEqual(t, [(0, 1, 2), (0, 2, 3), (0, 1, 2)])         # a quad is a fan of two, -4 is the first vertex
+
+    def test_exact_weld_merges_equal_positions_only(self):
+        verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (-0.0, 0.0, 0.0), (1.0 + 1e-12, 0.0, 0.0), (1.0, 1.0, 1.0)]
+        v, t = ac.weld(verts, [(0, 1, 4), (2, 3, 4)], 0.0)
+        self.assertEqual(len(v), 4)                                      # 0 and -0.0 are one position, 1 and 1 + 1e-12 are two
+        self.assertEqual(t, [(0, 1, 3), (0, 2, 3)])
+
+    def test_tolerance_weld_merges_within_the_cell_and_keeps_the_first_vertex(self):
+        verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0 + 1e-12, 0.0, 0.0), (1.0, 1.0, 1.0)]
+        v, t = ac.weld(verts, [(0, 1, 3), (0, 2, 3)], 1e-9)
+        self.assertEqual(len(v), 3)
+        self.assertEqual(v[1], (1.0, 0.0, 0.0))                          # the first vertex of the cell
+        self.assertEqual(t, [(0, 1, 2), (0, 1, 2)])
+
+    def test_tolerance_weld_meets_across_a_cell_boundary(self):
+        # 0.0 and -1e-17 are on both sides of a grid line at 0: a grid hash alone would keep them apart
+        v, t = ac.weld([(0.0, 0.0, 0.0), (-1e-17, 0.0, 0.0), (1.0, 1.0, 1.0)], [(0, 1, 2)], 1e-9)
+        self.assertEqual(len(v), 2)
+        self.assertEqual(t, [(0, 0, 1)])
+
+    def test_tolerance_weld_is_not_transitive_and_moves_by_at_most_the_tolerance(self):
+        diag = (1.0 + 1.0 + 1.0) ** 0.5
+        tol = 1e-3
+        step = 0.8 * tol * diag
+        verts = [(0.0, 0.0, 0.0), (step, 0.0, 0.0), (2 * step, 0.0, 0.0), (1.0, 1.0, 1.0)]
+        v, t = ac.weld(verts, [(0, 1, 2), (1, 2, 3)], tol)
+        self.assertEqual(len(v), 3)                                  # the first two meet, the third is 1.6 steps from the first: its own vertex
+        self.assertEqual(t[0], (0, 0, 1))
+        for orig, new in zip(verts, [v[0], v[0], v[1], v[2]]):
+            self.assertLessEqual(sum((a - b) ** 2 for a, b in zip(orig, new)) ** 0.5, tol * diag * (1 + 1e-12))
+
+    def test_read_obj_reads_comments_tabs_colours_and_crlf_and_rejects_bad_indices(self):
+        with tempfile.TemporaryDirectory() as d:
+            ok = os.path.join(d, "ok.obj")
+            open(ok, "w", newline="").write("v\t0 0 0 1 0 0 # colour\r\nv 1 0 0\r\nv 1 1 0\r\ng part\r\nusemtl m\r\nl 1 2\r\nf\t1 2 3 # c\r\n")
+            v, t = ac.read_obj(ok)
+            self.assertEqual((len(v), t), (3, [(0, 1, 2)]))
+            for name, text in {"zero": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 0 1 2\n", "range": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 99\n",
+                               "negative": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf -9 1 2\n", "short": "v 1 2\n", "text": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 x\n"}.items():
+                path = os.path.join(d, name + ".obj")
+                open(path, "w").write(text)
+                with self.assertRaises(ValueError, msg=name):
+                    ac.read_obj(path)
+
+    def test_collapsed_triangles_are_kept_for_the_filter_to_report(self):
+        v, t = ac.weld([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [(0, 1, 2)], 0.0)
+        self.assertEqual(t, [(0, 0, 1)])
+
+    def test_written_off_roundtrips_the_doubles(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "m.off")
+            v = [(0.1, 1 / 3, 1e-17), (1.0, 2.0, 3.0), (0.0, 0.5, 0.25)]
+            ac.write_off(p, v, [(0, 1, 2)])
+            lines = open(p).read().splitlines()
+        self.assertEqual(lines[0], "OFF")
+        self.assertEqual([tuple(float(x) for x in l.split()) for l in lines[2:5]], v)
+        self.assertEqual(lines[5], "3 0 1 2")
+
+@unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
+class PrepareEndToEndTests(unittest.TestCase):
+    def prepare(self, jitter, tolerances=None, name="cube"):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        os.makedirs(os.path.join(d, "meshes"))
+        unwelded_cube_obj(os.path.join(d, "meshes", name + ".obj"), jitter=jitter)
+        old = ac.CLEAN_TRIS
+        ac.CLEAN_TRIS = (1, 100)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), tolerances, min_clean=1)
+        finally:
+            ac.CLEAN_TRIS = old
+        return d, result
+
+    def test_an_unwelded_cube_is_not_closed_as_read_and_clean_after_the_exact_weld(self):
+        d, (tol, n) = self.prepare(0.0)
+        try:
+            self.assertEqual((tol, n), (0.0, 1))                      # the exact weld is enough: no tolerance used
+            self.assertEqual(open(os.path.join(d, "weld_tol.txt")).read().strip(), "0")
+            self.assertEqual(os.listdir(os.path.join(d, "meshes")), ["cube.off"])        # the obj is replaced by the welded OFF
+            self.assertEqual(open(os.path.join(d, "clean.csv.clean")).read().splitlines(), ["id,tris", "cube,12"])
+            self.assertEqual([x for x in os.listdir(d) if x.startswith("welded_")], [])
+        finally:
+            shutil.rmtree(d)
+
+    def test_a_cube_with_copies_that_differ_by_1e_12_needs_the_tolerance(self):
+        d, (tol, n) = self.prepare(1e-12)
+        try:
+            self.assertEqual((tol, n), (1e-9, 1))                     # exact: not closed (the duplicates stay apart); 1e-9 of the diagonal: closed
+            self.assertIn("cube,12", open(os.path.join(d, "clean.csv.clean")).read())
+        finally:
+            shutil.rmtree(d)
+
+    def test_the_first_tolerance_with_enough_models_stops_the_search_and_leaves_no_temporary_files(self):
+        d, (tol, n) = self.prepare(0.0, tolerances=[0.0, 1e-9, 1e-7])
+        try:
+            self.assertEqual(tol, 0.0)
+            self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # no clean.csv.1e-09, no welded_*
+        finally:
+            shutil.rmtree(d)
+        d, (tol, n) = self.prepare(1e-12, tolerances=[0.0, 1e-9, 1e-7])
+        try:
+            self.assertEqual(tol, 1e-9)
+            self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # out.0 and welded_0 are gone too
+        finally:
+            shutil.rmtree(d)
+
+    def test_without_enough_clean_models_the_tolerance_with_the_most_is_used(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)       # closes at 1e-9 and above
+            unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)         # closes at every tolerance
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [0.0, 1e-9], min_clean=3)     # 3 never reached
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual((tol, n), (1e-9, 2))                       # 1 at the exact weld, 2 at 1e-9
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
+        finally:
+            shutil.rmtree(d)
+
+    def test_the_best_tolerance_is_kept_even_if_a_later_one_is_worse(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)
+            unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [1e-9, 0.0], min_clean=3)    # 2 clean at 1e-9, then only 1 at the exact weld
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual((tol, n), (1e-9, 2))
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
+        finally:
+            shutil.rmtree(d)
+
+    def test_an_unreadable_file_is_skipped_and_listed_and_no_obj_is_an_error(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "good.obj"))
+            open(os.path.join(d, "meshes", "bad.obj"), "w").write("v 0 0 0\nf 1 2 3\n")
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), min_clean=1)
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual(n, 1)
+            self.assertIn("bad:", open(os.path.join(d, "unreadable.txt")).read())
+            self.assertEqual(os.listdir(os.path.join(d, "meshes")), ["good.off"])
+            with self.assertRaises(SystemExit):                          # a second run: the obj files are gone
+                ac.cmd_prepare(d, os.path.join(d, "clean2.csv"), min_clean=1)
+        finally:
+            shutil.rmtree(d)
+
+    def test_a_model_no_tolerance_closes_leaves_no_clean_model(self):
+        d, (tol, n) = self.prepare(0.3)                                # copies 0.3 apart: farther than any tolerance
+        try:
+            self.assertEqual(n, 0)
+            self.assertEqual(open(os.path.join(d, "clean.csv.clean")).read().splitlines(), ["id,tris"])
+        finally:
+            shutil.rmtree(d)
+
 @unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
 class ChainEndToEndTests(unittest.TestCase):
     """a chain on procedural cubes: B on the +z face of A, C on the -z face; the volumes of every step are known"""

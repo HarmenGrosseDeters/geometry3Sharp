@@ -4,7 +4,9 @@
 # runner, extracts a seeded sample of its files, filters them, runs the chains and keeps only result rows (and model ids).
 #
 #   python3 data/abc_chained.py select <listing.txt> <out.txt> [--count N] [--seed S]   candidates from `7z l -slt` output
-#   python3 data/abc_chained.py filter <dir> <out.csv>      NotCleanReason of every <dir>/meshes/*.obj -> id,triangles,reason
+#   python3 data/abc_chained.py prepare <dir> <out.csv>     weld the vertices of <dir>/meshes/*.obj by position (exact first, then a tolerance if too few
+#                                                           models close), write them as OFF and filter them: id,triangles,reason (<out.csv>.clean: the clean ones)
+#   python3 data/abc_chained.py filter <meshes-dir> <out.csv>   NotCleanReason of every mesh of the directory -> id,triangles,reason
 #   python3 data/abc_chained.py generate <clean.csv> <out.csv> [--chains N]   the chain list from the clean models (no meshes)
 #   python3 data/abc_chained.py manifest <dir> <chains.csv> <out.jsonl> [--limit N] [--variants v1,v2]
 #   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
@@ -12,7 +14,7 @@
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
 #
 # Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
-import csv, json, os, re, shutil, subprocess, sys, tempfile, time
+import csv, json, math, os, re, shutil, subprocess, sys, tempfile, time
 import statistics as st
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,9 +70,9 @@ def select_candidates(files, count, seed, size_range=SELECT_BYTES):
 
 # --- filter
 
-def cmd_filter(d, out):
-    """thingi-filter of the tool on all <d>/meshes: id,triangles,reason (reason: NotCleanReason, '' = clean; positive volume)"""
-    meshes = sorted(os.path.join(d, "meshes", f) for f in os.listdir(os.path.join(d, "meshes")))
+def cmd_filter(meshes_dir, out):
+    """thingi-filter of the tool on all meshes of a directory: id,triangles,reason (reason: NotCleanReason, '' = clean; positive volume)"""
+    meshes = sorted(os.path.join(meshes_dir, f) for f in os.listdir(meshes_dir))
     if os.path.exists(out):
         os.remove(out)
     for i in range(0, len(meshes), 100):
@@ -82,7 +84,135 @@ def cmd_filter(d, out):
     reasons = {}
     for _, _, r in rows:
         reasons[r or "clean"] = reasons.get(r or "clean", 0) + 1
-    print("NotCleanReason of the candidates:", reasons)
+    print("NotCleanReason of the candidates:", reasons, flush=True)
+    return reasons, clean
+
+# --- prepare: the obj files of the ABC dataset are tessellated per face of the CAD model, so adjacent faces have their own copies of the
+# vertices on a shared edge: read as they are, no mesh is closed. The vertices are welded by position (exactly equal doubles first; a tolerance
+# only if that leaves too few clean models) before the filter; a tolerance weld moves a vertex by at most tol x the bounding box diagonal.
+
+WELD_TOLERANCES = [0.0, 1e-9, 1e-7, 1e-5]       # relative to the bounding box diagonal; the first one with enough clean models is used
+MIN_CLEAN = 40
+
+def read_obj(path):
+    """(vertices, triangles) of an obj file: 'v' and 'f' lines only (normals, texture coordinates, groups, colours after the coordinates and
+    trailing comments are ignored); polygons are fans. ValueError on a line that cannot be read or an index outside the vertices that exist so far."""
+    verts, tris = [], []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            tok = line.split("#")[0].split()
+            if not tok:
+                continue
+            if tok[0] == "v":
+                if len(tok) < 4:
+                    raise ValueError(f"vertex line with {len(tok) - 1} coordinates")
+                verts.append((float(tok[1]), float(tok[2]), float(tok[3])))
+            elif tok[0] == "f":
+                idx = []
+                for t in tok[1:]:
+                    i = int(t.split("/")[0])
+                    if i == 0 or not -len(verts) <= i <= len(verts):
+                        raise ValueError(f"face index {i} with {len(verts)} vertices")
+                    idx.append(i - 1 if i > 0 else len(verts) + i)
+                for k in range(1, len(idx) - 1):
+                    tris.append((idx[0], idx[k], idx[k + 1]))
+    return verts, tris
+
+def weld(verts, tris, tol):
+    """vertices at the same position become one. tol 0: bit-equal doubles. tol > 0: a vertex joins the first earlier representative within
+    distance h = tol x bounding box diagonal (looked up in the 27 cells of a grid of h around it, so that vertices on both sides of a cell
+    boundary meet); otherwise it is a representative itself. A vertex moves by at most h (to the first vertex seen, order dependent; a chain of
+    close vertices is not merged transitively). Triangles are kept, also the ones that collapse: the filter reports them."""
+    out, remap = [], []
+    if tol > 0 and verts:
+        lo = [min(v[k] for v in verts) for k in range(3)]
+        hi = [max(v[k] for v in verts) for k in range(3)]
+        h = tol * max(sum((hi[k] - lo[k]) ** 2 for k in range(3)) ** 0.5, 1e-300)
+        cells = {}
+        for v in verts:
+            c = (math.floor(v[0] / h), math.floor(v[1] / h), math.floor(v[2] / h))
+            found = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for r in cells.get((c[0] + dx, c[1] + dy, c[2] + dz), ()):
+                            w = out[r]
+                            if (v[0] - w[0]) ** 2 + (v[1] - w[1]) ** 2 + (v[2] - w[2]) ** 2 <= h * h and (found is None or r < found):
+                                found = r
+            if found is None:
+                found = len(out)
+                out.append(v)
+                cells.setdefault(c, []).append(found)
+            remap.append(found)
+    else:
+        ids = {}
+        for v in verts:
+            if v not in ids:
+                ids[v] = len(out)
+                out.append(v)
+            remap.append(ids[v])
+    return out, [(remap[a], remap[b], remap[c]) for a, b, c in tris]
+
+def write_off(path, verts, tris):
+    with open(path, "w") as f:
+        f.write(f"OFF\n{len(verts)} {len(tris)} 0\n")
+        f.writelines(f"{x!r} {y!r} {z!r}\n" for x, y, z in verts)
+        f.writelines(f"3 {a} {b} {c}\n" for a, b, c in tris)
+
+def cmd_prepare(d, out, tolerances=None, min_clean=MIN_CLEAN):
+    """welds and filters <d>/meshes/*.obj with the first tolerance that gives at least min_clean clean models in the triangle range (else the
+    one with the most, the earlier on a tie); leaves the welded meshes as <d>/meshes/<id>.off (the obj files are removed), <out>(.clean) and
+    <d>/weld_tol.txt. An obj file that cannot be read is skipped and listed in <d>/unreadable.txt (the rest goes on). The files are read
+    again for every tolerance (a mesh of 3 MB takes about 10 MB as Python tuples, 400 of them would be 4 GB)."""
+    tolerances = WELD_TOLERANCES if tolerances is None else tolerances
+    mdir = os.path.join(d, "meshes")
+    objs = sorted(f for f in os.listdir(mdir) if f.endswith(".obj"))
+    if not objs:
+        raise SystemExit(f"no obj files in {mdir}")
+    unreadable = {}
+    best = None
+    for tol in tolerances:
+        tdir = os.path.join(d, f"welded_{tol:g}")
+        os.makedirs(tdir, exist_ok=True)
+        for f in objs:
+            k = f[:-4]
+            if k in unreadable:
+                continue
+            try:
+                write_off(os.path.join(tdir, k + ".off"), *weld(*read_obj(os.path.join(mdir, f)), tol))
+            except (ValueError, IndexError) as ex:
+                unreadable[k] = str(ex)
+        print(f"weld tolerance {tol:g} (x bounding box diagonal), {len(unreadable)} unreadable files:", flush=True)
+        reasons, clean = cmd_filter(tdir, f"{out}.{tol:g}")
+        n = sum(1 for _, t in clean if CLEAN_TRIS[0] <= t <= CLEAN_TRIS[1])
+        print(f"  {n} clean models with {CLEAN_TRIS[0]}-{CLEAN_TRIS[1]} triangles", flush=True)
+        if best is None or n > best[1]:
+            best = (tol, n)
+        if n >= min_clean:
+            best = (tol, n)
+            break
+        for t in tolerances:                                  # the disk: keep only the welded meshes of the best tolerance so far
+            if t != best[0]:
+                shutil.rmtree(os.path.join(d, f"welded_{t:g}"), ignore_errors=True)
+    tol, n = best
+    for f in os.listdir(mdir):
+        os.remove(os.path.join(mdir, f))
+    for f in os.listdir(os.path.join(d, f"welded_{tol:g}")):
+        shutil.move(os.path.join(d, f"welded_{tol:g}", f), os.path.join(mdir, f))
+    for t in tolerances:
+        shutil.rmtree(os.path.join(d, f"welded_{t:g}"), ignore_errors=True)
+        if t != tol:
+            for suffix in ("", ".clean"):
+                if os.path.exists(f"{out}.{t:g}{suffix}"):
+                    os.remove(f"{out}.{t:g}{suffix}")
+    shutil.move(f"{out}.{tol:g}", out)
+    shutil.move(f"{out}.{tol:g}.clean", out + ".clean")
+    with open(os.path.join(d, "weld_tol.txt"), "w") as f:
+        f.write(f"{tol:g}\n")
+    with open(os.path.join(d, "unreadable.txt"), "w") as f:
+        f.write("".join(f"{k}: {v}\n" for k, v in sorted(unreadable.items())))
+    print(f"weld tolerance used: {tol:g}, {n} clean models in range, {len(unreadable)} unreadable files", flush=True)
+    return tol, n
 
 def read_clean(path):
     with open(path) as f:
@@ -339,6 +469,7 @@ if __name__ == "__main__":
         open(a[2], "w").write("".join(p + "\n" for p in sel))
         print(len(sel), "candidates of", len(files), "files")
     elif a[:1] == ["filter"]: cmd_filter(a[1], a[2])
+    elif a[:1] == ["prepare"]: cmd_prepare(a[1], a[2])
     elif a[:1] == ["generate"]: generate(read_clean(a[1]), a[2], opt("--chains", CHAINS_PER_VARIANT, int))
     elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], a[3], opt("--limit", None, int), opt("--variants", None, lambda s: s.split(",")))
     elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int), opt("--budget", None, int))
