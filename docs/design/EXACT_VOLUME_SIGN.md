@@ -59,7 +59,7 @@ still uses the floating-point |V|, as before.
 
 ## Tightness and tests
 
-`ExactVolumeSignTests`:
+`ExactVolumeSignTests` and `FindInvertedComponentsExactTests` (the latter through the public API only, with its own BigInteger oracle, so that it also runs against the library before the fix, where three of its four tests fail):
 - the filter agrees with the integer sum on 1800 random slivers (four scales including 2^±300, three offsets up to 6e6) and
   300 thin 64-gon prisms a few ulps thick;
 - an adversarial sum where the recursive summation loses 200 terms of just under half an ulp. Its floating-point sum is
