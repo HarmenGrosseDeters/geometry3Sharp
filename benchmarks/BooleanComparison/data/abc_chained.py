@@ -425,12 +425,16 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             data = f.read()
             if data and not data.endswith(b"\n"):
                 f.write(b"\n")
+        retry = set()
         for l in open(out):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
+                if r.get("class") == EXACT_CLASS and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
+                    retry.add(r["file"])
             except ValueError:
                 pass
+        done -= retry
     todo = [c for c in cases if c["name"] not in done]
     print(f"{len(cases) - len(todo)} chains finished, {len(todo)} to run", flush=True)
     t0 = time.monotonic()
