@@ -263,8 +263,61 @@ half of an owner decision. Criteria, fixed now:
    the dust floor.
 4. F2 only if the owner wants the parts kept rather than reported; its own A/B (strict criterion, part criterion, fallback count)
    then decides.
-5. Effort of F1: S (a day with the corpus A/B; the check reuses the probe's measure). No exact-arithmetic file changes, so no
+5. Effort of F1: S (a day with the corpus A/B; the check is a variant of the probe's measure: per padded part, present when any sample is reached, where the probe takes the farthest sample per component). No exact-arithmetic file changes, so no
    mutation gate before the merge.
+
+### 6.1 F1 as built (owner 2026-11-17: "ja, F1 starten"; F2 not now)
+
+`MeshRobustRepairLostParts`, called at the end of `Apply()` in the working frame. It differs from item 1 above in these points,
+decided with the coordinator or found by the tests and the review:
+- **Two or more parts only.** An input that is one part by the padded rule is not checked (coordinator), so it is no general check
+  against silent success on single-part inputs.
+- **Parts of fewer than 4 triangles, or without extent, are not judged.** Stray triangles that the repair removes on purpose are
+  not reported.
+- **Only with `MinVolumeIoU > 0`.** That is the documented meaning of 0, "no checks against the input", as for the other lost-part
+  checks.
+- **Reasons.** `LostFarPart` keeps its text and meaning: a closed part lost where the components lie far apart (the far-part switch,
+  row 3). The two new constants are additive (coordinator: `LostFarPart` is not widened):
+  - `LostFarOpenPart`: a lost open part;
+  - `LostSeparatePart`: a lost closed separable part outside the far-part case.
+
+  A reason the stages set (eg an unclean solidify) is kept after `"; "`. g3cli maps the new reasons to `lost_far_open_part` and
+  `lost_separate_part`. "Far" is the far-part switch's predicate (two or more components and a triangle below the degenerate area of
+  the scene, also a sliver of the large part), not a distance: on the corpus it holds for 234 of 800 inputs.
+- **Visible skips.** Why the check judged nothing is recorded in `LostPartCheckSkipped` (internal, for tests): off, no volume
+  checks, empty, one part, too many components, no part judged, not reached.
+- **No underflow.** The part's diagonal and reach avoid squaring tiny lengths, so a part of 2^-600 in the frame is judged too.
+
+Procedural criterion (54 scenes of 3.1, with and without the check, one build): 28 cases true -> false (reported as
+`LostFarPart` / `LostFarOpenPart` in that run, before `LostSeparatePart` existed; with it, the closed parts outside the far-part
+switch, eg two boxes at r = 16 f = 2, are `LostSeparatePart`); the 29th, v1 r = 12 f = 8 (one box of two lost inside one part), stays true, out of scope as stated above. The
+25 others are unchanged, and no result mesh differs (hash).
+
+Three existing tests had pinned a silent loss with `Apply()` true:
+- a `RepairF` that drops a separate small sphere;
+- a 1e-4 speck dropped next to a unit sphere;
+- a test hook that empties the result of the others.
+
+They now expect the report; the hook test runs with the check off to keep its line covered, and checks the report separately.
+
+**What F1 does not cover.** The R row of the corpus still has 28 meshes with `Apply()` true and a closed component more than 25 %
+of its own diagonal from the result (section 3.2):
+- 22 of them are one part by the padded rule, so not checked by design;
+- the other 6 (39246, 48950, 48954, 50405, 697602, 96307) lose a component inside a part, or part of one, which F1 does not judge
+  (it reports a part only when no sample of it is reached).
+
+So F1 closes the silent loss of separable parts, not every component loss. The procedural rows (R / N) are in `study/f1-sweep` on
+`runs/scale-free-f1`.
+
+Corpus criterion: run 44161038527 on GitHub-hosted runners, 800 meshes, R (with the check) and N (`NoLostPartCheck`), one build, the
+two configurations interleaved per mesh; data branch `runs/scale-free-f1`, `scale_free_study.py f1`.
+- `Apply()` true -> false: 0; false -> true: 0.
+- Result hash differs: 0, so the strict criterion is unchanged on every mesh.
+- Timeouts: 0.
+- Wall time: R 4537 s, N 4461 s (+1.7 %, bar +2 %).
+
+That run predates the `MinVolumeIoU` gate and the second constant. Neither changes a default run's decision: `MinVolumeIoU` is
+0.99 by default, and the second constant changes only the reason text.
 
 ## 7. Recommendation
 
