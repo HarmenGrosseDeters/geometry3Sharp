@@ -365,6 +365,15 @@ namespace g3
         internal bool LocalTriangulationFilters = true;
         // for tests: the arrangement of the last Compute
         internal ExactMeshArrangement Arrangement { get { return arr; } }
+        // for tests (the certifying checker, tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs): keep what the
+        // classification decided, per arrangement piece (Arrangement.Output): the winding numbers of all meshes in front of
+        // each piece it classified (dense, one entry per mesh; null for the pieces it did not: coplanar copies output from
+        // another triangle), keep and flip; and a copy of the result before SafeRounding (vertex ids as in Result then).
+        // Recording only: it changes no decision
+        internal bool RecordCertificate = false;
+        internal int[][] CertificateFront;
+        internal bool[] CertificateKeep, CertificateFlip;
+        internal DMesh3 CertificateAssembled;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
@@ -550,6 +559,9 @@ namespace g3
             segmentProjections.Clear();
             segmentL1.Clear();
             OpenWindingPerPiece = null;
+            CertificateFront = null;
+            CertificateKeep = CertificateFlip = null;
+            CertificateAssembled = null;
             antipodalUndecided = 0;
             antipodalSnapped = 0;
             hierUsed = hierFallbacks = 0;
@@ -636,6 +648,10 @@ namespace g3
             bool[] keep, flip;
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
+            if (RecordCertificate) {
+                CertificateKeep = (bool[])keep.Clone();
+                CertificateFlip = (bool[])flip.Clone();
+            }
             clock.Lap("classification");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -664,6 +680,8 @@ namespace g3
             Counts["antipodal_hierarchical"] = hierUsed;
             Counts["antipodal_hierarchical_fallbacks"] = hierFallbacks;
             Result = assemble(keep, flip);
+            if (RecordCertificate)
+                CertificateAssembled = new DMesh3(Result, false, MeshComponents.None);
             clock.Lap("assembly");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -1183,6 +1201,7 @@ namespace g3
             steps.LapMicroseconds("classification.open");
 
             int[] winding = new int[nm];
+            int[][] front = RecordCertificate ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -1204,6 +1223,8 @@ namespace g3
                     for (int k = 0; k < w.Length; k += 2)
                         add(w[k], w[k + 1]);
                 }
+                if (front != null)
+                    front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
@@ -1226,6 +1247,7 @@ namespace g3
                 }
                 touched.Clear();
             }
+            CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
 

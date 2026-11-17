@@ -1,7 +1,8 @@
 # Boolean research after 3.0: prior art for guaranteed rounding and a certifying boolean (2026-11-17)
 
 Status: **prior-art check** (AGENT_WORKFLOW section 2) for two research directions after Exact Boolean 3.0, owner
-approved 2026-11-17. The owner uses it to decide whether either one gets a research effort. Papers and documentation
+approved 2026-11-17. **Owner decisions 2026-11-17:** direction 1 not now; direction 2, stages 1-2, built as a test-only
+checker (section 3.8). The owner uses it to decide whether either one gets a research effort. Papers and documentation
 only: no library code was changed, nothing was measured, and no code of CGAL, libigl, fTetWild, TetGen, Trueform or any
 other GPL / LGPL / MPL project was opened.
 
@@ -265,6 +266,27 @@ in a radial order, drop a nested component's anchor, swap A and B in a differenc
   by a witness type that is not a convex-cell decomposition (Chazelle's bound rules those out), or a lower bound showing
   that no such certificate exists in a natural model. Also new: a certificate for the rounding (C5) that includes the
   isotopy-type statement of section 2.5 item 2, not only Hausdorff and embedding.
+
+### 3.8 Stages 1-2 built (2026-11-17)
+
+`tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs`, described in [QA.md section 2.4a](../QA.md): C1, C3, C4 and
+C5's closedness and coverage, test-only, over an internal recording of the boolean (no API, no change of behaviour).
+Against the criteria of section 3.6:
+- **Linear in practice:** C1, C3 and C4 are linear in the pieces plus one ray per anchor; the anchors were one per
+  connected set of pieces (1-2 on the test solids, more only with a Difference's early-out, which needs one per connected
+  set under its comparison rule). On two overlapping spheres (696 pieces, warm) C1 + C3 + C4 took about 30 ms against
+  4 ms of the boolean, C5 about 65 ms: **not** a few percent of the boolean, as BigInteger decides every sign without a
+  floating-point filter. Fine for a test oracle; a certified mode for users would need filters (and their bounds).
+- **Not a re-run of the classification:** no ray per patch; the classification's carried, per-patch and filtered paths
+  are not used. The coplanar stacks are recomputed (quadratic per plane, fine for the test meshes).
+- **Every mutation killed:** the four of section 3.6 (a patch's winding pair off by one, two patches' pairs swapped, a
+  nested component without its anchor, A and B swapped in a difference) and those of the selection, the pieces and the
+  result, and a wrongly culled component (counts in QA.md 2.4a). A nested component read as outside is caught only by
+  its anchor ray, as expected. The review found that the first version trusted the early-out's culling (a component
+  culled by mistake was invisible); C0 now checks every culled triangle against the culling mesh.
+- **Limits found:** the early-out of an Intersection culls against both meshes, and a comparison rule for that case
+  would be circular (a region that is wrongly read as outside both meshes could pass): such runs are `n/a`, the oracle
+  runs Intersection without the early-out. Open inputs are out of the class (section 3.3).
 
 ## 4. Sources (search results used for the [S] marks)
 

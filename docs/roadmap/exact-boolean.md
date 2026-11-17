@@ -786,6 +786,9 @@ open are the output size and a local scheme; a 2-3 day falsification experiment)
 (partially known building blocks, no certifying 3D mesh boolean found; a test-only checker for the classification as
 the first stage). Owner 2026-11-17: (2) stages 1-2 (stage 1 the test-only checker of the classification and selection, C3 + C4;
 stage 2 closedness and coverage, C1 + C5) are to be built as a correctness oracle for the robustness round; the experiment of (1) is not now (its gain on real data is the five RC4b cases).
+Built (2026-11-17, [QA.md 2.4a](../QA.md)): the checker (C0 inputs and culling, C1, C3, C4, C5 closedness and coverage)
+is the oracle of the boolean property campaigns and of a Nightly corpus; stage 3 (a simple exact recheck of the
+embedding, C2a) and a certified mode for users are not scheduled.
 
 **Octree-embedded BSPs / EMBER architecture: shelved (owner 2026-11-17).** The ideas that fit are built (the cull of
 T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -15 % in chains at 12 threads,
