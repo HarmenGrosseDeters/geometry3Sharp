@@ -834,3 +834,47 @@ of a split on meshes like 839690 (smoothing with the exact checks dominates).
 Owner decisions: (1) the default: `SplitEdges` and `ContractEdges` on, `ImprovePasses` 50 (this PR; the output of
 `MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last four meshes: accept
 36 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).
+
+## 17. The last four meshes: a rescue phase with active-set smoothing (2026-11-17)
+
+After section 16 (#1065, merged with its defaults, owner), 36 of 40 meshes have every tet >= 10 degrees; left 839690 (6.11),
+120628 (8.84), 46460 (9.10), 113956 (9.57). Diagnosis (16.1's `Diagnose`, plus pass-count probes):
+
+| Mesh | tets left | worst tet | what blocks it |
+|---|---|---|---|
+| 120628 | 1 | wedge, two boundary facets, short boundary edge | the pass cap: boundary moves still succeed; 66 passes reach 10.0 |
+| 46460 | 1 | wedge, one boundary facet | creeping: boundary moves keep succeeding by tiny steps (9.20 after 200 passes) |
+| 113956 | 1 | needle, short edge boundary vertex to interior vertex | a true optimum after 17 passes: every move "not better", the contraction too |
+| 839690 | 60 | wedges and needles, all four vertices on the boundary, long edges about 57 offsets | optimum; no interior vertex to move, boundary vertices at the slide cap or not better |
+
+The smoothing of stage 2 steps along the gradient of the worst tet of a star only; where two tets compete, that step lowers the
+other one and is refused, although a step that raises both exists. The classical answer is the nonsmooth max-min smoothing of
+L. A. Freitag, M. T. Jones, P. E. Plassmann, *An efficient parallel algorithm for mesh smoothing* (IMR 1995; also used by Klingner
+and Shewchuk 2007): the steepest ascent direction of the smallest angle is the point of least norm in the convex hull of the
+gradients of the active (near-worst) tets. Library search first: no least-norm, active-set or max-min smoothing code
+exists in the library; the step is a few lines (Gilbert's iteration).
+
+Built (`TetMeshImprover`): a **rescue phase** after the main passes, run **only if tets below the target are left** (so the 36
+meshes that reach it are bit for bit unchanged, test `Rescue_LeavesAMeshThatReachedTheTarget_BitForBit` and the rows below):
+up to `RescuePasses` (150) more passes in which the smoothing of interior vertices also tries the active-set direction (tets
+within `ActiveBand` = 1 degree of the star's worst, six step sizes). Every move is still kept only if the star's worst angle
+rises, with the exact checks of section 15 unchanged; boundary moves are as before (an active-set direction for them was tried
+and changed nothing on the subset, so it is not in the code).
+
+Result (one process at a time, rescue off and on interleaved per mesh; rows `results/thingi10k-subset-stage2-{norescue,rescue}-2026-11-17.csv`):
+
+| Measure (40 meshes) | section 16 (rescue off) | with the rescue phase (default) |
+|---|---|---|
+| valid (exact), boundary without self-intersection | 40 / 40, 40 / 40 | 40 / 40, 40 / 40 |
+| **every tet >= 10 degrees** | 36 | **39** |
+| worst smallest dihedral | 6.11 (839690) | 7.67 (839690) |
+| meshes with a different result | | 4 (the four above; the other 36 identical) |
+| time median / max / sum | 0.73 s / 12.9 s / 49.1 s | 0.75 s / 12.7 s / 50.3 s (+2.4 %) |
+| rescue passes | | 113956: 3, 120628: 16, 46460: 120, 839690: 42 |
+
+**Left: 839690**, 13 tets below 10 degrees (7.67 at worst). They are wedges and needles whose four vertices all lie on the
+boundary, in a thin part where the two sides of the wrap are one tet apart, with long edges of about 57 offsets: no interior
+vertex to move, their boundary vertices pinned by the slide cap (0.5 offsets) or with no better step, their short boundary edges
+1.4-10 offsets long, beyond what a contraction may move the boundary. Reaching 10 degrees there needs a change of the boundary
+beyond the cap (owner: `BoundarySlideFactor`), or interior vertices in that thin part, which the fixed surface of stage 1 refuses
+(section 16.1). Not pursued: it is one mesh of 40 and either way changes what the boundary guarantees.

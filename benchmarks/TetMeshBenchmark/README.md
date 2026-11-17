@@ -108,3 +108,10 @@ Switches from the environment (benchmark only): `G3_TET_SPLIT=0`, `G3_TET_CONTRA
 | worst smallest dihedral | 3.17 | 6.11 |
 | time median / max / sum | 0.69 s / 12.2 s / 41.2 s | 0.81 s / 14.6 s / 54.9 s |
 | refinement + improvement per tet, median | 55 us | 78 us |
+
+### Rescue phase (TET_MESHING.md section 17, 2026-11-17)
+
+`G3_TET_RESCUE=<n>` sets `RescuePasses` (default 150, 0 = off). Rescue off and on interleaved per mesh, one process at a time
+(`results/thingi10k-subset-stage2-norescue-2026-11-17.csv`, `results/thingi10k-subset-stage2-rescue-2026-11-17.csv`): every tet
+>= 10 degrees on 36 / 40 -> 39 / 40, worst 6.11 -> 7.67 degrees (839690), time sum 49.1 s -> 50.3 s; the 36 meshes that reach the
+target without it are identical.

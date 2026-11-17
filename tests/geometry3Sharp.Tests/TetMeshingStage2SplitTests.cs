@@ -346,7 +346,7 @@ namespace geometry3Sharp.Tests
         {
             Func<bool, MeshTetrahedralization> run = (d) => {
                 // one pass, so that needles and wedges are left (their short edges get the dry contraction)
-                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ImprovePasses = 1, DiagnoseImprovement = d };
+                var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) { SplitEdges = false, ImprovePasses = 1, RescuePasses = 0, DiagnoseImprovement = d };
                 Assert.True(m.Compute()); return m;
             };
             MeshTetrahedralization a = run(false), b = run(true);
