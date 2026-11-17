@@ -876,14 +876,14 @@ namespace geometry3Sharp.Tests
 
         // a finely tessellated box with N stacked interior layers of 1 triangle each: a round removes about 1 face of
         // about 4.8k, so the rounds stall (4 rounds remove less than 0.1 % of the faces left)
-        static DMesh3 StalledReference(int layers, out DMesh3 box)
+        static DMesh3 StalledReference(int layers, out DMesh3 box, int side = 20)
         {
             box = new DMesh3();
             Vector3d[] axes = { Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ };
             for (int a = 0; a < 3; ++a)
-                for (int side = 0; side < 2; ++side) {
-                    Vector3d u = axes[(a + 1) % 3], v = axes[(a + 2) % 3], o = axes[a] * side;
-                    MeshEditor.Append(box, Quad(o, side == 0 ? v : u, side == 0 ? u : v, 20, false));
+                for (int sd = 0; sd < 2; ++sd) {
+                    Vector3d u = axes[(a + 1) % 3], v = axes[(a + 2) % 3], o = axes[a] * sd;
+                    MeshEditor.Append(box, Quad(o, sd == 0 ? v : u, sd == 0 ? u : v, side, false));
                 }
             DMesh3 reference = new DMesh3(box);
             for (int l = 0; l < layers; ++l)
@@ -916,6 +916,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(rounds, f.OuterFaceRounds);
             Assert.Equal(share, f.OuterFaceShare);
             Assert.False(f.OuterFacesConverged);
+            // determinism: serial equals parallel
+            var serial = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false, Parallel = false };
+            Assert.True(serial.Compute());
+            Assert.Equal(rounds, serial.OuterFaceRounds);
+            Assert.Equal(share, serial.OuterFaceShare);
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_BelowTheStallShare_RunsOn()
+        {
+            // the same layers on a box of 2352 faces: 4 rounds of 1 face are 0.17 % of the faces left, above the share of
+            // 0.1 %, so the rounds go on (here to the cap)
+            DMesh3 reference = StalledReference(60, out DMesh3 box, 14);
+            var f = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.True(f.OuterFaceRounds > 8, $"{f.OuterFaceRounds}");
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_LargeReferenceWithBigLayers_Converges()
+        {
+            // 4800 box faces and 10 layers of 200 faces: a round removes about 4 % of the faces left, no stall
+            DMesh3 box = new DMesh3();
+            Vector3d[] axes = { Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ };
+            for (int a = 0; a < 3; ++a)
+                for (int sd = 0; sd < 2; ++sd)
+                    MeshEditor.Append(box, Quad(axes[a] * sd, sd == 0 ? axes[(a + 2) % 3] : axes[(a + 1) % 3], sd == 0 ? axes[(a + 1) % 3] : axes[(a + 2) % 3], 20, false));
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 10; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 10), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 10, false));
+            var f = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.True(f.OuterFacesConverged, $"{f.OuterFaceRounds} rounds");
+            Assert.Equal(1.0, f.OuterVolumeIoU);
         }
 
         [Fact]

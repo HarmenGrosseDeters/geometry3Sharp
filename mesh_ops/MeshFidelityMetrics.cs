@@ -199,7 +199,7 @@ namespace gs
         public double OuterFaceShare = double.NaN;
         /// <summary>
         /// output (VolumeSamples and OuterSurface): rounds of the outer face classification, and whether the set of faces
-        /// stopped changing within MaxOuterFaceRounds and without a stall (OuterFaceStallRounds; if not, OuterVolumeIoU is NaN). The number of rounds
+        /// stopped changing: false at MaxOuterFaceRounds and at a stall (OuterFaceStallRounds), then OuterVolumeIoU is NaN. The number of rounds
         /// can change with rounding (eg a rotated copy): faces whose mean is near a round's threshold go in this round or
         /// the next
         /// </summary>
@@ -467,7 +467,7 @@ namespace gs
             return v;
         }
 
-        /// <summary> OuterVolumeIoU judges the reference's faces in at most this many rounds (see OuterFacesConverged) </summary>
+        /// <summary> OuterVolumeIoU judges the reference's faces in at most this many rounds, fewer on a stall (see OuterFacesConverged, OuterFaceStallRounds) </summary>
         public const int MaxOuterFaceRounds = 64;
 
         /// <summary>
@@ -476,11 +476,12 @@ namespace gs
         /// 8 winding numbers per face left and a tree build, and on a heavily self-intersecting reference (Thingi10K 55928,
         /// 88k faces, 258k self-intersecting pairs) a round removes about 10 faces, so the 64 rounds took 109 s for a
         /// result that was discarded. A window, not one round: faces that converge slowly come in bursts (Thingi10K
-        /// 498456, 30k faces: 17, 6187, 14, 166, 8, 648 faces in successive rounds, converged after 55 rounds; no 4-round sum before
-        /// its last rounds is below 2 times the limit), and a single round of 16 faces of 52k (1514905) is
+        /// 498456, 30k faces: 17, 6187, 14, 166, 8, 648 faces in successive rounds, converged after 55 rounds; before its last 5 rounds
+        /// every 4-round sum is at least 2.3 times the limit), and a single round of 16 faces of 52k (1514905) is
         /// followed by 1 and 0
         /// </summary>
         public const int OuterFaceStallRounds = 4;
+        /// <summary> the share of the faces left of OuterFaceStallRounds; a stall needs more than 1000 x OuterFaceStallRounds faces left, as every round that goes on removes at least 1 face </summary>
         public const double OuterFaceStallShare = 0.001;
 
         // a copy of the reference without the faces that are not outer (see OuterVolumeIoU), and the area kept. Each round
@@ -488,7 +489,7 @@ namespace gs
         // only: double layers, and faces whose mean winding number is at least 0.75 and within 0.25 of the largest one
         // (the innermost of a stack of interior faces raise the mean of every face around them, a face of the solid's
         // boundary among them included; removing them first lets the others be judged without them). Removed faces stay
-        // removed; until a round removes nothing
+        // removed; until a round removes nothing, or stalls (OuterFaceStallRounds)
         DMesh3 OuterFaces(DMesh3 reference, DMeshAABBTree3 referenceTree, double offset, double degenerateArea, bool serial, out double keptArea)
         {
             var left = new List<int>();
