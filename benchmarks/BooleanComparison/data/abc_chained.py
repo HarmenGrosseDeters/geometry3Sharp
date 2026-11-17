@@ -8,7 +8,8 @@
 #                                                           models close), write them as OFF and filter them: id,triangles,reason (<out.csv>.clean: the clean ones)
 #   python3 data/abc_chained.py filter <meshes-dir> <out.csv>   NotCleanReason of every mesh of the directory -> id,triangles,reason
 #   python3 data/abc_chained.py generate <clean.csv> <out.csv> [--chains N]   the chain list from the clean models (no meshes)
-#   python3 data/abc_chained.py manifest <dir> <chains.csv> <out.jsonl> [--limit N] [--variants v1,v2]
+#   python3 data/abc_chained.py manifest <dir> <chains.csv> <out.jsonl> [--limit N] [--variants v1,v2] [--only v_pNNNN,...]
+#                                                           (--only: just these chains, eg iud_p0005,iud_p0021; applied after --limit)
 #   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
 #                                                           (--budget: no new chain is started after S seconds; finished chains are kept)
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
@@ -294,8 +295,11 @@ def mesh_file(d, k):
             return p
     raise FileNotFoundError(k)
 
-def cmd_manifest(d, chains, out, limit=None, variants=None):
+def cmd_manifest(d, chains, out, limit=None, variants=None, only=None):
     rows = tc.select(read_chains(chains), limit, variants)
+    if only:
+        names = set(only)
+        rows = [r for r in rows if f"{r['variant']}_p{r['pair']}" in names]
     with open(out, "w") as f:
         for r in rows:
             f.write(json.dumps({"class": CLASS, "name": f"{r['variant']}_p{r['pair']}_{r['a']}+{r['b']}+{r['c']}", "variant": r["variant"],
@@ -501,7 +505,8 @@ if __name__ == "__main__":
     elif a[:1] == ["filter"]: cmd_filter(a[1], a[2])
     elif a[:1] == ["prepare"]: cmd_prepare(a[1], a[2])
     elif a[:1] == ["generate"]: generate(read_clean(a[1]), a[2], opt("--chains", CHAINS_PER_VARIANT, int))
-    elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], a[3], opt("--limit", None, int), opt("--variants", None, lambda s: s.split(",")))
+    elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], a[3], opt("--limit", None, int), opt("--variants", None, lambda s: s.split(",")),
+                                                     opt("--only", None, lambda s: [x for x in s.split(",") if x]))
     elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int), opt("--budget", None, int))
     elif a[:1] == ["summary"]: cmd_summary(a[1:])
     else: sys.exit(__doc__)

@@ -30,6 +30,12 @@ on:
       budget_min:
         description: 'Minutes after which no new chain is started (the job limit is 345 minutes; finished chains are kept and reported)'
         default: '240'
+      chains:
+        description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
+        default: ''
+      methods:
+        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck)'
+        default: 'ours,manifold,cgal_epeck'
       listing_only:
         description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
         type: boolean
@@ -115,10 +121,11 @@ jobs:
         if: ${{ !inputs.listing_only }}
         env:
           CHAINS: ${{ inputs.chains_per_variant }}
+          ONLY: ${{ inputs.chains }}
         run: |
           S=scripts/benchmarks/BooleanComparison
           python3 $S/data/abc_chained.py generate clean_raw.csv.clean chains.csv
-          python3 $S/data/abc_chained.py manifest data chains.csv cases.jsonl --limit "$CHAINS"
+          python3 $S/data/abc_chained.py manifest data chains.csv cases.jsonl --limit "$CHAINS" ${ONLY:+--only "$ONLY"}
       - name: Run ours, manifold and CGAL EPECK on the chains
         if: ${{ !inputs.listing_only }}
         env:
@@ -126,9 +133,10 @@ jobs:
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
           TIMEOUT: ${{ inputs.timeout_s }}
           BUDGET_MIN: ${{ inputs.budget_min }}
+          METHODS: ${{ inputs.methods }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
         run: |

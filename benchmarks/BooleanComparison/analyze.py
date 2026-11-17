@@ -16,12 +16,15 @@
 #   degenerate  (classes with NotCleanReason as oracle: thingi-pairs) correct, but NotCleanReason reports degenerate triangles
 #               (area < 1e-12 * diagonal^2), bowties or inconsistent orientation
 #   non-manif.  correct, no self-intersections, but non-manifold edges
+#   pinches     correct, and clean except where the solid touches itself at an edge or a vertex (the eval splits those
+#               pinches into a manifold mesh with duplicated vertices, BoolCmp.Pinches; clean_reason "pinches", owner 2026-11-17):
+#               the exact regularized result of touching solids, not a defect of the method
 #   clean       correct, closed manifold, no self-intersections
 import argparse, collections, json, statistics as st
 
 OPS = ["union", "intersection", "difference"]
-OUTCOMES = ["clean", "degenerate", "non-manif.", "self-int.", "inside-out", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
-CORRECT = {"clean", "degenerate", "non-manif.", "self-int."}
+OUTCOMES = ["clean", "pinches", "degenerate", "non-manif.", "self-int.", "inside-out", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
+CORRECT = {"clean", "pinches", "degenerate", "non-manif.", "self-int."}
 NAMES = {"ours": "ExactMeshBoolean", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
 TOL = 1e-6
 # the relative tolerance of the volume identities per class (README.md, "Thingi10K pairs", justifies 1e-7)
@@ -60,14 +63,20 @@ def outcome(r):
         return "volume"
     if any(r.get(f"{op}_selfint", 0) != 0 for op in ops):
         return "self-int."
+    reasons = [r.get(f"{op}_clean_reason") for op in ops]
     if not all(r.get(f"{op}_manifold_closed") for op in ops):
+        # (welded, a pinch is a non-manifold edge or vertex: where the eval split it into a clean mesh, it is its own class)
+        if "pinches" in reasons and all(x in ("", "empty", "pinches") for x in reasons):
+            return "pinches"
         return "non-manif."
     # NotCleanReason as the oracle: "" is clean, "empty" is correct (the volume identities above hold, so the
     # result is empty because the solid is), a defect the manifold and self-intersection checks do not name is not
     if any(r.get(f"{op}_clean_reason") == "inside-out components" for op in ops):
         return "inside-out"
-    if any(r.get(f"{op}_clean_reason") not in (None, "", "empty") for op in ops):
+    if any(x not in (None, "", "empty", "pinches") for x in reasons):
         return "degenerate"
+    if "pinches" in reasons:
+        return "pinches"
     return "clean"
 
 def ms(r):
@@ -97,7 +106,7 @@ def time_table(cases, methods):
         rows.append([NAMES.get(m, m), f"{st.median(t):.0f}", f"{sum(t) / 1000:.1f}", f"{st.median(rel):.2f}" if rel else "–"])
     return table(["method", "median ms", "total s", "median time relative to ours"], rows), len(common)
 
-SHORT = {"clean": "clean", "degenerate": "degenerate", "non-manif.": "non-manif.", "self-int.": "self-int.", "inside-out": "**inside-out**", "volume": "**volume**", "not closed": "**not closed**",
+SHORT = {"clean": "clean", "pinches": "pinches", "degenerate": "degenerate", "non-manif.": "non-manif.", "self-int.": "self-int.", "inside-out": "**inside-out**", "volume": "**volume**", "not closed": "**not closed**",
          "failed": "failed", "timeout": "timeout", "crash": "**crash**", "rejected": "rejected"}
 
 def case_table(cases, methods):

@@ -11,6 +11,17 @@ area, volumes (measured relative to the centre of A, so that coordinates far fro
 the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` and `V(A−B) = V(A) − V(A∩B)` (relative error); for
 synthetic cases also the error against the analytically known volumes of the results.
 
+**Pinches (2026-11-17, docs/research/BOOLEAN_TRIAGE_2026-11.md RC2).** Where the exact solid touches itself along an edge or at a
+vertex (the regularized result of touching solids), the welded result has a non-manifold edge or vertex. The eval splits
+these pinches (`Pinches.cs`): the triangles at a welded edge with 2k > 2 triangles are paired by their angle around the edge,
+and every vertex gets one copy per fan. The split mesh is judged instead of the welded one. Self-intersections count only
+pairs that meet beyond the positions both have a vertex at, by `MeshRoundingRepair`'s exact check with `SharedPositionsTouch`.
+A result that is clean except for its pinches gets the reason `pinches` and its own outcome (`analyze.py`; correct), with
+`<op>_pinch_edges` and `<op>_pinch_vertices`. Before, the triangles that did not fit at a pinch edge were appended on their
+own vertices: "not closed", plus self-intersections for every touching pair. `NotCleanReason` itself is unchanged (owner
+2026-11-17). The run rows of `ours` also carry `rounding`: the defects the repair left, whether it stopped at its effort
+limit, the smallest edit the bound rejected, the drift and the bound (RC4 of the triage).
+
 The external code is not part of this repository; build it next to it as described below.
 
 **Licenses:** the files in `external/` are small drivers written for this comparison. `cgal_bool.cpp` links
@@ -95,10 +106,10 @@ draws them; a thin model can still miss (an empty intersection is then correct a
 with round-trip precision, so all tools read the same doubles.
 
 **Oracle** (`eval`, for results of all tools alike; the case's `info.json` has `notclean`): per result
-- `clean_reason`: `MeshRobustRepair.NotCleanReason` of the result welded by exact position (closed, manifold, no
-  degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
-  self-intersections: found by `MeshRepairMetrics.SelfIntersections` on any size, `eval` otherwise stops at 400k triangles);
-  `""` is clean, `"empty"` is an empty result;
+- `clean_reason`: `MeshRobustRepair.NotCleanReason` of the result welded by exact position and split at its pinches (closed,
+  manifold, no degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
+  self-intersections beyond the pinches, on any size; `eval` otherwise stops at 400k triangles);
+  `""` is clean, `"empty"` is an empty result, `"pinches"` is clean except where the solid touches itself;
 - the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` (relative to V(A) + V(B)) and `V(A−B) = V(A) − V(A∩B)`
   (relative to V(A)) on the doubles of the written results, volumes relative to the centre of A. An empty result is
   not an error by itself (A∩B of two apart models, A−B of A inside B), and an empty union, or an empty difference with
