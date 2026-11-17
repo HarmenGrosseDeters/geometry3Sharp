@@ -103,6 +103,8 @@ namespace geometry3Sharp.Tests
             MeshDeviation r = Deviation(Similarity.Identity, true, 1e-2);
             MeshDeviation d = Deviation(s, true, 1e-2);
             Assert.True(d.Statistics.Count == r.Statistics.Count && r.Statistics.Count > 0, $"count {d.Statistics.Count} vs {r.Statistics.Count}");
+            Assert.True(r.Statistics.TotalWeight * s.Scale * s.Scale == d.Statistics.TotalWeight || double.IsInfinity(d.Statistics.TotalWeight) || d.Statistics.TotalWeight == 0, "total weight (area units of the mesh)");
+            Assert.True(Math.Abs(r.Statistics.TotalWeight * s.Scale * s.Scale / d.Statistics.TotalWeight - 1) < 1e-12 || double.IsInfinity(d.Statistics.TotalWeight) || d.Statistics.TotalWeight == 0, "total weight ratio");
             Assert.True(r.Statistics.Mean * s.Scale == d.Statistics.Mean, "mean");
             Assert.True(r.Statistics.StdDev * s.Scale == d.Statistics.StdDev, "stddev");
             Assert.True(r.Statistics.RMS * s.Scale == d.Statistics.RMS, "rms");
@@ -121,6 +123,26 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.TriangleDeviationLower[t] * s.Scale == d.TriangleDeviationLower[t], "triangle lower " + t);
             }
             Assert.True(r.TriangleUpperStatistics.Mean * s.Scale == d.TriangleUpperStatistics.Mean, "triangle mean");
+        }
+
+        [Theory]
+        [InlineData(MeshDeviation.Signs.Unsigned)]
+        [InlineData(MeshDeviation.Signs.WindingNumber)]
+        public void Deviation_ExtremeScale_OtherSigns_AreTheUnitResultBitForBit(MeshDeviation.Signs sign)
+        {
+            MeshDeviation[] pair = new MeshDeviation[2];
+            Similarity[] sims = { Similarity.Identity, Pow2(530) };
+            for (int i = 0; i < 2; ++i) {
+                DMesh3 m = Mapped(Sphere(), sims[i], Vector3d.Zero);
+                m.RemoveTriangle(m.TriangleIndices().First());      // a gap in the ids
+                DMesh3 reference = Mapped(Sphere(1.05, 5), sims[i], new Vector3d(0.02, 0, 0));
+                pair[i] = new MeshDeviation(m, reference) { Sign = sign };
+                Assert.True(pair[i].Compute());
+            }
+            Assert.True(pair[0].Statistics.Count > 0 && pair[0].Statistics.Count == pair[1].Statistics.Count);
+            foreach (int v in pair[0].Mesh.VertexIndices())
+                Assert.True(pair[0].VertexDeviation[v] * sims[1].Scale == pair[1].VertexDeviation[v] || (double.IsNaN(pair[0].VertexDeviation[v]) && double.IsNaN(pair[1].VertexDeviation[v])), "deviation " + v);
+            Assert.True(pair[0].Statistics.Mean * sims[1].Scale == pair[1].Statistics.Mean);
         }
 
         [Fact]
@@ -155,7 +177,6 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Sphere();
             int badV = m.VertexIndices().OrderBy(v => v).ElementAt(m.VertexCount / 3);
-            Vector3d p0 = m.GetVertex(badV);
             // the same problem with a finite value: the one-ring of the bad vertex (and the vertex) is not listed
             DMesh3 reference = new DMesh3(m);
             var ring = new HashSet<int>(m.VtxVerticesItr(badV)) { badV };
@@ -172,12 +193,11 @@ namespace geometry3Sharp.Tests
                 if (v == badV) continue;
                 Vector3d p = m.GetVertex(v);
                 Assert.True(p.IsFinite, "vertex " + v + " is finite");
+                // (neighbours of the bad vertex stay where they were: the reference does not list them; the others smooth as without it)
+                Assert.True(p == reference.GetVertex(v), ring.Contains(v) ? "a neighbour of the bad vertex stays" : "the others smooth as without the bad vertex");
                 if (ring.Contains(v))
-                    Assert.True(p == reference.GetVertex(v), "a neighbour of the bad vertex stays");
-                else
-                    Assert.True(p == reference.GetVertex(v), "the others smooth as without the bad vertex");
+                    Assert.True(p == before[v], "a neighbour is unchanged");
             }
-            Assert.True(p0.IsFinite);
         }
 
         [Fact]

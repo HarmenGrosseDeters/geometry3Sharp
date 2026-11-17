@@ -167,6 +167,8 @@ namespace gs
             }
             Statistics = DeviationStatistics.Compute(values, weights);
             VertexStatistics = DeviationStatistics.Compute(values);
+            // (the weights were areas of the scaled copy: TotalWeight back in the area units of Mesh; overflows to infinity where that area does)
+            Statistics.TotalWeight = Statistics.TotalWeight / scale / scale;
             if (TriangleDeviationUpper != null) {
                 values = new List<double>(); weights = new List<double>();
                 foreach (int tid in local.Mesh.TriangleIndices()) {
@@ -176,6 +178,7 @@ namespace gs
                     weights.Add(local.Mesh.GetTriArea(tid));
                 }
                 TriangleUpperStatistics = DeviationStatistics.Compute(values, weights);
+                TriangleUpperStatistics.TotalWeight = TriangleUpperStatistics.TotalWeight / scale / scale;
             }
             return true;
         }
