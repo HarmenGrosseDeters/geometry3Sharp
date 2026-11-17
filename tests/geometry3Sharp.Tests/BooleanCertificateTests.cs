@@ -99,6 +99,8 @@ namespace geometry3Sharp.Tests
             ["self-intersecting"] = () => (Combined(Box(Bx(0, 0, 0, 3, 3, 3)), Box(Bx(1, 1, 1, 4, 4, 4))), Box(Bx(2, 0, 2, 5, 2, 5))),
             // a nested shell of the second operand inside the first (two components of B)
             ["two components"] = () => (Box(Bx(0, 0, 0, 6, 6, 6)), Combined(Box(Bx(1, 1, 1, 2, 2, 2)), Box(Bx(5, 5, 5, 8, 8, 8)))),
+            // an operand with one triangle reversed (the boolean orients it again: ReorientedTriangles 1)
+            ["one face flipped"] = () => { DMesh3 m = Box(Bx(0, 0, 0, 3, 3, 3)); m.ReverseTriOrientation(m.TriangleIndices().First()); return (m, Box(Bx(1, 1, 1, 4, 4, 4))); },
             // duplicated faces within one operand (coplanar copies of the same mesh)
             ["duplicate shell"] = () => (Combined(Box(Bx(0, 0, 0, 2, 2, 2)), Box(Bx(0, 0, 0, 2, 2, 2))), Box(Bx(1, 0, 0, 3, 2, 2))),
         };
@@ -199,7 +201,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// The heavier corpus (Nightly: the run is the check, about 20 s here): random sphere pairs (rotated, various
+        /// The heavier corpus (Nightly: the run is the check, about 13 s here): random sphere pairs (rotated, various
         /// resolutions), random integer tetrahedra and random small boxes (many shared planes), every operation, each
         /// certified with every triangle covered.
         /// </summary>
@@ -461,7 +463,6 @@ namespace geometry3Sharp.Tests
             Certify(a, b, Ops.Difference, out ExactMeshBoolean eb);
             Assert.Equal("", BooleanCertificate.From(eb).Check());
             BooleanCertificate c = BooleanCertificate.From(eb);
-            c.Inputs = new List<DMesh3> { a, b };
             int[] keep = Enumerable.Range(0, c.PieceMesh.Length).Where(i => c.PieceMesh[i] == 0).ToArray();
             c.PieceMesh = keep.Select(i => c.PieceMesh[i]).ToArray();
             c.PieceSource = keep.Select(i => c.PieceSource[i]).ToArray();
@@ -487,15 +488,43 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemovedComponents_OnlyTinyOrThinOnesAreExempt()
+        {
+            // a tiny box next to a unit sphere: the rounding removes it (a documented decision), the certificate holds
+            DMesh3 tiny = new BoxCase(Bx(0, 0, 0, 1, 1, 1), Bx(0, 0, 0, 1, 1, 1), -17, new Vector3d(2, 0, 0)).MeshA();
+            BooleanCertificate c = Certify(Sphere(1, Vector3d.Zero), tiny, Ops.Union, out ExactMeshBoolean eb);
+            Assert.Equal(1, eb.Rounding.RemovedComponents);
+            Assert.Equal("", c.Check());
+            Assert.Equal(1, c.ExemptComponents);
+            // two spheres apart: one of them dropped from the result, with a removed component reported: still caught
+            c = Certify(Sphere(1, Vector3d.Zero), Sphere(1, new Vector3d(3, 0, 0)), Ops.Union, out eb);
+            Assert.Equal("", c.Check());
+            c = BooleanCertificate.From(eb);
+            c.Result = new DMesh3(c.Result, false, MeshComponents.None);
+            foreach (int t in c.Result.TriangleIndices().ToList())
+                if (c.Result.GetTriCentroid(t).x > 1.5) c.Result.RemoveTriangle(t, true, false);
+            c.RemovedComponents = 1;
+            string r = c.Check();
+            Assert.True(r.StartsWith("C5: ") && r.Contains("farther than"), r);
+        }
+
+        [Fact]
         public void InputAndBoundMutations_AreCaughtByC0()
         {
             var (a, b) = Solids["hollow box"]();
             Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
-            BooleanCertificate Fresh() { var c = BooleanCertificate.From(eb); c.Inputs = new List<DMesh3> { a, b }; return c; }
+            BooleanCertificate Fresh() => BooleanCertificate.From(eb);
             Assert.Equal("", Fresh().Check());
             BooleanCertificate m = Fresh();
             m.Inputs = new List<DMesh3> { Reversed(a), b };
             Assert.Contains("reversed", m.CheckInputs());
+            // the boolean's mesh with the cavity's shell turned (a consistently oriented component reversed), reported
+            m = Fresh();
+            DMesh3 turned = new DMesh3(m.Meshes[0]);
+            foreach (int t in turned.TriangleIndices().Where(t => t >= 12)) turned.ReverseTriOrientation(t);
+            m.Meshes = new List<DMesh3> { turned, m.Meshes[1] };
+            m.ReorientedTriangles = 12;
+            Assert.Contains("reversed in a consistently oriented component", m.CheckInputs());
             m = Fresh();
             m.TriTid[1] = m.TriTid[0];
             m.TriMesh[1] = m.TriMesh[0];

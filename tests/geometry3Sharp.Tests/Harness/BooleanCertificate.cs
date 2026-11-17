@@ -102,7 +102,10 @@ namespace geometry3Sharp.Tests
         // ------------------------------------------------------------------ results of the last Check
 
         public int Anchors, CoverageTests, Uncovered, CulledSets;
-        public bool CoverageOfExactSkipped;
+        /// <summary> components of the result before rounding exempt from its coverage by the result (thin or tiny, removed by the rounding) </summary>
+        public int ExemptComponents;
+        /// <summary> the rounding's relative bound (for the thin and tiny components it may remove) </summary>
+        public double MaxDisplacement = 1e-5;
 
         /// <summary>
         /// Runs a boolean with the recording on (and exact vertices) and returns it with its certificate data. configure
@@ -114,9 +117,7 @@ namespace geometry3Sharp.Tests
             configure?.Invoke(boolean);
             if (boolean.Compute() == false)
                 throw new InvalidOperationException("boolean failed: " + boolean.Error);
-            BooleanCertificate c = From(boolean);
-            c.Inputs = new List<DMesh3> { a, b };
-            return c;
+            return From(boolean);
         }
 
         /// <summary>
@@ -186,6 +187,8 @@ namespace geometry3Sharp.Tests
             c.MaxLengthBound = b.Rounding == null ? 0 : Math.Max(b.RoundingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
                 strict ? 0 : Math.Max(b.RoundingUlpFactor * ulp, b.RoundingAbsoluteTolerance));
             c.RemovedComponents = b.Rounding != null ? b.Rounding.RemovedComponents : 0;
+            c.MaxDisplacement = b.RoundingMaxDisplacement;
+            c.Inputs = new List<DMesh3>(b.Meshes ?? new List<DMesh3> { b.MeshA, b.MeshB });
             return c;
         }
 
@@ -372,6 +375,7 @@ namespace geometry3Sharp.Tests
                 int reversed = 0;
                 for (int m = 0; m < Meshes.Count; ++m) {
                     DMesh3 x = Inputs[m], y = Meshes[m];
+                    var flipped = new HashSet<int>();
                     if (x.TriangleCount != y.TriangleCount) return $"mesh {m}: a different number of triangles";
                     foreach (int t in x.TriangleIndices()) {
                         if (y.IsTriangle(t) == false) return $"mesh {m}: triangle {t} missing";
@@ -383,8 +387,10 @@ namespace geometry3Sharp.Tests
                             rev |= pa[0] == pb[k] && pa[1] == pb[(k + 2) % 3] && pa[2] == pb[(k + 1) % 3];
                         }
                         if (same == false && rev == false) return $"mesh {m}: triangle {t} has other corners";
-                        if (same == false) reversed++;
+                        if (same == false) { reversed++; flipped.Add(t); }
                     }
+                    string o = CheckOrientation(x, flipped);
+                    if (o != "") return $"mesh {m}: " + o;
                 }
                 if (reversed != ReorientedTriangles) return $"{reversed} triangles reversed, {ReorientedTriangles} reported";
             }
@@ -400,6 +406,74 @@ namespace geometry3Sharp.Tests
                 }
             if (MaxLength > MaxLengthBound) return $"the rounding's bound {MaxLength:R} is above the documented {MaxLengthBound:R}";
             return CheckCulled();
+        }
+
+        // the caller's mesh x, its triangles reversed by the boolean: none of a component that was oriented consistently
+        // (components: triangles joined across edges with exactly two triangles, by vertex position; consistent: the two
+        // run every such edge in opposite directions), and every component consistent afterwards where one orientation of
+        // it is (no edge with two triangles that cannot be made opposite)
+        static string CheckOrientation(DMesh3 x, HashSet<int> flipped)
+        {
+            var edges = new Dictionary<(Vector3d, Vector3d), List<(int t, bool forward)>>();
+            foreach (int t in x.TriangleIndices()) {
+                Index3i tri = x.GetTriangle(t);
+                Vector3d[] p = { x.GetVertex(tri.a), x.GetVertex(tri.b), x.GetVertex(tri.c) };
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d a = p[k], b = p[(k + 1) % 3];
+                    if (a == b) continue;
+                    bool forward = a.x < b.x || (a.x == b.x && (a.y < b.y || (a.y == b.y && a.z < b.z)));
+                    var key = forward ? (a, b) : (b, a);
+                    if (edges.TryGetValue(key, out var l) == false) edges[key] = l = new List<(int, bool)>();
+                    l.Add((t, forward));
+                }
+            }
+            var parent = new Dictionary<int, int>();
+            foreach (int t in x.TriangleIndices()) parent[t] = t;
+            int Root(int v) { while (parent[v] != v) v = parent[v] = parent[parent[v]]; return v; }
+            var pairs = edges.Values.Where(l => l.Count == 2 && l[0].t != l[1].t).ToList();
+            foreach (var l in pairs) { int ra = Root(l[0].t), rb = Root(l[1].t); if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb); }
+            var consistentBefore = new Dictionary<int, bool>();
+            var consistentAfter = new Dictionary<int, bool>();
+            foreach (int t in x.TriangleIndices()) { consistentBefore[Root(t)] = true; consistentAfter[Root(t)] = true; }
+            foreach (var l in pairs) {
+                int r = Root(l[0].t);
+                if (l[0].forward == l[1].forward) consistentBefore[r] = false;
+                if ((l[0].forward ^ flipped.Contains(l[0].t)) == (l[1].forward ^ flipped.Contains(l[1].t))) consistentAfter[r] = false;
+            }
+            foreach (int t in flipped)
+                if (consistentBefore[Root(t)]) return $"triangle {t} reversed in a consistently oriented component";
+            // (a component that can be oriented: the boolean must leave it consistent; a Moebius-like one it leaves as it is)
+            foreach (var kv in consistentAfter)
+                if (kv.Value == false && consistentBefore[kv.Key] == false && Orientable(x, kv.Key, pairs, Root))
+                    return $"a component (triangle {kv.Key}) left inconsistently oriented";
+            return "";
+        }
+
+        // whether the component of root can be oriented consistently (2-colouring of its triangles by the edge pairs)
+        static bool Orientable(DMesh3 x, int root, List<List<(int t, bool forward)>> pairs, Func<int, int> Root)
+        {
+            var flip = new Dictionary<int, bool>();
+            var adj = new Dictionary<int, List<(int o, bool same)>>();
+            foreach (var l in pairs) {
+                if (Root(l[0].t) != root) continue;
+                bool same = l[0].forward == l[1].forward;
+                (adj.TryGetValue(l[0].t, out var a) ? a : adj[l[0].t] = new List<(int, bool)>()).Add((l[1].t, same));
+                (adj.TryGetValue(l[1].t, out var b) ? b : adj[l[1].t] = new List<(int, bool)>()).Add((l[0].t, same));
+            }
+            foreach (int start in adj.Keys) {
+                if (flip.ContainsKey(start)) continue;
+                flip[start] = false;
+                var stack = new Stack<int>(); stack.Push(start);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    foreach (var (o, same) in adj[t]) {
+                        bool want = flip[t] ^ same;
+                        if (flip.TryGetValue(o, out bool f)) { if (f != want) return false; }
+                        else { flip[o] = want; stack.Push(o); }
+                    }
+                }
+            }
+            return true;
         }
 
         string CheckCulled()
@@ -1027,11 +1101,67 @@ namespace geometry3Sharp.Tests
             var rBoxes = Result.TriangleIndices().Select(t => Result.GetTriBounds(t)).ToList();
             string r = Cover(rTris, rBoxes, eTris, eBoxes, "result", "result before rounding");
             if (r != "") return r;
-            // (the rounding removes tiny and thin components (MeshRoundingRepair.RemovedComponents, a documented decision):
-            // then the exact result is not within the bound of the result, and that direction is skipped)
-            CoverageOfExactSkipped = RemovedComponents > 0;
-            if (CoverageOfExactSkipped) return "";
+            // (the rounding removes tiny and thin components (MeshRoundingRepair.RemovedComponents, the decision of
+            // docs/design/SAFE_ROUNDING.md section 1): where it removed some, the components of the result before rounding
+            // that are tiny or thin by that rule are left out of its coverage by the result, the others are covered)
+            ExemptComponents = 0;
+            if (RemovedComponents > 0) {
+                bool[] exempt = ThinOrTinyTriangles(out int comps);
+                ExemptComponents = comps;
+                var keep = Enumerable.Range(0, eTris.Count).Where(i => exempt[i] == false).ToList();
+                eTris = keep.Select(i => eTris[i]).ToList();
+                eBoxes = keep.Select(i => eBoxes[i]).ToList();
+            }
             return Cover(eTris, eBoxes, rTris, rBoxes, "result before rounding", "result");
+        }
+
+        // per triangle of Assembled (in TriangleIndices order): whether its component (triangles joined by vertices) is tiny
+        // (area below 1e-8 times the square of the largest component's diagonal) or thin (closed, and 2 |V| below
+        // MaxDisplacement times that diagonal times its area, and |V| below 1e-3 area^1.5): the rule of the removal
+        bool[] ThinOrTinyTriangles(out int count)
+        {
+            List<int> tids = Assembled.TriangleIndices().ToList();
+            var parent = Enumerable.Range(0, tids.Count).ToArray();
+            int Root(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
+            var byVertex = new Dictionary<int, int>();
+            for (int i = 0; i < tids.Count; ++i) {
+                Index3i t = Assembled.GetTriangle(tids[i]);
+                foreach (int v in new[] { t.a, t.b, t.c }) {
+                    if (byVertex.TryGetValue(v, out int o)) { int ra = Root(i), rb = Root(o); if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb); }
+                    else byVertex[v] = i;
+                }
+            }
+            var groups = Enumerable.Range(0, tids.Count).GroupBy(Root).Select(g => g.ToList()).ToList();
+            var diag = new double[groups.Count];
+            var area = new double[groups.Count];
+            var volume = new double[groups.Count];
+            var closed = new bool[groups.Count];
+            for (int g = 0; g < groups.Count; ++g) {
+                var box = AxisAlignedBox3d.Empty;
+                var edges = new HashSet<(int, int)>();
+                Vector3d o = Assembled.GetVertex(Assembled.GetTriangle(tids[groups[g][0]]).a);
+                foreach (int i in groups[g]) {
+                    Index3i t = Assembled.GetTriangle(tids[i]);
+                    Vector3d a = Assembled.GetVertex(t.a), b = Assembled.GetVertex(t.b), c = Assembled.GetVertex(t.c);
+                    box.Contain(a); box.Contain(b); box.Contain(c);
+                    area[g] += 0.5 * (b - a).Cross(c - a).Length;
+                    volume[g] += (a - o).Dot((b - o).Cross(c - o)) / 6;
+                    edges.Add((t.a, t.b)); edges.Add((t.b, t.c)); edges.Add((t.c, t.a));
+                }
+                diag[g] = box.DiagonalLength;
+                closed[g] = edges.All(e => edges.Contains((e.Item2, e.Item1)));
+            }
+            double d = diag.Length > 0 ? diag.Max() : 0;
+            var result = new bool[tids.Count];
+            count = 0;
+            for (int g = 0; g < groups.Count; ++g) {
+                bool ex = area[g] < 1e-8 * d * d || (closed[g] && 2 * Math.Abs(volume[g]) < MaxDisplacement * d * area[g]
+                    && Math.Abs(volume[g]) < 1e-3 * area[g] * Math.Sqrt(area[g]));
+                if (ex == false) continue;
+                count++;
+                foreach (int i in groups[g]) result[i] = true;
+            }
+            return result;
         }
 
         string Cover(List<Q[][]> from, List<AxisAlignedBox3d> fromBoxes, List<Q[][]> to, List<AxisAlignedBox3d> toBoxes, string fromName, string toName)
