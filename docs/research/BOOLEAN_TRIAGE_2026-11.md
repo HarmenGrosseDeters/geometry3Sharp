@@ -293,6 +293,43 @@ the ulp term), or no local edit (a candidate for removing the 1-ulp slab pairs a
 unknown until then. A change to `MeshRoundingRepair`'s bounds is reviewed like an error bound. The exact code is not
 involved: the arrangement and classification of these cases are not suspected, and all results are winding-closed.
 
+**Diagnosis from the rerun (2026-11-17).** GitHub run
+[44031088444](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/44031088444), master 8f27f360 (with #1027 and
+#1021). It ran the seven RC4 chains with `ours` only, and its raw rows are on `runs/abc-chained`, folder `run-44031088444`.
+The `rounding` fields of #1021 split the cases into two groups:
+
+| chain, step 3 | op | evaluation limit | smallest rejected edit / bound | max drift / bound | remaining (intersecting pairs / degenerate / false contacts) | initial |
+|---|---|---|---|---|---|---|
+| iud p0005 | union | **yes** | none rejected | 1e-11 | 4170 / 79124 / 1815 | 17788 / 129688, 266k pieces |
+| iud p0005 | intersection | **yes** | none rejected | 0.16 | 120 / 40862 / 0 | 14313 / 99740 |
+| iud p0021 | union | **yes** | none rejected | 1e-11 | 2835 / 35444 / 578 | 22776 / 82716, 192k pieces |
+| iud p0021 | intersection | **yes** | 663 (a removal) | 4e-5 | 0 / 825 / 0 | 10466 / 63276 |
+| ucd p0007 | difference | no | **1.12** | 0.73 | 0 / 8 / 4 | 298 / 860 |
+| iud p0020 | difference | no | **1.04** | 0.76 | 0 / 4 / 2 | 94 / 174 |
+| dui p0029 | difference | yes | 1.004 | **0.985** | 9 / 0 / 0 | 277 / 992 |
+| iud p0022 | difference | yes | 1.001 | **0.986** | 48 / 7 / 2 | 570 / 1032 |
+| iud p0029 | difference | yes | 1.13 | **0.985** | 10 / 0 / 0 | 6560 / 20241 |
+
+- **RC4a, the effort budget** (iud p0005 and p0021, union and intersection; C a 1-ulp copy of A): the repair stops at
+  `RoundingMaxPairTests` (5M), and the bound rejects no edit. These are 190–266k pieces with 63–130k initial degenerate
+  triangles: the slivers between A and its copy one ulp off. The step-3 differences of the same chains are empty and clean
+  (235–250 components removed), as decided on 2026-11-16. A larger budget would be an owner decision on cost (#837 lever 2
+  is parked, and the default is 5M). So would one scaled by the pieces or by the defect count. Removing the 1-ulp slab
+  pairs before the repair would be the other lever: SAFE_ROUNDING.md section 1, the RC1 family.
+- **RC4b, the drift bound** (the five differences): either the smallest edit that would repair the rest is just above the
+  bound, 1.04–1.12 times `maxLength` (ucd p0007, iud p0020: no budget issue), or the edits already used up the drift budget,
+  0.985 of it, and the next edit is rejected (dui p0029, iud p0022, iud p0029; they also reach the limit). The bound is
+  the owner's (1e-5 of the diagonal). Within it, these defects cannot be repaired by the current edits.
+
+Not a defect of the arrangement or of the classification: every result is winding-closed, and the volume identities hold
+as in the first run. Both groups are documented limits (`Compute()` succeeds with `RoundingClean == false`), so a change of
+the budget, of the bound, or of slab removal is an owner decision. With #1021 the eval now classifies the pinches of these
+results (`pinch_edges`, `pinch_vertices`). The two unions are still "not closed" after the pinch split. It was not checked
+whether that comes from the false contacts the rounding left (`remaining_false_contacts` 1815 and 578).
+
+Side observation: iud p0029 step 1, difference, now has `RoundingClean == false` with `ScaleDisparity` 1 (a thin
+component kept because it holds volume, the pre-existing rule; not KeepWhenEmptied). NotCleanReason calls it clean.
+
 ## Not found
 
 No case points at the arrangement, the classification or the assembly. Every listed result is winding-closed. Where
