@@ -440,7 +440,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
-design note, started 2026-11-10; a scale-free repair study is running, 2026-11-17), 3 together with the leads of 1 (D1 has merged;
+design note, started 2026-11-10; a scale-free repair study started 2026-11-17 (owner), no PR yet), 3 together with the leads of 1 (D1 has merged;
 the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
 closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
@@ -670,6 +670,6 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    rule (upper bound one run). Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
-7. Hard problem 9 (scale-free repair): a study is running (2026-11-17). Hard problem 8 (open operands: correctness fixed in #528, only
+7. Hard problem 9 (scale-free repair): study started 2026-11-17 (owner), no PR yet. Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
 8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).

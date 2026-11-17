@@ -97,5 +97,5 @@ Merge dates from `git log origin/master`. The details are on [platform.md](platf
 - 2026-11-16: `DualContouring` takes exact Hermite data by default (`ExactHermite`, `QEFEigenTolerance` 0.02; owner decision): the output of
   a plain `DualContouring` changes (sharper creases, same triangle count); `ExactHermite = false` with tolerance 0.1 is the former output;
   `WindingContouring`, `MeshWindingNumberSolidify` and `MeshOffset` keep tolerance 0.1 (they set `HermiteF`).
-- 2026-11-17: NativeAOT feasibility study ([NATIVE_AOT_FEASIBILITY.md](../design/NATIVE_AOT_FEASIBILITY.md), #1052; native package not now, owner 2026-11-17);
+- 2026-11-17: NativeAOT feasibility study ([NATIVE_AOT_FEASIBILITY.md](../design/NATIVE_AOT_FEASIBILITY.md), #1052; native package not now (owner 2026-11-17, spike #1052));
   test-only certifying checker of `ExactMeshBoolean` (#1061); mutation gate run 44013112256 on master dispatched (survivors of three shards: PR #1077, open).
