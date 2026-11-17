@@ -63,12 +63,17 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        /// <summary> the same reduction with and without sharing, at three tolerances, on two meshes, twice </summary>
+        /// <summary>
+        /// the same reduction with and without sharing, at three tolerances, on two meshes, twice (one row per mesh, #698: both
+        /// took up to 6.8 s alone and 35 s in the full run, where the collapses' parallel loops share the cores with other tests)
+        /// </summary>
         [Trait("Category", "Slow")]
-        [Fact]
-        public void Reduction_SameWithAndWithoutSharing()
+        [Theory]
+        [InlineData("bumpy")]
+        [InlineData("terrain")]
+        public void Reduction_SameWithAndWithoutSharing(string mesh)
         {
-            foreach (DMesh3 input in new[] { Bumpy(20), Terrain(40) }) {
+            foreach (DMesh3 input in new[] { mesh == "bumpy" ? Bumpy(20) : mesh == "terrain" ? Terrain(40) : throw new ArgumentException(mesh) }) {
                 double diag = input.CachedBounds.DiagonalLength;
                 foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
                     DMesh3 without = Reduce(input, rel * diag, false, out Reducer r0), with = Reduce(input, rel * diag, true, out Reducer r1);
