@@ -65,14 +65,20 @@ static class ChainExact
     }
 
     static string mode = "measure";
-    public static int Abc(string[] args, string m) { mode = m; return Abc(args); }
+    public static int Abc(string[] args, string m)
+    {
+        if (args.Length < 5)
+            throw new ArgumentException($"chain-exact-{m} <A.off> <B.off> <C.off> <ucd|dui|iud> <{(m == "diag" ? "factors" : "reps")}>");
+        mode = m;
+        return Abc(args);
+    }
     public static int Procedural(string[] args, string m) { mode = m; return Procedural(args); }
 
     static int Dispatch(string m, List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, string[] rest)
     {
         switch (m) {
-            case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(double.Parse).ToArray());
-            case "time": return RunTime(ops, plan, info, int.Parse(rest[0]));
+            case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(x => double.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray());
+            case "time": return RunTime(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             default: return RunChain(ops, plan, info);
         }
     }
@@ -183,7 +189,7 @@ static class ChainExact
                 b.RoundingMaxPairTests = (long)(b.RoundingMaxPairTests * f);
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
-                string pre = "lazy_x" + f;
+                string pre = "lazy_x" + f.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 row[pre + "_ms"] = sw.ElapsedMilliseconds;
                 Outcome(b, ok, pre, row);
             }
@@ -200,9 +206,12 @@ static class ChainExact
         Warm();
         ExactMesh[] leaf = Leaves(ops);
         int n = plan.Count;
-        var chainSteps = new List<long[]>();           // per repetition: the ms of each step (-1 after the chain ended)
-        var lazyMs = new List<long>[n];
-        for (int k = 0; k < n; ++k) lazyMs[k] = new List<long>();
+        var chainSteps = new List<double[]>();         // per repetition: the ms of each step (-1 after the chain ended)
+        var lazyMs = new List<double>[n];
+        for (int k = 0; k < n; ++k) lazyMs[k] = new List<double>();
+        var chainOk = new bool[n];
+        var lazyOk = new bool[n];
+        for (int k = 0; k < n; ++k) { chainOk[k] = true; lazyOk[k] = true; }
         var orders = new List<string>();
         var rng = new Random(12345 + 7 * n);
         for (int rep = 0; rep < reps; ++rep) {
@@ -212,30 +221,36 @@ static class ChainExact
             foreach (int job in jobs) {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 if (job < 0) {
-                    var ms = new long[n];
+                    var ms = new double[n];
                     DMesh3 prev = null;
                     bool alive = true;
                     for (int k = 0; k < n; ++k) {
                         if (!alive) { ms[k] = -1; continue; }
+                        // (the garbage of the earlier steps is collected outside the clock, as before every lazy job)
+                        if (k > 0) { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); }
                         var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op);
                         var sw = Stopwatch.StartNew();
                         bool ok = b.Compute();
-                        ms[k] = sw.ElapsedMilliseconds;
+                        ms[k] = sw.Elapsed.TotalMilliseconds;
+                        chainOk[k] &= ok;
                         if (ok && b.Result.TriangleCount > 0) prev = b.Result; else alive = false;
                     }
                     chainSteps.Add(ms);
                 } else {
                     ExactMeshBoolean b = Lazy(plan, job, leaf).ToBoolean();
                     var sw = Stopwatch.StartNew();
-                    b.Compute();
-                    lazyMs[job].Add(sw.ElapsedMilliseconds);
+                    bool ok = b.Compute();
+                    lazyMs[job].Add(sw.Elapsed.TotalMilliseconds);
+                    lazyOk[job] &= ok;
                 }
             }
         }
         for (int k = 0; k < n; ++k) {
             var row = new Dictionary<string, object>(info) { ["step"] = k + 1, ["op"] = Name(plan[k].Op), ["reps"] = reps, ["orders"] = orders };
+            row["chain_ok"] = chainOk[k];
+            row["lazy_ok"] = lazyOk[k];
             if (chainSteps.All(ms => ms[k] >= 0)) {
-                List<long> cum = chainSteps.Select(ms => ms.Take(k + 1).Sum()).ToList();
+                List<double> cum = chainSteps.Select(ms => ms.Take(k + 1).Sum()).ToList();
                 row["chain_cum_ms"] = cum;
                 row["chain_cum_median_ms"] = Median(cum);
                 row["chain_step_median_ms"] = Median(chainSteps.Select(ms => ms[k]).ToList());
@@ -247,7 +262,7 @@ static class ChainExact
         return 0;
     }
 
-    static double Median(List<long> v)
+    static double Median(List<double> v)
     {
         var s = v.OrderBy(x => x).ToList();
         if (s.Count == 0) return -1;

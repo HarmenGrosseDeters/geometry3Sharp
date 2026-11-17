@@ -13,7 +13,7 @@
 # The rows of the abc-chained class come from `abc_chained.py run ... --methods ours_exact` (rows with class
 # "abc-chained-exact"); summary reads both kinds. The tool is $BOOLCMP_TOOL (a built BooleanComparison.dll) or the
 # Release build next to this script.
-import json, os, statistics as st, subprocess, sys
+import json, math, os, statistics as st, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXACT_CLASS = "abc-chained-exact"
@@ -44,7 +44,8 @@ def cmd_proc(out, seeds, steps, families, timeout=3600, command="chain-exact-pro
                 have.setdefault((r["family"], r["seed"]), []).append(r)
             except (ValueError, KeyError):
                 pass
-    done = {k for k, rs in have.items() if len({r["step"] for r in rs if "step" in r}) >= steps}
+    want = {"chain-exact-proc": "measure", "chain-exact-diag-proc": "diag", "chain-exact-time-proc": "time"}[command]
+    done = {k for k, rs in have.items() if len({r["step"] for r in rs if "step" in r and kind(r) == want}) >= steps}
     with open(out, "a") as f:
         for fam in families:
             for s in range(1, seeds + 1):
@@ -155,7 +156,7 @@ def cmd_summary(files):
                 rat.append(stp[k]["onepass_ms"] / max(1, sum(stp[i]["chained_ms"] for i in range(1, k + 1))))
             if rat:
                 rat.sort()
-                print(f"| {fam} | {k} | {len(rat)} | {st.median(rat):.2f} | {rat[max(0, int(0.9 * len(rat)) - 1)]:.2f} | {rat[-1]:.2f} |")
+                print(f"| {fam} | {k} | {len(rat)} | {st.median(rat):.2f} | {rat[max(0, math.ceil(0.9 * len(rat)) - 1)]:.2f} | {rat[-1]:.2f} |")
     reasons = {}
     for r in rows:
         if clean(r, "chained") is None or clean(r, "onepass") is None:
@@ -177,9 +178,8 @@ def cmd_diag_summary(files):
         groups.setdefault((key(r), r["step"]), []).append(r)
     factors = sorted({f for r in rows for f in r.get("factors", [])})
     pre = ["lazy_x" + (str(int(f)) if float(f).is_integer() else str(f)) for f in factors]
-    print("| family | step | results | chained clean | " + " | ".join(f"ExactMesh clean, budget x{f:g} (evaluation limit)" for f in factors) + " | newly unclean x1 / x" + f"{factors[-1]:g} |")
+    print("| family | step | results | chained clean | " + " | ".join(f"ExactMesh clean, budget x{f:g} (evaluation limit)" for f in factors) + f" | newly unclean x{factors[0]:g} / x{factors[-1]:g} |")
     print("|" + "---|" * (5 + len(factors)))
-    tot = [0] * (len(factors) + 2)
     for (fam, k), rs in sorted(groups.items()):
         both = [r for r in rs if clean(r, "chained") is not None and all(clean(r, p) is not None for p in pre)]
         cc = sum(1 for r in both if clean(r, "chained"))
@@ -187,13 +187,11 @@ def cmd_diag_summary(files):
         for i, p in enumerate(pre):
             n = sum(1 for r in both if clean(r, p)); lim = sum(1 for r in both if r.get(p + "_evaluation_limit"))
             cols.append(f"{n}/{len(both)} ({lim})")
-            tot[i] += n
         w1 = sum(1 for r in both if clean(r, "chained") and not clean(r, pre[0]))
         wl = sum(1 for r in both if clean(r, "chained") and not clean(r, pre[-1]))
-        tot[-2] += w1; tot[-1] += wl
         print(f"| {fam} | {k} | {len(both)} | {cc}/{len(both)} | " + " | ".join(cols) + f" | {w1} / {wl} |")
     print()
-    print("Newly unclean results (clean chained, ExactMesh unclean at budget x1): the rounding's state per factor")
+    print(f"Newly unclean results (clean chained, ExactMesh unclean at budget x{factors[0]:g}): the rounding's state per factor")
     print()
     print("| family | chain | step | factor | reason | evaluation limit | remaining intersections / degenerate / false contacts | smallest rejected drift / bound | removed components |")
     print("|---|---|---|---|---|---|---|---|---|")
@@ -213,15 +211,15 @@ def cmd_time_summary(files):
     rows = load(files, "time")
     groups = {}
     for r in rows:
-        if r.get("chain_cum_median_ms") is not None and r.get("lazy_median_ms") is not None:
+        if r.get("chain_cum_median_ms") is not None and r.get("lazy_median_ms") is not None and r.get("lazy_ok", True) and r.get("chain_ok", True):
             groups.setdefault((key(r), r["step"]), []).append(r)
     print("| family | step | chains | median ms chain steps 1..k | median ms chain step k | median ms ExactMesh.Round() | ExactMesh / chain 1..k: median | p90 | max | summed ms chain 1..k / ExactMesh |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     for (fam, k), rs in sorted(groups.items()):
-        rat = sorted(r["lazy_median_ms"] / max(1, r["chain_cum_median_ms"]) for r in rs)
+        rat = sorted(r["lazy_median_ms"] / max(1e-3, r["chain_cum_median_ms"]) for r in rs)
         sc = sum(r["chain_cum_median_ms"] for r in rs); sl = sum(r["lazy_median_ms"] for r in rs)
-        print(f"| {fam} | {k} | {len(rs)} | {st.median([r['chain_cum_median_ms'] for r in rs]):.0f} | {st.median([r['chain_step_median_ms'] for r in rs]):.0f} | "
-              f"{st.median([r['lazy_median_ms'] for r in rs]):.0f} | {st.median(rat):.2f} | {rat[max(0, int(0.9 * len(rat)) - 1)]:.2f} | {rat[-1]:.2f} | {sc:.0f} / {sl:.0f} |")
+        print(f"| {fam} | {k} | {len(rs)} | {st.median([r['chain_cum_median_ms'] for r in rs]):.1f} | {st.median([r['chain_step_median_ms'] for r in rs]):.1f} | "
+              f"{st.median([r['lazy_median_ms'] for r in rs]):.1f} | {st.median(rat):.2f} | {rat[max(0, math.ceil(0.9 * len(rat)) - 1)]:.2f} | {rat[-1]:.2f} | {sc:.0f} / {sl:.0f} |")
 
 if __name__ == "__main__":
     a = sys.argv[1:]

@@ -155,7 +155,7 @@ namespace geometry3Sharp.Tests
             DMesh3 empty = ea.Difference(ea).Round();
             Assert.NotNull(empty);
             Assert.Equal(0, empty.TriangleCount);
-            Assert.Equal("", Invariance.GeometricDifference(ea.Round(), ea.Intersection(ea).Round()));
+            Assert.Equal("", Invariance.Difference(ea.Round(), ea.Intersection(ea).Round()));
             // a new source of the same mesh is another source
             Assert.Equal(2, ea.Union(ExactMesh.FromDMesh(A())).SourceCount);
         }
@@ -191,6 +191,135 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, e.SourceCount);
             Assert.True(e.Inside(new[] { 1, 0 }));
             Assert.False(e.Inside(new[] { 0, 1 }));      // the last operation is a difference
+        }
+
+        [Fact]
+        public void ToBoolean_BuiltinShapes_AndThePredicateOtherwise()
+        {
+            DMesh3 a = A(), b = B(), c = C();
+            ExactMesh ea = ExactMesh.FromDMesh(a), eb = ExactMesh.FromDMesh(b), ec = ExactMesh.FromDMesh(c);
+            // one operation on two sources: the binary constructor
+            ExactMeshBoolean t = ea.Union(eb).ToBoolean();
+            Assert.Null(t.WindingPredicate);
+            Assert.Null(t.Meshes);
+            Assert.Equal(Ops.Union, t.Operation);
+            Assert.Same(ea.Sources[0], t.MeshA);
+            Assert.Same(eb.Sources[0], t.MeshB);
+            Assert.Equal(Ops.Difference, eb.Difference(ea).ToBoolean().Operation);
+            Assert.Same(eb.Sources[0], eb.Difference(ea).ToBoolean().MeshA);
+            // union / intersection of sources only, any nesting: the n-ary operation over Sources
+            foreach (var (e, op) in new[] { (ea.Union(eb.Union(ec)), Ops.Union), (ea.Intersection(eb).Intersection(ec), Ops.Intersection) }) {
+                ExactMeshBoolean n = e.ToBoolean();
+                Assert.Null(n.WindingPredicate);
+                Assert.Equal(op, n.Operation);
+                Assert.True(n.Meshes.SequenceEqual(e.Sources));
+            }
+            // a source minus sources: A − (B ∪ C), (A − B) − C, (A − B) − (C ∪ B)
+            foreach (ExactMesh e in new[] { ea.Difference(eb.Union(ec)), ea.Difference(eb).Difference(ec), ea.Difference(eb).Difference(ec.Union(eb)) }) {
+                ExactMeshBoolean n = e.ToBoolean();
+                Assert.Null(n.WindingPredicate);
+                Assert.Equal(Ops.Difference, n.Operation);
+                Assert.True(n.Meshes.SequenceEqual(e.Sources));
+                Assert.Equal(3, n.Meshes.Count);
+                Assert.Same(ea.Sources[0], n.Meshes[0]);
+            }
+            // everything else: the predicate over Sources (no source twice)
+            foreach (ExactMesh e in new[] { ea.Union(eb).Difference(ec), ea.Difference(ea.Union(eb)), ea.Difference(eb).Difference(ea),
+                                             ea.Union(eb).Difference(ea), ea.Difference(eb.Intersection(ec)), ea.Difference(ea) }) {
+                ExactMeshBoolean n = e.ToBoolean();
+                Assert.NotNull(n.WindingPredicate);
+                Assert.True(n.Meshes.SequenceEqual(e.Sources));
+                Assert.Equal(n.Meshes.Count, n.Meshes.Distinct().Count());
+            }
+            // a single source: its resolved solid
+            ExactMeshBoolean single = ea.ToBoolean();
+            Assert.Null(single.WindingPredicate);
+            Assert.Equal(Ops.Union, single.Operation);
+            Assert.Single(single.Meshes);
+        }
+
+        [Fact]
+        public void DifferenceSpine_SameAsTheNaryDifference_AndRepeatedSourceIsEmpty()
+        {
+            DMesh3 a = A(), b = B(), c = C();
+            ExactMesh ea = ExactMesh.FromDMesh(a), eb = ExactMesh.FromDMesh(b), ec = ExactMesh.FromDMesh(c);
+            DMesh3 nary = Compute(new ExactMeshBoolean(new List<DMesh3> { a, b, c }, Ops.Difference));
+            AssertClean(nary, "A - B - C");
+            Assert.Equal("", Invariance.Difference(nary, ea.Difference(eb).Difference(ec).Round()));
+            // the same solid by the predicate path ((A − B) ∪ (A ∩ B) is A, then − B − C)
+            ExactMesh viaPredicate = ea.Difference(eb).Union(ea.Intersection(eb)).Difference(eb).Difference(ec);
+            Assert.NotNull(viaPredicate.ToBoolean().WindingPredicate);
+            DMesh3 p = viaPredicate.Round();
+            AssertClean(p, "predicate path");
+            Assert.True(Math.Abs(Invariance.Volume(nary) - Invariance.Volume(p)) <= 1e-12 * Invariance.Volume(nary), $"volume {Invariance.Volume(p)} vs {Invariance.Volume(nary)}");
+            // A − (A ∪ B), A − (B ∪ A), (A − B) − A: empty, Success
+            foreach (ExactMesh e in new[] { ea.Difference(ea.Union(eb)), ea.Difference(eb.Union(ea)), ea.Difference(eb).Difference(ea) }) {
+                ExactMeshBoolean x = e.ToBoolean();
+                Assert.True(x.Compute(), x.Error);
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, x.Status);
+                Assert.Equal(0, x.Result.TriangleCount);
+            }
+        }
+
+        [Fact]
+        public void RightDeepChain_AndLinearBuild()
+        {
+            // a right-deep chain (the evaluation stack is as deep as the chain)
+            ExactMesh ea = ExactMesh.FromDMesh(Box(0, 0, 0, 1, 1, 1)), eb = ExactMesh.FromDMesh(Box(2, 0, 0, 3, 1, 1));
+            ExactMesh e = eb;
+            for (int i = 0; i < 5000; ++i)
+                e = ea.Union(e);
+            Assert.True(e.Inside(new[] { 1, 0 }));
+            Assert.True(e.Inside(new[] { 0, 1 }));
+            Assert.False(e.Inside(new[] { 0, 0 }));
+            e = eb;
+            for (int i = 0; i < 5000; ++i)
+                e = ea.Difference(e);       // A − (A − (A − ... B)): alternates, 5000 is even: A − (A − X) = A ∩ X ... = B ∩ A
+            Assert.False(e.Inside(new[] { 1, 0 }));
+            Assert.True(e.Inside(new[] { 1, 1 }));
+            // many distinct sources: building and Sources are linear in the chain (no list copy per node)
+            DMesh3 tiny = Box(0, 0, 0, 1, 1, 1);
+            ExactMesh chain = ExactMesh.FromDMesh(tiny);
+            for (int i = 0; i < 20000; ++i)
+                chain = chain.Union(ExactMesh.FromDMesh(tiny));
+            Assert.Equal(20001, chain.SourceCount);
+            Assert.Null(chain.ToBoolean().WindingPredicate);
+        }
+
+        [Fact]
+        public void ConcurrentRound_SameAsSerial()
+        {
+            ExactMesh e = Chain(A(), B(), C(), D());
+            DMesh3 serial = e.Round();
+            var results = new DMesh3[4];
+            System.Threading.Tasks.Parallel.For(0, results.Length, i => { results[i] = e.Round(); });
+            foreach (DMesh3 r in results)
+                Assert.Equal("", Invariance.Difference(serial, r));
+        }
+
+        [Fact]
+        public void OpenAndEmptySources()
+        {
+            // an empty source is outside everywhere
+            ExactMesh ea = ExactMesh.FromDMesh(A()), empty = ExactMesh.FromDMesh(new DMesh3());
+            DMesh3 a = ea.Round();
+            Assert.Equal("", Invariance.GeometricDifference(a, ea.Union(empty).Round()));
+            Assert.Equal(0, ea.Intersection(empty).Round().TriangleCount);
+            Assert.Equal("", Invariance.GeometricDifference(a, ea.Difference(empty).Union(empty.Intersection(ea)).Round()));
+            // an open source (a box without its top) on the predicate path: its generalized winding number decides, as in
+            // the n-ary boolean with the same predicate
+            DMesh3 open = Box(-0.5, -0.5, -0.5, 0.5, 0.5, 0.25);
+            foreach (int t in open.TriangleIndices().ToList())
+                if (open.GetTriCentroid(t).z > 0.24) open.RemoveTriangle(t);
+            Assert.False(open.IsClosed());
+            ExactMesh eo = ExactMesh.FromDMesh(open), eb = ExactMesh.FromDMesh(B());
+            ExactMesh e = ea.Difference(eo).Union(eb.Intersection(ea));
+            ExactMeshBoolean x = e.ToBoolean();
+            Assert.NotNull(x.WindingPredicate);
+            Assert.True(x.Compute(), x.Error);
+            var manual = new ExactMeshBoolean(new List<DMesh3>(e.Sources), Manual(w => (w[0] && !w[1]) || (w[2] && w[0])));
+            Assert.Equal("", Invariance.Difference(Compute(manual), x.Result));
+            Assert.True(x.Result.TriangleCount > 0);
         }
 
         [Fact]
@@ -266,8 +395,9 @@ namespace geometry3Sharp.Tests
             DMesh3 a = A(), b = B(), c = C(), d = D();
             ExactMesh e = Chain(a, b, c, d);
             DMesh3 serial;
+            bool was = gParallel.SerialOnThisThread;
             gParallel.SerialOnThisThread = true;
-            try { serial = e.Round(); } finally { gParallel.SerialOnThisThread = false; }
+            try { serial = e.Round(); } finally { gParallel.SerialOnThisThread = was; }
             for (int run = 0; run < 3; ++run)
                 Assert.Equal("", Invariance.Difference(serial, e.Round()));
             // one ExactMeshBoolean computed twice, and the same sub-expression in two expressions

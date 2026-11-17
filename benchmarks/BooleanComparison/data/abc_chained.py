@@ -371,13 +371,15 @@ def run_exact(case, files, rows, info, timeout, method="ours_exact"):
     summary here). Method ours_exact_time: the order-randomized timing of today's chain against ExactMesh.Round() (`chain-exact-time`,
     EXACT_TIME_REPS repetitions; chain_exact.py time-summary)"""
     import compare
-    # (three booleans per step: the per-boolean timeout for each; the rows printed before a timeout are kept)
+    # (ours_exact: three booleans per step; ours_exact_time: two per step and repetition; the per-boolean timeout for each. The
+    # rows printed before a timeout are kept: per step for ours_exact, none for ours_exact_time, which prints after its last
+    # repetition. ChainExact does not apply BOOLCMP_ROUNDING_MAX_PAIR_TESTS / BOOLCMP_SAFE_ROUNDING: library defaults only)
     try:
         cmd = ["chain-exact"] if method == "ours_exact" else ["chain-exact-time"]
         extra = [] if method == "ours_exact" else [str(EXACT_TIME_REPS)]
-        reps = 1 if method == "ours_exact" else 2 * EXACT_TIME_REPS
+        booleans = 3 if method == "ours_exact" else 2 * EXACT_TIME_REPS
         s = subprocess.run(compare.tool + cmd + [files["A"], files["B"], files["C"], case["variant"]] + extra, capture_output=True, text=True,
-                           timeout=3 * reps * len(PLANS[case["variant"]]) * timeout)
+                           timeout=booleans * len(PLANS[case["variant"]]) * timeout)
         out, err = s.stdout, s.stderr
     except subprocess.TimeoutExpired as ex:
         out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
