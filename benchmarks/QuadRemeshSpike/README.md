@@ -13,17 +13,16 @@ Pipeline per shape:
    their indices are counted, and a histogram of the indices is printed. The total index equals the Euler
    characteristic by construction, so it checks only the transport. The Rayleigh estimate of the eigenvalue and
    its last relative change are also printed.
-3. Position field: Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes): extrinsic 4-RoSy compatibility,
-   the middle point of two tangent planes, and lattice rounding. These functions follow the reference
-   implementation's formulas as recalled (BSD-style licence, attribution in `Program.cs`), not a re-derivation from
-   the paper. Gauss-Seidel
-   smoothing runs on a greedy pair-merging hierarchy, with `sweeps` sweeps per level.
+3. Position field after Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes), derived from the paper only
+   (QUAD_REMESHING.md section 3.1, which also lists the own choices): extrinsic 4-RoSy compatibility, the middle
+   point of two tangent planes (Tikhonov-regularized, `eps`), lattice rounding, and Gauss-Seidel smoothing on a
+   greedy pair-merging hierarchy, with `sweeps` sweeps per level.
 4. Extraction (simplified): edges with zero lattice offset are merged by union-find, and unit-offset edges become
    graph edges. Dangling vertices are removed. Faces are traced in each vertex's tangent plane. There is no cleanup.
 5. Baseline: greedy triangle pairing of an isotropic remesh at edge `s` (quad-dominant, Blossom-Quad-like but greedy).
 
 ```
-dotnet run -c Release --project benchmarks/QuadRemeshSpike -- [only=<regex>] [ratio=0.5] [sweeps=40] [scale=1]
+dotnet run -c Release --project benchmarks/QuadRemeshSpike -- [only=<regex>] [ratio=0.5] [sweeps=40] [scale=1] [eps=0.05]
 ```
 
 Output: one Markdown row per shape and method. The columns:

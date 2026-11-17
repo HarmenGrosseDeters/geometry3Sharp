@@ -6,17 +6,14 @@
 //   1. input: implicit shape -> MarchingCubes -> Remesher (isotropic, edge h = s * ratio)
 //   2. cross field: Knöppel, Crane, Pinkall, Schröder 2013 (smoothest 4-RoSy field, vertex based, cotan weights,
 //      smallest eigenvector of the connection Laplacian by inverse iteration with SparseCholesky)
-//   3. position field: Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes): extrinsic 4-RoSy compatibility,
-//      lattice rounding, Gauss-Seidel smoothing on a coarsening hierarchy. CompatOrient, MiddlePoint (its 1e-4
-//      regularizer and the factors 2 and 0.25), CompatPos (floor plus the 4 x 4 search) and RoundPos follow the
-//      functions of the Instant Meshes reference implementation as recalled, not a re-derivation from the paper.
-//      Instant Meshes: Copyright (c) 2015 Wenzel Jakob, Daniele Panozzo, Marco Tarini, and Olga Sorkine-Hornung,
-//      BSD-style licence with an "Enhancements" clause (LICENSE.txt of github.com/wjakob/instant-meshes).
+//   3. position field after Jakob, Tarini, Panozzo, Sorkine-Hornung 2015 (Instant Meshes), derived from the paper
+//      only (the derivation and the own choices are in QUAD_REMESHING.md section 3): extrinsic 4-RoSy compatibility,
+//      lattice rounding, Gauss-Seidel smoothing on a coarsening hierarchy
 //   4. extraction: union-find of edges with zero lattice offset, unit-offset edges form the graph, faces traced in
 //      the tangent planes (a simplified version of the paper's extraction, no cleanup)
 //   5. baseline: greedy triangle pairing of an isotropic remesh at edge s (quad-dominant)
 //
-//   dotnet run -c Release --project benchmarks/QuadRemeshSpike -- [only=<regex>] [ratio=0.5] [sweeps=40]
+//   dotnet run -c Release --project benchmarks/QuadRemeshSpike -- [only=<regex>] [ratio=0.5] [sweeps=40] [scale=1] [eps=0.05]
 //
 // Output: one line per shape and method (Markdown table rows). Single-threaded and deterministic.
 using System;
@@ -45,6 +42,7 @@ static class Program
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
         double ratio = A.ContainsKey("ratio") ? double.Parse(A["ratio"], CultureInfo.InvariantCulture) : 0.5;
         int sweeps = A.ContainsKey("sweeps") ? int.Parse(A["sweeps"]) : 40;
+        if (A.ContainsKey("eps")) MiddleEps = double.Parse(A["eps"], CultureInfo.InvariantCulture);
         double scaleMul = A.ContainsKey("scale") ? double.Parse(A["scale"], CultureInfo.InvariantCulture) : 1.0;
 
         Func<Vector3d, double> sphere = p => p.Length - 1;
@@ -229,46 +227,51 @@ static class Program
         return count + " (" + string.Join(", ", hist.Select(kv => (kv.Key > 0 ? "+" : "") + kv.Key + "/" + nsym + " x" + kv.Value)) + ")";
     }
 
-    // ---------------------------------------------------------------- Instant Meshes style position field (from the paper)
+    // ---------------------------------------------------------------- position field (Jakob et al. 2015, derived from the paper; QUAD_REMESHING.md section 3)
+    // The 4-RoSy at a vertex is {+-q, +-t}, t = n x q. Compatible representative of vertex 1's field for vertex 0:
+    // keep q0 and pick the one of the four that maximizes the dot product with it (the paper's rotation that
+    // best aligns the two fields).
     static void CompatOrient(Vector3d q0, Vector3d n0, Vector3d q1, Vector3d n1, out Vector3d a, out Vector3d b)
     {
-        Vector3d[] A = { q0, n0.Cross(q0) }, B = { q1, n1.Cross(q1) };
-        double best = -1; a = q0; b = q1;
-        for (int i = 0; i < 2; ++i)
-            for (int j = 0; j < 2; ++j) {
-                double d = A[i].Dot(B[j]);
-                if (Math.Abs(d) > best) { best = Math.Abs(d); a = A[i]; b = d < 0 ? -B[j] : B[j]; }
-            }
+        Vector3d t1 = n1.Cross(q1);
+        double dq = q0.Dot(q1), dt = q0.Dot(t1);
+        a = q0;
+        if (Math.Abs(dq) >= Math.Abs(dt)) b = dq >= 0 ? q1 : -q1;
+        else b = dt >= 0 ? t1 : -t1;
     }
 
+    // The point x nearest to the edge midpoint m that lies on both tangent planes n0.(x - p0) = 0 and
+    // n1.(x - p1) = 0. With x = m + alpha n0 + beta n1 the constraints give the 2 x 2 Gram system
+    //   [1 c; c 1] (alpha, beta) = (r0, r1),  c = n0.n1,  r_k = n_k.(p_k - m),
+    // which is singular for parallel planes. Own choice (the paper gives no formula): Tikhonov regularization,
+    // the diagonal + EPS, which bounds |alpha|, |beta| by about |r| / EPS. EPS = 0.05: with |r| <= h sin(theta) / 2
+    // the shift stays below 10 h even for nearly parallel planes; exactly parallel planes give x = m.
+    static double MiddleEps = 0.05;     // eps=<x> on the command line, for the sensitivity run
     static Vector3d MiddlePoint(Vector3d p0, Vector3d n0, Vector3d p1, Vector3d n1)
     {
-        double n0p0 = n0.Dot(p0), n0p1 = n0.Dot(p1), n1p0 = n1.Dot(p0), n1p1 = n1.Dot(p1), n0n1 = n0.Dot(n1);
-        double denom = 1.0 / (1.0 - n0n1 * n0n1 + 1e-4);
-        double l0 = 2 * (n0p1 - n0p0 - n0n1 * (n1p0 - n1p1)) * denom;
-        double l1 = 2 * (n1p0 - n1p1 - n0n1 * (n0p1 - n0p0)) * denom;
-        return 0.5 * (p0 + p1) - 0.25 * (n0 * l0 + n1 * l1);
+        Vector3d m = 0.5 * (p0 + p1);
+        double c = n0.Dot(n1), r0 = n0.Dot(p0 - m), r1 = n1.Dot(p1 - m);
+        double d0 = 1 + MiddleEps, det = d0 * d0 - c * c;
+        double alpha = (d0 * r0 - c * r1) / det, beta = (d0 * r1 - c * r0) / det;
+        return m + alpha * n0 + beta * n1;
     }
 
-    // closest pair of lattice points of (o0, q0, t0) and (o1, q1, t1) near the middle point; k = integer lattice coordinates
+    // Integer lattice coordinates of the point of lattice 0 = {o0 + s (i q0 + j t0)} nearest to the middle point
+    // x, and of the point of lattice 1 nearest to that one (two nearest-point roundings; own choice). Returns the
+    // two points; the integer offset between the lattice origins is (kq0 - kq1, kt0 - kt1).
     static double CompatPos(Vector3d v0, Vector3d n0, Vector3d q0, Vector3d o0, Vector3d v1, Vector3d n1, Vector3d q1, Vector3d o1, double s,
         out Vector3d a, out Vector3d b, out int kq0, out int kt0, out int kq1, out int kt1)
     {
         Vector3d t0 = n0.Cross(q0), t1 = n1.Cross(q1);
-        Vector3d mid = MiddlePoint(v0, n0, v1, n1);
-        int fq0 = (int)Math.Floor(q0.Dot(mid - o0) / s), ft0 = (int)Math.Floor(t0.Dot(mid - o0) / s);
-        int fq1 = (int)Math.Floor(q1.Dot(mid - o1) / s), ft1 = (int)Math.Floor(t1.Dot(mid - o1) / s);
-        double best = double.MaxValue; a = b = o0; kq0 = kt0 = kq1 = kt1 = 0;
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j) {
-                int aq = fq0 + (i & 1), at = ft0 + (i >> 1), bq = fq1 + (j & 1), bt = ft1 + (j >> 1);
-                Vector3d pa = o0 + s * (aq * q0 + at * t0), pb = o1 + s * (bq * q1 + bt * t1);
-                double d = (pa - pb).LengthSquared;
-                if (d < best) { best = d; a = pa; b = pb; kq0 = aq; kt0 = at; kq1 = bq; kt1 = bt; }
-            }
-        return Math.Sqrt(best);
+        Vector3d x = MiddlePoint(v0, n0, v1, n1);
+        kq0 = (int)Math.Round(q0.Dot(x - o0) / s); kt0 = (int)Math.Round(t0.Dot(x - o0) / s);
+        a = o0 + s * (kq0 * q0 + kt0 * t0);
+        kq1 = (int)Math.Round(q1.Dot(a - o1) / s); kt1 = (int)Math.Round(t1.Dot(a - o1) / s);
+        b = o1 + s * (kq1 * q1 + kt1 * t1);
+        return (a - b).Length;
     }
 
+    // the representative of the lattice through o nearest to the vertex v (the paper keeps o near its vertex)
     static Vector3d RoundPos(Vector3d o, Vector3d q, Vector3d n, Vector3d v, double s)
     {
         Vector3d t = n.Cross(q), d = v - o;
@@ -283,7 +286,7 @@ static class Program
         var edges = new List<(double, int, int)>();
         for (int i = 0; i < n; ++i)
             foreach (int j in f.Adj[i])
-                if (i < j) edges.Add((-f.N[i].Dot(f.N[j]) * Math.Min(f.A[i], f.A[j]) / Math.Max(f.A[i], f.A[j]), i, j));
+                if (i < j) edges.Add(((f.V[i] - f.V[j]).LengthSquared, i, j));      // own choice: merge the closest pairs first
         edges.Sort();
         int[] map = Enumerable.Repeat(-1, n).ToArray();
         var members = new List<(int, int)>();
@@ -311,19 +314,24 @@ static class Program
         return c;
     }
 
+    // Gauss-Seidel on E_i = sum_j |o_i + delta - (its lattice match of o_j)|^2: shifting o_i by delta moves its
+    // lattice points by delta, so the minimizer is the mean misfit delta = mean_j (b_j - a_j) (uniform weights,
+    // own choice); then back into the tangent plane and to the representative nearest the vertex.
     static void Smooth(Level L, Vector3d[] O, double s, int sweeps)
     {
         int n = L.V.Length;
         for (int it = 0; it < sweeps; ++it)
             for (int i = 0; i < n; ++i) {
-                Vector3d sum = O[i]; double wsum = 0;
+                if (L.Adj[i].Count == 0) continue;
+                Vector3d delta = Vector3d.Zero;
                 foreach (int j in L.Adj[i]) {
                     CompatOrient(L.Q[i], L.N[i], L.Q[j], L.N[j], out Vector3d qi, out Vector3d qj);
-                    CompatPos(L.V[i], L.N[i], qi, sum, L.V[j], L.N[j], qj, O[j], s, out Vector3d a, out Vector3d b, out _, out _, out _, out _);
-                    sum = (wsum * a + b) / (wsum + 1); wsum += 1;
-                    sum -= L.N[i].Dot(sum - L.V[i]) * L.N[i];
+                    CompatPos(L.V[i], L.N[i], qi, O[i], L.V[j], L.N[j], qj, O[j], s, out Vector3d a, out Vector3d b, out _, out _, out _, out _);
+                    delta += b - a;
                 }
-                O[i] = RoundPos(sum, L.Q[i], L.N[i], L.V[i], s);
+                Vector3d o = O[i] + delta / L.Adj[i].Count;
+                o -= L.N[i].Dot(o - L.V[i]) * L.N[i];
+                O[i] = RoundPos(o, L.Q[i], L.N[i], L.V[i], s);
             }
     }
 
