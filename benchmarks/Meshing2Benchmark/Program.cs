@@ -64,6 +64,8 @@ namespace Meshing2Acceptance
             catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
             // mesh --no-oracle times the mesher alone: nothing is judged, so the self-check is not needed either
             if (args[0] == "mesh" && Has(args, "--no-oracle")) return Mesh(args);
+            // the lfs yardstick judges nothing either (docs/research/GEOGRAM_MEASUREMENTS_2026-11.md, item 2)
+            if (args[0] == "lfs") return LfsYardstick.Run(args, Arg);
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);
