@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
   #7) merged in #374, round-off in #754; the affine heat method stopped at its gate (#371); the AffineLocal follow-up
   closed (#538); geodesic Bézier curves merged (#540). The geodesics study (#784, #798, #807) is merged; the exact
   geodesic distance as an internal test oracle (`ExactMeshGeodesicDistance`) is merged in #869 (2026-11-15), its A6 merge rule
-  fixed in #1058 (2026-11-17); LSCM near-collapse is fixed in #1049 (2026-11-17).
+  fixed in PR #1062 (issue #1058, 2026-11-17); LSCM near-collapse is fixed in PR #1054 (issue #1049, 2026-11-17).
 - **Related:** [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md),
   [design/FOLDOVER_FREE_MAPS.md](../design/FOLDOVER_FREE_MAPS.md),
   [benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md);
@@ -97,7 +97,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 List as of 2026-11-17.
 
-1. `ExactMeshGeodesicDistance` as a certified test oracle (#869 merged 2026-11-15, #1058 2026-11-17): reach on flat / aligned inputs below 10^4 vertices (the ridge 41² completes in 5.7 s since #1058); the heat-method tests against the oracle.
+1. `ExactMeshGeodesicDistance` as a certified test oracle (#869 merged 2026-11-15, #1062 2026-11-17): reach on flat / aligned inputs below 10^4 vertices (the ridge 41² completes in 5.7 s since #1058); the heat-method tests against the oracle.
 2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b); then a public class for 10^5 vertices (no issue).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
 4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts; built in #1057 (2026-11-17) with the per-chart A/B against LSCM on the atlas corpus in `benchmarks/UVAtlasBenchmark/README.md`, default unchanged ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
