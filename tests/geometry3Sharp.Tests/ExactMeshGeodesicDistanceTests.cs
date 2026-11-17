@@ -100,7 +100,9 @@ namespace geometry3Sharp.Tests
             DMesh3 m = Grid(10, 21, (x, y) => 0);
             int src = 10 * 21 + 10;
             var g = Run(m, src);
-            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 0.08);
+            // Upper is tight too (#1058: it was up to 8% above the distance, an edge path, while A6 merging dropped the inner
+            // interval of the second half of a fan)
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 1e-7);
             // the lower bound is tight: each emission of a pseudo-source lowers sigma by 1e-9 relative (A5), and on a plane
             // every vertex is a flat pseudo-source, so the margins add up along a chain of a few emissions
             foreach (int v in m.VertexIndices()) { double d = m.GetVertex(v).Distance(m.GetVertex(src)); Assert.True(d - g.Lower[v] <= 1e-7 * (1 + d)); }
@@ -161,7 +163,13 @@ namespace geometry3Sharp.Tests
             int src = (n / 2) * n + 3;
             var g = Run(m, src);
             Vector3d s = m.GetVertex(src);
-            AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 2 * half, 0.2);
+            // #1058: the width was up to 17% (Upper on edge paths after A6 merging dropped an inner interval), now as narrow as
+            // Lower's re-emission margins
+            AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 2 * half, 1e-7);
+            // the window budget of the A6 rule (merge when at most one inner interval is nonempty): measured 10588; merging
+            // only windows without inner intervals costs 12821, the former merging (one inner interval dropped) 19594. A pruning
+            // change elsewhere may move the count: retune the bound between the measured count and 12821
+            Assert.True(g.Windows <= 11500, $"windows {g.Windows}");
         }
 
         [Fact]
@@ -426,8 +434,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AlignedRidge41_ReachesTheWindowLimit_WithNaNArrays()
         {
-            // the measured reach (GEODESICS.md): the exactly aligned 41 x 41 ridge exceeds the oracle's window budget; the
-            // limit must end with WindowLimit and NaN arrays, never with values that look valid
+            // a limit must end with WindowLimit and NaN arrays, never with values that look valid. The exactly aligned 41 x 41
+            // ridge needs about 98000 windows (GEODESICS.md 6b; 286000 before #1058), so a limit of 60000 ends it
             int n = 41; double h = 0.25, half = (n - 1) * h / 2;
             DMesh3 m = Grid(half, n, (x, y) => Ridge(x));
             var g = new ExactMeshGeodesicDistance(m) { MaxWindows = 60000 };
@@ -660,6 +668,85 @@ namespace geometry3Sharp.Tests
             // a corner whose sides overlap (zero cross product): no angle is certain, the whole [0, 2 pi]
             ExactInterval z = ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(2, 0, 0));
             Assert.True(z.Lo <= 0 && z.Hi >= 2 * Math.PI);
+        }
+
+        // ------------------------------------------------------------------ the width of the enclosure per surface class (#1058)
+
+        // domes -k (x^2 + y^2) and saddles k (x^2 - y^2) over [-1, 1]^2, k from exactly flat to curved. On the nearly flat
+        // ones (k up to about 1e-5: the interior vertices of a dome are certainly convex and never emit) A6 merged the two
+        // halves of a fan split at a vertex when their rays met again and kept only one inner interval; Upper fell back to
+        // edge paths, up to 8.2% above the distance (benchmarks/GeodesicOracleBenchmark). Now the enclosure is as narrow as
+        // Lower's re-emission margins (1e-9 per emission, A5) on every surface of the family.
+        const double FamilyWidth = 1e-7;       // measured at most 2e-8 (21 x 21 and 41 x 41)
+
+        static DMesh3 Family(string kind, double k, int n)
+            => Grid(-1, -1, 1, 1, n, n, kind == "dome" ? (x, y) => -k * (x * x + y * y) : (x, y) => k * (x * x - y * y));
+
+        static int FamilySource(string at, int n) => at == "centre" ? (n / 2) * n + n / 2 : at == "corner" ? 0 : n / 2;
+
+        static void AssertNarrow(DMesh3 m, ExactMeshGeodesicDistance g, int src, double width, double slack, string what)
+        {
+            Vector3d s = m.GetVertex(src);
+            double[] dij = EdgeDijkstra(m, src);
+            foreach (int v in m.VertexIndices()) {
+                // a real surface path is at least the 3D distance, and an edge path is a real path
+                Assert.True(g.Lower[v] >= Dist(s, m.GetVertex(v)).Lo * (1 - 1e-8) - slack, $"{what}: vertex {v}: Lower below the 3D distance");
+                Assert.True(g.Upper[v] <= dij[v] * (1 + 1e-12) + slack, $"{what}: vertex {v}: Upper above an edge path");
+                // and Upper is sound: never below the 3D distance (no relative tolerance; certified for every member)
+                Assert.True(g.Upper[v] >= Dist(s, m.GetVertex(v)).Lo - slack, $"{what}: vertex {v}: Upper below the 3D distance");
+                Assert.True(g.Upper[v] - g.Lower[v] <= width * g.Lower[v] + slack,
+                    $"{what}: vertex {v}: (Upper - Lower) / Lower = {(g.Upper[v] - g.Lower[v]) / g.Lower[v]:E2}");
+            }
+        }
+
+        [Theory]
+        [InlineData("dome", 0.0, "centre")]
+        [InlineData("dome", 1e-8, "edge")]
+        [InlineData("dome", 1e-6, "centre")]       // the case of #1058: 8.2% before
+        [InlineData("dome", 1e-6, "corner")]
+        [InlineData("dome", 1e-6, "edge")]
+        [InlineData("dome", 1e-5, "corner")]       // 1.6% before
+        [InlineData("dome", 1e-2, "corner")]
+        [InlineData("dome", 0.3, "edge")]
+        [InlineData("saddle", 1e-6, "centre")]     // 8.0% before
+        [InlineData("saddle", 1e-6, "corner")]
+        [InlineData("saddle", 1e-5, "corner")]
+        [InlineData("saddle", 0.3, "centre")]
+        public void Family_UpperIsTight_OnFlatNearlyFlatAndCurvedSurfaces(string kind, double k, string at)
+        {
+            int n = 21;
+            DMesh3 m = Family(kind, k, n);
+            int src = FamilySource(at, n);
+            var g = Run(m, src);
+            AssertNarrow(m, g, src, FamilyWidth, 0, $"{kind} {k} {at}");
+            // the exactly flat member: the distance is Euclidean, enclosed with no slack
+            if (k == 0) AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), FamilyWidth);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NearlyFlatDome_UnderSimilarities_TightAndExactScalesGiveTheSameBits(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            int n = 11;
+            DMesh3 m0 = Family("dome", 1e-6, n);
+            int src = FamilySource("corner", n);
+            var g0 = Run(m0, src);
+            DMesh3 m = Invariance.Transformed(m0, sim);
+            var g = Run(m, src);
+            if (sim.IsExact) {
+                foreach (int v in m0.VertexIndices()) {
+                    Assert.Equal(g0.Lower[v] * sim.Scale, g.Lower[v]);
+                    Assert.Equal(g0.Upper[v] * sim.Scale, g.Upper[v]);
+                }
+                Assert.Equal(g0.Windows, g.Windows); Assert.Equal(g0.Merges, g.Merges);
+            }
+            // every frame, the far ones included (their rounding makes another, nearly flat surface): still tight
+            AssertNarrow(m, g, src, FamilyWidth, sim.Scale * sim.Resolution(2) * 1e3, name);
+            // reuse: a second Compute on the same instance gives the same bits
+            double[] lo = (double[])g.Lower.Clone(), up = (double[])g.Upper.Clone(); long w = g.Windows;
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { src }));
+            Assert.Equal(lo, g.Lower); Assert.Equal(up, g.Upper); Assert.Equal(w, g.Windows);
         }
 
         // ------------------------------------------------------------------ the edge path pass and the pruning (gate 3.0 shard geodesic-1)

@@ -447,7 +447,9 @@ by the ordinary windows on its edge side, or emitting continuations only where n
 before it is built.
 
 **Measured reach** (net10 Release, this container; S1 setting; 0 enclosure violations against the plain-double
-reference that emits from every flat vertex):
+reference that emits from every flat vertex). The first table is that of the first version (2026-11-13); after the A6
+rule of section 6c (#1058) the reach is that of the second table (`benchmarks/GeodesicOracleBenchmark reach`, centre
+sources, the ridge's source as in the tests; largest (Upper - Lower) / Lower over the vertices):
 
 | mesh | vertices | time | windows per edge | largest (Upper - Lower) / max(1, d) | Lower gap to the reference |
 |---|---|---|---|---|---|
@@ -460,13 +462,103 @@ reference that emits from every flat vertex):
 | plane 101 x 101 | 10201 | window limit | | | |
 | aligned ridge 41 x 41 | 1681 | window limit | | | |
 
-So the oracle reaches about 10^4 vertices on terrain-like input, but only about 10^3 on exactly flat or exactly aligned
-input: **short of the 10^4-vertex target of the plan** on those. Beyond, `Compute` returns `WindowLimit` with NaN arrays
-(the clean way out; a test pins it on the aligned 41 x 41 ridge). The default `MaxWindows` is 300000, which keeps a
-`Compute` below about 20 s (the plane 101 x 101 took 116 s to reach the former limit of 2 million).
-**Looseness:** Upper is up to about 1.3% above the distance on flat regions (inner intervals rarely contain a vertex
-certainly; the edge paths then bound it); Lower is within about 1e-8 relative (the re-emission margins of A5 add up
-along chains of flat pseudo-sources). Tests assert the enclosure and a width bound per mesh, never equality.
+| mesh (benchmark) | vertices | before #1058: time, windows, width | after: time, windows, width |
+|---|---|---|---|
+| plane 41 x 41 | 1681 | 5.5 s, 126803, 8.0e-2 | 3.0 s, 59229, 9.5e-9 |
+| terrain 41 x 41 | 1681 | 0.4 s, 18835, 5.9e-9 | 0.5 s, 18835, 5.9e-9 |
+| saddle 0.3 (x^2 - y^2) 41 x 41 | 1681 | 2.1 s, 63649, 9.5e-9 | 2.1 s, 63649, 9.5e-9 |
+| terrain 101 x 101 | 10201 | 2.6 s, 125155, 1.4e-8 | 2.9 s, 125155, 1.4e-8 |
+| plane, saddle 101 x 101 | 10201 | window limit (12-14 s) | window limit (14-16 s) |
+| aligned ridge 21 x 21 | 441 | 0.7 s, 19594, 1.7e-1 | 0.3 s, 10588, 8.0e-9 |
+| aligned ridge 31 x 31 | 961 | 2.8 s, 77247, 8.0e-2 | 1.5 s, 39852, 1.4e-8 |
+| aligned ridge 41 x 41 | 1681 | 13.9 s, 286137, 3.8e-2 | 5.7 s, 97650, 1.9e-8 |
+
+So the oracle reaches about 10^4 vertices on terrain-like input, but only about 2 x 10^3 on exactly flat or exactly
+aligned input: **short of the 10^4-vertex target of the plan** on those. Beyond, `Compute` returns `WindowLimit` with NaN
+arrays (the clean way out; a test pins it on the aligned 41 x 41 ridge with a limit of 60000). The default `MaxWindows`
+is 300000, which keeps a `Compute` below about 20 s (the plane 101 x 101 took 116 s to reach the former limit of 2
+million).
+**Width:** see section 6c: (Upper - Lower) / Lower is at most about 2e-8 on every procedural surface class measured
+(Lower within about 1e-8 relative of the distance: the re-emission margins of A5 add up along chains of flat
+pseudo-sources), so Upper is as tight. Before #1058 Upper was up to 8.2% above the distance on flat and nearly flat
+input; the 1.3% first stated here was the plane from a corner source. Tests assert the enclosure and a width bound
+per mesh, never equality.
+
+### 6c. The width per surface class and the A6 rule (#1058, 2026-11-17)
+
+**Question.** The class documentation stated "Upper up to about 1.3% above the distance on flat regions"; the gate
+follow-up tests of #1051 found 4% on a nearly flat convex dome. The enclosure Lower <= d <= Upper was valid; the
+question was the width per surface class and whether a cheap, provably safe lever tightens Upper.
+
+**Measurement** (`benchmarks/GeodesicOracleBenchmark sweep`): grids over [-1, 1]^2 with the alternating diagonals of
+the tests, domes -k (x^2 + y^2) and saddles k (x^2 - y^2), k in {0, 1e-8, 1e-6, 1e-5, 1e-4, 1e-2, 0.3}, 11 x 11, 21 x 21
+and 41 x 41 vertices, sources at the centre, an edge midpoint and a corner (9 runs per row). The distance d is
+enclosed by the oracle's own Lower, which is certified (Lower <= d) and tight (within about 1e-8 of the closed form on
+the plane and the ridge, and of Upper after the change), so (Upper - Lower) / Lower bounds the gap
+(Upper - d) / d from above and equals it to about 1e-8. Largest over the 9 runs:
+
+| surface | k | before: width, slowest run, windows (sum) | after: width, slowest run, windows (sum) |
+|---|---|---|---|
+| dome / saddle | 0 (a plane) | 8.0e-2, 17 s, 712914 | 1.9e-8, 6.9 s, 310874 |
+| dome | 1e-8 | 8.0e-2, 16 s, 714431 | 1.9e-8, 7.2 s, 310872 |
+| dome | 1e-6 | 8.2e-2, 8.5 s, 525527 | 1.9e-8, 3.8 s, 206501 |
+| dome | 1e-5 | 5.3e-2 (two runs at the window limit, 35 s), 914812 | 1.9e-8, 0.9 s, 123720 |
+| dome | 1e-4, 1e-2, 0.3 | 1.9e-8 | 1.9e-8 (the same windows within 0.5%) |
+| saddle | 1e-8 | 8.0e-2, 17 s, 717088 | 1.9e-8, 7.3 s, 310861 |
+| saddle | 1e-6 | 8.0e-2, 18 s, 696689 | 1.9e-8, 6.9 s, 309721 |
+| saddle | 1e-5 | 4.9e-3, 10 s, 415405 | 1.9e-8, 7.5 s, 341794 |
+| saddle | 1e-4, 1e-2, 0.3 | 1.9e-8 | 1.9e-8 (the same windows) |
+
+The gap was bimodal: not driven by curvature, edge length against the curvature radius or path length as such, but by
+whether vertices emit. Where the interior vertices are flat (exactly flat inputs) or only nearly convex (domes with k up
+to about 1e-5, whose interior vertices are certainly convex, so they never emit, A5), the source's windows travel far,
+and the width did not shrink with the grid (8% from 11 x 11 on with a centre source, 1.3-8% from the other
+positions). Curved inputs (k >= 1e-4) were tight before.
+
+**Cause** (traced window by window on the 21 x 21 dome, k = 1e-6): Upper of a vertex comes from a window whose inner
+interval (the part realised by a real path, A1) covers the vertex's ray, otherwise from edge paths (which zigzag by up to
+8% on these grids). A window is split at the opposite vertex of each face into two children whose inner intervals meet
+at that vertex's ray. Where the two halves' rays meet again on a later edge side (around a convex or flat vertex the
+unfoldings of both sides coincide up to the disk radii), A6 merged them, as the same origin with nearly the same
+position, and kept the inner interval of only one, as A6 requires: the union is not realised by one witness (a ray from
+one half's witness through the other half's inner interval passes the vertex on the wrong side). So the second half
+of every fan lost its realised paths, and the vertices behind it fell back to edge paths. The degenerate projections of
+S2 (the child of a ray through an edge end along a grid line, whose `Mu` denominator straddles 0) also give empty inner
+intervals, but on 1e-15-wide clips; they cost nothing measurable.
+
+**Building blocks and prior art.** The library has no other realised-path bound to reuse here (the edge path pass and
+the Steiner Dijkstra of `TerrainSafety` are the zigzag fallback; FlipOut needs a start path). The exact algorithms of
+MMP and Surazhsky et al. 2005 do not merge windows (their approximate variant merges with a bound on the distance error,
+not on a realised path), and Xin-Wang's filter drops windows instead; no prior work carries certified inner intervals, so
+the lever is a restriction of this note's own A6. Upper bound of the gain before the change: the whole measured gap
+(Upper can at most reach d), 8.2% on these inputs, nothing on the curved ones.
+
+**Levers tried.** (1) Keep the longer of the two inner intervals in a merge: the dome k = 1e-6 went from 8.2% to 3.7%,
+the plane to 1.2%. (2) Compute the child's inner interval over its inner sub-clip when the outer clip's denominator is
+uncertain (S2): no effect (those clips are degenerate), not kept. (3) Record the direct bounds of the dropped inner
+interval (its edge ends and the opposite vertex) before the merge: no effect, not kept. (4) **Merge only when at most one
+partner has a nonempty inner interval, and keep that one**: Upper is tight everywhere above, and the window counts drop
+by a factor of 2 to 7 on flat and nearly flat input (tighter vertex bounds prune more in A4), so the change is cheaper,
+not dearer. Merging only windows without inner intervals keeps the width but costs 21-26% more windows (plane 41 x 41:
+74874 against 59229); keeping a merge when one inner interval contains the other made no measured difference and was
+dropped for the simpler rule.
+
+**Soundness of rule (4)** (A6 as amended in Appendix A): skipping a merge removes nothing from any window, so A3's chain
+and every outer interval stay as they were (Lower unchanged in kind), and two windows with the same function are only a
+cost, which the measured counts above bound for these inputs; the windows limit still ends a run cleanly. A merge that
+happens keeps one nonempty inner interval: b's if it has one, otherwise w's, clipped to the merged outer interval. w's
+inner interval is realised from w's witness s*_w and path P*_w (A1); s*_w lies in w's disk, which lies in the merged disk
+(the merged radius is at least the centre distance plus w's radius); sigma+ of the merge is at least w's; a subset of a
+realised set is realised (A1, last line); and the children of the merged window compute their inner intervals for every
+position of the merged disk, so they are realised from s*_w. An empty interval (I0 > I1) stays empty under the clip.
+
+**Tests** (`ExactMeshGeodesicDistanceTests`): the width bound 1e-7 relative on twelve members of the family (21 x 21:
+flat, nearly flat and curved domes and saddles, every source position), on the plane (0.08 before) and on the aligned
+ridge 21 x 21 (0.2 before), each against the 3D distance and an edge path, and on the plane against the closed form; the
+nearly flat dome over `Similarity.All()` (exact scales bit for bit, the windows and merges equal, every frame still
+narrow) with a reuse check; a window budget on the ridge that kills the rule "merge only without inner intervals".
+Mutants checked by hand: without rule (4) 16 tests fail, without keeping w's inner interval 17, with the
+inner-free-only rule 1.
 
 ## 7. Test plan (repo style)
 
@@ -708,6 +800,10 @@ these values), so Upper is finite on every component with a source.
   propagation covers both rays. A1: the kept inner interval keeps its witness s*, which lies in the hull, and the
   child's inner interval is computed for every s in the hull, so it is realised from s*. Without merging, such
   duplicates are never certainly dominated (equal functions) and would double at every step.
+  *Amended (#1058, section 6c):* they are merged only when at most one of them has a nonempty inner interval, and the
+  kept inner interval is that one (clipped to the merged outer interval). Two nonempty inner intervals, eg the two
+  halves of a fan split at a vertex whose rays meet again, stay two windows: dropping one cost Upper up to 8%, and
+  skipping a merge removes nothing, so it needs no argument beyond the cost, which section 6c measures.
 
 **Conclusion.** Lower(v) <= d(v) (A3, A4, A5) and d(v) <= Upper(v) (A1, A2), for every vertex v of a component with a
 source. Both bounds are deterministic (serial, total order) and, away from overflow and the subnormal range,
