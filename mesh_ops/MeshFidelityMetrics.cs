@@ -182,7 +182,7 @@ namespace gs
         /// the faces left by the winding number of the faces left and removing only the clearest interior ones: double
         /// layers (no jump of the winding number at any test point) and faces that are not outer with a mean winding
         /// number (the lowest of their test points) of at least 0.75 and within 0.25 of the largest such mean. Removed
-        /// faces stay removed; the rounds end when one removes nothing (OuterFacesConverged; at most MaxOuterFaceRounds,
+        /// faces stay removed; the rounds end when one removes nothing (OuterFacesConverged; at most MaxOuterFaceRounds, or a stall: OuterFaceStallRounds,
         /// OuterFaceRounds). Faces that are not outer with a mean below 0.75 (eg lowered by interior faces in front of
         /// them) are not removed in that round. So faces inside the solid, nested shells, internal double walls and
         /// double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones kept. Not told apart: a face of
@@ -199,7 +199,7 @@ namespace gs
         public double OuterFaceShare = double.NaN;
         /// <summary>
         /// output (VolumeSamples and OuterSurface): rounds of the outer face classification, and whether the set of faces
-        /// stopped changing within MaxOuterFaceRounds (if not, OuterVolumeIoU is NaN). The number of rounds
+        /// stopped changing within MaxOuterFaceRounds and without a stall (OuterFaceStallRounds; if not, OuterVolumeIoU is NaN). The number of rounds
         /// can change with rounding (eg a rotated copy): faces whose mean is near a round's threshold go in this round or
         /// the next
         /// </summary>
@@ -470,6 +470,19 @@ namespace gs
         /// <summary> OuterVolumeIoU judges the reference's faces in at most this many rounds (see OuterFacesConverged) </summary>
         public const int MaxOuterFaceRounds = 64;
 
+        /// <summary>
+        /// The outer face classification stops (OuterFacesConverged false, as at MaxOuterFaceRounds) when the last
+        /// OuterFaceStallRounds rounds together removed less than OuterFaceStallShare of the faces left. A round costs
+        /// 8 winding numbers per face left and a tree build, and on a heavily self-intersecting reference (Thingi10K 55928,
+        /// 88k faces, 258k self-intersecting pairs) a round removes about 10 faces, so the 64 rounds took 109 s for a
+        /// result that was discarded. A window, not one round: faces that converge slowly come in bursts (Thingi10K
+        /// 498456, 30k faces: 17, 6187, 14, 166, 8, 648 faces in successive rounds, converged after 55 rounds; no 4-round sum before
+        /// its last rounds is below 2 times the limit), and a single round of 16 faces of 52k (1514905) is
+        /// followed by 1 and 0
+        /// </summary>
+        public const int OuterFaceStallRounds = 4;
+        public const double OuterFaceStallShare = 0.001;
+
         // a copy of the reference without the faces that are not outer (see OuterVolumeIoU), and the area kept. Each round
         // judges the faces left against the winding number of the faces left, and removes the clearest interior ones
         // only: double layers, and faces whose mean winding number is at least 0.75 and within 0.25 of the largest one
@@ -489,6 +502,7 @@ namespace gs
             Func<Vector3d, double> winding = referenceTree.FastWindingNumber;
             OuterFaceRounds = 0;
             OuterFacesConverged = left.Count == 0;
+            var removedByRound = new List<int>();
             while (left.Count > 0 && OuterFaceRounds < MaxOuterFaceRounds) {
                 OuterFaceRounds++;
                 int[] cand = left.ToArray();
@@ -529,6 +543,14 @@ namespace gs
                 if (removed == 0 || left.Count == 0) {
                     OuterFacesConverged = true;
                     break;
+                }
+                removedByRound.Add(removed);
+                if (removedByRound.Count >= OuterFaceStallRounds) {
+                    long recent = 0;
+                    for (int k = removedByRound.Count - OuterFaceStallRounds; k < removedByRound.Count; ++k)
+                        recent += removedByRound[k];
+                    if (recent < OuterFaceStallShare * left.Count)
+                        break;      // stalled: not converged
                 }
                 var tree = new DMeshAABBTree3(copy, true);
                 tree.FastWindingNumber(Vector3d.Zero);      // cache before parallel use
