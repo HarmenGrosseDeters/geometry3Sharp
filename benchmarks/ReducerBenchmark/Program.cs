@@ -8,7 +8,7 @@
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries     (envelope vs bounds per query)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- share [rounds]  (shared deviation queries A/B)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- twosided [rounds] [files]  (MaxDeviationTwoSided, TwoSided.cs)
-//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- loop [rounds] [load]  (per-collapse loop: parallel, serial, threshold; DeviationLoop.cs)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- loop [rounds] [load]  (per-collapse loop: ForRange, caller-first, serial; DeviationLoop.cs)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- hashes      (SHA-256 of every reduced mesh: unchanged results)
 using System;
 using System.Diagnostics;

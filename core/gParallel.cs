@@ -144,6 +144,103 @@ namespace g3
 
 
         /// <summary>
+        /// body(i) for every i in [0, count), on the calling thread and on up to helpers thread pool work items that take indices
+        /// from the same counter (helpers &lt; 0: one per further core). Unlike ForRange the caller never waits for a helper that has
+        /// not started: when the pool is busy (other parallel work) the caller runs all the items itself, and helpers that start
+        /// later find none left. For many small loops (a few items each) under load, where ForRange's caller waits for its queued
+        /// workers. An exception of a body stops the handing out of indices; one exception is rethrown as it is, several as an
+        /// AggregateException. The items run in an unspecified order and on several threads, as with ForRange
+        /// </summary>
+        internal static void ForRangeCallerFirst(int count, Action<int> body, int helpers = -1)
+        {
+            ForRangeCallerFirst(count, body, helpers, null);
+        }
+
+        /// <summary> (tests) ForRangeCallerFirst with the helpers handed to queue instead of the thread pool (null: the pool) </summary>
+        internal static void ForRangeCallerFirst(int count, Action<int> body, int helpers, Action<WaitCallback, object> queue)
+        {
+            if (count <= 0)
+                return;
+            if (SerialOnThisThread) {
+                int[] order = serial_order(count);
+                for (int i = 0; i < count; ++i)
+                    body((order == null) ? i : order[i]);
+                return;
+            }
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(count), body);
+#else
+            if (helpers < 0)
+                helpers = Environment.ProcessorCount - 1;
+            helpers = Math.Min(helpers, count - 1);
+            var loop = new CallerFirstLoop(count, body);
+            for (int h = 0; h < helpers; ++h)
+                if (queue == null) ThreadPool.QueueUserWorkItem(CallerFirstLoop.HelpCallback, loop);
+                else queue(CallerFirstLoop.HelpCallback, loop);
+            loop.Run();
+            // no more helpers join (Close), then wait for those that did: they run at most their current item
+            loop.Close();
+            var spin = new SpinWait();
+            while (Volatile.Read(ref loop.Active) != 0)
+                spin.SpinOnce();
+            Exception[] errors = loop.Errors;
+            if (errors != null) {
+                if (errors.Length == 1)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(errors[0]).Throw();
+                throw new AggregateException(errors);
+            }
+#endif
+        }
+
+#if !(G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET))
+        sealed class CallerFirstLoop
+        {
+            readonly int count;
+            readonly Action<int> body;
+            int next = -1;        // the last index handed out
+            int closed;           // 1: no helper may join any more
+            internal int Active;  // helpers that joined and have not left
+            List<Exception> errors;
+
+            internal CallerFirstLoop(int count, Action<int> body) { this.count = count; this.body = body; }
+
+            internal Exception[] Errors { get { lock (this) return errors?.ToArray(); } }
+
+            internal static readonly WaitCallback HelpCallback = Help;
+
+            internal static void Help(object state)
+            {
+                var loop = (CallerFirstLoop)state;
+                // join, then check that the caller has not closed the loop: the caller closes, then reads Active, so a helper
+                // either is counted there or sees the loop closed (both are full fences)
+                Interlocked.Increment(ref loop.Active);
+                try {
+                    if (Volatile.Read(ref loop.closed) == 0)
+                        loop.Run();
+                } finally {
+                    Interlocked.Decrement(ref loop.Active);
+                }
+            }
+
+            internal void Close() { Interlocked.Exchange(ref closed, 1); }
+
+            internal void Run()
+            {
+                int i;
+                while ((i = Interlocked.Increment(ref next)) < count) {
+                    try {
+                        body(i);
+                    } catch (Exception e) {
+                        lock (this) (errors ?? (errors = new List<Exception>())).Add(e);
+                        Interlocked.Exchange(ref next, count);    // hand out no more indices
+                    }
+                }
+            }
+        }
+#endif
+
+
+        /// <summary>
         /// The first InvalidOperationException among the (flattened) inner exceptions of e, else the first
         /// ArgumentException, else null: for a caller that documents these exception types, so that its parallel path
         /// throws one of them instead of an AggregateException. Only the type preference is fixed: which exception

@@ -1,7 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
-// The per-collapse loop of the Reducer's MaxDeviation check (Reducer.DeviationParallelMinTriangles): the triangles of a
-// collapse (about 10) certified in parallel (gParallel.ForRange, the default), in a loop on the calling thread, or in
-// parallel only from a fan size on. The results must be the same, bit for bit. The reductions run on a dedicated thread
+// The per-collapse loop of the Reducer's MaxDeviation check (Reducer.DeviationLoop): the triangles of a collapse (about 10)
+// certified with gParallel.ForRange (before #698), with gParallel.ForRangeCallerFirst (the default since), or in a loop on
+// the calling thread. The results must be the same, bit for bit. The reductions run on a dedicated thread
 // (as a test runner's), optionally while `load` other work items keep the thread pool busy with parallel loops (as the
 // other test classes of a full test run do).
 //
@@ -17,7 +17,7 @@ using gs;
 
 static class DeviationLoop
 {
-    static readonly (string name, int min)[] Variants = { ("parallel", 0), ("serial", int.MaxValue), ("parallel from 16", 16) };
+    static readonly (string name, int loop)[] Variants = { ("ForRange (before)", 1), ("caller-first", 0), ("serial", 2) };
 
     public static void Run(Func<int, DMesh3> bumpy, Func<int, DMesh3> terrain, string[] args)
     {
@@ -25,7 +25,7 @@ static class DeviationLoop
         int load = args.Length > 2 ? int.Parse(args[2]) : 0;
         var meshes = new (string, DMesh3)[] { ("bumpy sphere 60", bumpy(60)), ("bumpy sphere 130", bumpy(130)), ("terrain 300", terrain(300)) };
         Console.WriteLine($"cores {Environment.ProcessorCount}, rounds {rounds}, load {load}");
-        Console.WriteLine("| mesh | triangles | tolerance | result | " + string.Join(" | ", Variants.Select(v => v.name + " (ms, median)")) + " | " + string.Join(" | ", Variants.Skip(1).Select(v => v.name + " / parallel")) + " |");
+        Console.WriteLine("| mesh | triangles | tolerance | result | " + string.Join(" | ", Variants.Select(v => v.name + " (ms, median)")) + " | " + string.Join(" | ", Variants.Skip(1).Select(v => v.name + " / ForRange")) + " |");
         Console.WriteLine("|---|---|---|---|" + string.Concat(Enumerable.Repeat("---|", 2 * Variants.Length - 1)));
         using var stop = new CancellationTokenSource();
         var busy = Enumerable.Range(0, load).Select(_ => Task.Run(() => Busy(stop.Token))).ToArray();
@@ -35,18 +35,18 @@ static class DeviationLoop
                     double tol = rel * input.CachedBounds.DiagonalLength;
                     var times = Variants.Select(_ => new List<double>()).ToArray();
                     var results = new DMesh3[Variants.Length];
-                    OnThread(() => Reduce(input, tol, 0, new Stopwatch()));    // warm-up (JIT)
+                    OnThread(() => Reduce(input, tol, 1, new Stopwatch()));    // warm-up (JIT)
                     for (int r = 0; r < rounds; ++r)
                         for (int v = 0; v < Variants.Length; ++v) {
                             int vi = (v + r) % Variants.Length;   // rotate the order
                             var sw = new Stopwatch();
                             DMesh3 m = null;
-                            OnThread(() => m = Reduce(input, tol, Variants[vi].min, sw));
+                            OnThread(() => m = Reduce(input, tol, Variants[vi].loop, sw));
                             times[vi].Add(sw.Elapsed.TotalMilliseconds);
                             results[vi] = m;
                         }
                     for (int v = 1; v < Variants.Length; ++v)
-                        if (!Same(results[0], results[v])) throw new Exception($"{name} {rel}: {Variants[v].name} differs from parallel");
+                        if (!Same(results[0], results[v])) throw new Exception($"{name} {rel}: {Variants[v].name} differs from ForRange");
                     double[] med = times.Select(t => { t.Sort(); return t[t.Count / 2]; }).ToArray();
                     Console.WriteLine($"| {name} | {input.TriangleCount} | {rel} | {results[0].TriangleCount} | " + string.Join(" | ", med.Select(x => x.ToString("F0")))
                         + " | " + string.Join(" | ", med.Skip(1).Select(x => (x / med[0]).ToString("F2"))) + " |");
@@ -57,11 +57,11 @@ static class DeviationLoop
         }
     }
 
-    static DMesh3 Reduce(DMesh3 input, double tol, int min, Stopwatch sw)
+    static DMesh3 Reduce(DMesh3 input, double tol, int loop, Stopwatch sw)
     {
         var m = new DMesh3(input);
         sw.Start();
-        new Reducer(m) { MaxDeviation = tol, DeviationParallelMinTriangles = min }.ReduceToTriangleCount(4);
+        new Reducer(m) { MaxDeviation = tol, DeviationLoop = loop }.ReduceToTriangleCount(4);
         sw.Stop();
         return m;
     }
