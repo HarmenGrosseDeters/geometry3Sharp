@@ -254,8 +254,8 @@ allocated per edge, because the closed-mesh hint was never set): fixed in PR 1, 
 already, the move check rebuilds because every vertex moves, #419's filter is in place, and `NearestPointBatch` is slower than the parallel loop on coherent vertex order. (4), slabs, not started: the plain profile has no serial share above 25 % left.
 **T4 closed 2026-11-09:** the remaining levers were measured and none pays (section 12.4: warm-started projection
 1-5 % overall, pair-test order, flip pre-test, guard arrays, `NearestPointBatch`, tree refit <= 2.5 % of `si`); only
-PR 1 (#484) is built. Left open: the `RejectInvertingPasses` snapshot (6-19 % of the run) needs component labels that
-survive the edge operations, i.e. a correctness argument (research). Crease-sliver probe (#492, docs and harness
+PR 1 (#484) is built. The `RejectInvertingPasses` snapshot: closed 2026-11-17, no single equivalent replacement saves
+10 % (the copy is at most 8.6 % of the run; [INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md)). Crease-sliver probe (#492, docs and harness
 only): 87 % of the slivers have two or more pinned vertices at the span ends and junctions of noisy crease networks;
 unpinning free ends gives p01 2.54° -> 3.41° (slivers -3 %, fidelity equal); dropping crease fragments shorter than
 4-16 edges removes 58 % of the slivers but drops F 0.67 -> 0.5 and doubles the outward Hausdorff (outside the T6 gate).
@@ -534,7 +534,12 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 ### Open for the future (2026-11-15)
 
 Done and removed from this list: Alpha Wrap 3.0 (B) (#774, #898, its 800 run passed, owner 2026-11-15), #747 (first-pass
-guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924).
+guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spike (no-go, stays a study, #924), item 5,
+the `RejectInvertingPasses` snapshot (2026-11-17, [INVERSION_GUARD_SNAPSHOT.md](../design/INVERSION_GUARD_SNAPSHOT.md):
+the copy is at most 8.6 % of the run, so no replacement of it reaches the 10 % bar; a parallel bit-identical sign count
+gains nothing; an incremental volume is not decision-identical near the tolerance, where the rollbacks happen, 206 of
+7700 passes, cones and thin tubes; parked as an owner option: an undo log in `DMesh3` plus component labels, ceiling
+11-15 % on `RemesherPro` only).
 
 1. ~~Default decisions (owner) for the opt-in levers~~ decided 2026-11-17 after the 800 run
    ([ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md), run 43972566855 and the cap run 44013288852): lever 6 K (`AlphaWrapFeaturePass`,
@@ -551,7 +556,7 @@ guard no-go, #937), #919 (closed as valid output, #927), the adaptive alpha spik
    #1045. Switching it on by default is the owner's decision.
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363).
-5. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).
+5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Procedural coverage of `WindingContouring.FinishHoles`.
 7. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 8. Remove `external/cgal_wrap.cpp` once no comparison needs it.
