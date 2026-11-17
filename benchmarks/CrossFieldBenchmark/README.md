@@ -23,7 +23,7 @@ About 6k to 18k vertices (the default `h` per shape):
 | torus | aligned | 7026 | 7 | 0 | 0 | 0 (0) | 0.2 |
 | filleted-box | smoothest | 9092 | 6 | 8 (+1/4 x8) | 8 | 2 (2) | 0.3 |
 | filleted-box | aligned | 9092 | 5 | 8 (+1/4 x8) | 8 | 2 (2) | 0.3 |
-| noisy-sphere | aligned | 6390 | 33 | 8 (+1/4 x8) | 8 | 2 (2) | 0.3 |
+| noisy-sphere | aligned | 6390 | 25 | 8 (+1/4 x8) | 8 | 2 (2) | 0.3 |
 | noisy-torus | smoothest | 7026 | 24 | 12 (-1/4 x6, +1/4 x6) | 0 | 0 (0) | 0.3 |
 | noisy-torus | aligned | 7026 | 9 | 0 | 0 | 0 (0) | 0.2 |
 | bumpy | smoothest | 17918 | 14 | 16 (-1/4 x4, +1/4 x12) | 8 | 2 (2) | 1.2 |

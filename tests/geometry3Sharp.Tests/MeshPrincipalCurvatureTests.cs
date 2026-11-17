@@ -104,6 +104,24 @@ namespace geometry3Sharp.Tests
         public static System.Collections.Generic.IEnumerable<object[]> Frames() => Similarity.Names();
 
         [Fact]
+        public void CornerAreas_SumToTheTriangleArea()
+        {
+            var tris = new[] {
+                new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) },          // right
+                new[] { new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(1, 1, 0) },          // obtuse
+                new[] { new Vector3d(0, 0, 0), new Vector3d(3, 0, 0), new Vector3d(1.2, 2, 0) } };      // acute, scalene
+            foreach (var p in tris) {
+                double area = 0.5 * (p[1] - p[0]).Cross(p[2] - p[0]).Length;
+                double[] a = MeshPrincipalCurvature.CornerAreas(p, area);
+                Assert.Equal(area, a.Sum(), 12);
+                Assert.All(a, x => Assert.True(x > 0));
+            }
+            // the right triangle: 1/4 at the right angle (the Voronoi cell), 1/8 at the others
+            double[] r = MeshPrincipalCurvature.CornerAreas(tris[0], 0.5);
+            Assert.Equal(new[] { 0.25, 0.125, 0.125 }, r.Select(x => Math.Round(x, 12)).ToArray());
+        }
+
+        [Fact]
         public void DegenerateAndIsolatedVertices_AreNotValid()
         {
             var m = new DMesh3();

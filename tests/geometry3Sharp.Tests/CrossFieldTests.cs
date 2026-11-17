@@ -306,6 +306,41 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FaceDirections_AreInvariantUnderATinyPowerOfTwoScale()
+        {
+            // Vector3d.Normalized has an absolute length threshold that a cross product of two tiny edges falls under
+            DMesh3 m = CrossFieldShapes.FilletedBoxMesh();
+            var a = Run(m);
+            var b = Run(Invariance.Transformed(m, new Similarity("scale 2^-40", Math.Pow(2, -40), Matrix3d.Identity, Vector3d.Zero)));
+            foreach (int t in m.TriangleIndices())
+                for (int k = 0; k < 4; ++k) {
+                    Vector3d x = a.FaceDirection(t, k), y = b.FaceDirection(t, k);
+                    Assert.Equal(1, y.Length, 9);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(x.x), BitConverter.DoubleToInt64Bits(y.x));
+                }
+        }
+
+        [Fact]
+        public void ComponentsOfVeryDifferentSize_AreAllSolved()
+        {
+            DMesh3 m = CrossFieldShapes.UnitSphere();
+            var tiny = CrossFieldShapes.OpenPatch(2);
+            foreach (int v in tiny.VertexIndices()) tiny.SetVertex(v, tiny.GetVertex(v) * 1e-3 + new Vector3d(5, 0, 0));
+            MeshEditor.Append(m, tiny);
+            var cf = Run(m, 0, c => c.AlignBoundary = false);
+            Assert.Equal(2, cf.Components);
+            CheckResult(cf);
+        }
+
+        [Fact]
+        public void NoIterationBudget_IsNotASilentSuccess()
+        {
+            var cf = new CrossField(CrossFieldShapes.FilletedBoxMesh()) { MaxIterations = 0 };
+            CrossFieldStatus st = cf.Compute();
+            Assert.True(st != CrossFieldStatus.Success || !cf.Converged);
+        }
+
+        [Fact]
         public void SmoothestField_IsInvariantUnderPowersOfTwo()
         {
             // no alignment: the phase of the field is fixed by the gauge, which must not depend on the scale either

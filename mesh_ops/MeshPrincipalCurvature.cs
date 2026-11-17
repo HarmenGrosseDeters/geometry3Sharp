@@ -13,7 +13,7 @@ namespace gs
     ///     difference of the vertex normals at the ends of e (6 equations, 3 unknowns);
     ///   - at a vertex, the tangent basis (u_i, v_i) is rotated into each incident triangle plane (the rotation about
     ///     n_i x n_f that takes n_i to the face normal n_f), II is evaluated on the rotated basis, and the three values
-    ///     II(u,u), II(u,v), II(v,v) are averaged with the Voronoi corner areas of Meyer et al. 2003 (the corner area
+    ///     II(u,u), II(u,v), II(v,v) are averaged with the Voronoi corner areas of Meyer et al. 2002 (the corner area
     ///     of an obtuse triangle is half its area at the obtuse corner and a quarter at the others);
     ///   - the eigenvalues of the 2 x 2 matrix are the principal curvatures K1 &gt;= K2 and the eigenvector of K1 is
     ///     the direction Dir1 (Dir2 = n x Dir1).
@@ -90,7 +90,7 @@ namespace gs
                 double longest = Math.Max((p[1] - p[0]).LengthSquared, Math.Max((p[2] - p[1]).LengthSquared, (p[0] - p[2]).LengthSquared));
                 if (!(area2 > 1e-12 * longest) || double.IsInfinity(area2)) continue;
                 fn /= area2;
-                Vector3d fu = (p[1] - p[0]).Normalized, fv = fn.Cross(fu);
+                Vector3d fu = (p[1] - p[0]) / (p[1] - p[0]).Length, fv = fn.Cross(fu);
 
                 // least squares II over the three edges (edge k runs from corner k+1 to corner k+2)
                 double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, r0 = 0, r1 = 0, r2 = 0;
@@ -125,7 +125,7 @@ namespace gs
             }
             if (smoothingRounds > 0) {
                 // S = a u u^T + b (u w^T + w u^T) + d w w^T per vertex (6 entries xx yy zz xy xz yz), weighted by wsum
-                var S = new double[6 * nv]; var S2 = new double[6 * nv]; var W = new double[nv]; var W2 = new double[nv];
+                var S = new double[6 * nv]; var S2 = new double[6 * nv]; var W = new double[nv];
                 foreach (int v in mesh.VertexIndices()) {
                     if (!(wsum[v] > 0)) continue;
                     double a = kuu[v] / wsum[v], b = kuv[v] / wsum[v], d = kvv[v] / wsum[v];
@@ -146,7 +146,6 @@ namespace gs
                             ws += W[nb];
                             for (int k = 0; k < 6; ++k) S2[6 * v + k] += W[nb] * S[6 * nb + k];
                         }
-                        W2[v] = ws;
                         if (ws > 0) for (int k = 0; k < 6; ++k) S2[6 * v + k] /= ws;
                     }
                     var tS = S; S = S2; S2 = tS;
@@ -199,9 +198,9 @@ namespace gs
             return true;
         }
 
-        // Voronoi corner areas of a triangle (Meyer et al. 2003, mixed area): the Voronoi area at a corner of a
+        // Voronoi corner areas of a triangle (Meyer et al. 2002, mixed area): the Voronoi area at a corner of a
         // non-obtuse triangle, and half / a quarter of the area at the obtuse corner / the other corners
-        static double[] CornerAreas(Vector3d[] p, double area)
+        internal static double[] CornerAreas(Vector3d[] p, double area)
         {
             double[] l2 = new double[3], cot = new double[3];
             for (int k = 0; k < 3; ++k) {
@@ -213,7 +212,7 @@ namespace gs
             bool obtuse = cot[0] < 0 || cot[1] < 0 || cot[2] < 0;
             for (int k = 0; k < 3; ++k) {
                 if (!obtuse)
-                    r[k] = (l2[(k + 1) % 3] * cot[(k + 2) % 3] + l2[(k + 2) % 3] * cot[(k + 1) % 3]) / 8;
+                    r[k] = (l2[(k + 1) % 3] * cot[(k + 1) % 3] + l2[(k + 2) % 3] * cot[(k + 2) % 3]) / 8;
                 else
                     r[k] = cot[k] < 0 ? area / 2 : area / 4;
             }

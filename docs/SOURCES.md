@@ -279,6 +279,7 @@ at). Design and measurements: [design/ALPHA_WRAP_QUALITY.md](design/ALPHA_WRAP_Q
 | Caps (large angles) spoil the gradient and the normal (cap splits and cap flips) | I. Babuška, A. K. Aziz, *On the angle condition in the finite element method*, SIAM J. Numer. Anal. 1976; J.-M. Morvan, B. Thibert, *Approximation of the normal vector field and the area of a smooth surface*, Discrete Comput. Geom. 2004 |
 | Quality measures (min and max angle reported separately) | J. R. Shewchuk, *What is a good linear finite element?*, 2002 |
 | The guard of every operation: `TriangleDeviationBounds.IsWithin` with the patch bound, the exact self-intersection test, the final one-sided Hausdorff certification | this library (#280, `MeshHausdorffDistance`) |
+
 ## Cross field and principal curvature (`CrossField`, `MeshPrincipalCurvature`)
 
 Implemented from the papers only (owner 2026-11-17: no code of Instant Meshes, QuadriFlow, QuadWild, libigl, Geogram's quad

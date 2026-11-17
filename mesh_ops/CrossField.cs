@@ -56,6 +56,9 @@ namespace gs
     /// Without terms the minimizer is only defined up to a rotation of the whole field by a constant angle (a phase of
     /// z); it is fixed by the average of z over each component, weighted with the vertex areas (an own choice).
     ///
+    /// Not checked: the orientation of the triangles must be consistent, and unused vertices must have finite coordinates (they
+    /// enter the bounding box that the coordinates are centered on). The accessors are valid after a successful Compute() only.
+    ///
     /// Input: the vertex ids of Mesh that triangles use (others have no field, see HasField), manifold, orientation
     /// as DMesh3 keeps it. Several connected components get independent fields. Open boundaries are natural
     /// (Neumann) unless aligned. The mesh is not modified. Serial and deterministic: the same mesh gives the same
@@ -143,7 +146,8 @@ namespace gs
             Vector3d d = fDir[tid];
             if (k == 0 || d.LengthSquared == 0) return d;
             Index3i t = Mesh.GetTriangle(tid);
-            Vector3d n = (Mesh.GetVertex(t.b) - Mesh.GetVertex(t.a)).Cross(Mesh.GetVertex(t.c) - Mesh.GetVertex(t.a)).Normalized;
+            Vector3d n = (Mesh.GetVertex(t.b) - Mesh.GetVertex(t.a)).Cross(Mesh.GetVertex(t.c) - Mesh.GetVertex(t.a));
+            n /= n.Length;   // not Normalized: its absolute length threshold breaks the scale invariance
             double a = k * (Math.PI / 2);
             return Math.Cos(a) * d + Math.Sin(a) * n.Cross(d);
         }
@@ -294,8 +298,9 @@ namespace gs
                 ch.Add(b, a, -we * cr); ch.Add(b + 1, a + 1, -we * cr);
                 ch.Add(b, a + 1, we * sr); ch.Add(b + 1, a, -we * sr);
             }
-            double eps = 1e-8 / meanMass;
-            for (int i = 0; i < N; ++i) { SparseCholesky ch = chol[comp[i]]; int a = 2 * loc[i]; ch.Add(a, a, eps * mass[i]); ch.Add(a + 1, a + 1, eps * mass[i]); }
+            var compMeanMass = new double[Components];
+            for (int i = 0; i < N; ++i) compMeanMass[comp[i]] += mass[i] / compSize[comp[i]];
+            for (int i = 0; i < N; ++i) { SparseCholesky ch = chol[comp[i]]; int a = 2 * loc[i]; double sh = 1e-8 * mass[i] / compMeanMass[comp[i]]; ch.Add(a, a, sh); ch.Add(a + 1, a + 1, sh); }
             // omega |z_i - b|^2 = omega (|z_i|^2 - 2 Re(conj(b) z_i) + 1) in mode 2: the diagonal and the right hand side g = omega b;
             // omega |z_i - t b|^2 = omega (|z_i|^2 - 2 t Re(conj(b) z_i) + t^2) in mode 1: the diagonal, and t is eliminated (t = (g, z) / d,
             // d = sum of the omega): the matrix is the sparse one minus the rank one matrix g g^T / d, which the solves handle by the
@@ -333,6 +338,7 @@ namespace gs
                         var y0 = new double[2 * n];
                         ch.Solve(g, y0);
                         double den = tDiag[c] - Dot(g, y0);
+                        if (!(den > 1e-12 * tDiag[c])) return Fail(CrossFieldStatus.SolverFailed, "the alignment weights are too large for the field matrix (rank one update)");
                         solve = (rhs, outv) => {
                             ch.Solve(rhs, outv);
                             double alpha = Dot(g, outv) / den;
@@ -347,6 +353,8 @@ namespace gs
                 for (int l = 0; l < n; ++l) { x[2 * members[c][l]] = xc[2 * l]; x[2 * members[c][l] + 1] = xc[2 * l + 1]; }
             }
 
+            for (int k = 0; k < x.Length; ++k)
+                if (double.IsNaN(x[k]) || double.IsInfinity(x[k])) return Fail(CrossFieldStatus.SolverFailed, "the field is not finite");
             Gauge(x, comp, mass, mode, sign, pm);
             // the smoothness energy per unit mass of each component
             var energy = new double[Components]; var norm = new double[Components];
@@ -483,8 +491,9 @@ namespace gs
         {
             if (pm.Frames[ti].Degenerate) return Vector3d.Zero;
             Vector3d pa = pm.Pos[t.a];
-            Vector3d fn = (pm.Pos[t.b] - pa).Cross(pm.Pos[t.c] - pa).Normalized;
-            Vector3d fu = (pm.Pos[t.b] - pa).Normalized, fv = fn.Cross(fu);
+            Vector3d fn = (pm.Pos[t.b] - pa).Cross(pm.Pos[t.c] - pa);
+            fn /= fn.Length;
+            Vector3d fu = (pm.Pos[t.b] - pa) / (pm.Pos[t.b] - pa).Length, fv = fn.Cross(fu);
             double re = 0, im = 0, first = 0;
             for (int k = 0; k < 3; ++k) {
                 int i = t[k];
