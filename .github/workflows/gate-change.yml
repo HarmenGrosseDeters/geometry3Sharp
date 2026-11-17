@@ -37,7 +37,6 @@ jobs:
       GATE_ENFORCE: ${{ vars.GATE_CHANGE_ENFORCE == '1' && '1' || '0' }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      PR_FILE_COUNT: ${{ github.event.pull_request.changed_files }}
       REPO: ${{ github.repository }}
     steps:
       # the default ref of pull_request_target: the base branch (never the PR head)
@@ -45,12 +44,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Unit tests of the script
+        # a failure fails the job only in enforce mode (a broken script must not block PRs while the check only observes)
+        continue-on-error: ${{ vars.GATE_CHANGE_ENFORCE != '1' }}
         run: python3 -m unittest discover -s tools -p 'test_gate_check.py'
       # the files are read live (not from the event payload), so a re-run after the label was set sees the current labels
       - name: List the changed files and the labels of the PR
         run: |
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[] | .filename, (.previous_filename // empty) | @json' > changed.txt
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name | @json' > labels.txt
+          # the count is read live too (a re-run has the old event payload); the list is cut at 3000 entries
+          gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .changed_files > count.txt
           wc -l changed.txt labels.txt
       - name: Judge
-        run: python3 tools/gate_check.py --gates tools/gate_files.txt --changed changed.txt --labels labels.txt --file-count "$PR_FILE_COUNT" --summary "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/gate_check.py --gates tools/gate_files.txt --changed changed.txt --labels labels.txt --file-count "$(cat count.txt)" --summary "$GITHUB_STEP_SUMMARY"

@@ -150,6 +150,36 @@ class JudgeTests(unittest.TestCase):
         self.assertNotIn("`\n", summary)
 
 
+class ListTests(unittest.TestCase):
+    def test_no_glob_of_the_real_list_is_dead(self):
+        import subprocess
+        try:
+            files = subprocess.check_output(["git", "ls-files"], cwd=os.path.join(HERE, ".."), text=True).splitlines()
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("not a git checkout")
+        with open(os.path.join(HERE, "gate_files.txt"), encoding="utf-8") as f:
+            gates = g.parse_gates(f.read())
+        dead = [glob for glob, _, rx in gates if not any(rx.match(x) for x in files)]
+        self.assertEqual(dead, [])
+
+    def test_jq_expression_of_the_workflow_emits_filename_and_previous_filename(self):
+        import re
+        import shutil
+        import subprocess
+        if shutil.which("jq") is None:
+            self.skipTest("jq missing")
+        with open(os.path.join(HERE, "..", ".github", "workflows", "gate-change.yml"), encoding="utf-8") as f:
+            expr = re.search(r"/files\" --jq '([^']+)'", f.read()).group(1)
+        rest = json.dumps([{"filename": "docs/new.md", "previous_filename": "CLAUDE.md"}, {"filename": "a\n`b.cs"}])
+        out = subprocess.run(["jq", "-r", expr], input=rest, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(g.parse_json_lines(out), ["docs/new.md", "CLAUDE.md", "a\n`b.cs"])
+        self.assertEqual(len(out.splitlines()), 3)
+
+    def test_truncation_boundary_with_label(self):
+        self.assertEqual(run(["x"], labels=["gate-change"], enforce=True, count=2999)[0], 0)
+        self.assertEqual(run(["x"], enforce=True, count=2999)[0], 0)
+
+
 class CleanTests(unittest.TestCase):
     def test_clean_replaces_control_characters_and_backticks(self):
         self.assertEqual(g.clean("a`b\nc\x7fd"), "a\ufffdb\ufffdc\ufffdd")

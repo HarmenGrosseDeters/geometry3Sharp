@@ -81,6 +81,7 @@ is missing from `SHARED` in `tools/ci_scope.py` fails there):
 python3 -m unittest discover -s tools -p 'test_ci_scope.py'
 python3 -m unittest discover -s tools -p 'test_trx_durations.py'
 python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
+python3 -m unittest discover -s tools -p 'test_gate_check.py'
 ```
 
 A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
