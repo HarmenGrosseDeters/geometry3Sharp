@@ -78,6 +78,7 @@ on:
       - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingLastComponentTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactBooleanFamiliesPropertyTests.CsCheck.cs'
       - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingSerialWorkTests.cs'
