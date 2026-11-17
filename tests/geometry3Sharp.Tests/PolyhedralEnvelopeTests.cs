@@ -1234,7 +1234,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// exact_normal keeps the top 62 bits of the exact normal (in the integer units of the coordinates' common power of
-        /// two): the largest component lies in [2^61, 2^62] after the shift (2^62 by the final rounding), whatever its sign,
+        /// two): the largest component lies in [2^61, 2^62] after the shift (2^62 by the final rounding; whenever the exact normal
+        /// has more than 62 bits, as for every random triangle here), whatever its sign,
         /// and the direction is the exact one within the documented 1.02 u. A longer bit length (two's complement bytes of a
         /// component not negated first) would shift too far and drop bits.
         /// </summary>

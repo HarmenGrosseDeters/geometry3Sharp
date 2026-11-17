@@ -664,8 +664,8 @@ namespace geometry3Sharp.Tests
 
         // ------------------------------------------------------------------ the edge path pass and the pruning (gate 3.0 shard geodesic-1)
 
-        // a shallow convex dome: its interior vertices are certainly convex, so they never emit and get their upper bounds
-        // only from windows, whose widening leaves some of them above an edge path through a neighbour (the shortest path
+        // a shallow convex dome: its interior vertices are certainly convex, so they never emit; those away from the
+        // boundary get their upper bounds only from windows (the others also from their boundary neighbours' Emit), whose widening leaves some of them above an edge path through a neighbour (the shortest path
         // passes close to a convex vertex). The edge path pass after the propagation must lower them: then Upper is exactly a
         // fixpoint of the edge paths, Upper(u) <= (Upper(v) + |uv|).Hi in the library's own interval arithmetic, on every edge.
         [Theory]
@@ -696,16 +696,18 @@ namespace geometry3Sharp.Tests
 
         // Dominated (A4) through reflection (Window is private): the parts of [l, r] where window a is certainly worse than
         // window b, found by bisection to the given depth. Two point origins at height -1 below x = 0 and x = 4, sigma 0:
-        // a is worse exactly on (2, 4]. Depth 6 halves [0, 4] six times (pieces of 1/16): the pieces from about 2.2 on.
+        // a is worse exactly on (2, 4]. A piece [l, r] is dominated iff l > 2; depth 6 halves [0, 4] six times (pieces of 1/16): the pieces from 2.0625 on.
         static List<(double l, double r)> Dominated(double ax, double bx, double l, double r, int depth)
         {
             var g = new ExactMeshGeodesicDistance(new DMesh3());
             Type wt = typeof(ExactMeshGeodesicDistance).GetNestedType("Window", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(wt);
             object a = Activator.CreateInstance(wt, true), b = Activator.CreateInstance(wt, true);
             var point = new Func<double, ExactMeshGeodesicDistance.P2>(x => new ExactMeshGeodesicDistance.P2(I(x), I(-1)));
             var rem = new List<(double l, double r)>();
             System.Reflection.MethodInfo dom = typeof(ExactMeshGeodesicDistance).GetMethod("Dominated",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(dom);
             dom.Invoke(g, new object[] { a, point(ax), b, point(bx), l, r, depth, rem });
             return rem;
         }
@@ -723,13 +725,13 @@ namespace geometry3Sharp.Tests
                 // certainly worse: the piece lies on a's far side of the bisector x = 2
                 Assert.True(mirror ? r <= 2 : l >= 2, $"piece [{l}, {r}] not dominated");
             }
-            // the pieces cover all of [2.25, 4] (or [0, 1.75]): every half was searched, to depth 6
+            // the pieces cover exactly [2.0625, 4] (or [0, 1.9375]): every half was searched, to the last level
             double covered = 0; foreach (var (l, r) in rem) covered += r - l;
-            for (double x = 2.25; x <= 4; x += 1.0 / 64) {
+            for (double x = 2.0625; x <= 4; x += 1.0 / 64) {
                 double t = mirror ? 4 - x : x;
                 Assert.True(rem.Exists(p => p.l <= t && t <= p.r), $"{t} not covered (pieces {string.Join(", ", rem)})");
             }
-            Assert.True(covered >= 1.75 && covered < 2);
+            Assert.Equal(1.9375, covered);
             // depth 0: only the whole interval, which is not dominated
             Assert.Empty(Dominated(ax, bx, 0, 4, 0));
             // the whole interval dominated: one piece at once
