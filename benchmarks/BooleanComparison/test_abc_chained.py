@@ -243,6 +243,10 @@ def unwelded_cube_obj(path, jitter=0.0, side=1.0):
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
 
+def f32_of(x):
+    import struct
+    return struct.unpack("f", struct.pack("f", x))[0]
+
 class WeldTests(unittest.TestCase):
     def test_read_obj_handles_face_formats_negative_indices_and_polygons(self):
         with tempfile.TemporaryDirectory() as d:
@@ -295,6 +299,42 @@ class WeldTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=name):
                     ac.read_obj(path)
 
+    def test_snap_rounds_to_single_precision_and_flushes_tiny_coordinates(self):
+        import struct
+        f32 = lambda x: struct.unpack("f", struct.pack("f", x))[0]
+        v = ac.snap([(0.1, 1 / 3, 2.5), (-1.0, 0.0, 1.0)])
+        self.assertEqual(v[0], (0.10000000149011612, f32(1 / 3), 2.5))   # 0.1 is not a single precision value: its neighbour is used
+        self.assertNotEqual(0.1, v[0][0])
+        self.assertEqual(v[1], (-1.0, 0.0, 1.0))                        # a large negative coordinate is not "tiny"
+        self.assertEqual(ac.snap([]), [])
+        self.assertEqual(ac.snap([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0)]), [(0.0, 0.0, 0.0)] * 2)      # extent 0: nothing to flush
+        self.assertEqual(repr(ac.snap([(-0.0, 0.0, 1.0), (1.0, 1.0, 1.0)])[0][0]), "-0.0")        # a negative zero stays (it is not nonzero)
+
+    def test_the_flush_threshold_is_2_to_the_minus_26_of_the_extent(self):
+        extent = 4.0                                                    # the extent of the points below along x
+        tiny = extent * 2.0 ** -26
+        inside = ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 0.9 * tiny, 0.0), (0.0, 0.0, -0.9 * tiny)])
+        self.assertEqual((inside[2][1], inside[3][2]), (0.0, 0.0))     # below the threshold: flushed, positive and negative
+        outside = ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 1.1 * tiny, 0.0), (0.0, 0.0, -1.1 * tiny)])
+        self.assertNotEqual(outside[2][1], 0.0)
+        self.assertNotEqual(outside[3][2], 0.0)                         # above: kept
+        self.assertEqual(ac.snap([(0.0, 0.0, 0.0), (extent, 0.0, 0.0), (0.0, 0.9 * tiny, 0.0)], tiny_exponent=40)[2][1], f32_of(0.9 * tiny))   # the parameter works
+
+    def test_non_finite_coordinates_are_an_error_and_a_value_beyond_single_precision_overflows(self):
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            with self.assertRaises(ValueError):
+                ac.snap([(0.0, 0.0, 0.0), (bad, 1.0, 1.0)])
+        with self.assertRaises(OverflowError):
+            ac.snap([(1e39, 0.0, 0.0)])
+
+    def test_snap_distortion_is_relative_to_the_extent(self):
+        verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.1, 0.0, 0.0)]
+        self.assertAlmostEqual(ac.snap_distortion(verts, ac.snap(verts)), abs(0.1 - 0.10000000149011612), places=15)      # extent 1
+        self.assertEqual(ac.snap_distortion([], []), 0.0)
+        self.assertEqual(ac.snap_distortion([(1.0, 1.0, 1.0)], [(1.0, 1.0, 1.0)]), 0.0)
+        far = [(1e6 + 0.1, 0.0, 0.0), (1e6 + 1.1, 0.0, 0.0)]            # far from the origin: single precision rounds by 0.0x, a share of the extent 1
+        self.assertGreater(ac.snap_distortion(far, ac.snap(far)), 1e-3)
+
     def test_collapsed_triangles_are_kept_for_the_filter_to_report(self):
         v, t = ac.weld([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [(0, 1, 2)], 0.0)
         self.assertEqual(t, [(0, 0, 1)])
@@ -335,11 +375,18 @@ class PrepareEndToEndTests(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
-    def test_a_cube_with_copies_that_differ_by_1e_12_needs_the_tolerance(self):
-        d, (tol, n) = self.prepare(1e-12)
+    def test_a_cube_with_copies_that_differ_by_1e_6_needs_the_tolerance(self):
+        d, (tol, n) = self.prepare(1e-6)
         try:
-            self.assertEqual((tol, n), (1e-9, 1))                     # exact: not closed (the duplicates stay apart); 1e-9 of the diagonal: closed
+            self.assertEqual((tol, n), (1e-5, 1))                     # exact, 1e-9, 1e-7: not closed (the copies 1e-6 apart stay apart); 1e-5 of the diagonal: closed
             self.assertIn("cube,12", open(os.path.join(d, "clean.csv.clean")).read())
+        finally:
+            shutil.rmtree(d)
+
+    def test_copies_below_single_precision_are_one_vertex_at_the_exact_weld_thanks_to_the_snap(self):
+        d, (tol, n) = self.prepare(1e-12)                              # 1e-12 is far below the resolution of a single precision value near 1
+        try:
+            self.assertEqual((tol, n), (0.0, 1))
         finally:
             shutil.rmtree(d)
 
@@ -350,9 +397,9 @@ class PrepareEndToEndTests(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # no clean.csv.1e-09, no welded_*
         finally:
             shutil.rmtree(d)
-        d, (tol, n) = self.prepare(1e-12, tolerances=[0.0, 1e-9, 1e-7])
+        d, (tol, n) = self.prepare(1e-6, tolerances=[0.0, 1e-7, 1e-5])
         try:
-            self.assertEqual(tol, 1e-9)
+            self.assertEqual(tol, 1e-5)
             self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # out.0 and welded_0 are gone too
         finally:
             shutil.rmtree(d)
@@ -361,16 +408,16 @@ class PrepareEndToEndTests(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="abc_prepare_test_")
         try:
             os.makedirs(os.path.join(d, "meshes"))
-            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)       # closes at 1e-9 and above
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-6)        # closes at 1e-5 and above
             unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)         # closes at every tolerance
             old = ac.CLEAN_TRIS
             ac.CLEAN_TRIS = (1, 100)
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
-                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [0.0, 1e-9], min_clean=3)     # 3 never reached
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [0.0, 1e-5], min_clean=3)     # 3 never reached
             finally:
                 ac.CLEAN_TRIS = old
-            self.assertEqual((tol, n), (1e-9, 2))                       # 1 at the exact weld, 2 at 1e-9
+            self.assertEqual((tol, n), (1e-5, 2))                       # 1 at the exact weld, 2 at 1e-5
             self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
         finally:
             shutil.rmtree(d)
@@ -379,16 +426,16 @@ class PrepareEndToEndTests(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="abc_prepare_test_")
         try:
             os.makedirs(os.path.join(d, "meshes"))
-            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-6)
             unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)
             old = ac.CLEAN_TRIS
             ac.CLEAN_TRIS = (1, 100)
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
-                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [1e-9, 0.0], min_clean=3)    # 2 clean at 1e-9, then only 1 at the exact weld
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [1e-5, 0.0], min_clean=3)    # 2 clean at 1e-5, then only 1 at the exact weld
             finally:
                 ac.CLEAN_TRIS = old
-            self.assertEqual((tol, n), (1e-9, 2))
+            self.assertEqual((tol, n), (1e-5, 2))
             self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
         finally:
             shutil.rmtree(d)
@@ -411,6 +458,42 @@ class PrepareEndToEndTests(unittest.TestCase):
             self.assertEqual(os.listdir(os.path.join(d, "meshes")), ["good.off"])
             with self.assertRaises(SystemExit):                          # a second run: the obj files are gone
                 ac.cmd_prepare(d, os.path.join(d, "clean2.csv"), min_clean=1)
+        finally:
+            shutil.rmtree(d)
+
+    def test_full_precision_models_get_exact_placements_only_after_the_snap(self):
+        # ABC's coordinates are text of full 53-bit doubles: a cube with such coordinates cannot be translated by a shift of its own size exactly
+        import compare
+        d = tempfile.mkdtemp(prefix="abc_snap_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            for name, off, side in (("a", 0.1234567890123456, 0.7312345678901234), ("b", 0.3141592653589793, 0.5718281828459045), ("c", 0.2718281828459045, 0.6180339887498949)):
+                unwelded_cube_obj(os.path.join(d, "meshes", name + ".obj"), side=side)
+                text = open(os.path.join(d, "meshes", name + ".obj")).read()
+                shifted = "".join(  # a full precision offset on every vertex
+                    f"v {float(l.split()[1]) + off!r} {float(l.split()[2]) + off / 3!r} {float(l.split()[3]) + off / 7!r}\n" if l.startswith("v ") else l + "\n"
+                    for l in text.splitlines())
+                open(os.path.join(d, "meshes", name + ".obj"), "w").write(shifted)
+            case = lambda dd: {"class": ac.CLASS, "name": "ucd_test", "variant": "ucd",
+                               "chain": [os.path.join(dd, "a.off"), os.path.join(dd, "b.off"), os.path.join(dd, "c.off"), "face-contact", "2", "1", "0", "face-contact", "2", "-1", "0"]}
+            raw = os.path.join(d, "raw")
+            os.makedirs(raw)
+            for name in "abc":      # welded exactly, but not snapped
+                ac.write_off(os.path.join(raw, name + ".off"), *ac.weld(*ac.read_obj(os.path.join(d, "meshes", name + ".obj")), 0.0))
+            rows = ac.run_chain(case(raw), ["ours"], 300)
+            self.assertEqual(rows[0]["method"], "export", rows)
+            self.assertIn("inexact transform: B", rows[0]["error"])
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [0.0], min_clean=3)
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual(n, 3)
+            rows = ac.run_chain(case(os.path.join(d, "meshes")), ["ours"], 300)
+            self.assertEqual([r.get("step") for r in rows], [0, 1, 2], rows)               # the snapped models take the exact placements
+            self.assertTrue(rows[0]["chain_inputs"]["inputs_clean"])
         finally:
             shutil.rmtree(d)
 
