@@ -77,8 +77,8 @@ the future" list, ordered by priority; this section names only what is in flight
   `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
-- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); open: O1 (the culture of
-  `SnapRounding2.Diagnostics` text, owner decision) and the guard-limit int overflow in `ExactTriangulation2` (#1086).
+- **Determinism:** stage 1 (the exact building blocks as a closed world) is merged (#1076); O1 decided (owner 2026-11-17:
+  the `SnapRounding2.Diagnostics` text becomes culture-invariant, PR in flight); open: the guard-limit int overflow in `ExactTriangulation2` (#1086).
 - **Platform and CI:** #999 (xatlas report) in review; the UV parameterization mutation shards are merged (#1006); the
   nightly changed-line coverage gate is red since 2026-11-17 (16 uncovered changed lines), a fix session runs; flaky
   allocation test #1074; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
@@ -86,7 +86,7 @@ the future" list, ordered by priority; this section names only what is in flight
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
 - **Parameterization:** spectral conformal parameterization opt-in (#1057); RDR stage 1b not now (owner 2026-11-17).
-- **Not now (owner 2026-11-17):** a native (NativeAOT) package (spike #1052); terrain work (the plan: berms, GeoTIFF,
+- **Not now (owner 2026-11-17):** a native (NativeAOT) package (spike #1052); terrain work (the plan: slope envelope, 3D blocks, berms, GeoTIFF,
   showcase) "later"; internal quadtree uses (`TerrainSafety`, `TerrainVolumeDifference`) wait for terrain.
 - **Owner's local runs:** #929 (net48 vs net10), #1038 open.
 
@@ -94,9 +94,10 @@ the future" list, ordered by priority; this section names only what is in flight
 
 Checked on 2026-11-17 (evening).
 
-- **Branch deletion:** the owner deletes them (owner 2026-11-17): a list of branches whose PRs are merged or closed, plus
-  `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`; sessions cannot delete
-  branches; `runs/*` branches hold run data and stay. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Branch deletion (decided, owner action pending):** the coordinator lists the candidates (branches whose PRs are merged
+  or closed, plus `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`), and the
+  owner deletes them (owner 2026-11-17); sessions cannot delete branches; `runs/*` branches hold run data and stay.
+  [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - **#1064 levers** (if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
   `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop.
 
