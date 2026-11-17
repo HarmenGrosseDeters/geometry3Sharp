@@ -19,7 +19,7 @@ namespace g3
         /// <summary>
         /// the map of a method without a flip-free guarantee (LSCM, ARAP) has flipped, zero-area or degenerate UV
         /// triangles on non-degenerate surface triangles (ParameterizationDistortion.FlippedTriangles,
-        /// DegenerateUVTriangles); the result keeps that map.
+        /// DegenerateUVTriangles, which includes near-collapsed ones); the result keeps that map.
         /// SLIM or the atlas give a flip-free map
         /// </summary>
         FlippedTriangles = 5
@@ -97,8 +97,10 @@ namespace g3
         /// <summary> triangles with zero or negative UV area, ie orientation not preserved </summary>
         public int FlippedTriangles;
         /// <summary>
-        /// triangles with a positive UV area that is degenerate by the rule for surface triangles (twice the area at
-        /// most 1e-12 of the longest edge squared): a collapse whose rounding happens to give a positive sign
+        /// triangles with a positive UV area that is degenerate: by the rule for surface triangles (twice the area at
+        /// most 1e-12 of the longest edge squared) and with a shape ratio below 1e-4 of the surface triangle's, ie a collapse whose
+        /// rounding happens to give a positive sign; or nearly collapsed, with a shape ratio (twice the area over the
+        /// longest edge squared) below 1e-8 of the surface triangle's, ie a quasi-conformal distortion of about 1e8
         /// </summary>
         public int DegenerateUVTriangles;
         /// <summary> UV area / surface area </summary>
@@ -117,10 +119,21 @@ namespace g3
         // A UV triangle is degenerate if it is by the rule for surface triangles (TriangleFrame.DegenerateShape:
         // twice the area at most 1e-12 of the longest edge squared) and also much flatter than its surface triangle
         // (shape ratio below 1e-4 of the surface's): a collapsed triangle (ratio about 1e-16) is caught, a surface
-        // sliver that only just passes the rule and is mapped with mild anisotropy is not
-        static bool degenerate_uv(double area2UV, double maxLenSqrUV, double area2, double maxLenSqr)
+        // sliver that only just passes the rule and is mapped with mild anisotropy is not.
+        // It is also degenerate if its shape ratio is below NearCollapseRatio of the surface triangle's, whatever its
+        // own: a near-collapse (#1049: on a 48 x 12 cylinder LSCM squeezes the far ring to ratios 1e-11 of the
+        // surface's, above the 1e-12 rule because the surface triangles are fat). Both ratios are relative, so the
+        // rule is the same at every scale (and under rotations up to rounding). It applies to every method that
+        // reports through RejectFlipped: LSCM, ARAP and FoldoverFree (a fixed boundary that forces an anisotropy of
+        // about 1e8 is no longer a success there).
+        internal const double NearCollapseRatio = 1e-8;
+
+        internal static bool degenerate_uv(double area2UV, double maxLenSqrUV, double area2, double maxLenSqr)
         {
-            return TriangleFrame.DegenerateShape(area2UV, maxLenSqrUV) && !(area2UV * maxLenSqr > 1e-4 * area2 * maxLenSqrUV);
+            // the near-collapse test compares the two shape ratios (quotients, exact at 2^k scales; no product of four
+            // lengths, which would overflow or underflow first)
+            return !(area2UV / maxLenSqrUV > NearCollapseRatio * (area2 / maxLenSqr))
+                || TriangleFrame.DegenerateShape(area2UV, maxLenSqrUV) && !(area2UV * maxLenSqr > 1e-4 * area2 * maxLenSqrUV);
         }
 
         /// <summary> distortion of the given UVs (indexed by vertex id) </summary>
