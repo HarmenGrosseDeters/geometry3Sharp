@@ -301,6 +301,10 @@ oracle that is independent of the code it checks (stages 1-2 of direction 2 of
 records its decisions for it (`RecordCertificate`, internal: the winding numbers in front of each classified piece, keep,
 flip, and the result before the rounding; recording changes nothing). The checker has its own exact tests (BigInteger
 determinants on the exact points, no floating-point predicate decides anything) and reuses no classification code:
+- **C0 inputs**: the arrangement's meshes are the caller's (reversed triangles exactly as many as `ReorientedTriangles`),
+  every non-degenerate input triangle is in the arrangement once; every triangle the early-out culled meets no triangle
+  of the culling mesh (`ExactTriangleIntersection`) and lies outside it (an exact ray per connected set of culled
+  triangles); the rounding's bound is at most the documented one, from the boolean's settings.
 - **C1 pieces**: every piece lies in its source triangle's plane, inside it, oriented like it; the pieces of a source tile
   it (paired inner edges, unpaired ones along the source's edges, projected areas adding up exactly).
 - **C3 classification**: the coplanar stacks from the input triangles grouped by exact plane; the back of a piece from its
@@ -308,9 +312,11 @@ determinants on the exact points, no floating-point predicate decides anything) 
   one anchor per connected set: an exact ray (signed crossings with every input triangle).
 - **C4 selection**: kept iff the predicate differs on the two sides, flipped iff the front is inside; copies never kept.
 - **C5 result**: the result before rounding equals the kept pieces as an oriented point set (per plane, the boundary of
-  the difference is zero, swept per supporting line); the result is closed and oriented; result and exact result lie
-  within the rounding bound (`MaxLength` plus a few ulps) of each other, by exact squared distances of the corners (a
-  triangle is within delta of a triangle iff its corners are), with four-way splits where one triangle does not cover.
+  the difference is zero, swept per supporting line, and the unsigned areas are equal, so that no two-sided sheet hides
+  in the chain); the result is closed and oriented; result and exact result lie within the rounding bound (`MaxLength`
+  plus a few ulps) of each other, by exact squared distances of the corners (a triangle is within delta of a triangle
+  iff its corners are; a degenerate one by its edges), with four-way splits where one triangle does not cover. Where
+  the rounding removed tiny or thin components (a documented decision), only the result's side is checked.
 
 Class: closed inputs. Open inputs and an Intersection whose early-out culled triangles against several meshes are
 `n/a` (the oracle runs Intersection with `CullOutsideA = false`); a Difference's early-out is checked (the other meshes'
