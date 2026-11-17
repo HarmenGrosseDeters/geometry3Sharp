@@ -13,7 +13,8 @@ namespace gs
     /// let go) is seen. Inputs with one part are not checked (the check is about parts lying apart), nor parts of fewer than MinTriangles
     /// triangles (stray triangles the repair removes on purpose) or without extent, nor inputs with more than MaxComponents components
     /// (triangle soups). No parallel loop; the samples and the order are deterministic (vertex ids, components in the order of their first
-    /// triangle). Run in the working frame of Apply(), so the decision is the same for 2^k scaled inputs by construction.
+    /// triangle). Run in the working frame of Apply() where it has one (not with RepairF, NoWorkingFrame, ToleranceModes.Absolute or an input
+    /// that cannot be scaled exactly): there the decision is the same for 2^k scaled inputs by construction.
     /// </summary>
     internal static class MeshRobustRepairLostParts
     {
@@ -39,16 +40,25 @@ namespace gs
         /// </summary>
         public static List<Part> Parts(DMesh3 input)
         {
+            string skipped;
+            return Parts(input, out skipped);
+        }
+
+        /// <summary> Parts, and why there are none: "" if there are parts, else "empty", "one part", "too many components" or "no part judged" </summary>
+        public static List<Part> Parts(DMesh3 input, out string skipped)
+        {
+            skipped = "empty";
             if (input.TriangleCount == 0)
                 return null;
             int[] componentOf;
             List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(input, out componentOf);
             int n = boxes.Count;
+            skipped = n > MaxComponents ? "too many components" : "one part";
             if (n < 2 || n > MaxComponents)
                 return null;
             var padded = new AxisAlignedBox3d[n];
             for (int i = 0; i < n; ++i) {
-                double d = BoxPadding * boxes[i].DiagonalLength;
+                double d = BoxPadding * diagonal(boxes[i]);
                 padded[i] = new AxisAlignedBox3d(boxes[i].Min - new Vector3d(d, d, d), boxes[i].Max + new Vector3d(d, d, d));
             }
             // union-find over the components, pairs found by a sweep along x (sorted by the padded minimum, ties by index)
@@ -99,11 +109,12 @@ namespace gs
                 }
                 partBoxes[p] = b;
             }
+            skipped = "one part";
             if (partBoxes.Count < 2)
                 return null;
             var parts = new List<Part>();
             for (int p = 0; p < partBoxes.Count; ++p) {
-                double diag = partBoxes[p].DiagonalLength;
+                double diag = diagonal(partBoxes[p]);
                 if (partTris[p] < MinTriangles || !(diag > 0) || double.IsInfinity(diag))
                     continue;
                 List<int> vs = partVerts[p];
@@ -114,6 +125,7 @@ namespace gs
                     samples.Add(input.GetVertex(vs[k]));
                 parts.Add(new Part() { Diagonal = diag, Samples = samples.ToArray(), Open = partOpen[p] });
             }
+            skipped = parts.Count > 0 ? "" : "no part judged";
             return parts.Count > 0 ? parts : null;
         }
 
@@ -135,7 +147,9 @@ namespace gs
                 double reach = PresentDistance * part.Diagonal;
                 bool present = false;
                 foreach (Vector3d p in part.Samples) {
-                    if (tree.FindNearestTriangle(p, reach) != DMesh3.InvalidID) {
+                    // (the distance itself, not its square against reach^2: for a part far below the largest that square underflows)
+                    double dsq;
+                    if (tree.FindNearestTriangle(p, out dsq) != DMesh3.InvalidID && Math.Sqrt(dsq) < reach) {
                         present = true;
                         break;
                     }
@@ -144,6 +158,18 @@ namespace gs
                     return part;
             }
             return null;
+        }
+
+        // the box's diagonal without the underflow (and overflow) of the squares: scaled by the largest extent (AxisAlignedBox3d.DiagonalLength
+        // is 0 for a box below about 2^-537, where the parts of a scene of 2^400 lie in the working frame)
+        internal static double diagonal(AxisAlignedBox3d b)
+        {
+            double ex = b.Max.x - b.Min.x, ey = b.Max.y - b.Min.y, ez = b.Max.z - b.Min.z;
+            double m = Math.Max(ex, Math.Max(ey, ez));
+            if (!(m > 0) || double.IsInfinity(m))
+                return m > 0 ? m : 0;
+            ex /= m; ey /= m; ez /= m;
+            return m * Math.Sqrt(ex * ex + ey * ey + ez * ez);
         }
 
         static bool meets(AxisAlignedBox3d a, AxisAlignedBox3d b)

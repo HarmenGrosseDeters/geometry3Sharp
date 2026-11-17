@@ -673,7 +673,7 @@ namespace geometry3Sharp.Tests
             // separate small sphere (F1, 2026-11-17: no Apply() true without a part); MinVolumeIoU = 0 turns off all volume checks
             var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big) };
             Assert.False(off.Apply());
-            Assert.Equal(MeshRobustRepair.LostFarPart, off.ResultReason);
+            Assert.Equal(MeshRobustRepair.LostSeparatePart, off.ResultReason);
             Assert.Equal("", off.FallbackReason);
             var noVolume = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0, CheckLostComponents = true };
             Assert.True(noVolume.Apply());
@@ -693,7 +693,7 @@ namespace geometry3Sharp.Tests
             // (the volume and LostComponents checks accept it; the final lost-part check judges the speck against its own size and
             // reports it: F1, 2026-11-17, the owner's rule of 2026-11-10, no silent loss of a part)
             Assert.False(r.Apply());
-            Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
+            Assert.Equal(MeshRobustRepair.LostSeparatePart, r.ResultReason);
             Assert.Equal("", r.FallbackReason);
             // with MinVolumeIoU = 0 (no checks against the input) accepted as before
             var unchecked_ = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0 };

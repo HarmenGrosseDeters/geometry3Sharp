@@ -14,11 +14,20 @@ namespace geometry3Sharp.Tests
     /// - a clean box removed by the safe rounding's tiny test (the area relative to the largest component);
     /// - an open small sphere collapsed by MeshAutoRepair's cleanup, relative to the scene (the far-part mode is off for open inputs);
     /// - two overlapping small boxes where the far-part switch does not fire, so no lost-part check ran.
-    /// A lost closed part is reported as LostFarPart, a lost open part as LostFarOpenPart (coordinator 2026-11-17: LostFarPart keeps its meaning).
+    /// A lost open part is reported as LostFarOpenPart, a lost closed part as LostFarPart where the components lie far apart (its meaning
+    /// before), else as LostSeparatePart (coordinator 2026-11-17: LostFarPart keeps its meaning).
     /// The scenes are those of the study's sweep (an icosphere of subdivision 3 on a 2^-12 grid; the small part of half size 2^-r at 2^f on x).
     /// </summary>
     public class RobustRepairLostPartTests
     {
+        // the reason constants by name (reflection), so this file compiles against a library without the new ones (the CI check of new
+        // tests on the base library runs it there, where the scenes return true)
+        internal static string Reason(string name)
+        {
+            var f = typeof(MeshRobustRepair).GetField(name);
+            return f == null ? "<no constant " + name + ">" : (string)f.GetValue(null);
+        }
+
         // the icosphere of the study's generator (gen.py): subdivision n of an icosahedron, radius r, centre c
         internal static (List<Vector3d> v, List<Index3i> f) icosphere(int n, double r, Vector3d c)
         {
@@ -100,20 +109,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        // the rounding's tiny test (box), the repair stage's cleanup for an open input (open), no far-part switch (boxes)
-        [InlineData("box", 20, 2)]
-        [InlineData("box", 16, 8)]
-        [InlineData("open", 4, 16)]
-        [InlineData("open", 20, 8)]
-        [InlineData("boxes", 16, 2)]
-        [InlineData("boxes", 20, 16)]
-        public void SmallPartFarAway_IsKept_OrApplyIsFalseWithLostFarPart(string kind, int r, int f)
+        // the rounding's tiny test (box), the repair stage's cleanup for an open input (open), no far-part switch (boxes, 16, 2: a closed
+        // part whose components do not lie far apart in the sense of LostFarPart, so LostSeparatePart)
+        [InlineData("box", 20, 2, "LostFarPart")]
+        [InlineData("box", 16, 8, "LostFarPart")]
+        [InlineData("open", 4, 16, "LostFarOpenPart")]
+        [InlineData("open", 20, 8, "LostFarOpenPart")]
+        [InlineData("boxes", 16, 2, "LostSeparatePart")]
+        [InlineData("boxes", 20, 16, "LostFarPart")]
+        public void SmallPartFarAway_IsKept_OrApplyIsFalseWithLostFarPart(string kind, int r, int f, string reason)
         {
             var rr = new MeshRobustRepair(Scene(kind, r, f));
             bool ok = rr.Apply();
             bool kept = small_part_kept(rr.Mesh, f);
-            // a closed part lost: LostFarPart; an open one: LostFarOpenPart
-            string expected = kind == "open" ? MeshRobustRepair.LostFarOpenPart : MeshRobustRepair.LostFarPart;
+            string expected = Reason(reason);
             Assert.True(kept || (ok == false && rr.ResultReason == expected),
                 $"part kept {kept}, Apply() {ok}, ResultReason '{rr.ResultReason}'");
             // (on these scenes the part is lost: the check is what decides)
@@ -151,7 +160,7 @@ namespace geometry3Sharp.Tests
             string ra = rr.ResultReason;
             int ta = rr.Mesh.TriangleCount;
             Assert.False(a);
-            Assert.Equal(MeshRobustRepair.LostFarOpenPart, ra);
+            Assert.Equal(Reason("LostFarOpenPart"), ra);
             rr.Mesh = Scene("open", 4, 16);
             bool b = rr.Apply();
             Assert.Equal(a, b);

@@ -619,7 +619,8 @@ Ordered by expected value for the library.
    - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
      effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
      component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
-     No input has a small separable part (box rule: all at least 8.46 % of the scene). Bugfix F1 built 2026-11-17 (section 6.1 of the note; `LostFarPart` / new `LostFarOpenPart`): it reports the loss. Before it, 29 of 54
+     No input has a small separable part (box rule: all at least 8.46 % of the scene). Bugfix F1 built 2026-11-17 (section 6.1 of the note; `LostFarPart`, new `LostFarOpenPart` and `LostSeparatePart`): it reports the loss of a separable part
+     (inputs of two or more parts; single-part inputs and components lost inside a part stay unreported). Before it, 29 of 54
      procedural scenes lost a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
      for open inputs, the post-resolve cleanup. Now 28 are reported; the 29th is a box lost inside its own part, out of scope. The
      corpus is unchanged (0 of 800 flips).

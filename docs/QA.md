@@ -399,7 +399,7 @@ scale checks of the campaigns (the scaling is not exact there).
 |---|---|---|---|---|
 | `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
 | `MeshRoundingRepair` | 2^-200 .. 2^200 (the largest coordinate; no subnormal; `OutsideRange`) | 2^60 (`ScaleDisparity`, not a range) | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
-| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` / `LostFarOpenPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` / `LostFarOpenPart` / `LostSeparatePart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
 | `Reducer` | 1e-150 .. 1e150 and beyond (a power-of-two frame for the quadrics, the edges scaled in the flip test) | -- | sphere: reduces, closed and finite, from 1e-300 to 1e307 with the same relative result at every power-of-two scale (a vertex position is only optimal where the frame scale is a normal double, 2^+-1000) | not guaranteed (documented limit) |
 | `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 (`PartitionedReducer` also in the Reducer's range) | -- | sphere: ok 2^-250 .. 2^500 | not guaranteed (documented limit) |

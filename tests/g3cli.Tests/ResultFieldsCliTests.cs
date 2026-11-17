@@ -203,6 +203,9 @@ namespace g3cli.Tests
             Assert.Equal("outside_range", S(Commands.ReasonCode(MeshRobustRepair.OutsideRange)));
             Assert.Equal("lost_far_part", S(Commands.ReasonCode(MeshRobustRepair.LostFarPart)));
             Assert.Equal("lost_far_open_part", S(Commands.ReasonCode(MeshRobustRepair.LostFarOpenPart)));
+            Assert.Equal("lost_separate_part", S(Commands.ReasonCode(MeshRobustRepair.LostSeparatePart)));
+            // (a reason the stages set follows the lost-part reason)
+            Assert.Equal("lost_separate_part", S(Commands.ReasonCode(MeshRobustRepair.LostSeparatePart + "; self-intersections")));
             Assert.Equal("wrap_too_coarse", S(Commands.ReasonCode(MeshRobustRepair.WrapTooCoarse)));
             // (the library appends text to a reason)
             Assert.Equal("lost_far_part", S(Commands.ReasonCode("x; " + MeshRobustRepair.LostFarPart)));

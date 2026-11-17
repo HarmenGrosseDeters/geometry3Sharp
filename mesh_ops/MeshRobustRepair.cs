@@ -27,8 +27,8 @@ namespace gs
     /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
     /// MinVolumeIoU, or it lost a whole component of the input (CheckLostComponents: a part too small for the IoU),
     /// the input itself is used instead, resolved exactly, solidified or wrapped (its winding number solid is the
-    /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
-    /// a cell or the offset, and lose parts smaller than that).
+    /// reference; UsedInput). The solidify and the wrap themselves are not checked for volume (they change the geometry by about
+    /// a cell or the offset, and lose parts smaller than that); a separable part they lose is reported by the final check below.
     ///
     /// Components far apart compared to their size (eg a part 1e8 away from parts of size 1): the degenerate area of
     /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles, and the cleanups
@@ -45,7 +45,8 @@ namespace gs
     /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area; the relative cleanups and tolerances only for a closed input of at most 64 components (a cracked surface or a soup has pieces, not parts), the lost part checks only with MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
     /// Last, for any input of two or more separable parts (components whose boxes, padded by 1e-3 of their own diagonals, meet; closed
     /// and open), every part of at least 4 triangles is judged against its own diagonal: one the result does not reach makes Apply() false
-    /// with LostFarPart (closed) or LostFarOpenPart (open), also where the far-part switch above does not fire (MeshRobustRepairLostParts;
+    /// with LostFarOpenPart (open), LostFarPart (closed, components far apart as above) or LostSeparatePart (closed, otherwise), also where
+    /// the far-part switch above does not fire (MeshRobustRepairLostParts;
     /// only with MinVolumeIoU &gt; 0, as the other checks against the input). Also a speck below 1e-3 of the largest component, which the
     /// repair removes and LostComponents does not judge, is reported then (the owner's rule of 2026-11-10: no silent loss of a part).
     ///
@@ -105,7 +106,8 @@ namespace gs
         /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
         /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
         /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
-        /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
+        /// checked for it: their ResultReason can be "" although they lost the same part (unless it is a separable part, which the final
+        /// lost-part check of Apply() reports), see FallbackReason and UsedInput.
         /// </summary>
         public bool CheckLostComponents = false;
         /// <summary> configures the first stage (eg tolerances) </summary>
@@ -361,8 +363,8 @@ namespace gs
         /// <returns>
         /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
         /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. Also false with
-        /// LostFarPart (a closed part) or LostFarOpenPart (an open part), the result in Mesh, if a separable part of an input of two or more
-        /// parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
+        /// LostFarPart, LostSeparatePart (a closed part) or LostFarOpenPart (an open part), the result in Mesh, if a separable part of an input
+        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
@@ -482,18 +484,37 @@ namespace gs
 
         /// <summary> (tests, benchmarks: an A/B in one build) Apply() without the final lost-part check (MeshRobustRepairLostParts) </summary>
         internal bool NoLostPartCheck;
+        /// <summary>
+        /// (tests) why the final lost-part check of the last Apply() judged no part: "" if it judged the parts, else one of "off" (NoLostPartCheck),
+        /// "no volume checks" (MinVolumeIoU 0), "empty", "one part", "too many components" (above MeshRobustRepairLostParts.MaxComponents), "no
+        /// part judged" (every part below MinTriangles or without extent), "not reached" (Apply() was false before the check)
+        /// </summary>
+        internal string LostPartCheckSkipped { get; private set; } = "";
         // apply_checked, then the final lost-part check (MeshRobustRepairLostParts, F1 of docs/design/ROBUST_REPAIR_SCALE_FREE_STUDY.md): a
-        // separable part of the input that the result does not reach, judged against the part's own size, makes Apply() false with LostFarPart
-        // (a closed part) or LostFarOpenPart (an open one)
-        // (the earlier cleanups and checks judge sizes against the scene or the largest component, so a small part far away could be lost with
-        // true). The parts are taken before the repair, which changes the mesh in place
+        // separable part of the input that the result does not reach, judged against the part's own size, makes Apply() false. Reasons: an open
+        // part LostFarOpenPart; a closed part LostFarPart where the input's components lie far apart compared to their size (the far-part
+        // switch, global_scale_share > 0: the meaning of LostFarPart), else LostSeparatePart. A ResultReason the stages set (eg an unclean
+        // solidify) is kept after it ("; "). The earlier cleanups and checks judge sizes against the scene or the largest component, so a small
+        // part could be lost with true. The parts are taken before the repair, which changes the mesh in place
         bool apply_reported()
         {
-            List<MeshRobustRepairLostParts.Part> parts = Mesh.TriangleCount > 0 && NoLostPartCheck == false && MinVolumeIoU > 0 ? MeshRobustRepairLostParts.Parts(Mesh) : null;
+            string skipped;
+            List<MeshRobustRepairLostParts.Part> parts = null;
+            if (NoLostPartCheck)
+                skipped = "off";
+            else if (MinVolumeIoU <= 0)
+                skipped = "no volume checks";
+            else
+                parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
+            bool far = parts != null && global_scale_share(Mesh) > 0;
             bool ok = apply_checked();
+            if (ok == false && parts != null)
+                skipped = "not reached";
+            LostPartCheckSkipped = skipped;
             MeshRobustRepairLostParts.Part lost = ok ? MeshRobustRepairLostParts.FirstLost(parts, Mesh) : null;
             if (lost != null) {
-                ResultReason = lost.Open ? LostFarOpenPart : LostFarPart;
+                string reason = lost.Open ? LostFarOpenPart : far ? LostFarPart : LostSeparatePart;
+                ResultReason = ResultReason == "" ? reason : reason + "; " + ResultReason;
                 ok = false;
             }
             return ok;
@@ -919,10 +940,16 @@ namespace gs
         /// <summary>
         /// ResultReason of an Apply() that is false because an open part of the input is not in the result, where parts lie apart (a
         /// separable part: components whose bounding boxes, padded by 1e-3 of their own diagonals, meet no other part's; the result does
-        /// not reach it within a quarter of the part's own diagonal, see MeshRobustRepairLostParts). The result stays in Mesh. A closed
-        /// part lost this way is reported as LostFarPart
+        /// not reach it within a quarter of the part's own diagonal, see MeshRobustRepairLostParts). The result stays in Mesh. Any earlier
+        /// ResultReason follows after "; "
         /// </summary>
         public const string LostFarOpenPart = "scale disparity: an open part of the input is lost (parts apart compared to their size)";
+        /// <summary>
+        /// ResultReason of an Apply() that is false because a closed separable part of the input (see LostFarOpenPart) is not in the result,
+        /// where the components do not lie far apart in the sense of LostFarPart (which is reported there). The result stays in Mesh. Any
+        /// earlier ResultReason follows after "; "
+        /// </summary>
+        public const string LostSeparatePart = "a separate part of the input is lost (the result does not reach it)";
         /// <summary>
         /// ResultReason when Apply() returns false because the input's diagonal is not finite: an extent above about
         /// 1e154 (eg finite coordinates near +-1e308), or infinite coordinates (and NaN ones where they show in the
