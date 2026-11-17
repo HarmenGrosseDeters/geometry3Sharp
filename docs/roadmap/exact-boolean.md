@@ -259,6 +259,12 @@ n-ary boolean, effort S, no exact-code change; the cull by the expression is a s
 an order-balanced time measurement); no-go for
 the materialized provenance build (stages 2-4) until a consumer needs exact intermediates without knowing the next
 operation.
+**Stage 1 built** (owner 2026-11-17, option A, opt-in): `ExactMesh` (`mesh_ops/LazyExactMesh.cs`), a lazy boolean
+expression over double meshes computed as one n-ary `ExactMeshBoolean` (built-in shapes keep the built-in operations, bit
+for bit); [design note section 8](../design/EXACT_BOOLEAN_40_DESIGN.md#8-stage-1-as-built). The long-chain regression on
+contact chains is the drift bound (RC4b), not the effort budget (the same 21 results stay unclean at 16x the budget); a fix
+is an output change (stage 1b, owner). Order-randomized timing: median ExactMesh / chain 0.57-1.08 per k on procedural
+chains, a tail up to 21x on contact chains.
 
 **T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
 2026-11-13, option 1; #843, merged 2026-11-15): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %

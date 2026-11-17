@@ -437,6 +437,85 @@ identical to the first run (all 270 rows, apart from the timings and a field the
 | 3 | nested diagonal crossings (or polygon input) and classification on implicit operands (winding of the original operands, or a new ray predicate) | M | high: new error bounds, exact review and mutation gate | the incremental mutation run above its threshold; every new bound reviewed | |
 | 4 | tet meshing of exact results | L (own project) | high | | separate decision |
 
+## 8. Stage 1 as built (owner 2026-11-17: option A, an opt-in API)
+
+`g3.ExactMesh` (`mesh_ops/LazyExactMesh.cs`, outside the exact-code glob `mesh_ops/ExactMesh*.cs` on purpose: it does no
+arithmetic). Additive; `ExactMeshBoolean`, its defaults and the exact code are unchanged.
+- `ExactMesh.FromDMesh(mesh)` makes a source (a copy of the mesh); `Union`, `Intersection`, `Difference` build the
+  expression; nothing is computed until `Round(configure)` (the result, or null on failure) or `ToBoolean()` (an
+  `ExactMeshBoolean`, not yet computed, for options, status and counts). `Sources`, `SourceCount`, `Inside(w)`,
+  `WindingPredicate()` expose the expression.
+- A source used twice (the same `ExactMesh` value) is one source of the arrangement; `FromDMesh` twice on one mesh gives two.
+- Built-in shapes use the built-in operations (and so keep their cull): two sources (bit for bit `ExactMeshBoolean(a, b,
+  op)`), a union or an intersection of sources only, a source minus a union of sources. Everything else is the n-ary
+  boolean with the expression as `WindingPredicate` (compiled to a postfix program; no recursion, so a chain of any length).
+- Tests: `LazyExactMeshTests` (bit-for-bit equality with the built-in operations, the predicate on every winding vector,
+  exact volume of a box chain, (A ∪ B) ∩ A giving A's own vertices, invariance over `Similarity.All()` with 2^k scales bit for
+  bit, reuse, serial equals parallel, arguments, copies), `DocExamplesTests.LazyExactMeshExample_ExactVolumeAndClean`.
+
+**Gate: the long-chain regression, measured with its cause.** `chain_exact.py proc ... --families mixed --mode diag --factors
+1,4,16` (`chain-exact-diag-proc`): today's chain against `ExactMesh.Round()` with the rounding's pair-test budget
+(`RoundingMaxPairTests`) at 1x, 4x and 16x the default. Clean as in section 4 (`NotCleanReason(r, false)` and
+`RoundingClean`); in parentheses the results that stopped at the evaluation limit.
+
+| family | step | results | chained clean | ExactMesh clean, budget x1 (evaluation limit) | ExactMesh clean, budget x4 (evaluation limit) | ExactMesh clean, budget x16 (evaluation limit) | newly unclean x1 / x16 |
+|---|---|---|---|---|---|---|---|
+| mixed | 1 | 30 | 30/30 | 30/30 (0) | 30/30 (0) | 30/30 (0) | 0 / 0 |
+| mixed | 2 | 30 | 30/30 | 30/30 (0) | 30/30 (0) | 30/30 (0) | 0 / 0 |
+| mixed | 3 | 30 | 30/30 | 30/30 (0) | 30/30 (0) | 30/30 (0) | 0 / 0 |
+| mixed | 4 | 30 | 23/30 | 26/30 (6) | 26/30 (0) | 26/30 (0) | 0 / 0 |
+| mixed | 5 | 27 | 25/27 | 19/27 (6) | 19/27 (0) | 19/27 (0) | 6 / 6 |
+| mixed | 6 | 27 | 27/27 | 22/27 (4) | 22/27 (0) | 22/27 (0) | 5 / 5 |
+| mixed | 7 | 27 | 27/27 | 22/27 (5) | 22/27 (0) | 22/27 (0) | 5 / 5 |
+| mixed | 8 | 27 | 27/27 | 22/27 (5) | 22/27 (0) | 22/27 (0) | 5 / 5 |
+
+
+- **Not the effort budget.** With 4x the budget no result reaches the evaluation limit any more (17 of the 21 newly unclean
+  did at 1x), and exactly the same results stay unclean at 4x and 16x.
+- **The drift bound (RC4b).** In every one of the 21 newly unclean results the repair rejected an edit because it needed more
+  than its drift bound `MaxLength` (1e-5 of the diagonal): the smallest rejected edit needs 1.16-6.95 times the bound (one
+  result 195 times), and 4-46 intersecting pairs remain.
+- **Why today's chain is clean there** (a reading of the counts, not a per-case trace). In 12 of the 21 (seeds 9, 12, 24,
+  27, 28 and 30 at step 5) the chain's roundings needed almost nothing: their largest edit is at most 0.16 of the bound and
+  they removed at most 2 components before the step (one chain 38). Rounding an intermediate result to doubles puts the
+  near-coincident copies on the same doubles as the original, where the next exact step sees them as exactly coincident or
+  coplanar and resolves them; the exact chain keeps them one ulp apart until the final rounding. In the other 9 (seeds 3, 6
+  and 30 at steps 6-8) the chain's roundings removed 33-136 components at earlier steps and its drift reached 0.35-2.1
+  bounds summed over the steps: each step's rounding has its own bound.
+- **No fix without an output change.** Any lever (a larger or cumulative drift bound, slab removal before the repair) changes
+  SafeRounding's outputs, which is the owner's decision (stage 1b). The workaround in the API is to round an intermediate
+  result where the chain has made near-coincident slabs: `ExactMesh.FromDMesh(x.Round())`, which is today's chain at that
+  step. The class comment says so.
+
+**Speed: fair, order-randomized timing.** `chain_exact.py proc ... --mode time --reps 5` (`chain-exact-time-proc`): per chain
+and repetition the jobs "today's chain, steps 1..n" and "`ExactMesh.Round()` of step k" for every k run in a shuffled order,
+after a warm-up boolean and with a full GC before each job; per chain the median over the 5 repetitions, then the
+statistics over the 30 chains (4 cores, local; ms).
+
+| family | step | chains | median ms chain steps 1..k | median ms chain step k | median ms ExactMesh.Round() | ExactMesh / chain 1..k: median | p90 | max | summed ms chain 1..k / ExactMesh |
+|---|---|---|---|---|---|---|---|---|---|
+| generic | 1 | 30 | 5 | 5 | 5 | 1.00 | 1.50 | 1.60 | 153 / 159 |
+| generic | 2 | 30 | 12 | 8 | 9 | 0.72 | 1.06 | 1.10 | 398 / 284 |
+| generic | 3 | 30 | 24 | 12 | 18 | 0.76 | 1.06 | 1.33 | 779 / 590 |
+| generic | 4 | 30 | 38 | 12 | 22 | 0.57 | 0.74 | 0.86 | 1145 / 653 |
+| generic | 5 | 30 | 46 | 8 | 45 | 0.99 | 1.30 | 1.48 | 1399 / 1342 |
+| generic | 6 | 30 | 56 | 12 | 44 | 0.84 | 1.02 | 1.18 | 1727 / 1346 |
+| generic | 7 | 30 | 71 | 15 | 78 | 1.08 | 1.59 | 1.81 | 2172 / 2375 |
+| generic | 8 | 30 | 84 | 13 | 80 | 0.97 | 1.38 | 1.66 | 2532 / 2510 |
+| mixed | 1 | 30 | 4 | 4 | 4 | 1.00 | 1.25 | 1.75 | 109 / 108 |
+| mixed | 2 | 30 | 32 | 30 | 19 | 0.77 | 1.00 | 1.17 | 988 / 739 |
+| mixed | 3 | 30 | 37 | 5 | 21 | 0.72 | 0.86 | 1.25 | 1173 / 810 |
+| mixed | 4 | 30 | 78 | 44 | 52 | 0.58 | 9.63 | 20.93 | 10157 / 11922 |
+| mixed | 5 | 27 | 84 | 4 | 46 | 0.77 | 7.55 | 20.87 | 9711 / 11639 |
+| mixed | 6 | 27 | 114 | 27 | 56 | 0.58 | 1.43 | 14.44 | 11338 / 9480 |
+| mixed | 7 | 27 | 117 | 6 | 69 | 0.76 | 1.38 | 15.45 | 11506 / 10224 |
+| mixed | 8 | 27 | 136 | 21 | 93 | 0.75 | 1.56 | 15.83 | 12376 / 12944 |
+
+At k = 1 both compute the same boolean (the built-in path), and the ratio is 1.00: the order bias of section 4 is gone.
+Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k): median ratio 0.57-1.08 on the generic and
+0.58-0.77 on the contact chains; the tail of the contact chains (p90 up to 9.6, max 21 at k = 4-5) is the single rounding
+of the accumulated slabs. ABC (realistic sizes, run ABC_TIME_RUN): ABC_TIME_TEXT
+
 ## 7. Literature check
 
 Searched 2026-11-17 (plane-based iterated booleans, bounded-degree exact constructions, exact output of mesh booleans).
