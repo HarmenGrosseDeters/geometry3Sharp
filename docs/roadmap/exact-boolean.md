@@ -264,7 +264,7 @@ expression over double meshes computed as one n-ary `ExactMeshBoolean` (built-in
 for bit); [design note section 8](../design/EXACT_BOOLEAN_40_DESIGN.md#8-stage-1-as-built). The long-chain regression on
 contact chains is the drift bound (RC4b), not the effort budget (the same 21 results stay unclean at 16x the budget); a fix
 is an output change (stage 1b, owner). Order-randomized timing: median ExactMesh / chain 0.53-1.01 (generic) and 0.60-0.89 (contact) per k on procedural
-chains, a tail up to 21x on contact chains.
+chains, a tail up to 21x on contact chains; on ABC the step-3 results take 0.17-0.50 of the chain (median), iud step 2 up to 68x (the one pass arranges A with its copy in full; stage 1c, the cull by the expression, is the lever).
 
 **T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
 2026-11-13, option 1; #843, merged 2026-11-15): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %

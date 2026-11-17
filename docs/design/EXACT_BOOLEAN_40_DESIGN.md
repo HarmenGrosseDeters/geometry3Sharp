@@ -516,7 +516,33 @@ At k = 1 both compute the same boolean (the built-in path), and the median ratio
 bias of section 4 is gone, and about ±7 % is the noise floor of this measurement, against which the k ≥ 2 ratios are read. Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k), k = 2..8: median ratio 0.53-1.01 on
 the generic and 0.60-0.89 on the contact chains; summed over the chains `ExactMesh` is faster on generic chains (2541 against
 2794 ms at k = 8) and on contact chains slower at k = 4, 5 and 8 (up to 1.25x), from the tail (p90 up to 8.6, max 21 at
-k = 4-5): the single rounding of the accumulated slabs. ABC (realistic sizes, run ABC_TIME_RUN): ABC_TIME_TEXT
+k = 4-5): the single rounding of the accumulated slabs. ABC (realistic sizes): run
+[44173462257](https://github.com/HarmenGrosseDeters/geometry3Sharp/actions/runs/44173462257) (commit 967fa9d7,
+`methods=ours_exact_time`, 3 repetitions per chain; rows on `runs/abc-chained`, folder `run-44173462257`; `chain_exact.py
+time-summary`):
+
+| variant | k | chains | median ms chain 1..k | median ms ExactMesh.Round() | ExactMesh / chain: median | p90 | max | summed ms chain / ExactMesh |
+|---|---|---|---|---|---|---|---|---|
+| ucd | 1 | 30 | 102.4 | 140.9 | 1.12 | 1.45 | 1.88 | 4119 / 4804 |
+| ucd | 2 | 30 | 287.6 | 274.6 | 0.95 | 1.08 | 1.26 | 22871 / 23221 |
+| ucd | 3 | 30 | 1629.5 | 197.4 | 0.17 | 0.87 | 1.05 | 52098 / 21306 |
+| dui | 1 | 30 | 67.4 | 70.5 | 1.08 | 1.30 | 1.34 | 2344 / 2633 |
+| dui | 2 | 30 | 258.6 | 300.6 | 1.02 | 1.15 | 1.46 | 40410 / 40698 |
+| dui | 3 | 30 | 1710.9 | 226.3 | 0.20 | 0.63 | 0.69 | 88225 / 36644 |
+| iud | 1 | 30 | 40.5 | 44.9 | 1.08 | 1.27 | 1.37 | 2411 / 2624 |
+| iud | 2 | 28 | 124.8 | 511.9 | 1.95 | 21.8 | 68.2 | 7858 / 33779 |
+| iud | 3 | 28 | 1395.4 | 661.4 | 0.50 | 0.99 | 1.01 | 64809 / 50027 |
+
+- **k = 1** (the same boolean both ways): 1.08-1.12 on all three variants, a systematic 8-12 % on these sizes that the
+  procedural chains do not show (not investigated; the copies of `FromDMesh` have no normals, the timed boolean is the
+  same). Read the other ratios against it.
+- **k = 3:** the chain's result in one pass takes 0.17-0.50 of today's three steps (median), and 2.4x / 2.4x / 1.3x less in
+  sum (ucd / dui / iud). Today's step 3 works on a rounded intermediate that lies near A's planes but not on them; the
+  exact faces lie in them.
+- **k = 2 on iud** ((A ∩ B) ∪ C, with C a copy of A): median 1.95, p90 22, max 68, and 4.3x more in sum. The one pass
+  arranges A with its copy C in full, while the chain first shrinks A ∩ B to a few thousand triangles. Stage 1c (the cull
+  by the expression) is the lever for this case; until then, rounding the intermediate result there
+  (`FromDMesh(x.Round())`) is today's chain.
 
 ## 7. Literature check
 
