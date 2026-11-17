@@ -613,7 +613,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    stage that produced the result (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`; with passed-through parts the
    stage of the rest). Nothing else changes: `Apply()`, `ResultReason`, `NotCleanReason` and every other output are the same with and
    without it (a hash of the mesh bit for bit and of the outputs, `ResultVolumeIoUTests`). `g3cli repair` reports `result_path` and,
-   with `--measure-result-iou`, `result_volume_iou`. Cost, measured (Release, median of 5, net10.0, cloud container): opt-in, because it
+   with `--measure-result-iou`, `result_volume_iou`. `ResultVolumeIoU` is an estimate that stops early where the sampling interval lies clearly on one side of `MinVolumeIoU`: a value far from it is good to a few hundredths only, so the IoU numbers below are approximate (author's runs, not all pinned by tests; the tests pin ranges). Cost, measured by the author (Release, median of 5, net10.0, cloud container): opt-in, because it
    adds a copy of the input, the input's oriented copy and winding number tree, and one more IoU estimate: 14 % on a clean sphere
    of 19k triangles (164 -> 187 ms), 24 % on one of 1.4k (139 -> 172 ms), 18 % on the exact resolve of two spheres (76 -> 90 ms),
    within noise on a wrap (3.4 s, the wrap dominates). Always on would be cheap in absolute terms and would not change a result, but
@@ -641,7 +641,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    Thingi10K (77958, 79136, 87345) was not run for this (no mesh in the repository, no network in a PR test); `BENCH_REPAIR=robust
    BENCH_FIDELITY=0` on a runner can add `ResultVolumeIoU` and `fm_oviou` for them if the owner wants the numbers on the real meshes.
    Also seen while building the reproducers: a 2.3k-triangle open soup of two spheres (holes of 60 degrees) took 21.9 s at the
-   defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input, noted here, not diagnosed.
+   defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.

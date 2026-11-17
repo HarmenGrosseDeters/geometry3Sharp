@@ -315,7 +315,8 @@ namespace gs
         /// Diagnostic (MeasureResultVolumeIoU): the volume IoU of the FINAL result in Mesh against the input as given to Apply(),
         /// whichever stage produced it (pass-through, repair, exact resolve, solidify, alpha wrap): the same reference (the input's
         /// winding number solid, inside-out parts oriented as the metrics do), the same sampling and the same estimate as the volume
-        /// checks (MeshRepairMetrics.VolumeIoUAtLeast at MinVolumeIoU, 0.99 if the checks are off), so it equals RepairVolumeIoU
+        /// checks (an estimate from as many samples as the check needs: it stops early where the interval lies clearly on one side of MinVolumeIoU, so
+        /// a value far from it is good to a few hundredths only) (MeshRepairMetrics.VolumeIoUAtLeast at MinVolumeIoU, 0.99 if the checks are off), so it equals RepairVolumeIoU
         /// where the repair result is the final one. It is not a guard: Apply(), ResultReason and every other output are
         /// the same with or without it. NaN where it is not computed (off, Apply() false, the input encloses no volume: an
         /// open sheet has almost no reference solid, and a low value for an open or self-intersecting input may say more about
@@ -325,7 +326,7 @@ namespace gs
         /// <summary> the stage that produced the result in Mesh (ResultPath) </summary>
         public enum ResultPaths
         {
-            /// <summary> Mesh was not replaced (Apply() false, or not run) </summary>
+            /// <summary> no stage produced a result: Apply() was not run, or stopped before the stages (empty input, ScaleNotFinite, OutsideRange), or failed without a result. A false Apply() that leaves a result in Mesh (a lost part, ScaleDisparity) keeps the stage that made it </summary>
             None,
             /// <summary> every part of the input is clean and passed through untouched (PassThroughCleanParts), nothing was repaired </summary>
             PassThrough,
@@ -456,6 +457,8 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            ResultVolumeIoU = double.NaN;
+            ResultPath = ResultPaths.None;
             PassedThroughTriangles = 0;
             PassThroughFellBack = false;
             LostPartCheckSkipped = "not reached";
@@ -591,8 +594,6 @@ namespace gs
                 parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
             bool far = parts != null && global_scale_share(Mesh) > 0;
             DMesh3 givenInput = MeasureResultVolumeIoU ? new DMesh3(Mesh) : null;
-            ResultVolumeIoU = double.NaN;
-            ResultPath = ResultPaths.None;
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";

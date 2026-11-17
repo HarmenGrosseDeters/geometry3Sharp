@@ -241,6 +241,17 @@ namespace geometry3Sharp.Tests
             Assert.False(r.Apply());
             Assert.True(double.IsNaN(r.ResultVolumeIoU));
             Assert.Equal(MeshRobustRepair.ResultPaths.None, r.ResultPath);
+            // stopped before the stages (a coordinate that is not finite): the values of the run before are gone as well
+            r.Mesh = Sphere(1, Vector3d.Zero);
+            Assert.True(r.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, r.ResultPath);
+            Assert.False(double.IsNaN(r.ResultVolumeIoU));
+            DMesh3 bad = Sphere(1, Vector3d.Zero);
+            bad.SetVertex(0, new Vector3d(double.NaN, 0, 0));
+            r.Mesh = bad;
+            Assert.False(r.Apply());
+            Assert.True(double.IsNaN(r.ResultVolumeIoU));
+            Assert.Equal(MeshRobustRepair.ResultPaths.None, r.ResultPath);
         }
 
         [Fact]
@@ -280,7 +291,7 @@ namespace geometry3Sharp.Tests
             Assert.True(f.MaxDistanceMeshToReference <= bound, $"result to input {f.MaxDistanceMeshToReference} against {bound}");
         }
 
-        // Slow: two wraps of the thin walls (with the diagnostic and without, for the hash of the wrap path) and the fidelity metrics, about 6 s
+        // Slow: two wraps of the thin walls (with the diagnostic and without, for the hash of the wrap path) and the fidelity metrics, about 5 s
         [Trait("Category", "Slow")]
         [Fact]
         public void WrapOfThinOpenWalls_InflatesThem_TheReferenceIsNotWrong()
