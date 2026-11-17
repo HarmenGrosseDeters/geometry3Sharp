@@ -26,7 +26,8 @@ Side finding (item 1): `LSCMParameterization` returns `Success` with mean confor
 the open cylinder 48 x 12 of height 3.6, whose far ring collapses to a near-segment without a flipped or (by the rule)
 degenerate triangle; on a jittered 24 x 6 cylinder `Success` with max conformal 36.5. The P1 status check (flips and
 `DegenerateUVTriangles`) does not catch a near-collapse. Not fixed here (it changes a status); reported to the
-coordinator.
+coordinator. Fixed later (#1049): a near-collapsed UV triangle now counts as degenerate, the 48 x 12 cylinder reports
+`FlippedTriangles` (docs/ISSUE_CASE_FINDINGS.md, P1).
 
 ## 1. Pin-free spectral conformal parameterization
 
