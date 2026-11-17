@@ -174,7 +174,7 @@ arm64. Absence of a difference is evidence on these inputs, not a proof.
 Transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`, `Log`, general `Pow`) can differ between
 platforms (the harness: macOS arm64 differs from x64 only in libm and its consumers; `+ - * /`, `Sqrt`, `Floor`, `Round`,
 `Abs` are IEEE-exact everywhere; `Math.Min` / `Max` differ on the sign of zero between .NET Framework and modern .NET, see #803). The correctly rounded `CoreMath` (C1, vendored from CoreMathSharp, a port of
-CORE-MATH, MIT; `docs/SOURCES.md`, design note `DMATH.md`) is used **only where the library promises cross-platform bit
+CORE-MATH, MIT; `docs/SOURCES.md`, design note `DMATH.md`; `Sin`, `Cos`, `Tan`, `Atan2`, `Acos`, `Exp`, `Log`; harness cases `coremath.acos` and `coremath.tan`) is used **only where the library promises cross-platform bit
 identity** (first the geodesic family: `IntrinsicTriangulation*`, `IntrinsicCommonSubdivision`, `VectorHeatMethod`,
 `MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier` and `SparseCholesky.LogAdd`), not as a global replacement of
 `System.Math` (cost 1.5 to 4 times per call, more with the software FMA on net48; no gain in accuracy that matters to

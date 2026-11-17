@@ -17,8 +17,9 @@ namespace g3.CoreMathPort
         /// the result is within about 1.6 ulps of the true value (the roundings of 1 + c, the product and the square
         /// root, then half an ulp of Atan2), and it is not monotone in the last ulp for |c| &lt; 1/2 (1 + c and 1 - c
         /// round at different arguments: 0.23144537602828275 and the next double give 1.3372331895174001 and
-        /// 1.3372331895174003): do not use it where the order of two results of neighbouring arguments decides. A
-        /// correctly rounded Acos (a port from CORE-MATH) can replace it later; the tests bound what would change.
+        /// 1.3372331895174003): do not use it where the order of two results of neighbouring arguments decides. The
+        /// correctly rounded CoreMath.Acos (a port from CORE-MATH) exists and is cheaper; the callers are not switched
+        /// because that changes output bits (a swap changed 12.4 % of 100000 test arguments, by one ulp each: CoreMathAcosTanTests).
         /// </summary>
         internal static double AcosByAtan2(double c)
         {
