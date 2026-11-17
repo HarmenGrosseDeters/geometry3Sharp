@@ -266,6 +266,40 @@ half of an owner decision. Criteria, fixed now:
 5. Effort of F1: S (a day with the corpus A/B; the check reuses the probe's measure). No exact-arithmetic file changes, so no
    mutation gate before the merge.
 
+### 6.1 F1 as built (owner 2026-11-17: "ja, F1 starten"; F2 not now)
+
+`MeshRobustRepairLostParts`, called at the end of `Apply()` in the working frame. It differs from item 1 above in four points,
+decided with the coordinator or found by the tests:
+- **Two or more parts only.** An input that is one part by the padded rule is not checked (coordinator), so it is no general check
+  against silent success on single-part inputs.
+- **Parts of fewer than 4 triangles, or without extent, are not judged.** Stray triangles that the repair removes on purpose are
+  not reported.
+- **Only with `MinVolumeIoU > 0`.** That is the documented meaning of 0, "no checks against the input", as for the other lost-part
+  checks.
+- **A second reason constant.** A lost closed part is `LostFarPart`, whose text and meaning are unchanged; a lost open part is the
+  new `LostFarOpenPart` (additive; coordinator: `LostFarPart` is not widened). g3cli maps it to `lost_far_open_part`.
+
+Procedural criterion (54 scenes of 3.1, with and without the check, one build): 28 cases true -> false (`LostFarPart` /
+`LostFarOpenPart`); the 29th, v1 r = 12 f = 8 (one box of two lost inside one part), stays true, out of scope as stated above. The
+25 others are unchanged, and no result mesh differs (hash).
+
+Three existing tests had pinned a silent loss with `Apply()` true:
+- a `RepairF` that drops a separate small sphere;
+- a 1e-4 speck dropped next to a unit sphere;
+- a test hook that empties the result of the others.
+
+They now expect the report; the hook test runs with the check off to keep its line covered, and checks the report separately.
+
+Corpus criterion: run 44161038527 on GitHub-hosted runners, 800 meshes, R (with the check) and N (`NoLostPartCheck`), one build, the
+two configurations interleaved per mesh; data branch `runs/scale-free-f1`, `scale_free_study.py f1`.
+- `Apply()` true -> false: 0; false -> true: 0.
+- Result hash differs: 0, so the strict criterion is unchanged on every mesh.
+- Timeouts: 0.
+- Wall time: R 4537 s, N 4461 s (+1.7 %, bar +2 %).
+
+That run predates the `MinVolumeIoU` gate and the second constant. Neither changes a default run's decision: `MinVolumeIoU` is
+0.99 by default, and the second constant changes only the reason text.
+
 ## 7. Recommendation
 
 1. **No larger effort on scale-free repair.** B stage 1 with frames, B stage 2, C and D stay parked. On the corpus they would win 2

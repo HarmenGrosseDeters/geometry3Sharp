@@ -445,7 +445,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
-design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 open, PR #1095), 3 together with the leads of 1 (D1 has merged;
+design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 built (PR of 2026-11-17), PR #1095), 3 together with the leads of 1 (D1 has merged;
 the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
 closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
@@ -619,9 +619,10 @@ Ordered by expected value for the library.
    - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
      effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
      component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
-     No input has a small separable part (box rule: all at least 8.46 % of the scene). Open: bugfix F1, report the loss (29 of 54
-     procedural scenes lose a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
-     for open inputs, the post-resolve cleanup).
+     No input has a small separable part (box rule: all at least 8.46 % of the scene). Bugfix F1 built 2026-11-17 (section 6.1 of the note; `LostFarPart` / new `LostFarOpenPart`): it reports the loss. Before it, 29 of 54
+     procedural scenes lost a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
+     for open inputs, the post-resolve cleanup. Now 28 are reported; the 29th is a box lost inside its own part, out of scope. The
+     corpus is unchanged (0 of 800 flips).
    - The earlier pointer to "183 `robust` misses" is stale: on master 86e94029 the strict misses are 252 of 800 (first 123, holdout
      129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 is probably 400 - 217 of the holdout run of
      2026-10-25, before the exact resolve stage.)
@@ -682,7 +683,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    rule (upper bound one run). Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
-7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 open
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 built 2026-11-17
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
 8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).
