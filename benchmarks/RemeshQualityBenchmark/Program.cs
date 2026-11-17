@@ -11,6 +11,8 @@
 // si_from=<k>: only from pass k on (0-based; an alternative that skips the check in the first passes);
 // pin=<deg>: MeshConstraintUtil.PinSharpVertices with this angle deficit in the "on" runs;
 // sizing=<f>: Remesher.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, f) in the "on" runs
+// sweep=1: every buffered move pass (smoothing, projection) is also checked with MeshSweepCollision over its motion
+//   (outside the reported time; Sweep* fields of the JSON, a stderr line per pass that starts and ends without a pair)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -113,11 +115,13 @@ static class Program
         public SweepRemesher(DMesh3 m) : base(m) { }
         protected override void ApplyVertexBuffer(bool bParallel)
         {
+            var sw = Stopwatch.StartNew();
             int nv = Mesh.MaxVertexID;
             var before = new Vector3d[nv];
             for (int v = 0; v < nv; ++v) before[v] = Mesh.IsVertex(v) ? Mesh.GetVertex(v) : Vector3d.Zero;
+            sweepSeconds += sw.Elapsed.TotalSeconds;
             base.ApplyVertexBuffer(bParallel);
-            var sw = Stopwatch.StartNew();
+            sw.Restart();
             var after = new Vector3d[nv];
             bool moved = false;
             for (int v = 0; v < nv; ++v) {
