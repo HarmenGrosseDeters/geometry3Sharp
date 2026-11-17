@@ -49,6 +49,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
       - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactTouchOnlyFilterTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
       - 'tests/geometry3Sharp.Tests/GeneratedPredicatesIndirectTests.cs'
       - 'tests/geometry3Sharp.Tests/PolyhedralEnvelopeTests.cs'

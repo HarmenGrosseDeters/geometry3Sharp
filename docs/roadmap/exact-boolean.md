@@ -729,6 +729,10 @@ discards; an older probe found about a third of the 1-thread time there.
 - If it shows a realistic gain of at least 10 % that stays bit-identical with no new exact arithmetic, that lever is the
   last speed PR of the boolean.
 - Otherwise the speed work stops.
+- **Result (probe A, #967; owner 2026-11-16):** the gain was below the 10 % bar (the filter first in `touch_only`: pairs phase -21 % / -13 %,
+  whole boolean -8.8 % at 1 thread, about -1 to -5 % at 4, about -3 % extrapolated at 12; [BOOLEAN_THREAD_SCALING.md](../perf/BOOLEAN_THREAD_SCALING.md) sections 7.1, 7.5),
+  but the owner approved it on 2026-11-16 as the last speed PR because its cost is small (an existing filter, bit-identical output, no new exact
+  arithmetic). The speed work stops after it.
 - Either way T6 closes with a report: the measured 12-thread ratio on the owner's machine (median and summed, with and
   without rounding) and the cleanliness of both sides.
 

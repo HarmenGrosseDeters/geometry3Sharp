@@ -1,9 +1,9 @@
 diff --git a/core/PairProbe.cs b/core/PairProbe.cs
 new file mode 100644
-index 00000000..e0fba3d4
+index 00000000..be7ace7d
 --- /dev/null
 +++ b/core/PairProbe.cs
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,122 @@
 +// PROBE (perf/pair_probe.patch, never part of the library): counts and times the candidate pairs of the boolean's pair stage
 +// (intersections.pairs: the self-join of each operand with touch_only, the pairs of the two operands with separated) and the
 +// outcome of intersect() on the pairs that stay. G3_PAIR_PROBE=1: counters and the time of the sub-steps of the self-join
@@ -18,8 +18,6 @@ index 00000000..e0fba3d4
 +    internal static class PairProbe
 +    {
 +        public static readonly int Mode = int.TryParse(Environment.GetEnvironmentVariable("G3_PAIR_PROBE"), out int m) ? m : 0;
-+        /// <summary> G3_PAIR_FILTER=1 (experiment): touch_only asks TriangleTriangleFilter.BeyondShared before the exact test (same answer by its contract) </summary>
-+        public static readonly bool FilterFirst = Environment.GetEnvironmentVariable("G3_PAIR_FILTER") == "1";
 +        /// <summary> G3_PROBE_SERIAL=1: every parallel loop of the boolean runs serially on the calling thread (gParallel.SerialOnThisThread), so that the per-thread wall intervals of a 1-thread run are CPU time (on one core a second pool thread would be counted into every interval) </summary>
 +        public static readonly bool SerialMain = Environment.GetEnvironmentVariable("G3_PROBE_SERIAL") == "1";
 +        public static readonly bool On = Mode > 0, PerPair = Mode > 1, Filter = Mode > 2;
@@ -129,10 +127,10 @@ index 00000000..e0fba3d4
 +    }
 +}
 diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
-index 91558ff5..200dd339 100644
+index 2cfe4b11..934a9dea 100644
 --- a/mesh_ops/ExactMeshArrangement.cs
 +++ b/mesh_ops/ExactMeshArrangement.cs
-@@ -1980,8 +1980,18 @@ namespace g3
+@@ -1987,8 +1987,18 @@ namespace g3
              clock.Lap("intersections.planes");
              // (cancelled: the pairs left are skipped; Compute stops after this phase)
              gParallel.ForRange(pairs.Count, (k) => {
@@ -153,7 +151,7 @@ index 91558ff5..200dd339 100644
              });
              clock.Lap("intersections.intersect");
              CandidatePairs = pairs.Count;
-@@ -2151,24 +2161,35 @@ namespace g3
+@@ -2158,24 +2168,35 @@ namespace g3
                  return 0;
              int self = 0;
              hits.Clear();
@@ -191,7 +189,7 @@ index 91558ff5..200dd339 100644
              return self;
          }
  
-@@ -2208,17 +2229,45 @@ namespace g3
+@@ -2215,17 +2236,45 @@ namespace g3
                  List<Index2i> tasks = tree.SelfPairTasks(SelfJoinTasks);
                  var found = new List<long>[tasks.Count];
                  gParallel.ForRange(tasks.Count, () => new List<Index2i>(), (k, boxPairs) => {
@@ -238,7 +236,7 @@ index 91558ff5..200dd339 100644
                      found[k] = list;
                  });
                  foreach (List<long> list in found)
-@@ -2263,19 +2312,32 @@ namespace g3
+@@ -2270,10 +2319,11 @@ namespace g3
              // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
              // coplanar, so the plane of one meets the other only in the edge)
              int st = -1;       // (shared = 3: the general code, as before)
@@ -252,18 +250,17 @@ index 91558ff5..200dd339 100644
              }
              // corners by point id, so that coincident (unwelded) vertices count as shared
              Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
-             Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
-             // (all non-shared corners of U in T's plane: the coplanar branches of IntersectsBeyondShared without their
-             // Orient3d, which are 0; docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1)
+@@ -2284,11 +2334,18 @@ namespace g3
+             // never changes a decision of IntersectsBeyondShared), and decides 96 % of the pairs that reach here
+             // (docs/perf/BOOLEAN_THREAD_SCALING.md, section 7.1)
+             int decided = TriangleTriangleFilter.BeyondShared(pa, ref A, pb, ref B);
+-            if (decided != TriangleTriangleFilter.Undecided)
++            if (decided != TriangleTriangleFilter.Undecided) {
++                PairProbe.Decision = decided == TriangleTriangleFilter.Intersecting ? PairProbe.DecFilterKept : PairProbe.DecFilterReject;      // PROBE
+                 return decided != TriangleTriangleFilter.Intersecting;
 -            if (st == 0 && shared > 0)
 -                return ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
 -            return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
-+            if (PairProbe.FilterFirst) {      // PROBE experiment
-+                int fr = TriangleTriangleFilter.BeyondShared(pa, ref A, pb, ref B);
-+                if (fr != TriangleTriangleFilter.Undecided) {
-+                    PairProbe.Decision = fr == TriangleTriangleFilter.Intersecting ? PairProbe.DecFilterKept : PairProbe.DecFilterReject;
-+                    return fr != TriangleTriangleFilter.Intersecting;
-+                }
 +            }
 +            if (st == 0 && shared > 0) {
 +                bool rc = ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
@@ -276,7 +273,7 @@ index 91558ff5..200dd339 100644
          }
  
          // the corners of U not shared with T against T's plane (T and U share at most two corners): 1 all strictly on
-@@ -2327,13 +2389,18 @@ namespace g3
+@@ -2340,13 +2397,18 @@ namespace g3
              Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
              // sides with the exact double predicates (same sign as N . (v - a) on the integer grid)
              int[] sT = { ExactPredicates.Orient3d(u0, u1, u2, t0), ExactPredicates.Orient3d(u0, u1, u2, t1), ExactPredicates.Orient3d(u0, u1, u2, t2) };
@@ -297,7 +294,7 @@ index 91558ff5..200dd339 100644
                  intersect_coplanar(ti, ui);
                  return;
              }
-@@ -2343,8 +2410,10 @@ namespace g3
+@@ -2356,8 +2418,10 @@ namespace g3
              bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
              if (apart) {
                  // Stryker disable once all: without the early return the construction below decides the same (slower)
@@ -309,7 +306,7 @@ index 91558ff5..200dd339 100644
                  // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
                  System.Threading.Interlocked.Increment(ref PrefilterRejected);
              }
-@@ -2361,8 +2430,11 @@ namespace g3
+@@ -2374,8 +2438,11 @@ namespace g3
                  System.Threading.Interlocked.Increment(ref PrefilterChecked);
              if (checkPrefilter && proper && apart != (c > 0))
                  throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
