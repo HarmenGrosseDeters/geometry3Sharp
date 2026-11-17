@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -14,6 +14,7 @@ static class Program
     {
         string Arg(string name, string def) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : def; }
         if (args.Contains("--phases")) { Phases(); return; }
+        if (args.Contains("--alloc")) { Alloc(args.Contains("--serial"), int.Parse(Arg("--n", "256"))); return; }
         if (args.Contains("--quality")) { Quality(); return; }
         int[] res = Arg("--res", "32,64,128,256").Split(',').Select(int.Parse).ToArray();
         string[] shapes = Arg("--shapes", string.Join(",", Shapes.Names)).Split(',');
@@ -76,6 +77,34 @@ static class Program
         public ImplicitFunctionDelegate(Func<Vector3d, double> f) { this.f = f; }
         public double Value(ref Vector3d pt) { return f(pt); }
         public AxisAlignedBox3d Bounds() { return AxisAlignedBox3d.Empty; }
+    }
+
+    // time, allocated bytes and GC pause of AdaptiveDualContouring (tolerance 0.25) per shape, min time of 3 runs after a warm-up:
+    // dotnet run --project benchmarks/DualContouringSimplification -c Release -- --alloc [--serial] [--n 256]   (4 threads: DOTNET_PROCESSOR_COUNT=4)
+    static void Alloc(bool serial, int N)
+    {
+        Console.WriteLine("| shape | threads | N | triangles | min ms | allocated MB | GC pause ms (run 3) | mesh hash |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|");
+        foreach (string shape in new[] { "csg", "bracket", "sphere" }) {
+            double ext = Shapes.Extent(shape);
+            var f = Shapes.Get(shape);
+            Func<AdaptiveDualContouring> make = () => new AdaptiveDualContouring() { Implicit = new ImplicitFunctionDelegate(f), InsideIsLess = true, CellSize = 2 * ext / N, Tolerance = 0.25,
+                ParallelCompute = !serial, Bounds = new AxisAlignedBox3d(new Vector3d(-ext, -ext, -ext), new Vector3d(ext, ext, ext)) };
+            make().Generate();
+            long best = long.MaxValue, alloc = 0; TimeSpan pause = TimeSpan.Zero; DMesh3 mesh = null;
+            for (int run = 0; run < 3; ++run) {
+                var ad = make();
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                long a0 = GC.GetTotalAllocatedBytes(true); TimeSpan p0 = GC.GetTotalPauseDuration();
+                var sw = Stopwatch.StartNew(); ad.Generate(); long ms = sw.ElapsedMilliseconds;
+                if (ms < best) best = ms;
+                alloc = GC.GetTotalAllocatedBytes(true) - a0; pause = GC.GetTotalPauseDuration() - p0; mesh = ad.Mesh;
+            }
+            ulong h = 14695981039346656037UL;
+            foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); foreach (double d in new[] { p.x, p.y, p.z }) h = unchecked((h ^ (ulong)BitConverter.DoubleToInt64Bits(d)) * 1099511628211UL); }
+            foreach (int t in mesh.TriangleIndices()) { Index3i i = mesh.GetTriangle(t); foreach (int k in new[] { i.a, i.b, i.c }) h = unchecked((h ^ (ulong)k) * 1099511628211UL); }
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "| {0} | {1} | {2} | {3} | {4} | {5:F0} | {6:F0} | {7:X16} |", shape, serial ? 1 : Environment.ProcessorCount, N, mesh.TriangleCount, best, alloc / 1e6, pause.TotalMilliseconds, h));
+        }
     }
 
     // time per phase of the uniform contour and the simplification (upper bound for a sparse construction)

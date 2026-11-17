@@ -55,12 +55,14 @@ namespace g3
                 mMatrix = new double[size*size];
                 mDiagonal = new double[size];
                 mSuperdiagonal = new double[size - 1];
-                mGivens = new List<GivensRotation>(maxIterations * (size - 1));
+                // (grows on demand: a solve needs a handful of rotations, not maxIterations*(size-1); Solve clears it, so a solver can be reused)
+                mGivens = new List<GivensRotation>(Math.Min(maxIterations * (size - 1), 32));
                 mPermutation = new int[size];
                 mVisited = new int[size];
                 mPVector = new double[size];
                 mVVector = new double[size];
                 mWVector = new double[size];
+                mItems = new SortItem[size];
             }
         }
 
@@ -575,7 +577,7 @@ namespace g3
 
             // Compute the permutation induced by sorting.  Initially, we start with
             // the identity permutation I = (0,1,...,N-1).
-            SortItem[] items = new SortItem[mSize];
+            SortItem[] items = mItems;   // (a field: a solve allocates nothing)
             for (int i = 0; i < mSize; ++i) {
                 items[i].eigenvalue = mDiagonal[i];
                 items[i].index = i;
@@ -658,6 +660,7 @@ namespace g3
             public double eigenvalue;
             public int index;
         };
+        private SortItem[] mItems;  // N elements
         private int[] mPermutation;  // N elements
         private int[] mVisited;  // N elements
         private int mIsRotation;  // 1 = rotation, 0 = reflection, -1 = unknown

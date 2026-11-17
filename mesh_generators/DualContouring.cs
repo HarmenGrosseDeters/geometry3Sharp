@@ -383,7 +383,7 @@ namespace g3
             int[][][] cellGroupCrossings = RecordVertexCrossings ? new int[cellList.Length][][] : null;
             bool[][] cellGroupFeature = new bool[cellList.Length][];
             int transitionErrors = 0;
-            Action<int> place_vertices = (idx) => {
+            Action<int, SymmetricEigenSolver> place_vertices = (idx, qefSolver) => {
                 CellCrossings cc = cellCrossings[cellList[idx]];
                 int[] groups, parent;
                 List<int> keys;
@@ -418,7 +418,7 @@ namespace g3
                         for (int i = 0; i < faceGroups.Length; ++i)
                             if (faceGroups[i] == g)
                                 edges.Add(cc.FaceCrossings[i]);
-                    pos[g] = solve_qef(cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
+                    pos[g] = solve_qef(qefSolver, cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
                     foreach (int ci in edges)
                         centroid[g] += hpoints[ci];
                     centroid[g] /= Math.Max(edges.Count, 1);
@@ -445,9 +445,11 @@ namespace g3
                 cellGroupFeature[idx] = feature;
             };
             if (ParallelCompute)
-                gParallel.ForEach(Interval1i.Range(cellList.Length), place_vertices);
-            else
-                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx);
+                gParallel.ForRange(cellList.Length, () => new SymmetricEigenSolver(3, 64), place_vertices);
+            else {
+                var qefSolver = new SymmetricEigenSolver(3, 64);   // (one solver for all cells: Solve resets its state)
+                for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx, qefSolver);
+            }
             TransitionErrors += transitionErrors;
             phase("vertices");
             if (CancelF()) return;
@@ -1598,6 +1600,12 @@ namespace g3
 
         internal Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
         {
+            return solve_qef(new SymmetricEigenSolver(3, 64), cellMin, cellSize, edges, points, normals, out massPoint, out planeNormal, out isFeature);
+        }
+
+        /// <summary> as above, with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
                 mass += points[ci];
@@ -1614,7 +1622,6 @@ namespace g3
                 b += d * n;
             }
 
-            SymmetricEigenSolver solver = new SymmetricEigenSolver(3, 64);
             solver.Solve(A, SymmetricEigenSolver.SortType.Decreasing);
             double[] evals = solver.GetEigenvalues();
             Vector3d x = Vector3d.Zero;
