@@ -17,8 +17,15 @@ namespace gs
 	{
 		public DMesh3 Mesh;
 
-		/// <summary> maximum distance between corresponding vertices of duplicate triangles </summary>
-		public double VertexTolerance = MathUtil.ZeroTolerancef;
+		/// <summary>
+		/// maximum distance between corresponding vertices of duplicate triangles. A finite value is an absolute
+		/// distance. NaN (default): relative to the mesh, MathUtil.ZeroTolerancef times the diagonal of the
+		/// bounds of its triangles (the 1.0.324 value 1e-6 for a mesh of diagonal 1); see EffectiveVertexTolerance
+		/// </summary>
+		public double VertexTolerance = double.NaN;
+
+		/// <summary> the vertex tolerance the last Apply() used (model units) </summary>
+		public double EffectiveVertexTolerance { get; private set; }
         /// <summary> if true, only remove duplicates whose normals agree (dot &gt;= 0.99) </summary>
         public bool CheckOrientation = true;
 
@@ -35,6 +42,9 @@ namespace gs
 		public virtual bool Apply() {
             Removed = 0;
 
+            double VertexTolerance = double.IsNaN(this.VertexTolerance)
+                ? MeshScaleTolerance.Relative(Mesh, MathUtil.ZeroTolerancef) : this.VertexTolerance;
+            EffectiveVertexTolerance = VertexTolerance;
             double merge_r2 = VertexTolerance * VertexTolerance;
 
             // construct hash table for edge midpoints
