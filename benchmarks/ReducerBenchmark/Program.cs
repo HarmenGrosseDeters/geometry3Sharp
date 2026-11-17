@@ -8,6 +8,7 @@
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries     (envelope vs bounds per query)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- share [rounds]  (shared deviation queries A/B)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- twosided [rounds] [files]  (MaxDeviationTwoSided, TwoSided.cs)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- loop [rounds] [load]  (per-collapse loop: parallel, serial, threshold; DeviationLoop.cs)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- hashes      (SHA-256 of every reduced mesh: unchanged results)
 using System;
 using System.Diagnostics;
@@ -172,6 +173,7 @@ static class Program
         if (args.Length > 0 && args[0] == "hashes") { ReducerHashes.Run(BumpySphere, Terrain); return; }
         if (args.Length > 0 && args[0] == "share") { Share(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0 && args[0] == "queries") { Queries(); return; }
+        if (args.Length > 0 && args[0] == "loop") { DeviationLoop.Run(BumpySphere, Terrain, args); return; }
         if (args.Length > 0 && args[0] == "folds") { Folds(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         var meshes = new (string, DMesh3)[] { ("bumpy sphere", BumpySphere(130)), ("terrain", Terrain(300)) };
         Console.WriteLine("| mesh | triangles | tolerance (of bbox diagonal) | with check: triangles | time with check | time without, same count | check share | deviation without check |");

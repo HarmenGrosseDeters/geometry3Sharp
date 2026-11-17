@@ -190,6 +190,13 @@ namespace g3
         internal bool ShareDeviationQueries = true;
 
         /// <summary>
+        /// (tests, benchmarks) a collapse's MaxDeviation check certifies its triangles in parallel when there are at least this many,
+        /// else in a loop on the calling thread; the answer is the same either way (the AND of the triangles' answers, from exact
+        /// tree results). 0: always in parallel
+        /// </summary>
+        internal int DeviationParallelMinTriangles = 0;
+
+        /// <summary>
         /// if true (default), boundary vertices are not moved: a collapse involving a boundary vertex keeps
         /// it at its position (if both ends are boundary vertices, one of them is kept), and
         /// boundary planes are added to the quadrics (BoundaryQuadricWeight). You probably want this.
@@ -1094,10 +1101,15 @@ namespace g3
                 }
             }
             bool ok = true;
-            gParallel.ForRange(tris.Count, (k) => {
-                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
-                    ok = false;
-            });
+            if (tris.Count < DeviationParallelMinTriangles) {
+                for (int k = 0; k < tris.Count && ok; ++k)
+                    ok = deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache);
+            } else {
+                gParallel.ForRange(tris.Count, (k) => {
+                    if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
+                        ok = false;
+                });
+            }
             if (cache != null) {
                 DeviationCacheLookups += cache.Lookups; DeviationCacheHits += cache.Hits; DeviationCacheIsWithinHits += cache.IsWithinHits;
             }
