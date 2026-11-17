@@ -63,6 +63,10 @@ the future" list, ordered by priority; this section names only what is in flight
   the pass-through of RC4a's budget (#1068) is in review; RC4b is a documented limit; no budget raise below D = 50000;
   open: #1067 (p0008) and the owner's local campaigns (#1038). The certifying checker is merged (#1061).
   [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
+- **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
+  and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is in review; 26 of 26 reduced
+  results without contacts are clean, contacts limit how far a reduction goes (a contact line of m vertices holds about 12 m
+  triangles). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items), [benchmark](../benchmarks/SolidBooleanBenchmark/README.md)
 - **Exact imprint / deprecation:** decided (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean`, PR
   #1037 in review.
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):

@@ -446,6 +446,18 @@ Checked against the owner's decisions, git and the open PRs and issues on 2026-1
 
 Open:
 
+- **`SolidBooleanPipeline`: soups in, a clean solid with few triangles out (owner 2026-11-17, in review).** An opt-in helper
+  (`mesh_ops/SolidBooleanPipeline.cs`, usage in [OPERATIONS.md](../OPERATIONS.md#booleans), numbers in
+  [benchmarks/SolidBooleanBenchmark](../../benchmarks/SolidBooleanBenchmark/README.md)): per input `IsWindingClosed`, a repair
+  only for an input that fails it and that the boolean refuses (`MeshAutoRepair`; `MeshRobustRepair` only as the explicit
+  fallback), `ExactMeshBoolean` with `AllowOpenMeshes = false` and `StrictRounding = true`, one `Reducer` run with
+  `PreventSelfIntersections` and `MinCollapseTriangleQuality = 0.02` (without it the `Reducer` leaves zero-area triangles on
+  flat creases), `NotCleanReason` and a report with the stop reason. No default of `ExactMeshBoolean`, `Reducer` or
+  `MeshRobustRepair` changed. Measured on 17 procedural soup cases: 26 of 26 reduced results without contacts clean (25 % and
+  10 % of the boolean result); results with contacts keep them and `NotCleanReason` reports "self-intersections" at the
+  touching points. Limit: a contact line of m vertices holds about 12 m triangles (the twin vertices cannot be collapsed one
+  by one); options, not built: a paired collapse of the twin edges in the `Reducer`, or opening the touching sheets by a gap
+  (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
 - **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
   and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
   exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
