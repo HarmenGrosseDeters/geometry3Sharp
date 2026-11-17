@@ -93,7 +93,7 @@ Xeon at 2.1 GHz (cloud container), after one untimed warm-up run of the whole pi
 - filleted box (1 x 0.7 x 0.5 half extents, fillet radius 0.15, `s` 0.08);
 - noisy sphere (vertices moved +-0.2 h along the normal).
 
-The `s` values are 2-3 % of the bounding box diagonal. Hausdorff is measured against a remesh at `h / 2`. The
+The `s` values are 1.6-3 % of the bounding box diagonal. Hausdorff is measured against a remesh at `h / 2`. The
 symmetric value includes the input's distance to the holes (defect faces are not triangulated). The one-sided value
 from the output to the reference measures the faces that exist. Command: `dotnet run -c Release --project
 benchmarks/QuadRemeshSpike` (default `sweeps=40`).
@@ -131,7 +131,8 @@ Notes on the table:
 
 Sensitivity runs (same command with one parameter changed; field + pos rows):
 - **The regularizer** `eps` of the middle point (0.01 and 0.2 instead of 0.05) barely matters: quads 93.8-99.0 %,
-  irregular vertices 20-144, at most 1 defect face, one-sided Hausdorff 0.20-0.67 %.
+  irregular vertices 20-144, at most 1 defect face, at most 2 non-manifold triangles (the sphere at
+  `eps=0.01`), one-sided Hausdorff 0.20-0.67 %.
 - **Sweeps** barely matter either; the hierarchy does the work. With 10 sweeps per level: quads 93.7-98.5 %,
   irregular 26-140, and position time 0.07-0.21 s. With 100: quads 93.8-98.8 %, irregular 16-139, and 0.55-1.57 s.
 - **Finer input** (`ratio=0.33`, 14k-41k vertices): quads 94.2-98.3 %, irregular 28-124. The noisy sphere has 2
@@ -169,7 +170,7 @@ Findings:
    extraction cleanup and QuadriFlow's min-cost flow target exactly this. The spike has neither.
 4. **Triangle pairing is no path to quality.** On isotropic triangles it gives rhombi: about 80 % quads, but p50
    26 degrees off 90 and only 17-19 % of corners within 70-110 degrees. Per face it has 23-29 % irregular
-   vertices, against 1.1-6.6 % for the field route: about 4 x more on the curved shapes and 22 x on the box. Its
+   vertices, against 1.1-6.6 % for the field route: 4-7 x more on the curved shapes and 22 x on the box. Its
    Hausdorff is no better (0.22-1.01 %). It is fine as a fallback representation, not as a remesher.
 5. **Pure quads by one Catmull-Clark step** roughly double the irregular count (36 on the box, 149-251 elsewhere)
    and halve the edge length. That is not acceptable as the pure-quad path; pure quads need stage 3 proper.
@@ -206,7 +207,8 @@ The steps:
   one with the largest dot product with q_i. The spike keeps q_i fixed and rotates only j's field; this is its own
   choice and is asymmetric.
 - **Middle point.** The lattices of i and j are compared near a common point x. The spike takes x as the point
-  nearest the edge midpoint m that lies in both tangent planes.
+  nearest the edge midpoint m that lies in both tangent planes (approximately, once
+  regularized).
   - Write x = m + alpha n_i + beta n_j. The two plane constraints then give [1 c; c 1] (alpha, beta) = (r_i, r_j),
     with c = n_i.n_j and r_k = n_k.(p_k - m).
   - The system is singular for parallel planes. The paper gives no formula, so the spike chooses a Tikhonov term:
@@ -215,7 +217,8 @@ The steps:
 - **Position compatibility.** Round x to the nearest point a of i's lattice. Then round a to the nearest point b of
   j's lattice: two nearest-point roundings, the spike's own choice. The integer offset of the two lattice origins
   is the difference of the two integer coordinate pairs.
-- **Smoothing.** For vertex i, minimize sum_j |(o_i + delta) - b_j|^2 over a shift delta. The rounding is fixed
+- **Smoothing.** For vertex i, minimize sum_j |(a_j + delta) - b_j|^2 over a shift delta, where a_j is i's
+  lattice point for edge ij. The rounding is fixed
   near the optimum, so shifting o_i shifts every a_j by delta. The minimizer is delta = mean_j (b_j - a_j), with
   uniform weights (own choice). Then project o_i + delta into i's tangent plane and round it to the lattice point
   nearest v_i. Gauss-Seidel in vertex order makes the result deterministic.
@@ -234,7 +237,7 @@ before it.
 | stage | content | effort | risk | go / no-go gate |
 |---|---|---|---|---|
 | **0. Decisions** | The owner decisions below. | - | - | Decided 2026-11-17. |
-| **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 4.0 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
+| **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 3.7 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
 | **2. Position field and extraction (quad-dominant)** | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
 | **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within 2 x stage 2's time. |
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |

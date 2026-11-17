@@ -314,7 +314,7 @@ static class Program
         return c;
     }
 
-    // Gauss-Seidel on E_i = sum_j |o_i + delta - (its lattice match of o_j)|^2: shifting o_i by delta moves its
+    // Gauss-Seidel on E_i = sum_j |a_j + delta - b_j|^2 (a_j, b_j: the matched lattice points of edge ij): shifting o_i by delta moves its
     // lattice points by delta, so the minimizer is the mean misfit delta = mean_j (b_j - a_j) (uniform weights,
     // own choice); then back into the tangent plane and to the representative nearest the vertex.
     static void Smooth(Level L, Vector3d[] O, double s, int sweeps)
