@@ -24,7 +24,8 @@ def load(path):
         if isinstance(v, str) and v in special:
             return special[v]
         return v
-    return [{k: fix(v) for k, v in json.loads(line).items()} for line in open(path) if line.strip()]
+    with open(path, encoding="utf-8") as f:
+        return [{k: fix(v) for k, v in json.loads(line).items()} for line in f if line.strip()]
 
 
 def is_valid(r):
@@ -78,9 +79,10 @@ def summary(rows):
 
 
 def percentile(xs, q):
+    # NaN (eg a time of an evaluation that did not run) is no value: left out, as in med
+    xs = sorted(x for x in xs if x is not None and x == x)
     if not xs:
         return float("nan")
-    xs = sorted(xs)
     return xs[min(len(xs) - 1, int(q * len(xs)))]
 
 

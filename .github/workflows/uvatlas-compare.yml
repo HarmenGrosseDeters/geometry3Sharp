@@ -93,6 +93,7 @@ jobs:
           { echo "xatlas commit: $XATLAS_COMMIT"; echo; cat results/analysis.md; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the metrics (JSON lines and analysis, no meshes)
+        if: always()   # keep the JSON lines also when the analysis fails
         uses: actions/upload-artifact@v4
         with:
           name: uvatlas-compare-results
