@@ -205,7 +205,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(free.AlphaCoarsening, high.AlphaCoarsening);
             Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(high.Result));
             // (a cap just at the factor, and the next value below it)
-            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(Wrap(flat, 50, budget, free.AlphaCoarsening).Result));
+            MeshAlphaWrap atFactor = Wrap(flat, 50, budget, free.AlphaCoarsening);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(atFactor.Result));
+            Assert.Equal(free.UsedAlpha, atFactor.UsedAlpha);   // (the uncapped alpha bit for bit, not requested alpha * factor)
+            Assert.Equal(free.UsedOffset, atFactor.UsedOffset);
             Assert.Equal(free.AlphaCoarsening * 0.999, Wrap(flat, 50, budget, free.AlphaCoarsening * 0.999).AlphaCoarsening);
             // (a value below 1 counts as 1: not coarsened, the wrap of the requested alpha)
             MeshAlphaWrap one = Wrap(flat, 50, budget, 0.5);

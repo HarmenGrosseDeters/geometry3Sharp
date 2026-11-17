@@ -59,8 +59,8 @@ jobs:
           e = os.environ
           if not re.fullmatch(r"[1-9][0-9]?", e["SHARDS"]) or not 1 <= int(e["SHARDS"]) <= 64:
               sys.exit("shards must be 1 to 64")
-          if not re.fullmatch(r"[ABCDE]{1,5}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]):
-              sys.exit("configs must be distinct letters of ABC")
+          if not re.fullmatch(r"[ABCDE]{1,5}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]) or "A" not in e["CONFIGS"]:
+              sys.exit("configs must be distinct letters of ABCDE and include A, the reference of the summary")
           if not re.fullmatch(r"[0-9 ]*", e["IDS"]):
               sys.exit("ids must be numbers separated by spaces")
           if not re.fullmatch(r"[0-9]*:[0-9]*", e["RANGE"]):
@@ -91,8 +91,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Check that the ref reads BENCH_WRAP_BUDGET in the wrappipe mode
-        run: grep -q 'wrap_estimate' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks the BENCH_WRAP_BUDGET fix, config C would equal A"; exit 1; }
+      - name: Check that the ref reads BENCH_WRAP_BUDGET in the wrappipe mode (and BENCH_WRAP_COARSEN_CAP for D and E)
+        env:
+          CONFIGS: ${{ inputs.configs }}
+        run: |
+          grep -q 'wrap_estimate' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks the BENCH_WRAP_BUDGET fix, config C would equal A"; exit 1; }
+          case "$CONFIGS" in *D*|*E*) grep -q 'BENCH_WRAP_COARSEN_CAP' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks BENCH_WRAP_COARSEN_CAP, configs D and E would equal C"; exit 1; } ;; esac
       - name: Build the benchmark
         run: |
           dotnet build benchmarks/MeshRepairBenchmark/MeshRepairBenchmark.csproj -c Release

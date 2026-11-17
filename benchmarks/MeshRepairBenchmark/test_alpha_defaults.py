@@ -58,7 +58,7 @@ class RunAndMerge(unittest.TestCase):
             self.assertEqual(json.loads(row), {"file": "2.stl", "status": "timeout_or_crash"})
 
             a, b = os.path.join(t, "a"), os.path.join(t, "b")
-            for d, rows in ((a, ["1", "2"]), (b, ["2", "3"])):  # (only A, B, C are written below)  # mesh 2 in both: the first shard's row wins
+            for d, rows in ((a, ["1", "2"]), (b, ["2", "3"])):  # mesh 2 in both: the first shard's row wins
                 os.makedirs(os.path.join(d, "raw"))
                 for c in "ABCD":
                     open(os.path.join(d, "raw", c + ".jsonl"), "w").write("".join(json.dumps({"file": r + ".stl", "src": d}) + "\n" for r in rows))
