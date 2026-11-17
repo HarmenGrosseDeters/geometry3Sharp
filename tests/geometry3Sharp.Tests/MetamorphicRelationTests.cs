@@ -120,12 +120,15 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> BooleanFamilies() => ExactBooleanMetamorphicTests.TetFamilies.Keys.Select(f => new object[] { f });
 
         /// <summary>
-        /// Known defect #985 (SafeRounding): for an exponent of magnitude BooleanKnownDefectFrom or more, the union of the flattened
-        /// inputs is an open result with status Success (0 triangles) where the unflattened one is closed. Measured on master: 689 of the
-        /// 1656 rows of the sweep (6 families, 3 axes, 92 exponents). Below the magnitude every row passes.
+        /// Known limit after the fix of #985 (SafeRounding no longer empties a non-empty result: SafeRoundingLastComponentTests):
+        /// for an exponent of magnitude BooleanKnownDefectFrom or more, a flattened row can be not clean where the unflattened one is
+        /// (degenerate triangles: the flattened input itself is degenerate by the relative threshold; or a component the repair's
+        /// edits turned inside out), always reported (RoundingClean false). Never open or empty: the census asserts it. Measured:
+        /// 301 of the 1656 rows of the sweep (6 families, 3 axes, 92 exponents; 689 rows before the fix, all open). Below the
+        /// magnitude every row passes.
         /// </summary>
         public const int BooleanKnownDefectFrom = 18;
-        public const int BooleanKnownDefectRows = 689;
+        public const int BooleanKnownDefectRows = 301;
 
         /// <summary> "" if the relation holds for the row, else the violation (for the 3 operations; the first one reported) </summary>
         static string BooleanViolation(string family, int axis, int e)
@@ -166,15 +169,15 @@ namespace geometry3Sharp.Tests
             BooleanFamilies().SelectMany(f => new[] { -MetamorphicRelations.AnisotropicLimit, MetamorphicRelations.AnisotropicLimit }.Select(e => new object[] { f[0], e }));
 
         /// <summary>
-        /// PR tier: the known defect #985 at the ends of the range, strict per row: each family must still show the defect (a union whose
-        /// result is open where the unflattened one is closed) at 2^-46 and 2^+46, flattened along x. Any other failure is not the pin. A fix
-        /// makes this fail; then remove the pin and update the census count (BooleanKnownDefectRows).
+        /// PR tier: #985 at the ends of the range (2^-46 and 2^+46, flattened along x), strict per row: no result is open where the
+        /// unflattened one is closed (the defect, fixed), and a row that still violates the relation does so only as "not clean", the
+        /// known limit (BooleanKnownDefectRows)
         /// </summary>
         [Theory, MemberData(nameof(BooleanFamilyAtEnd))]
-        public void A1_ExactBoolean_KnownDefect985_EndsStillViolate(string family, int e)
+        public void A1_ExactBoolean_985_EndsAreNotOpen(string family, int e)
         {
             string v = BooleanViolation(family, 0, e);
-            Assert.True(v.Contains("the result is not closed"), $"{family} at 2^{e}: #985 does not show now (\"{v}\"): remove this pin and update BooleanKnownDefectRows");
+            Assert.True(v == "" || v.Contains(": not clean ("), $"{family} at 2^{e}: {v}");
         }
 
         public static IEnumerable<object[]> BooleanFamilyAxisExponents() =>
@@ -185,7 +188,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// Nightly (Category=Nightly: the sweep is 1656 rows of 3 operations each, about 7 s on net10, so it is not a PR check): the rows at
-        /// or above the known defect that violate the relation must number exactly BooleanKnownDefectRows (#985). This is a count, not the
+        /// or above the known limit that violate the relation must number exactly BooleanKnownDefectRows (#985), each one only as "not
+        /// clean" (an open or empty result anywhere fails, as does any violation below the boundary). This is a count, not the
         /// set of rows: a fix of one row together with a new violation in another keeps the count. The per-row pins in the PR tier and the
         /// known-defect ends of FullSweep narrow that gap. A row below the boundary is asserted by FullSweep.
         /// </summary>
@@ -193,16 +197,16 @@ namespace geometry3Sharp.Tests
         public void A1_ExactBoolean_KnownDefect_Census()
         {
             int violating = 0;
-            var belowBoundary = new List<string>();
+            var unexpected = new List<string>();   // below the boundary, or not a "not clean" violation
             foreach (string family in ExactBooleanMetamorphicTests.TetFamilies.Keys)
                 for (int axis = 0; axis < 3; ++axis)
                     foreach (int e in MetamorphicRelations.AnisotropicAll()) {
                         string v = BooleanViolation(family, axis, e);
                         if (v == "") continue;
-                        if (Math.Abs(e) < BooleanKnownDefectFrom) belowBoundary.Add(v);
+                        if (Math.Abs(e) < BooleanKnownDefectFrom || v.Contains(": not clean (") == false) unexpected.Add(v);
                         else violating++;
                     }
-            Assert.True(belowBoundary.Count == 0, string.Join("\n", belowBoundary.Take(10)));
+            Assert.True(unexpected.Count == 0, string.Join("\n", unexpected.Take(10)));
             Assert.Equal(BooleanKnownDefectRows, violating);
         }
 
