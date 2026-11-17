@@ -312,9 +312,6 @@ namespace geometry3Sharp.Tests
             { "MeshBoolean|scale 2^-10", "R6" },
             { "MeshBoolean|scale 2^-24", "R6" },
             { "MeshGeodesicDistance|rotated, scale 1e-3, utm", "R16" },
-            { "MeshIsoCurves|scale 2^-24", "R15" },
-            { "MeshIterativeSmooth|+Inf vertex", "R13" },
-            { "MeshIterativeSmooth|NaN vertex", "R13" },
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|utm", "R7" },
             // QA 2.0 T1 (RobustnessSweepTests.GapOps.cs, .Families.cs)
@@ -324,10 +321,6 @@ namespace geometry3Sharp.Tests
             { "MeshInsertPolygon|scale 2^-24", "R28" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+160", "R31" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+300", "R31" },
-            { "MeshDeviation|extreme scale 1E+160", "R35" },
-            { "MeshDeviation|extreme scale 1E+300", "R35" },
-            { "MeshDeviation|extreme scale 1E-160", "R35" },
-            { "MeshDeviation|extreme scale 1E-310", "R35" },
         };
 
         static readonly object ReportLock = new object();

@@ -235,8 +235,11 @@ Verified by a search on 2026-11-16 (title, authors, venue, DOI where given); no 
   file: its bound (reference x 2^|e|) was checked by the probe of the sweep (vertex counts 270 at 2^-8, 4274 at 2^-12, 8546 at 2^-13,
   both signs), not by a parent run.
 - Sweeps on master found two defects, not fixed here, pinned with their issues: **#985** (`ExactMeshBoolean` with SafeRounding,
-  the union of flattened inputs at 2^±18 and beyond: an empty, open result with status Success; 689 of the 1656 rows) and
-  **#986** (`QualityMesh2` returns Empty for a valid pentagon at 2^±41 and beyond).
+  the union of flattened inputs at 2^±18 and beyond: an empty, open result with status Success; 689 of the 1656 rows; fixed
+  2026-11-17: SafeRounding keeps every component where a thin input's result would be emptied, and 301 rows remain that
+  are closed but not clean, reported) and
+  **#986** (`QualityMesh2` returns Empty for a valid pentagon at 2^±41 and beyond; settled 2026-11-17 as the documented limit of the
+  automatic tolerance, O11: Empty with a diagnostic, and the A1 rows from |e| = 41 assert it, docs/roadmap/meshing2d.md).
 - Caveat on the 2D mesher: its output size follows the aspect ratio (a sliver needs points along its length), so A1 bounds
   it by the reference times 2^|e|, not by the reference. Where the input's Steiner limit is reached the output says so.
 - Not done: Stryker runs on the new file (not in the mutation config); the sensitivity check is the parent runs above.

@@ -120,12 +120,15 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> BooleanFamilies() => ExactBooleanMetamorphicTests.TetFamilies.Keys.Select(f => new object[] { f });
 
         /// <summary>
-        /// Known defect #985 (SafeRounding): for an exponent of magnitude BooleanKnownDefectFrom or more, the union of the flattened
-        /// inputs is an open result with status Success (0 triangles) where the unflattened one is closed. Measured on master: 689 of the
-        /// 1656 rows of the sweep (6 families, 3 axes, 92 exponents). Below the magnitude every row passes.
+        /// Known limit after the fix of #985 (SafeRounding no longer empties a non-empty result: SafeRoundingLastComponentTests):
+        /// for an exponent of magnitude BooleanKnownDefectFrom or more, a flattened row can be not clean where the unflattened one is
+        /// (degenerate triangles: the flattened input itself is degenerate by the relative threshold; or a component the repair's
+        /// edits turned inside out), always reported (RoundingClean false). Never open or empty: the census asserts it. Measured:
+        /// 301 of the 1656 rows of the sweep (6 families, 3 axes, 92 exponents; 689 rows before the fix, all open). Below the
+        /// magnitude every row passes.
         /// </summary>
         public const int BooleanKnownDefectFrom = 18;
-        public const int BooleanKnownDefectRows = 689;
+        public const int BooleanKnownDefectRows = 301;
 
         /// <summary> "" if the relation holds for the row, else the violation (for the 3 operations; the first one reported) </summary>
         static string BooleanViolation(string family, int axis, int e)
@@ -166,15 +169,15 @@ namespace geometry3Sharp.Tests
             BooleanFamilies().SelectMany(f => new[] { -MetamorphicRelations.AnisotropicLimit, MetamorphicRelations.AnisotropicLimit }.Select(e => new object[] { f[0], e }));
 
         /// <summary>
-        /// PR tier: the known defect #985 at the ends of the range, strict per row: each family must still show the defect (a union whose
-        /// result is open where the unflattened one is closed) at 2^-46 and 2^+46, flattened along x. Any other failure is not the pin. A fix
-        /// makes this fail; then remove the pin and update the census count (BooleanKnownDefectRows).
+        /// PR tier: #985 at the ends of the range (2^-46 and 2^+46, flattened along x), strict per row: no result is open where the
+        /// unflattened one is closed (the defect, fixed), and a row that still violates the relation does so only as "not clean", the
+        /// known limit (BooleanKnownDefectRows)
         /// </summary>
         [Theory, MemberData(nameof(BooleanFamilyAtEnd))]
-        public void A1_ExactBoolean_KnownDefect985_EndsStillViolate(string family, int e)
+        public void A1_ExactBoolean_985_EndsAreNotOpen(string family, int e)
         {
             string v = BooleanViolation(family, 0, e);
-            Assert.True(v.Contains("the result is not closed"), $"{family} at 2^{e}: #985 does not show now (\"{v}\"): remove this pin and update BooleanKnownDefectRows");
+            Assert.True(v == "" || v.Contains(": not clean ("), $"{family} at 2^{e}: {v}");
         }
 
         public static IEnumerable<object[]> BooleanFamilyAxisExponents() =>
@@ -185,7 +188,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// Nightly (Category=Nightly: the sweep is 1656 rows of 3 operations each, about 7 s on net10, so it is not a PR check): the rows at
-        /// or above the known defect that violate the relation must number exactly BooleanKnownDefectRows (#985). This is a count, not the
+        /// or above the known limit that violate the relation must number exactly BooleanKnownDefectRows (#985), each one only as "not
+        /// clean" (an open or empty result anywhere fails, as does any violation below the boundary). This is a count, not the
         /// set of rows: a fix of one row together with a new violation in another keeps the count. The per-row pins in the PR tier and the
         /// known-defect ends of FullSweep narrow that gap. A row below the boundary is asserted by FullSweep.
         /// </summary>
@@ -193,16 +197,16 @@ namespace geometry3Sharp.Tests
         public void A1_ExactBoolean_KnownDefect_Census()
         {
             int violating = 0;
-            var belowBoundary = new List<string>();
+            var unexpected = new List<string>();   // below the boundary, or not a "not clean" violation
             foreach (string family in ExactBooleanMetamorphicTests.TetFamilies.Keys)
                 for (int axis = 0; axis < 3; ++axis)
                     foreach (int e in MetamorphicRelations.AnisotropicAll()) {
                         string v = BooleanViolation(family, axis, e);
                         if (v == "") continue;
-                        if (Math.Abs(e) < BooleanKnownDefectFrom) belowBoundary.Add(v);
+                        if (Math.Abs(e) < BooleanKnownDefectFrom || v.Contains(": not clean (") == false) unexpected.Add(v);
                         else violating++;
                     }
-            Assert.True(belowBoundary.Count == 0, string.Join("\n", belowBoundary.Take(10)));
+            Assert.True(unexpected.Count == 0, string.Join("\n", unexpected.Take(10)));
             Assert.Equal(BooleanKnownDefectRows, violating);
         }
 
@@ -250,12 +254,14 @@ namespace geometry3Sharp.Tests
         const int PentagonSteinerLimit = 20000;
 
         /// <summary>
-        /// Known defect #986: the mesher returns Empty (0 triangles) for a valid pentagon at an aspect ratio of 2^41 or more, in both
-        /// directions. Below it, the cost of a min-angle mesh is proportional to the aspect ratio (the size law of quality meshing: a sliver
-        /// needs points along its length), so the bound of A1 for this operation is the reference's count times 2^|e| (within CountFactor),
-        /// not the reference's count. Where the Steiner limit of the input is reached, the output says so (SteinerLimitReached): a documented cap.
+        /// The documented limit (#986, owner decision 2026-11-17): from an aspect ratio of 2^41 on, in both directions, the pentagon is narrower
+        /// than the automatic tolerance (2^-41 of the larger of its largest coordinate and its extent, spec O11), its points merge and the result
+        /// is Empty, with a diagnostic that says so. Below it, the cost of a min-angle mesh is proportional to the aspect ratio (the size law of
+        /// quality meshing: a sliver needs points along its length), so the bound of A1 for this operation is the reference's count times
+        /// 2^|e| (within CountFactor), not the reference's count. Where the Steiner limit of the input is reached, the output says so
+        /// (SteinerLimitReached): a documented cap.
         /// </summary>
-        public const int MesherKnownDefectFrom = 41;
+        public const int MesherToleranceLimitFrom = 41;
 
         static void A1_Mesher(int e)
         {
@@ -264,8 +270,15 @@ namespace geometry3Sharp.Tests
             Mesh2Input reference = Pentagon(1), flat = Pentagon(Math.Pow(2, e));
             Mesh2Output a = mesher.Run(reference), b = mesher.Run(flat);
             Assert.True(a.Status == Mesh2Status.Success, "the unflattened input: " + a.Status + " " + a.FailureKind);
-            // rows of the known defect #986 are pinned by A1_QualityMesh2_KnownDefect986_RowsStillEmpty
-            if (Math.Abs(e) >= MesherKnownDefectFrom) return;
+            if (Math.Abs(e) >= MesherToleranceLimitFrom) {
+                // the documented Empty: no triangles, accepted by the oracle (O11), and the library's result names the automatic tolerance
+                Assert.True(b.Status == Mesh2Status.Empty && b.Triangles.Length == 0, $"2^{e}: {b.Status} {b.FailureKind}, not the documented Empty");
+                OracleReport report = Oracle.Check(flat, b, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.True(report.Ok, $"2^{e}: " + report);
+                var direct = new QualityMesh2 { MinAngle = 20, SteinerLimit = PentagonSteinerLimit }.Compute(ConstrainedDelaunayMesh2Candidate.Convert(flat));
+                Assert.Contains(direct.Diagnostics, d => d.StartsWith("no triangle is left, though the input is not on one line", StringComparison.Ordinal));
+                return;
+            }
             Assert.True(b.Status == Mesh2Status.Success, $"2^{e}: {b.Status} {b.FailureKind}");
             long aspect = (long)Math.Pow(2, Math.Abs(e));
             long predicted = a.VertexCount * aspect;
@@ -283,31 +296,19 @@ namespace geometry3Sharp.Tests
         [InlineData(2)]
         public void A1_QualityMesh2_CostAndValidityDoNotDependOnTheFlattening(int e) => A1_Mesher(e);
 
-        /// <summary> PR tier: the known defect #986 at the ends of the range, strict: the mesher must still return Empty (a fix removes this pin) </summary>
+        /// <summary> PR tier: the documented limit at the ends of the range and at its first row (QualityMesh2ToleranceLimitTests sweeps it) </summary>
         [Theory]
         [InlineData(-46)]
+        [InlineData(-41)]
+        [InlineData(41)]
         [InlineData(46)]
-        public void A1_QualityMesh2_KnownDefect986_EndsStillEmpty(int e)
-        {
-            Mesh2Output b = new QualityMesh2Candidate().Run(Pentagon(Math.Pow(2, e)));
-            Assert.True(b.Status == Mesh2Status.Empty, $"2^{e} gives {b.Status} now: #986 is fixed, remove this pin");
-        }
+        public void A1_QualityMesh2_BeyondTheToleranceLimit_IsTheDocumentedEmpty(int e) => A1_Mesher(e);
 
-        // The nightly sweep runs every exponent of A1. Rows of the known defect must be Empty (strict, per row).
+        // The nightly sweep runs every exponent of A1, the rows of the documented limit included.
         public static IEnumerable<object[]> MesherExponents() => MetamorphicRelations.AnisotropicAll().Select(e => new object[] { e });
 
         [Theory, MemberData(nameof(MesherExponents)), Trait("Category", "Nightly")]
         public void A1_QualityMesh2_FullSweep(int e) => A1_Mesher(e);
-
-        /// <summary> Nightly: the rows of the known defect #986 (|e| 41..46) are all Empty; a row that is not is a fix or a new failure. </summary>
-        [Fact, Trait("Category", "Nightly")]
-        public void A1_QualityMesh2_KnownDefect986_RowsStillEmpty()
-        {
-            var bad = new List<string>();
-            foreach (int e in MetamorphicRelations.AnisotropicAll().Where(x => Math.Abs(x) >= MesherKnownDefectFrom))
-                if (new QualityMesh2Candidate().Run(Pentagon(Math.Pow(2, e))).Status != Mesh2Status.Empty) bad.Add(e.ToString());
-            Assert.True(bad.Count == 0, "rows that are no longer Empty (#986 changed): " + string.Join(", ", bad));
-        }
 
         // ---------------------------------------------------------------- P1: the classifiers
         // The winding-number and IsInside samples lie at radius 0.4 and 1.8 of the unit sphere, far from the perturbed vertex: they check

@@ -102,6 +102,110 @@ namespace gs
         }
 
 
+        // The power of two the meshes are scaled by for the queries, or 1. Outside an extent of [2^-100, 2^100] the squares of
+        // the distances overflow or underflow (QA 2.0 T1 finding R35: NaN deviations at 1e160 and 1e300, the weights of the
+        // statistics 0 at 1e-310). Only for a tree the instance builds itself, and for meshes of about the same extent (the
+        // smaller scale of the two: the extents of Mesh and Reference differ a little, and the larger one then stays below 4)
+        // whose scaled coordinates are exact (normal numbers).
+        double extreme_scale()
+        {
+            if (ReferenceSpatial != null && ReferenceSpatial != ownReferenceSpatial)
+                return 1;
+            double sm = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true);
+            double sr = MeshRepairMetrics.unit_scale_for_mesh(Reference, true);
+            if (sm == 1 || sr == 1)
+                return 1;
+            double lo = Math.Min(sm, sr), hi = Math.Max(sm, sr);
+            if (hi / lo > 1048576)
+                return 1;
+            return (scaling_is_exact(Mesh, lo) && scaling_is_exact(Reference, lo)) ? lo : 1;
+        }
+
+        // every coordinate times s is finite and normal (or 0)
+        static bool scaling_is_exact(DMesh3 mesh, double s)
+        {
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                for (int k = 0; k < 3; ++k) {
+                    double x = Math.Abs(p[k] * s);
+                    if (!(x <= 1e300) || (x != 0 && x < 2.2250738585072014e-308))
+                        return false;
+                }
+            }
+            return true;
+        }
+
+        // Compute on copies of the meshes scaled by the power of two scale (exact), the lengths mapped back (exact: the
+        // result is that of the unit-scale problem, times 1 / scale, bit for bit)
+        bool compute_scaled(double scale)
+        {
+            var local = new MeshDeviation(scaled_copy(Mesh, scale), scaled_copy(Reference, scale)) {
+                Sign = Sign, OrientInvertedParts = OrientInvertedParts, ComputeCertifiedBound = ComputeCertifiedBound,
+                CertifiedTolerance = CertifiedTolerance * scale, ComputeTriangleBounds = ComputeTriangleBounds,
+                MaxTriangleSubdivisions = MaxTriangleSubdivisions, CancelF = CancelF
+            };
+            if (local.Compute() == false)
+                return false;
+            VertexDeviation = unscale(local.VertexDeviation, scale);
+            ClosestPoint = unscale(local.ClosestPoint, scale);
+            ClosestTriangle = local.ClosestTriangle;
+            HausdorffLowerBound = local.HausdorffLowerBound / scale; HausdorffUpperBound = local.HausdorffUpperBound / scale;
+            TriangleDeviationLower = unscale(local.TriangleDeviationLower, scale);
+            TriangleDeviationUpper = unscale(local.TriangleDeviationUpper, scale);
+            TriangleWorstPoint = unscale(local.TriangleWorstPoint, scale);
+            TriangleBoundsUnconverged = local.TriangleBoundsUnconverged;
+            // the statistics of the values in the units of Mesh (the weights are the areas of the scaled copy: only their ratios count)
+            var values = new List<double>();
+            var weights = new List<double>();
+            foreach (int vid in local.Mesh.VertexIndices()) {
+                if (double.IsNaN(VertexDeviation[vid])) continue;
+                double area = 0;
+                foreach (int tid in local.Mesh.VtxTrianglesItr(vid))
+                    area += local.Mesh.GetTriArea(tid);
+                values.Add(VertexDeviation[vid]);
+                weights.Add(area / 3);
+            }
+            Statistics = DeviationStatistics.Compute(values, weights);
+            VertexStatistics = DeviationStatistics.Compute(values);
+            // (the weights were areas of the scaled copy: TotalWeight back in the area units of Mesh; overflows to infinity where that area does)
+            Statistics.TotalWeight = Statistics.TotalWeight / scale / scale;
+            if (TriangleDeviationUpper != null) {
+                values = new List<double>(); weights = new List<double>();
+                foreach (int tid in local.Mesh.TriangleIndices()) {
+                    double hi = TriangleDeviationUpper[tid];
+                    if (double.IsNaN(hi)) continue;
+                    values.Add(double.IsInfinity(hi) ? double.MaxValue : hi);
+                    weights.Add(local.Mesh.GetTriArea(tid));
+                }
+                TriangleUpperStatistics = DeviationStatistics.Compute(values, weights);
+                TriangleUpperStatistics.TotalWeight = TriangleUpperStatistics.TotalWeight / scale / scale;
+            }
+            return true;
+        }
+
+        static DMesh3 scaled_copy(DMesh3 mesh, double scale)
+        {
+            var m = new DMesh3(mesh, false, MeshComponents.None);
+            MeshRepairMetrics.ScaleVertices(m, scale);
+            return m;
+        }
+
+        static double[] unscale(double[] values, double scale)
+        {
+            if (values == null) return null;
+            var r = new double[values.Length];
+            for (int i = 0; i < r.Length; ++i) r[i] = values[i] / scale;
+            return r;
+        }
+
+        static Vector3d[] unscale(Vector3d[] values, double scale)
+        {
+            if (values == null) return null;
+            var r = new Vector3d[values.Length];
+            for (int i = 0; i < r.Length; ++i) r[i] = values[i] / scale;
+            return r;
+        }
+
         /// <summary> returns false if a mesh is empty or the computation was cancelled </summary>
         public bool Compute()
         {
@@ -112,6 +216,9 @@ namespace gs
             TriangleBoundsUnconverged = 0; TriangleUpperStatistics = null;
             if (Mesh.TriangleCount == 0 || Reference.TriangleCount == 0)
                 return false;
+            double scale = extreme_scale();
+            if (scale != 1)
+                return compute_scaled(scale);
             prepare_reference();
             if (Sign == Signs.PseudoNormal)
                 compute_pseudonormals();
@@ -405,25 +512,55 @@ namespace gs
             s.Count = v.Count;
             if (s.Count == 0)
                 return s;
+            // the moments are accumulated in units scaled by powers of two (exact): at extreme sizes the products
+            // w * v * v overflow or underflow (QA 2.0 T1 finding R35), and the ratios do not depend on the units
+            double maxW = 0, maxV = 0;
+            double total = 0;
+            for (int i = 0; i < v.Count; ++i) {
+                maxW = Math.Max(maxW, w[i]); maxV = Math.Max(maxV, Math.Abs(v[i]));
+                total += w[i];
+            }
+            double ws = pow2_inverse(maxW), vs = pow2_inverse(maxV);
             double sw = 0, sum = 0, sumAbs = 0, sumSq = 0;
             s.Min = double.MaxValue; s.Max = double.MinValue; s.MaxAbsolute = 0;
             for (int i = 0; i < v.Count; ++i) {
-                sw += w[i]; sum += w[i] * v[i]; sumAbs += w[i] * Math.Abs(v[i]); sumSq += w[i] * v[i] * v[i];
+                double wi = w[i] * ws, vi = v[i] * vs;
+                sw += wi; sum += wi * vi; sumAbs += wi * Math.Abs(vi); sumSq += wi * vi * vi;
                 s.Min = Math.Min(s.Min, v[i]); s.Max = Math.Max(s.Max, v[i]);
                 s.MaxAbsolute = Math.Max(s.MaxAbsolute, Math.Abs(v[i]));
             }
-            s.TotalWeight = sw;
-            s.Mean = sum / sw;
-            s.MeanAbsolute = sumAbs / sw;
-            s.RMS = Math.Sqrt(sumSq / sw);
+            s.TotalWeight = total;
+            double meanS = sum / sw;
+            s.Mean = meanS / vs;
+            s.MeanAbsolute = sumAbs / sw / vs;
+            s.RMS = Math.Sqrt(sumSq / sw) / vs;
             double var = 0;
-            for (int i = 0; i < v.Count; ++i)
-                var += w[i] * (v[i] - s.Mean) * (v[i] - s.Mean);
-            s.StdDev = Math.Sqrt(var / sw);
+            for (int i = 0; i < v.Count; ++i) {
+                double d = v[i] * vs - meanS;
+                var += w[i] * ws * d * d;
+            }
+            s.StdDev = Math.Sqrt(var / sw) / vs;
 
             sort(v, w, false, out s.sortedValues, out s.sortedValueWeights);
             sort(v, w, true, out s.sortedAbs, out s.sortedAbsWeights);
             return s;
+        }
+
+        // 2^-e for x in [2^e, 2^(e+1)), x > 0 finite (1 for x = 0), e limited to [-1000, 1000]: a power of two, so that
+        // scaling by it is exact, and x times it is about 1
+        static double pow2_inverse(double x)
+        {
+            if (!(x > 0) || double.IsInfinity(x))
+                return 1;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e == 0) {
+                bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);    // 2^64 (subnormal: exact)
+                e = (int)((bits >> 52) & 0x7FF) - 64;
+            }
+            e -= 1023;
+            e = Math.Max(-1000, Math.Min(1000, e));
+            return BitConverter.Int64BitsToDouble((long)(1023 - e) << 52);
         }
 
         static void sort(List<double> v, List<double> w, bool abs, out double[] values, out double[] cumWeights)

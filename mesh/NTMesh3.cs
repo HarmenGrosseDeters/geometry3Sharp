@@ -439,7 +439,7 @@ namespace g3
             Vector3d v2 = new Vector3d(vertices[3 * c], vertices[3 * c + 1], vertices[3 * c + 2]);
             Vector3d edge = (v1 - v0).Normalized;
             Vector3d normal = MathUtil.Normal(ref v0, ref v1, ref v2);
-            Vector3d other = normal.Cross(edge);   // right-handed (the float method uses edge.Cross(normal), a reflection)
+            Vector3d other = normal.Cross(edge);   // right-handed
             return new Frame3d((v0 + v1 + v2) / 3, edge, other, normal);
         }
 
@@ -454,7 +454,7 @@ namespace g3
             Vector3d v2 = new Vector3d(vertices[3 * c], vertices[3 * c + 1], vertices[3 * c + 2]);
             Vector3f edge = (Vector3f)(v1 - v0).Normalized;
             Vector3f normal = (Vector3f)MathUtil.Normal(ref v0, ref v1, ref v2);
-            Vector3f other = edge.Cross(normal);
+            Vector3f other = normal.Cross(edge);   // right-handed, as DMesh3.GetTriFrame (edge.Cross(normal) was a reflection: Matrix3f.ToQuaternion needs a rotation)
             Vector3f center = (Vector3f)(v0 + v1 + v2) / 3;
             return new Frame3f(center, edge, other, normal);
         }

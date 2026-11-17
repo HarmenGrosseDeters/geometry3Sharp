@@ -173,7 +173,7 @@ namespace geometry3Sharp.Tests
             Assert.True(ex < axisTol && ey < axisTol && ez < axisTol, "axis differences " + ex + " " + ey + " " + ez);
         }
 
-        // The float NTMesh3.GetTriFrame builds a reflection (X x Y = -Z); the D variant is a proper right-handed frame, equal to DMesh3's.
+        // The D variant is a proper right-handed frame, equal to DMesh3's.
         [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void NTMesh3_GetTriFrameD_IsRightHandedAndInvariant(string name)
         {
@@ -189,6 +189,33 @@ namespace geometry3Sharp.Tests
                     if (name == "identity") {
                         Frame3d g = d.GetTriFrameD(tid, e);
                         Assert.True((f.Origin - g.Origin).Length < 1e-12 && (f.X - g.X).Length < 1e-9 && (f.Y - g.Y).Length < 1e-9 && (f.Z - g.Z).Length < 1e-9);
+                    }
+                }
+        }
+
+        // #1029: the float NTMesh3.GetTriFrame built a reflection that Matrix3f.ToQuaternion turned into a wrong frame
+        // (Z was the face normal for 4 of 300 sphere triangles). It must be a rotation with Z the face normal, equal to DMesh3's.
+        [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NTMesh3_GetTriFrame_Float_IsRightHandedFaceNormalAndInvariant(string name)
+        {
+            Similarity s = S(name);
+            DMesh3 d = Sphere();
+            DMesh3 dt = Invariance.Transformed(d, s);
+            var m = new NTMesh3(d); var mt = new NTMesh3(dt);
+            Assert.Equal(300, d.TriangleCount);
+            foreach (int tid in m.TriangleIndices())
+                for (int e = 0; e < 3; e++) {
+                    Frame3f f = m.GetTriFrame(tid, e), ft = mt.GetTriFrame(tid, e);
+                    Assert.True(((Vector3d)f.Z - m.GetTriNormal(tid)).Length < 1e-4, "z is the face normal");
+                    Assert.True(((Vector3d)f.X.Cross(f.Y) - (Vector3d)f.Z).Length < 1e-4, "right-handed");
+                    Assert.True(((Vector3d)ft.Z - mt.GetTriNormal(tid)).Length < 1e-4, "z is the face normal (transformed)");
+                    Assert.True(((Vector3d)ft.Z - s.ApplyDirection((Vector3d)f.Z)).Length < 1e-4, "z axis follows the transform");
+                    Index3i tri = dt.GetTriangle(tid);
+                    Vector3d edgeDir = (dt.GetVertex(tri[(e + 1) % 3]) - dt.GetVertex(tri[e % 3])).Normalized;
+                    Assert.True(((Vector3d)ft.X - edgeDir).Length < 1e-4, "x is the edge direction");
+                    if (name == "identity") {
+                        Frame3f g = d.GetTriFrame(tid, e);
+                        Assert.True(((Vector3d)f.X - (Vector3d)g.X).Length < 1e-4 && ((Vector3d)f.Y - (Vector3d)g.Y).Length < 1e-4 && ((Vector3d)f.Z - (Vector3d)g.Z).Length < 1e-4);
                     }
                 }
         }

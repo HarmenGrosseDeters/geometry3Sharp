@@ -227,38 +227,41 @@ namespace geometry3Sharp.Tests
         {
             foreach (string f in new[] { "identity", "utm", "rotated, scale 1e-3, utm" })
                 foreach (var dir in new[] { TerrainSlopeDesign.Directions.Cut, TerrainSlopeDesign.Directions.Fill, TerrainSlopeDesign.Directions.Auto })
-                    yield return new object[] { f, dir };
+                    foreach (double rot in new[] { 0.0, 3.9 })
+                        yield return new object[] { f, dir, rot };
         }
 
         // Mixed's designs (TerrainSlopeMixedTests.Make: terrain tilt, offset, tilt direction) in three frames, cut, fill
         // and mixed: on each Success the certificate's bound holds, sampled, on the triangles it bounded
+        // (one row per tilt direction, #698: the 24 designs of a frame and direction took up to 7.4 s alone and 23 s in the full run;
+        // 10 to 12 of the 12 designs of a row are certified, and 2 to 11 move catch points in every row whose moves are checked, so 6 and 1
+        // per row keep the old 12 and 1)
         [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
-        public void BoundHoldsSampled(string name, TerrainSlopeDesign.Directions dir)
+        public void BoundHoldsSampled(string name, TerrainSlopeDesign.Directions dir, double rot)
         {
             Similarity s = frame(name);
             int certified = 0, moved = 0;
             var perClass = new int[5];
             foreach (double g in new[] { 0.07, 0.15, 0.23 })
-                foreach (double c in new[] { -1.1, 0.123, 0.3, 1.7 })
-                    foreach (double rot in new[] { 0.0, 3.9 }) {
-                        var d = TerrainSlopeMixedTests.Make(g, c, rot, dir, s);
-                        if (d.Compute() == false) continue;
-                        certified++;
-                        Assert.True(ExactInterval.Up(d.SnapBudget + d.SnapCertificate) <= d.Tolerance);
-                        if (d.SnapTriangles.Count == 0) continue;
-                        moved++;
-                        int samples;
-                        double w = SampledOverBound(d, out samples);
-                        Assert.True(w <= 1, $"g {g} c {c} rot {rot}: sampled |z - clamp| up to {w:G4} x the bound {d.SnapCertificate:G4}");
-                        string un = UncertifiedInSweep(d);
-                        Assert.True(un == "", $"g {g} c {c} rot {rot}: {un}");
-                        double wc = CandidatesOverBound(d, perClass);
-                        Assert.True(wc == 0, $"g {g} c {c} rot {rot}: |z - clamp| at a candidate over its triangle's bound by {wc:G4} x the bound");
-                    }
+                foreach (double c in new[] { -1.1, 0.123, 0.3, 1.7 }) {
+                    var d = TerrainSlopeMixedTests.Make(g, c, rot, dir, s);
+                    if (d.Compute() == false) continue;
+                    certified++;
+                    Assert.True(ExactInterval.Up(d.SnapBudget + d.SnapCertificate) <= d.Tolerance);
+                    if (d.SnapTriangles.Count == 0) continue;
+                    moved++;
+                    int samples;
+                    double w = SampledOverBound(d, out samples);
+                    Assert.True(w <= 1, $"g {g} c {c} rot {rot}: sampled |z - clamp| up to {w:G4} x the bound {d.SnapCertificate:G4}");
+                    string un = UncertifiedInSweep(d);
+                    Assert.True(un == "", $"g {g} c {c} rot {rot}: {un}");
+                    double wc = CandidatesOverBound(d, perClass);
+                    Assert.True(wc == 0, $"g {g} c {c} rot {rot}: |z - clamp| at a candidate over its triangle's bound by {wc:G4} x the bound");
+                }
             // (designs to check: Successes, with moved catch points; near the origin cut and fill alone move none)
-            Assert.True(certified >= 12, $"{certified} certified");
+            Assert.True(certified >= 6, $"{certified} certified");
             if (name != "identity" || dir == TerrainSlopeDesign.Directions.Auto) Assert.True(moved >= 1, $"{moved} with moves");
         }
     }
