@@ -13,11 +13,11 @@ notes, which are cited where they hold the reading); **[S]** abstract, bibliogra
 
 | | Direction 1: rounding with a guarantee | Direction 2: certifying boolean |
 |---|---|---|
-| Novelty | **partially known.** Existence is proven: Devillers, Lazard and Lenhart round within 3/2 grid units, and on a grid of 2^-19 of the diagonal that fits both our drift bound and our degenerate-area test (section 2.3). What is open is the output size (their worst case is O(n^15), O(n^5) under assumptions) and an algorithm that changes only the defect clusters | **partially known.** Every building block has prior art (geometric checkers, subdivision and partition verification, winding-number propagation over arrangement cells). We found no certifying 3D mesh boolean, and nothing that certifies the rounding to doubles |
+| Novelty | **partially known.** Existence is proven: Devillers, Lazard and Lenhart round within 3/2 grid units, and on a power-of-two grid near 2^-19 of the diagonal that fits both our drift bound and our degenerate-area test, when the two diagonals the code uses are close (section 2.3). Valque's thesis has a local version, certified on 64 % of 520 hard models. What is open is the output size (their worst case is O(n^15) by the SoCG 2018 abstract, O(n^5) under assumptions), a local scheme that always ends, and whether the output passes our clean test (collapses can leave coincident faces) | **partially known.** Every building block has prior art (geometric checkers, subdivision and partition verification, winding-number propagation over arrangement cells). We found no certifying 3D mesh boolean, and nothing that certifies the rounding to doubles |
 | Closest papers | Devillers et al. 2018 / 2020; Fortune 1999; Milenkovic and Sacks 2019; Valque and Lazard 2025 | Mehlhorn et al. 1999; Devillers et al. 1998; McConnell et al. 2011; Palios (partition verification); Zhou et al. 2016 |
 | Research risk | **high** for a theorem with near-linear size; **medium** for a local, guaranteed fallback without a size bound | **low to medium** for the classification and output part; **high** for a worst-case near-linear embedding certificate (section 3.4 shows the convex-cell witnesses are quadratic in the worst case) |
 | Effort | a theorem: months, a research paper, uncertain. The first experiment: 2-3 days | stages 1-2 (section 3.5): about 1-2 weeks; an embedding witness: weeks |
-| First experiment that can fail cheaply | Section 2.6: Devillers-type grid rounding of only the defect clusters with a fixed collar, on the RC4b cases and the 19 generated leftovers | Section 3.6: a checker for the classification and the selection only (linear), fed with mutated classifications |
+| First experiment that can fail cheaply | Section 2.6: Devillers-type rounding of only the defect clusters, on a grid chosen by section 2.3, with a fixed collar, on the RC4b cases and the 19 generated leftovers | Section 3.6: a checker for the classification and the selection only (linear), fed with mutated classifications |
 | Breakthrough vs engineering | a breakthrough is an O(m polylog m) size bound (m = size of the exact result) with an isotopy-type statement, or a proof that this is impossible. Anything else is engineering on the current repair | a breakthrough is a certificate of near-linear size, checkable in near-linear time in the worst case, for the embedding of the arrangement. A checker for the classification on top of the existing self-intersection search is engineering |
 
 Recommendation (the owner decides): direction 2 in its stages 1-2 is the cheaper of the two and helps the robustness
@@ -35,7 +35,10 @@ RC4b differences of the ABC chained and contact campaigns), and the plateau vari
 - Option A (Milenkovic and Sacks expansion) and option B (Valque and Lazard iteration) were closed as defaults in #313
   (SAFE_ROUNDING.md section 8.6). The certified empty ball, clearance skins and the separating-axis prefilter are closed
   ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 5). The single-vertex position search is built (#755); its
-  plateau variant is a no-go (owner 2026-11-15, section 10 of that note).
+  plateau variant is a no-go before the release, and the rule stays a design (owner 2026-11-15, section 10 of that note).
+- A local, patch-wise option B (snap and resolve only the defect clusters with a margin) was recommended in
+  SAFE_ROUNDING.md 8.6 and its cost estimated in 8.7 (tool mode `patch`: a median of 0.17 s per resolve of a patch, a
+  lower bound). It used the doubles' grid and no guarantee.
 - RC4b ([BOOLEAN_TRIAGE_2026-11.md](BOOLEAN_TRIAGE_2026-11.md)): five differences where the smallest repairing edit needs
   1.04-1.12 times `maxLength`, or the budget is at 0.985 and the effort limit is reached as well. The owner keeps the
   bound (2026-11-17): a documented limit.
@@ -52,13 +55,13 @@ RC4b differences of the ABC chained and contact campaigns), and the plateau vari
 | D. Halperin, E. Packer, *Iterated snap rounding*, CGTA 23(2), 209-225, 2002 [S]; E. Packer, *Iterated snap rounding with bounded drift*, CGTA 40(3), 2008 [S] | every vertex at least half a pixel from every non-incident edge (ISR); ISRBD adds a drift bound | ISR's drift can grow with n; ISRBD bounds it | the 2D analogue of "separation after rounding" and of a drift bound on an iterated scheme; no 3D version found |
 | J. Hershberger, *Stable snap rounding*, CGTA 46(4), 403-416, 2013 (SoCG 2011) [S] | a variant whose result is stable under re-rounding | | relevant to chained booleans (rounding a rounded result again), 2D only |
 | S. Fortune, *Vertex-rounding a three-dimensional polyhedral subdivision*, DCG 22(4), 593-618, 1999, doi:10.1007/PL00009480 [S] | a subdivision on a grid of a small power-of-two spacing that embeds the input's vertices, edges and facets | O(n^4) vertices, worst case and in practice (Milenkovic and Sacks [V]); the grid is finer than the input's by a factor that grows with n | the first 3D guarantee; the finer grid is the problem: our output grid is fixed (doubles) |
-| O. Devillers, S. Lazard, W. Lenhart, *3D snap rounding*, SoCG 2018, LIPIcs 99:30; *Rounding meshes in 3D*, DCG 64(1), 37-62, 2020, doi:10.1007/s00454-020-00202-2 [S] | n polygons with disjoint interiors map to a simplicial complex on the integer grid; a continuous motion moves each face within L∞ distance 3/2; points that become equal stay equal; relative positions kept | O(n^15) elements and O(n^19) time worst case; O(n^5) and O(n^6) (journal: O(n^4 √n) for nice discretizations of smooth surfaces) under assumptions | **the only full guarantee on a fixed grid.** No implementation known. No lower bound on the output size found in the abstracts |
+| O. Devillers, S. Lazard, W. Lenhart, *3D snap rounding*, SoCG 2018, LIPIcs 99:30; *Rounding meshes in 3D*, DCG 64(1), 37-62, 2020, doi:10.1007/s00454-020-00202-2 [S] | n polygons with disjoint interiors map to a simplicial complex on the integer grid; a continuous motion moves each face within L∞ distance 3/2; points that become equal stay equal; relative positions kept | O(n^15) elements and O(n^19) time worst case by the SoCG 2018 abstract, O(n^5) and O(n^6) under assumptions; a search snippet of the journal version gives O(n^4 √n) for nice discretizations of smooth surfaces. SAFE_ROUNDING.md section 3 and SNAP_ROUNDING_3D.md quote O(n^13) (to O(n^15)) and O(n√n) in practice, also from abstracts: the exponents need the full text | **the only full guarantee on a fixed grid.** No implementation known. No lower bound on the output size found in the abstracts |
 | V. Milenkovic, E. Sacks, *Geometric rounding and feature separation in meshes*, CAD 108, 2019, arXiv 1805.03252 [V, SAFE_ROUNDING.md 8.1] | a certificate (2e-separation of disjoint features) when the LP expansion converges; output size = input size | no a-priori displacement bound ("we lack a bound in terms of the input") | our closed option A |
 | V. Milenkovic, L. Nackman, *Finding compact coordinate representations for polygons and polyhedra*, SoCG 1990 [S] | rounding that keeps the combinatorial structure is NP-complete (exact statement not verified) | | why a guarantee needs the freedom to refine or to collapse |
-| S. Valque, S. Lazard, *Resolving self-intersections in 3D meshes while preserving floating-point coordinates*, CGF 44(5), 2025, doi:10.1111/cgf.70197; Valque's thesis 2024 [V, SAFE_ROUNDING.md section 7] | none a priori; a posteriori intersection-free when the loop ends before its limit | all 4524 self-intersecting Thingi10K models; 94 % of the 527 hard ones with a relaxed test, 64 % fully certified | our closed option B |
+| S. Valque, S. Lazard, *Resolving self-intersections in 3D meshes while preserving floating-point coordinates*, CGF 44(5), 2025, doi:10.1111/cgf.70197; Valque's thesis 2024 [V, SAFE_ROUNDING.md section 7] | the heuristic (paper): none a priori, a posteriori intersection-free when the loop ends before its limit. Thesis part II: **a local version of Devillers et al.**, certified when it ends | heuristic: 4523 of the 4524 self-intersecting Thingi10K models with the default grid, the last with a coarser one. Local certified version on the 520 models whose rounding intersects during the motion: 333 (64 %) within 1 h with full certification, 94 % only with a relaxed test that drops the topological guarantee; the author calls the implementation unstable | the heuristic is our closed option B; part II is the closest prior art to a local guarantee (section 2.4) |
 | B. Lévy, *Exact predicates, exact constructions and combinatorics for mesh CSG*, arXiv 2405.12949 (v2 2025), ACM TOG, doi:10.1145/3744642 [V, earlier notes; v2 not re-read] | exact co-refinement and Weiler model; names snap rounding "the main missing component" | | confirms the problem is open in the closest BSD system |
-| G. Nehring-Wirxel, P. Trettner, L. Kobbelt, *Fast exact booleans for iterated CSG using octree-embedded BSPs*, CAD 2021, arXiv 2103.02486 [S]; P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER*, ACM TOG 41(4), 2022 [V, earlier notes] | plane-based representation with fixed-width integers: exact and closed under iterated CSG **as long as the output stays plane-based** | | they avoid the rounding by never producing vertex coordinates in doubles; not a rounding result |
-| Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh arrangements for solid geometry*, TOG 35(4), 2016 [S] | none: round, check, resolve again; 2.19 % of Thingi10K outputs intersect after plain rounding | | the "verify and repeat" baseline |
+| J. Nehring-Wirxel, P. Trettner, L. Kobbelt, *Fast exact booleans for iterated CSG using octree-embedded BSPs*, CAD 2021, arXiv 2103.02486 [S]; P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER*, ACM TOG 41(4), 2022 [V, earlier notes] | plane-based representation with fixed-width integers: exact and closed under iterated CSG **as long as the output stays plane-based** | | they avoid the rounding by never producing vertex coordinates in doubles; not a rounding result |
+| Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh arrangements for solid geometry*, TOG 35(4), 2016 [M; the 2.19 % from a search snippet of the paper, page not checked] | none: round, check, resolve again; 2.19 % of Thingi10K outputs intersect after plain rounding | | the "verify and repeat" baseline |
 
 Terms searched without a newer result: "3D snap rounding" 2023-2026, "rounding meshes in 3D lower bound output size",
 "Lévy snap rounding geogram 2025", "iterated snap rounding 3D", "feature separation rounding Thingi10K". The newest
@@ -70,23 +73,33 @@ Not stated in the papers in this form (inference, checked by hand; worth a Z3 or
 
 1. **Area lemma.** On a grid of spacing g, a triangle with grid vertices that is not degenerate (corners not collinear)
    has area at least g²/2: its cross product is g² times a non-zero integer vector, whose length is at least 1.
-2. Our degenerate test is area < `DegenerateArea` · diag² with `DegenerateArea` = 1e-12
-   (`MeshRoundingRepair.DegenerateArea`). With g = 2^-19 · diag ≈ 1.9e-6 · diag, g²/2 ≈ 1.8e-12 · diag² > 1e-12 · diag².
-   **So every non-collapsed triangle of a Devillers-type output on that grid passes our degenerate test automatically.**
-3. Devillers et al. move each face within L∞ 3/2 grid units, so within (3/2)√3 g ≈ 2.6 g ≈ 4.9e-6 · diag in the
-   Euclidean norm, below `maxLength` = 1e-5 · diag. Every multiple of g up to 2^53 g is a double, and the box spans about
-   2^19 g, so the grid is representable (with g a power of two).
+2. **Two diagonals.** The degenerate test is area < `DegenerateArea` · D_a² with `DegenerateArea` = 1e-12 and D_a the
+   diagonal of the box of all triangles (`areaSize` in `MeshRoundingRepair`, as in `NotCleanReason`); `maxLength` is
+   1e-5 · D_c with D_c the diagonal of the largest component (SAFE_ROUNDING.md section 1, "Scale"). D_a ≥ D_c, up to
+   100 D_c before the components count as far apart.
+3. **The window for g.** The area test needs g²/2 ≥ 1e-12 D_a², so g ≥ 1.414e-6 D_a. Devillers et al. move each face
+   within L∞ 3/2 grid units, so within (3/2)√3 g ≈ 2.6 g in the Euclidean norm, which must stay ≤ 1e-5 D_c, so
+   g ≤ 3.85e-6 D_c. The window [1.414e-6 D_a, 3.85e-6 D_c] has the ratio 2.72 D_c / D_a, and a grid of doubles needs g
+   to be a power of two. A power of two lies in every interval whose ratio is at least 2, so **a fitting g exists when
+   D_a / D_c ≤ 1.36**, and may not exist above that (by the code's own comments, results of pieces side by side reach
+   ratios of 1.6 to 16). Near the edges of the window the margin is small: g rounded up to the next power of two can
+   give a drift of 9.9e-6 D_c, 1 % under `maxLength`; rounded down, the area can fall to 0.45e-12 D_a², below the test.
+4. **Representability.** The grid points are doubles only if g ≥ ulp(max |x|), that is max |x| < 2^53 g, about
+   1.2e10 D_a for g near 2^-19 D_a. The coarse UTM cluster of SAFE_ROUNDING.md section 5 (scale 1e-3 at coordinates up
+   to 5.7e6, max |x| about 3e9 D_a) is still inside; parts further from the origin relative to their size are not.
 
-Consequence: **existence is not the open question for our bound.** A result that is closed, embedded, free of degenerate
-triangles and within `maxLength` always exists (collapses allowed, which D′ allows). What no one has is (a) a size bound
-anywhere near the exact result's size m, and (b) an algorithm that rounds only where the plain rounding fails: the
-global scheme moves every vertex by up to 2.6 g, which breaks D′'s promise that untouched triangles are the exact result,
-rounded, and would change every T6 result.
+Consequence: **for results with D_a / D_c ≤ 1.36 and max |x| below about 1e10 D_a, existence is not the open question for our bound.** An
+embedded result within `maxLength` whose non-collapsed triangles pass the degenerate test exists. It need not pass
+`NotCleanReason`: the motion lets features thinner than the grid collapse onto each other, so a thin wall attached to a
+larger part can end as coincident faces or a non-manifold contact, which D′ avoids by removing only whole thin
+components. What no one has is (a) a size bound anywhere near the exact result's size m, (b) an algorithm that rounds
+only where the plain rounding fails and always ends (the global scheme moves every vertex by up to 2.6 g, which breaks
+D′'s promise that untouched triangles are the exact result, rounded, and would change every T6 result; Valque's local
+version does not always end, section 2.2), and (c) a statement about what the collapses do to closedness and manifoldness.
 
-Caveats: the grid g is relative to the diagonal, so features below about 2e-6 of the diagonal collapse wherever the
-scheme acts (D′ collapses only below the degenerate area, and only where needed). The theorem's input is polygons with
-disjoint interiors; our exact result has coincident shared edges and vertices, which is what "a polyhedral complex" means
-in their setting [S, to be checked in the full text]. The L∞ / Euclidean conversion assumes their 3/2 is L∞ [S].
+Caveats: the theorem's input is polygons with disjoint interiors; our exact result has shared edges and vertices, which
+is what "a polyhedral complex" means in their setting [S, to be checked in the full text]. The L∞ reading of their 3/2
+is from the abstract [S].
 
 ### 2.4 What is proven, what is open
 
@@ -99,8 +112,10 @@ in their setting [S, to be checked in the full text]. The L∞ / Euclidean conve
     and O(n^15) (O(n^5) under assumptions); a quadratic or cubic lower-bound construction would itself be a result;
   - a scheme whose output is O(m polylog m), or O(m + k) with k a local density measure, with a continuous-motion or
     isotopy-type statement;
-  - a **local** guarantee: rounding only the defect clusters with a fixed, already-rounded collar. The Devillers argument
-    is global (every vertex on the grid); a collar of doubles that are not on the coarse grid is outside its hypotheses;
+  - a **local** guarantee that always ends: Valque's thesis (part II) has a local version of Devillers et al. on the
+    doubles' own grid (scaled to [2^51, 2^52)), certified where it ends, but 187 of 520 hard models did not end within
+    1 h. Open is a local scheme with a fixed, already-rounded collar that provably ends, and its behaviour on a coarse
+    grid where the area lemma holds;
   - stability under chained booleans (Hershberger's 2D result has no 3D version).
 
 ### 2.5 What a new result would have to show
@@ -122,8 +137,8 @@ Items 1-3 are known together; 4 and 5 are the open part. A lower bound showing 4
 **Local coarse-grid rounding of the defect clusters.** In `benchmarks/SnapRoundingExperiment` (not the library):
 1. take the RC4b cases (ucd p0007 and iud p0020 difference, the clean bound cases) and the 19 generated leftovers of
    SNAP_ROUNDING_3D.md section 10;
-2. per defect cluster, cut a patch with a collar of k rings; snap the patch's vertices to the grid g = 2^-19 · diag (and
-   2^-20, 2^-21 for the margin), keep the collar's doubles; re-resolve the patch exactly (the existing arrangement on the
+2. per defect cluster, cut a patch with a collar of k rings; snap the patch's vertices to the power-of-two grid g of
+   section 2.3 (only cases with D_a / D_c ≤ 1.36; record the others as outside the window), keep the collar's doubles; re-resolve the patch exactly (the existing arrangement on the
    patch only, as option B's local variant of SAFE_ROUNDING.md 8.6 proposed);
 3. record: clean or not, the measured Hausdorff distance (the existing certified upper bound), the triangle count of the
    patch before and after, and whether the collar boundary had to move.
@@ -136,14 +151,16 @@ Go / no-go, fixed in advance:
   is exactly item 5 of section 2.5, and a design note with the local lemma comes next (a Z3 pilot on small patches, as
   for D1).
 
-The experiment changes no library result. It repeats nothing closed: option B used the doubles' own grid and the whole
-mesh; this uses a grid chosen so that the area lemma holds, and only the clusters.
+The experiment changes no library result. What is new against what was done: option B and its patch estimate (SAFE_ROUNDING.md
+8.6, 8.7) and Valque's local certified version used the doubles' own fine grid; this uses the coarse grid of section 2.3,
+so that the area lemma and our drift bound hold together, and the measure is our clean test, not only intersection-freeness.
+If the patch-wise B of 8.7 is rebuilt for it, the cost side is already estimated there.
 
 ### 2.7 Risk, effort, and breakthrough vs engineering
 
 - **Engineering:** a local guaranteed fallback for RC4b-type clusters (section 2.6 turned into an option, off by
   default). Medium risk, 1-2 weeks after a go, tier L (rounding shards). Gain on real data: the five RC4b differences of the
-  triage and none of the 294 T6 results, which are clean already.
+  triage and none of the 294 T6 results (270 clean, 24 correctly empty).
 - **Breakthrough:** item 4 (or its impossibility) of section 2.5. High risk, months, with a mathematician-level proof
   effort; the payoff is a paper, and for the library the right to say "always clean within the bound".
 
