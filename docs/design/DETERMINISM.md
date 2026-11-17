@@ -182,8 +182,8 @@ geometry tolerances). It is extended to further code only when the determinism h
 result depends on, with a harness case and benchmark numbers. Second user (2026-11-13, issue #802): the terrain slope
 design (`mesh_ops/TerrainSlope*.cs`), whose result differed in 20 of 15302 values between the Windows CRT of .NET and the
 others on a libm-free input (the `Cos / Sin` of the fan directions); its `Cos`, `Sin`, `Atan2` are `CoreMath`'s, its two
-`Acos` are `CoreMath.AcosByAtan2` (composed from `Atan2` and `Sqrt`: the same bits everywhere; not correctly rounded: measured within 1 ulp of glibc's
-`Math.Acos` over 816 000 arguments, by derivation within about 1.6 ulps of the true value near 1), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
+`Acos` are `CoreMath.Acos` (correctly rounded, monotone; they were the composed `AcosByAtan2` until 2026-11-17, which differed from it by one ulp in
+12.4 % of 100 000 test arguments and was not monotone in the last ulp; the swap moved terrain output bits by at most one ulp of an angle), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
 the run time (1.39 s against 1.40 s, median of 5, pit at tolerance 0.001). Files using `CoreMath` may not call the `System.Math`
 transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
 tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
