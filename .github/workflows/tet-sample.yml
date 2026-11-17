@@ -6,10 +6,6 @@ name: Tet meshing runner sample
 # time and never committed or published; the per-mesh CSVs and SUMMARY.md (the go / no-go of 17.5, summarize_sample.py) go to the data
 # branch runs/tet-meshing, never merged. Runs on demand only (workflow_dispatch; ask the coordinator first, runner budget).
 on:
-  # TEMPORARY (removed before the P1 PR is ready): workflow_dispatch needs the file on master, so the P1 branch starts its one run by a push
-  push:
-    branches: [claude/tet-p1-default-alpha]
-    paths: [.github/workflows/tet-sample.yml]
   workflow_dispatch:
     inputs:
       alphas:
@@ -68,7 +64,6 @@ jobs:
           nproc > out-machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> out-machine.txt
           bash benchmarks/TetMeshBenchmark/compare/run_sample_shard.sh ${{ matrix.shard }} "$n" \
             benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$RUNNER_TEMP/meshes" out "$TIMEOUT_S" $ALPHAS
-          for f in out/a*.csv; do mv "$f" "${f%.csv}-${{ matrix.shard }}.csv"; done
           mv out-machine.txt out/machine-${{ matrix.shard }}.txt
       - uses: actions/upload-artifact@v4
         if: always()
@@ -105,7 +100,7 @@ jobs:
             echo "# Tet meshing runner sample, run ${{ github.run_id }}"
             echo
             echo "- geometry3Sharp commit: ${{ github.sha }}; \`TetMeshBenchmark refine <id>.stl <alpha> 600\` per mesh and alpha (G3_TET_WRAP_TIME=0)"
-            echo "- 500 ids of benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt; $SHARDS shards (ubuntu-latest, machines.txt); timeout $TIMEOUT_S s per mesh and alpha"
+            echo "- $(grep -c . src/benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt) ids of benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt; $SHARDS shards (ubuntu-latest, machines.txt); timeout $TIMEOUT_S s per mesh and alpha; relative offset 600"
             echo "- Rule: docs/design/TET_MESHING.md section 17.5 (benchmarks/TetMeshBenchmark/compare/summarize_sample.py)"
             echo
             python3 -I src/benchmarks/TetMeshBenchmark/compare/summarize_sample.py "$dir" $base $cands
@@ -116,4 +111,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add sample
           git commit -q -m "Tet meshing runner sample, run ${{ github.run_id }}"
-          for i in 1 2 3 4; do git push origin HEAD:runs/tet-meshing && break; sleep $((i * 10)); git pull -q --rebase origin runs/tet-meshing; done
+          for i in 1 2 3 4; do git push origin HEAD:runs/tet-meshing && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-meshing; done
+          echo "push to runs/tet-meshing failed"; exit 1

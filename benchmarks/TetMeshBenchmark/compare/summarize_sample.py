@@ -16,6 +16,7 @@ COLS = ("name,time_s,threads,tets,vertices,neg_tets,zero_tets,inverted,valid,bou
 
 GE10_SHARE = 0.99       # criterion 1: every tet >= 10 degrees on >= 99 % of the candidate's Success meshes
 DEV_RATIO = 0.85        # criterion 2: median over meshes of the per-mesh ratio candidate / base of dev_in_max_rel
+OWNER_BAND = 0.80       # criterion 2 between 0.80 and 0.85: passes, but the owner decides (17.5)
 TIME_RATIO = 2.0        # criterion 3: median time <= 2x the base's median time over the same meshes
 SLOW_S = 20.0           # criterion 3: a mesh above 20 s whose input has fewer than 1M triangles is a no-go
 BIG_TRIS = 1_000_000
@@ -27,14 +28,15 @@ def load(path):
         return rows
     for line in open(path, encoding="utf-8"):
         p = line.rstrip("\n").split(",")
-        if not p or not p[0]:
+        if not p or not p[0] or p[0] == "name":     # empty or a header line (the committed results/ copies have one)
             continue
         if len(p) == len(COLS):
             r = dict(zip(COLS, p))
             r["ok"] = r["status"] == "Success"
             r["tris"] = next((int(c.split("=")[1]) for c in r["counts"].split() if c.startswith("input_tris=")), -1)
         else:
-            r = {"name": p[0], "ok": False, "status": p[3] if len(p) > 3 else (p[1] if len(p) > 1 else "?")}
+            r = {"name": p[0], "ok": False, "status": p[3] if len(p) > 3 else (p[1] if len(p) > 1 else "?"),
+                 "fail_time": p[1] if len(p) > 3 else ""}
         rows[r["name"]] = r
     return rows
 
@@ -61,12 +63,11 @@ def judge(alpha, cand, base):
     """returns (passed, lines) for the rule of 17.5"""
     lines, nogo, fail = [], [], []
     for n, b in base.items():
-        if b["ok"] and b["valid"] == "yes":
-            c = cand.get(n)
-            if c is None or not c["ok"]:
-                nogo.append(f"{n}: Success at the base, {c['status'] if c else 'missing'} here")
-            elif c["valid"] != "yes":
-                nogo.append(f"{n}: not valid ({c['valid']})")
+        c = cand.get(n)
+        if b["ok"] and (c is None or not c["ok"]):
+            nogo.append(f"{n}: Success at the base, {c['status'] if c else 'missing'} here")
+        elif b["ok"] and b["valid"] == "yes" and c["valid"] != "yes":
+            nogo.append(f"{n}: valid at the base, not valid here ({c['valid']})")
     for n, c in cand.items():
         if c["ok"] and c["boundary_self_intersecting"] == "yes":
             nogo.append(f"{n}: boundary self-intersection")
@@ -83,11 +84,18 @@ def judge(alpha, cand, base):
     lines.append(f"- criterion 2: input-to-boundary max, median of per-mesh ratios {dr:.3f} over {len(common)} meshes (need <= {DEV_RATIO})")
     if not dr <= DEV_RATIO:
         fail.append("2")
+    elif dr > OWNER_BAND:
+        lines.append(f"  - within {OWNER_BAND}-{DEV_RATIO}: the go goes to the owner with both candidates' rows (17.5)")
     tc, tb = med([float(cand[n]["time_s"]) for n in common]), med([float(base[n]["time_s"]) for n in common])
     lines.append(f"- criterion 3: median time {tc:.3g} s against {tb:.3g} s at the base, ratio {tc / tb:.2f} (need <= {TIME_RATIO})")
     if not tc <= TIME_RATIO * tb:
         fail.append("3")
-    slow = sorted((float(c["time_s"]), c["name"], c["tris"]) for c in ok if float(c["time_s"]) > SLOW_S)
+    def secs(c):
+        try:
+            return float(c.get("time_s") or (c.get("fail_time") or 0))
+        except ValueError:
+            return 0.0
+    slow = sorted((secs(c), c["name"], c.get("tris", -1)) for c in cand.values() if secs(c) > SLOW_S)
     for t, n, tris in slow:
         small = 0 <= tris < BIG_TRIS
         lines.append(f"  - above {SLOW_S:.0f} s (an issue with a diagnosis): {n} {t:.1f} s, {tris} input triangles"

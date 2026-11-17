@@ -3,7 +3,7 @@
 **Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500).
 Stage 1 prerequisites (owner go 2026-11-13): the fTetWild black-box comparison (section 12), the sharp-feature check of #736
 (section 13) and the stage-1 plan with its owner decisions (section 14). Stages 1 and 2 are built since (sections 14.8-16);
-the production-quality gap study and plan (owner 2026-11-17) is section 17.
+the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8.
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
@@ -988,3 +988,36 @@ the PR; meshes fetched at run time), each candidate default (alpha / 40 and alph
 3. **Order** P1 -> P2 (+ P5(a)) -> P3 -> P4, or P2 first if file output is needed sooner.
 4. **P2 scope**: formats (Medit, Gmsh 4.1 / 2.2, VTK), readers or not, boundary marker semantics.
 5. **P4 choice** after P1: local alpha, S1-F creases, or option (b); P5(b) only if a proof is required.
+
+### 17.8 Stage P1 result: the runner sample and the default (2026-11-17)
+
+Run: `.github/workflows/tet-sample.yml`, run 44122189889 on 637b148d, 6 shards on GitHub-hosted runners (ubuntu-latest), all alphas of
+a mesh on one runner, timeout 600 s per mesh and alpha (none reached). The 500 ids are `benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt`:
+every 20th id of the dataset's `metadata/file_ids.txt` from index 7, disjoint from the 40-mesh subset. Meshes were fetched at run time
+and not kept. Raw rows and SUMMARY.md: data branch `runs/tet-meshing`, `sample/2026-11-17-run44122189889/`; the same rows are
+`benchmarks/TetMeshBenchmark/results/thingi10k-sample500-alpha{20,40,80}-2026-11-17.csv`. The rule is applied by
+`benchmarks/TetMeshBenchmark/compare/summarize_sample.py`.
+
+| 500 meshes, offset diagonal / 600 | alpha / 20 (old default) | alpha / 40 | alpha / 80 |
+|---|---:|---:|---:|
+| Success, valid (exact), boundary without self-intersection | 500, 500, 500 | 500, 500, 500 | 500, 500, 500 |
+| every tet >= 10 degrees | 461 (92.2 %) | 494 (**98.8 %**) | 499 (99.8 %) |
+| worst smallest dihedral (degrees) | 3.78 | 7.12 | 9.25 |
+| input to boundary, max, median (diagonal) | 0.0343 | 0.0228 | 0.0135 |
+| per-mesh ratio against / 20, median: input to boundary max / time / tets | 1 | 0.77 / 1.22 / 1.69 | 0.47 / 2.03 / 4.74 |
+| time median / max (s) | 0.64 / 8.6 | 0.83 / 9.8 | 1.41 / 11.7 |
+| tets, median | 4.1k | 7.3k | 19.5k |
+
+The rule of 17.5 gives no go for both candidates: alpha / 40 misses criterion 1 by one mesh (6 meshes below 10 degrees, 5 allowed by
+99 %) and passes 2 and 3 (0.77 <= 0.85; median time 1.30x <= 2x); alpha / 80 passes 1 and 2 and misses 3 (2.22x the median time).
+No run took more than 20 s. Criterion 4 (subset): 7.1k tets at the median at / 40, below 29k.
+
+**Owner decision (2026-11-17), a documented exception to the rule of 17.5: the default of `MeshTetrahedralization.RelativeAlpha` is
+diagonal / 40** (was 20; `RelativeOffset` stays 600; `MeshAlphaWrap`'s own default is unchanged). It misses the 99 % of criterion 1 by
+one mesh and costs 1.30x the time and 1.7x the tets for 461 -> 494 meshes at 10 degrees and 0.77x the input-to-boundary distance. The
+6 meshes left below 10 degrees at / 40 go to the parked improver lever (#1072): 138102 (7.12 degrees, 2976 input triangles), 763398
+(9.15), 38781 (9.43), 282598 (9.53), 83719 (9.60), 50656 (9.88). Tests: `TetMeshingDefaultTests` (the default pinned, every `MaxThreads`
+the same result, `Similarity.All()` with 2^k bit for bit at the default); `TetMeshingStage2Tests` runs at the default (reuse, and every
+tet >= 10 degrees with the invariants on the procedural set); the mechanism tests of peeling, splits and the diagnosis keep alpha / 20 (`MechanismAlpha`), because at the finer default
+the bad tets they act on are gone. The procedural inputs already reach 10 degrees at / 20, so the unit test that fails on the old
+code is the pinned default; the behaviour change is evidenced by the sample.
