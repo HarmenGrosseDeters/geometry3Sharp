@@ -45,7 +45,9 @@ namespace gs
     /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area; the relative cleanups and tolerances only for a closed input of at most 64 components (a cracked surface or a soup has pieces, not parts), the lost part checks only with MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
     /// Last, for any input of two or more separable parts (components whose boxes, padded by 1e-3 of their own diagonals, meet; closed
     /// and open), every part of at least 4 triangles is judged against its own diagonal: one the result does not reach makes Apply() false
-    /// with LostFarPart (closed) or LostFarOpenPart (open), also where the far-part switch above does not fire (MeshRobustRepairLostParts).
+    /// with LostFarPart (closed) or LostFarOpenPart (open), also where the far-part switch above does not fire (MeshRobustRepairLostParts;
+    /// only with MinVolumeIoU &gt; 0, as the other checks against the input). Also a speck below 1e-3 of the largest component, which the
+    /// repair removes and LostComponents does not judge, is reported then (the owner's rule of 2026-11-10: no silent loss of a part).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -94,7 +96,7 @@ namespace gs
         /// exact stage does not check its results for them either: the sliver cleanup after the resolve can leave some
         /// </summary>
         public bool CheckSelfIntersections = true;
-        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents nor the lost part checks) </summary>
         public double MinVolumeIoU = 0.99;
         /// <summary>
         /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
@@ -487,7 +489,7 @@ namespace gs
         // true). The parts are taken before the repair, which changes the mesh in place
         bool apply_reported()
         {
-            List<MeshRobustRepairLostParts.Part> parts = Mesh.TriangleCount > 0 && NoLostPartCheck == false ? MeshRobustRepairLostParts.Parts(Mesh) : null;
+            List<MeshRobustRepairLostParts.Part> parts = Mesh.TriangleCount > 0 && NoLostPartCheck == false && MinVolumeIoU > 0 ? MeshRobustRepairLostParts.Parts(Mesh) : null;
             bool ok = apply_checked();
             MeshRobustRepairLostParts.Part lost = ok ? MeshRobustRepairLostParts.FirstLost(parts, Mesh) : null;
             if (lost != null) {

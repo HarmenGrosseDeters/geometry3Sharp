@@ -669,9 +669,11 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedInput);
             Assert.True(r.UsedExactResolve, r.ExactResolveReason);
             Assert.Equal(Volume(big) + Volume(small), Volume(r.Mesh), 6);
-            // without the check (the default): accepted as before; MinVolumeIoU = 0 turns off all volume checks
+            // without the check (the default): accepted by the volume check as before, but the final lost-part check reports the
+            // separate small sphere (F1, 2026-11-17: no Apply() true without a part); MinVolumeIoU = 0 turns off all volume checks
             var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big) };
-            Assert.True(off.Apply());
+            Assert.False(off.Apply());
+            Assert.Equal(MeshRobustRepair.LostFarPart, off.ResultReason);
             Assert.Equal("", off.FallbackReason);
             var noVolume = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0, CheckLostComponents = true };
             Assert.True(noVolume.Apply());
@@ -688,8 +690,14 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(withSpeck, Box(3, 0, 0, 3.0001, 0.0001, 0.0001));
             Assert.Equal(0, MeshRepairMetrics.LostComponents(withSpeck, big));
             var r = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = true };
-            Assert.True(r.Apply());
+            // (the volume and LostComponents checks accept it; the final lost-part check judges the speck against its own size and
+            // reports it: F1, 2026-11-17, the owner's rule of 2026-11-10, no silent loss of a part)
+            Assert.False(r.Apply());
+            Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
             Assert.Equal("", r.FallbackReason);
+            // with MinVolumeIoU = 0 (no checks against the input) accepted as before
+            var unchecked_ = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0 };
+            Assert.True(unchecked_.Apply());
             DMesh3 withPart = new DMesh3(big);
             MeshEditor.Append(withPart, Box(3, 0, 0, 3.01, 0.01, 0.01));
             Assert.Equal(1, MeshRepairMetrics.LostComponents(withPart, big));
