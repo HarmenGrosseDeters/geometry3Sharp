@@ -12,7 +12,8 @@ namespace g3
     /// 
     /// Reads the vertex element (x,y,z and optionally normals nx,ny,nz, colors red/green/blue and
     /// UVs s,t or u,v) and the face element (vertex_indices or vertex_index list) into one mesh.
-    /// Polygons are fan-triangulated; faces with fewer than 3 or out-of-range indices are skipped with a warning.
+    /// Polygons are fan-triangulated (unless the builder is an <see cref="IPolygonMeshBuilder"/>, which gets them whole, with the optional
+    /// int face property "face_group"); faces with fewer than 3 or out-of-range indices are skipped with a warning.
     /// uchar/ushort colors are scaled to [0,1]. Files without faces are read as point sets (a mesh with only vertices).
     /// Other elements (edges, materials, ...) and other properties are skipped.
     /// Use the BinaryReader overload (as <see cref="PLYFormatReader"/> does), which handles all PLY variants.
@@ -289,11 +290,15 @@ namespace g3
                     int iIndices = elem.Properties.FindIndex((p) => p.IsList && (p.Name == "vertex_indices" || p.Name == "vertex_index"));
                     if (iIndices < 0)
                         return new IOReadResult(IOCode.FileParsingError, "PLY face element has no vertex_indices list");
+                    int iGroup = elem.Properties.FindIndex((p) => p.IsList == false && p.Name == "face_group");
                     for (int fi = 0; fi < elem.Count; ++fi) {
+                        int group = 0;
                         for (int pi = 0; pi < elem.Properties.Count; ++pi) {
                             PlyProperty p = elem.Properties[pi];
                             if (p.IsList == false) {
-                                readValue(p.Type);
+                                double scalar = readValue(p.Type);
+                                if (pi == iGroup && scalar == Math.Floor(scalar) && Math.Abs(scalar) <= int.MaxValue)
+                                    group = (int)scalar;
                                 continue;
                             }
                             int n = list_length(readValue(p.CountType));
@@ -307,7 +312,7 @@ namespace g3
                                     polygon.Add(index_value(value));
                             }
                         }
-                        if (append_polygon(polygon, vertexMap, builder) == false)
+                        if (append_polygon(polygon, vertexMap, builder, group) == false)
                             nSkippedFaces++;
                     }
 
@@ -357,14 +362,23 @@ namespace g3
             return list_length(v);
         }
 
-        // fan-triangulate polygon, returns false if polygon was invalid
-        static bool append_polygon(List<int> polygon, List<int> vertexMap, IMeshBuilder builder)
+        // fan-triangulate polygon (or, for an IPolygonMeshBuilder, pass it on whole, with the face_group value),
+        // returns false if polygon was invalid
+        static bool append_polygon(List<int> polygon, List<int> vertexMap, IMeshBuilder builder, int group)
         {
             if (polygon.Count < 3)
                 return false;
             foreach (int idx in polygon) {
                 if (idx < 0 || idx >= vertexMap.Count)
                     return false;
+            }
+            IPolygonMeshBuilder polygonBuilder = builder as IPolygonMeshBuilder;
+            if (polygonBuilder != null) {
+                int[] ids = new int[polygon.Count];
+                for (int k = 0; k < ids.Length; ++k)
+                    ids[k] = vertexMap[polygon[k]];
+                polygonBuilder.AppendPolygon(ids, group);
+                return true;
             }
             int a = vertexMap[polygon[0]];
             for (int k = 1; k + 1 < polygon.Count; ++k) {
