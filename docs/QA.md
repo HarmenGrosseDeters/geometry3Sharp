@@ -558,8 +558,9 @@ is queued or running today (UTC date), or already succeeded. Rules:
   The dispatch rows above for `nightly.yml` and `coverage.yml` still apply.
 - Until 2026-11-16 the cron line was Monday only, so there was one schedule run per week; the Mon-Sat nightly lines were added on
   2026-11-16 (8f0c5c8e), so 44003452066 is the first run of the new lines and says nothing yet about the other days.
-- Not built: no guard or workflow change fixes a manual cancel. Proposals for the owner: (1) policy for late cron runs, eg the guard
-  skips a `schedule` run created more than N hours after its cron time; (2) a watch item, not a change: the slowest shards stay
+- Not built: no guard or workflow change fixes a manual cancel. (1) A policy for late cron runs (eg the guard
+  skips a `schedule` run created more than N hours after its cron time) is not built: late cron runs stay as they are,
+  since the cron lines are the only starter of `mutation.yml` (owner 2026-11-17). (2) A watch item, not a change: the slowest shards stay
   well under `timeout-minutes: 350` (watch any shard near 350 min).
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**

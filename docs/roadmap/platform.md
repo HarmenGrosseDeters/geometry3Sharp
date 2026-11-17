@@ -461,7 +461,7 @@ Done and removed from this list: #824 (closed 2026-11-16), #858 (closed 2026-11-
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
 1. Coverage gate (`coverage.yml`): red in every scheduled and dispatched run 2026-11-12 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run).
-2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. Open: owner decision on the late-cron proposal there.
+2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. The late-cron proposal is closed: late cron runs stay as they are (owner 2026-11-17).
 3. Runtime watch rule (#888, owner 2026-11-15; #888 closed 2026-11-16): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists ([QA.md 3.3](../QA.md#33-runtime-watch-extreme-cases-nightly)).
 4. Done: #913 and the rest of #615 (#958) are merged.
