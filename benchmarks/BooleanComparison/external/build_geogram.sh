@@ -2,7 +2,9 @@
 # Builds external/geogram_bool.cpp against Geogram (BSD-3, Inria) on a GitHub-hosted runner, for the comparison of
 # README.md, "Geogram". Never run in a development container: geogram is fetched, built and run on the runner only.
 #   build_geogram.sh <work-dir>      -> <work-dir>/geogram_bool, <work-dir>/geogram_version.txt
+# Needs cmake and libtbb-dev: geogram's library target links tbb on Linux for the parallel STL, whatever GEOGRAM_WITH_TBB says.
 #   build_geogram.sh --check <dir>   only the path check of step 3 on <dir> (exit 1 and the paths if one is found; test_geogram.py)
+#   build_geogram.sh --sparse <repo-url> <sha> <dir>   only the checkout of step 1 (test_geogram.py, from a local stand-in repository)
 # Licence boundary (owner 2026-11-17): of geogram, only its own files under src/lib/geogram are built, plus the bundled
 # permissive libraries its library target compiles in (amgcl, libMeshb, rply, OpenNL, zlib, Shewchuk's public-domain
 # predicates, PoissonRecon, xatlas). Shewchuk's Triangle (src/lib/geogram/third_party/triangle, delaunay/delaunay_triangle.*)
@@ -27,11 +29,33 @@ EXCLUDED=(
   '/src/lib/geogram/delaunay/delaunay_triangle.*'
   '/src/lib/geogram/delaunay/delaunay_tetgen.*'
   '/src/lib/geogram/mesh/mesh_tetrahedralize.cpp'
+  # and, unanchored, any other copy of them anywhere in the tree (so that the download prevention is as wide as the check below)
+  '**/third_party/triangle/'
+  '**/*tetgen*'
+  '**/*TetGen*'
+  '**/*Tetgen*'
+  '**/delaunay_triangle.*'
 )
 
 forbidden_paths() {   # prints every path below $1 that is Triangle or TetGen (case-insensitive)
   find "$1" -path "$1/.git" -prune -o \( -ipath '*tetgen*' -o -ipath '*third_party/triangle*' -o -iname 'delaunay_triangle*' \) -print
 }
+
+sparse_checkout() {   # <repo-url> <sha> <dir>: the commit without the blobs of EXCLUDED (they are never fetched)
+  rm -rf "$3"
+  git init -q "$3"
+  git -C "$3" remote add origin "$1"
+  git -C "$3" config core.sparseCheckout true
+  git -C "$3" config core.sparseCheckoutCone false
+  { echo '/*'; for p in "${EXCLUDED[@]}"; do echo "!$p"; done; } > "$3/.git/info/sparse-checkout"
+  git -C "$3" fetch -q --depth 1 --filter=blob:none origin "$2"
+  git -C "$3" checkout -q FETCH_HEAD
+}
+
+if [ "${1:-}" = --sparse ]; then      # only the checkout step, from any repository (test_geogram.py, with a local stand-in)
+  sparse_checkout "${2:?}" "${3:?}" "$(realpath -m "${4:?usage: build_geogram.sh --sparse <repo-url> <sha> <dir>}")"
+  exit 0
+fi
 
 if [ "${1:-}" = --check ]; then
   bad=$(forbidden_paths "$(realpath "${2:?usage: build_geogram.sh --check <dir>}")")
@@ -42,14 +66,7 @@ fi
 work=$(realpath -m "${1:?usage: build_geogram.sh <work-dir>}")
 src=$work/geogram-src
 mkdir -p "$work"
-rm -rf "$src"
-git init -q "$src"
-git -C "$src" remote add origin "$GEOGRAM_REPO"
-git -C "$src" config core.sparseCheckout true
-git -C "$src" config core.sparseCheckoutCone false
-{ echo '/*'; for p in "${EXCLUDED[@]}"; do echo "!$p"; done; } > "$src/.git/info/sparse-checkout"
-git -C "$src" fetch -q --depth 1 --filter=blob:none origin "$GEOGRAM_SHA"
-git -C "$src" checkout -q FETCH_HEAD
+sparse_checkout "$GEOGRAM_REPO" "$GEOGRAM_SHA" "$src"
 # the four submodules the library needs (the other ones belong to the viewer, which is not built)
 for m in amgcl libMeshb rply OpenNL; do
   git -C "$src" -c protocol.file.allow=never submodule update -q --init --depth 1 "src/lib/geogram/third_party/$m"
@@ -67,7 +84,10 @@ bad=$(forbidden_paths "$work/geogram-build")
 if [ -n "$bad" ]; then echo "excluded geogram objects in the build:"; echo "$bad"; exit 1; fi
 lib=$(find "$work/geogram-build" -name 'libgeogram.so*' -type f | head -n 1)
 [ -n "$lib" ] || { echo "libgeogram.so not found"; exit 1; }
-if nm -D --defined-only "$lib" | grep -E -i ' (triangulate|tetrahedralize)$|tetgenio|tetgenmesh' ; then
+# the full symbol table (not only the exported symbols: the library is built with -fvisibility=hidden); a failing nm fails the build
+nm --defined-only "$lib" > "$work/geogram-symbols.txt" || { echo "nm failed on $lib"; exit 1; }
+[ -s "$work/geogram-symbols.txt" ] || { echo "no symbols in $lib (stripped?): the check cannot run"; exit 1; }
+if grep -E -i ' (triangulate|tetrahedralize)$|tetgenio|tetgenmesh' "$work/geogram-symbols.txt"; then
   echo "Triangle or TetGen symbols in $lib"; exit 1
 fi
 echo "library: no Triangle or TetGen object or symbol ($(basename "$lib"))"

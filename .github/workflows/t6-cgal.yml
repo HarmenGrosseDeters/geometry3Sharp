@@ -27,6 +27,10 @@ on:
       max_pairs:
         description: 'Only the first N pairs of the case set (0: all; for a smoke run)'
         default: '0'
+      geogram_warmup:
+        description: 'Geogram: run each boolean twice, time the second (ms) and record the first (cold_ms); ours always times after a warm-up run'
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # the data branch runs/t6-cgal
@@ -93,6 +97,7 @@ jobs:
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
           METHODS: ${{ inputs.methods }}
           TIMEOUT: ${{ inputs.timeout_s }}
+          GEOGRAM_WARMUP: ${{ inputs.geogram_warmup && '1' || '' }}
         run: |
           S=scripts/benchmarks/BooleanComparison
           if [ "${{ matrix.threads }}" = 1 ]; then export DOTNET_PROCESSOR_COUNT=1 GEOGRAM_THREADS=1; PIN="taskset -c 0"; else PIN=""; fi
@@ -121,6 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
+        continue-on-error: true      # the measure jobs may have failed before they uploaded anything
         with:
           path: art
       - name: Raw rows to runs/t6-cgal
@@ -140,5 +146,5 @@ jobs:
           mkdir -p "run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "run-$GITHUB_RUN_ID"/ 2>/dev/null || true
           git add .
           git diff --cached --quiet && exit 0
-          git commit -q -m "T6 CGAL comparison run $GITHUB_RUN_ID"
+          git commit -q -m "T6 comparison run $GITHUB_RUN_ID (${{ inputs.methods }})"
           git push origin runs/t6-cgal

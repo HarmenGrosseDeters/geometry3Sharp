@@ -13,7 +13,11 @@
 // the merge and Delaunay retriangulation of coplanar facets. A new vertex gets the double PCK::approximate of its exact point
 // (MeshSurfaceIntersection::find_or_create_exact_vertex); the result mesh holds these doubles, and they are written with 17
 // digits, so the file has exactly the doubles geogram returns.
-// Threads: GEOGRAM_THREADS (environment) caps Process::set_max_threads; unset: all cores (geogram's default).
+// Threads: GEOGRAM_THREADS (environment) caps Process::set_max_threads; unset: all cores (geogram's default). parallel_for sizes
+// its thread groups by Process::maximum_concurrent_threads(), which returns that cap; the JSON line reports it ("threads").
+// Warm-up: ours times its boolean after an untimed warm-up run (the JIT). With GEOGRAM_WARMUP=1 a single boolean is run twice on
+// the same inputs: "cold_ms" is the first run, "ms" the second (the result of the second is written); unset, "ms" is the only run.
+// "ms" has microsecond resolution (a fraction), so no fast operation is reported as 0.
 // Geogram does not check its inputs (closed, without self-intersections); neither does this driver, so it never refuses.
 #include <geogram/basic/common.h>
 #include <geogram/basic/assert.h>
@@ -87,7 +91,7 @@ static bool read_off(const std::string& path, Mesh& m)
 
 // the vertices that a facet uses (in order of first use), with full double precision; facets as they are (geogram's result
 // is triangulated; a polygon would be written as a polygon, and the eval splits it into a fan)
-static void write_off(const Mesh& m, const char* path)
+static bool write_off(const Mesh& m, const char* path)
 {
     std::vector<long> id(m.vertices.nb(), -1);
     std::vector<index_t> order;
@@ -97,7 +101,7 @@ static void write_off(const Mesh& m, const char* path)
             if (id[v] < 0) { id[v] = (long)order.size(); order.push_back(v); }
         }
     FILE* out = std::fopen(path, "w");
-    if (!out) return;
+    if (!out) return false;
     std::fprintf(out, "OFF\n%zu %u 0\n", order.size(), (unsigned)m.facets.nb());
     for (index_t v : order) {
         const double* p = m.vertices.point_ptr(v);
@@ -108,7 +112,7 @@ static void write_off(const Mesh& m, const char* path)
         for (index_t j = 0; j < m.facets.nb_vertices(f); ++j) std::fprintf(out, " %ld", id[m.facets.vertex(f, j)]);
         std::fprintf(out, "\n");
     }
-    std::fclose(out);
+    return std::fclose(out) == 0;
 }
 
 static const char* expr_of(const std::string& op)
@@ -120,7 +124,7 @@ static const char* expr_of(const std::string& op)
 }
 
 // one boolean; false and the reason on an exception (geogram assertions throw, set_assert_mode(ASSERT_THROW))
-static bool boolean_op(Mesh& result, const Mesh& a, const Mesh& b, const char* expr, long long& ms, std::string& error)
+static bool boolean_op(Mesh& result, const Mesh& a, const Mesh& b, const char* expr, double& ms, std::string& error)
 {
     auto t0 = std::chrono::steady_clock::now();
     try {
@@ -130,7 +134,7 @@ static bool boolean_op(Mesh& result, const Mesh& a, const Mesh& b, const char* e
     } catch (...) {
         error = "exception";
     }
-    ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    ms = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count() / 1000.0;
     return error.empty();
 }
 
@@ -140,14 +144,24 @@ static int run(const std::string& op, const char* fa, const char* fb, const char
     if (!expr) { std::printf("{\"ok\":false,\"error\":\"unknown operation\"}\n"); return 1; }
     Mesh a, b, out;
     if (!read_off(fa, a) || !read_off(fb, b)) { std::printf("{\"ok\":false,\"error\":\"read failed (not an OFF mesh)\"}\n"); return 0; }
-    long long ms = 0;
+    double ms = 0, cold = -1;
     std::string error;
+    const char* w = std::getenv("GEOGRAM_WARMUP");
+    if (w && std::string(w) == "1") {
+        Mesh first;
+        if (!boolean_op(first, a, b, expr, cold, error)) {
+            std::printf("{\"ok\":false,\"ms\":%.3f,\"error\":\"%s\"}\n", cold, clean(error).c_str());
+            return 0;
+        }
+    }
     if (!boolean_op(out, a, b, expr, ms, error)) {
-        std::printf("{\"ok\":false,\"ms\":%lld,\"error\":\"%s\"}\n", ms, clean(error).c_str());
+        std::printf("{\"ok\":false,\"ms\":%.3f,\"error\":\"%s\"}\n", ms, clean(error).c_str());
         return 0;
     }
-    write_off(out, fout);
-    std::printf("{\"ok\":true,\"ms\":%lld,\"threads\":%u}\n", ms, (unsigned)GEO::Process::max_threads());
+    if (!write_off(out, fout)) { std::printf("{\"ok\":false,\"ms\":%.3f,\"error\":\"driver: cannot write the result\"}\n", ms); return 0; }
+    std::printf("{\"ok\":true,\"ms\":%.3f,", ms);
+    if (cold >= 0) std::printf("\"cold_ms\":%.3f,", cold);
+    std::printf("\"threads\":%u}\n", (unsigned)GEO::Process::maximum_concurrent_threads());
     return 0;
 }
 
@@ -157,7 +171,7 @@ static int run_seq(const char* fops, const char* fout)
     std::vector<std::string> lines;
     for (std::string line; std::getline(in, line);)
         if (!line.empty()) lines.push_back(line);
-    if (lines.empty()) { std::printf("{\"ok\":false,\"error\":\"read failed (no operations)\"}\n"); return 0; }
+    if (lines.empty()) { std::printf("{\"ok\":false,\"error\":\"driver: bad ops file (no operations)\"}\n"); return 0; }
     // free each slot after its last use
     std::vector<size_t> last(lines.size());
     std::vector<std::vector<int>> args(lines.size());
@@ -167,12 +181,12 @@ static int run_seq(const char* fops, const char* fout)
         last[i] = i;
         if (op != "load")
             for (int x; ss >> x;) {
-                if (x < 0 || (size_t)x >= i) { std::printf("{\"ok\":false,\"error\":\"read failed (bad operand)\"}\n"); return 0; }
+                if (x < 0 || (size_t)x >= i) { std::printf("{\"ok\":false,\"error\":\"driver: bad ops file (bad operand)\"}\n"); return 0; }
                 args[i].push_back(x); last[(size_t)x] = i;
             }
     }
     std::vector<std::unique_ptr<Mesh>> slots(lines.size());
-    long long ms = 0;
+    double ms = 0;
     int booleans = 0;
     for (size_t i = 0; i < lines.size(); ++i) {
         std::istringstream ss(lines[i]);
@@ -185,19 +199,19 @@ static int run_seq(const char* fops, const char* fout)
         }
         const char* expr = expr_of(op);
         if (!expr || args[i].size() != 2 || !slots[(size_t)args[i][0]] || !slots[(size_t)args[i][1]]) {
-            std::printf("{\"ok\":false,\"error\":\"read failed (bad operation)\"}\n");
+            std::printf("{\"ok\":false,\"error\":\"driver: bad ops file (bad operation)\"}\n");
             return 0;
         }
-        long long t = 0;
+        double t = 0;
         std::string error;
         bool ok = boolean_op(*slots[i], *slots[(size_t)args[i][0]], *slots[(size_t)args[i][1]], expr, t, error);
         ms += t;
-        if (!ok) { std::printf("{\"ok\":false,\"ms\":%lld,\"done\":%d,\"error\":\"%s\"}\n", ms, booleans, clean(error).c_str()); return 0; }
+        if (!ok) { std::printf("{\"ok\":false,\"ms\":%.3f,\"done\":%d,\"error\":\"%s\"}\n", ms, booleans, clean(error).c_str()); return 0; }
         ++booleans;
         for (int x : args[i]) if (last[(size_t)x] == i) slots[(size_t)x].reset();
     }
-    write_off(*slots.back(), fout);
-    std::printf("{\"ok\":true,\"ms\":%lld,\"done\":%d,\"threads\":%u}\n", ms, booleans, (unsigned)GEO::Process::max_threads());
+    if (!write_off(*slots.back(), fout)) { std::printf("{\"ok\":false,\"ms\":%.3f,\"done\":%d,\"error\":\"driver: cannot write the result\"}\n", ms, booleans); return 0; }
+    std::printf("{\"ok\":true,\"ms\":%.3f,\"done\":%d,\"threads\":%u}\n", ms, booleans, (unsigned)GEO::Process::maximum_concurrent_threads());
     return 0;
 }
 

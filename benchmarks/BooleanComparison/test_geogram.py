@@ -50,13 +50,51 @@ class PathGuardTests(unittest.TestCase):
 
     def test_sparse_patterns_cover_the_excluded_paths(self):
         text = open(BUILD).read()
-        block = re.search(r"EXCLUDED=\((.*?)\)", text, re.S).group(1)
-        pats = re.findall(r"'([^']+)'", block)
+        block = re.search(r"EXCLUDED=\((.*?)\n\)", text, re.S).group(1)
+        pats = re.findall(r"^\s*'([^']+)'", block, re.M)
         self.assertEqual(sorted(pats), sorted(["/src/lib/geogram/third_party/triangle/", "/src/lib/geogram/third_party/tetgen/",
                                                "/src/lib/geogram/delaunay/delaunay_triangle.*", "/src/lib/geogram/delaunay/delaunay_tetgen.*",
-                                               "/src/lib/geogram/mesh/mesh_tetrahedralize.cpp"]))
-        for flag in ("-DGEOGRAM_WITH_TRIANGLE=OFF", "-DGEOGRAM_WITH_TETGEN=OFF", "--filter=blob:none", "core.sparseCheckoutCone false"):
+                                               "/src/lib/geogram/mesh/mesh_tetrahedralize.cpp", "**/third_party/triangle/",
+                                               "**/*tetgen*", "**/*TetGen*", "**/*Tetgen*", "**/delaunay_triangle.*"]))
+        for flag in ("-DGEOGRAM_WITH_TRIANGLE=OFF", "-DGEOGRAM_WITH_TETGEN=OFF", "--filter=blob:none", "core.sparseCheckoutCone false",
+                     "-Wl,--no-allow-shlib-undefined", 'nm --defined-only "$lib"'):
             self.assertIn(flag, text)
+
+class SparseCheckoutTests(unittest.TestCase):
+    """the checkout of build_geogram.sh from a local stand-in repository: the excluded files are neither checked out nor downloaded"""
+
+    def git(self, *a, cwd=None, env=None):
+        return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=True, env=env).stdout
+
+    def test_excluded_blobs_are_never_fetched(self):
+        d = tempfile.mkdtemp(prefix="geosparse_")
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", d]))
+        src = os.path.join(d, "src")
+        keep = ["src/lib/geogram/mesh/mesh.cpp", "src/lib/geogram/mesh/triangle_intersection.cpp", "src/lib/geogram/delaunay/CDT_2d.cpp"]
+        drop = ["src/lib/geogram/third_party/triangle/triangle.c", "src/lib/geogram/third_party/tetgen/tetgen.cxx",
+                "src/lib/geogram/delaunay/delaunay_triangle.cpp", "src/lib/geogram/delaunay/delaunay_tetgen.h",
+                "src/lib/geogram/mesh/mesh_tetrahedralize.cpp", "src/lib/other/third_party/triangle/x.c", "src/lib/foo/TetGen_copy.h"]
+        os.makedirs(src)
+        self.git("init", "-q", cwd=src)
+        for k in ("uploadpack.allowFilter", "uploadpack.allowAnySHA1InWant"):
+            self.git("config", k, "true", cwd=src)
+        for f in keep + drop:
+            p = os.path.join(src, f)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write("content of " + f + "\n")          # distinct blobs
+        self.git("add", "-A", cwd=src)
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x", cwd=src)
+        sha = self.git("rev-parse", "HEAD", cwd=src).strip()
+        out = os.path.join(d, "out")
+        r = subprocess.run(["bash", BUILD, "--sparse", "file://" + src, sha, out], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        files = sorted(os.path.relpath(os.path.join(a, f), out) for a, ds, fs in os.walk(out) if ".git" not in a.split(os.sep) for f in fs)
+        self.assertEqual(files, sorted(keep))
+        env = dict(os.environ, GIT_NO_LAZY_FETCH="1")     # listing must not fetch a missing blob
+        missing = {l[1:] for l in self.git("rev-list", "--objects", "--missing=print", "FETCH_HEAD", cwd=out, env=env).splitlines() if l.startswith("?")}
+        blob = {f: self.git("rev-parse", "HEAD:" + f, cwd=src).strip() for f in keep + drop}
+        self.assertEqual({f for f in keep + drop if blob[f] in missing}, set(drop))
 
 FAKE = r'''#!/usr/bin/env python3
 # a stand-in for geogram_bool: records its arguments and environment, writes a one-triangle OFF and prints the JSON line
@@ -176,6 +214,28 @@ class T6GeogramTests(unittest.TestCase):
         rep = t6.report("x", rows, self.tris, "geogram")
         self.assertIn("of Geogram: **no**", rep)
         self.assertIn("ours clean or correctly empty, no refusal, failure or timeout): **yes**", rep)
+
+    def test_unclean_results_leave_the_both_clean_ratio_and_fast_ops_stay(self):
+        rows = self.rows()
+        rows[("p1_1+2", "geogram")] = row("p1_1+2", "geogram", 400, 0.5, reason="degenerate triangles")
+        rows[("p2_3+4", "geogram")] = row("p2_3+4", "geogram", 0, 0.5)          # under 1 ms: counted at MIN_MS, not dropped
+        out, _ = t6.analyse(rows, self.tris, "geogram")
+        self.assertEqual(out["1k-10k"]["ratios"], [0.25] * 3)
+        self.assertEqual(out["1k-10k"]["clean_ratios"], [])
+        self.assertEqual(out["10k-100k"]["ratios"], [300 / t6.MIN_MS] * 3)
+        self.assertEqual(out["10k-100k"]["clean_ratios"], [300 / t6.MIN_MS] * 3)
+        self.assertIn("| nan (0) |", t6.report("x", rows, self.tris, "geogram"))
+
+    def test_non_finite_volumes_are_not_compared(self):
+        rows = self.rows()
+        rows[("p1_1+2", "geogram")] = row("p1_1+2", "geogram", 400, float("nan"))
+        out, _ = t6.analyse(rows, self.tris, "geogram")
+        self.assertEqual(out["1k-10k"]["vdiff"], [])
+        self.assertEqual(t6.volume_disagreements([rows], "geogram"), [])
+
+    def test_no_data_is_not_all_clean(self):
+        self.assertFalse(t6.all_clean([]))
+        self.assertFalse(t6.all_clean([dict(ops=0, ok=0, clean=0, empty=0, bad=0, timeout=0, rejected=0)]))
 
     def test_default_other_is_still_cgal(self):
         rows = {(f, "cgal_epeck" if m == "geogram" else m): dict(r, method="cgal_epeck" if m == "geogram" else m)

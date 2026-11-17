@@ -85,7 +85,7 @@ jobs:
           dpkg -s libcgal-dev | grep '^Version'
           python3 -m pip install numpy manifold3d==3.0.1
       - name: Build geogram_bool (geogram BSD-3 at a pinned commit, without Triangle and TetGen)
-        if: ${{ contains(inputs.methods, 'geogram') }}
+        if: ${{ contains(format(',{0},', inputs.methods), ',geogram,') }}
         run: |
           sudo apt-get install -y -q cmake libtbb-dev
           bash scripts/benchmarks/BooleanComparison/external/build_geogram.sh "$RUNNER_TEMP/geogram"
@@ -159,11 +159,14 @@ jobs:
           $PIN python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
+        env:
+          METHODS: ${{ inputs.methods }}
+          THREADS: ${{ inputs.threads }}
         run: |
           set -o pipefail
           python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
-          if [[ ",${{ inputs.methods }}," == *",geogram,"* ]]; then
-            { echo; echo "### ours against Geogram (threads ${{ inputs.threads }})"; echo; python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py versus geogram results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
+          if [[ ",$METHODS," == *",geogram,"* ]]; then
+            { echo; echo "### ours against Geogram (threads $THREADS)"; echo; python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py versus geogram results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@v4
         if: always()

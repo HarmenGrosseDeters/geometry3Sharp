@@ -10,7 +10,7 @@
 # Case set: the fixed 100-pair CGAL sample (thingi-pairs/pairs_cgal_sample.csv) restricted to pairs whose operands
 # have 1k-100k triangles in total (A + B); if that leaves fewer than MIN_PAIRS, pairs of pairs.csv of that size class
 # are added in a fixed order of SplitMix64 seed SEED_TOPUP. Size buckets: A + B in 1k-10k and 10k-100k.
-import csv, json, os, statistics as st, sys
+import csv, json, math, os, statistics as st, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BC = os.path.dirname(HERE)
@@ -26,6 +26,8 @@ NAMES = {"cgal_epeck": "CGAL", "geogram": "Geogram", "manifold": "Manifold"}
 # volumes of two results agree if they differ by at most this, relative to the volume of the inputs (vA + vB): rounding the result
 # to doubles moves a volume by far less, a wrong classification of a part by about its volume
 VOL_TOL = 1e-6
+# a time below this (a fast operation, timed in whole ms) counts as this, so that no ratio divides by 0 and no fast case is dropped
+MIN_MS = 0.5
 
 def read_pairs(name):
     with open(os.path.join(tp.LISTS, name)) as f:
@@ -99,9 +101,12 @@ def vol_diff(a, g, op):
     va, vg = a.get(f"{op}_volume"), g.get(f"{op}_volume")
     inp = a.get("input") or {}
     scale = (inp.get("vA") or 0) + (inp.get("vB") or 0)
-    if va is None or vg is None or not scale > 0:
+    if va is None or vg is None or not scale > 0 or not math.isfinite(va) or not math.isfinite(vg):
         return None
     return abs(va - vg) / scale
+
+def clean_or_empty(r, op):
+    return r.get(f"{op}_clean_reason") in ("", "empty")
 
 def analyse(rows, tris, other="cgal_epeck"):
     """rows: {(file, method): row}. -> per bucket {ratios, volume differences, per method counters}, and all ratio records"""
@@ -111,7 +116,7 @@ def analyse(rows, tris, other="cgal_epeck"):
         b = bucket_of(f, tris)
         if b is None:
             continue
-        o = out.setdefault(b, {"pairs": 0, "ratios": [], "vdiff": [], "m": {m: dict(ops=0, ok=0, clean=0, empty=0, unclean={}, rejected=0, bad=0, timeout=0)
+        o = out.setdefault(b, {"pairs": 0, "ratios": [], "clean_ratios": [], "vdiff": [], "m": {m: dict(ops=0, ok=0, clean=0, empty=0, unclean={}, rejected=0, bad=0, timeout=0)
                                                                             for m in ("ours", other)}})
         o["pairs"] += 1
         for m in ("ours", other):
@@ -135,24 +140,26 @@ def analyse(rows, tris, other="cgal_epeck"):
                 dv = vol_diff(a, g, op)
                 if dv is not None:
                     o["vdiff"].append(dv)
-                if g.get(f"{op}_ms"):
-                    ratio = a[f"{op}_ms"] / g[f"{op}_ms"]
+                if g.get(f"{op}_ms") is not None and a.get(f"{op}_ms") is not None:
+                    ratio = a[f"{op}_ms"] / max(g[f"{op}_ms"], MIN_MS)
                     o["ratios"].append(ratio)
+                    if clean_or_empty(a, op) and clean_or_empty(g, op):
+                        o["clean_ratios"].append(ratio)
                     recs.append(dict(bucket=b, file=f, op=op, ratio=ratio, ours=a[f"{op}_ms"], other=g[f"{op}_ms"],
                                      phases=a.get(f"{op}_phases"), tris=a.get(f"{op}_tris"), vdiff=dv))
     return out, recs
 
 def all_clean(counters):
-    return all(c["ok"] == c["clean"] + c["empty"] and c["bad"] == c["timeout"] == c["rejected"] == 0 for c in counters)
+    return sum(c["ops"] for c in counters) > 0 and all(c["ok"] == c["clean"] + c["empty"] and c["bad"] == c["timeout"] == c["rejected"] == 0 for c in counters)
 
 def report(label, rows, tris, other="cgal_epeck"):
     out, recs = analyse(rows, tris, other)
     n = NAMES.get(other, other)
     lines = [f"### {label}", "",
              f"Ratio: time of ours / time of {n} (below 1: ours is faster). Volumes agree: |difference| <= {VOL_TOL:g} (vA + vB).", "",
-             "| bucket | pairs | ops (both ok) | median ratio | p90 | max | volumes agree | max volume diff | ours clean | ours empty | ours unclean | ours refused | ours failed / timeout | "
+             "| bucket | pairs | ops (both ok) | median ratio | p90 | max | median ratio, both clean (n) | volumes agree | max volume diff | ours clean | ours empty | ours unclean | ours refused | ours failed / timeout | "
              f"{n} clean | {n} empty | {n} unclean | {n} refused | {n} failed / timeout |",
-             "|" + "---|" * 18]
+             "|" + "---|" * 19]
     for name, _, _ in BUCKETS:
         o = out.get(name)
         if not o:
@@ -161,7 +168,8 @@ def report(label, rows, tris, other="cgal_epeck"):
         un = lambda c: ", ".join(f"{k} {v}" for k, v in sorted(c["unclean"].items())) or "0"
         med = lambda v, f: f(v) if v else float("nan")
         vd = o["vdiff"]
-        lines.append(f"| {name} | {o['pairs']} | {len(r)} | {med(r, st.median):.2f} | {pct(r, 90):.2f} | {med(r, max):.2f} | "
+        cr = o["clean_ratios"]
+        lines.append(f"| {name} | {o['pairs']} | {len(r)} | {med(r, st.median):.2f} | {pct(r, 90):.2f} | {med(r, max):.2f} | {med(cr, st.median):.2f} ({len(cr)}) | "
                      f"{sum(1 for x in vd if x <= VOL_TOL)}/{len(vd)} | {med(vd, max):.1e} | {a['clean']}/{a['ops']} | {a['empty']} | {un(a)} | "
                      f"{a['rejected']} | {a['bad']} / {a['timeout']} | {g['clean']}/{g['ops']} | {g['empty']} | {un(g)} | {g['rejected']} | {g['bad']} / {g['timeout']} |")
     allr = [x for o in out.values() for x in o["ratios"]]

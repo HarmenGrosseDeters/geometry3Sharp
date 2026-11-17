@@ -522,12 +522,12 @@ def versus(rows, other):
         if a.get(f"{op}_status") != "ok" or g.get(f"{op}_status") != "ok":
             continue
         o = out.setdefault(k, {"ratios": [], "vdiff": [], "worst": []})
-        if g.get(f"{op}_ms") and a.get(f"{op}_ms") is not None:
-            o["ratios"].append(a[f"{op}_ms"] / g[f"{op}_ms"])
+        if g.get(f"{op}_ms") is not None and a.get(f"{op}_ms") is not None:
+            o["ratios"].append(a[f"{op}_ms"] / max(g[f"{op}_ms"], 0.5))      # 0.5 ms floor, as perf/t6.py MIN_MS
         inp = a.get("input") or {}
         scale = (inp.get("vA") or 0) + (inp.get("vB") or 0)
         va, vg = a.get(f"{op}_volume"), g.get(f"{op}_volume")
-        if va is not None and vg is not None and scale > 0:
+        if va is not None and vg is not None and scale > 0 and math.isfinite(va) and math.isfinite(vg):
             dv = abs(va - vg) / scale
             o["vdiff"].append(dv)
             if dv > VOL_TOL:
