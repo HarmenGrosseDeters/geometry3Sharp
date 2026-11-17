@@ -234,7 +234,8 @@ namespace geometry3Sharp.Tests
         // Mixed's designs (TerrainSlopeMixedTests.Make: terrain tilt, offset, tilt direction) in three frames, cut, fill
         // and mixed: on each Success the certificate's bound holds, sampled, on the triangles it bounded
         // (one row per tilt direction, #698: the 24 designs of a frame and direction took up to 7.4 s alone and 23 s in the full run;
-        // 10 to 12 of the 12 designs of a row are certified and 2 to 11 move catch points, so 6 and 1 per row keep the old 12 and 1)
+        // 10 to 12 of the 12 designs of a row are certified, and 2 to 11 move catch points in every row whose moves are checked, so 6 and 1
+        // per row keep the old 12 and 1)
         [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
