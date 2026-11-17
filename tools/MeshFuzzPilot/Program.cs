@@ -658,6 +658,22 @@ public static partial class Program
         ExpectFinding("a winding number that is not the brute force one", () => CheckWinding("t", 1, 0, 0));
         ExpectFinding("a winding number that depends on the scale", () => CheckWinding("t", 1, 1, 0));
         ExpectFinding("a batch result that differs", () => CheckBatchEqual("t", "x", 1, 2));
+        // the Exact Boolean 3.0 targets (#1038): each judgement fires on a contradiction and stays silent on agreement
+        DMesh3 cubeShifted = new DMesh3(cube);
+        foreach (int v in cubeShifted.VertexIndices()) cubeShifted.SetVertex(v, cubeShifted.GetVertex(v) + new Vector3d(1e-9, 0, 0));
+        B30CheckIdentical("t", "same", cube, new DMesh3(cube));
+        ExpectFinding("two unions that differ by one vertex", () => B30CheckIdentical("t", "differ", cube, cubeShifted), "differ");
+        ExpectFinding("two unions of different size", () => B30CheckIdentical("t", "differ", cube, new DMesh3()), "differ");
+        B30CheckVolumes("t", "same", 1, 1 + 1e-12, 1e-9);
+        ExpectFinding("an n-ary volume that is half the chain's", () => B30CheckVolumes("t", "n-ary", 1, 2, 1e-9), "n-ary");
+        ExpectFinding("a NaN volume", () => B30CheckVolumes("t", "n-ary", double.NaN, 1, 1e-9), "n-ary");
+        if (Math.Abs(B30Volume(cube) - 1) > 1e-12) throw new InvalidOperationException("the unit cube must have the volume 1: " + B30Volume(cube));
+        var T = ExactMeshBoolean.Operations.Union;
+        B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.Success, true, true);
+        B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.RoundingNotClean, false, false);
+        ExpectFinding("InvalidInput on finite open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.InvalidInput, false, true), "InvalidInput");
+        ExpectFinding("NotComputed on finite open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.NotComputed, false, true), "NotComputed");
+        ExpectFinding("a success with an invalid mesh on open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.Success, true, false), "invalid");
         var okWrap = MeshAlphaWrap.WrapStatus.Success;
         ExpectFinding("an alpha wrap whose Compute() and Status disagree", () => CheckAlphaWrap("t", true, MeshAlphaWrap.WrapStatus.Failed, "", cube, true, true));
         ExpectFinding("EmptyInput for a mesh", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.EmptyInput, "", null, true, true));

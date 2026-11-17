@@ -121,6 +121,23 @@ namespace geometry3Sharp.Tests
                 () => Prefix("difference with itself", BooleanOracle.Volume(dd) > BooleanOracle.VolumeTolerance(a, a) ? $"volume {BooleanOracle.Volume(dd)} is not empty" : ""));
         }
 
+        /// <summary> two operands: V(A|B) + V(A&amp;B) = V(A) + V(B), V(A-B) + V(A&amp;B) = V(A) and V(B-A) + V(A&amp;B) = V(B) (the laws of one operand
+        /// cannot tell an intersection from a union: A&amp;A = A|A); each result also closed and manifold-valid through BooleanOracle.Run </summary>
+        static string InclusionExclusion((DMesh3 a, DMesh3 b) x)
+        {
+            DMesh3 a = x.a, b = x.b;
+            string e = "";
+            DMesh3 u = Run(a, b, Ops.Union, ref e), i = Run(a, b, Ops.Intersection, ref e);
+            DMesh3 d = Run(a, b, Ops.Difference, ref e), d2 = Run(b, a, Ops.Difference, ref e);
+            if (e != "") return e;
+            double tol = 4 * BooleanOracle.VolumeTolerance(a, b);
+            double va = BooleanOracle.Volume(a), vb = BooleanOracle.Volume(b), vi = BooleanOracle.Volume(i);
+            return First(
+                () => Math.Abs(BooleanOracle.Volume(u) + vi - va - vb) > tol ? $"inclusion-exclusion: {BooleanOracle.Volume(u)} + {vi} against {va} + {vb} (tolerance {tol})" : "",
+                () => Math.Abs(BooleanOracle.Volume(d) + vi - va) > tol ? $"A-B: {BooleanOracle.Volume(d)} + {vi} against {va} (tolerance {tol})" : "",
+                () => Math.Abs(BooleanOracle.Volume(d2) + vi - vb) > tol ? $"B-A: {BooleanOracle.Volume(d2)} + {vi} against {vb} (tolerance {tol})" : "");
+        }
+
         /// <summary> determinism: one computation serial and parallel gives the same bits (serial equals parallel, #774) </summary>
         static string SerialEqualsParallel(DMesh3 a, DMesh3 b)
         {
@@ -197,6 +214,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SliverAlgebraicLaws() =>
             CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "SliverAlgebraicLaws", GenSliver, AlgebraicLaws, samples: 30, campaign: 1102);
+
+        [Fact]
+        public void ProceduralInclusionExclusion() =>
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralInclusionExclusion", Gen.Select(GenProcedural, GenProcedural, (a, b) => (a, b)), InclusionExclusion, samples: 40, campaign: 1111);
+
+        [Fact]
+        public void SliverInclusionExclusion() =>
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "SliverInclusionExclusion", Gen.Select(GenSliver, GenProcedural, (a, b) => (a, b)), InclusionExclusion, samples: 30, campaign: 1112);
 
         [Fact]
         public void TouchingComponentsAreDeterministic() =>

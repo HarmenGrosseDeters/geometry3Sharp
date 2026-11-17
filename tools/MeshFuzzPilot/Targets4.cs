@@ -21,6 +21,28 @@ public static partial class Program
         return true;
     }
 
+    /// <summary> the judgement of the identity targets: the same bits (a Finding with the message when not) </summary>
+    public static void B30CheckIdentical(string what, string message, DMesh3 x, DMesh3 y)
+    {
+        if (!B30Identical(x, y)) throw new Finding($"{what}: {message}");
+    }
+
+    /// <summary> the judgement of the volume targets: two volumes within the tolerance (also false for NaN) </summary>
+    public static void B30CheckVolumes(string what, string label, double first, double second, double tol)
+    {
+        if (!(Math.Abs(first - second) <= tol))
+            throw new Finding($"{what}: {label}: {first:R} against {second:R} (tolerance {tol:R})");
+    }
+
+    /// <summary> a status that is a finding on finite open inputs, and a success that must be a valid mesh </summary>
+    public static void B30CheckOpenStatus(string what, ExactMeshBoolean.Operations op, ExactMeshBoolean.BooleanStatus status, bool ok, bool valid)
+    {
+        if (status == ExactMeshBoolean.BooleanStatus.InvalidInput || status == ExactMeshBoolean.BooleanStatus.NotComputed)
+            throw new Finding($"{what}: {op} status {status} on finite open inputs");
+        if (ok && !valid)
+            throw new Finding($"{what}: {op} success with an invalid result on open inputs");
+    }
+
     /// <summary> signed volume by the divergence theorem over the triangles </summary>
     static double B30Volume(DMesh3 m)
     {
@@ -61,8 +83,7 @@ public static partial class Program
         if (!chain.Compute()) throw new Finding($"{what}: pairwise chain Compute() false: {chain.Error}");
         double tol = 1e-9 * Math.Pow(B30Scale(c.A, c.B, third), 3);
         double vn = B30Volume(nary.Result), vc = B30Volume(chain.Result);
-        if (Math.Abs(vn - vc) > tol)
-            throw new Finding($"{what}: n-ary volume {vn:R} against the chain {vc:R} (tolerance {tol:R})");
+        B30CheckVolumes(what, "n-ary volume against the chain", vn, vc, tol);
     }
 
     /// <summary> determinism: one union serial and parallel, and a second parallel run, give the same bits (#774) </summary>
@@ -77,10 +98,10 @@ public static partial class Program
             gParallel.SerialOnThisThread = false;
             var p = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
             if (!p.Compute()) throw new Finding($"{what}: parallel Compute() false where serial succeeded: {p.Error}");
-            if (!B30Identical(sr, p.Result)) throw new Finding($"{what}: serial and parallel union differ");
+            B30CheckIdentical(what, "serial and parallel union differ", sr, p.Result);
             var q = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
             q.Compute();
-            if (!B30Identical(p.Result, q.Result)) throw new Finding($"{what}: two parallel runs differ");
+            B30CheckIdentical(what, "two parallel runs differ", p.Result, q.Result);
         } finally { gParallel.SerialOnThisThread = serial; }
     }
 
@@ -91,7 +112,7 @@ public static partial class Program
         if (!op.Compute()) return;
         DMesh3 first = new DMesh3(op.Result);
         if (!op.Compute()) throw new Finding($"{what}: second Compute() false where the first succeeded: {op.Error}");
-        if (!B30Identical(first, op.Result)) throw new Finding($"{what}: second Compute() of the same instance differs");
+        B30CheckIdentical(what, "second Compute() of the same instance differs", first, op.Result);
     }
 
     /// <summary> open inputs (one triangle of each operand removed) through all three operations: no failed status, and a
@@ -104,10 +125,7 @@ public static partial class Program
         foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
             var x = new ExactMeshBoolean(a, b, op);
             bool ok = x.Compute();
-            if (x.Status == ExactMeshBoolean.BooleanStatus.InvalidInput || x.Status == ExactMeshBoolean.BooleanStatus.NotComputed)
-                throw new Finding($"{what}: {op} status {x.Status} on finite open inputs: {x.Error}");
-            if (ok && x.Result != null && x.Result.TriangleCount > 0 && !x.Result.CheckValidity(true, FailMode.ReturnOnly))
-                throw new Finding($"{what}: {op} success with an invalid result on open inputs");
+            B30CheckOpenStatus(what, op, x.Status, ok, x.Result == null || x.Result.TriangleCount == 0 || x.Result.CheckValidity(true, FailMode.ReturnOnly));
         }
     }
 
@@ -123,7 +141,6 @@ public static partial class Program
         if (!okP || !okS || plain.Result == null || safe.Result == null || !safe.RoundingClean) return;
         double tol = 1e-4 * Math.Pow(B30Scale(c.A, c.B), 3);
         double vp = B30Volume(plain.Result), vs = B30Volume(safe.Result);
-        if (Math.Abs(vp - vs) > tol)
-            throw new Finding($"{what}: plain volume {vp:R} against SafeRounding {vs:R} (tolerance {tol:R})");
+        B30CheckVolumes(what, "plain volume against SafeRounding", vp, vs, tol);
     }
 }
