@@ -108,7 +108,7 @@ namespace g3
 
             // insert each poly
             MeshInsertUVPolyCurve insert = new MeshInsertUVPolyCurve(FillMesh, SpansPoly);
-            ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef * scale);
+            ValidationStatus status = insert.Validate(MathUtil.ZeroTolerancef);
             bool failed = true;
             if (status == ValidationStatus.Ok) {
                 if (insert.Apply()) {

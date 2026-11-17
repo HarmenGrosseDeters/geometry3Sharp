@@ -117,9 +117,15 @@ class ChainListTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 ac.cmd_manifest(d, out, man, 5, ["dui"])
             cases = [json.loads(l) for l in open(man)]
+            # --only: just the named chains (the RC4 rerun of a few chains)
+            only = os.path.join(d, "o.jsonl")
+            with contextlib.redirect_stdout(io.StringIO()):
+                ac.cmd_manifest(d, out, only, None, None, ["iud_p0003", "dui_p0001"])
+            picked = [json.loads(l)["name"] for l in open(only)]
         self.assertEqual(len(cases), 5)
         self.assertTrue(all(c["variant"] == "dui" and len(c["chain"]) == 11 for c in cases))
         self.assertTrue(cases[0]["name"].startswith("dui_p0000_"))
+        self.assertEqual(sorted(n.split("_")[0] + "_" + n.split("_")[1] for n in picked), ["dui_p0001", "iud_p0003"])
 
     def test_plans_chain_the_result_of_the_previous_step(self):
         for v, plan in ac.PLANS.items():

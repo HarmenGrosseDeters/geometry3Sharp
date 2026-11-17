@@ -1,5 +1,8 @@
 # Alpha wrap defaults on the 800-mesh sample (#736, #846)
 
+**Decisions (owner, 2026-11-17): #736 stays opt-in. #846 stays off by default; the budget and `MaxAlphaCoarsening` stay opt-in; no further 800 run.
+Opt-in recipe for a bounded tail: `MaxEstimatedTriangles = 300000` with `MaxAlphaCoarsening = 1.2`** (see "Follow-up on #846" below).
+
 Measurement for the two owner default decisions: the sharp-feature pass (`AlphaWrapSharpFeatures`, lever 6 K, #736) and the
 raw-size budget (`MaxEstimatedTriangles`, #846). Both are opt-in today. **No default is changed here**; this page gives the
 data and the options, the decision is the owner's.
@@ -74,7 +77,7 @@ Medians over 800 meshes (p95 in brackets); Hausdorff is the upper bound `hd_hi`,
 - One sample, one alpha (diagonal / 300); no statement about other alphas, other corpora or the robust mode (where `BENCH_WRAP_BUDGET` was
   already read).
 
-## Options for the owner (no recommendation is implied by the order)
+## Options for the owner (as presented before the decisions below)
 
 **#736, sharp-feature pass (B).**
 1. Stay opt-in (status quo): no risk, the better Hausdorff bound and 0.67x triangles stay available for callers who ask.
@@ -88,9 +91,9 @@ Medians over 800 meshes (p95 in brackets); Hausdorff is the upper bound `hd_hi`,
 1. Stay opt-in / off (status quo): bit-identical to today.
 2. On at 300,000: pipeline time 0.78x and the tail cut to 24 s; the price is a coarser result on 352 meshes (Hausdorff bound up to 1.35x at
    coarsening 1.5 to 2, one outlier at 47x, 21 instead of 16 meshes above a bound of 0.05).
-3. On with a larger budget or a cap on the coarsening factor (for example at most 1.5, which would leave 311 of the 352 active meshes
-   untouched in kind and drop the 41 worst); not measured, it needs its own run on the 41 meshes above 1.5 and the 10 above 2.
-4. Look at the 40118 case first (diagnosis of the 47x bound) and decide afterwards.
+3. On with a limit on the coarsening (`MaxAlphaCoarsening`, measured below on the 41 worst meshes: cap 1.2 removes the outliers, cap 1.5 does
+   not). Not measured on all 800 meshes.
+4. Off by default, the cap documented as the setting to use with a budget (see "Follow-up" below).
 
 Both levers can be combined; the run measured them separately (B and C against A), so the combination is not measured.
 
@@ -98,3 +101,65 @@ Both levers can be combined; the run measured them separately (B and C against A
 
 `gh workflow run alpha-defaults.yml` (defaults: 16 shards, `0:800`, `ABC`, 400 s); about 2 h on 6 parallel runners. Summary generator:
 `python3 -I benchmarks/MeshRepairBenchmark/alpha_defaults_summary.py <merged dir>`.
+
+## Follow-up on #846: mesh 40118 and a limit on the coarsening (owner 2026-11-17)
+
+### 40118: the bound is real
+
+Local reruns of the pipeline on 40118 (4,252 triangles, closed, genus 0, diagonal 58.4) at several budgets. The estimate (2.70M) is
+about twice the real raw size (1.21M), the documented overestimate for closed solids, so the coarsening factor is what the budget asks for.
+The bound has a cliff in alpha:
+
+| budget | coarsening | back-Hausdorff bound | IoU (extra volume) | result triangles | pipeline |
+|---|---:|---:|---:|---:|---:|
+| off | 1 | 0.0044 | 0.969 (3 %) | 108,192 | 64 s |
+| 1.8M | 1.22 | 0.0052 | 0.962 (4 %) | 86,422 | 47 s |
+| 1.2M | 1.50 | 0.153 | 0.745 (34 %) | 86,142 | 26 s |
+| 675k | 2.00 | 0.207 | 0.733 (36 %) | 13,572 | 2.3 s |
+| 300k | 3.00 | 0.207 | 0.729 (37 %) | 6,108 | 1.3 s |
+
+A hollow part (about a third of the solid's volume, about 12 units deep) lies behind a narrow opening. Once alpha passes the opening
+(between the factors 1.22 and 1.5 here) the wrap seals it and fills the cavity: the documented "a coarser wrap closes cavities up to
+about 2 * UsedAlpha". The estimate is not at fault; a size estimate cannot see a neck. A cap of 1.5 does not help this mesh; 1.2 does.
+
+### The limit: `MaxAlphaCoarsening` (#1014)
+
+Opt-in (default 0 = no limit): with a budget, alpha and offset grow by at most this factor. Run 44013288852 (`alpha-defaults.yml` with
+`ids`, 49 meshes: the 41 with a coarsening above 1.5 in run 43972566855 and 8 controls with a coarsening of 1.05 to 1.5; configurations
+A defaults, C budget 300k, D budget 300k + cap 1.5, E budget 300k + cap 1.2; 4 shards, 196 runs, no timeout, all closed, manifold, no
+self-intersection, valid). Same runner noise caveat as above.
+
+The 41 meshes above 1.5 (medians, sums over the 41; hd = Hausdorff upper bound relative to the diagonal):
+
+| | A | C (no cap) | D (cap 1.5) | E (cap 1.2) |
+|---|---:|---:|---:|---:|
+| hd median / max | 0.0079 / 0.069 | 0.0145 / **0.207** | 0.0125 / 0.172 | 0.0098 / **0.070** |
+| meshes with hd above 0.05 | 2 | 5 | 5 | 2 |
+| hd against A: median, above 1.1x, above 2x, max | - | 1.43, 30, 7, 47x | 1.30, 30, 5, 39x | 1.11, 22, 2, 2.7x |
+| result triangles, median | 92k | 34k | 50k | 73k |
+| IoU, median | 0.966 | 0.938 | 0.948 | 0.960 |
+| pipeline, sum / slowest | 611 s / 47.0 s | 185 s (0.30x) / 8.4 s | 268 s (0.44x) / 16.3 s | 423 s (0.69x) / 29.5 s |
+
+- Cap 1.2 (E) removes the outliers: the worst bound is the one of A (0.070 against 0.069), 40118 is 0.0051 against 0.0044, and 2 meshes
+  stay above 2x of A (max 2.7x). It keeps 0.69x of A's pipeline time on these meshes (slowest 47.0 -> 29.5 s).
+- Cap 1.5 (D) keeps the problem: 40118 is 0.172 (39x), 5 meshes above 0.05, as without a cap; time 0.44x.
+- The 8 controls (coarsening 1.05 to 1.5): D is bit-identical to C on all 8 (the cap does not reach them); E is identical where the
+  coarsening is at most 1.2 and differs only above it.
+- Per mesh, the worst ones (hd A / C / D / E): 40118 0.0044 / 0.207 / 0.172 / 0.0051; 37275 0.0062 / 0.059 / 0.059 / 0.0077;
+  51909 0.0043 / 0.020 / 0.0061 / 0.0055; 860049 0.0094 / 0.040 / 0.025 / 0.025; 69261 0.0077 / 0.031 / 0.020 / 0.0091.
+
+### What is not measured
+
+- The cap on the other 311 active meshes (coarsening 1.0 to 1.5): where the coarsening is at most the cap the result equals C; above it
+  (for E, the 1.2 to 1.5 range) the cliff of another mesh could lie below 1.2. The cliff position is a property of the mesh (the width of
+  its narrowest neck against alpha) and the 49 meshes cannot exclude one.
+- The combination with the sharp-feature pass.
+
+### Recommendation (followed)
+
+Leave the budget **off by default** (#846 stays opt-in). Reasons: the budget trades a certain time gain for a bound that can be far worse
+on a mesh with a hollow part behind a narrow neck, and the benchmark has no way to tell such a mesh before the wrap; the safe
+setting found here, budget 300,000 with `MaxAlphaCoarsening = 1.2`, is measured on 49 meshes only. If the owner wants a bounded
+tail by default, the gate is one run of configuration E over all 800 meshes (`alpha-defaults.yml`, `configs=ACE`, about 2 h): turn it on
+only if no mesh is worse than about 3x of A's bound there and the pipeline time stays near 0.7x or better. For callers who need a bounded time today the
+recommended setting is budget 300,000 together with cap 1.2.

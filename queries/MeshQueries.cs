@@ -48,6 +48,21 @@ namespace g3
 
 
         /// <summary>
+        /// Double-precision <see cref="NearestPointFrame"/>: same frame, but the origin keeps double precision (the float
+        /// frame's origin is off by up to 0.25 m at UTM coordinates).
+        /// </summary>
+        public static Frame3d NearestPointFrameD(DMesh3 mesh, ISpatial spatial, Vector3d queryPoint, bool bForceFaceNormal = false)
+        {
+            int tid = spatial.FindNearestTriangle(queryPoint);
+            Vector3d surfPt = TriangleDistance(mesh, tid, queryPoint).TriangleClosest;
+            if (mesh.HasVertexNormals && bForceFaceNormal == false)
+                return SurfaceFrameD(mesh, tid, surfPt);
+            else
+                return new Frame3d(surfPt, mesh.GetTriNormal(tid));
+        }
+
+
+        /// <summary>
         /// Find unsigned distance from queryPoint to the mesh surface, using spatial to find the nearest triangle.
         /// Returns double.MaxValue if no triangle is found within maxDist.
         /// </summary>
@@ -175,6 +190,27 @@ namespace g3
 
 
         /// <summary>
+        /// Double-precision <see cref="RayHitPointFrame"/>: the origin keeps double precision.
+        /// </summary>
+        public static bool RayHitPointFrameD(DMesh3 mesh, ISpatial spatial, Ray3d ray, out Frame3d hitPosFrame, bool bForceFaceNormal = false)
+        {
+            hitPosFrame = new Frame3d();
+            int tid = spatial.FindNearestHitTriangle(ray);
+            if (tid == DMesh3.InvalidID)
+                return false;
+            var isect = TriangleIntersection(mesh, tid, ray);
+            if (isect.Result != IntersectionResult.Intersects)
+                return false;
+            Vector3d surfPt = ray.PointAt(isect.RayParameter);
+            if (mesh.HasVertexNormals && bForceFaceNormal == false)
+                hitPosFrame = SurfaceFrameD(mesh, tid, surfPt);
+            else
+                hitPosFrame = new Frame3d(surfPt, mesh.GetTriNormal(tid));
+            return true;
+        }
+
+
+        /// <summary>
         /// Get point-normal frame on surface of mesh. Assumption is that point lies in tID
         /// (the point is replaced by the point with the same barycentric coordinates in the triangle plane).
         /// Returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
@@ -193,6 +229,25 @@ namespace g3
                 return new Frame3f(point, normal);
             } else
                 return new Frame3f(point, mesh.GetTriNormal(tID));
+        }
+
+
+        /// <summary>
+        /// Double-precision <see cref="SurfaceFrame"/>: the origin keeps double precision.
+        /// </summary>
+        public static Frame3d SurfaceFrameD(DMesh3 mesh, int tID, Vector3d point, bool bForceFaceNormal = false)
+        {
+            if (!mesh.IsTriangle(tID))
+                throw new Exception("MeshQueries.SurfaceFrameD: triangle " + tID + " does not exist!");
+            Triangle3d tri = new Triangle3d();
+            mesh.GetTriVertices(tID, ref tri.V0, ref tri.V1, ref tri.V2);
+            Vector3d bary = tri.BarycentricCoords(point);
+            point = tri.PointAt(bary);
+            if (mesh.HasVertexNormals && bForceFaceNormal == false) {
+                Vector3d normal = mesh.GetTriBaryNormal(tID, bary.x, bary.y, bary.z);
+                return new Frame3d(point, normal);
+            } else
+                return new Frame3d(point, mesh.GetTriNormal(tID));
         }
 
 

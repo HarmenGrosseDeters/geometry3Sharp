@@ -198,7 +198,8 @@ namespace g3
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
         /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents;
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents,
+        /// but not all of them where an exact input is itself that thin or tiny: then every one is kept, counted in Rounding.ScaleDisparity (#985);
         /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
         /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
@@ -673,7 +674,10 @@ namespace g3
                     // of them are exact triangles of the arrangement)
                     ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
+                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests,
+                    // (#985: where an exact input is itself thin or tiny, a result of thin pieces only is that input's
+                    // shape, not slivers of nearly coincident surfaces: it is kept, and counted)
+                    KeepWhenEmptied = inputs.Exists(m => MeshRoundingRepair.IsThinOrTiny(m, RoundingMaxDisplacement, 1e-12))
                 };
                 Rounding.Apply();
                 clock.Lap("rounding");

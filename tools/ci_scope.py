@@ -32,6 +32,7 @@ SHARED = (
     "benchmarks/Shared/UvEvaluation.cs",   # UVAtlasEvaluationTests (the evaluation of a UV atlas)
     "benchmarks/ReducerRemesherBaseline/Harness.cs",
     "benchmarks/BooleanComparison/ContactTransforms.cs",       # ThingiContactTransformTests
+    "benchmarks/BooleanComparison/Pinches.cs",                 # BooleanComparisonPinchesTests
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",

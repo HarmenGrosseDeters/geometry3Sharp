@@ -46,7 +46,8 @@ namespace g3
     /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
     /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
-    /// RemoveTinyComponents, as Milenkovic and Sacks do. Open components are kept (they may close the rest of the
+    /// RemoveTinyComponents, as Milenkovic and Sacks do (not if that would leave nothing of a mesh whose input is itself
+    /// thin or tiny: KeepWhenEmptied, set by ExactMeshBoolean, #985). Open components are kept (they may close the rest of the
     /// mesh by position), so an isolated sliver that no edit can repair is left and counted in RemainingDegenerate.
     ///
     /// The degenerate test is the one of MeshRobustRepair.NotCleanReason (area below DegenerateArea times the
@@ -298,9 +299,58 @@ namespace g3
         /// component's diagonal) but hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the
         /// result is not clean. Components removed as tiny (area below 1e4 DegenerateArea times the square of that
         /// diagonal) are not counted: they go, as SAFE_ROUNDING.md section 1 decides, also where a long thin component
-        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny)
+        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny). Also counted: the components kept because their
+        /// removal would have emptied a mesh whose input is itself thin or tiny (KeepWhenEmptied, #985)
         /// </summary>
         public int ScaleDisparity;
+        /// <summary>
+        /// set by ExactMeshBoolean where an exact input is itself thin or tiny by the tests of the component removal
+        /// (IsThinOrTiny): if the removal would leave nothing of a non-empty mesh, nothing is removed (#985, owner 2026-11-17)
+        /// </summary>
+        internal bool KeepWhenEmptied;
+        /// <summary> the components kept by KeepWhenEmptied (also counted in ScaleDisparity) </summary>
+        internal int KeptWhenEmptied;
+
+        /// <summary>
+        /// whether the mesh would be removed as tiny or thin by remove_tiny_components, judged as that judges it: by its
+        /// largest connected component (the largest diagonal of a component's triangle box, which sets the scale) against
+        /// that diagonal and maxDisplacement of it: area below 1e4 degenerateArea diagonal^2, or closed with 2 |V| below
+        /// maxDisplacement diagonal area and |V| below 1e-3 area^1.5 (a flattened or needle-like solid). Without the ulp and
+        /// absolute terms of the removal's bound: where they would widen it, this says false, which keeps the removal as it was
+        /// </summary>
+        internal static bool IsThinOrTiny(DMesh3 mesh, double maxDisplacement, double degenerateArea)
+        {
+            if (mesh == null || mesh.TriangleCount == 0)
+                return false;
+            double bestDiag = -1, bestArea = 0, bestVolume = 0;
+            bool bestClosed = false;
+            foreach (List<int> comp in connected_components(mesh)) {
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                double area = 0, volume = 0;
+                bool closed = true;
+                // (the volume relative to a point of the component, against cancellation far from the origin)
+                Vector3d o = mesh.GetVertex(mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                    box.Contain(a); box.Contain(b); box.Contain(c);
+                    area += 0.5 * (b - a).Cross(c - a).Length;
+                    volume += (a - o).Dot((b - o).Cross(c - o)) / 6;
+                    Index3i te = mesh.GetTriEdges(t);
+                    closed &= mesh.IsBoundaryEdge(te.a) == false && mesh.IsBoundaryEdge(te.b) == false && mesh.IsBoundaryEdge(te.c) == false;
+                }
+                double diag = box.DiagonalLength;
+                if (diag > bestDiag) {
+                    bestDiag = diag; bestArea = area; bestVolume = volume; bestClosed = closed;
+                }
+            }
+            if (!(bestDiag > 0) || double.IsInfinity(bestDiag) || double.IsNaN(bestArea))
+                return false;
+            if (bestArea < 1e4 * degenerateArea * bestDiag * bestDiag)
+                return true;
+            return bestClosed && 2 * Math.Abs(bestVolume) < maxDisplacement * bestDiag * bestArea
+                && Math.Abs(bestVolume) < 1e-3 * bestArea * Math.Sqrt(bestArea);
+        }
         /// <summary>
         /// a component's diagonal is not finite (coordinates that are not finite, or finite ones whose extent overflows,
         /// beyond about 1e154): the tolerances are NaN, every edit is rejected, nothing is removed, degenerate triangles are
@@ -535,7 +585,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             LockedContractions = RuleLockedContractions = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
@@ -2949,6 +2999,10 @@ namespace g3
             foreach (int v in touched)
                 isTouched[v] = true;
             int count = 0;
+            // the components to remove, decided first and removed after the loop: removing a closed component changes no
+            // other component, so the decisions are the same as when removing on the way (and in the same order)
+            var remove = new List<int[]>();
+            int removeTriangles = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
                 double sum = 0, volume = 0;
@@ -2981,9 +3035,23 @@ namespace g3
                     ScaleDisparity++;
                     continue;
                 }
+                remove.Add(comp.ToArray());
+                removeTriangles += comp.Count;
+            }
+            // never all of a non-empty mesh whose input was itself thin or tiny (#985, KeepWhenEmptied): the scale is that
+            // of the largest component, so a flattened or long thin solid is thin or tiny by its own diagonal. Then nothing
+            // is removed (every component stays, so that no cavity is lost) and each is counted as ScaleDisparity: the
+            // repair is not clean. Without KeepWhenEmptied a result of thin pieces only goes (the slivers of A - A',
+            // owner 2026-11-16)
+            if (KeepWhenEmptied && remove.Count > 0 && removeTriangles == Mesh.TriangleCount) {
+                ScaleDisparity += remove.Count;
+                KeptWhenEmptied += remove.Count;
+                remove.Clear();
+            }
+            foreach (int[] comp in remove) {
                 foreach (int t in comp)
                     remove_triangle(t, true);
-                count += comp.Count;
+                count += comp.Length;
                 RemovedComponents++;
             }
             if (count > 0) {

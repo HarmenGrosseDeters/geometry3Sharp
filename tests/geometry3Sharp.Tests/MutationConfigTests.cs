@@ -177,7 +177,9 @@ namespace geometry3Sharp.Tests
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
                 // rounding-12)
                 ["stryker-mesh-rounding-1"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "OutsideRangeInOneTriangle",
-                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock" },
+                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock",
+                    // (IsThinOrTiny, the input test of KeepWhenEmptied, #985)
+                    "FullyQualifiedName~SafeRoundingLastComponentTests" },
                 ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel" },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
@@ -192,7 +194,9 @@ namespace geometry3Sharp.Tests
                 ["stryker-mesh-rounding-9"] = new[] {
                     "FullyQualifiedName~ExactBooleanFarComponentTests",
                     "FullyQualifiedName~ExactBooleanScaleDisparityTests",
-                    serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate" },
+                    serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate",
+                    // (KeepWhenEmptied in remove_tiny_components, #985)
+                    "FullyQualifiedName~SafeRoundingLastComponentTests" },
             };
             for (int i = 1; i <= 13; ++i) {
                 string part = "stryker-mesh-rounding-" + i;

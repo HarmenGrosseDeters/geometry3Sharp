@@ -10,6 +10,33 @@ run time and placing the pairs with `ContactTransforms.Build`, the same code the
 `chains.csv`), and the abc-chained mechanisms were reproduced procedurally where possible. No ABC file was fetched in
 this container.
 
+## Owner decisions (2026-11-17)
+
+The bugfix round starts with these decisions, one PR per root cause, in this order:
+1. **RC1 (#985):** first decision: the cleanup never removes the last component of a non-empty result. The first
+   implementation (keep the largest) changed outputs outside #985: the clean empty result of A - A' (nearly coincident
+   spheres) became not clean, `MeshRobustRepair` took a kept flattened tetrahedron instead of its wrap (#712), and the
+   nested difference lost its cavity. **Revised (option a):** only where the cleanup would empty a non-empty result *and*
+   an exact input is itself thin or tiny by the same tests, nothing is removed: every component is kept, counted in
+   `ScaleDisparity`, not clean. A fat input with a thin result (A - A') keeps today's drop. `MeshRobustRepair` sends such
+   a resolve to its wrap fallback. Label `bugfix`.
+2. **RC3:** the inside-out check gets an exact (filtered) volume sign, so it only corrects wrong answers. The error
+   bound is derived and documented, gets the exact-code review including a check of the bound, and the incremental
+   mutation run must stay above its threshold. Label `bugfix`.
+3. **Pinches (RC2):** `NotCleanReason` stays unchanged. Benchmark only: the BooleanComparison eval stops re-welding and
+   reports exact pinch contacts as their own class (clean except pinches), plus the RC4 diagnostic fields and a `chains`
+   filter.
+4. **RC4:** a short abc-chained rerun of the RC4 chains (max-parallel ≤ 6); the diagnosis is appended here.
+
+**RC1 as built (option a):** all six families at 2^±46, all three operations, are now non-empty and closed, with as many
+components as the exact result (the nested difference keeps its cavity). Every kept result is reported not clean. The
+repair's edits before the removal stay applied: within the isotropic bound (1e-5 of the diagonal) they can move vertices
+far beyond the slab's thickness (the nested difference at 2^-46: volume 6.8e-10 against 1.2e-12 exact). Three kept
+differences come out with a negative exact volume: shared vertex at 2^-46 and 2^+46, sliver at 2^-46. These are true
+inversions made by the edits, not a floating-point sign, and are handed to RC3 as such. `NotCleanReason` reports
+"inside-out components", "degenerate triangles" and "inside-out components" for them. The A1 census goes from 689 open
+rows to 301 rows that are closed and not clean.
+
 ## Summary
 
 | root cause | issues (cases) | where | kind | needs exact review / mutation gate |

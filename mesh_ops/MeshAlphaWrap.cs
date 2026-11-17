@@ -127,6 +127,14 @@ namespace gs
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
+        /// Upper limit of the coarsening that MaxEstimatedTriangles applies (0 or less = no limit, the default; a value below 1 counts as 1,
+        /// no coarsening): AlphaCoarsening is at most this, so alpha and offset are at most this many times the requested ones, and the
+        /// result can be above the budget. Without it a small budget can multiply alpha by any factor, and the coarser wrap closes every
+        /// cavity whose opening is narrower than about 2 * UsedAlpha: a hollow part behind a narrow neck is filled once alpha passes the
+        /// neck (mesh 40118 of the 800 sample: coarsening 1.22 keeps the neck, 1.5 and above fill 34 % of the volume). Only with a budget.
+        /// </summary>
+        public double MaxAlphaCoarsening = 0;
+        /// <summary>
         /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles) / Alpha^2. Measured (issue #694;
         /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
         /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
@@ -502,8 +510,15 @@ namespace gs
             if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
                 // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
                 double coarse = Math.Sqrt(EstimateDensity * area / MaxEstimatedTriangles);
-                AlphaCoarsening = coarse / alpha;
-                alpha = coarse;
+                double cap = MaxAlphaCoarsening > 0 ? Math.Max(1.0, MaxAlphaCoarsening) : double.PositiveInfinity;
+                if (coarse / alpha > cap) {
+                    // (limited: the requested alpha times the cap, so the result follows the requested alpha, not only the area)
+                    AlphaCoarsening = cap;
+                    alpha *= cap;
+                } else {
+                    AlphaCoarsening = coarse / alpha;
+                    alpha = coarse;
+                }
                 offset *= AlphaCoarsening;
             }
             UsedAlpha = alpha; UsedOffset = offset;

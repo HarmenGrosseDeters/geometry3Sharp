@@ -456,7 +456,7 @@ Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism
 2. Scheduled mutation runs: every scheduled run since 2026-11-02 is cancelled (none after 2026-11-09): same session.
 3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists: same session.
-4. Mutation: merge #913, then the rest of #615 (see exact-boolean.md).
+4. Done: #913 and the rest of #615 (#958) are merged.
 5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
    short and shard b stays the critical path (check 2026-11-16).
 6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); #804 closed; the sizes that are still too large after saturation are a documented limit (owner 2026-11-16; the same on every runtime).
