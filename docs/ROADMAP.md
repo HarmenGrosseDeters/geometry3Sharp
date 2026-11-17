@@ -57,8 +57,9 @@ the future" list, ordered by priority; this section names only what is in flight
   #1077 (terrain-overlay: additional timeout raised so starved runs do not count, break 90 -> 75, owner 2026-11-17).
   #1064 (#1047, coplanar-stack prefilter, -7 to -14 % on 42327) is in review.
   [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
-- **Exact Boolean 4.0, stage 0** (owner 2026-11-17): a design analysis of exact output with provenance (chained
-  operations); no PR yet.
+- **Exact Boolean 4.0** (owner 2026-11-17): stage 0, the design analysis, is merged (#1093,
+  [design note](design/EXACT_BOOLEAN_40_DESIGN.md)); stage 1, the opt-in lazy `ExactMesh` (option A), is in review; stages 2-4
+  are a no-go until a consumer needs exact intermediates.
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is in review; RC4b is a documented limit; no budget raise below D = 50000;
   open: #1067 (p0008) and the owner's local campaigns (#1038). The certifying checker is merged (#1061).

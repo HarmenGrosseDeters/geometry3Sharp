@@ -489,32 +489,34 @@ arithmetic). Additive; `ExactMeshBoolean`, its defaults and the exact code are u
 
 **Speed: fair, order-randomized timing.** `chain_exact.py proc ... --mode time --reps 5` (`chain-exact-time-proc`): per chain
 and repetition the jobs "today's chain, steps 1..n" and "`ExactMesh.Round()` of step k" for every k run in a shuffled order,
-after a warm-up boolean and with a full GC before each job; per chain the median over the 5 repetitions, then the
-statistics over the 30 chains (4 cores, local; ms).
+after a warm-up boolean and with a full GC before each job and before each step of the chain (outside the clock); times in
+fractional ms; per chain the median over the 5 repetitions, then the statistics over the 30 chains (4 cores, local; p90
+by nearest rank). Rows on `runs/exact-boolean-40`, folder `stage1-time`.
 
 | family | step | chains | median ms chain steps 1..k | median ms chain step k | median ms ExactMesh.Round() | ExactMesh / chain 1..k: median | p90 | max | summed ms chain 1..k / ExactMesh |
 |---|---|---|---|---|---|---|---|---|---|
-| generic | 1 | 30 | 5 | 5 | 5 | 1.00 | 1.50 | 1.60 | 153 / 159 |
-| generic | 2 | 30 | 12 | 8 | 9 | 0.72 | 1.06 | 1.10 | 398 / 284 |
-| generic | 3 | 30 | 24 | 12 | 18 | 0.76 | 1.06 | 1.33 | 779 / 590 |
-| generic | 4 | 30 | 38 | 12 | 22 | 0.57 | 0.74 | 0.86 | 1145 / 653 |
-| generic | 5 | 30 | 46 | 8 | 45 | 0.99 | 1.30 | 1.48 | 1399 / 1342 |
-| generic | 6 | 30 | 56 | 12 | 44 | 0.84 | 1.02 | 1.18 | 1727 / 1346 |
-| generic | 7 | 30 | 71 | 15 | 78 | 1.08 | 1.59 | 1.81 | 2172 / 2375 |
-| generic | 8 | 30 | 84 | 13 | 80 | 0.97 | 1.38 | 1.66 | 2532 / 2510 |
-| mixed | 1 | 30 | 4 | 4 | 4 | 1.00 | 1.25 | 1.75 | 109 / 108 |
-| mixed | 2 | 30 | 32 | 30 | 19 | 0.77 | 1.00 | 1.17 | 988 / 739 |
-| mixed | 3 | 30 | 37 | 5 | 21 | 0.72 | 0.86 | 1.25 | 1173 / 810 |
-| mixed | 4 | 30 | 78 | 44 | 52 | 0.58 | 9.63 | 20.93 | 10157 / 11922 |
-| mixed | 5 | 27 | 84 | 4 | 46 | 0.77 | 7.55 | 20.87 | 9711 / 11639 |
-| mixed | 6 | 27 | 114 | 27 | 56 | 0.58 | 1.43 | 14.44 | 11338 / 9480 |
-| mixed | 7 | 27 | 117 | 6 | 69 | 0.76 | 1.38 | 15.45 | 11506 / 10224 |
-| mixed | 8 | 27 | 136 | 21 | 93 | 0.75 | 1.56 | 15.83 | 12376 / 12944 |
+| generic | 1 | 30 | 4.9 | 4.9 | 5.9 | 1.07 | 1.33 | 1.48 | 170 / 179 |
+| generic | 2 | 30 | 14.7 | 9.2 | 9.1 | 0.68 | 0.89 | 0.97 | 463 / 292 |
+| generic | 3 | 30 | 27.0 | 12.6 | 20.0 | 0.72 | 1.00 | 1.27 | 850 / 608 |
+| generic | 4 | 30 | 40.7 | 13.4 | 20.4 | 0.53 | 0.73 | 1.01 | 1240 / 675 |
+| generic | 5 | 30 | 53.3 | 10.8 | 42.7 | 0.83 | 1.05 | 1.50 | 1552 / 1255 |
+| generic | 6 | 30 | 64.4 | 11.7 | 42.2 | 0.69 | 0.91 | 1.23 | 1900 / 1350 |
+| generic | 7 | 30 | 78.9 | 17.4 | 81.9 | 1.01 | 1.29 | 1.53 | 2418 / 2373 |
+| generic | 8 | 30 | 93.2 | 13.6 | 85.9 | 0.97 | 1.28 | 1.31 | 2794 / 2541 |
+| mixed | 1 | 30 | 4.8 | 4.8 | 4.5 | 0.97 | 1.12 | 1.26 | 142 / 128 |
+| mixed | 2 | 30 | 31.1 | 27.9 | 22.3 | 0.76 | 0.98 | 1.19 | 1055 / 780 |
+| mixed | 3 | 30 | 40.4 | 6.6 | 23.5 | 0.70 | 0.83 | 0.93 | 1266 / 865 |
+| mixed | 4 | 30 | 87.1 | 46.5 | 64.5 | 0.69 | 8.04 | 20.11 | 10220 / 12324 |
+| mixed | 5 | 27 | 92.9 | 5.8 | 50.1 | 0.89 | 8.59 | 21.24 | 9887 / 12341 |
+| mixed | 6 | 27 | 109.4 | 28.1 | 54.7 | 0.60 | 3.51 | 12.85 | 11539 / 10192 |
+| mixed | 7 | 27 | 115.4 | 6.1 | 78.9 | 0.69 | 3.59 | 12.69 | 11770 / 10801 |
+| mixed | 8 | 27 | 152.7 | 22.5 | 102.7 | 0.78 | 2.92 | 14.04 | 12696 / 13720 |
 
-At k = 1 both compute the same boolean (the built-in path), and the ratio is 1.00: the order bias of section 4 is gone.
-Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k): median ratio 0.57-1.08 on the generic and
-0.58-0.77 on the contact chains; the tail of the contact chains (p90 up to 9.6, max 21 at k = 4-5) is the single rounding
-of the accumulated slabs. ABC (realistic sizes, run ABC_TIME_RUN): ABC_TIME_TEXT
+At k = 1 both compute the same boolean (the built-in path), and the median ratio is 1.07 / 0.97: the order bias of section 4
+is gone. Before (today's chain of k steps) against after (`ExactMesh.Round()` of step k), k = 2..8: median ratio 0.53-1.01 on
+the generic and 0.60-0.89 on the contact chains; summed over the chains `ExactMesh` is faster on generic chains (2541 against
+2794 ms at k = 8) and on contact chains slower at k = 4, 5 and 8 (up to 1.25x), from the tail (p90 up to 8.6, max 21 at
+k = 4-5): the single rounding of the accumulated slabs. ABC (realistic sizes, run ABC_TIME_RUN): ABC_TIME_TEXT
 
 ## 7. Literature check
 
