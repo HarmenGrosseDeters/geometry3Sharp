@@ -1,0 +1,9 @@
+cores 4, rounds 1, load 0
+| mesh | triangles | tolerance | result | parallel (ms, median) | serial (ms, median) | parallel from 16 (ms, median) | serial / parallel | parallel from 16 / parallel |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 60 | 41772 | 0.001 | 1658 | 6761 | 11408 | 11130 | 1.69 | 1.65 |
+| bumpy sphere 60 | 41772 | 0.003 | 542 | 3817 | 6034 | 6198 | 1.58 | 1.62 |
+| bumpy sphere 130 | 199692 | 0.001 | 1670 | 25786 | 40855 | 40757 | 1.58 | 1.58 |
+| bumpy sphere 130 | 199692 | 0.003 | 512 | 12177 | 17159 | 17664 | 1.41 | 1.45 |
+| terrain 300 | 180000 | 0.001 | 3121 | 17597 | 24709 | 24571 | 1.40 | 1.40 |
+| terrain 300 | 180000 | 0.003 | 924 | 8788 | 10205 | 10173 | 1.16 | 1.16 |

@@ -1,0 +1,30 @@
+== 1 thread
+cores 1, rounds 1, load 0
+| mesh | triangles | tolerance | result | parallel (ms, median) | serial (ms, median) | parallel from 16 (ms, median) | serial / parallel | parallel from 16 / parallel |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 60 | 41772 | 0.001 | 1658 | 11380 | 11751 | 11983 | 1.03 | 1.05 |
+| bumpy sphere 60 | 41772 | 0.003 | 542 | 6200 | 5945 | 6083 | 0.96 | 0.98 |
+| bumpy sphere 130 | 199692 | 0.001 | 1670 | 43316 | 42453 | 42311 | 0.98 | 0.98 |
+| bumpy sphere 130 | 199692 | 0.003 | 512 | 18276 | 17577 | 17818 | 0.96 | 0.97 |
+| terrain 300 | 180000 | 0.001 | 3121 | 24948 | 24251 | 25237 | 0.97 | 1.01 |
+| terrain 300 | 180000 | 0.003 | 924 | 10146 | 10051 | 10274 | 0.99 | 1.01 |
+== in-process load 4
+cores 4, rounds 1, load 4
+| mesh | triangles | tolerance | result | parallel (ms, median) | serial (ms, median) | parallel from 16 (ms, median) | serial / parallel | parallel from 16 / parallel |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 60 | 41772 | 0.001 | 1658 | 63244 | 17467 | 17689 | 0.28 | 0.28 |
+| bumpy sphere 60 | 41772 | 0.003 | 542 | 54341 | 9852 | 8895 | 0.18 | 0.16 |
+| bumpy sphere 130 | 199692 | 0.001 | 1670 | 287528 | 68075 | 72987 | 0.24 | 0.25 |
+| bumpy sphere 130 | 199692 | 0.003 | 512 | 245361 | 30301 | 27743 | 0.12 | 0.11 |
+| terrain 300 | 180000 | 0.001 | 3121 | 243277 | 44124 | 41876 | 0.18 | 0.17 |
+| terrain 300 | 180000 | 0.003 | 924 | 200117 | 17211 | 16656 | 0.09 | 0.08 |
+== 4 processes
+cores 4, rounds 1, load 0
+| mesh | triangles | tolerance | result | parallel (ms, median) | serial (ms, median) | parallel from 16 (ms, median) | serial / parallel | parallel from 16 / parallel |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 60 | 41772 | 0.001 | 1658 | 14057 | 12404 | 12411 | 0.88 | 0.88 |
+| bumpy sphere 60 | 41772 | 0.003 | 542 | 8602 | 7171 | 6428 | 0.83 | 0.75 |
+| bumpy sphere 130 | 199692 | 0.001 | 1670 | 55509 | 47276 | 43420 | 0.85 | 0.78 |
+| bumpy sphere 130 | 199692 | 0.003 | 512 | 21564 | 19444 | 18223 | 0.90 | 0.85 |
+| terrain 300 | 180000 | 0.001 | 3121 | 31284 | 26543 | 26770 | 0.85 | 0.86 |
+| terrain 300 | 180000 | 0.003 | 924 | 11192 | 11761 | 11659 | 1.05 | 1.04 |
