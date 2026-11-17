@@ -199,13 +199,13 @@ Part of the [roadmap](../ROADMAP.md).
 - **Determinism proof, option A ([design/DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md)):** stage 0 is merged
   (#871, task brief #859: the closed-world analyzer rules G3D0001-9 over the exact kernel, with a generated ledger
   checked by `DeterminismScopeAnalyzerTests`). Stage 1 (owner 2026-11-17: `ExactTriangulation2`, `ExactPlanarSimplify`,
-  `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is in review: type-level scope, tuples, counted
+  `SnapRounding2`, the class `TriangleBoxTree`; section 5.4 of the note) is merged (#1076, 2026-11-17): type-level scope, tuples, counted
   delegate calls, argument forms with their tests on every sort, enumeration and parallel site; open items O1 to O5 there
   (O1, the culture of `SnapRounding2.Diagnostics` text, is an owner decision). Stage 2 (`ExactMeshArrangement`,
-  `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Open:
-  two codex drafts, reviewed as correct, which the determinism session takes over: #891 (#804, saturating double-to-int
-  casts in the grid indexers) and #892 (#803, sign-of-zero consistent Min / Max in `AxisAlignedBox3d`); and #789
-  (ExactPoint3 hash values are seeded per process; a test that the shard choice does not change results).
+  `ExactMeshBoolean`) waits for Exact Boolean 3.0. The exact fallback monomial kernels (#769, for #711) are merged. Closed:
+  #891 (saturating double-to-int casts in the grid indexers) and #892 (sign-of-zero consistent Min / Max in
+  `AxisAlignedBox3d`), both 2026-11-15, and #789 (the shard-choice test, #934). Open: the guard-limit int overflow in
+  `ExactTriangulation2` (#1086, found in stage 1).
 - **CI: net48 intermittent hang (#824): closed 2026-11-16.** Shard b of the net48 tests hung until the job timeout. #828 (and #844) run
   the net48 test steps under blame-hang, so a hang names its test. The hang seen was the `patch_winding` race
   #882 (`ExactMeshBoolean`, coordinates near 1e308), fixed by #883 (merged 2026-11-15); no recurrence was reported when it was closed (the closing comment
@@ -465,7 +465,7 @@ Done and removed from this list: #824 (closed 2026-11-16), #858 (closed 2026-11-
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
 1. Coverage gate (`coverage.yml`): red in every scheduled and dispatched run 2026-11-12 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run).
-2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. Open: owner decision on the late-cron proposal there.
+2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. The late-cron proposal is closed: late cron runs stay as they are (owner 2026-11-17).
 3. Runtime watch rule (#888, owner 2026-11-15; #888 closed 2026-11-16): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists ([QA.md 3.3](../QA.md#33-runtime-watch-extreme-cases-nightly)).
 4. Done: #913 and the rest of #615 (#958) are merged.
