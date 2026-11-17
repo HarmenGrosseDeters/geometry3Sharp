@@ -799,9 +799,11 @@ degrees after edge removal and face removal, in `TetMeshImprover`:
 What holds, by construction: every tet exactly positive; the boundary closed and 2-manifold (contractions leave it as it is, splits
 replace two triangles by four in place); free of self-intersections and the input strictly inside it (the exact checks); the smallest
 dihedral angle of the mesh never decreases (every operation raises the minimum of the tets it changes). The slide cap: a split
-vertex's cap is measured from the midpoint of its edge's first positions, which lies on the wrap (boundary edges are only ever
-split, so each lies in one wrap triangle), minus a margin for that midpoint's rounding, so every boundary vertex stays within
-`BoundarySlideFactor` offsets of the wrap surface (the margin was needed: at UTM coordinates the vertex was 0.5000061 offsets out,
+vertex's cap is measured from the midpoint of its edge's first positions, which lies on the stage-1 surface (boundary edges are
+only ever split, so each lies in one stage-1 triangle), minus a margin for that midpoint's rounding, so every boundary vertex stays
+within `BoundarySlideFactor` offsets of the **stage-1 surface** (the wrap after peeling), and so within the peel depth plus
+`BoundarySlideFactor` offsets of the wrap (restated 2026-11-17 by owner decision, 16.4, where the peel depth is defined; the text said
+"of the wrap surface", which peeled triangles break; the margin was needed: at UTM coordinates the vertex was 0.5000061 offsets out,
 test `Similarity_ValidAndPow2ScalesBitForBit`). Scale-free and serial: 2^k scalings give the same mesh bit for bit (tested).
 
 ### 16.3 Result on the 40-mesh subset (one process at a time; rows `results/thingi10k-subset-stage2-{master,splits}-2026-11-17.csv`)
@@ -835,6 +837,42 @@ of a split on meshes like 839690 (smoothing with the exact checks dominates).
 Owner decisions: (1) the default: `SplitEdges` and `ContractEdges` on, `ImprovePasses` 50 (this PR; the output of
 `MeshTetrahedralization` changes, more tets on the boundary layer; off gives master's result); (2) the last four meshes: accept
 36 of 40, or a next lever for 839690 (rings > 8, or a cavity insertion as in Klingner and Shewchuk instead of edge splits).
+
+### 16.4 The slide bound on peeled surfaces (owner decision 2026-11-17)
+
+Found by the default-alpha tests of stage P1 (17.8): on the thin torus at alpha / 40 under the similarity "rotated, scale 1e-3, utm"
+a boundary vertex was **0.642 offsets** from the wrap surface, against the 0.5 that 16.2 stated for the wrap. Validity is not affected
+(exact positive tets, closed manifold boundary, no self-intersection, input inside). Cause: peeling (14.9) replaces two wrap triangles
+by the sliver's other two faces, which lie below the wrap; a split of an edge in such triangles measures its vertex's cap from a
+point below the wrap. Probe on that case: peeling off 0.498 offsets, splits off 0.499, both on 0.642; at alpha / 20 the same case is
+0.500: the code is master's, and only the finer alpha exposes it.
+
+**Decision (owner, 2026-11-17): the bound is restated, the code is unchanged**: every boundary vertex stays within
+`BoundarySlideFactor` offsets of the stage-1 surface (the wrap after peeling), so within the peel depth plus `BoundarySlideFactor`
+offsets of the wrap (16.2). The **peel depth** is the largest distance from a point of the stage-1 surface to the wrap. One peel moves
+the surface inward by at most the peeled sliver's height (14.9), but the final sweep repeats peels, so the depths can add up, and no
+parameter bounds the total. Reason: both sound ways to keep the old bound cost quality, while the measured fidelity is the same either way.
+
+| Every tet >= 10 degrees (all valid, no self-intersection) | master (kept) | refuse splits of edges whose two triangles are peeled | cap reduced by the midpoint's depth below the wrap |
+|---|---:|---:|---:|
+| 40-mesh subset, alpha / 20 | 36 (worst 6.11) | 34 (3.98) | 34 (5.09) |
+| 40-mesh subset, alpha / 40 | 40 | 39 (75915 5.22) | 39 (75915 4.70) |
+| 500-mesh sample, alpha / 40 | **494** (7.12) | not run | 488 (3.35) |
+| sample, input to boundary max, median | 0.0228 | | 0.0228 |
+
+The rejected alternatives (not built into the library; measured on a local branch): stage 1 flags the boundary triangles that are
+wrap facets (the `Refiner` records them before any peel), stage 2 carries the flag through splits and undo, and for an edge whose two
+triangles are both peeled either refuses the split or measures the depth of its midpoint below the wrap (an AABB tree of the wrap) and
+takes it off the new vertex's cap; both restore the 0.5-offset bound to the wrap (hand mutants killed, the UTM case fails without
+them). The cap reduction does not save the splits because peeled chords are often deeper than the 0.5-offset cap.
+
+Test: `TetMeshingStage2Tests.Invariants` checks every boundary vertex against the stage-1 surface (a second run of the same parameters
+without stage 2, deterministic for every `MaxThreads`, gives that surface; tests that already have that run pass it in). Mutants of the stage-1 cap (the limit 1.5x; a split vertex's cap
+measured from its own start instead of its edge's first-position midpoint) are killed. The wrap-side bound (peel depth + 0.5 offsets)
+is not checked separately: the peel depth is not exposed, and with the vertex on the stage-1 surface it follows by the triangle
+inequality. A distance check cannot see a move along the surface beyond the cap: the cumulative cap of never-split vertices is checked
+by `BoundaryDisplacement_IsCumulativelyCapped_FromTheOriginalWrapPosition`, and that of split vertices only through this distance
+check.
 
 ## 17. Production quality: gap study and staged plan (2026-11-17; study only, no library code)
 
