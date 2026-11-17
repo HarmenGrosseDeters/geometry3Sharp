@@ -36,6 +36,9 @@ on:
       methods:
         description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck)'
         default: 'ours,manifold,cgal_epeck'
+      rounding_budgets:
+        description: 'SafeRounding effort budgets of ours, comma-separated (ExactMeshBoolean.RoundingMaxPairTests; one run of the chains per budget, budget_min split across them, rows in one results.jsonl, each with rounding.max_pair_tests; the report shows the last row per step only; use with methods=ours; empty: the library default)'
+        default: ''
       listing_only:
         description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
         type: boolean
@@ -134,9 +137,23 @@ jobs:
           TIMEOUT: ${{ inputs.timeout_s }}
           BUDGET_MIN: ${{ inputs.budget_min }}
           METHODS: ${{ inputs.methods }}
+          BUDGETS: ${{ inputs.rounding_budgets }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          if [ -z "$BUDGETS" ]; then
+            python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          else
+            # (the time budget split across the budgets; the rows of each run appended as it ends, so a run that fails or
+            # times out keeps the others; every row has rounding.max_pair_tests)
+            set +e
+            n=$(echo "$BUDGETS" | tr ',' '\n' | grep -c .)
+            : > results.jsonl
+            for b in ${BUDGETS//,/ }; do
+              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))"
+              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null
+            done
+            set -e
+          fi
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
         run: |
