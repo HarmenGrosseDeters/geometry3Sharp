@@ -183,11 +183,15 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~SafeRoundingLastComponentTests",
                     // (RuleLockedEdges and the final stage where they follow a contraction, #1034: the lock tests in parts 1, 10 and 5)
                     sliverStage },
-                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage,
+                    // (the pair budget's growth with the defects, RC4a)
+                    "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-5"] = new[] { sliverStage },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
-                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
+                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
+                    // (pair_budget, RC4a)
+                    "FullyQualifiedName~SafeRoundingBudgetTests" },
                 // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",

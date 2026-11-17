@@ -36,6 +36,9 @@ on:
       methods:
         description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck)'
         default: 'ours,manifold,cgal_epeck'
+      rounding_budgets:
+        description: 'SafeRounding effort budgets of ours, comma-separated (ExactMeshBoolean.RoundingMaxPairTests; one run of the chains per budget, budget_min split across them, rows in one results.jsonl, each with rounding.max_pair_tests; the report shows the last row per step only; use with methods=ours; empty: the library default)'
+        default: ''
       listing_only:
         description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
         type: boolean
@@ -134,9 +137,25 @@ jobs:
           TIMEOUT: ${{ inputs.timeout_s }}
           BUDGET_MIN: ${{ inputs.budget_min }}
           METHODS: ${{ inputs.methods }}
+          BUDGETS: ${{ inputs.rounding_budgets }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          if [ -z "$BUDGETS" ]; then
+            python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          else
+            # (the time budget split across the budgets; the rows of each run appended as it ends, so a run that fails or
+            # times out keeps the others; every row has rounding.max_pair_tests)
+            # (every budget runs, also after a failed one; the step fails if any run failed)
+            rc=0
+            n=$(echo "$BUDGETS" | tr ',' '\n' | grep -c .)
+            : > results.jsonl
+            for b in ${BUDGETS//,/ }; do
+              case "$b" in (*[!0-9]*) echo "::error::rounding_budgets: '$b' is not a whole number"; rc=1; continue;; esac
+              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))" || rc=1
+              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null || true
+            done
+            exit $rc
+          fi
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
         run: |
