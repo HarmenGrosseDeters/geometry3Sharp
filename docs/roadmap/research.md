@@ -329,7 +329,8 @@ in the tool project.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021): study and plan in [QUAD_REMESHING.md](../design/QUAD_REMESHING.md).
   Owner 2026-11-17: quad-dominant stages 1, 2 and 5 (one PR per stage; pure quads, features, MIQ / QEx, QuadWild out);
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
-  OBJ / PLY writers and conversion to and from DMesh3
+  OBJ / PLY writers and conversion to and from DMesh3. Stage 5 (#1097), stage 1 (#1098; Hermitian form #1099, vector kernels of `SparseCholesky` #1103) and stage 2 (#1100) are merged. Stage 2 (`PositionField`, `QuadRemesher`): manifold, quad share
+  93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): owner 2026-11-17: merged with the gates open, next stage 3B (flow from the paper, measurement first)
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
@@ -445,10 +446,10 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected; status 2026-11-17): 9 (scale-free repair; Fable
-design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 open, PR #1095), 3 together with the leads of 1 (D1 has merged;
+design note, started 2026-11-10; study 2026-11-17: no-go for a larger effort, bugfix F1 done (#1101), study #1095; F2 not now, owner 2026-11-17), 3 together with the leads of 1 (D1 has merged;
 the Fable research session of 2026-11-12 ended with the research note of #721, closed unmerged 2026-11-15: 1 has no guarantee, its plateau variant stays a design; 3's
 open parts are b to d below), 11 (the proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged, issue #859
-closed 2026-11-15; stage 1, the exact building blocks as a closed world, is PR #1076, open). Useful, not must-win: 10, 12 (12 largely
+closed 2026-11-15; stage 1, the exact building blocks as a closed world, is merged, #1076). Useful, not must-win: 10, 12 (12 largely
 addressed, see there). Done: 2 (D1, #513, merged 2026-11-11 as Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal;
 open operands are classified per piece, #528), 14 (closed 2026-11-17, parked as owner options), 4 (answered by the sharp-feature
 study 2026-11-12 and the opt-in pass K, #736). Decided: 6 (option D, B reopenable).
@@ -619,9 +620,11 @@ Ordered by expected value for the library.
    - Study 2026-11-17 ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md)): **no-go for a larger
      effort**. On 800 Thingi10K meshes, the library's repair run per part gains 2 to 5 strict repairs (7 with degeneracy per own
      component), below the bar of 8 fixed in advance; a global factor on the repair tolerances and a translation to 5e6 gain none.
-     No input has a small separable part (box rule: all at least 8.46 % of the scene). Open: bugfix F1, report the loss (29 of 54
-     procedural scenes lose a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
-     for open inputs, the post-resolve cleanup).
+     No input has a small separable part (box rule: all at least 8.46 % of the scene). Bugfix F1 built 2026-11-17 (section 6.1 of the note; `LostFarPart`, new `LostFarOpenPart` and `LostSeparatePart`): it reports the loss of a separable part
+     (inputs of two or more parts; single-part inputs and components lost inside a part stay unreported). Before it, 29 of 54
+     procedural scenes lost a small part with `Apply()` true, in three stages: the rounding's tiny test, the repair stage's cleanup
+     for open inputs, the post-resolve cleanup. Now 28 are reported; the 29th is a box lost inside its own part, out of scope. The
+     corpus is unchanged (0 of 800 flips).
    - The earlier pointer to "183 `robust` misses" is stale: on master 86e94029 the strict misses are 252 of 800 (first 123, holdout
      129), 242 of them Hausdorff; the scale oracles turn at most 2 of those into repairs. (183 is probably 400 - 217 of the holdout run of
      2026-10-25, before the exact resolve stage.)
@@ -638,7 +641,7 @@ Ordered by expected value for the library.
       certification use.
     - Status 2026-11-17: proof study (#776), schedule adversary and runtime probes (#786, results #810), stage 0
       closed-world analyzer rules for the exact kernel (#871) merged; #859 (stage 0), #789 (seeded `ExactPoint3` hashes), #803 / #804
-      (net48 / net10 audits) closed (2026-11-15 / 2026-11-16). Stage 1 (the exact building blocks as a closed world): PR #1076 open.
+      (net48 / net10 audits) closed (2026-11-15 / 2026-11-16). Stage 1 (the exact building blocks as a closed world): merged (#1076).
       The net48 / net10 runtime comparison is the local issue #929 (open).
 12. **Mutation-testing cost of the rounding module.**
     - A full rounding run took up to 5 h per part; the 19-term filter would need about 11 parts.
@@ -673,16 +676,16 @@ Done and removed from this list (status 2026-11-17): #804 (#973, closed 2026-11-
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, PR #1076, open), then the net48 / net10 measurement (#929, local, open).
-2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (36 of 40 with the edge splits of TET_MESHING.md section 16;
-   839690, 120628, 46460, 113956 left); sliver exudation not needed by the diagnosis.
+1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, merged in #1076), then the net48 / net10 measurement (#929, local, open).
+2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs: 494 of 500 sample meshes at the new default alpha diagonal / 40 (#1073,
+   TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the 6 left go to the parked lever #1072; sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
    rule (upper bound one run). Options B and C only after a reviewed proof.
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
-7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 open
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now)
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
 8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).

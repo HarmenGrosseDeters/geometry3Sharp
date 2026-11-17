@@ -328,6 +328,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Diagnostics_AreCultureInvariant()
+        {
+            // O1 of DETERMINISM_PROOF.md 5.4: the text must not follow the process's culture (decimal separator of the seeds, minus sign of
+            // the labels, which sv-SE writes as U+2212)
+            string[] Run()
+            {
+                var input = new ConstrainedMesh2Input();
+                foreach (var (x, y) in new[] { (0.0, 0.0), (10, 0), (10, 10), (0, 10), (2, 5), (8, 5), (8, 5.1), (2, 5.1) }) input.Points.Add(new Vector2d(x, y));
+                input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+                for (int i = 0; i < 4; ++i) input.Segments.Add(new Mesh2Segment(4 + i, 4 + (i + 1) % 4));
+                input.HoleSeeds.Add(new Vector2d(5, 5.05));
+                input.Regions.Add(Mesh2Region.BySeed(new Vector2d(5, 5.05), -7));
+                input.Regions.Add(Mesh2Region.ByRing(new[] { 4, 5, 6, 7 }, -8));
+                return SnapRounding2.Apply(input, 0.5).Diagnostics.ToArray();
+            }
+            var saved = System.Globalization.CultureInfo.CurrentCulture;
+            try {
+                System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+                var inv = Run();
+                Assert.Contains(inv, d => d.Contains("hole seed 5.00000000 5.05000000 dropped"));
+                Assert.Contains(inv, d => d.Contains("region seed 5.00000000 5.05000000 with label -7 dropped"));
+                Assert.Contains(inv, d => d.Contains("region ring with label -8 collapsed"));
+                foreach (var name in new[] { "de-DE", "fr-FR", "sv-SE" }) {
+                    System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(name);
+                    Assert.Equal(inv, Run());
+                }
+            } finally { System.Globalization.CultureInfo.CurrentCulture = saved; }
+        }
+
+        [Fact]
         public void HoleCollapsingToALine_DoesNotEmptyTheDomain()
         {
             // review of #277: a narrow hole of four segments with its seed; snapped at 0.5 its long sides merge onto one line

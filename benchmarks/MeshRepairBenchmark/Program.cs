@@ -232,6 +232,13 @@ class Program
                 // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
                 string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
                 if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
+                // BENCH_WRAP_TARGET / BENCH_WRAP_TARGET_FACTOR / BENCH_WRAP_TARGET_DIST: WrapTargetTriangles, WrapTargetFactor (of the
+                // input's triangle count), WrapTargetMaxDistance (offsets); off by default
+                string wt = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET"), wtf = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_FACTOR"),
+                    wtd = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_DIST");
+                if (wt != null) robust.WrapTargetTriangles = int.Parse(wt, System.Globalization.CultureInfo.InvariantCulture);
+                if (wtf != null) robust.WrapTargetFactor = double.Parse(wtf, System.Globalization.CultureInfo.InvariantCulture);
+                if (wtd != null) robust.WrapTargetMaxDistance = double.Parse(wtd, System.Globalization.CultureInfo.InvariantCulture);
                 string wcap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
                 if (wcap != null) robust.WrapMaxAlphaCoarsening = double.Parse(wcap, System.Globalization.CultureInfo.InvariantCulture);
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
@@ -261,6 +268,9 @@ class Program
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_wrap_coarsening"] = robust.AlphaWrapCoarsening;
+                r["robust_wrap_target"] = robust.AlphaWrapTarget;
+                r["robust_wrap_target_reached"] = robust.AlphaWrapTargetReached;
+                r["robust_wrap_target_limit"] = robust.AlphaWrapTargetLimit;
                 r["robust_wrap_estimate"] = robust.AlphaWrap?.EstimatedTriangles ?? 0;
                 r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
                 // (the exact resolve once more relative to the largest component, after the others failed, and the

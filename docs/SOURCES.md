@@ -280,6 +280,34 @@ at). Design and measurements: [design/ALPHA_WRAP_QUALITY.md](design/ALPHA_WRAP_Q
 | Caps (large angles) spoil the gradient and the normal (cap splits and cap flips) | I. Babuška, A. K. Aziz, *On the angle condition in the finite element method*, SIAM J. Numer. Anal. 1976; J.-M. Morvan, B. Thibert, *Approximation of the normal vector field and the area of a smooth surface*, Discrete Comput. Geom. 2004 |
 | Quality measures (min and max angle reported separately) | J. R. Shewchuk, *What is a good linear finite element?*, 2002 |
 | The guard of every operation: `TriangleDeviationBounds.IsWithin` with the patch bound, the exact self-intersection test, the final one-sided Hausdorff certification | this library (#280, `MeshHausdorffDistance`) |
+
+## Cross field and principal curvature (`CrossField`, `MeshPrincipalCurvature`)
+
+Implemented from the papers only (owner 2026-11-17: no code of Instant Meshes, QuadriFlow, QuadWild, libigl, Geogram's quad
+code or any other implementation was read). Stage 1 of [design/QUAD_REMESHING.md](design/QUAD_REMESHING.md).
+
+| Part | Source |
+|---|---|
+| The smoothest 4-RoSy field as the smallest eigenvector of the Hermitian connection Laplacian against the vertex areas (vertex based discretization: tangent frames, discrete Levi-Civita transport, cotangent weights, singularity index per face; Poincare-Hopf) | F. Knöppel, K. Crane, U. Pinkall, P. Schröder, *Globally Optimal Direction Fields*, ACM TOG 32(4), SIGGRAPH 2013 |
+| Alignment to boundary and crease edges (a linear problem with prescribed unit values, as in the paper's constraints) and to curvature directions (a soft term in the eigenproblem). The formulation is ours: the weights (K1 - K2)^2 a^2 M, the unknown t without mass eliminated by a rank one update, the gauge of the phase | own choice, documented in `CrossField` |
+| Its solver: the Lanczos method with full reorthogonalization and restarts on (K + eps M)^-1 M, which is self-adjoint for the M inner product; the Sherman-Morrison formula for the rank one update | G. H. Golub, C. F. Van Loan, *Matrix Computations*, 4th ed. 2013, Sec. 10.1 (Lanczos), Sec. 2.1.4 (Sherman-Morrison); the dense eigenproblem of the tridiagonal matrix by `SymmetricEigenSolver` |
+| Principal curvatures and directions per vertex: the second fundamental form per triangle by least squares over the edges (differences of the vertex normals), rotated into the vertex frame, averaged with Voronoi corner areas | S. Rusinkiewicz, *Estimating Curvatures and Their Derivatives on Triangle Meshes*, 3DPVT 2004; M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Voronoi areas); N. Max, *Weights for Computing Vertex Normals from Facet Normals*, J. Graphics Tools 1999 (angle weighted normals) |
+| Smoothing of the curvature tensors over the one-ring (against noise) | own choice |
+| `SparseHermitianCholesky` (the field matrix as a complex Hermitian system of n unknowns): the analysis of `SparseCholesky` (approximate minimum degree, elimination tree, relaxed supernodes) and a left-looking supernodal Cholesky in complex arithmetic | A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989; P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; E. Ng, B. Peyton, *Block sparse Cholesky algorithms on advanced uniprocessor computers*, SIAM J. Sci. Comput. 1993; C. Ashcraft, R. Grimes, *The influence of relaxed supernode partitions on the multifrontal method*, ACM TOMS 1989. No CHOLMOD / SuiteSparse / Eigen / MUMPS / PARDISO code read or taken over |
+
+## Position field and quad extraction (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`)
+
+Implemented from the paper only (owner 2026-11-17: the Instant Meshes code has an Enhancements clause in its licence that the owner
+did not accept; no code of Instant Meshes, QuadriFlow, QuadWild or libigl was read). Stage 2 of
+[design/QUAD_REMESHING.md](design/QUAD_REMESHING.md); the derivations and the own choices are in section 3.1 and 4.2 there.
+
+| Part | Source |
+|---|---|
+| Position field (a point per vertex that stands for a lattice with the orientation field), compatibility of two lattices (rotation of the 4-RoSy, the lattice points near a common point, rounding to the lattice of each vertex), Gauss-Seidel smoothing on a multiresolution hierarchy, extraction from the integer offsets of the edges (merge of equal lattice points, unit offsets are edges, faces traced in the tangent planes) and its cleanup | M. Jakob, M. Tarini, D. Panozzo, O. Sorkine-Hornung, *Instant Field-Aligned Meshes*, ACM TOG 34(6) 189, SIGGRAPH Asia 2015 |
+| The hierarchy (greedy matching of the closest neighbours, area weighted position, normal and orientation), the point closest to the edge midpoint on both tangent planes and its regularization, the mean misfit as the Gauss-Seidel step, boundary vertices on a lattice line and boundary corners as lattice points | own choices (QUAD_REMESHING.md 3.1) |
+| Deterministic parallel Gauss-Seidel: a fixed greedy colouring in vertex order, the colours one after the other, so that serial and parallel runs execute the same updates | multi-colour Gauss-Seidel, standard (eg Y. Saad, *Iterative Methods for Sparse Linear Systems*, 2nd ed. 2003, section 12.4) |
+| The quality numbers of `PolyMeshMetrics` (face mix, valence, corner angles, manifold polygon mesh) | QUAD_REMESHING.md section 1 |
+
 ## Parameterization (`LSCMParameterization`, `SpectralConformalParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.
@@ -936,3 +964,13 @@ Titles, authors, venues and DOIs verified by a search on 2026-11-16.
 | Equivalence modulo inputs | V. Le, M. Afshari, Z. Su, *Compiler validation via equivalence modulo inputs*, PLDI 2014, [doi:10.1145/2594291.2594334](https://doi.org/10.1145/2594291.2594334) |
 | Semantics-preserving transformations of shaders | A. F. Donaldson, H. Evrard, A. Lascu, P. Thomson, *Automated testing of graphics shader compilers*, OOPSLA 2017, [doi:10.1145/3133917](https://doi.org/10.1145/3133917) |
 | Evaluation of exact mesh Booleans (context only; the protocol itself was not read) | P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER: Exact Mesh Booleans via Efficient and Robust Local Arrangements*, ACM TOG 41(4), 2022; G. Cherchi, M. Livesu, R. Scateni, M. Attene, *Fast and Robust Mesh Arrangements using Floating-point Arithmetic*, ACM TOG 39(6), 2020, [doi:10.1145/3414685.3417818](https://doi.org/10.1145/3414685.3417818) |
+
+## Polygon mesh (`DPolyMesh`, `PolyMeshIO`; quad remeshing stage 5, [design/QUAD_REMESHING.md](design/QUAD_REMESHING.md))
+
+Written from the format descriptions and the textbook method; no code from any other library was read or taken.
+
+| Topic | Source |
+|---|---|
+| Face triangulation (`DPolyMesh.TriangulateFace`): ear clipping in the plane of the Newell normal; the existence of an ear in every simple polygon | G. H. Meisters, *Polygons have ears*, American Mathematical Monthly 82(6), 648-651, 1975; the Newell normal of a polygon (sum of cross products of its edge vectors) as in the standard computer graphics texts. The scan order, tie rules and fallbacks are our own and stated in the class remarks |
+| PLY with polygon faces (`list uchar int vertex_indices`, an extra `face_group` property) | G. Turk, *The PLY Polygon File Format*, Stanford University, 1994; P. Bourke, [PLY format notes](http://paulbourke.net/dataformats/ply/) |
+| OBJ polygon faces (`f` with 3 or more vertices, `v/vt/vn` forms, negative indices, `g` groups) | Wavefront OBJ format as described in P. Bourke, [OBJ notes](http://paulbourke.net/dataformats/obj/) |

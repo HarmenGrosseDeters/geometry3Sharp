@@ -1679,6 +1679,29 @@ All results closed and clean. "partly flipped" is a closed sphere with flipped t
 size, as for closed solids. The coarsened wrap is a complete wrap at the larger alpha (bit for bit the wrap with that
 alpha and offset given), so it wraps over cavities and gaps up to about 2 * UsedAlpha.
 
+## Alpha wrap triangle target (`WrapTargetTriangles`, `WrapTargetFactor`, `WrapTargetMaxDistance`; opt-in)
+
+`BENCH_WRAP_TARGET`, `BENCH_WRAP_TARGET_FACTOR` (of the input's triangle count) and `BENCH_WRAP_TARGET_DIST` (offsets) set the options;
+`robust_wrap_target`, `robust_wrap_target_reached` and `robust_wrap_target_limit` are in the output. Design and the measurement behind it:
+[alpha-wrap-and-repair.md](../../docs/roadmap/alpha-wrap-and-repair.md), "Triangle target of the wrap". `BENCH_REPAIR=robust BENCH_FIDELITY=hd`,
+the corpus case "flat" (a closed sphere of 1452 triangles flattened onto z = 0, written as an OBJ from the test harness' shape code; the only one of the procedural
+shapes that the robust pipeline wraps), one process each, 4-core container, target = the input's count (factor 1):
+
+| alpha | option | output triangles | limit | Hausdorff result -> input / input -> result (diag) | repair time |
+|---|---|---:|---|---|---:|
+| diag / 100 (raw 24,390) | off | 2352 | | 0.00213 / 0.00201 | 4.8 s |
+| | factor 1 | 1844 | no collapse left within the certified distance | 0.00219 / 0.00201 | 7.4 s |
+| | factor 1, distance 2 | 1690 | same | 0.00234 / 0.00201 | 6.4 s |
+| diag / 300 (raw 210,696) | off | 7526 | | 0.00137 / 0.00134 | 10.4 s |
+| | factor 1 | 5890 | same | 0.00143 / 0.00134 | 39.6 s |
+| | factor 1, distance 2 | 5360 | same | 0.00153 / 0.00134 | 21.7 s |
+
+The wrap of a zero-volume surface has two layers, so 1452 is out of reach there; the count reached is 0.78x (alpha diag / 300, distance 0.5) and 0.71x (distance 2)
+of the pipeline's. The time is the serial reduction with a certified deviation per collapse against the raw wrap (about 27 s of the 39.6 s; the final certification 0.6 s);
+`Reducer.SampleDeviation` as a pre-filter changed neither the result nor the time. The shapes with a reachable target (closed solid, thin plate, open sheet, a shell
+around a ball) are covered by `AlphaWrapTargetTests` (guarantees checked on each) and the table in the roadmap; they need no wrap in the robust pipeline's
+solidify stage, so the benchmark's robust mode does not wrap them. Thingi10K at run time: not run here (no mesh fetch in this session).
+
 ## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
 
 The main carving in rounds of gates with disjoint cells, evaluated in parallel, committed in heap order

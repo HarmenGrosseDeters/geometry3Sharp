@@ -399,7 +399,7 @@ scale checks of the campaigns (the scaling is not exact there).
 |---|---|---|---|---|
 | `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
 | `MeshRoundingRepair` | 2^-200 .. 2^200 (the largest coordinate; no subnormal; `OutsideRange`) | 2^60 (`ScaleDisparity`, not a range) | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
-| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` / `LostFarOpenPart` / `LostSeparatePart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
 | `Reducer` | 1e-150 .. 1e150 and beyond (a power-of-two frame for the quadrics, the edges scaled in the flip test) | -- | sphere: reduces, closed and finite, from 1e-300 to 1e307 with the same relative result at every power-of-two scale (a vertex position is only optimal where the frame scale is a normal double, 2^+-1000) | not guaranteed (documented limit) |
 | `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 (`PartitionedReducer` also in the Reducer's range) | -- | sphere: ok 2^-250 .. 2^500 | not guaranteed (documented limit) |
@@ -584,7 +584,7 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
   11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
   visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
-  for a full run of all 25 shards (45 mesh shards plus the arithmetic job since #1006) was not confirmed or refuted by the 11-15 data. Since 2026-11-17 one full run exists, which does not settle it either (shards run at most 6 at a time and 5 failed): master run 44013112256 (dispatched 03:51 UTC, the Exact Boolean 3.0 gate), 35 shards green, 5 red.
+  for a full run of all 46 shards (45 mesh shards plus the arithmetic job since #1006) was not confirmed or refuted by the 11-15 data. Since 2026-11-17 one full run exists, which does not settle it either (shards run at most 6 at a time and 5 failed): master run 44013112256 (dispatched 03:51 UTC, the Exact Boolean 3.0 gate), 35 shards green, 5 red.
 - `coverage.yml` ended red in every scheduled and dispatched run from 11-12 to 11-15 (the pull_request runs were green) (the changed-line gate, a separate matter); green on 11-16 (the 06:52 UTC dispatch and the 12:01 UTC cron run, after #959); red again on 11-17 (dispatch 03:47 UTC and cron 12:25 UTC, job `gate`, step "Changed-line coverage").
 - Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
   run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
