@@ -92,7 +92,8 @@ this section names only what is in flight.
 
 Checked on 2026-11-17.
 
-- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** after the imprint corpus run (in flight).
+- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** decided (owner 2026-11-17): both are `[Obsolete]` warnings, pointing to
+  `ExactMeshImprint` / `ExactMeshBoolean` ([IMPRINT_CORPUS_2026-11.md](research/IMPRINT_CORPUS_2026-11.md); sliver cleanup for 1-ulp contact: #1034).
   [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
   delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -111,7 +112,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 In order:
 - The 3.0 completion gate (run 44013112256); then the roadmap status "3.0 complete".
-- The boolean bugfix round (RC1, RC3, the benchmark pinch class, the RC4 rerun), then the owner's campaign findings.
+- Done: the imprint corpus run and the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean` (2026-11-17: both `[Obsolete]`).
 - The imprint corpus run, then the owner's deprecation decision on `MeshMeshCut` / `MeshBoolean`.
 - After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
 - The Geogram survey, then the owner picks what to adopt.

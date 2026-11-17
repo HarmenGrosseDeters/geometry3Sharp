@@ -6,6 +6,7 @@ using g3;
 using gs;
 using Xunit;
 
+#pragma warning disable CS0618 // tests of the deprecated float MeshMeshCut / MeshBoolean (behaviour stays pinned)
 namespace geometry3Sharp.Tests
 {
     /// <summary>

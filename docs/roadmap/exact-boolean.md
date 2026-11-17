@@ -818,7 +818,9 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
    2026-11-15). Design note: [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md) (2026-11-16, merged as #979). Implemented as `ExactMeshImprint` in one PR (2026-11-16: the arrangement
    mask, the `MeshRoundingRepair` locks, the class, tests, the `ExactImprint` benchmark: about half the time of the boolean on closed sphere pairs); the
-   deprecation decision for `MeshMeshCut` / `MeshBoolean` follows once the imprint has run in the nightly / corpus.
+   deprecation decision for `MeshMeshCut` / `MeshBoolean` followed the imprint corpus run (run 44017929170,
+   [IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md)): **decided, owner 2026-11-17**, both are `[Obsolete]` warnings (no error, no API break)
+   pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi), EMBER lever 2, Exact Boolean 4.0 (exact output with

@@ -279,6 +279,14 @@ bound; the cutter is not modified, so a re-imprint of the result with the same c
 imprint is idempotent only in exact arithmetic, `ComputeExactVertices` gives exact coordinates for that use); that a result
 of an imprint on a non-manifold target is manifold.
 
+### 4.2.1 Known limit: 1-ulp contact leaves slivers
+
+When the two meshes touch within one ulp, the result is closed and carries the curve, but the rounding leaves near-degenerate slivers:
+`RoundingClean` is false and `NotCleanReason` reports degenerate triangles. In the imprint corpus run 2026-11
+([IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md), run 44017929170) only 18 of 200 operations on class `ulp-shift` and 8 of 200
+on `ulp-shift-few` were clean. The result is still usable as a closed mesh with the curve; code that needs a clean mesh must
+repair it afterwards (`MeshRobustRepair`). A sliver cleanup after the rounding is a later task: #1034.
+
 ### 4.3 Why not exact output only
 
 Exact rational output (`ResultExactVertices`) is offered (`ComputeExactVertices`) but not the default: every consumer in
