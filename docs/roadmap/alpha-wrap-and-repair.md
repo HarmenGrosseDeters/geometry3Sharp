@@ -371,6 +371,9 @@ better; 0.75 is 1.09-1.22x.
   (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
+- **Remeshers, opt-in safe preset (owner 2026-11-17):** `Remesher.ApplySafePreset()` / `g3cli remesh --safe` = `MinTriangleQuality` 0.2
+  + `PreventSelfIntersections`, the only measured combination with no new pairs and few flat triangles (`si` alone: no new pairs, 42x, 7x the flat triangles; about 19x the default on Thingi10K, 1108 pairs left, all
+  from 5 inputs that had them; [measurement](../perf/REMESHER_PHASE2_MEASURED.md)); defaults unchanged.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
@@ -562,8 +565,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    #1045 (merged). Stays opt-in, default unchanged (owner 2026-11-17, made with the merge of #1045; 800 run 44064241725).
 4. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall
    thickness (135363). Measured 2026-11-17 (#1075, [REMESHER_PHASE2_MEASURED.md](../perf/REMESHER_PHASE2_MEASURED.md)), defaults
-   unchanged (upstream's, owner). An opt-in safe preset (`MinTriangleQuality` 0.2 + `PreventSelfIntersections`, the only
-   combination with no new pairs, 19x the plain default on Thingi10K) started 2026-11-17 (owner go, defaults unchanged), no PR yet.
+   unchanged (upstream's, owner). The opt-in safe preset `Remesher.ApplySafePreset()` / `g3cli remesh --safe` (`MinTriangleQuality`
+   0.2 + `PreventSelfIntersections`, 19x the plain default on Thingi10K) is in #1085 (owner go, defaults unchanged).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.
