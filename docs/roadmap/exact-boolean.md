@@ -777,12 +777,20 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 | Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
 | EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
 
-**Research directions after 3.0 (prior-art check, 2026-11-17, owner decision pending):**
+**Research directions after 3.0 (prior-art check, 2026-11-17):**
 [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](../research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) covers (1) rounding with a
 guarantee (partially known: the guarantee of Devillers et al. 2020 fits our drift bound and degenerate test on a grid
-of 2^-19 of the diagonal; open are the output size and a local scheme; a 2-3 day falsification experiment) and (2) a
-certifying boolean (partially known building blocks, no certifying 3D mesh boolean found; a test-only checker for the
-classification as the first stage). Neither is scheduled.
+of about 2^-19 of the diagonal when the box of all parts is at most 1.36 times the diagonal of the largest component;
+open are the output size and a local scheme; a 2-3 day falsification experiment) and (2) a certifying boolean
+(partially known building blocks, no certifying 3D mesh boolean found; a test-only checker for the classification as
+the first stage). Owner 2026-11-17: (2) stages 1-2, the test-only checker, are built as a correctness oracle for the
+robustness round; the experiment of (1) is not now (its gain on real data is the five RC4b cases).
+
+**Octree-embedded BSPs / EMBER architecture: shelved (owner 2026-11-17).** The ideas that fit are built (pruning in
+T3a #612, #633 L2) or bounded (EMBER lever 2, at most about -15 % in chains). What is left is a second, quantized
+plane-based kernel: a speed lever after the speed work stopped, months of work, and it gives up exact computation on
+the input doubles while still needing our rounding for double output. The plane-based representation stays a
+question for the design analysis of Exact Boolean 4.0 if that gets a use case.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.

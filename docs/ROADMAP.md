@@ -76,8 +76,8 @@ this section names only what is in flight.
 - **Corpora:** ABC chained booleans (#1001, #1005, #1007, #1012: ours clean through all steps in 75 of 90 chains,
   Manifold 34, CGAL 4) and thingi-contact (#982, #992, #997) run on GitHub runners.
 - **Platform and CI:** coverage gate fixed (#959), runtime watch baseline (#960), the mutation process port (#958) and
-  the 7-part split (#913). In flight: #999 (xatlas report), #1006 (UV parameterization mutation shards), #1009
-  (benchmark `fm_ms` above 20 s). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+  the 7-part split (#913). In flight: #999 (xatlas report), #1006 (UV parameterization mutation shards); #1009
+  (benchmark `fm_ms` above 20 s) got `OuterFaceIncremental` as an opt-in (#1036, owner 2026-11-17). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Determinism:** stage 0 and its obligations are merged; the cast audit is done (#973). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** contouring certificate stage 3 (growth of failing blocks) merged; uncertified cells at /128 651 -> 381,
   no wrong run certified. Refinement and transitions are not built under the stop rule; #944 closed, the surviving
