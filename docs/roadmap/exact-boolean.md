@@ -777,12 +777,15 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 | Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
 | EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
 
-**Research directions after 3.0 (prior-art check, 2026-11-17, owner decision pending):**
+**Research directions after 3.0 (prior-art check, 2026-11-17; owner decision 2026-11-17: direction 1 not now,
+direction 2 stages 1-2 built as a test-only certifying checker, [QA.md 2.4a](../QA.md)):**
 [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](../research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) covers (1) rounding with a
 guarantee (partially known: the guarantee of Devillers et al. 2020 fits our drift bound and degenerate test on a grid
 of 2^-19 of the diagonal; open are the output size and a local scheme; a 2-3 day falsification experiment) and (2) a
 certifying boolean (partially known building blocks, no certifying 3D mesh boolean found; a test-only checker for the
-classification as the first stage). Neither is scheduled.
+classification as the first stage). The checker (C1, C3, C4, C5 closedness and coverage) is the oracle of the boolean
+property campaigns and of a Nightly corpus; stage 3 (a simple exact recheck of the embedding, C2a) and a certified mode
+for users are not scheduled.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.

@@ -293,6 +293,36 @@ whether a hard limit can end in a success status.
   CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs` (2D mesher: `QualityMesh2PropertyCampaign.CsCheck.cs`, `G3_PROPERTY_SAMPLES`, `G3_PROPERTY_CAMPAIGN` / `G3_PROPERTY_REPLAY`, `G3_PROPERTY_STRICT`); the directed-family follow-up gives each
   box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
 
+### 2.4a Certifying checker of the exact boolean (test-only, owner 2026-11-17)
+
+`tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs` checks a result of `ExactMeshBoolean` against its inputs, as an
+oracle that is independent of the code it checks (stages 1-2 of direction 2 of
+[BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md), sections 3.3-3.6). The boolean
+records its decisions for it (`RecordCertificate`, internal: the winding numbers in front of each classified piece, keep,
+flip, and the result before the rounding; recording changes nothing). The checker has its own exact tests (BigInteger
+determinants on the exact points, no floating-point predicate decides anything) and reuses no classification code:
+- **C1 pieces**: every piece lies in its source triangle's plane, inside it, oriented like it; the pieces of a source tile
+  it (paired inner edges, unpaired ones along the source's edges, projected areas adding up exactly).
+- **C3 classification**: the coplanar stacks from the input triangles grouped by exact plane; the back of a piece from its
+  front and its stack; around every edge the pieces sorted radially, consecutive ones agreeing on the wedge between them;
+  one anchor per connected set: an exact ray (signed crossings with every input triangle).
+- **C4 selection**: kept iff the predicate differs on the two sides, flipped iff the front is inside; copies never kept.
+- **C5 result**: the result before rounding equals the kept pieces as an oriented point set (per plane, the boundary of
+  the difference is zero, swept per supporting line); the result is closed and oriented; result and exact result lie
+  within the rounding bound (`MaxLength` plus a few ulps) of each other, by exact squared distances of the corners (a
+  triangle is within delta of a triangle iff its corners are), with four-way splits where one triangle does not cover.
+
+Class: closed inputs. Open inputs and an Intersection whose early-out culled triangles against several meshes are
+`n/a` (the oracle runs Intersection with `CullOutsideA = false`); a Difference's early-out is checked (the other meshes'
+winding numbers count only where the first mesh's is positive, with an anchor per connected set under that rule). The
+embedding (no two pieces cross, C2) is not checked: stage 3.
+
+Where it runs: `BooleanCertificateTests` (the box and tetrahedron families of the metamorphic corpus with their
+representation changes, spheres, nested, hollow, self-intersecting and duplicated solids, a winding predicate, the
+similarities of `Similarity.All()`); every case of the CsCheck campaigns `ExactBooleanPropertyTests` (boxes, directed
+families, tetrahedra; so `G3_PROPERTY_SAMPLES` campaigns use it as their oracle); and a Nightly corpus of random spheres,
+tetrahedra and boxes (`Certifies_RandomSolids_Nightly`, 480 booleans, about 16 s). Teeth: MUTATIONS_TEXT
+
 ### 2.5 Fuzzing of the readers and of mesh inputs
 
 The readers (OBJ, STL, OFF, PLY, 3MF, glTF) and the CLI / MCP server take untrusted input.
