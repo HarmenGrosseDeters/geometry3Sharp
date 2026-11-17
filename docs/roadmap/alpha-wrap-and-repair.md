@@ -383,6 +383,7 @@ better; 0.75 is 1.09-1.22x.
   at 1.28x the time with the option (about 11 % the check, the rest a changed path), but breaks 4 fixtures of the
   inversion-guard tests (their tubes no longer invert) and 3 rim tests. Code on `wip/remesher-fold-check-790` (no PR).
   Reopen only with a caller that needs it; `PreventSelfIntersections` is the guarantee (documented on the option).
+  **Measured 2026-11-17** (owner approved; no default changed): [perf/REMESHER_PHASE2_MEASURED.md](../perf/REMESHER_PHASE2_MEASURED.md): `q` 0.2 + `PreventSelfIntersections` is 19x the default on Thingi10K and the only combination with no new pairs; a CCD sweep per move pass costs 4x the guarded run; 4 % of guarded move passes contain a mid-step contact the end check cannot see; recommendation in the doc.
 - **Reducer / Remesher upper bounds** (2026-11-02): B (the union-box query in the Remesher, 4-6 %) not built; D (the
   permission-grid accept filter) not built (owner 2026-11-02). Shared BVH queries per collapse were "being tried in
   the envelope session" (done: #275, merged 2026-11-01, shares the MaxDeviation check's tree queries within a
