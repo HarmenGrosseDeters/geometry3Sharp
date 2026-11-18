@@ -14,6 +14,7 @@ dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- open       #
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- limit      # what contacts do to a reduction
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- plain      # the Reducer alone, MinCollapseTriangleQuality 0 / 0.02
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- pair       # PairContacts off and on, the touching cases
+dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- auto       # PairContactsMode Auto against Off, all cases
 ```
 
 Linux container, 4 cores, `net10.0`, Release, one process, no warm-up (the first row includes the JIT: the 361 ms of the
@@ -185,6 +186,32 @@ triangle counts and by a hash test):
   (the pipeline's output contract is "NotCleanReason the same or better" only without contacts).
 - Time of the reduction: within the run-to-run variation, lower where the contact line is collapsed (see the ms columns).
 - Not combined with `MaxDeviationTwoSided` (`InvalidInput` in the pipeline, `InvalidOperationException` in the `Reducer`).
+
+## Automatic fallback (`PairContactsMode = Auto`, the `auto` mode)
+
+Auto reduces as without the option and only if the result keeps contacts and is not clean, reduces the boolean result a second
+time with pairing; the paired result is kept if its `NotCleanReason` is the same (or empty) and it has fewer triangles, or as
+many and fewer contacts. Run 2026-11-18 (same machine and settings as above), all 17 cases at 25 % and 10 %, Off against Auto:
+
+- **Share of results that take the second pass: 6 of 34** (the contact cases that stay unclean: box edge-touch, fine box edge-touch,
+  fine box vertex-touch, each at two targets). The 28 others (13 cases without contacts, the pole touch) are **bit for bit the
+  Off result: 28 of 28** (equality of every id, position and triangle; also a hash test in the test suite).
+- **Kept: 3 of 6.**
+
+| case | target | tris Off | contacts Off | tris Auto | contacts Auto | second pass kept | second pass ms | pipeline ms (Auto) | second pass share |
+|---|---|---|---|---|---|---|---|---|---|
+| box+box edge-touch U | 25 % | 24 | 2 | 8 | 2 | yes | 3 | 6 | 50 % (3 ms) |
+| box+box edge-touch U | 10 % | 24 | 2 | 8 | 2 | yes | 1 | 4 | 25 % (1 ms) |
+| fine box edge-touch U | 25 % | 1350 | 16 | 1350 | 16 | no | 358 | 1281 | 28 % |
+| fine box edge-touch U | 10 % | 540 | 16 | 540 | 5 | yes (as many triangles, fewer contacts) | 464 | 1536 | 30 % |
+| fine box vertex-touch U | 25 % | 1350 | 1 | 1350 | 1 | no (a contact point has no twin edge) | 262 | 532 | 49 % |
+| fine box vertex-touch U | 10 % | 540 | 1 | 540 | 1 | no | 278 | 644 | 43 % |
+
+- **Cost.** The second pass is a full reduction again, 25-50 % of the pipeline time on the contact cases (26-49 % in a second
+  run; the timings vary by 10-20 %), above the 25 % bound the task set for making Auto the default. The cases without contacts
+  pay a copy of the boolean result only if it has contacts, otherwise nothing (28 of 28 unchanged, times within the noise).
+- **Default.** The bound is not met, so `PairContactsMode` stays `Off` by default (owner decision to change it: the numbers are above).
+  `PairContacts = true` is unchanged (`On`).
 
 ## Repeated booleans (the `repeated` mode)
 

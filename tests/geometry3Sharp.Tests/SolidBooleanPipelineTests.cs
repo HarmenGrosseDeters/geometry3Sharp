@@ -602,6 +602,74 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---- failure paths and stop reasons ----
+
+        [Fact]
+        public void BooleanBudgetExceeded_IsBooleanFailed_WithItsStatus()
+        {
+            var p = new SolidBooleanPipeline(TwoSpheres(), U) { TargetFraction = 0.5, ConfigureBoolean = op => op.MaxPieces = 1 };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, p.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.BudgetExceeded, p.BooleanStatus);
+            Assert.Contains("BudgetExceeded", p.Error);
+            Assert.Null(p.Result);
+        }
+
+        [Fact]
+        public void CancelledAfterTheOpenInputWasSeen_StopsInTheRepair()
+        {
+            var cts = new CancellationTokenSource();
+            var p = new SolidBooleanPipeline(HoledSphere(), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U) { Cancellation = cts.Token, TargetFraction = 0.5, ConfigureBoolean = op => cts.Cancel() };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, p.BooleanStatus);      // (the boolean had refused the input: the repair was entered)
+            Assert.Null(p.Result);
+        }
+
+        [Fact]
+        public void RobustRepair_ThatDoesNotCloseTheInput_FailsWithOpenInput()
+        {
+            var tiny = new DMesh3();
+            tiny.AppendTriangle(tiny.AppendVertex(new Vector3d(0, 0, 0)), tiny.AppendVertex(new Vector3d(1e-300, 0, 0)), tiny.AppendVertex(new Vector3d(0, 1e-300, 0)));
+            var p = new SolidBooleanPipeline(tiny, Sphere(new Vector3d(5, 5, 5), 1, 6), U) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Contains("no allowed repair", p.Error);
+            Assert.Empty(p.Report.RepairedInputs);
+        }
+
+        [Fact]
+        public void TriangleQualityBound_ThatNothingMeets_StopsWithTriangleQuality()
+        {
+            var p = new SolidBooleanPipeline(TwoSpheres(), U) { TargetFraction = 0.1, MinTriangleQuality = 1 };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(SolidBooleanStopReason.TriangleQuality, p.Report.StopReason);
+            Assert.True(p.Report.ResultTriangles > p.Report.TargetTriangles);
+            Assert.True(p.Report.BlockedByQuality > 0);
+            AssertSolid(p);
+        }
+
+        [Fact]
+        public void PairedContacts_ThatTheStructureRefuses_StopWithTopology()
+        {
+            var inputs = new[] { new Vector3d(0, 0, 0), new Vector3d(2, 2, 0), new Vector3d(4, 0, 0), new Vector3d(2, -2, 0) }.Select(c => Soup(Box(c, 1, 3))).ToList();
+            var p = new SolidBooleanPipeline(inputs, U) { TargetTriangleCount = 4, PairContacts = true };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(SolidBooleanStopReason.Topology, p.Report.StopReason);
+            Assert.True(p.Report.BlockedByTopology > p.Report.BlockedByQuality && p.Report.BlockedByTopology > p.Report.BlockedByGuard);
+            Assert.True(p.Report.ResultTriangles > 4);
+            Assert.True(p.Result.IsClosed());
+        }
+
+        [Fact]
+        public void EdgeLength_ThatCannotBeReached_ReportsTheStop()
+        {
+            var p = new SolidBooleanPipeline(TwoSpheres(), U) { MinEdgeLength = 100 };
+            Assert.True(p.Compute(), p.Error);
+            Assert.NotEqual(SolidBooleanStopReason.TargetReached, p.Report.StopReason);      // (the last edges of a solid cannot be collapsed: a tetrahedron is the minimum)
+            Assert.Equal(4, p.Report.ResultTriangles);
+        }
+
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
     }
 }

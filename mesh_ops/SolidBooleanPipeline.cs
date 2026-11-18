@@ -95,8 +95,34 @@ namespace gs
         public int BlockedAtContacts;
         /// <summary> with PairContacts: the collapses of an edge together with its twin edge (two edges each); 0 otherwise </summary>
         public int PairedCollapses;
+        /// <summary>
+        /// PairContactsMode Auto: the second reduction (pairing on) ran because the first result was not clean with contacts left; it
+        /// is kept (PairPassKept) if its NotCleanReason is the same or empty and it has fewer triangles (or as many and fewer contacts). False if it did not run
+        /// </summary>
+        public bool PairPassRan, PairPassKept;
+        /// <summary> with PairPassRan: triangles of the first (unpaired) reduction's result </summary>
+        public int PairPassFirstTriangles;
+        /// <summary> time of the second reduction (PairPassRan) with its final check, in milliseconds; part of TotalMilliseconds, not of ReductionMilliseconds </summary>
+        public long PairPassMilliseconds;
         /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check, and the sum </summary>
         public long InputCheckMilliseconds, RepairMilliseconds, BooleanMilliseconds, ReductionMilliseconds, FinalCheckMilliseconds, TotalMilliseconds;
+
+        // the fields a reduction sets (to put back those of the first reduction if the second one is not kept)
+        internal SolidBooleanReport ReductionState()
+        {
+            return new SolidBooleanReport {
+                StopReason = StopReason, StopDetail = StopDetail, TargetTriangles = TargetTriangles, PairedCollapses = PairedCollapses,
+                BlockedByGuard = BlockedByGuard, BlockedByDeviation = BlockedByDeviation, BlockedByQuality = BlockedByQuality,
+                BlockedByTopology = BlockedByTopology, BlockedAtContacts = BlockedAtContacts
+            };
+        }
+
+        internal void SetReductionState(SolidBooleanReport s)
+        {
+            StopReason = s.StopReason; StopDetail = s.StopDetail; TargetTriangles = s.TargetTriangles; PairedCollapses = s.PairedCollapses;
+            BlockedByGuard = s.BlockedByGuard; BlockedByDeviation = s.BlockedByDeviation; BlockedByQuality = s.BlockedByQuality;
+            BlockedByTopology = s.BlockedByTopology; BlockedAtContacts = s.BlockedAtContacts;
+        }
     }
 
     /// <summary>
@@ -140,6 +166,21 @@ namespace gs
             AutoRepairThenRobust = 2
         }
 
+        /// <summary> when the reduction collapses the edges of a contact line together with their twin edges (PairContactsMode) </summary>
+        public enum PairContactsModes
+        {
+            /// <summary> never (unless PairContacts is true) </summary>
+            Off = 0,
+            /// <summary> always: the same as PairContacts = true </summary>
+            On = 1,
+            /// <summary>
+            /// reduce as with Off. Only if that result keeps contacts (ContactsResult &gt; 0) and is not clean, reduce the boolean result a
+            /// second time with pairing and keep the paired result if its NotCleanReason is the same or empty and it has fewer
+            /// triangles (or as many and fewer contacts). A result that is clean, or whose boolean result has no contacts, is bit for bit the one of Off
+            /// </summary>
+            Auto = 2
+        }
+
         /// <summary> result code of Compute() </summary>
         public enum PipelineStatus
         {
@@ -168,6 +209,8 @@ namespace gs
         public Action<ExactMeshBoolean> ConfigureBoolean;
         // (tests) runs before the reduction
         internal Action BeforeReduction;
+        // (tests) runs before the second reduction of PairContactsMode Auto
+        internal Action BeforePairPass;
         /// <summary> cancels the boolean and the reduction; Status Cancelled and no Result </summary>
         public CancellationToken Cancellation;
 
@@ -210,6 +253,13 @@ namespace gs
         /// Not combined with MaxDeviationTwoSided (InvalidInput).
         /// </summary>
         public bool PairContacts = false;
+        /// <summary>
+        /// Default Off. PairContacts = true is the same as On. Auto: a second reduction with pairing, only for a result that keeps
+        /// contacts and is not clean (see PairContactsModes.Auto, Report.PairPassRan / PairPassKept); costs up to one more reduction
+        /// for those results and nothing for the others (a copy of the boolean result is made if it has contacts). With
+        /// MaxDeviationTwoSided Auto does nothing (pairing does not support it), On is InvalidInput as PairContacts
+        /// </summary>
+        public PairContactsModes PairContactsMode = PairContactsModes.Off;
 
         /// <summary> the returned solid, or null if Status is not Success </summary>
         public DMesh3 Result;
@@ -259,8 +309,10 @@ namespace gs
                 || MaxQuadricError < 0 || double.IsNaN(MaxQuadricError) || MaxDeviation < 0 || double.IsNaN(MaxDeviation) || double.IsInfinity(MaxDeviation)
                 || double.IsInfinity(MinEdgeLength) || double.IsInfinity(MaxQuadricError) || TargetTriangleCount < 0 || !(MinTriangleQuality >= 0 && MinTriangleQuality <= 1))
                 return fail(PipelineStatus.InvalidInput, "a reduction setting is out of range (TargetFraction in [0, 1), MinTriangleQuality in [0, 1], the others finite and not negative)", total);
-            if (PairContacts && MaxDeviation > 0 && MaxDeviationTwoSided)
+            if ((PairContacts || PairContactsMode == PairContactsModes.On) && MaxDeviation > 0 && MaxDeviationTwoSided)
                 return fail(PipelineStatus.InvalidInput, "PairContacts is not supported with MaxDeviationTwoSided", total);
+            if (PairContactsMode < PairContactsModes.Off || PairContactsMode > PairContactsModes.Auto)
+                return fail(PipelineStatus.InvalidInput, "PairContactsMode is not a defined value", total);
             if (Inputs == null || Inputs.Count == 0)
                 return fail(PipelineStatus.InvalidInput, "no input meshes", total);
             for (int i = 0; i < Inputs.Count; ++i)
@@ -330,11 +382,15 @@ namespace gs
             Report.ContactsBoolean = op.Contacts;
             Report.NonManifoldEdgesBoolean = op.NonManifoldEdges;
 
-            // 3. the reduction
+            // 3. the reduction (Auto: with a copy of the boolean result if it has contacts, for the second reduction)
+            bool pairAlways = PairContacts || PairContactsMode == PairContactsModes.On;
+            DMesh3 spare = null;
+            if (!pairAlways && PairContactsMode == PairContactsModes.Auto && Report.ContactsBoolean > 0 && !(MaxDeviation > 0 && MaxDeviationTwoSided))
+                spare = new DMesh3(mesh);      // (not compacted: the same ids as the mesh of the first reduction, so the second reduction is the one of On)
             clock.Restart();
             if (BeforeReduction != null)
                 BeforeReduction();
-            reduce(mesh);
+            reduce(mesh, pairAlways);
             Report.ReductionMilliseconds = clock.ElapsedMilliseconds;
             if (Cancellation.IsCancellationRequested)
                 return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -346,6 +402,32 @@ namespace gs
             Report.ContactsResult = countContacts(result, null);
             Report.NotCleanReason = MeshRobustRepair.NotCleanReason(result);
             Report.FinalCheckMilliseconds = clock.ElapsedMilliseconds;
+
+            // 5. Auto: a result that keeps contacts and is not clean is reduced a second time with pairing
+            if (spare != null && Report.ContactsResult > 0 && !Report.Clean && Report.StopReason != SolidBooleanStopReason.NotReduced) {
+                clock.Restart();
+                Report.PairPassRan = true;
+                Report.PairPassFirstTriangles = result.TriangleCount;
+                SolidBooleanReport first = Report.ReductionState();
+                if (BeforePairPass != null)
+                    BeforePairPass();
+                reduce(spare, true);
+                if (Cancellation.IsCancellationRequested)
+                    return fail(PipelineStatus.Cancelled, "cancelled", total);
+                DMesh3 paired = new DMesh3(spare, true);
+                int contacts2 = countContacts(paired, null);
+                string reason2 = MeshRobustRepair.NotCleanReason(paired);
+                if ((reason2.Length == 0 || reason2 == Report.NotCleanReason)
+                    && (paired.TriangleCount < result.TriangleCount || (paired.TriangleCount == result.TriangleCount && contacts2 < Report.ContactsResult))) {
+                    result = paired;
+                    Report.PairPassKept = true;
+                    Report.ResultTriangles = paired.TriangleCount;
+                    Report.ContactsResult = contacts2;
+                    Report.NotCleanReason = reason2;
+                } else
+                    Report.SetReductionState(first);
+                Report.PairPassMilliseconds = clock.ElapsedMilliseconds;
+            }
 
             Result = result;
             Status = PipelineStatus.Success;
@@ -430,7 +512,7 @@ namespace gs
             }
         }
 
-        void reduce(DMesh3 mesh)
+        void reduce(DMesh3 mesh, bool pair)
         {
             bool byCount = TargetTriangleCount > 0 || TargetFraction > 0;
             if (mesh.TriangleCount == 0) {
@@ -448,7 +530,7 @@ namespace gs
                 MaxDeviation = MaxDeviation,
                 MaxDeviationTwoSided = MaxDeviation > 0 && MaxDeviationTwoSided,
                 MinCollapseTriangleQuality = MinTriangleQuality,
-                PairCoincidentVertices = PairContacts,
+                PairCoincidentVertices = pair,
                 Progress = new ProgressCancel(() => Cancellation.IsCancellationRequested)
             };
             int target = 0;

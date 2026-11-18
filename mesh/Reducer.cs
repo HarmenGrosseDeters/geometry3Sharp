@@ -628,11 +628,9 @@ namespace g3
             return new Index3i(pairCanon[t.a], pairCanon[t.b], pairCanon[t.c]);
         }
 
-        // the edge between the twins of the ends of edge (a, b), or -1
+        // the edge between the twins of the ends of edge (a, b), or -1 (only with pairTwin set: edge_quadric checks it)
         int twin_edge(int a, int b)
         {
-            if (pairTwin == null)
-                return -1;
             int ta = pairTwin[a], tb = pairTwin[b];
             if (ta < 0 || tb < 0)
                 return -1;

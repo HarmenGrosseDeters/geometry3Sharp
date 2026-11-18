@@ -214,6 +214,14 @@ paired collapses, and it is not combined with `MaxDeviationTwoSided` (`InvalidIn
 touching a face) is kept where it is: a contact vertex is only a target of a collapse, never moved, so the result keeps the
 touch that without the option the reduction could move off (the "pole touch" case: clean without the option, one contact with it).
 
+`PairContactsMode = Auto` (default `Off`; `PairContacts = true` is `On`) makes that automatic: the pipeline reduces as without the
+option and only if the result keeps contacts and is not clean, reduces the boolean result a second time with pairing; it keeps the
+paired result if its `NotCleanReason` is the same (or empty) and it has fewer triangles, or as many and fewer contacts. A result
+that is clean, or whose boolean result has no contacts, is bit for bit the one of `Off` (hash tests; a copy of the boolean result
+is made only if it has contacts). `Report.PairPassRan`, `PairPassKept`, `PairPassFirstTriangles` and `PairPassMilliseconds` tell
+what happened; the second reduction costs up to one more reduction (26-49 % of the pipeline time on the measured contact cases,
+see the benchmark README), which is why Auto is not the default. Auto does nothing with `MaxDeviationTwoSided`.
+
 Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
 (degenerate triangles) and sometimes self-intersections. `SafeRounding` (on by default) repairs them after the
 rounding; `RoundingClean` tells whether the result is verified free of both:
