@@ -78,6 +78,7 @@ static class Program
                 var w = new MeshAlphaWrap(big) { RelativeAlpha = 8, RelativeOffset = 80, MaxEstimatedTriangles = budget };
                 var sw = Stopwatch.StartNew();
                 bool ok = w.Compute();
+                if (!ok) throw new InvalidOperationException(w.Error);
                 Console.WriteLine($"{big.TriangleCount},{budget},{sw.Elapsed.TotalSeconds:F2},{w.EstimatedTriangles:F0}");
             }
         // 2. MeshRobustRepair at library defaults (alpha diagonal / 300) with WrapMaxEstimatedTriangles: only the open inputs reach the wrap

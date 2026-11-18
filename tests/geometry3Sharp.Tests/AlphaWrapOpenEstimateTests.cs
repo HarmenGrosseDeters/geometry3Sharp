@@ -247,6 +247,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.UsedAlpha, on.UsedAlpha);
             Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Result), AlphaWrapManifoldStepTests.Hash(on.Result));
             Assert.Equal(off.Result.TriangleCount, on.Result.TriangleCount);
+            // (a negative budget is off as well)
+            MeshAlphaWrap neg = Wrap(m, RelAlpha, -1);
+            Assert.Equal(off.EstimatedTriangles, neg.EstimatedTriangles);
         }
 
         // invariance over Similarity.All() at a fixed alpha (scaled with the frame): the same open area, the estimate bit for bit in the

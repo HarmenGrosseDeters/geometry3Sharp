@@ -49,5 +49,6 @@ flat welded open sheet at a coarse alpha (relative alpha 8, so that the wrap its
 | 500,000 | 0.97 | 1.04 | 0.07 s |
 | 980,000 | 1.93 | 2.11 | 0.18 s |
 
-That is about 0.2 s per million input triangles (about 10 % of this small wrap), less than the 1 s per million first assumed; a
-soup with many boundary edges is dearer (not measured). Measurable only at this size: the other tables are unchanged.
+That is about 0.2 s per million input triangles at the largest size (one run each: the 0.05 s and 0.07 s of the two smaller sizes are
+within the noise of the container), less than the 1 s per million first assumed; a soup with many boundary edges is dearer (not
+measured). Measurable only at this size: the other tables are unchanged.

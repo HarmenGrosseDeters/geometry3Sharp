@@ -139,11 +139,11 @@ namespace gs
         /// </summary>
         public double MaxAlphaCoarsening = 0;
         /// <summary>
-        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles, open components twice) / Alpha^2. Measured (issue #694;
+        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles, open components twice, with MaxEstimatedTriangles > 0 only) / Alpha^2. Measured (issue #694;
         /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
         /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
         /// sheets, at the double density of zero thickness, see TraverseByEmptyBall) 3.0 to 3.3, about the estimate; an open sheet (a disc:
-        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, which EstimatedTriangles counts for open components (twice the area).
+        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, which EstimatedTriangles counts for open components (twice the area) when MaxEstimatedTriangles > 0.
         /// </summary>
         public const double EstimateDensity = 3.0;
         /// <summary>
@@ -263,7 +263,7 @@ namespace gs
         /// the estimated size of the result at the requested alpha, set by Compute() whether or not MaxEstimatedTriangles is on; 0 before,
         /// and for an input Compute() rejects before the alpha is known. With MaxEstimatedTriangles &gt; 0 it is EstimateDensity * area of the
         /// input triangles, open components counted twice / alpha^2; without a budget it is the one-sided estimate
-        /// EstimateDensity * area / alpha^2 (the open components are not looked for, which costs about 0.2 s per million input triangles (measured on a welded sheet, benchmarks/OpenSoupWrapBenchmark):
+        /// EstimateDensity * area / alpha^2 (the open components are not looked for, which costs time in proportion to the input's triangle count, benchmarks/OpenSoupWrapBenchmark:
         /// an open input's wrap is then about twice as large as this). Input segments and points are not counted
         /// </summary>
         public double EstimatedTriangles;
@@ -536,7 +536,7 @@ namespace gs
             // (divided twice: alpha^2 underflows below about 1e-162, and an infinite estimate must still be coarsened)
             // an open input is wrapped on both sides (issue #1113): the area of its open components counts twice, so that a budget means
             // the same on open and closed input (a closed input adds 0.0 to the area: bit for bit the estimate of before). The open
-            // area costs about 0.2 s per million input triangles (measured on a welded sheet, benchmarks/OpenSoupWrapBenchmark), so it is computed only for the budget; without one EstimatedTriangles
+            // area costs time in proportion to the input's triangle count (benchmarks/OpenSoupWrapBenchmark), so it is computed only for the budget; without one EstimatedTriangles
             // is the one-sided estimate (the wrap itself does not depend on it)
             double effectiveArea = MaxEstimatedTriangles > 0 ? area + AlphaWrapEstimate.OpenArea(tris, alpha) : area;
             EstimatedTriangles = alpha > 0 ? EstimateDensity * effectiveArea / alpha / alpha : 0;
