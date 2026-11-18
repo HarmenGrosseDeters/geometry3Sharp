@@ -102,6 +102,21 @@ namespace geometry3Sharp.Tests
             return (a, b);
         }
 
+        // an open mesh of two coplanar triangles, a large one and a small one over one of its corners, and a closed sphere
+        // through their plane (#1102): the pieces of the large triangle far from the corner have the small triangle in
+        // their source's Coplanar list, but its box misses them
+        internal static (DMesh3, DMesh3) CornerOverlap()
+        {
+            var a = new DMesh3();
+            int p0 = a.AppendVertex(new Vector3d(0, 0, 0)), p1 = a.AppendVertex(new Vector3d(8, 0, 0)), p2 = a.AppendVertex(new Vector3d(0, 8, 0));
+            a.AppendTriangle(p0, p1, p2);
+            int q0 = a.AppendVertex(new Vector3d(-1, -1, 0)), q1 = a.AppendVertex(new Vector3d(2, -1, 0)), q2 = a.AppendVertex(new Vector3d(-1, 2, 0));
+            a.AppendTriangle(q0, q1, q2);
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1.3, EdgeVertices = 6 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(b, new Vector3d(3, 2, 0));
+            return (a, b);
+        }
+
         static ExactMeshBoolean Computed(DMesh3 a, DMesh3 b, Ops op, bool filters, bool exactOnly = false)
         {
             var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, RecordOpenWinding = true,
@@ -157,6 +172,31 @@ namespace geometry3Sharp.Tests
             Assert.True(offExact.Counts["l2_exact_sides"] > 300, $"{offExact.Counts["l2_exact_sides"]} sides");
             Assert.True(10 * onExact.Counts["l2_exact_sides"] < 8 * offExact.Counts["l2_exact_sides"], $"{onExact.Counts["l2_exact_sides"]} of {offExact.Counts["l2_exact_sides"]} sides");
             Assert.Equal(offExact.Counts["coplanar_tests"], off.Counts["coplanar_tests"]);
+        }
+
+        [Fact]
+        public void StackFilter_PiecesMissingEveryCoplanarBox_StayInTheOutput()
+        {
+            // the early return of coplanar_stack (#1102): where no coplanar triangle's box meets the piece's box, the piece is
+            // the representative of its stack (no stack), so it is output; a piece taken for no representative would be
+            // dropped from the result, which the run without the filter shows
+            (DMesh3 a, DMesh3 b) = CornerOverlap();
+            foreach (Ops op in new[] { Ops.Union, Ops.Difference, Ops.Intersection }) {
+                ExactMeshBoolean on = Computed(a, b, op, true), off = Computed(a, b, op, false);
+                AssertSameDecisions(off, on);
+                // the pieces that take the early return: a source with coplanar triangles, and no stack. Without that, the test
+                // would not reach the branch
+                var arr = on.Arrangement;
+                int early = 0;
+                for (int i = 0; i < on.StacksPerPiece.Length; ++i)
+                    if (on.StacksPerPiece[i] == null && arr.Triangles[arr.Output[i].Source].Coplanar.Count > 0)
+                        early++;
+                Assert.True(early > 0, $"{op}: no piece of a source with coplanar triangles misses their boxes");
+                // the filter skipped their tests; and the same pieces are representatives either way (the same result)
+                Assert.True(on.Counts["coplanar_tests"] < off.Counts["coplanar_tests"], $"{on.Counts["coplanar_tests"]} of {off.Counts["coplanar_tests"]} tests");
+                if (op == Ops.Union)
+                    AssertFinite(on.Result);
+            }
         }
 
         // the exact value of a finite double, times 2^1074 (an integer for every double)
