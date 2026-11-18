@@ -72,7 +72,8 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
   and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is in review; 26 of 26 reduced
   results without contacts are clean, contacts limit how far a reduction goes (a contact line of m vertices holds about 12 m
-  triangles). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items), [benchmark](../benchmarks/SolidBooleanBenchmark/README.md)
+  triangles); the opt-in `PairContacts` (`Reducer.PairCoincidentVertices`) collapses the twin edges of a contact line together
+  (two edge-touching boxes: 8 triangles instead of 48-144). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items), [benchmark](../benchmarks/SolidBooleanBenchmark/README.md)
 - **Exact imprint / deprecation:** done (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean` (#1037 merged).
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,

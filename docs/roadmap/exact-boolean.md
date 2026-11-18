@@ -462,8 +462,10 @@ Open:
   `MeshRobustRepair` changed. Measured on 17 procedural soup cases: 26 of 26 reduced results without contacts clean (25 % and
   10 % of the boolean result); results with contacts keep them and `NotCleanReason` reports "self-intersections" at the
   touching points. Limit: a contact line of m vertices holds about 12 m triangles (the twin vertices cannot be collapsed one
-  by one); options, not built: a paired collapse of the twin edges in the `Reducer`, or opening the touching sheets by a gap
-  (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
+  by one). Built (opt-in, default off, bit-identical when off): `PairContacts` / `Reducer.PairCoincidentVertices`, a paired collapse of
+  each contact edge with its twin edge, both to one position, every guard checked for both sheets (contact lines only: a contact
+  point stays where it is; `NotCleanReason` still says "self-intersections" for a result with contacts, not changed); not built:
+  opening the touching sheets by a gap (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
 - **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
   and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
   exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the

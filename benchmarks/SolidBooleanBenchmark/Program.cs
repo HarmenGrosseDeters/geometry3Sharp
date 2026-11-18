@@ -9,7 +9,7 @@ using gs;
 // SolidBooleanPipeline on procedural unwelded triangle soups: the triangle counts after the exact boolean and after the
 // reduction to a fraction of the boolean result, the time per stage, the share of clean results (NotCleanReason == ""),
 // the stop reason, and MeshRobustRepair on the same inputs (the prophylactic route) for the cost.
-// Usage: SolidBooleanBenchmark [fractions, eg 0.25,0.1] | plain | repeated | open | limit
+// Usage: SolidBooleanBenchmark [fractions, eg 0.25,0.1] | plain | repeated | open | limit | pair
 static class Program
 {
     // ---- procedural inputs (all unwelded: every triangle has its own three vertices, like an STL read) ----
@@ -90,6 +90,33 @@ static class Program
         return d.Values.Count(n => n > 1);
     }
 
+    // the contacts of a mesh by position: vertices at a contact, edges with an end at one, and of those the edges whose two ends
+    // each have exactly one twin vertex and the twin edge exists (a pair a paired collapse can take), the groups of three or more
+    static (int vertices, int edges, int paired, int bigGroups) TwinStats(DMesh3 m)
+    {
+        var groups = new Dictionary<Vector3d, List<int>>();
+        foreach (int v in m.VertexIndices()) {
+            var p = m.GetVertex(v); if (p.x == 0) p.x = 0; if (p.y == 0) p.y = 0; if (p.z == 0) p.z = 0;
+            if (!groups.TryGetValue(p, out var l)) groups[p] = l = new List<int>();
+            l.Add(v);
+        }
+        var twin = new Dictionary<int, int>(); int cv = 0, big = 0;
+        var inGroup = new HashSet<int>();
+        foreach (var l in groups.Values) {
+            if (l.Count < 2) continue;
+            cv += l.Count; foreach (int v in l) inGroup.Add(v);
+            if (l.Count == 2) { twin[l[0]] = l[1]; twin[l[1]] = l[0]; } else big++;
+        }
+        int ce = 0, paired = 0;
+        foreach (int e in m.EdgeIndices()) {
+            var ev = m.GetEdgeV(e);
+            if (!inGroup.Contains(ev.a) && !inGroup.Contains(ev.b)) continue;
+            ce++;
+            if (twin.TryGetValue(ev.a, out int ta) && twin.TryGetValue(ev.b, out int tb) && m.FindEdge(ta, tb) != DMesh3.InvalidID) paired++;
+        }
+        return (cv, ce, paired, big);
+    }
+
     static void PlainReduce()
     {
         // the Reducer alone on flat-faced and round closed meshes: the cost of MinTriangleQuality = 0
@@ -115,6 +142,7 @@ static class Program
         if (args.Length > 0 && args[0] == "repeated") { Repeated(); return; }
         if (args.Length > 0 && args[0] == "open") { OpenInput(); return; }
         if (args.Length > 0 && args[0] == "limit") { Limit(); return; }
+        if (args.Length > 0 && args[0] == "pair") { Pair(); return; }
         double[] fractions = args.Length > 0 ? args[0].Split(',').Select(double.Parse).ToArray() : new[] { 0.25, 0.1 };
         Console.WriteLine("| case | in tris | boolean tris | boolean ms | contacts | " + string.Join(" | ", fractions.Select(f => $"{f:P0}: tris, reduce ms, contacts, result, stop")) + " | RobustRepair of the soup: ms, tris, result |");
         Console.WriteLine("|---|---|---|---|---|" + string.Concat(fractions.Select(f => "---|")) + "---|");
@@ -172,14 +200,43 @@ static class Program
     // how far contacts let the reduction go: two subdivided boxes apart, touching at a vertex and along an edge, asked for 4 triangles
     static void Limit()
     {
-        Console.WriteLine("| boxes (EdgeVertices) | placement | boolean tris | result tris (target 4) | contacts left | stop reason | blocked edges: guard / quality, at contacts |");
-        Console.WriteLine("|---|---|---|---|---|---|---|");
+        Console.WriteLine("| boxes (EdgeVertices) | placement | boolean tris | result tris (target 4) | contacts left | stop reason | blocked edges: guard / quality, at contacts | with PairContacts: result tris, contacts left, stop reason, paired collapses, result |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|");
         foreach (int n in new[] { 4, 8, 12 })
             foreach (var (name, off) in new[] { ("apart", new Vector3d(2.5, 2.5, 0)), ("vertex touch", new Vector3d(2, 2, 2)), ("edge touch", new Vector3d(2, 2, 0)) }) {
                 var p = new SolidBooleanPipeline(new[] { Soup(FineBox(Vector3d.Zero, new Vector3d(1, 1, 1), n)), Soup(FineBox(off, new Vector3d(1, 1, 1), n)) }, ExactMeshBoolean.Operations.Union) { TargetTriangleCount = 4 };
                 p.Compute();
                 var r = p.Report;
-                Console.WriteLine($"| {n} | {name} | {r.BooleanTriangles} | {r.ResultTriangles} | {r.ContactsResult} | {r.StopReason} | {r.BlockedByGuard} / {r.BlockedByQuality}, {r.BlockedAtContacts} |");
+                var pp = new SolidBooleanPipeline(p.Inputs, ExactMeshBoolean.Operations.Union) { TargetTriangleCount = 4, PairContacts = true };
+                pp.Compute();
+                var q = pp.Report;
+                Console.WriteLine($"| {n} | {name} | {r.BooleanTriangles} | {r.ResultTriangles} | {r.ContactsResult} | {r.StopReason} | {r.BlockedByGuard} / {r.BlockedByQuality}, {r.BlockedAtContacts} | {q.ResultTriangles}, {q.ContactsResult}, {q.StopReason}, {q.PairedCollapses}, {Short(q.NotCleanReason)} |");
+            }
+        Console.WriteLine();
+        Console.WriteLine("Edges at contacts in the boolean result (the upper bound of what a paired collapse can take): vertices at contacts, edges with an end at one, of those the paired ones (both ends with one twin, twin edge exists), contact positions with 3 or more vertices");
+        foreach (var c in Cases().Where(c => c.Name.Contains("touch") || c.Name.Contains("tangent"))) {
+            var p = new SolidBooleanPipeline(c.Inputs, c.Op);
+            p.Compute();
+            var (v, e, pr, big) = TwinStats(p.Result);
+            Console.WriteLine($"{c.Name}: boolean {p.Result.TriangleCount} tris, {v} vertices at contacts, {e} edges at them, {pr} paired, {big} positions with 3+ vertices");
+        }
+    }
+
+    // the cases that touch: the pipeline without and with PairContacts at two targets (the table of the README)
+    static void Pair()
+    {
+        Console.WriteLine("| case | boolean tris | contacts | target | tris off | contacts off | result off | stop off | ms off | tris PairContacts | contacts | result | stop | paired collapses | ms | closed |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        foreach (var c in Cases().Where(c => c.Name.Contains("touch") || c.Name.Contains("tangent")))
+            foreach (double f in new[] { 0.25, 0.1 }) {
+                var off = new SolidBooleanPipeline(c.Inputs, c.Op) { TargetFraction = f };
+                off.Compute();
+                var on = new SolidBooleanPipeline(c.Inputs, c.Op) { TargetFraction = f, PairContacts = true };
+                on.Compute();
+                var a = off.Report; var b = on.Report;
+                if (a.ContactsBoolean == 0 && f == 0.25) { Console.WriteLine($"| {c.Name} | {a.BooleanTriangles} | 0 | (no contacts: the same result, {a.ResultTriangles} = {b.ResultTriangles} tris: {(a.ResultTriangles == b.ResultTriangles)}) |"); }
+                if (a.ContactsBoolean == 0) continue;
+                Console.WriteLine($"| {c.Name} | {a.BooleanTriangles} | {a.ContactsBoolean} | {a.TargetTriangles} | {a.ResultTriangles} | {a.ContactsResult} | {Short(a.NotCleanReason)} | {a.StopReason} | {a.ReductionMilliseconds} | {b.ResultTriangles} | {b.ContactsResult} | {Short(b.NotCleanReason)} | {b.StopReason} | {b.PairedCollapses} | {b.ReductionMilliseconds} | {on.Result.IsClosed()} |");
             }
     }
 

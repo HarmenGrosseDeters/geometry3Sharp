@@ -203,6 +203,17 @@ at most `ContactsBoolean`), and the contacts limit how far a reduction goes: two
 at 8 % of their triangles where the same boxes apart go down to 0.7 %. Measurements:
 [benchmarks/SolidBooleanBenchmark](../benchmarks/SolidBooleanBenchmark/README.md).
 
+`PairContacts = true` (opt-in, default off: the result is then the one without it, bit for bit) lifts that limit for contact
+*lines*: each edge of the line is collapsed together with its twin edge (`Reducer.PairCoincidentVertices`), both sheets to the
+same new position, so the contact stays exactly coincident (no gap, no crossing); the guards (the self-intersection check,
+which takes the twins' shared position as a shared vertex and still refuses a crossing or a touch anywhere else, `MaxDeviation`,
+fold-over, `MinTriangleQuality`) are checked for both sheets and both must pass. Two boxes touching along an edge then reach 8
+triangles (one tetrahedron per solid) instead of 48-144, with the two ends of the contact line left as contacts. `NotCleanReason`
+still reports a result that keeps contacts as "self-intersections" (it is not changed), `Report.PairedCollapses` counts the
+paired collapses, and it is not combined with `MaxDeviationTwoSided` (`InvalidInput`). A contact *point* (vertex touch, a pole
+touching a face) is kept where it is: a contact vertex is only a target of a collapse, never moved, so the result keeps the
+touch that without the option the reduction could move off (the "pole touch" case: clean without the option, one contact with it).
+
 Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
 (degenerate triangles) and sometimes self-intersections. `SafeRounding` (on by default) repairs them after the
 rounding; `RoundingClean` tells whether the result is verified free of both:
