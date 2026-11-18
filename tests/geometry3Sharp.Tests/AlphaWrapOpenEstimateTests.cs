@@ -59,9 +59,12 @@ namespace geometry3Sharp.Tests
         // the reproducer of #1113 (cap rule as in the issue's diagnosis): two overlapping unwelded spheres with the axis caps removed
         static DMesh3 TwoOpenSpheres(int edgeVertices = 8) => Soup(new[] { Sphere(Vector3d.Zero, edgeVertices), Sphere(new Vector3d(1.2, 0, 0.3), edgeVertices) }, 0.8776);
 
-        static MeshAlphaWrap Wrap(DMesh3 m, double relativeAlpha)
+        // a budget that never coarsens (its only effect: the estimate counts the open components twice, the wrap is unchanged)
+        const int NeverCoarsens = int.MaxValue;
+
+        static MeshAlphaWrap Wrap(DMesh3 m, double relativeAlpha, int budget = NeverCoarsens)
         {
-            var w = new MeshAlphaWrap(m) { RelativeAlpha = relativeAlpha, RelativeOffset = 10 * relativeAlpha };
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = relativeAlpha, RelativeOffset = 10 * relativeAlpha, MaxEstimatedTriangles = budget };
             Assert.True(w.Compute(), w.Error);
             return w;
         }
@@ -194,7 +197,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Default_BitIdentical_OpenAndClosed()
         {
-            var open = new MeshAlphaWrap(TwoOpenSpheres(5)) { RelativeAlpha = 30, RelativeOffset = 300 };
+            var open = new MeshAlphaWrap(TwoOpenSpheres(5)) { RelativeAlpha = 30, RelativeOffset = 300 };   // (no budget: the open area is not computed)
             Assert.True(open.Compute(), open.Error);
             Assert.Equal(1.0, open.AlphaCoarsening);
             output.WriteLine($"open {open.Result.TriangleCount} {AlphaWrapManifoldStepTests.Hash(open.Result)}");
@@ -207,6 +210,26 @@ namespace geometry3Sharp.Tests
             Assert.Equal("7CC5E7C3C3ACC639", AlphaWrapManifoldStepTests.Hash(closed.Result));
         }
 
+        // without a budget the estimate is the one-sided one (the open area is not computed: about 1 s per million input triangles) on open input
+        // too, with a budget that does not bind it counts the open components twice, and the wrap is bit for bit the same in both
+        [Theory]
+        [InlineData("two open spheres")]
+        [InlineData("open sheet")]
+        [InlineData("big hole")]
+        [InlineData("mixed")]
+        public void NoBudget_EstimateIsOneSided_WrapUnchanged(string name)
+        {
+            DMesh3 m = Build(name);
+            MeshAlphaWrap off = Wrap(m, RelAlpha, 0);
+            MeshAlphaWrap on = Wrap(m, RelAlpha);
+            Assert.Equal(OneSided(m, off), off.EstimatedTriangles, 12);
+            Assert.True(on.EstimatedTriangles > 1.2 * off.EstimatedTriangles, $"{on.EstimatedTriangles} vs {off.EstimatedTriangles}");
+            Assert.Equal(1.0, on.AlphaCoarsening);
+            Assert.Equal(off.UsedAlpha, on.UsedAlpha);
+            Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Result), AlphaWrapManifoldStepTests.Hash(on.Result));
+            Assert.Equal(off.Result.TriangleCount, on.Result.TriangleCount);
+        }
+
         // invariance over Similarity.All() at a fixed alpha (scaled with the frame): the same open area, the estimate bit for bit in the
         // 2^k frames and within 1e-6 in the others; the budget's alpha likewise
         [Fact]
@@ -214,11 +237,17 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 input = Mixed();
             double alpha = input.CachedBounds.DiagonalLength / RelAlpha;
-            double e0 = 0, b0 = 0;
+            double e0 = 0, b0 = 0, o0 = 0;
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 m = Invariance.Transformed(input, s);
                 var w = new MeshAlphaWrap(m) { Alpha = alpha * s.Scale, Offset = alpha * s.Scale / 10, MaxEstimatedTriangles = 1000 };
                 Assert.True(w.Compute(), w.Error);
+                // (no budget: the one-sided estimate, bit for bit in the 2^k frames as well)
+                var off = new MeshAlphaWrap(m) { Alpha = alpha * s.Scale, Offset = alpha * s.Scale / 10 };
+                Assert.True(off.Compute(), off.Error);
+                if (s.Name == Similarity.Identity.Name) o0 = off.EstimatedTriangles;
+                if (s.IsExact) Assert.Equal(o0, off.EstimatedTriangles);
+                else Assert.True(Math.Abs(off.EstimatedTriangles - o0) <= 1e-6 * o0, $"{s.Name}: {off.EstimatedTriangles} vs {o0}");
                 if (s.Name == Similarity.Identity.Name) { e0 = w.EstimatedTriangles; b0 = w.AlphaCoarsening; }
                 if (s.IsExact) {
                     Assert.Equal(e0, w.EstimatedTriangles);
@@ -233,7 +262,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Reuse()
         {
-            var w = new MeshAlphaWrap(Build("open sheet")) { RelativeAlpha = RelAlpha, RelativeOffset = 10 * RelAlpha };
+            var w = new MeshAlphaWrap(Build("open sheet")) { RelativeAlpha = RelAlpha, RelativeOffset = 10 * RelAlpha, MaxEstimatedTriangles = NeverCoarsens };
             Assert.True(w.Compute(), w.Error);
             double e = w.EstimatedTriangles; string h = AlphaWrapManifoldStepTests.Hash(w.Result);
             Assert.True(w.Compute(), w.Error);
@@ -245,6 +274,11 @@ namespace geometry3Sharp.Tests
             w.Mesh = Build("open sheet");
             Assert.True(w.Compute(), w.Error);
             Assert.Equal(e, w.EstimatedTriangles);
+            // the budget switched on and off on the instance: the estimate follows it, the wrap does not
+            w.MaxEstimatedTriangles = 0;
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(OneSided(w.Mesh, w), w.EstimatedTriangles, 12);
+            Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(w.Result));
         }
     }
 }
