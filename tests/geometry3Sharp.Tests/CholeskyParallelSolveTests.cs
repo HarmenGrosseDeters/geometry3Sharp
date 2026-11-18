@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
     {
         // ---- matrices: a triangulated grid of nodes with bs unknowns each, diagonally dominant
 
-        static List<(int r, int c, double re, double im)> GridEntries(int nx, int ny, int bs, int seed, bool complex, double scale = 1)
+        internal static List<(int r, int c, double re, double im)> GridEntries(int nx, int ny, int bs, int seed, bool complex, double scale = 1)
         {
             var rnd = new Random(seed);
             int nodes = nx * ny, n = nodes * bs;

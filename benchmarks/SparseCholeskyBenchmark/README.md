@@ -144,3 +144,45 @@ still reads the column copy):
 
 Left in the solves: the serial top supernodes (the forward pass over them took about 7 ms per solve on the sphere before the column copy; the backward pass was not timed again after it; the rows below the
 diagonal block of a top supernode are independent and could run in parallel, the triangle itself is one chain per column).
+
+## Parallel numeric factorization (2026-11-18)
+
+`Factorize()` of both classes runs the numeric part in parallel when its work is at least 6 million multiplications
+(`CholeskyNumericPlan`). The serial left-looking loop keeps its updates in linked lists (`head`, `link`, `pos`), whose order fixes the
+order of the subtractions in every entry of L. The plan replays that loop on the structure only (no values) and keeps, for every supernode J,
+the table of its updates (K, row range) in exactly that order. With the table, J only reads supernodes of its own subtree, so:
+
+- subtrees (tasks of at most 1/48 of the work, adjacent ones joined) run in parallel, each worker with its own `relmap`;
+- the supernodes above the tasks run in ascending order; an update larger than 300 000 multiplications splits its rows over the
+  threads (every row writes its own row of the block of J), and a block at least 64 columns wide is factorized in panels of 32 columns:
+  the small triangle of the panel row by row, then the rows below the panel, which are independent of each other, in parallel.
+  Entry (i, c) is `(L[i,c] - dot(L[i,:c], L[c,:c])) * inv[c]` with the same dot kernel as the serial loop, so it has the same bits;
+- the failure of a matrix that is not positive definite is the one the serial loop reports (the failing supernode with the smallest index,
+  the same message and `IsValid`).
+
+Where the numeric time was (sphere, 55k vertices, one thread, ms): 500 in all; the supernodes at least 500 wide 218 (update 127,
+dense block 91), 100 to 500 wide 129, 8 to 100 wide 82, narrower than 8 12.
+
+`SparseCholeskyBenchmark`, Factorize (s), best of 3, 4 cores, master (b0969fbb) / this change (the solution hashes are unchanged):
+
+| matrix | before | after |
+|---|---|---|
+| grid2d bs=1 n=40000 | 0.16 | 0.17 |
+| grid2d bs=2 n=80000 | 0.33 | 0.31 |
+| grid2d bs=2 n=120000 | 0.60 | 0.42 |
+| grid3d n=27000 | 0.83 | 0.50 |
+| hermitian grid2d n=40000 | 0.16 | 0.15 |
+| hermitian grid2d n=60000 | 0.31 | 0.23 |
+
+(Factorize includes the serial analysis, 0.2 to 0.4 s per 100k unknowns.) `CrossFieldBenchmark h=0.017` (4 cores, best of 3, s,
+two interleaved runs, the better of each; field, eigenvalue and singular faces unchanged):
+
+| shape | field | solves | before | after | gain |
+|---|---|---|---|---|---|
+| sphere | smoothest | 6 | 1.16 | 0.83 | 28 % |
+| sphere | aligned s=1 | 6 | 1.15 | 0.90 | 22 % |
+| torus | smoothest | 14 | 1.27 | 1.13 | 11 % |
+| torus | aligned s=1 | 12 | 1.34 | 1.13 | 16 % |
+| noisy-sphere | smoothest | 22 | 1.58 | 1.35 | 15 % |
+| noisy-torus | smoothest | 34 | 2.39 | 1.96 | 18 % |
+| noisy-torus | aligned s=1 | 21 | 1.76 | 1.48 | 16 % |
