@@ -47,8 +47,18 @@ static class Program
             PolyMeshMetrics m2 = PolyMeshMetrics.Compute(qr.Result);
             var pf = new PositionField(input, cf) { TargetEdgeLength = s };
             var swp = Stopwatch.StartNew(); pf.Compute(); double tpf = swp.Elapsed.TotalSeconds;
-            var spike = new QuadFlowSpike(input, cf, pf, s) { SatStrict = strict, SmartSplit = A.ContainsKey("smartsplit") && A["smartsplit"] == "1", SatMaxRing = A.ContainsKey("satring") ? int.Parse(A["satring"]) : 6, SatBudget = A.ContainsKey("satbudget") ? long.Parse(A["satbudget"]) : 100000 };
-            var R = spike.Run(name, greedy, sat);
+            int rounds = A.ContainsKey("rounds") ? int.Parse(A["rounds"]) : 1; double pen = A.ContainsKey("pen") ? double.Parse(A["pen"], CultureInfo.InvariantCulture) : 3;
+            var pens = new Dictionary<int, double>(); FlowResult R = null; int bestInv = int.MaxValue; var Rbest = (FlowResult)null; QuadFlowSpike spike = null;
+            for (int round = 0; round < rounds; ++round) {
+            spike = new QuadFlowSpike(input, cf, pf, s) { SatStrict = strict, Cancel = A.ContainsKey("cancel") && A["cancel"] == "1", CostMode = A.ContainsKey("cost") ? int.Parse(A["cost"]) : 0, HStart = A.ContainsKey("h") ? int.Parse(A["h"]) : 2, SmartSplit = A.ContainsKey("smartsplit") && A["smartsplit"] == "1", SatMaxRing = A.ContainsKey("satring") ? int.Parse(A["satring"]) : 6, SatBudget = A.ContainsKey("satbudget") ? long.Parse(A["satbudget"]) : 100000 };
+            spike.EdgePen = pens;
+            R = spike.Run(name, greedy, sat);
+            Console.WriteLine($"  round {round}: inverted left {R.InvAfterSat}, irregular {(R.Metrics == null ? -1 : R.Metrics.IrregularVertices)}");
+            if (R.InvAfterSat < bestInv) { bestInv = R.InvAfterSat; Rbest = R; }
+            if (R.InvAfterSat == 0) break;
+            foreach (int e in spike.BadEdges) { pens.TryGetValue(e, out double pv); pens[e] = pv + pen; }
+            }
+            R = Rbest;
             Console.WriteLine($"## {name}: input V {input.VertexCount}, singular faces {cf.SingularFaces.Count}, s {s}");
             Console.WriteLine($"stage 2 : irregular {m2.IrregularVertices}, quads {F(100 * m2.QuadFraction, "F1")} %, tris {m2.Triangles}, manifold {m2.IsManifold}, corner p95 {F(PolyMeshMetrics.Percentile(m2.CornerDeviations, 0.95), "F1")}, t pos {F(qr.PositionSeconds, "F2")} s, t extract {F(qr.ExtractSeconds, "F2")} s");
             Console.WriteLine($"position singular triangles: before flow {R.PosSingBefore}, after flow {R.PosSingAfter}; vars balanced {R.Balanced}, fixed {R.Fixed} (boundary {R.FixedBoundary}), network components {R.Components}, clamped {R.Clamped}{R.Note}");
@@ -57,7 +67,7 @@ static class Program
             Console.WriteLine($"subdivision: splits {R.Splits}, long edges left {R.LongEdgesAfter}; inverted triangles: after flow {R.InvAfterFlow}, after greedy {R.InvAfterGreedy} ({R.GreedyMoves} moves, {F(R.TGreedy, "F2")} s), after SAT {R.InvAfterSat} (solved {R.SatSolved}, failed {R.SatFailed}, attempts {R.SatAttempts} [dbg viol {R.SatCurViol} inv-in-region {R.SatInvInRegion}] (unsat {R.SatUnsat}, budget {R.SatBudget}), {F(R.TSat, "F2")} s, {(strict ? "det<=0 forbidden" : "det<0 forbidden")})");
             var m = R.Metrics;
             if (m == null) { Console.WriteLine("result: no faces"); continue; }
-            Console.WriteLine($"result: faces {m.Faces}, quads {F(100 * m.QuadFraction, "F1")} %, tris {m.Triangles}, 5-6 {m.Pentagons + m.Hexagons}, irregular {m.IrregularVertices}, manifold {(m.IsManifold ? "yes" : "NO (" + m.NonManifoldEdges + "e " + m.InconsistentEdges + "i " + m.NonManifoldVertices + "v)")}, corner p50/p95 {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.5), "F1")} / {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")}, unpaired tris {R.Unpaired}, bad tris {R.BadQuads}, inverted nondegenerate {R.InvertedTris}; t pos solve {F(R.TPos, "F2")} s, t extract {F(R.TExtract, "F2")} s");
+            Console.WriteLine($"result: faces {m.Faces}, quads {F(100 * m.QuadFraction, "F1")} %, tris {m.Triangles}, 5-6 {m.Pentagons + m.Hexagons}, irregular {m.IrregularVertices}, manifold {(m.IsManifold ? "yes" : "NO (" + m.NonManifoldEdges + "e " + m.InconsistentEdges + "i " + m.NonManifoldVertices + "v)")}, corner p50/p95 {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.5), "F1")} / {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")}, unpaired tris {R.Unpaired}, cancelled pillow pairs {R.Cancelled}, geometrically flipped quads {R.FlippedQuads}/{R.Quads}, bad tris {R.BadQuads}, inverted nondegenerate {R.InvertedTris}; t pos solve {F(R.TPos, "F2")} s, t extract {F(R.TExtract, "F2")} s");
             Console.WriteLine();
         }
         return 0;

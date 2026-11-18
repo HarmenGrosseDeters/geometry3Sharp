@@ -29,6 +29,8 @@ struct V2
 
 class Tri
 {
+    public int Orig;
+    public (double, double)[] Dr = new (double, double)[3];
     public int[] V = new int[3];
     public V2[] D = new V2[3];          // slot s: vertex s -> s+1, in the frame of this triangle
     public int[] Nb = { -1, -1, -1 };   // neighbour across slot s
@@ -45,7 +47,7 @@ class FlowResult
     public int Balanced, Fixed, FixedBoundary, FlowUnits, FlowCost, Hcap, Augments, Clamped, Components;
     public double TFlow;
     public int Splits;
-    public int InvAfterFlow, InvAfterGreedy, InvAfterSat, GreedyMoves, SatCurViol, SatInvInRegion, SatUnsat, SatBudget, SatSolved, SatFailed, SatAttempts;
+    public int Quads, FlippedQuads, InvAfterFlow, InvAfterGreedy, InvAfterSat, GreedyMoves, Cancelled, SatCurViol, SatInvInRegion, SatUnsat, SatBudget, SatSolved, SatFailed, SatAttempts;
     public double TGreedy, TSat, TPos, TExtract, TSetup;
     public int LongEdgesAfter, InvBefore, DetPosBefore, InvAfterFlowPreSplit, DetPosAfterFlow;
     public PolyMeshMetrics Metrics;
@@ -61,8 +63,23 @@ class QuadFlowSpike
     // per edge (u<v) data
     Dictionary<long, int> gMap = new Dictionary<long, int>();
     Dictionary<long, V2> dMap = new Dictionary<long, V2>();
+    Dictionary<long, (double, double)> rMap = new Dictionary<long, (double, double)>();
+    public int CostMode = 0;      // 0 flat cost 1 per unit, 1 geometry aware (marginal misfit of the real offset, two tiers)
+    public int HStart = 2;
+    public Dictionary<int, double> EdgePen = new Dictionary<int, double>();     // edge index -> extra cost multiplier
+    public HashSet<int> BadEdges = new HashSet<int>();                         // output: edges of original triangles that end up inverted
+    int[] slotEdge;
+    static (double, double) RotD((double X, double Y) v, int k) { k = ((k % 4) + 4) % 4; for (int i = 0; i < k; ++i) v = (-v.Y, v.X); return v; }
+    (double, double) DirR(int u, int w)
+    {
+        if (u < w) return rMap[Key(u, w)];
+        var d = rMap[Key(w, u)];
+        var r = RotD(d, -(gMap[Key(w, u)]));
+        return (-r.Item1, -r.Item2);
+    }
     public bool SatStrict = false;
     public bool SmartSplit = false;
+    public bool Cancel = false;
     public int SatMaxRing = 6;
     public long SatBudget = 100000;
 
@@ -115,6 +132,10 @@ class QuadFlowSpike
             int kq1 = (int)Math.Round(b.Dot(d2) / s), kt1 = (int)Math.Round(tb.Dot(d2) / s);
             gMap[Key(u, v)] = (4 - m) % 4;
             dMap[Key(u, v)] = new V2(kq0 - kq1, kt0 - kt1);
+            {   // real offset: coordinates of x relative to o_u minus coordinates of x relative to o_v (in the compatible basis)
+                Vector3d dv = x - oj;
+                rMap[Key(u, v)] = (qi.Dot(d) / s - b.Dot(dv) / s, ti.Dot(d) / s - tb.Dot(dv) / s);
+            }
         }
     }
 
@@ -125,7 +146,7 @@ class QuadFlowSpike
     List<int> VFrame = new List<int>();
 
     // balancing machinery
-    class Edge { public int F0, S0, F1 = -1, S1, M; public V2 Dv; }
+    class Edge { public int F0, S0, F1 = -1, S1, M; public V2 Dv; public (double, double) Rr; }
     List<Edge> edges = new List<Edge>();
 
     // coefficient (row, sign) of component j of a variable with exponent x
@@ -146,11 +167,12 @@ class QuadFlowSpike
         foreach (int t in mesh.TriangleIndices()) {
             Index3i tv = mesh.GetTriangle(t);
             int a = tv.a, b = tv.b, c = tv.c;
-            var tr = new Tri { Fa = a };
+            var tr = new Tri { Fa = a, Orig = tris.Count };
             tr.V[0] = a; tr.V[1] = b; tr.V[2] = c;
             tr.D[0] = Dir(a, b);
             tr.D[1] = V2.Rot(Dir(b, c), G(a, b));
             tr.D[2] = V2.Rot(Dir(c, a), G(a, c));
+            tr.Dr[0] = DirR(a, b); tr.Dr[1] = RotD(DirR(b, c), G(a, b)); tr.Dr[2] = RotD(DirR(c, a), G(a, c));
             tris.Add(tr);
         }
         foreach (int v in mesh.VertexIndices()) { }
@@ -200,6 +222,7 @@ class QuadFlowSpike
         R.InvAfterGreedy = Inverted();
         if (doSat) { sw.Restart(); RepairSat(R); R.TSat = sw.Elapsed.TotalSeconds; }
         R.InvAfterSat = Inverted();
+        foreach (var t in tris) if (Det(t) < 0) for (int sl = 0; sl < 3; ++sl) BadEdges.Add(slotEdge[t.Orig * 3 + sl]);
         if (Environment.GetEnvironmentVariable("SPIKE_DBG") == "1") {
             BuildCorners(); var ft = new List<int>(); var fi = new List<int>(); var cum = new List<int>();
             int shown = 0;
@@ -237,17 +260,23 @@ class QuadFlowSpike
         return R;
     }
 
+    // integer cost of moving the value from a to b (a unit step) for the real value r: 100 * (|b-r| - |a-r| + 1), >= 0
+    static int MarginalCost(int a, int b, double r) { return (int)Math.Round(100 * (Math.Abs(b - r) - Math.Abs(a - r) + 1)); }
+
+    int Pen(int k, int c) { return EdgePen.TryGetValue(k, out double m) ? (int)Math.Round(c * (1 + m)) : c; }
+
     void SolveFlow(FlowResult R)
     {
         int F = tris.Count;
         // edges
-        var seen = new Dictionary<long, int>();
+        slotEdge = new int[tris.Count * 3];
         for (int f = 0; f < F; ++f)
             for (int sl = 0; sl < 3; ++sl) {
                 int nb = tris[f].Nb[sl];
                 if (nb >= 0 && nb < f) continue;
-                var e = new Edge { F0 = f, S0 = sl, Dv = tris[f].D[sl] };
+                var e = new Edge { F0 = f, S0 = sl, Dv = tris[f].D[sl], Rr = tris[f].Dr[sl] };
                 if (nb >= 0) { e.F1 = nb; e.S1 = tris[f].NbS[sl]; e.M = tris[f].Rot[sl]; }
+                slotEdge[f * 3 + sl] = edges.Count; if (nb >= 0) slotEdge[nb * 3 + tris[f].NbS[sl]] = edges.Count;
                 edges.Add(e);
             }
         // exponent of edge e in triangle f before the equation rotation: 0 in F0, M+2 in F1
@@ -280,7 +309,7 @@ class QuadFlowSpike
             if (balanced[k]) R.Balanced++; else { R.Fixed++; if (e.F1 < 0) R.FixedBoundary++; }
         }
         // clamp initial values to [-2,2]
-        const int H0 = 2;
+        int H0 = HStart;
         foreach (var e in edges) {
             V2 d = e.Dv;
             V2 c = new V2(Math.Max(-H0, Math.Min(H0, d.X)), Math.Max(-H0, Math.Min(H0, d.Y)));
@@ -364,7 +393,7 @@ class QuadFlowSpike
                 if (res[i] > 0) { net.Add(S, i, (int)res[i], 0); supply += res[i]; }
                 else if (res[i] < 0) net.Add(i, Tn, (int)(-res[i]), 0);
             }
-            var arcF = new int[edges.Count * 2]; var arcB = new int[edges.Count * 2];
+            var arcF = new int[edges.Count * 2]; var arcB = new int[edges.Count * 2]; var arcLF = new List<int>[edges.Count * 2]; var arcLB = new List<int>[edges.Count * 2];
             for (int k = 0; k < edges.Count; ++k) {
                 arcF[2 * k] = arcF[2 * k + 1] = arcB[2 * k] = arcB[2 * k + 1] = -1;
                 if (!balanced[k]) continue;
@@ -375,8 +404,16 @@ class QuadFlowSpike
                     int head = sg > 0 ? n0 : n1, tail = sg > 0 ? n1 : n0;
                     int v = j == 0 ? e.Dv.X : e.Dv.Y;
                     int capF = Math.Max(0, H - v), capB = Math.Max(0, H + v);
-                    arcF[2 * k + j] = net.Add(tail, head, capF, 1);
-                    arcB[2 * k + j] = net.Add(head, tail, capB, 1);
+                    if (CostMode == 0) {
+                        arcF[2 * k + j] = net.Add(tail, head, capF, 1);
+                        arcB[2 * k + j] = net.Add(head, tail, capB, 1);
+                    } else {
+                        double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
+                        var lf = new List<int>(); var lb = new List<int>();
+                        for (int st = 1; st <= capF; ++st) lf.Add(net.Add(tail, head, 1, Pen(k, MarginalCost(v + st - 1, v + st, r))));
+                        for (int st = 1; st <= capB; ++st) lb.Add(net.Add(head, tail, 1, Pen(k, MarginalCost(v - st + 1, v - st, r))));
+                        arcLF[2 * k + j] = lf; arcLB[2 * k + j] = lb;
+                    }
                 }
             }
             int flow = net.Solve(S, Tn, out long cost);
@@ -386,8 +423,8 @@ class QuadFlowSpike
             for (int k = 0; k < edges.Count; ++k) {
                 if (!balanced[k]) continue;
                 var e = edges[k];
-                int dx = net.Flow(arcF[2 * k]) - net.Flow(arcB[2 * k]);
-                int dy = net.Flow(arcF[2 * k + 1]) - net.Flow(arcB[2 * k + 1]);
+                Func<int, int> fl = jj => CostMode == 0 ? net.Flow(arcF[2 * k + jj]) - net.Flow(arcB[2 * k + jj]) : arcLF[2 * k + jj].Sum(a => net.Flow(a)) - arcLB[2 * k + jj].Sum(a => net.Flow(a));
+                int dx = fl(0), dy = fl(1);
                 e.Dv = new V2(e.Dv.X + dx, e.Dv.Y + dy);
             }
             recompute();
@@ -458,7 +495,7 @@ class QuadFlowSpike
         int oq = F.Nb[(sl + 1) % 3], oqs = F.NbS[(sl + 1) % 3], oqr = F.Rot[(sl + 1) % 3];
         int ox = F.Nb[(sl + 2) % 3], oxs = F.NbS[(sl + 2) % 3], oxr = F.Rot[(sl + 2) % 3];
         // tA = (p, w, x) reuses f; tB = (w, q, x) is new
-        var tB = new Tri { Fa = F.Fa }; int ib = tris.Count; tris.Add(tB);
+        var tB = new Tri { Fa = F.Fa, Orig = F.Orig }; int ib = tris.Count; tris.Add(tB);
         F = tris[f];
         F.V[0] = p; F.V[1] = w; F.V[2] = x; F.D[0] = Dp; F.D[1] = E; F.D[2] = Dxp;
         tB.V[0] = w; tB.V[1] = q; tB.V[2] = x; tB.D[0] = Dq; tB.D[1] = Dqx; tB.D[2] = -E;
@@ -477,7 +514,7 @@ class QuadFlowSpike
             int opn = N.Nb[(ns + 1) % 3], opns = N.NbS[(ns + 1) % 3], opr = N.Rot[(ns + 1) % 3];
             int oyn = N.Nb[(ns + 2) % 3], oyns = N.NbS[(ns + 2) % 3], oyr = N.Rot[(ns + 2) % 3];
             // tC = (q, w, y) reuses nf; tD = (w, p, y) is new
-            var tD = new Tri { Fa = N.Fa }; fd = tris.Count; tris.Add(tD);
+            var tD = new Tri { Fa = N.Fa, Orig = N.Orig }; fd = tris.Count; tris.Add(tD);
             N = tris[nf];
             N.V[0] = q; N.V[1] = w; N.V[2] = y; N.D[0] = Hqw; N.D[1] = E2; N.D[2] = Dyq;
             tD.V[0] = w; tD.V[1] = p; tD.V[2] = y; tD.D[0] = Hwp; tD.D[1] = Dpy; tD.D[2] = -E2;
@@ -725,10 +762,10 @@ class QuadFlowSpike
         Func<int, int> find = x => { while (uf[x] != x) { uf[x] = uf[uf[x]]; x = uf[x]; } return x; };
         foreach (var t in tris)
             for (int sl = 0; sl < 3; ++sl) if (t.D[sl].IsZero) { int a = find(t.V[sl]), b = find(t.V[(sl + 1) % 3]); if (a != b) uf[Math.Max(a, b)] = Math.Min(a, b); }
-        var sum = new Dictionary<int, Vector3d>(); var cnt = new Dictionary<int, int>();
+        var sum = new Dictionary<int, Vector3d>(); var cnt = new Dictionary<int, int>(); var nsum = new Dictionary<int, Vector3d>();
         for (int i = 0; i < nv; ++i) {
             if (i < maxV && !mesh.IsVertex(i)) continue;
-            int r = find(i); sum.TryGetValue(r, out Vector3d sv); sum[r] = sv + pos[i]; cnt.TryGetValue(r, out int c); cnt[r] = c + 1;
+            int r = find(i); sum.TryGetValue(r, out Vector3d sv); sum[r] = sv + pos[i]; cnt.TryGetValue(r, out int c); cnt[r] = c + 1; nsum.TryGetValue(r, out Vector3d nv0); nsum[r] = nv0 + VN[i];
         }
         // nondegenerate triangles: group by the hypotenuse cluster pair
         var hyp = new Dictionary<(int, int), List<(int a, int b, int c)>>();
@@ -752,11 +789,19 @@ class QuadFlowSpike
         var vmap = new Dictionary<int, int>();
         Func<int, int> vid = c => { if (!vmap.TryGetValue(c, out int id)) { Vector3d p = sum[c] / cnt[c]; id = outMesh.AppendVertex(p.x, p.y, p.z); vmap[c] = id; } return id; };
         foreach (var kv in hyp) {
-            var l = kv.Value;
+            var l = new List<(int a, int b, int c)>(kv.Value);
+            if (Cancel) for (int i = 0; i < l.Count; ++i) for (int j = i + 1; j < l.Count; ++j)
+                if (l[i].a == l[j].b && l[i].b == l[j].a && l[i].c == l[j].c) { l.RemoveAt(j); l.RemoveAt(i); R.Cancelled++; i = -1; break; }
             if (l.Count == 2 && l[0].a == l[1].b && l[0].b == l[1].a && l[0].c != l[1].c) {
                 int A = l[0].a, B = l[0].b, C1 = l[0].c, C2 = l[1].c;
                 outMesh.AppendFace(new List<int> { vid(A), vid(C2), vid(B), vid(C1) }, 0);
+                {   // geometric check: the quad normal against the mean surface normal of its clusters
+                    Vector3d pa = sum[A] / cnt[A], pc2 = sum[C2] / cnt[C2], pb = sum[B] / cnt[B], pc1 = sum[C1] / cnt[C1];
+                    Vector3d fn = (pb - pa).Cross(pc1 - pc2); Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
+                    R.Quads++; if (fn.Dot(sn) <= 0) R.FlippedQuads++;
+                }
             } else {
+                if (Environment.GetEnvironmentVariable("SPIKE_DBG") == "1") Console.WriteLine($"  [dbg] unpaired key {kv.Key}: count {l.Count} " + string.Join(" ", l.Select(t => $"({t.a},{t.b},{t.c})")));
                 foreach (var tr in l) leftover.Add(new[] { tr.a, tr.b, tr.c });
                 R.Unpaired += l.Count;
             }

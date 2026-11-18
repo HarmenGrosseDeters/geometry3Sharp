@@ -12,3 +12,7 @@ Files: `Flow.cs` (steps 1-10), `Mcf.cs` (min-cost flow), `Dpll.cs` (SAT), `Progr
 Representation: triangle soup with one lattice frame per triangle (frame of its first vertex) and a frame transition per edge
 (D_neighbour = -R^m D, m from the per-edge orientation compatibility). The regularity constraint is then "sum of the three D = 0".
 Equation rotation by a BFS over the triangles balances the tree edges and every non-tree edge whose cycle has no holonomy.
+
+Round 2 (coordinator request): `cost=1` geometry-aware flow cost (marginal |d - d_real| tiers, +1 per unit), `h=<n>` start capacity,
+`cancel=1` extraction drops pairs of triangles with the same three clusters (a 2-gon), `rounds=<n> pen=<x>` re-solves the flow with
+the edges of leftover inverted triangles penalized. Results: `results_round2_*.txt`.
