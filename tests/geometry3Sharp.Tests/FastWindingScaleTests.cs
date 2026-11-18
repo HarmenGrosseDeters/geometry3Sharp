@@ -185,8 +185,8 @@ namespace geometry3Sharp.Tests
             // fix every query summed all triangles of the far part exactly (2.8 s on 4 cores, 21 ms after).
             // #1118: the check was a wall-clock bound (800 ms; failed once with 10 s on a starved net48 runner, earlier on JIT: #823,
             // #827). Now the work is counted, which no runner load changes: the triangles the queries of the check sum
-            // exactly (FastWindingExactTriangleCount, on the points the check samples: the bounding box of the scene), and the
-            // check's result is verified as before.
+            // exactly (FastWindingExactTriangleCount) on points in the bounding box of the scene and on points around the two
+            // spheres (the region the check samples), and the check's result is verified as before.
             double scale;
             DMesh3 m = UnitFrameScene(1e8, out scale);
             double iou;
@@ -204,6 +204,13 @@ namespace geometry3Sharp.Tests
                 Vector3d q = new Vector3d(box.Min.x + rnd.NextDouble() * box.Width, box.Min.y + rnd.NextDouble() * box.Height, box.Min.z + rnd.NextDouble() * box.Depth);
                 exact += tree.FastWindingExactTriangleCount(q);
             }
+            // the points around the spheres (as FastWindingExactTriangleCount of FastWindingExpansionUsedTests)
+            long near = 0;
+            Vector3d[] around = Points(n, 3);
+            foreach (Vector3d p in around)
+                near += tree.FastWindingExactTriangleCount(scale * p);
+            double perNear = (double)near / n;
+            Assert.True(perNear < 0.05 * m.TriangleCount, $"near the spheres: {perNear} of {m.TriangleCount} triangles summed exactly per query");
             // the sampled region lies mostly in the far part's empty space (boxes of the two parts are 1e8 apart): with the slow
             // path every query sums all of the far part and the near spheres (the scene has TriangleCount triangles)
             double perQuery = (double)exact / n;
