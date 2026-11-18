@@ -31,6 +31,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MinNormInHull_NaNGradient_GivesNoDirection()
+        {
+            // a NaN quality of a degenerate neighbour must not produce a step
+            Vector3d x = TetMeshImprover.MinNormInHull(new List<Vector3d> { new Vector3d(1, 0, 0), new Vector3d(double.NaN, 0, 0) });
+            Assert.True(x == Vector3d.Zero || (!double.IsNaN(x.x) && !double.IsNaN(x.y) && !double.IsNaN(x.z)), x.ToString());
+        }
+
+        [Fact]
         public void ActiveSetSmoothing_RaisesAStarWhereTheWorstTetsGradientIsStuck()
         {
             // an octahedron with jittered corners and an interior vertex (found by a seeded search): smoothing along the worst
