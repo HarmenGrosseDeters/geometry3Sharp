@@ -168,6 +168,42 @@ pair under way. Pair `NNNN` is the case `pNNNN_<idA>+<idB>`; `--only` runs singl
 first N pairs (the trial below). All three commands are resumable (rerun the same command). The CGAL sample is a separate run and output file, because the full run does not include CGAL; its rows have the same class and case names as the full run's. `--methods` may include `cgal_epick` and `cherchi` as well (not tried here). `analyze.py` tables compare methods on the cases they share, so read the CGAL column on the sample only. The
 results of the other tools are not committed (CGAL is GPL; `cgal_bool` stays an external, non-distributed binary).
 
+### Full runs on GitHub (`.github/workflows/thingi-pairs.yml`)
+
+The two full runs of the roadmap (owner 2026-11-08 / 2026-11-12: a baseline on the merge commit of #418, `7cb08f69`, and a final run on master
+after Exact Boolean 3.0) are made by the workflow `thingi-pairs.yml` (`workflow_dispatch` only, GitHub-hosted `ubuntu-latest`, never self-hosted).
+Inputs: `library_ref` (the library and the benchmark tool to measure; the scripts always come from the ref the workflow runs on, in a
+separate checkout), `label` (`baseline` or `final`), the shard sizes (`shard` pairs of `pairs.csv` per job, `size_shard`, `cgal_shard`),
+the timeouts per boolean (`timeout_s` 300, `size_timeout_s` 900), `methods`, `classes` and `max_pairs` (a smoke run). A `plan` job turns
+the lists into the job matrix (`data/thingi_pairs_runs.py plan`: by default 20 jobs of 50 pairs, 10 size jobs of 10 pairs and 5 CGAL jobs of 20
+pairs); each job builds the tool of `library_ref`, fetches only the models of its shard from huggingface at run time, and runs
+`compare.py ... -j 1 --resume` with ours and Manifold (`manifold3d` 3.0.1) or, on the CGAL sample only, CGAL EPECK (`cgal_bool` built from the
+repo's driver against the runner's `libcgal-dev`, a black box). One boolean runs at a time per job, so the times are those of one boolean
+on a 4-core runner; they are comparable within one run and, with the same runner type, between the two runs, but runners differ: read
+a time ratio of two runs as coarse. The raw rows (no mesh, no derived mesh) go to the data branch `runs/thingi-pairs`, directory
+`run-<run id>-<label>/` (one `results-<job>.jsonl` per job, `lib_sha.txt` with the commits, the CGAL and Manifold versions and the core count,
+`table.md`).
+
+The baseline tree `7cb08f69` has the commands the workflow calls (`thingi-pair`, `run`, `eval`, `thingi-filter`; `Program.cs` and
+`ThingiPairs.cs` of that commit), so the baseline is measured with exactly that commit and no later ref.
+
+The tables come from `data/thingi_pairs_runs.py` (tested in `test_thingi_pairs_runs.py`, no mesh needed):
+
+```sh
+python3 data/thingi_pairs_runs.py summary run-<id>-baseline/          # per class and method
+python3 data/thingi_pairs_runs.py compare run-<id>-baseline/ run-<id>-final/ --method ours
+```
+
+`summary` reports per class and method the pairs and operations, how many operations succeeded (status `ok`), were clean
+(`NotCleanReason == ""`) or an empty result that is consistent with the volume identities, the histogram of everything else (the
+`NotCleanReason`s and the statuses rejected / failed / crash / timeout), the largest volume-identity error, the median, p90 and
+maximum time of the successful operations, and the operations above 5 s and above 20 s. `compare` takes two runs and lists, per pair
+and operation of one method, those that were clean before and not after (regressions), those slower than 2x with the baseline and
+final milliseconds, and the table of the time ratios. A pair of the baseline with no row in the final run (a job that died) counts as a
+regression; `--strict` makes `compare` exit 1 on one. "pinches" (clean except where the solid touches itself) is a reason of
+the final tool only, so clean before and pinches after is listed apart. A self-intersection count of -1 (a result above 400k triangles,
+not computed) is unknown, not a hit.
+
 ### Trial run (2026-11-08, not the full run)
 
 The first 20 pairs of `pairs.csv` (60 booleans) and the first 3 of `pairs_size.csv` (9 booleans), tool built from this
