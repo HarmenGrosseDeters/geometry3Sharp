@@ -40,6 +40,15 @@ and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
   bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
   DMesh3 result = wrap.Result;
   ```
+  The size of the wrap goes with the area of the input over `Alpha`^2, not with its triangle count, and an open input (a triangle
+  soup, a mesh with holes wider than a few alphas) is wrapped on both sides of every sheet: twice the triangles of a closed input
+  of the same area (two overlapping open spheres of 1824 triangles at alpha = diagonal / 300 give 515,716 raw triangles and about
+  20 s in `MeshRobustRepair`, [#1113](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1113)). Time goes with that size
+  (the wrap and its simplification), and a fixed part (about 3 s there: the failed solidify attempt, the exact resolve) stays
+  whatever alpha is. `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default) coarsens alpha and offset
+  until the estimated size, which counts the area of open components twice, is the budget, so a budget of N gives about N raw
+  triangles on open input as on a closed surface of zero volume (a closed solid gives about N / 2). See
+  [benchmarks/OpenSoupWrapBenchmark](benchmarks/OpenSoupWrapBenchmark/README.md).
 - Point clouds: `PointCloudNormals` (outward normals of an unoriented cloud) and `PointCloudSurface` (a surface with
   more detail than the wrap); `.xyz` and face-less `.ply` files read and write point sets
   ([operations](docs/OPERATIONS.md#which-repair-or-boolean-class)).
