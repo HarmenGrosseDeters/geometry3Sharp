@@ -51,6 +51,12 @@ namespace g3
         int[] apColPtr, apRow, apSrc;
 
         bool factored;
+        // test switch: run the scalar kernels even where the vector kernels are available (the results are the same bits)
+        internal bool ForceScalarKernels;
+        // the values of L (dense blocks of the supernodes), for tests
+        internal double[] FactorValues { get { return Lx; } }
+        // ordering, structure of L, supernodes and permuted pattern of A, for tests
+        internal int[][] AnalysisArrays { get { return new[] { perm, Lp, Li, snFirst, snVal, snRowPtr, snRows, colSnode, apColPtr, apRow, apSrc }; } }
         // slot in the compressed pattern of each entry of the last Factorize, to refill in the same order
         int[] slotOf, prevRow, prevCol;
 
@@ -325,285 +331,14 @@ namespace g3
         }
 
 
-        // fill-reducing ordering of the block graph, permuted pattern of A and the structure of L
+        // ordering, structure of L, supernodes and permuted pattern of A: the shared analysis (CholeskyAnalysis)
         void analyze()
         {
-            int B = BlockSize, nb = N / B;
-            // block adjacency without duplicates
-            List<int>[] adj = new List<int>[nb];
-            for (int i = 0; i < nb; ++i)
-                adj[i] = new List<int>();
-            for (int c = 0; c < N; ++c)
-                for (int q = aColPtr[c]; q < aColPtr[c + 1]; ++q) {
-                    int bi = aRow[q] / B, bj = c / B;
-                    if (bi != bj) { adj[bi].Add(bj); adj[bj].Add(bi); }
-                }
-            int[] mark = new int[nb];
-            for (int i = 0; i < nb; ++i) mark[i] = -1;
-            for (int i = 0; i < nb; ++i) {
-                List<int> l = adj[i];
-                int w = 0;
-                for (int t = 0; t < l.Count; ++t) {
-                    int x = l[t];
-                    if (mark[x] != i) { mark[x] = i; l[w++] = x; }
-                }
-                l.RemoveRange(w, l.Count - w);
-            }
-
-            List<int> blockOrder = new MinimumDegree(adj).Order();
-
-            perm = new int[N]; iperm = new int[N];
-            for (int k = 0; k < nb; ++k)
-                for (int s = 0; s < B; ++s) {
-                    perm[k * B + s] = blockOrder[k] * B + s;
-                    iperm[blockOrder[k] * B + s] = k * B + s;
-                }
-
-            symbolic();
-            // postorder the elimination tree: same fill, but the columns of each subtree (and chains) are
-            // consecutive, which gives large supernodes
-            int[] parent = new int[N];
-            for (int j = 0; j < N; ++j)
-                parent[j] = Lp[j + 1] - Lp[j] > 1 ? Li[Lp[j] + 1] : -1;
-            int[] childHead = new int[N], childNext = new int[N];
-            for (int j = 0; j < N; ++j) childHead[j] = -1;
-            for (int j = N - 1; j >= 0; --j)
-                if (parent[j] >= 0) { childNext[j] = childHead[parent[j]]; childHead[parent[j]] = j; }
-            int[] post = new int[N];
-            int npost = 0;
-            int[] stack = new int[N];
-            for (int root = 0; root < N; ++root) {
-                if (parent[root] >= 0) continue;
-                int top = 0;
-                stack[0] = root;
-                while (top >= 0) {
-                    int v = stack[top];
-                    int c = childHead[v];
-                    if (c >= 0) {
-                        childHead[v] = childNext[c];
-                        stack[++top] = c;
-                    } else {
-                        post[npost++] = v;
-                        top--;
-                    }
-                }
-            }
-            int[] perm2 = new int[N];
-            for (int i = 0; i < N; ++i) perm2[i] = perm[post[i]];
-            perm = perm2;
-            for (int i = 0; i < N; ++i) iperm[perm[i]] = i;
-            symbolic();
-
-            // relaxed supernodes (C. Ashcraft, R. Grimes, The influence of relaxed supernode partitions on the
-            // multifrontal method, ACM TOMS 1989): column j joins the supernode of j-1 if j is the parent of j-1
-            // and the explicit zeros stay below 10% of the dense block (or it is narrower than 4 columns).
-            // Along such a chain struct(L_k) is within {k+1} + struct(L_k+1), so the rows of a supernode [f, l)
-            // are f..l-1 and the rows of L_(l-1) below l-1.
-            var first = new List<int>();
-            colSnode = new int[N];
-            long zeros = 0;
-            for (int j = 0; j < N; ++j) {
-                bool merge = false;
-                if (j > 0 && Lp[j] - Lp[j - 1] > 1 && Li[Lp[j - 1] + 1] == j) {
-                    int f = first[first.Count - 1], width = j - f;
-                    long cPrev = Lp[j] - Lp[j - 1], c = Lp[j + 1] - Lp[j];
-                    long add = width * (c + 1 - cPrev);
-                    long size = (width + 1) * (width + c);
-                    if (add == 0 || zeros + add <= 0.1 * size || width < 4) {
-                        merge = true;
-                        zeros += add;
-                    }
-                }
-                if (!merge) { first.Add(j); zeros = 0; }
-                colSnode[j] = first.Count - 1;
-            }
-            snCount = first.Count;
-            first.Add(N);
-            snFirst = first.ToArray();
-            snRowPtr = new int[snCount + 1];
-            snVal = new int[snCount + 1];
-            for (int J = 0; J < snCount; ++J) {
-                int f = snFirst[J], l = snFirst[J + 1], w = l - f;
-                int h = w + (Lp[l] - Lp[l - 1] - 1);
-                snRowPtr[J + 1] = snRowPtr[J] + h;
-                snVal[J + 1] = snVal[J] + h * w;
-            }
-            snRows = new int[snRowPtr[snCount]];
-            for (int J = 0; J < snCount; ++J) {
-                int f = snFirst[J], l = snFirst[J + 1], p = snRowPtr[J];
-                for (int j = f; j < l; ++j) snRows[p++] = j;
-                for (int q = Lp[l - 1] + 1; q < Lp[l]; ++q) snRows[p++] = Li[q];
-            }
-            Lx = new double[snVal[snCount]];
-        }
-
-
-        // permuted pattern of A (lower triangle by column) and the structure of L for the current ordering
-        void symbolic()
-        {
-            // entries of A in permuted lower-triangle form, by column
-            int nnz = aColPtr[N];
-            int[] cnt = new int[N + 1];
-            for (int c = 0; c < N; ++c)
-                for (int q = aColPtr[c]; q < aColPtr[c + 1]; ++q)
-                    cnt[Math.Min(iperm[aRow[q]], iperm[c]) + 1]++;
-            for (int j = 0; j < N; ++j)
-                cnt[j + 1] += cnt[j];
-            apColPtr = (int[])cnt.Clone();
-            apRow = new int[nnz]; apSrc = new int[nnz];
-            for (int c = 0; c < N; ++c)
-                for (int q = aColPtr[c]; q < aColPtr[c + 1]; ++q) {
-                    int pr = iperm[aRow[q]], pc = iperm[c];
-                    int j = Math.Min(pr, pc);
-                    apRow[cnt[j]] = Math.Max(pr, pc);
-                    apSrc[cnt[j]] = q;
-                    cnt[j]++;
-                }
-
-            // symbolic factorization: struct(L_j) = struct(A_j) + struct(L_c) of the children c of j in the
-            // elimination tree, rows > j; the parent of j is the first row of struct(L_j)
-            Lp = new int[N + 1];
-            List<int> li = new List<int>(2 * nnz);
-            int[] childHead = new int[N], childNext = new int[N], rmark = new int[N];
-            List<int> rows = new List<int>();
-            for (int j = 0; j < N; ++j) { childHead[j] = -1; rmark[j] = -1; }
-            for (int j = 0; j < N; ++j) {
-                rows.Clear();
-                rmark[j] = j;
-                for (int q = apColPtr[j]; q < apColPtr[j + 1]; ++q) {
-                    int r = apRow[q];
-                    if (rmark[r] != j) { rmark[r] = j; rows.Add(r); }
-                }
-                for (int c = childHead[j]; c != -1; c = childNext[c])
-                    for (int q = Lp[c] + 1; q < Lp[c + 1]; ++q) {
-                        int r = li[q];
-                        if (r > j && rmark[r] != j) { rmark[r] = j; rows.Add(r); }
-                    }
-                rows.Sort();
-                Lp[j] = li.Count;
-                li.Add(j);
-                li.AddRange(rows);
-                Lp[j + 1] = li.Count;
-                if (rows.Count > 0) {
-                    int parent = rows[0];
-                    childNext[j] = childHead[parent];
-                    childHead[parent] = j;
-                }
-            }
-            Li = li.ToArray();
-        }
-
-
-        /// <summary>
-        /// Minimum degree ordering on the quotient graph (A. George, J. Liu, The Evolution of the Minimum Degree
-        /// Ordering Algorithm, SIAM Review 1989), with the approximate external degrees of P. Amestoy, T. Davis,
-        /// I. Duff, An Approximate Minimum Degree Ordering Algorithm, SIAM J. Matrix Anal. Appl. 1996.
-        /// An eliminated node becomes an element (the clique of its neighbours, stored as a list) instead of
-        /// adding the clique edges, so the cost stays close to the size of the input graph.
-        /// </summary>
-        class MinimumDegree
-        {
-            List<int>[] adj;
-            int n;
-
-            public MinimumDegree(List<int>[] adj)
-            {
-                this.adj = adj;
-                n = adj.Length;
-            }
-
-            public List<int> Order()
-            {
-                List<int> order = new List<int>(n);
-                // per variable: adjacent variables and adjacent elements; per element: its variables
-                List<int>[] A = adj;
-                List<int>[] E = new List<int>[n];
-                List<int>[] L = new List<int>[n];
-                bool[] eliminated = new bool[n], absorbed = new bool[n];
-                int[] degree = new int[n], bucketHead = new int[n + 1], bnext = new int[n], bprev = new int[n];
-                int[] mark = new int[n], wFlag = new int[n], wVal = new int[n];
-                for (int d = 0; d <= n; ++d) bucketHead[d] = -1;
-                Action<int> insert = (a) => {
-                    int d = degree[a];
-                    bprev[a] = -1; bnext[a] = bucketHead[d];
-                    if (bucketHead[d] >= 0) bprev[bucketHead[d]] = a;
-                    bucketHead[d] = a;
-                };
-                Action<int> remove = (a) => {
-                    if (bprev[a] >= 0) bnext[bprev[a]] = bnext[a]; else bucketHead[degree[a]] = bnext[a];
-                    if (bnext[a] >= 0) bprev[bnext[a]] = bprev[a];
-                };
-                for (int i = n - 1; i >= 0; --i) {
-                    E[i] = new List<int>();
-                    degree[i] = A[i].Count;
-                    mark[i] = wFlag[i] = -1;
-                    insert(i);
-                }
-                int minDeg = 0;
-                for (int k = 0; k < n; ++k) {
-                    while (bucketHead[minDeg] < 0) minDeg++;
-                    int p = bucketHead[minDeg];
-                    remove(p);
-                    order.Add(p);
-                    eliminated[p] = true;
-
-                    // new element p: the variables adjacent to p directly or through its elements, which are absorbed
-                    List<int> Lp = new List<int>();
-                    mark[p] = k;
-                    foreach (int a in A[p])
-                        if (!eliminated[a] && mark[a] != k) { mark[a] = k; Lp.Add(a); }
-                    foreach (int e in E[p]) {
-                        if (absorbed[e]) continue;
-                        foreach (int a in L[e])
-                            if (!eliminated[a] && mark[a] != k) { mark[a] = k; Lp.Add(a); }
-                        absorbed[e] = true;
-                        L[e] = null;
-                    }
-                    A[p] = null; E[p] = null;
-                    L[p] = Lp;
-
-                    // |L_e \ L_p| for the elements next to L_p
-                    foreach (int i in Lp)
-                        foreach (int e in E[i]) {
-                            if (absorbed[e]) continue;
-                            if (wFlag[e] != k) { wFlag[e] = k; wVal[e] = L[e].Count; }
-                            wVal[e]--;
-                        }
-                    int remaining = n - k - 1;
-                    foreach (int i in Lp) {
-                        // elements: drop absorbed ones and those inside L_p (aggressive absorption), add p
-                        List<int> Ei = E[i];
-                        int w = 0, ext = 0;
-                        for (int t = 0; t < Ei.Count; ++t) {
-                            int e = Ei[t];
-                            if (absorbed[e]) continue;
-                            if (wVal[e] <= 0) { absorbed[e] = true; L[e] = null; continue; }
-                            Ei[w++] = e;
-                            ext += wVal[e];
-                        }
-                        Ei.RemoveRange(w, Ei.Count - w);
-                        Ei.Add(p);
-                        // variables: drop eliminated ones and those in L_p (connected through p now)
-                        List<int> Ai = A[i];
-                        w = 0;
-                        for (int t = 0; t < Ai.Count; ++t) {
-                            int a = Ai[t];
-                            if (eliminated[a] || mark[a] == k) continue;
-                            Ai[w++] = a;
-                        }
-                        Ai.RemoveRange(w, Ai.Count - w);
-                        int d = Math.Min(remaining, Math.Min(degree[i] + Lp.Count - 1, Ai.Count + Lp.Count - 1 + ext));
-                        if (d < 0) d = 0;
-                        if (d != degree[i]) {
-                            remove(i);
-                            degree[i] = d;
-                            insert(i);
-                        }
-                        if (d < minDeg) minDeg = d;
-                    }
-                }
-                return order;
-            }
+            var an = new CholeskyAnalysis(N, BlockSize, aColPtr, aRow, false);
+            perm = an.Perm; iperm = an.IPerm; Lp = an.Lp; Li = an.Li;
+            snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
+            apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;
+            Lx = new double[an.ValueCount];
         }
 
 
@@ -662,6 +397,8 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, off = snVal[J];
             int kw = snFirst[K + 1] - snFirst[K], krp = snRowPtr[K], kh = snRowPtr[K + 1] - krp, koff = snVal[K];
+            bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
+            double* r4 = stackalloc double[4];
             fixed (double* L = Lx)
             fixed (int* rows = snRows, rel = relmap) {
                 int* krows = rows + krp;
@@ -670,8 +407,15 @@ namespace g3
                     double* li = LK + i * kw;
                     double* dst = L + off + rel[krows[i]] * w - f;
                     int cend = Math.Min(i + 1, p1);
-                    for (int c = p0; c < cend; ++c)
-                        dst[krows[c]] -= dot(li, LK + c * kw, kw);
+                    int c = p0;
+                    if (vec)
+                        for (; c + 4 <= cend; c += 4) {
+                            SparseCholeskyKernels.Dot4Cols(li, LK + c * kw, kw, kw, r4, true);
+                            dst[krows[c]] -= r4[0]; dst[krows[c + 1]] -= r4[1];
+                            dst[krows[c + 2]] -= r4[2]; dst[krows[c + 3]] -= r4[3];
+                        }
+                    for (; c < cend; ++c)
+                        dst[krows[c]] -= SparseCholeskyKernels.Dot(li, LK + c * kw, kw, vec);
                 }
             }
         }
@@ -681,37 +425,45 @@ namespace g3
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
+            bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
+            double* r4 = stackalloc double[4];
             fixed (double* L = Lx) {
                 double* B = L + off;
-                for (int i = 0; i < h; ++i) {
-                    double* li = B + i * w;
-                    int m = Math.Min(i, w);
-                    for (int c = 0; c < m; ++c)
-                        li[c] = (li[c] - dot(li, B + c * w, c)) * inv[c];
-                    if (i < w) {
-                        double d = li[i] - dot(li, li, i);
-                        if (!(d > 1e-14 * Math.Abs(diagA[f + i])) || double.IsInfinity(d)) {
-                            Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + i] + ")";
-                            return false;
+                int i = 0;
+                while (i < h) {
+                    // four rows at once: their entries left of the first row's index only need earlier rows, so the
+                    // four dot products run side by side (each product keeps its own order of operations)
+                    int nr = vec && i + 4 <= h ? 4 : 1;
+                    int cl = 0;
+                    if (nr == 4) {
+                        cl = Math.Min(i, w);
+                        double* L0 = B + i * w;
+                        for (int c = 0; c < cl; ++c) {
+                            SparseCholeskyKernels.Dot4Rows(L0, w, B + c * w, c, r4, true);
+                            for (int q = 0; q < 4; ++q)
+                                L0[q * w + c] = (L0[q * w + c] - r4[q]) * inv[c];
                         }
-                        li[i] = Math.Sqrt(d);
-                        inv[i] = 1.0 / li[i];
                     }
+                    for (int q = 0; q < nr; ++q) {
+                        int row = i + q;
+                        double* li = B + row * w;
+                        int m = Math.Min(row, w);
+                        for (int c = cl; c < m; ++c)
+                            li[c] = (li[c] - SparseCholeskyKernels.Dot(li, B + c * w, c, vec)) * inv[c];
+                        if (row < w) {
+                            double d = li[row] - SparseCholeskyKernels.Dot(li, li, row, vec);
+                            if (!(d > 1e-14 * Math.Abs(diagA[f + row])) || double.IsInfinity(d)) {
+                                Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
+                                return false;
+                            }
+                            li[row] = Math.Sqrt(d);
+                            inv[row] = 1.0 / li[row];
+                        }
+                    }
+                    i += nr;
                 }
             }
             return true;
-        }
-
-        static unsafe double dot(double* a, double* b, int n)
-        {
-            double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-            int k = 0;
-            for (; k + 4 <= n; k += 4) {
-                s0 += a[k] * b[k]; s1 += a[k + 1] * b[k + 1];
-                s2 += a[k + 2] * b[k + 2]; s3 += a[k + 3] * b[k + 3];
-            }
-            for (; k < n; ++k) s0 += a[k] * b[k];
-            return (s0 + s1) + (s2 + s3);
         }
     }
 }

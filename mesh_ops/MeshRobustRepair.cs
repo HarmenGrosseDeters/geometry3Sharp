@@ -27,8 +27,8 @@ namespace gs
     /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
     /// MinVolumeIoU, or it lost a whole component of the input (CheckLostComponents: a part too small for the IoU),
     /// the input itself is used instead, resolved exactly, solidified or wrapped (its winding number solid is the
-    /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
-    /// a cell or the offset, and lose parts smaller than that).
+    /// reference; UsedInput). The solidify and the wrap themselves are not checked for volume (they change the geometry by about
+    /// a cell or the offset, and lose parts smaller than that); a separable part they lose is reported by the final check below.
     ///
     /// Components far apart compared to their size (eg a part 1e8 away from parts of size 1): the degenerate area of
     /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles, and the cleanups
@@ -43,6 +43,12 @@ namespace gs
     /// the largest connected component, MeshRepairMetrics.LostComponents): that resolve is rejected and the retry starts from the input.
     /// An Apply() that ends with such a part lost, by any stage, is false with ResultReason LostFarPart (never a silent loss
     /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area; the relative cleanups and tolerances only for a closed input of at most 64 components (a cracked surface or a soup has pieces, not parts), the lost part checks only with MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
+    /// Last, for any input of two or more separable parts (components whose boxes, padded by 1e-3 of their own diagonals, meet; closed
+    /// and open), every part of at least 4 triangles is judged against its own diagonal: one the result does not reach makes Apply() false
+    /// with LostFarOpenPart (open), LostFarPart (closed, components far apart as above) or LostSeparatePart (closed, otherwise), also where
+    /// the far-part switch above does not fire (MeshRobustRepairLostParts;
+    /// only with MinVolumeIoU &gt; 0, as the other checks against the input). Also a speck below 1e-3 of the largest component, which the
+    /// repair removes and LostComponents does not judge, is reported then (the owner's rule of 2026-11-10: no silent loss of a part).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -91,7 +97,7 @@ namespace gs
         /// exact stage does not check its results for them either: the sliver cleanup after the resolve can leave some
         /// </summary>
         public bool CheckSelfIntersections = true;
-        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents nor the lost part checks) </summary>
         public double MinVolumeIoU = 0.99;
         /// <summary>
         /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
@@ -100,7 +106,8 @@ namespace gs
         /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
         /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
         /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
-        /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
+        /// checked for it: their ResultReason can be "" although they lost the same part (unless it is a separable part, which the final
+        /// lost-part check of Apply() reports), see FallbackReason and UsedInput.
         /// </summary>
         public bool CheckLostComponents = false;
         /// <summary> configures the first stage (eg tolerances) </summary>
@@ -129,9 +136,14 @@ namespace gs
         public double RoundingMaxDisplacement = 1e-5, RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's effort budget, passed to the exact resolve (ExactMeshBoolean.RoundingMaxPairTests) and to the
-        /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M
+        /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M; both grow it with the initial
+        /// defects (RoundingPairTestsDefectScale, RoundingPairTestsMaxGrowth; by up to 4 times at their defaults)
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale), passed to the exact resolve and to the repair after SeparateTouchingVertices </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary>
         /// ExactMeshBoolean.StrictRounding for the exact resolve (and the relative bound only for the repair after
         /// SeparateTouchingVertices): a resolve whose rounding is not clean within the relative bound fails
@@ -193,6 +205,33 @@ namespace gs
         /// crease of the input, by at most 0.07 offset.
         /// </summary>
         public bool SimplifyAlphaWrap = true;
+        /// <summary>
+        /// alpha wrap fallback, opt-in (0 = off, the default; the result is then bit for bit the one without this option): reduce the
+        /// simplified wrap further, until it has at most this many triangles or no collapse is left that keeps the guarantees.
+        /// The reduction continues from the simplified wrap with Reducer.MaxDeviation measured from the unsimplified wrap (a
+        /// certified bound on every collapse, not only on the result) and the same exact checks as the simplification (no
+        /// self-intersection, no contact with the input), so the result is closed, 2-manifold, encloses the input without touching
+        /// it, and is certified within WrapTargetMaxDistance offsets of the unsimplified wrap (with the default 0.5 the certificate of
+        /// the simplification itself). The target is an upper bound: a wrap that is simplified below it is not refined. Needs
+        /// SimplifyAlphaWrap. If the target is out of reach, AlphaWrapTargetLimit says why and AlphaWrapTargetReached is the count
+        /// reached. The raw wrap is not coarsened for the target (that fills cavities, see WrapMaxEstimatedTriangles, and
+        /// can be combined with it). Takes precedence over WrapTargetFactor. Costs time: one serial Reducer with a certified deviation per
+        /// collapse, measured against the unsimplified wrap (benchmarks/MeshRepairBenchmark README, "Alpha wrap triangle target"),
+        /// so it grows with the wrap's size: 17 to 29 s more on a 210,000-triangle wrap.
+        /// </summary>
+        public int WrapTargetTriangles = 0;
+        /// <summary>
+        /// alpha wrap fallback, opt-in (0 = off, the default): WrapTargetTriangles as a factor of the triangle count of the
+        /// input of Apply() (1 = about the input's size), used if WrapTargetTriangles is 0
+        /// </summary>
+        public double WrapTargetFactor = 0;
+        /// <summary>
+        /// alpha wrap fallback: the distance, in offsets of the wrap, within which the reduction to the target is certified of the
+        /// unsimplified wrap (default 0.5, the simplification's own bound; a smaller value counts as 0.5). A larger one reaches
+        /// smaller counts and keeps the result farther from the input: at most (distance + 1) offsets plus the wrap's own
+        /// distance to the input at the vertices; the input is never touched
+        /// </summary>
+        public double WrapTargetMaxDistance = 0.5;
         /// <summary>
         /// alpha wrap fallback: after the simplification, improve the triangle quality (before the simplification's
         /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
@@ -267,6 +306,44 @@ namespace gs
         /// (MeshRepairMetrics.VolumeIoUAtLeast)
         /// </summary>
         public double RepairVolumeIoU = double.NaN;
+        /// <summary>
+        /// Diagnostic, additive (changes no other output): measure ResultVolumeIoU after a successful Apply(). Off by default;
+        /// see ResultVolumeIoU for what it costs.
+        /// </summary>
+        public bool MeasureResultVolumeIoU = false;
+        /// <summary>
+        /// Diagnostic (MeasureResultVolumeIoU): the volume IoU of the FINAL result in Mesh against the input as given to Apply(),
+        /// whichever stage produced it (pass-through, repair, exact resolve, solidify, alpha wrap): the same reference (the input's
+        /// winding number solid, inside-out parts oriented as the metrics do), the same sampling and the same estimate as the volume
+        /// checks (an estimate from as many samples as the check needs: it stops early where the interval lies clearly on one side of MinVolumeIoU, so
+        /// a value far from it is good to a few hundredths only) (MeshRepairMetrics.VolumeIoUAtLeast at MinVolumeIoU, 0.99 if the checks are off), so it equals RepairVolumeIoU
+        /// where the repair result is the final one. It is not a guard: Apply(), ResultReason and every other output are
+        /// the same with or without it. NaN where it is not computed (off, Apply() false, the input encloses no volume: an
+        /// open sheet has almost no reference solid, and a low value for an open or self-intersecting input may say more about
+        /// the reference than about the result, compare it with MeshFidelityMetrics.OuterVolumeIoU, docs/roadmap/alpha-wrap-and-repair.md).
+        /// </summary>
+        public double ResultVolumeIoU = double.NaN;
+        /// <summary> the stage that produced the result in Mesh (ResultPath) </summary>
+        public enum ResultPaths
+        {
+            /// <summary> no stage produced a result: Apply() was not run, or stopped before the stages (empty input, ScaleNotFinite, OutsideRange), or failed without a result. A false Apply() that leaves a result in Mesh (a lost part, ScaleDisparity) keeps the stage that made it </summary>
+            None,
+            /// <summary> every part of the input is clean and passed through untouched (PassThroughCleanParts), nothing was repaired </summary>
+            PassThrough,
+            /// <summary> the repair result (MeshAutoRepair, or RepairF); with PassedThroughTriangles &gt; 0 for the parts that were not passed through </summary>
+            Repair,
+            /// <summary> the exact resolve (UsedExactResolve) </summary>
+            ExactResolve,
+            /// <summary> the solidify fallback (UsedSolidify) </summary>
+            Solidify,
+            /// <summary> the alpha wrap fallback (UsedAlphaWrap) </summary>
+            AlphaWrap
+        }
+        /// <summary>
+        /// the stage that produced the result of the last Apply() (with passed through parts: the stage that produced the rest; they
+        /// are in the result untouched, PassedThroughTriangles). Derived from UsedAlphaWrap, UsedSolidify and UsedExactResolve
+        /// </summary>
+        public ResultPaths ResultPath { get; private set; } = ResultPaths.None;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
         /// <summary>
@@ -294,6 +371,24 @@ namespace gs
         /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
         /// </summary>
         public double AlphaWrapCoarsening = 1;
+        /// <summary> alpha wrap fallback: the target triangle count that was asked for (WrapTargetTriangles or WrapTargetFactor; 0 = none) </summary>
+        public int AlphaWrapTarget;
+        /// <summary> alpha wrap fallback with a target: the triangle count of the result (0 without a target or the wrap) </summary>
+        public int AlphaWrapTargetReached;
+        /// <summary>
+        /// alpha wrap fallback with a target: "" if the result has at most AlphaWrapTarget triangles, otherwise what limits it:
+        /// <see cref="TargetLimitDistance"/>, <see cref="TargetLimitNotSimplified"/>, <see cref="TargetLimitNotCertified"/> or
+        /// <see cref="TargetLimitQualityPass"/>
+        /// </summary>
+        public string AlphaWrapTargetLimit = "";
+        /// <summary> AlphaWrapTargetLimit: no further collapse keeps the guarantees within WrapTargetMaxDistance (raise it for fewer triangles) </summary>
+        public const string TargetLimitDistance = "no collapse left within the certified distance";
+        /// <summary> AlphaWrapTargetLimit: the wrap is not simplified (SimplifyAlphaWrap off, or the simplification not clean or certified), so there is no reduction to continue </summary>
+        public const string TargetLimitNotSimplified = "the wrap is not simplified";
+        /// <summary> AlphaWrapTargetLimit: the reduction to the target was not clean or not certified, the simplified wrap before it is the result </summary>
+        public const string TargetLimitNotCertified = "the reduction to the target is not certified";
+        /// <summary> AlphaWrapTargetLimit: the quality pass (AlphaWrapQualityPass) split caps and the result is above the target </summary>
+        public const string TargetLimitQualityPass = "the quality pass added triangles";
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
@@ -350,8 +445,9 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
-        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
-        /// unclean solidify result (when the wrap is off or failed): check ResultReason.
+        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. Also false with
+        /// LostFarPart, LostSeparatePart (a closed part) or LostFarOpenPart (an open part), the result in Mesh, if a separable part of an input
+        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
@@ -361,8 +457,11 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            ResultVolumeIoU = double.NaN;
+            ResultPath = ResultPaths.None;
             PassedThroughTriangles = 0;
             PassThroughFellBack = false;
+            LostPartCheckSkipped = "not reached";
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
@@ -385,7 +484,7 @@ namespace gs
             // (a tiny extent far from the origin).
             double s = RepairF == null && NoWorkingFrame == false && Mesh.TriangleCount > 0 && repair_settings_allow_frame() ? MeshRepairMetrics.unit_scale_for_mesh(Mesh, false, 0, 0) : 1;
             if (s == 1)
-                return apply_checked();
+                return apply_reported();
             frameScale = s;
             double roundingAbsolute = RoundingAbsoluteTolerance;
             DMesh3 callersMesh = Mesh;
@@ -393,7 +492,7 @@ namespace gs
             RoundingAbsoluteTolerance = roundingAbsolute * s;
             bool ok = false;
             try {
-                ok = apply_checked();
+                ok = apply_reported();
             } finally {
                 RoundingAbsoluteTolerance = roundingAbsolute;
                 map_back(1 / s, callersMesh);
@@ -469,11 +568,72 @@ namespace gs
         internal Action<DMesh3> PassThroughTestHook;
         bool passThroughOff;
 
+        /// <summary> (tests, benchmarks: an A/B in one build) Apply() without the final lost-part check (MeshRobustRepairLostParts) </summary>
+        internal bool NoLostPartCheck;
+        /// <summary>
+        /// (tests) why the final lost-part check of the last Apply() judged no part: "" if it judged the parts, else one of "off" (NoLostPartCheck),
+        /// "no volume checks" (MinVolumeIoU 0), "empty", "one part", "too many components" (above MeshRobustRepairLostParts.MaxComponents), "no
+        /// part judged" (every part below MinTriangles or without extent), "not reached" (Apply() was false before the check)
+        /// </summary>
+        internal string LostPartCheckSkipped { get; private set; } = "";
+        // apply_checked, then the final lost-part check (MeshRobustRepairLostParts, F1 of docs/design/ROBUST_REPAIR_SCALE_FREE_STUDY.md): a
+        // separable part of the input that the result does not reach, judged against the part's own size, makes Apply() false. Reasons: an open
+        // part LostFarOpenPart; a closed part LostFarPart where the input's components lie far apart compared to their size (the far-part
+        // switch, global_scale_share > 0: the meaning of LostFarPart), else LostSeparatePart. A ResultReason the stages set (eg an unclean
+        // solidify) is kept after it ("; "). The earlier cleanups and checks judge sizes against the scene or the largest component, so a small
+        // part could be lost with true. The parts are taken before the repair, which changes the mesh in place
+        bool apply_reported()
+        {
+            string skipped;
+            List<MeshRobustRepairLostParts.Part> parts = null;
+            if (NoLostPartCheck)
+                skipped = "off";
+            else if (MinVolumeIoU <= 0)
+                skipped = "no volume checks";
+            else
+                parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
+            bool far = parts != null && global_scale_share(Mesh) > 0;
+            DMesh3 givenInput = MeasureResultVolumeIoU ? new DMesh3(Mesh) : null;
+            bool ok = apply_checked();
+            if (ok == false && parts != null)
+                skipped = "not reached";
+            LostPartCheckSkipped = skipped;
+            MeshRobustRepairLostParts.Part lost = ok ? MeshRobustRepairLostParts.FirstLost(parts, Mesh) : null;
+            if (lost != null) {
+                string reason = lost.Open ? LostFarOpenPart : far ? LostFarPart : LostSeparatePart;
+                ResultReason = ResultReason == "" ? reason : reason + "; " + ResultReason;
+                ok = false;
+            }
+            if (ok || ResultReason != "not repaired") {
+                // (a stage flag: the pass-through of every part sets none)
+                ResultPath = UsedAlphaWrap ? ResultPaths.AlphaWrap : UsedSolidify ? ResultPaths.Solidify : UsedExactResolve ? ResultPaths.ExactResolve
+                    : ok && PassedThroughTriangles > 0 && wholePassedThrough ? ResultPaths.PassThrough : ResultPaths.Repair;
+            }
+            if (ok && givenInput != null)
+                ResultVolumeIoU = final_volume_iou(givenInput, Mesh);
+            return ok;
+        }
+
+        // the volume IoU of the final result against the input as given (ResultVolumeIoU)
+        double final_volume_iou(DMesh3 input, DMesh3 result)
+        {
+            double iou;
+            if (input.TriangleCount == 0)
+                return double.NaN;
+            var inputSolid = new MeshRepairMetrics.SolidReference(input);
+            var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(result);
+            MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, resultSolid, MinVolumeIoU > 0 ? MinVolumeIoU : 0.99, out iou, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+            return iou;
+        }
+
+        bool wholePassedThrough;
+
         bool apply_checked()
         {
             if (passThroughOff == false)
                 PassThroughFellBack = false;
             PassedThroughTriangles = 0;
+            wholePassedThrough = false;
             DMesh3 passed, rest;
             List<AxisAlignedBox3d> passedBoxes;
             if (PassThroughCleanParts && passThroughOff == false && RepairF == null && Mesh.TriangleCount > 0
@@ -490,6 +650,7 @@ namespace gs
             bool ok;
             if (rest.TriangleCount == 0) {
                 // every part is clean: nothing to repair
+                wholePassedThrough = true;
                 Mesh = passed;
                 ok = true;
                 ResultReason = "";
@@ -576,6 +737,8 @@ namespace gs
             AlphaWrapTriangles = 0;
             AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
+            AlphaWrapTarget = AlphaWrapTargetReached = 0;
+            AlphaWrapTargetLimit = "";
             AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
             AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
@@ -823,11 +986,34 @@ namespace gs
                         }
                     }
                     DMesh3 wrapped = raw;
+                    int target = WrapTargetTriangles > 0 ? WrapTargetTriangles
+                        : WrapTargetFactor > 0 ? (int)Math.Min(int.MaxValue, Math.Max(1.0, Math.Ceiling(WrapTargetFactor * input.TriangleCount))) : 0;
                     if (SimplifyAlphaWrap) {
                         wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
+                    }
+                    string targetLimit = "";
+                    if (target > 0) {
+                        AlphaWrapTarget = target;
+                        if (wrapped == raw) {
+                            if (raw.TriangleCount > target)
+                                targetLimit = TargetLimitNotSimplified;
+                        }
+                        else if (wrapped.TriangleCount > target) {
+                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
+                            end_phase("wrap.target");
+                            if (CancelF())
+                                return false;
+                            if (reduced == null)
+                                targetLimit = TargetLimitNotCertified;
+                            else {
+                                wrapped = reduced;
+                                if (wrapped.TriangleCount > target)
+                                    targetLimit = TargetLimitDistance;
+                            }
+                        }
                     }
                     if (AlphaWrapQualityPass && wrapped != raw) {
                         DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
@@ -841,6 +1027,10 @@ namespace gs
                         }
                     }
                     AlphaWrapSimplified = wrapped != raw;
+                    if (target > 0) {
+                        AlphaWrapTargetReached = wrapped.TriangleCount;
+                        AlphaWrapTargetLimit = targetLimit == "" && wrapped.TriangleCount > target ? TargetLimitQualityPass : targetLimit;
+                    }
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
@@ -886,6 +1076,21 @@ namespace gs
         const string PartsLostFarReason = "a part of the input lost (components far apart compared to their size)";
         /// <summary> ResultReason of an Apply() that is false because a closed part of the input is not in the result, where components lie far apart compared to their size </summary>
         public const string LostFarPart = "scale disparity: a part of the input is lost (components far apart compared to their size)";
+        /// <summary>
+        /// ResultReason of an Apply() that is false because an open part of the input is not in the result, where parts lie apart (a
+        /// separable part: components whose bounding boxes, padded by 1e-3 of their own diagonals, meet no other part's; the result does
+        /// not reach it within a quarter of the part's own diagonal, see MeshRobustRepairLostParts). The result stays in Mesh. Any earlier
+        /// ResultReason follows after "; "
+        /// </summary>
+        public const string LostFarOpenPart = "scale disparity: an open part of the input is lost (parts apart compared to their size)";
+        /// <summary>
+        /// ResultReason of an Apply() that is false because a closed separable part of the input (see LostFarOpenPart) is not in the result,
+        /// where the components do not lie far apart in the sense of LostFarPart (which is reported there). "Far apart" is the far-part
+        /// switch of LostFarPart: two or more components and a triangle below the degenerate area of NotCleanReason, relative to all
+        /// triangles (also a sliver of the large part sets it), not a distance. The result stays in Mesh. Any earlier ResultReason follows
+        /// after "; "
+        /// </summary>
+        public const string LostSeparatePart = "a separate part of the input is lost (the result does not reach it)";
         /// <summary>
         /// ResultReason when Apply() returns false because the input's diagonal is not finite: an extent above about
         /// 1e154 (eg finite coordinates near +-1e308), or infinite coordinates (and NaN ones where they show in the
@@ -1074,12 +1279,7 @@ namespace gs
             Stopwatch timer = Stopwatch.StartNew();
             // (the wrap's input, read only: no collapse creates a triangle that touches it)
             DMeshAABBTree3 clearTree = keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null;
-            Action<Reducer> configure = (r) => {
-                r.KeepClearOf = clearTree;
-                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
-                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
-                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
-            };
+            Action<Reducer> configure = wrap_reducer(clearTree, cancelF, minQuality, qualityAgainstWorst);
             DMesh3 m = reduce(mesh, quadricDistance, slabs, maxThreads, configure, cancelF, phases, "");
             lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
@@ -1120,6 +1320,39 @@ namespace gs
             within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
             lap(phases, "retry2/certify", timer);
             return within ? m : null;
+        }
+
+        // the settings of every reduction of a wrap: no contact with keepClear's mesh, no self-intersection, the quality guard
+        static Action<Reducer> wrap_reducer(DMeshAABBTree3 clearTree, Func<bool> cancelF, double minQuality, bool qualityAgainstWorst)
+        {
+            return (r) => {
+                r.KeepClearOf = clearTree;
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+            };
+        }
+
+        /// <summary>
+        /// simplified (a certified reduction of wrap) reduced further until it has at most target triangles or no allowed collapse is
+        /// left: one serial Reducer from simplified with MaxDeviation (RetryDeviationFraction of maxDistance, a certified bound on every
+        /// collapse) measured from wrap, and the exact checks of SimplifyWithin (no self-intersection, no contact with keepClearOf).
+        /// The result is checked clean and certified within maxDistance of wrap as a whole (one-sided Hausdorff upper bound); null
+        /// if it is not, or on cancel (the caller keeps simplified). The count may stay above target
+        /// </summary>
+        internal static DMesh3 ReduceToTarget(DMesh3 simplified, DMesh3 wrap, int target, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF, DMesh3 keepClearOf)
+        {
+            DMesh3 m = new DMesh3(simplified);
+            var reducer = new Reducer(m);
+            wrap_reducer(keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null, cancelF, WrapSimplifyMinQuality, true)(reducer);
+            reducer.MaxDeviation = RetryDeviationFraction * maxDistance;
+            reducer.SetDeviationReference(new DMeshAABBTree3(wrap, true));
+            reducer.ReduceToTriangleCount(target);
+            m = new DMesh3(m, true);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            int subdivisions = 0;
+            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
         }
 
         // a copy of mesh reduced to the quadric error quadricDistance^2 (PartitionedReduction on slabs, or one Reducer)
@@ -1192,7 +1425,9 @@ namespace gs
         /// certifies each of its new triangles, exactly as it puts them into the mesh, within 0.95 maxDistance of wrap
         /// (AlphaWrapQualityPass.accept, TriangleDeviationBounds.IsWithin), and the triangles it does not touch keep the
         /// certificate of simplified (AlphaWrapQualityPassTests.ImproveWrapQuality_CertifiedByConstruction checks it). If
-        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before.
+        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before. (After a reduction to a
+        /// target with WrapTargetMaxDistance above 0.5 the untouched triangles keep the larger distance of ReduceToTarget, the new ones are
+        /// held to 0.95 of the half offset passed here: the result is within the larger of the two.)
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)
@@ -1298,7 +1533,8 @@ namespace gs
                 var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
-                    RoundingMaxPairTests = RoundingMaxPairTests
+                    RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,
+                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;
@@ -1351,7 +1587,8 @@ namespace gs
                         // make, are possible now)
                         var rounding = new MeshRoundingRepair(res) {
                             MaxDisplacement = RoundingMaxDisplacement, UlpFactor = StrictRounding ? 0 : RoundingUlpFactor,
-                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance, MaxPairTests = RoundingMaxPairTests
+                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance, MaxPairTests = RoundingMaxPairTests,
+                            PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth
                         };
                         rounding.Apply();
                         SeparatedRounding = rounding;

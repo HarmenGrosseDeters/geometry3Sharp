@@ -21,7 +21,9 @@ namespace g3
     /// target's vertices fixed (never moved or removed), the curve edges locked (kept, unless AllowCurveContraction and the
     /// rounding needs the contraction) and the target's own edges between untouched vertices locked. Pairs of
     /// untouched triangles are not tested by the repair (they are the target's, defects of the target included). A target that
-    /// intersects itself is not repaired: near such a place the repair may still edit pieces.
+    /// intersects itself is not repaired: near such a place the repair may still edit pieces. Where the repair leaves a defect, a
+    /// final stage lets the locks of the parts of split target edges follow a contraction (the slivers of near contact, eg a
+    /// cutter shifted by one ulp; docs/design/IMPRINT_SLIVER_CLEANUP.md); a result that is clean without it is the same.
     ///
     /// Usage: set Target and Cutters (or Cutter), call Compute(), read Result (a new mesh, the inputs are not modified),
     /// CurveEdges and SourceTriangle. Compute() can be called again. Result has the target's attributes for its own vertices and
@@ -67,14 +69,26 @@ namespace g3
         public bool SafeRounding = true;
         /// <summary> a locked curve edge shorter than the bound may be contracted where the repair needs it (Counts["curve_edges_contracted"]); if false, a defect stays instead </summary>
         public bool AllowCurveContraction = true;
+        /// <summary>
+        /// where the repair leaves a defect, a final stage in which the parts of a split target edge may be contracted with
+        /// their locks following the contraction (the slivers of near contact, eg a cutter shifted by one ulp,
+        /// docs/design/IMPRINT_SLIVER_CLEANUP.md); a result that is clean without it is the same. For tests: false gives the repair without it.
+        /// </summary>
+        internal bool SliverCleanup = true;
+        /// <summary> for tests: the locks of the parts of split edges as before #1034 (one LockedEdgeF over the fixed set, no RuleLockedEdges, no stage) </summary>
+        internal bool LegacyPartLocks = false;
         /// <summary> SafeRounding within the relative bound only; if its result is not clean, Compute() fails with RoundingNotClean (Result null) </summary>
         public bool StrictRounding = false;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingUlpFactor"/>, RoundingAbsoluteTolerance </summary>
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxDisplacement"/> </summary>
         public double RoundingMaxDisplacement = 1e-5;
-        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> </summary>
+        /// <summary> as <see cref="ExactMeshBoolean.RoundingMaxPairTests"/> (grown with the defects by RoundingPairTestsDefectScale / RoundingPairTestsMaxGrowth) </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary> compute ResultExactVertices </summary>
         public bool ComputeExactVertices = false;
         /// <summary> the largest number of pieces (triangles of the arrangement) Compute() takes on; with more it stops with BudgetExceeded. 0: no limit </summary>
@@ -453,11 +467,16 @@ namespace g3
                 // (the target's vertices are input doubles: a piece with three of them is an exact triangle of the arrangement)
                 ExactVertexF = (v) => v < original && target.IsVertex(v),
                 LockedEdges = locks,
-                LockedEdgeF = (a, b) => (a < original && b < original && target.FindEdge(a, b) >= 0) || subEdges.Contains(MeshRoundingRepair.LockedKey(a, b)),
+                LockedEdgeF = LegacyPartLocks
+                    ? (Func<int, int, bool>)((a, b) => (a < original && b < original && target.FindEdge(a, b) >= 0) || subEdges.Contains(MeshRoundingRepair.LockedKey(a, b)))
+                    : (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
+                // (the parts of the target's split edges: they follow a contraction in the final stage, docs/design/IMPRINT_SLIVER_CLEANUP.md)
+                RuleLockedEdges = LegacyPartLocks ? null : new HashSet<long>(subEdges, EdgeKeyComparer.Instance), RuleLocksFollow = SliverCleanup && LegacyPartLocks == false,
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
+                MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests,
+                PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth
             };
             Rounding.Apply();
             if (Cancellation.IsCancellationRequested)
@@ -468,6 +487,11 @@ namespace g3
             Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
             Counts["curve_edges_contracted"] = Rounding.LockedContractions;
             Counts["target_edge_parts_contracted"] = Rounding.RuleLockedContractions;
+            // (the final stage of SliverCleanup: whether it ran, and its contractions that reroute the chain of parts of a split edge
+            // through a vertex off the edge, a target vertex or a new one)
+            Counts["sliver_cleanup_stage"] = Rounding.FollowStageRan ? 1 : 0;
+            Counts["split_edge_reroutes_through_target_vertex"] = Rounding.RuleLocksReroutedThroughFixed;
+            Counts["split_edge_reroutes_through_new_vertex"] = Rounding.RuleLocksReroutedThroughOther;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)

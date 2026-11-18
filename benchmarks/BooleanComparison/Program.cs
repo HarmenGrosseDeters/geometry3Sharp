@@ -52,6 +52,14 @@ static class Program
         string s = Environment.GetEnvironmentVariable("BOOLCMP_SAFE_ROUNDING");
         if (s == "0" || s == "1")
             boolean.SafeRounding = s == "1";
+        // BOOLCMP_ROUNDING_MAX_PAIR_TESTS=<n>: SafeRounding's effort budget (RC4a measurements)
+        string b = Environment.GetEnvironmentVariable("BOOLCMP_ROUNDING_MAX_PAIR_TESTS");
+        if (long.TryParse(b, NumberStyles.Integer, ci, out long budget) && budget >= 0)
+            boolean.RoundingMaxPairTests = budget;
+        // BOOLCMP_ROUNDING_DEFECT_SCALE=<x>: MeshRoundingRepair.PairTestsDefectScale (0: the fixed budget of before)
+        string ds = Environment.GetEnvironmentVariable("BOOLCMP_ROUNDING_DEFECT_SCALE");
+        if (double.TryParse(ds, NumberStyles.Float, ci, out double scale))
+            boolean.RoundingPairTestsDefectScale = scale;
         return boolean;
     }
 
@@ -68,6 +76,12 @@ static class Program
             case "imprint": return ImprintCompare.Run(args.Skip(1).ToArray());
             case "abc-chain-inputs": return AbcChained.Inputs(args.Skip(1).ToArray());
             case "chain-step": return AbcChained.Step(args.Skip(1).ToArray());
+            case "chain-exact": return ChainExact.Abc(args.Skip(1).ToArray());
+            case "chain-exact-proc": return ChainExact.Procedural(args.Skip(1).ToArray());
+            case "chain-exact-diag": return ChainExact.Abc(args.Skip(1).ToArray(), "diag");
+            case "chain-exact-diag-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "diag");
+            case "chain-exact-time": return ChainExact.Abc(args.Skip(1).ToArray(), "time");
+            case "chain-exact-time-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "time");
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);
@@ -250,6 +264,9 @@ static class Program
                 ["smallest_rejected_drift"] = Finite(rr.SmallestRejectedDrift),
                 ["max_drift"] = Finite(rr.MaxDrift), ["max_length"] = Finite(rr.MaxLength), ["scale_disparity"] = rr.ScaleDisparity,
                 ["removed_components"] = rr.RemovedComponents, ["edits"] = rr.Collapses + rr.Flips + rr.Moves + rr.Zips + rr.VertexRemovals,
+                ["pair_tests"] = rr.PairTests, ["evaluations"] = rr.Evaluations, ["max_evaluations"] = rr.MaxEvaluations,
+                ["max_pair_tests"] = rr.MaxPairTests, ["pair_budget"] = rr.PairBudget, ["stopped_by_pair_tests"] = rr.StoppedByPairTests,
+                ["triangles_in"] = boolean.Counts.TryGetValue("pieces", out long pc) ? pc : -1,
             };
         }
         Console.WriteLine(JsonSerializer.Serialize(r));

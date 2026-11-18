@@ -174,6 +174,33 @@ namespace geometry3Sharp.Tests
             return s;
         }
 
+        /// <summary>
+        /// two triangles on one side of a pinch edge whose angles about it are equal in double precision (atan2 of apexes
+        /// 1e-30 apart; #993 mirror p0020, two such edges of the exact solid): their order comes from the exact orientation,
+        /// so the edge alternates and is paired. Before, the tie went by slot index, the forward slot first, and the edge was
+        /// left unpaired ("not closed"). Both slot orders, and mirrored, so that neither the slots nor the sign decide it.
+        /// </summary>
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(true, true)]
+        public void PinchEdge_AnglesTiedInDouble_OrderedExactly(bool backwardSlotFirst, bool mirrored)
+        {
+            double m = mirrored ? -1 : 1;
+            // edge u = 0 -> v = 1 along x; the eval measures angles atan2(z, y). Backward (v, u, c) at 0, forward (u, v, c) at
+            // about 0.8, and at pi - 2e-30 (backward) and pi - 1e-30 (forward): both atan2 to pi
+            var pos = new List<Vector3d> { Vector3d.Zero, Vector3d.AxisX,
+                new Vector3d(0.5, 1, 0), new Vector3d(0.5, 1, m * 1.0), new Vector3d(0.5, -1, m * 2e-30), new Vector3d(0.5, -1, m * 1e-30) };
+            Assert.Equal(Math.Atan2(pos[4].z, pos[4].y), Math.Atan2(pos[5].z, pos[5].y));
+            Index3i b0 = new Index3i(1, 0, 2), f1 = new Index3i(0, 1, 3), b2 = new Index3i(1, 0, 4), f3 = new Index3i(0, 1, 5);
+            if (mirrored) { b0 = new Index3i(0, 1, 2); f1 = new Index3i(1, 0, 3); b2 = new Index3i(0, 1, 4); f3 = new Index3i(1, 0, 5); }
+            var tris = backwardSlotFirst ? new List<Index3i> { b0, f1, b2, f3 } : new List<Index3i> { b0, f1, f3, b2 };
+            Pinches.Split s = Pinches.Build(pos, tris);
+            Assert.Equal(0, s.UnpairedEdges);
+            Assert.Equal(1, s.PinchEdges);
+        }
+
         [Fact]
         public void BalancedEdgeThatDoesNotAlternate_IsUnpaired()
         {

@@ -13,7 +13,7 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TetMeshingStage2Tests
     {
-        static TetMesh3 FromTets(List<Vector3d> v, List<Index4i> t)
+        internal static TetMesh3 FromTets(List<Vector3d> v, List<Index4i> t)
         {
             var m = new TetMesh3();
             m.Vertices.AddRange(v); m.Tets.AddRange(t);
@@ -29,7 +29,7 @@ namespace geometry3Sharp.Tests
 
         static DMesh3 Sphere(double r, int n) => new Sphere3Generator_NormalizedCube() { Radius = r, EdgeVertices = n }.Generate().MakeDMesh();
         static DMesh3 Box() => new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.25, 0.125), new Vector3d(0.5, 0.25, 0.125)) }.Generate().MakeDMesh();
-        static DMesh3 Torus(int major, int minor, double R, double r)
+        internal static DMesh3 Torus(int major, int minor, double R, double r)
         {
             var m = new DMesh3();
             for (int i = 0; i < major; ++i)
@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 Input(string name)
+        internal static DMesh3 Input(string name)
         {
             switch (name) {
                 case "sphere": return Sphere(1, 16);
@@ -57,8 +57,10 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> Inputs() => new[] { "sphere", "box", "cylinder", "torus thin" }.Select(n => new object[] { n });
 
         // the stage-2 invariants: exactly valid, boundary closed and free of self-intersections, input strictly inside (no boundary
-        // triangle touches it, exact), every boundary vertex within BoundarySlideFactor offsets of the wrap surface
-        static void Invariants(MeshTetrahedralization tm)
+        // triangle touches it, exact), every boundary vertex within BoundarySlideFactor offsets of the stage-1 surface (the wrap after
+        // peeling; TET_MESHING.md 16.2, owner 2026-11-17), so within the peel depth plus BoundarySlideFactor offsets of the wrap.
+        // stageOne: tm's stage-1 surface if the caller has it (a run with Improve = false), else it is computed (StageOne)
+        internal static void Invariants(MeshTetrahedralization tm, DMesh3 stageOne = null)
         {
             TetMesh3 t = tm.Result;
             Assert.Null(TetMeshQuality.NotValidReason(t));
@@ -69,13 +71,27 @@ namespace geometry3Sharp.Tests
             var tris = t.BoundaryTriangles.Select(f => new Triangle3d(t.Vertices[f.a], t.Vertices[f.b], t.Vertices[f.c])).ToList();
             Assert.False(Reducer.TrianglesTouch(tree, tris));
             Assert.True(MeshWindingNumberInside(tm.Mesh, boundary), "the input is not inside the boundary");
-            var wrapTree = new DMeshAABBTree3(tm.Wrap.Result, true);
+            stageOne = stageOne ?? StageOne(tm);
+            var stageOneTree = new DMeshAABBTree3(stageOne, true);
             foreach (int v in boundary.VertexIndices()) {
                 Vector3d p = boundary.GetVertex(v);
-                int tid = wrapTree.FindNearestTriangle(p);
-                double dist = Math.Sqrt(MeshQueries.TriDistanceSqr(tm.Wrap.Result, tid, p));
-                Assert.True(dist <= tm.BoundarySlideFactor * tm.UsedOffset * (1 + 1e-9), dist / tm.UsedOffset + " offsets");
+                int tid = stageOneTree.FindNearestTriangle(p);
+                double dist = Math.Sqrt(MeshQueries.TriDistanceSqr(stageOne, tid, p));
+                Assert.True(dist <= tm.BoundarySlideFactor * tm.UsedOffset * (1 + 1e-9), dist / tm.UsedOffset + " offsets from the stage-1 surface");
             }
+        }
+
+        // the stage-1 surface of tm (the wrap after peeling): the same computation without stage 2 (deterministic for every MaxThreads,
+        // so the same surface stage 2 started from)
+        internal static DMesh3 StageOne(MeshTetrahedralization tm)
+        {
+            var s1 = new MeshTetrahedralization(tm.Mesh) { RelativeAlpha = tm.RelativeAlpha, RelativeOffset = tm.RelativeOffset,
+                MaxRadiusEdgeRatio = tm.MaxRadiusEdgeRatio, MaxCircumradius = tm.MaxCircumradius, SliverDihedralDegrees = tm.SliverDihedralDegrees,
+                SurfaceMinAngleDegrees = tm.SurfaceMinAngleDegrees, PeelBoundarySlivers = tm.PeelBoundarySlivers, MinFeatureFactor = tm.MinFeatureFactor,
+                MaxSteinerPoints = tm.MaxSteinerPoints, Improve = false };
+            Assert.True(s1.Compute());
+            Assert.Equal(tm.UsedOffset, s1.UsedOffset);
+            return s1.Result.ToSurfaceMesh();
         }
 
         // every input vertex is inside the closed boundary (winding number of the boundary at the input vertices, about 1)
@@ -92,11 +108,11 @@ namespace geometry3Sharp.Tests
         {
             var plain = new MeshTetrahedralization(Input(name)) { Improve = false }; Assert.True(plain.Compute());
             var tm = new MeshTetrahedralization(Input(name)); Assert.True(tm.Compute(), tm.Status.ToString());
-            Invariants(tm);
+            Invariants(tm, plain.Result.ToSurfaceMesh());
             double before = TetMeshQuality.Measure(plain.Result).MinDihedral.Worst, after = TetMeshQuality.Measure(tm.Result).MinDihedral.Worst;
             Assert.True(after > before || before >= 10 && after >= before, after + " vs " + before);
-            // measured (TET_MESHING.md 15): sphere, box, cylinder >= 10 degrees on every tet; the thin torus 9.4
-            Assert.True(after >= (name == "torus thin" ? 9 : 10), name + ": " + after);
+            // measured (TET_MESHING.md 15, 16): >= 10 degrees on every tet (the thin torus needs the splits of section 16: 9.7 without)
+            Assert.True(after >= 10, name + ": " + after);
             Assert.True(TetMeshQuality.Measure(tm.Result).MinDihedral.Worst1Percent >= 10);
             Assert.True(tm.Counts["improve_edge_removals"] + tm.Counts["improve_smooth_moves"] > 0 || before >= 10);
         }
@@ -104,18 +120,19 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void BoundaryMoves_AreUsedAndRefusedWhereTheyWouldTouchTheInput()
         {
-            var tm = new MeshTetrahedralization(Input("torus thin"));
+            // the moves alone (the splits of section 16 fix most of these tets first, so fewer moves are tried)
+            var tm = new MeshTetrahedralization(Input("torus thin")) { SplitEdges = false, ContractEdges = false };
             Assert.True(tm.Compute());
             // (refusals: the moves the input test stops on this fixture; 3 with the round-based carving of Alpha Wrap 3.0 lever (B),
             // #774, whose torus wrap differs, more with the serial carving: the bound only shows that the refusal path is taken)
             Assert.True(tm.Counts["improve_boundary_moves"] > 50 && tm.Counts["improve_boundary_refused_input"] >= 2,
                 tm.Counts["improve_boundary_moves"] + " / " + tm.Counts["improve_boundary_refused_input"]);
             Invariants(tm);
-            var fixedBoundary = new MeshTetrahedralization(Input("torus thin")) { BoundarySlideFactor = 0 };
+            var fixedBoundary = new MeshTetrahedralization(Input("torus thin")) { BoundarySlideFactor = 0, SplitEdges = false, ContractEdges = false };
             Assert.True(fixedBoundary.Compute());
             Assert.Equal(0, fixedBoundary.Counts["improve_boundary_moves"]);
             Assert.True(TetMeshQuality.Measure(tm.Result).MinDihedral.Worst > TetMeshQuality.Measure(fixedBoundary.Result).MinDihedral.Worst);
-            var tangent = new MeshTetrahedralization(Input("torus thin")) { BoundaryMovesTangentOnly = true };
+            var tangent = new MeshTetrahedralization(Input("torus thin")) { BoundaryMovesTangentOnly = true, SplitEdges = false, ContractEdges = false };
             Assert.True(tangent.Compute());
             Invariants(tangent);
             Assert.NotEqual(tm.Result.Vertices, tangent.Result.Vertices);   // the switch changes the moves
@@ -126,8 +143,9 @@ namespace geometry3Sharp.Tests
         {
             // many passes, so that repeated moves of one vertex would add up if the cap were per move: every boundary vertex must
             // still be within BoundarySlideFactor offsets of a wrap vertex (its original position; wrap vertices are at least one
-            // offset apart, so the nearest one within half an offset is that vertex)
-            var tm = new MeshTetrahedralization(Input("torus thin"));
+            // offset apart, so the nearest one within half an offset is that vertex). Without splits: their new vertices are not wrap
+            // vertices (their cap is checked against the stage-1 surface in Invariants and in the split tests)
+            var tm = new MeshTetrahedralization(Input("torus thin")) { SplitEdges = false, ContractEdges = false };
             Assert.True(tm.Compute());
             Assert.True(tm.Counts["improve_passes"] >= 3 && tm.Counts["improve_boundary_moves"] > 50);
             double cap = tm.BoundarySlideFactor * tm.UsedOffset;
@@ -150,6 +168,7 @@ namespace geometry3Sharp.Tests
             TetMesh3 r1 = a.Result;
             Assert.True(a.Compute());
             var b = new MeshTetrahedralization(Input("torus thin")); Assert.True(b.Compute());
+            Assert.True(a.Counts["improve_insertions"] > 0);            // the splits (section 16) are part of what must repeat
             foreach (TetMesh3 r in new[] { a.Result, b.Result }) {
                 Assert.Equal(r1.Vertices, r.Vertices); Assert.Equal(r1.Tets, r.Tets); Assert.Equal(r1.BoundaryTriangles, r.BoundaryTriangles);
             }
@@ -166,6 +185,7 @@ namespace geometry3Sharp.Tests
             Invariants(b);
             Assert.True(a.Counts["improve_edge_removals"] > 0 && a.Counts["improve_boundary_moves"] > 0,
                 a.Counts["improve_edge_removals"] + " / " + a.Counts["improve_smooth_moves"] + " / " + a.Counts["improve_boundary_moves"]);   // stage 2 does work here
+            Assert.True(a.Counts["improve_insertions"] > 0);            // and the splits of section 16
             if (s.IsExact) {
                 Assert.Equal(a.Result.Tets, b.Result.Tets);
                 for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);

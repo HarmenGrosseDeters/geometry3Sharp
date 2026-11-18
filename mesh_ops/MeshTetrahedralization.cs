@@ -32,8 +32,11 @@ namespace gs
     public class MeshTetrahedralization
     {
         public DMesh3 Mesh;
-        /// <summary> the wrap's parameters (MeshAlphaWrap.RelativeAlpha / RelativeOffset: the bounding box diagonal over alpha / offset) </summary>
-        public double RelativeAlpha = 20, RelativeOffset = 600;
+        /// <summary> the wrap's parameters (MeshAlphaWrap.RelativeAlpha / RelativeOffset: the bounding box diagonal over alpha / offset).
+        /// The default alpha is diagonal / 40, finer than the wrap's own default of / 20 (docs/design/TET_MESHING.md section 17.8, 500-mesh
+        /// Thingi10K sample: every tet >= 10 degrees on 494 instead of 461 meshes, the input-to-boundary distance 0.77x, 1.3x the time, 1.7x the
+        /// tets). Larger values follow the input more closely at more tets (17.2). </summary>
+        public double RelativeAlpha = 40, RelativeOffset = 600;
         /// <summary> radius-edge bound rho (> 2 for the termination argument without the floor) </summary>
         public double MaxRadiusEdgeRatio = 2;
         /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>
@@ -64,6 +67,23 @@ namespace gs
         /// BoundarySlideFactor > 0 (the default) boundary vertices move, see there
         /// </summary>
         public bool Improve = true;
+        /// <summary>
+        /// stage 2 (TET_MESHING.md section 16): edge splits for tets the flips and smoothing leave below SliverDihedralDegrees. An
+        /// edge of the tet is split at its midpoint (a boundary edge in place, so the boundary's two triangles become four in their
+        /// planes, up to the midpoint's rounding, checked exactly), the new vertex is smoothed, and the split is undone unless the
+        /// smallest dihedral angle of the tets around it then strictly increases (Klingner and Shewchuk 2007's insertion with roll-back)
+        /// </summary>
+        public bool SplitEdges = true;
+        /// <summary>
+        /// stage 2: contraction of an edge of a bad tet with an interior end into its other end (the boundary does not change), under
+        /// the link condition and only if the smallest dihedral angle of the changed tets strictly increases
+        /// </summary>
+        public bool ContractEdges = true;
+        /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
+        public int ImprovePasses = 50;
+        /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
+        internal bool DiagnoseImprovement = false;
+        internal List<string> DiagnosticLines;
         /// <summary>
         /// stage 2: boundary vertices may move by at most this many offsets from their place on the wrap (each move checked exactly:
         /// no input triangle in the swept region, no boundary self-intersection, all tets positive); 0 = the boundary is fixed.
@@ -108,6 +128,7 @@ namespace gs
         public bool Compute()
         {
             Result = null;
+            DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
                 RefineMinAngleDegrees = SurfaceMinAngleDegrees };
@@ -142,7 +163,11 @@ namespace gs
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
                     imp.TangentOnly = BoundaryMovesTangentOnly;
                 }
+                imp.MaxPasses = ImprovePasses;
+                imp.Contraction = ContractEdges;
+                imp.Insertion = SplitEdges;
                 imp.Run();
+                if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();
                 foreach (var kv in imp.Counts) Counts["improve_" + kv.Key] = kv.Value;
                 if (CancelF()) { Status = TetStatus.Cancelled; Result = null; return false; }

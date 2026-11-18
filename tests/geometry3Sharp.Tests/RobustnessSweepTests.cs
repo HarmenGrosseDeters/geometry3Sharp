@@ -6,6 +6,7 @@ using gs;
 using Xunit;
 using Xunit.Abstractions;
 
+#pragma warning disable CS0618 // the sweep pins the failures of the deprecated float classes
 namespace geometry3Sharp.Tests
 {
     /// <summary>

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 using gs;
 using Ops = g3.ExactMeshBoolean.Operations;
 
@@ -37,6 +38,9 @@ namespace DeterminismHarness
             list.Add(Libm2("atan2", Math.Atan2, -10, 10, -10, 10));
             list.Add(Libm2("pow", Math.Pow, 0.1, 10, -5, 5));
             list.Add(Libm2("pow-int", Math.Pow, 0.5, 4, 1, 40, true));
+            // ---- the correctly rounded CoreMath Acos and Tan: no platform libm, so the same bits on every platform (C1 of DETERMINISM.md)
+            list.Add(CoreMathCase("acos", CoreMath.Acos, -1, 1, 1 - 1.0 / 9007199254740992.0, -1 + 1.0 / 9007199254740992.0, 0.23144537602828275, 0.5, 1e-300, 1, -1, 0.0));
+            list.Add(CoreMathCase("tan", CoreMath.Tan, -1.5, 1.5, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 2, 1e22, 6381956970095103.0 * Math.Pow(2, 797), 5e-324, 4.4703483581541778e-07, 0.0));
             // ---- runtime probes (no library code): arithmetic, sorting with ties, number parsing and formatting
             list.Add(new Case("probe.arith-chain", serial => ProbeArith()));
             list.Add(new Case("probe.sort-ties", serial => ProbeSort()));
@@ -50,6 +54,8 @@ namespace DeterminismHarness
             Probes.AddTo(list);
             // ---- the exact kernel, the members of its allow list, Booleans with rounding (Kernel.cs)
             Kernel.AddTo(list);
+            // ---- the exact building blocks of stage 1: SnapRounding2, ExactTriangulation2, TriangleBoxTree (Stage1.cs)
+            Stage1.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
@@ -256,6 +262,23 @@ namespace DeterminismHarness
                 var t = new Trace();
                 var rng = new Rng(0xC0FFEEUL ^ (ulong)name.GetHashCodeStable());
                 for (int i = 0; i < 4096; ++i) { double x = rng.Range(lo, hi); t.Add(x); t.Add(f(x)); }
+                return t;
+            });
+        }
+
+        // 4096 random arguments of [lo, hi], then the listed edge arguments and, for each, its two neighbouring doubles
+        static Case CoreMathCase(string name, Func<double, double> f, double lo, double hi, params double[] edges)
+        {
+            return new Case("coremath." + name, serial => {
+                var t = new Trace();
+                var rng = new Rng(0xC0DEUL ^ (ulong)name.GetHashCodeStable());
+                for (int i = 0; i < 4096; ++i) { double x = rng.Range(lo, hi); t.Add(x); t.Add(f(x)); }
+                foreach (double e in edges)
+                    for (int k = -1; k <= 1; ++k) {
+                        double x = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(e) + (e < 0 ? -k : k));
+                        if (double.IsNaN(x)) continue;      // (the neighbour of +0 below the bit pattern is a NaN with a payload)
+                        t.Add(x); t.Add(f(x));
+                    }
                 return t;
             });
         }

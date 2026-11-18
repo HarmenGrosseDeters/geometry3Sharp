@@ -1227,5 +1227,99 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(serial, segs.Select(s => env.ContainsSegment(s.a, s.b)).ToArray());
         }
+
+        // ------------------------------------------------------------ exact_normal and the end point checks (gate 3.0 shard envelope-3)
+
+        static double MaxAbs(Vector3d v) => Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+
+        /// <summary>
+        /// exact_normal keeps the top 62 bits of the exact normal (in the integer units of the coordinates' common power of
+        /// two): the largest component lies in [2^61, 2^62] after the shift (2^62 by the final rounding; whenever the exact normal
+        /// has more than 62 bits, as for every random triangle here), whatever its sign,
+        /// and the direction is the exact one within the documented 1.02 u. A longer bit length (two's complement bytes of a
+        /// component not negated first) would shift too far and drop bits.
+        /// </summary>
+        [Fact]
+        public void ExactNormal_KeepsTheTop62Bits_ForEitherSign()
+        {
+            var rand = new Random(17);
+            int neg = 0, pos = 0;
+            for (int i = 0; i < 400; ++i) {
+                Vector3d R() => new Vector3d(2 * rand.NextDouble() - 1, 2 * rand.NextDouble() - 1, 2 * rand.NextDouble() - 1) * Math.Pow(2, rand.Next(-40, 40));
+                Vector3d a = R(), b = R(), c = R();
+                Assert.True(PolyhedralEnvelope.exact_normal(a, b, c, out Vector3d N));
+                double M = MaxAbs(N);
+                Assert.True(M >= Math.Pow(2, 61) && M <= Math.Pow(2, 62), $"case {i}: largest component {M:R}");
+                // the direction against the exact cross product N (dyadic): the signs, and the ratios to the largest component
+                Dy[] Nx = Cross(Sub(D(b), D(a)), Sub(D(c), D(a)));
+                int big = Math.Abs(N.x) == M ? 0 : Math.Abs(N.y) == M ? 1 : 2;
+                if (Nx[big].Sign < 0) neg++; else pos++;
+                for (int k = 0; k < 3; ++k) {
+                    Assert.Equal(Nx[k].Sign, Math.Sign(N[k]) == 0 ? Nx[k].Sign : Math.Sign(N[k]));
+                    // N~_k / N~_big against N_k / N_big, exactly as dyadics: |N~_k N_big - N_k N~_big| <= 2.04 u |N_big N~_big|
+                    Dy lhs = Dy.Of(N[k]) * Nx[big] - Nx[k] * Dy.Of(N[big]);
+                    Dy rhs = Dy.Of(2.04 * U) * Nx[big] * Dy.Of(N[big]);
+                    Dy al = lhs.Sign < 0 ? -lhs : lhs, ar = rhs.Sign < 0 ? -rhs : rhs;
+                    Assert.True(Dy.Compare(al, ar) <= 0, $"case {i}, component {k}");
+                }
+            }
+            Assert.True(neg > 50 && pos > 50, $"{neg} negative, {pos} positive largest components");
+        }
+
+        /// <summary>
+        /// exact_normal is exact when the normal fits in 62 bits: one unit spacing apart around 1, with zero coordinates
+        /// (which carry no exponent: counting them would scale the integers by 2^1022 and the normal up to 2^61), and with
+        /// subnormal coordinates next to normal ones (the subnormal exponent -1074, the normal ones be - 1075)
+        /// </summary>
+        [Fact]
+        public void ExactNormal_ExactForSmallNormals_ZeroAndSubnormalCoordinates()
+        {
+            double e = Math.Pow(2, -52);
+            Assert.True(PolyhedralEnvelope.exact_normal(new Vector3d(1, 1, 0), new Vector3d(1 + e, 1, 0), new Vector3d(1, 1 + e, 0), out Vector3d N));
+            Assert.Equal(new Vector3d(0, 0, 1), N);
+            Assert.True(PolyhedralEnvelope.exact_normal(new Vector3d(0, 1, 1), new Vector3d(0, 1 + e, 1), new Vector3d(0, 1, 1 + e), out N));
+            Assert.Equal(new Vector3d(1, 0, 0), N);
+            // p the smallest normal double, s = p / 2 subnormal: N = (s p, -p p, 0), the direction (1, -2, 0) exactly
+            double p = Math.Pow(2, -1022), sub = Math.Pow(2, -1023);
+            Assert.True(sub > 0 && sub < p);
+            Assert.True(PolyhedralEnvelope.exact_normal(Vector3d.Zero, new Vector3d(p, sub, 0), new Vector3d(0, 0, p), out N));
+            Assert.Equal(0, N.z);
+            Assert.Equal(-2.0, N.y / N.x);
+        }
+
+        /// <summary>
+        /// C1 of ContainsSegment: an end point on a facet plane, in the closure but not strictly inside, makes the segment
+        /// not contained, from either end. Each facet's first point lies on its own plane; where it lies strictly inside the
+        /// other facets, no facet plane separates it from the triangle's centroid, so only the end point check rejects.
+        /// </summary>
+        [Fact]
+        public void ContainsSegment_EndOnTheBoundary_IsNotContained_FromEitherEnd()
+        {
+            int tested = 0;
+            foreach (Vector3d[] t in new[] {
+                new[] { Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY },
+                new[] { new Vector3d(0.3, -0.2, 1.1), new Vector3d(1.7, 0.4, 0.9), new Vector3d(0.6, 1.3, 1.4) } }) {
+                var env = new PolyhedralEnvelope(Soup(new[] { t }), 0.1);
+                Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                Vector3d c = (t[0] + t[1] + t[2]) / 3;
+                Assert.True(env.Contains(c) && env.ContainsSegment(c, t[0]));
+                for (int f = 0; f < env.FacetCount(0); ++f) {
+                    env.GetFacet(0, f, out Vector3d q, out _, out _);
+                    bool interior = true;
+                    for (int g = 0; g < env.FacetCount(0); ++g) {
+                        if (g == f) continue;
+                        env.GetFacet(0, g, out Vector3d r0, out Vector3d r1, out Vector3d r2);
+                        if (Det(r0, r1, r2, q).Sign >= 0) interior = false;
+                    }
+                    if (interior == false) continue;
+                    tested++;
+                    Assert.False(env.Contains(q));
+                    Assert.False(env.ContainsSegment(c, q), $"facet {f}: centroid to the boundary point");
+                    Assert.False(env.ContainsSegment(q, c), $"facet {f}: the boundary point to the centroid");
+                    Assert.False(OracleSegment(env, c, q));
+                }
+            }
+            Assert.True(tested >= 2, $"{tested} boundary points");
+        }
     }
 }

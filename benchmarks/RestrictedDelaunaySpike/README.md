@@ -73,3 +73,11 @@ Reading against the stop rules of stage 1a:
    points pile up at the crease until h_min refuses them. The rule's limit was 150 degrees: stage 1 covers 90 degree
    CAD edges; stage 2 (protection) is needed for creases sharper than about 45-60 degrees and for corners (not tested
    here).
+
+## True restricted Voronoi cells against the region proxy (2026-11-17)
+
+`dotnet run --project benchmarks/RestrictedDelaunaySpike -c Release -- rvc [only=<regex>]` computes the restricted Voronoi
+cells of the samples in floating point (`RvcCheck.cs`: bisector clipping of the input triangles, security-radius stop,
+propagation) and compares their (C') / R2 verdicts per sample with the proxy's, before the first region round and at the
+end, on the inputs above plus coarse ones (input edges up to 8 r_max). Results and reading:
+[GEOGRAM_MEASUREMENTS_2026-11.md](../../docs/research/GEOGRAM_MEASUREMENTS_2026-11.md), item 3.

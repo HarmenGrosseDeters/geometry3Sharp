@@ -18,6 +18,13 @@ namespace RestrictedDelaunaySpike
             return m;
         }
 
+        static DMesh3 TwoSpheres()
+        {
+            var m = Sphere(16, p => p + new Vector3d(-2, 0, 0));
+            new MeshEditor(m).AppendMesh(Sphere(16, p => p + new Vector3d(2, 0, 0)));
+            return m;
+        }
+
         static DMesh3 Torus(double R, double r, int nu, int nv)
         {
             var m = new DMesh3();
@@ -134,6 +141,56 @@ namespace RestrictedDelaunaySpike
                 $"\"region_violations\":{rdr.RegionViolations},\"rounds\":{rdr.Rounds},\"far_violations\":{rdr.FarViolations},\"min_angle\":{F(amin)},\"p01_angle\":{F(p01)},\"bad_ratio_share\":{F((double)rep.BadRatio / Math.Max(1, rep.Restricted))}}}");
         }
 
+        // item 3 of docs/research/GEOGRAM_MEASUREMENTS_2026-11.md: the true restricted Voronoi cells against the region proxy, on the
+        // state before the first region round and on the final state
+        static string Compare(Rdr rdr, DMesh3 input, double rmax, string when)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            rdr.ProxyCheck();
+            double proxySeconds = sw.Elapsed.TotalSeconds;
+            var proxy = new Dictionary<int, (bool disk, bool farOk)>(rdr.ProxyVerdict);
+            var rvc = new RvcCheck(input, rdr.Dt);
+            rvc.Compute();
+            int cells = 0, unseen = 0, trueNotDisk = 0, trueFar = 0, proxyNotDisk = 0, proxyFar = 0, missedDisk = 0, missedFar = 0, falseDisk = 0, falseFar = 0;
+            int unseenNotDisk = 0, unseenFar = 0, pieces = 0;
+            double area = 0, maxFar = 0;
+            foreach (var kv in rvc.Cells) {
+                var c = kv.Value;
+                cells++; area += c.Area; pieces += c.Pieces; maxFar = Math.Max(maxFar, c.Far / rmax);
+                bool tDisk = c.Disk, tFar = c.Far <= rmax;
+                if (!tDisk) trueNotDisk++;
+                if (!tFar) trueFar++;
+                if (!proxy.TryGetValue(kv.Key, out var pv)) { unseen++; if (!tDisk) unseenNotDisk++; if (!tFar) unseenFar++; continue; }
+                if (!pv.disk) proxyNotDisk++;
+                if (!pv.farOk) proxyFar++;
+                if (pv.disk && !tDisk) missedDisk++;
+                if (!pv.disk && tDisk) falseDisk++;
+                if (pv.farOk && !tFar) missedFar++;
+                if (!pv.farOk && tFar) falseFar++;
+            }
+            int proxyOnly = proxy.Keys.Count(k => !rvc.Cells.ContainsKey(k));
+            double sArea = input.TriangleIndices().Sum(t => input.GetTriArea(t));
+            return $"\"{when}\":{{\"samples_with_cell\":{cells},\"pieces\":{pieces},\"area_ratio\":{F(area / sArea)},\"true_not_disk\":{trueNotDisk},\"true_far\":{trueFar}," +
+                $"\"proxy_not_disk\":{proxyNotDisk},\"proxy_far\":{proxyFar},\"missed_disk\":{missedDisk},\"missed_far\":{missedFar},\"false_disk\":{falseDisk},\"false_far\":{falseFar}," +
+                $"\"unseen\":{unseen},\"unseen_not_disk\":{unseenNotDisk},\"unseen_far\":{unseenFar},\"proxy_only\":{proxyOnly},\"max_far_over_rmax\":{F(maxFar)}," +
+                $"\"proxy_seconds\":{F(proxySeconds)},\"rvc_seconds\":{F(rvc.Seconds)},\"clips\":{rvc.Clips},\"skipped_by_security_radius\":{rvc.ClipsSkippedBySecurityRadius}}}";
+        }
+
+        static void RunRvcCase(string group, string name, DMesh3 input, double rmaxFrac)
+        {
+            Rotate(input);
+            double diag = input.CachedBounds.Diagonal.Length;
+            double rmax = rmaxFrac * diag, hmin = rmax / 16;
+            var rdr = new Rdr(input) { RMax = rmax, HMin = hmin };
+            string before = null;
+            rdr.BeforeRegionRound = round => { if (round == 0) before = Compare(rdr, input, rmax, "before_regions"); };
+            bool done = rdr.Run(InitialSample(input, 4 * rmax));
+            string after = Compare(rdr, input, rmax, "final");
+            double edge = input.EdgeIndices().Average(e => { var ev = input.GetEdgeV(e); return input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); });
+            Console.WriteLine($"{{\"group\":\"{group}\",\"case\":\"{name}\",\"input_tris\":{input.TriangleCount},\"mean_edge_over_rmax\":{F(edge / rmax)},\"done\":{(done ? "true" : "false")}," +
+                $"\"samples\":{rdr.Dt.VertexCount - 8},\"rounds\":{rdr.Rounds},\"region_seconds\":{F(rdr.RegionSeconds)},\"seconds\":{F(rdr.Seconds)},{before ?? "\"before_regions\":null"},{after}}}");
+        }
+
         static T2 Let<T1, T2>(this T1 x, Func<T1, T2> f) => f(x);
 
         static void Main(string[] args)
@@ -150,6 +207,35 @@ namespace RestrictedDelaunaySpike
             }
             foreach (double psi in new[] { 15.0, 30, 45, 60, 90, 120, 135, 150, 160, 170, 175, 200, 240, 270, 300, 330 })
                 cases.Add(("lens", "lens_psi" + psi, () => Lens(psi, 400, 60), 1.0 / 30));
+            if (args.Contains("rvc")) {
+                // self-test of the RVC topology: sphere with samples at the poles (two hemispheres: disks, chi 1); torus with three
+                // samples on its centre circle (three tube sectors: annuli, chi 0, one component each)
+                foreach (var (what, m, pts) in new (string, DMesh3, Vector3d[])[] {
+                    ("sphere, 2 poles", Sphere(32, p => p), new[] { new Vector3d(0, 0, 1), new Vector3d(0, 0, -1) }),
+                    ("torus, 3 on the centre circle", Torus(1, 0.3, 120, 36), Enumerable.Range(0, 3).Select(k => new Vector3d(Math.Cos(2 * Math.PI * k / 3 + 0.1), Math.Sin(2 * Math.PI * k / 3 + 0.1), 0)).ToArray()),
+                    // two spheres at x = -2 and x = 2, one sample at the origin and one far up: the first cell holds both spheres (two
+                    // components, each closed: chi 2 + 2), the second cell is empty
+                    ("two spheres, 1 sample between them", TwoSpheres(), new[] { Vector3d.Zero, new Vector3d(0, 50, 0) }) }) {
+                    var box = m.CachedBounds; box.Expand(box.Diagonal.Length);
+                    var dt = new Delaunay3(box);
+                    foreach (var p in pts) dt.Insert(p, -1, 0, out _);
+                    var rc = new RvcCheck(m, dt); rc.Compute();
+                    Console.WriteLine("{\"selftest\":\"" + what + "\",\"cells\":[" + string.Join(",", rc.Cells.OrderBy(k => k.Key).Select(k => $"{{\"chi\":{k.Value.Chi},\"components\":{k.Value.Components},\"disk\":{(k.Value.Disk ? "true" : "false")}}}")) + "]}");
+                }
+                // the proxy's blind spot is features smaller than the input's edges: coarser spheres too (input edge up to r_max)
+                foreach (double fr in new[] { 1.0 / 30, 1.0 / 60, 1.0 / 120 }) {
+                    string sfx = fr > 0.02 ? "d30" : fr > 0.01 ? "d60" : "d120";
+                    foreach (int n in new[] { 8, 16, 32 }) cases.Add(("coarse", "sphere" + n + "_" + sfx, () => Sphere(n, p => p), fr));
+                    cases.Add(("coarse", "bumpy24_" + sfx, () => Sphere(24, p => p * (1 + 0.12 * Math.Sin(6 * p.x) * Math.Sin(6 * p.y) * Math.Sin(6 * p.z + 0.3))), fr));
+                    cases.Add(("coarse", "torus60x18_" + sfx, () => Torus(1, 0.3, 60, 18), fr));
+                }
+                foreach (var c in cases) {
+                    if (c.group == "lens" && !new[] { "lens_psi45", "lens_psi60", "lens_psi90", "lens_psi300" }.Contains(c.name)) continue;
+                    if (only != null && !System.Text.RegularExpressions.Regex.IsMatch(c.name, only)) continue;
+                    RunRvcCase(c.group, c.name, c.make(), c.rmax);
+                }
+                return;
+            }
             foreach (var c in cases) {
                 if (only != null && !System.Text.RegularExpressions.Regex.IsMatch(c.name, only)) continue;
                 RunCase(c.group, c.name, c.make(), c.rmax);

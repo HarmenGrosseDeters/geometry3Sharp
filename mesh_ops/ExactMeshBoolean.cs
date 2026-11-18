@@ -231,10 +231,14 @@ namespace g3
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
         /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): no edit is evaluated once the exact triangle
-        /// pair tests of its evaluations exceed it. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
+        /// pair tests of its evaluations exceed it (grown with the initial defects by up to 4 times, RoundingPairTestsDefectScale / RoundingPairTestsMaxGrowth). Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
         /// defects left counted; it bounds the time on inputs it cannot repair. Default 5M
         /// </summary>
         public long RoundingMaxPairTests = 5000000;
+        /// <summary> SafeRounding's growth of the budget with the defects (MeshRoundingRepair.PairTestsDefectScale) </summary>
+        public double RoundingPairTestsDefectScale = 50000;
+        /// <summary> its ceiling, as a factor of RoundingMaxPairTests (MeshRoundingRepair.PairTestsMaxGrowth) </summary>
+        public double RoundingPairTestsMaxGrowth = 4;
         /// <summary>
         /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
         /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
@@ -346,6 +350,16 @@ namespace g3
         internal int AntipodalTreeMinSegments = 1000;
         /// <summary> T5: blocks of few pieces share the frame of the triangle they are reached from (off: one per triangle, for tests) </summary>
         internal bool TraceShareFrames = true;
+        /// <summary>
+        /// #1047: the coplanar stacks test a piece only against the coplanar triangles whose boxes meet its box (off: against
+        /// all of its source's coplanar triangles, for A/B tests; the same stacks)
+        /// </summary>
+        internal bool CoplanarBoxFilter = true;
+        /// <summary> #1047: L2's exact sides of a piece's centroid, per triangle and piece, computed once per cluster (off: per test, for A/B tests) </summary>
+        internal bool MemoTracedSides = true;
+        /// <summary> tests: keep the coplanar stack of every piece (StacksPerPiece; null for a piece without one) </summary>
+        internal bool RecordStacks = false;
+        internal List<int>[] StacksPerPiece;
         /// <summary> tests: evaluate the traced pieces directly as well and count the different thresholds (TracedMismatches) </summary>
         internal bool VerifyTracedOpenWinding = false;
         internal long TracedMismatches;
@@ -361,6 +375,15 @@ namespace g3
         internal bool LocalTriangulationFilters = true;
         // for tests: the arrangement of the last Compute
         internal ExactMeshArrangement Arrangement { get { return arr; } }
+        // for tests (the certifying checker, tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs): keep what the
+        // classification decided, per arrangement piece (Arrangement.Output): the winding numbers of all meshes in front of
+        // each piece it classified (dense, one entry per mesh; null for the pieces it did not: coplanar copies output from
+        // another triangle), keep and flip; and a copy of the result before SafeRounding (vertex ids as in Result then).
+        // Recording only: it changes no decision
+        internal bool RecordCertificate = false;
+        internal int[][] CertificateFront;
+        internal bool[] CertificateKeep, CertificateFlip;
+        internal DMesh3 CertificateAssembled;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
@@ -546,12 +569,16 @@ namespace g3
             segmentProjections.Clear();
             segmentL1.Clear();
             OpenWindingPerPiece = null;
+            CertificateFront = null;
+            CertificateKeep = CertificateFlip = null;
+            CertificateAssembled = null;
             antipodalUndecided = 0;
             antipodalSnapped = 0;
             hierUsed = hierFallbacks = 0;
             perPatchDecided = perPatchSaved = 0;
             PerPatchMismatches = 0;
             tracedCount = tracedDirect = tracedCarried = tracedExactCentroids = tracedCrossSteps = tracedCrossFallbacks = tracedCrossCandidates = tracedClusters = 0;
+            coplanarTests = tracedExactSides = 0;
             TracedMismatches = 0;
             TracedMismatchMargins = null;
             antipodalExact.Clear();
@@ -632,6 +659,10 @@ namespace g3
             bool[] keep, flip;
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
+            if (RecordCertificate) {
+                CertificateKeep = (bool[])keep.Clone();
+                CertificateFlip = (bool[])flip.Clone();
+            }
             clock.Lap("classification");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -655,11 +686,17 @@ namespace g3
             Counts["l2_clusters"] = tracedClusters;
             // (L2: the pieces whose exact centroid was computed, where a filter failed or for the piece's own ray)
             Counts["l2_exact_centroids"] = tracedExactCentroids;
+            // (#1047: the sides L2's steps took past the filter, computed where the memo did not have them, the trivial
+            // zeros of a piece's own or a coplanar triangle included; the exact containment tests of the coplanar stacks)
+            Counts["l2_exact_sides"] = tracedExactSides;
+            Counts["coplanar_tests"] = coplanarTests;
             Counts["antipodal_snapped"] = antipodalSnapped;
             // (lever 1: the evaluations decided by the hierarchical sum, and those it handed to the full sum)
             Counts["antipodal_hierarchical"] = hierUsed;
             Counts["antipodal_hierarchical_fallbacks"] = hierFallbacks;
             Result = assemble(keep, flip);
+            if (RecordCertificate)
+                CertificateAssembled = new DMesh3(Result, false, MeshComponents.None);
             clock.Lap("assembly");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
@@ -674,7 +711,7 @@ namespace g3
                     // of them are exact triangles of the arrangement)
                     ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests,
+                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests, PairTestsDefectScale = RoundingPairTestsDefectScale, PairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
                     // (#985: where an exact input is itself thin or tiny, a result of thin pieces only is that input's
                     // shape, not slivers of nearly coincident surfaces: it is kept, and counted)
                     KeepWhenEmptied = inputs.Exists(m => MeshRoundingRepair.IsThinOrTiny(m, RoundingMaxDisplacement, 1e-12))
@@ -1056,7 +1093,9 @@ namespace g3
             var steps = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var stack = new List<int>[n];
             bool[] representative = new bool[n];
-            gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], out stack[i]));
+            double[] coplanarBoxes = coplanar_boxes();
+            gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]));
+            StacksPerPiece = RecordStacks ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
@@ -1179,6 +1218,7 @@ namespace g3
             steps.LapMicroseconds("classification.open");
 
             int[] winding = new int[nm];
+            int[][] front = RecordCertificate ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -1200,6 +1240,8 @@ namespace g3
                     for (int k = 0; k < w.Length; k += 2)
                         add(w[k], w[k + 1]);
                 }
+                if (front != null)
+                    front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
@@ -1222,21 +1264,41 @@ namespace g3
                 }
                 touched.Clear();
             }
+            CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
 
         // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
-        // piece is output from it (its source is the stack's first triangle)
+        // piece is output from it (its source is the stack's first triangle); boxes: coplanar_boxes
+        // (#1047: a coplanar triangle whose box misses the piece's box cannot contain the piece's centroid, which lies in
+        // the piece; the exact test and the centroid only where a box meets it, the same stack in the same order)
         [MethodImpl(JitHints.Optimize)]
-        bool coplanar_stack(ExactMeshArrangement.OutputTriangle ot, out List<int> stack)
+        bool coplanar_stack(ExactMeshArrangement.OutputTriangle ot, double[] boxes, out List<int> stack)
         {
             stack = null;
             var src = arr.Triangles[ot.Source];
             if (src.Coplanar.Count == 0)
                 return true;
+            double x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+            bool filter = CoplanarBoxFilter;
+            if (filter) {
+                piece_box(ot, out x0, out y0, out z0, out x1, out y1, out z1);
+                bool any = false;
+                foreach (int ui in src.Coplanar)
+                    if (boxes_meet(boxes, ui, x0, y0, z0, x1, y1, z1)) {
+                        any = true;
+                        break;
+                    }
+                if (any == false)
+                    return true;
+            }
             bool representative = true;
             int c = centroid(ot);
+            long tests = 0;
             foreach (int ui in src.Coplanar) {
+                if (filter && boxes_meet(boxes, ui, x0, y0, z0, x1, y1, z1) == false)
+                    continue;
+                ++tests;
                 if (inside_coplanar(src, arr.Triangles[ui], c)) {
                     if (stack == null)
                         stack = new List<int>() { ot.Source };
@@ -1245,7 +1307,83 @@ namespace g3
                         representative = false;
                 }
             }
+            System.Threading.Interlocked.Add(ref coplanarTests, tests);
             return representative;
+        }
+
+        // #1047: per input triangle that has coplanar triangles (6 entries each: min x, y, z, max x, y, z; NaN for the others),
+        // a box in grid coordinates that contains its exact corners, so the closed triangle; null where no triangle has
+        // coplanar triangles (then coplanar_stack reads none). Serial: one pass over the triangles, cheap against the pieces
+        [MethodImpl(JitHints.Optimize)]
+        double[] coplanar_boxes()
+        {
+            int nt = arr.Triangles.Count;
+            bool any = false;
+            for (int t = 0; t < nt && any == false; ++t)
+                any = arr.Triangles[t].Coplanar.Count > 0;
+            if (any == false)
+                return null;
+            var boxes = new double[6 * nt];
+            for (int t = 0; t < nt; ++t) {
+                var T = arr.Triangles[t];
+                if (T.Coplanar.Count == 0) {
+                    for (int k = 0; k < 6; ++k)
+                        boxes[6 * t + k] = double.NaN;
+                    continue;
+                }
+                double x0, y0, z0, x1, y1, z1;
+                points_box(T.Corners[0], T.Corners[1], T.Corners[2], out x0, out y0, out z0, out x1, out y1, out z1);
+                boxes[6 * t] = x0; boxes[6 * t + 1] = y0; boxes[6 * t + 2] = z0;
+                boxes[6 * t + 3] = x1; boxes[6 * t + 4] = y1; boxes[6 * t + 5] = z1;
+            }
+            return boxes;
+        }
+
+        // a box in grid coordinates that contains piece ot (its exact corners, so the closed triangle and its centroid)
+        [MethodImpl(JitHints.Optimize)]
+        void piece_box(ExactMeshArrangement.OutputTriangle ot, out double x0, out double y0, out double z0, out double x1, out double y1, out double z1)
+        {
+            points_box(ot.A, ot.B, ot.C, out x0, out y0, out z0, out x1, out y1, out z1);
+        }
+
+        // the box of the exact points a, b, c from their approximations and error bounds per coordinate (ApproxError), widened
+        // so that the rounding of the bounds' sums cannot move them inside (a margin of 1e-9 of the error and 1e-14 of the
+        // coordinate, far above the rounding of one subtraction, 2^-53 of the result); NaN coordinates (none in an
+        // arrangement) make every comparison with the box false, which boxes_meet reads as meeting
+        [MethodImpl(JitHints.Optimize)]
+        void points_box(int a, int b, int c, out double x0, out double y0, out double z0, out double x1, out double y1, out double z1)
+        {
+            x0 = y0 = z0 = double.PositiveInfinity;
+            x1 = y1 = z1 = double.NegativeInfinity;
+            for (int k = 0; k < 3; ++k) {
+                int id = k == 0 ? a : k == 1 ? b : c;
+                Vector3d v = arr.Approx(id);
+                double e = arr.ApproxError(id), lo, hi;
+                widened(v.x, e, out lo, out hi); x0 = Math.Min(x0, lo); x1 = Math.Max(x1, hi);
+                widened(v.y, e, out lo, out hi); y0 = Math.Min(y0, lo); y1 = Math.Max(y1, hi);
+                widened(v.z, e, out lo, out hi); z0 = Math.Min(z0, lo); z1 = Math.Max(z1, hi);
+            }
+        }
+
+        // an interval [lo, hi] of doubles that contains [v - e, v + e] exactly (v a coordinate's approximation, e its error
+        // bound): the bound and the coordinate widened by 1e-9 e + 1e-14 |v| + 1e-300, more than the rounding of the sums
+        // (at most 2^-53 of their magnitude); NaN or infinite inputs give a NaN or infinite end (boxes_meet reads NaN as
+        // meeting)
+        [MethodImpl(JitHints.Optimize)]
+        internal static void widened(double v, double e, out double lo, out double hi)
+        {
+            double m = e * (1 + 1e-9) + 1e-300 + 1e-14 * Math.Abs(v);
+            lo = v - m;
+            hi = v + m;
+        }
+
+        // whether the box of triangle u in boxes (coplanar_boxes) may meet the box (x0..z1): false only where they are
+        // separated along an axis (a NaN anywhere gives true)
+        [MethodImpl(JitHints.Optimize)]
+        static bool boxes_meet(double[] boxes, int u, double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            int o = 6 * u;
+            return !(boxes[o] > x1 || boxes[o + 3] < x0 || boxes[o + 1] > y1 || boxes[o + 4] < y0 || boxes[o + 2] > z1 || boxes[o + 5] < z0);
         }
 
         static readonly int[] noWinding = new int[0];
@@ -1857,6 +1995,9 @@ namespace g3
                     return c;
                 };
                 Func<int, int, bool> samePlane = (t, u) => interiorSide(t, u) == 0;
+                // (#1047: local_side's sides where its filter fails, per input triangle and piece: a step meets most of
+                // them again from its other end or the next step, and the side is a function of the two)
+                var exactSides = MemoTracedSides ? new Dictionary<long, int>(EdgeKeyComparer.Instance) : null;
                 var chi = new int[len];
                 var far = new int[len];
                 var thr = new int[len];         // the threshold of a piece where known (its own value, or carried)
@@ -1958,7 +2099,7 @@ namespace g3
                                     shareFrame(p, q);
                                 Center cpq = cross && frameOf(q) != frameOf(p) ? new Center(this, output[q], frameOf(p), center(q)) : center(q);
                                 bool stepped = f >= 0 && carried_crossings(p, q, m, f, center(p), cpq, cross ? null : grid(p), candidates(p, q, f), frameOf(p),
-                                    cross == false || samePlane(output[p].Source, output[q].Source), interiorSide, out delta, out crossed, ref crossCandidates);
+                                    cross == false || samePlane(output[p].Source, output[q].Source), interiorSide, exactSides, out delta, out crossed, ref crossCandidates);
                                 if (cross) {
                                     System.Threading.Interlocked.Increment(ref crossSteps);
                                     if (stepped == false)
@@ -2961,6 +3102,8 @@ namespace g3
             public double Ap, Aq, Lp, Lq;
             public LocalFrame Frame;
             public Center Cp, Cq;
+            public int P, Q;                // the pieces (output indices)
+            public Dictionary<long, int> Sides;     // local_side's memo (null: none)
             public int Crossings;
             public bool Degenerate;
             // (the box tree's queries: k indexes Tris, degenerate triangles are skipped, Found counts the others)
@@ -3019,8 +3162,8 @@ namespace g3
                 int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
                 Vector3d d0 = Frame.Corner(c0), d1 = Frame.Corner(c1), d2 = Frame.Corner(c2);
                 double e0 = LocalFrame.PointError(d0), e1 = LocalFrame.PointError(d1), e2 = LocalFrame.PointError(d2);
-                int a = B.local_side(U, ui, SrcP, InteriorSide, Cp, ref d0, ref d1, ref d2, ref Gp, e0, e1, e2, Lp),
-                    b = B.local_side(U, ui, SrcQ, InteriorSide, Cq, ref d0, ref d1, ref d2, ref Gq, e0, e1, e2, Lq);
+                int a = B.local_side(U, ui, SrcP, InteriorSide, Cp, ref d0, ref d1, ref d2, ref Gp, e0, e1, e2, Lp, P, Sides),
+                    b = B.local_side(U, ui, SrcQ, InteriorSide, Cq, ref d0, ref d1, ref d2, ref Gq, e0, e1, e2, Lq, Q, Sides);
                 // (a centroid in the plane: the side its piece's front points to)
                 int ae = a != 0 ? a : ExactLimbSigns.Dot(Sp.NX, Sp.NY, Sp.NZ, U.NX, U.NY, U.NZ);
                 int be = b != 0 ? b : ExactLimbSigns.Dot(Sq.NX, Sq.NY, Sq.NZ, U.NX, U.NY, U.NZ);
@@ -3060,7 +3203,7 @@ namespace g3
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         bool carried_crossings(int p, int q, int m, int f, Center cp, Center cq, CrossingGrid grid, int[] pierceCandidates, LocalFrame frame,
-            bool inPlaneZero, Func<int, int, int> interiorSide, out int delta, out int crossed, ref long treeCandidates)
+            bool inPlaneZero, Func<int, int, int> interiorSide, Dictionary<long, int> sides, out int delta, out int crossed, ref long treeCandidates)
         {
             delta = 0;
             crossed = 0;
@@ -3076,7 +3219,8 @@ namespace g3
             int srcP = arr.Output[p].Source, srcQ = arr.Output[q].Source;
             var v = new CrossVisit {
                 B = this, Sp = sp, Sq = sq, SrcP = srcP, SrcQ = srcQ, InteriorSide = interiorSide, Prefilter = grid == null,
-                Xp = xp, Xq = xq, Ap = ap, Aq = aq, Gp = gp, Gq = gq, Lp = lp, Lq = lq, Frame = frame, Cp = cp, Cq = cq
+                Xp = xp, Xq = xq, Ap = ap, Aq = aq, Gp = gp, Gq = gq, Lp = lp, Lq = lq, Frame = frame, Cp = cp, Cq = cq,
+                P = p, Q = q, Sides = sides
             };
             if (grid != null)
                 grid.Query(xp, xq, Math.Max(ap, aq), ref v);
@@ -3142,15 +3286,30 @@ namespace g3
         // meet the pieces' own triangles in the box tree), else exact
         [MethodImpl(JitHints.Optimize)]
         int local_side(ExactMeshArrangement.InputTriangle U, int ui, int src, Func<int, int, int> interiorSide, Center c, ref Vector3d d0, ref Vector3d d1,
-            ref Vector3d d2, ref Vector3d g, double e0, double e1, double e2, double eg)
+            ref Vector3d d2, ref Vector3d g, double e0, double e1, double e2, double eg, int piece = -1, Dictionary<long, int> memo = null)
         {
             int o = DisableFilters ? 2 : orient3d_filtered_err(ref d0, ref d1, ref d2, ref g, e0, e1, e2, eg);
             if (o != 2)
                 return -o;
+            // (#1047: the side of the piece's exact centroid, which the filter certifies where it decides: one value per
+            // triangle and piece, whatever frame the step evaluates it in)
+            long key = 0;
+            int r;
+            if (memo != null && piece >= 0) {
+                key = ((long)ui << 32) | (uint)piece;
+                if (memo.TryGetValue(key, out r))
+                    return r;
+            }
+            System.Threading.Interlocked.Increment(ref tracedExactSides);
             if (ui == src || interiorSide(ui, src) == 0)
-                return 0;
-            ExactPoint3 P = c.P;
-            return ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+                r = 0;
+            else {
+                ExactPoint3 P = c.P;
+                r = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+            }
+            if (memo != null && piece >= 0)
+                memo[key] = r;
+            return r;
         }
 
         // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
@@ -3984,6 +4143,7 @@ namespace g3
         long perPatchDecided, perPatchSaved;
         // L2: the evaluations by a carried ray, and the direct ones of the traced input triangles (references and fallbacks)
         long tracedCount, tracedDirect, tracedCarried, tracedExactCentroids, tracedCrossSteps, tracedCrossFallbacks, tracedCrossCandidates, tracedClusters;
+        long coplanarTests, tracedExactSides;
         // L2: the boundary segments of the Antipodal meshes as exact grid points (antipodalSegments as doubles)
         readonly Dictionary<int, ExactPoint3[]> antipodalExact = new Dictionary<int, ExactPoint3[]>();
         // values the Antipodal Method snapped to a half-integer (snap_half)

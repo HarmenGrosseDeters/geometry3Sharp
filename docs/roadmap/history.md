@@ -80,7 +80,7 @@ The Phase 2 items are on [exact-boolean.md](exact-boolean.md#phase-2-items-on-ex
 | Exact, robust mesh booleans and arrangements | Zhou et al. 2016 *Mesh Arrangements for Solid Geometry*; Cherchi et al. 2020/2022 (indirect predicates); Trettner et al. 2022 *EMBER*; Manifold (Apache-2.0) | The biggest gap; the existing `MeshBoolean` is not robust, the winding-number variant is voxel based. `ExactPredicates` is the base. |
 | Alpha wrapping / shrink wrap | Portaneri et al. 2022 *Alpha Wrapping with an Offset* | Guaranteed watertight manifold output from any input: scan repair, 3D printing, biomedical CAD. Complements `MeshAutoRepair`. |
 
-#### Platform and tooling milestones, November 2026 (log, appended 2026-11-15)
+#### Platform and tooling milestones, November 2026 (log, appended 2026-11-17)
 
 Merge dates from `git log origin/master`. The details are on [platform.md](platform.md) and the topic pages.
 
@@ -97,3 +97,9 @@ Merge dates from `git log origin/master`. The details are on [platform.md](platf
 - 2026-11-16: `DualContouring` takes exact Hermite data by default (`ExactHermite`, `QEFEigenTolerance` 0.02; owner decision): the output of
   a plain `DualContouring` changes (sharper creases, same triangle count); `ExactHermite = false` with tolerance 0.1 is the former output;
   `WindingContouring`, `MeshWindingNumberSolidify` and `MeshOffset` keep tolerance 0.1 (they set `HermiteF`).
+- 2026-11-17: NativeAOT feasibility study ([NATIVE_AOT_FEASIBILITY.md](../design/NATIVE_AOT_FEASIBILITY.md), #1052; native package not now (owner 2026-11-17, spike #1052));
+  test-only certifying checker of `ExactMeshBoolean` (#1061); mutation gate run 44013112256 on master dispatched (survivors of three shards: PR #1077, merged).
+- 2026-11-17 (later): Exact Boolean 4.0 stage 0 (#1093); `ExactMeshBoolean` coplanar-stack prefilter (#1064, #1047); RC4a parameters passed through (#1068); float `MeshMeshCut` / `MeshBoolean` `[Obsolete]` (#1037);
+  tet default alpha diagonal / 40 (#1073); `Remesher.ApplySafePreset` (#1085); `ExactTriangulation2` guard limits in `long` (#1086); gate-change check (#1087) and its label rule (#1094); review-checklist diff triggers (#1088);
+  coverage-gate tests (#1089); `DoNotAllocate` diagnostics (#1090); scale-free repair study (#1095); `SnapRounding2` culture-invariant text (#1092); quad remeshing: study (#1078), `DPolyMesh` (#1097), `CrossField` (#1098),
+  Hermitian form (#1099), `QuadRemesher` stage 2 (#1100), `SparseCholesky` vector kernels (#1103); `MeshRobustRepair` lost-part report F1 (#1101).

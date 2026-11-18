@@ -173,7 +173,7 @@ namespace geometry3Sharp.Tests
             Assert.True(ex < axisTol && ey < axisTol && ez < axisTol, "axis differences " + ex + " " + ey + " " + ez);
         }
 
-        // The float NTMesh3.GetTriFrame builds a reflection (X x Y = -Z); the D variant is a proper right-handed frame, equal to DMesh3's.
+        // The D variant is a proper right-handed frame, equal to DMesh3's.
         [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void NTMesh3_GetTriFrameD_IsRightHandedAndInvariant(string name)
         {
@@ -189,6 +189,33 @@ namespace geometry3Sharp.Tests
                     if (name == "identity") {
                         Frame3d g = d.GetTriFrameD(tid, e);
                         Assert.True((f.Origin - g.Origin).Length < 1e-12 && (f.X - g.X).Length < 1e-9 && (f.Y - g.Y).Length < 1e-9 && (f.Z - g.Z).Length < 1e-9);
+                    }
+                }
+        }
+
+        // #1029: the float NTMesh3.GetTriFrame built a reflection that Matrix3f.ToQuaternion turned into a wrong frame
+        // (Z was the face normal for 4 of 300 sphere triangles). It must be a rotation with Z the face normal, equal to DMesh3's.
+        [Theory, MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NTMesh3_GetTriFrame_Float_IsRightHandedFaceNormalAndInvariant(string name)
+        {
+            Similarity s = S(name);
+            DMesh3 d = Sphere();
+            DMesh3 dt = Invariance.Transformed(d, s);
+            var m = new NTMesh3(d); var mt = new NTMesh3(dt);
+            Assert.Equal(300, d.TriangleCount);
+            foreach (int tid in m.TriangleIndices())
+                for (int e = 0; e < 3; e++) {
+                    Frame3f f = m.GetTriFrame(tid, e), ft = mt.GetTriFrame(tid, e);
+                    Assert.True(((Vector3d)f.Z - m.GetTriNormal(tid)).Length < 1e-4, "z is the face normal");
+                    Assert.True(((Vector3d)f.X.Cross(f.Y) - (Vector3d)f.Z).Length < 1e-4, "right-handed");
+                    Assert.True(((Vector3d)ft.Z - mt.GetTriNormal(tid)).Length < 1e-4, "z is the face normal (transformed)");
+                    Assert.True(((Vector3d)ft.Z - s.ApplyDirection((Vector3d)f.Z)).Length < 1e-4, "z axis follows the transform");
+                    Index3i tri = dt.GetTriangle(tid);
+                    Vector3d edgeDir = (dt.GetVertex(tri[(e + 1) % 3]) - dt.GetVertex(tri[e % 3])).Normalized;
+                    Assert.True(((Vector3d)ft.X - edgeDir).Length < 1e-4, "x is the edge direction");
+                    if (name == "identity") {
+                        Frame3f g = d.GetTriFrame(tid, e);
+                        Assert.True(((Vector3d)f.X - (Vector3d)g.X).Length < 1e-4 && ((Vector3d)f.Y - (Vector3d)g.Y).Length < 1e-4 && ((Vector3d)f.Z - (Vector3d)g.Z).Length < 1e-4);
                     }
                 }
         }
@@ -228,6 +255,77 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ff.Origin, ((Frame3f)widened).Origin);
             Assert.True(((Vector3d)ff.Z - widened.Z).Length < 1e-6);
             Assert.NotEqual(f.Origin, (Vector3d)((Frame3f)f).Origin);
+        }
+
+        [Fact]
+        public void Frame3d_IdentityAndOriginOnlyConstructor_HaveTheWorldAxes()
+        {
+            // (the changed-line coverage gate: Identity, Frame3d(origin))
+            var o = new Vector3d(632117.25, 5712043.5, 113.75);
+            foreach (Frame3d f in new[] { Frame3d.Identity, new Frame3d(o) }) {
+                Assert.Equal(Vector3d.AxisX, f.X);
+                Assert.Equal(Vector3d.AxisY, f.Y);
+                Assert.Equal(Vector3d.AxisZ, f.Z);
+            }
+            Assert.Equal(Vector3d.Zero, Frame3d.Identity.Origin);
+            Assert.Equal(o, new Frame3d(o).Origin);
+            Assert.Equal(o + new Vector3d(1, 2, 3), new Frame3d(o).FromFrameP(new Vector3d(1, 2, 3)));
+            Assert.Equal(new Vector3d(1, 2, 3), new Frame3d(o).ToFrameP(o + new Vector3d(1, 2, 3)));
+        }
+
+        [Fact]
+        public void Frame3d_RotationAndOrigin_AreSettable()
+        {
+            var f = new Frame3d(Vector3d.Zero);
+            Quaterniond q = new Quaterniond(Vector3d.AxisZ, 90);
+            f.Rotation = q;
+            f.Origin = new Vector3d(1, 2, 3);
+            Assert.Equal(q.x, f.Rotation.x); Assert.Equal(q.y, f.Rotation.y); Assert.Equal(q.z, f.Rotation.z); Assert.Equal(q.w, f.Rotation.w);
+            Assert.Equal(new Vector3d(1, 2, 3), f.Origin);
+            // a quarter turn about Z: X goes to Y
+            Assert.True((f.X - Vector3d.AxisY).Length < 1e-12);
+            Assert.True((f.FromFrameP(Vector3d.AxisX) - new Vector3d(1, 3, 3)).Length < 1e-12);
+        }
+
+        [Fact]
+        public void Frame3d_ToString_ListsOriginAndAxes()
+        {
+            string s = new Frame3d(new Vector3d(1, 2, 3)).ToString();
+            Assert.StartsWith("[Frame3d: Origin=", s);
+            Assert.Contains("X=", s); Assert.Contains("Y=", s); Assert.Contains("Z=", s);
+            Assert.Contains(new Vector3d(1, 2, 3).ToString(), s);
+            Assert.Contains(Vector3d.AxisZ.ToString(), s);
+        }
+
+        // a spatial that names a triangle for every ray (as a spatial with a coarse test would): the exact test then decides
+        sealed class AnyTriangleSpatial : ISpatial
+        {
+            readonly int tid;
+            public AnyTriangleSpatial(int tid) { this.tid = tid; }
+            public bool SupportsNearestTriangle { get { return false; } }
+            public int FindNearestTriangle(Vector3d p, double fMaxDist = double.MaxValue) { return tid; }
+            public bool SupportsTriangleRayIntersection { get { return true; } }
+            public int FindNearestHitTriangle(Ray3d ray, double fMaxDist = double.MaxValue) { return tid; }
+            public bool SupportsPointContainment { get { return false; } }
+            public bool IsInside(Vector3d p) { return false; }
+        }
+
+        [Fact]
+        public void RayHitPointFrameD_TheNamedTriangleIsMissed_NoHit()
+        {
+            // the ray passes beside the triangle the spatial names: false, and the out frame is the default one
+            DMesh3 mesh = Sphere();
+            int tid = mesh.TriangleIndices().First();
+            Vector3d c = mesh.GetTriCentroid(tid);
+            var spatial = new AnyTriangleSpatial(tid);
+            var miss = new Ray3d(c + new Vector3d(10, 10, 10), mesh.GetTriNormal(tid));
+            Frame3d f = new Frame3d(new Vector3d(7, 7, 7));
+            Assert.False(MeshQueries.RayHitPointFrameD(mesh, spatial, miss, out f));
+            Assert.Equal(Vector3d.Zero, f.Origin);
+            // the ray through the centroid hits: the same stub gives a hit
+            var hit = new Ray3d(c + 3 * mesh.GetTriNormal(tid), -mesh.GetTriNormal(tid));
+            Assert.True(MeshQueries.RayHitPointFrameD(mesh, spatial, hit, out f));
+            Assert.True((f.Origin - c).Length < 1e-12);
         }
     }
 }

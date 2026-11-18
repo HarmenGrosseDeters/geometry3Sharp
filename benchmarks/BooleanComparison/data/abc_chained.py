@@ -12,7 +12,11 @@
 #                                                           (--only: just these chains, eg iud_p0005,iud_p0021; applied after --limit)
 #   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
 #                                                           (--budget: no new chain is started after S seconds; finished chains are kept)
+#                                                           (method ours_exact: exact intermediates against today's chain, rows for
+#                                                           chain_exact.py summary; EXACT_BOOLEAN_40_DESIGN.md section 4)
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
+#   python3 data/abc_chained.py versus <other> results.jsonl...   per step: time ratio ours / <other> of the chosen operation and
+#                                                           agreement of the volumes, over the chains where both results are ok
 #
 # Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
 import csv, json, math, os, re, shutil, struct, subprocess, sys, tempfile, time
@@ -25,6 +29,7 @@ import thingi_pairs as tp   # noqa: E402
 import thingi_contact as tc   # noqa: E402
 
 CLASS = "abc-chained"
+EXACT_CLASS = "abc-chained-exact"     # rows of the method ours_exact (run_exact)
 SEED_SELECT, SEED_CHAINS = 20261116, 20261117
 OPS = ["union", "intersection", "difference"]
 # a chain: (operation, left, right); "A", "B", "C" are the placed inputs, "R" the result of the previous step of the same method
@@ -357,6 +362,38 @@ def run_method(m, case, d0, plan, files, timeout, rows, info):
             return
         prev = out
 
+EXACT_TIME_REPS = 3
+
+def run_exact(case, files, rows, info, timeout, method="ours_exact"):
+    """method ours_exact (Exact Boolean 4.0 stage 0, docs/design/EXACT_BOOLEAN_40_DESIGN.md): the chain once as today (each step on
+    the previous rounded result) and each step once as one n-ary boolean over the original A, B, C (exact intermediates, one
+    rounding), in one process (`chain-exact`); one row per step, class abc-chained-exact (read by chain_exact.py summary, not by
+    summary here). Method ours_exact_time: the order-randomized timing of today's chain against ExactMesh.Round() (`chain-exact-time`,
+    EXACT_TIME_REPS repetitions; chain_exact.py time-summary)"""
+    import compare
+    # (ours_exact: three booleans per step; ours_exact_time: two per step and repetition; the per-boolean timeout for each. The
+    # rows printed before a timeout are kept: per step for ours_exact, none for ours_exact_time, which prints after its last
+    # repetition. ChainExact does not apply BOOLCMP_ROUNDING_MAX_PAIR_TESTS / BOOLCMP_SAFE_ROUNDING: library defaults only)
+    try:
+        cmd = ["chain-exact"] if method == "ours_exact" else ["chain-exact-time"]
+        extra = [] if method == "ours_exact" else [str(EXACT_TIME_REPS)]
+        booleans = 3 if method == "ours_exact" else 2 * EXACT_TIME_REPS
+        s = subprocess.run(compare.tool + cmd + [files["A"], files["B"], files["C"], case["variant"]] + extra, capture_output=True, text=True,
+                           timeout=booleans * len(PLANS[case["variant"]]) * timeout)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
+    got = 0
+    for l in out.splitlines():
+        if l.startswith("{"):
+            r = json.loads(l)
+            r.update({"class": EXACT_CLASS, "file": case["name"], "method": method, "chain_inputs": info})
+            rows.append(r)
+            got += 1
+    if got < len(PLANS[case["variant"]]) and err:
+        rows.append({"class": EXACT_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
+
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
     results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's operations
@@ -378,9 +415,12 @@ def run_chain(case, methods, timeout):
         for m in methods:
             files = {k: os.path.join(d0, k + ".off") for k in "ABC"}
             try:
+                if m in ("ours_exact", "ours_exact_time"):
+                    run_exact(case, files, rows, info, timeout, m)
+                    continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)
@@ -393,12 +433,16 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             data = f.read()
             if data and not data.endswith(b"\n"):
                 f.write(b"\n")
+        retry = set()
         for l in open(out):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
+                if r.get("class") == EXACT_CLASS and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
+                    retry.add(r["file"])
             except ValueError:
                 pass
+        done -= retry
     todo = [c for c in cases if c["name"] not in done]
     print(f"{len(cases) - len(todo)} chains finished, {len(todo)} to run", flush=True)
     t0 = time.monotonic()
@@ -435,6 +479,7 @@ def cmd_summary(files):
         with open(f) as fh:
             rows += [json.loads(l) for l in fh if l.strip()]
     steps, refused, runner = {}, {}, {}
+    rows = [r for r in rows if r.get("class") != EXACT_CLASS]    # ours_exact: chain_exact.py summary
     for r in rows:
         if r.get("method") == "export":
             refused[r["file"]] = r.get("error", "")
@@ -496,6 +541,68 @@ def cmd_summary(files):
         for (k, m), v in sorted(runner.items()):
             print(f"- {k} {m}: {v}")
 
+# --- versus: ours against one other method, step by step
+
+VOL_TOL = 1e-6      # as perf/t6.py: |volume difference| / (vA + vB) of the step's inputs
+
+def pct(v, p):
+    v = sorted(v)
+    return v[min(len(v) - 1, int(p / 100 * len(v)))] if v else float("nan")
+
+def versus(rows, other):
+    """per step k: {ratios, vdiff} over the chains where the chosen operation of step k is ok for ours and for other. From step 2 on
+    each method works on its own previous result, so the inputs differ by the rounding of the two methods (step 1 is the same input)."""
+    steps = {}
+    for r in rows:
+        if "step" in r and "op" in r and "error" not in r and r.get("method") in ("ours", other):
+            steps[(r["file"], r["method"], r["step"])] = r                    # the last row of a step wins, as in summary
+    out = {}
+    for (name, m, k), a in sorted(steps.items()):
+        g = steps.get((name, other, k))
+        if m != "ours" or g is None or g.get("op") != a["op"]:
+            continue
+        op = a["op"]
+        if a.get(f"{op}_status") != "ok" or g.get(f"{op}_status") != "ok":
+            continue
+        o = out.setdefault(k, {"ratios": [], "vdiff": [], "worst": []})
+        if g.get(f"{op}_ms") is not None and a.get(f"{op}_ms") is not None:
+            o["ratios"].append(a[f"{op}_ms"] / max(g[f"{op}_ms"], 0.5))      # 0.5 ms floor, as perf/t6.py MIN_MS
+        inp = a.get("input") or {}
+        scale = (inp.get("vA") or 0) + (inp.get("vB") or 0)
+        va, vg = a.get(f"{op}_volume"), g.get(f"{op}_volume")
+        if va is not None and vg is not None and scale > 0 and math.isfinite(va) and math.isfinite(vg):
+            dv = abs(va - vg) / scale
+            o["vdiff"].append(dv)
+            if dv > VOL_TOL:
+                o["worst"].append((dv, name, op, va, vg))
+    return out
+
+def cmd_versus(other, files):
+    rows = []
+    for f in files:
+        with open(f) as fh:
+            rows += [json.loads(l) for l in fh if l.strip()]
+    out = versus(rows, other)
+    print(f"Ratio: time of ours / time of {other} for the chosen operation of the step (below 1: ours is faster); volumes agree: "
+          f"|difference| <= {VOL_TOL:g} (vA + vB of the step's inputs).\n")
+    print("| step | both ok | median ratio | p90 | max | volumes agree | max volume diff |")
+    print("|---|---|---|---|---|---|---|")
+    allr, allv = [], []
+    for k in sorted(out):
+        o = out[k]
+        r, v = o["ratios"], o["vdiff"]
+        allr += r
+        allv += v
+        print(f"| {k + 1} | {len(r)} | {st.median(r) if r else float('nan'):.2f} | {pct(r, 90):.2f} | {max(r) if r else float('nan'):.2f} | "
+              f"{sum(1 for x in v if x <= VOL_TOL)}/{len(v)} | {max(v) if v else float('nan'):.1e} |")
+    print(f"| all | {len(allr)} | {st.median(allr) if allr else float('nan'):.2f} | {pct(allr, 90):.2f} | {max(allr) if allr else float('nan'):.2f} | "
+          f"{sum(1 for x in allv if x <= VOL_TOL)}/{len(allv)} | {max(allv) if allv else float('nan'):.1e} |")
+    worst = sorted((w + (k,) for k, o in out.items() for w in o["worst"]), reverse=True)
+    if worst:
+        print(f"\nVolumes that disagree: {len(worst)}\n\n| chain | step | op | ours volume | {other} volume | diff / (vA + vB) |\n|---|---|---|---|---|---|")
+        for dv, name, op, va, vg, k in worst[:20]:
+            print(f"| {name} | {k + 1} | {op} | {va:.9g} | {vg:.9g} | {dv:.1e} |")
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     def opt(name, default=None, cast=str):
@@ -512,4 +619,5 @@ if __name__ == "__main__":
                                                      opt("--only", None, lambda s: [x for x in s.split(",") if x]))
     elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int), opt("--budget", None, int))
     elif a[:1] == ["summary"]: cmd_summary(a[1:])
+    elif a[:1] == ["versus"]: cmd_versus(a[1], a[2:])
     else: sys.exit(__doc__)

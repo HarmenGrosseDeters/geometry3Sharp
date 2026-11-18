@@ -7,7 +7,9 @@ namespace g3
     /// <summary>
     /// Fixed-boundary untangling from Garanzha et al. (2021), sections 2.2-2.3 and 4.1.
     /// A serial modified-Newton solver; convergence within the iteration budget is not guaranteed.
-    /// Success certifies finite, nondegenerate, positively oriented triangles, not global injectivity.
+    /// Success certifies finite, nondegenerate, positively oriented triangles, not global injectivity; nondegenerate
+    /// includes not nearly collapsed (ParameterizationDistortion.DegenerateUVTriangles: a shape ratio below 1e-8 of the
+    /// surface triangle's), so a fixed boundary that forces such an anisotropy reports FlippedTriangles.
     /// Input mesh and UVs are not modified. All boundary vertices retain their original double values.
     /// Energy is the normalized shape/area objective at InitialEpsilon; a retained earlier best map is not
     /// marked Converged. Unrepresentable output distortion is a solver failure even if normalization succeeded.

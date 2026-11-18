@@ -1,6 +1,7 @@
 // The imprint comparison (README.md, "Imprint: ExactMeshImprint against MeshMeshCut"): one method on one case directory
 // (A.off, B.off, info.json as written by thingi-pair / thingi-contact), one JSON line with the status, the time and the checks
 // of the result. compare.py --imprint runs it in one process per (method, operation), with a timeout, like the booleans.
+#pragma warning disable CS0618 // the comparison measures the deprecated float MeshMeshCut / MeshBoolean
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -65,6 +66,18 @@ static class ImprintCompare
                         r["curve_length"] = imprint.CurveEdges.Sum(k => result.GetVertex((int)(k >> 32)).Distance(result.GetVertex((int)(k & 0xFFFFFFFF))));
                         r["cracks"] = imprint.HasCracks;
                         r["rounding_clean"] = imprint.Rounding == null || imprint.RoundingClean;
+                        // (#1034: the sliver cleanup stage, the split edges rerouted through a vertex, the drift used against the bound)
+                        foreach (string k in new[] { "sliver_cleanup_stage", "split_edge_reroutes_through_target_vertex", "split_edge_reroutes_through_new_vertex",
+                                "curve_edges_contracted", "target_edge_parts_contracted" })
+                            if (imprint.Counts.TryGetValue(k, out long n)) r[k] = n;
+                        if (imprint.Rounding != null) {
+                            r["rounding_max_drift"] = imprint.Rounding.MaxDrift;
+                            r["rounding_bound"] = imprint.Rounding.MaxLength;
+                            r["rounding_remaining_degenerate"] = imprint.Rounding.RemainingDegenerate;
+                            r["rounding_remaining_intersections"] = imprint.Rounding.RemainingIntersections;
+                            r["rounding_remaining_false_contacts"] = imprint.Rounding.RemainingFalseContacts;
+                            r["rounding_limit"] = imprint.Rounding.EvaluationLimitReached;
+                        }
                     }
                     break;
                 }

@@ -2,7 +2,7 @@
 
 This page says how geometry3Sharp is tested, where the gaps are, and what is done about them, in order of
 priority: robustness and correctness first, performance second. The review checklist that goes with it is
-[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
+[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) (its classes carry diff triggers, so a review checks only the matching ones).
 
 ## 1. Where we stand
 
@@ -238,9 +238,11 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
-  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)). A PR that changes a
-  mutated file runs incrementally: Stryker mutates only the changed lines, the other mutants keep their result from the
+- A workflow reports the mutation score and the surviving mutants. Since 2026-11-16 (#958, the Exact Boolean 3.0 process) it runs in full on
+  master Monday to Saturday for the nightly group (`boolean-*`, `arrangement-*`, `rounding-*`: 24 shards) and on Sunday for the weekly group (the
+  other shards and the arithmetic job), and on demand (`shards=all` or a list); on ready PRs only incrementally for the configs they touch, and a PR
+  makes no full shard run, except the merge gate of a PR that touches exact arithmetic ([tests/mutation/README.md](../tests/mutation/README.md), "3.0 process").
+  A PR that changes a mutated file runs incrementally: Stryker mutates only the changed lines, the other mutants keep their result from the
   baseline of the last full run (its report, kept in the Actions cache, matched by a line diff), and the break
   threshold applies to the combined score of the shard; without a baseline the shard runs in full.
 - A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
@@ -250,7 +252,7 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
   [tests/mutation/README.md](../tests/mutation/README.md).
 - **The exact mesh pipeline** (October 2026): a second job, `exact-mesh`, mutates `mesh_ops/ExactMeshBoolean.cs`,
   `ExactMeshArrangement.cs`, `ExactPlanarSimplify.cs`, `ExactTriangulation2.cs` and `MeshRoundingRepair.cs` in six
-  shards that run in parallel (1 to 5 hours each). The survivors led to three new test classes
+  shards that run in parallel (1 to 5 hours each; since then split further: `tests/mutation` has 45 mesh configs, `rounding-1` .. `-13` among them, #843, #1006). The survivors led to three new test classes
   (`MeshRoundingRepairStrategyTests`, `ExactTriangulation2Tests`, `ExactBooleanFilterTests`) and cases in
   `ExactPlanarSimplifyTests`: each edit of the rounding repair on its own, the triangulation against the definition
   of a constrained Delaunay triangulation, the boolean's own filters against exact signs. Scores per shard, break
@@ -295,6 +297,56 @@ whether a hard limit can end in a success status.
   beyond boxes (subdivided and rotated boxes, corner slivers, components touching at a face, edge or vertex, open inputs, scales 2^-150 to 2^150) with the algebraic
   laws (also two-operand inclusion-exclusion: one operand cannot tell an intersection from a union), serial against parallel, reuse, n-ary against the chain, the status
   contract and bit-exact power-of-two scaling; the fuzz targets `nary`, `determinism`, `reuse`, `open-antipodal` and `rounding-equivalence` of `tools/MeshFuzzPilot` cover the same properties on arbitrary decoded inputs.
+
+### 2.4a Certifying checker of the exact boolean (test-only, owner 2026-11-17)
+
+`tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs` checks a result of `ExactMeshBoolean` against its inputs, as an
+oracle that is independent of the code it checks (stages 1-2 of direction 2 of
+[BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md), sections 3.3-3.6). The boolean
+records its decisions for it (`RecordCertificate`, internal: the winding numbers in front of each classified piece, keep,
+flip, and the result before the rounding; recording changes nothing). The checker has its own exact tests (BigInteger
+determinants on the exact points, no floating-point predicate decides anything) and reuses no classification code:
+- **C0 inputs**: the arrangement's meshes are the caller's (reversed triangles exactly as many as `ReorientedTriangles`,
+  none in a component that was consistently oriented, and the orientable ones consistent afterwards), every
+  non-degenerate input triangle is in the arrangement once; every triangle the early-out culled meets no triangle of
+  the culling mesh and lies outside it (an exact ray per connected set of culled triangles); the rounding's bound is at
+  most the documented one, from the boolean's settings. The meeting test is the library's exact
+  `ExactTriangleIntersection` on the input doubles (an exact predicate, tested on its own), the one place where the
+  checker shares code with the arrangement; the ray still catches a culled set wholly inside the culling mesh.
+- **C1 pieces**: every piece lies in its source triangle's plane, inside it, oriented like it; the pieces of a source tile
+  it (paired inner edges, unpaired ones along the source's edges, projected areas adding up exactly).
+- **C3 classification**: the coplanar stacks from the input triangles grouped by exact plane; the back of a piece from its
+  front and its stack; around every edge the pieces sorted radially, consecutive ones agreeing on the wedge between them;
+  one anchor per connected set: an exact ray (signed crossings with every input triangle).
+- **C4 selection**: kept iff the predicate differs on the two sides, flipped iff the front is inside; copies never kept.
+- **C5 result**: the result before rounding equals the kept pieces as an oriented point set (per plane, the boundary of
+  the difference is zero, swept per supporting line, and the unsigned areas are equal, so that no two-sided sheet hides
+  in the chain); the result is closed and oriented; result and exact result lie within the rounding bound (`MaxLength`
+  plus a few ulps) of each other, by exact squared distances of the corners (a triangle is within delta of a triangle
+  iff its corners are; a degenerate one by its edges), with four-way splits where one triangle does not cover. Where
+  the rounding removed components (a documented decision), the components of the exact result that are tiny or thin by
+  the removal's rule are left out of its coverage by the result; every other one is covered.
+
+Class: closed inputs. Open inputs and an Intersection whose early-out culled triangles against several meshes are
+`n/a` (the oracle runs Intersection with `CullOutsideA = false`); a Difference's early-out is checked (the other meshes'
+winding numbers count only where the first mesh's is positive, with an anchor per connected set under that rule). The
+embedding (no two pieces cross, C2) is not checked: stage 3.
+
+Where it runs: `BooleanCertificateTests` (the box and tetrahedron families of the metamorphic corpus with their
+representation changes, spheres, nested, hollow, self-intersecting and duplicated solids, a winding predicate, the
+similarities of `Similarity.All()`); every case of the CsCheck campaigns `ExactBooleanPropertyTests` (boxes, directed
+families, tetrahedra; so `G3_PROPERTY_SAMPLES` campaigns use it as their oracle); and a Nightly corpus of random spheres,
+tetrahedra and boxes (`Certifies_RandomSolids_Nightly`, 480 booleans with its seed, about 13 s). Teeth: 150 mutations
+of the winding numbers (a patch's winding number of one mesh off by one, two patches' values swapped; the selection
+made to agree, so that only C3 can see them; 6 equivalent ones under the early-out skipped), a nested component read as
+outside (caught only by its anchor ray), 114 mutations of the selection (keep, flip, a coplanar copy kept, A and B
+swapped in a difference), a wrongly culled component and a culled triangle that meets the culling mesh, mutations of
+the inputs, the bound, the pieces (each C1 condition on its own) and the result (a triangle removed or reversed, a
+vertex moved, a two-sided sheet, a moved exact vertex): all caught. The checker itself is a test file, so Stryker does
+not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker (36
+mutants, about 25 minutes), and `BooleanCertificateTests` kills every one. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
+C5 65 ms: several times the boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
+
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
 
@@ -350,7 +402,7 @@ scale checks of the campaigns (the scaling is not exact there).
 |---|---|---|---|---|
 | `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
 | `MeshRoundingRepair` | 2^-200 .. 2^200 (the largest coordinate; no subnormal; `OutsideRange`) | 2^60 (`ScaleDisparity`, not a range) | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
-| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` / `LostFarOpenPart` / `LostSeparatePart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
 | `Reducer` | 1e-150 .. 1e150 and beyond (a power-of-two frame for the quadrics, the edges scaled in the flip test) | -- | sphere: reduces, closed and finite, from 1e-300 to 1e307 with the same relative result at every power-of-two scale (a vertex position is only optimal where the frame scale is a normal double, 2^+-1000) | not guaranteed (documented limit) |
 | `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 (`PartitionedReducer` also in the Reducer's range) | -- | sphere: ok 2^-250 .. 2^500 | not guaranteed (documented limit) |
@@ -442,13 +494,13 @@ GitHub's `schedule` event is unreliable here. Diagnosis from the Actions run lis
 not queued late (`created_at` = `run_started_at`; the runner wait was 3 s to 47 min): `nightly.yml` (cron 02:23 UTC) created
 09:36 and 09:57 (+7 h 13 / +7 h 34), `coverage.yml` (03:41) created 11:48 (+8 h 07) and none at all for 2026-11-11,
 `mutation.yml` (Monday 03:23) created 11:25 and 11:48 (+8 h). Runner priorities or other cron times do not help against that. So
-every daily workflow has two starters and runs once a day:
+`nightly.yml` and `coverage.yml` have two starters and run once a day (`mutation.yml` has the cron lines only since 2026-11-16, see below):
 
 | Workflow | Dispatch (UTC, by the coordinator's scheduled tasks) | Inputs | Cron line (fallback, GitHub runs it late) |
 |---|---|---|---|
 | `nightly.yml` | 02:30 | none | `23 2 * * *` |
 | `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
-| `mutation.yml` | 01:20 daily full run | `shards=all` | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
+| `mutation.yml` | none since 2026-11-16 (the dispatch tasks were disabled when #958 moved the schedule into the cron lines) | `shards=all` (manual dispatches only) | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
 
 The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
 `gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
@@ -479,12 +531,40 @@ is queued or running today (UTC date), or already succeeded. Rules:
   retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
 - In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key
   of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs and is per kind
-  of run on master (`mutation-schedule`, `mutation-workflow_dispatch`): a late cron starts next to the dispatched full run and is
+  of run on master (`mutation-schedule`, `mutation-workflow_dispatch`): with a dispatched full run under way (a manual one now), a late cron starts next to it and is
   skipped by the guard (it never cancels hours of work, and never replaces a pending dispatch).
 - `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
 - Master CI runs: `ci.yml` has one concurrency group per ref without cancel-in-progress (2026-11-15: master runs queue; GitHub keeps the
   run under way and the newest pending one, so a burst of merges skips the middle commits' runs, cancelled as pending). A regression of
   such a commit shows at a later commit: when a master run is red, bisect over the commits since the last green run.
+
+**Why the scheduled `mutation.yml` runs ended cancelled (diagnosis 2026-11-17, run and job data of the three `schedule` runs; no current code cause):**
+
+| Run | Created (UTC) | Result | Cause |
+|---|---|---|---|
+| 41436698451 (2026-11-02) | 11:25 (cron 03:23 Mon, +8 h) | 9 jobs green, 2 cancelled | job timeouts: `The job has exceeded the maximum execution time of 5h50m0s` (`timeout-minutes: 350` of `exact-mesh`) of the two then unsplit shards `rounding` and `envelope`. Both were split afterwards (8381db07, 2e1a81f1 on 11-08, then 89586db5 on 11-10 and 7cd56d64 on 11-15: now `rounding-1..13`, `envelope-1..4`; the single configs no longer exist), so this limit no longer applies as it did |
+| 42611917701 (2026-11-09) | 11:48 (cron 03:23 Mon, +8 h) | 2 green, 20 cancelled at 12:37:50 to 12:38:10 | annotation `The run was canceled by @HarmenGrosseDeters.`: cancelled from a session on the owner's account (most likely a coordinator action, sessions use the owner's token); not a workflow defect |
+| 44003452066 (2026-11-17) | 02:30 (cron 19:17 Mon of 11-16, +7 h 13) | 3 green, 22 cancelled at 03:51:25 to 03:51:54 | same annotation: the coordinator cancelled it with the owner's approval (a run on the older sha 2172017a, 15 commits behind; boolean-1 and boolean-2 had finished, 13 rounding jobs were waiting for runners) to free the runners for the 3.0 gate dispatch 44013112256, created 8 s later (03:51:33); an approved one-off, not a defect |
+
+- Past defect, fixed: at 722b7f99 and aa514cb6 the concurrency group was `mutation-${{ github.ref }}` with `cancel-in-progress: true`, so
+  the late cron runs cancelled the day's dispatch runs: 41395763685 at 11:26:21 on 11-02 and 42567558219 at 11:48:44 on 11-09
+  (annotation `Canceling since a higher priority waiting request for mutation-refs/heads/master exists`). Fixed in 8f0c5c8e
+  (a group per kind of run, cancel only for pull requests).
+- Excluded as a current cause: concurrency (the scheduled run is in group `mutation-schedule`, the dispatch in
+  `mutation-workflow_dispatch`, and `cancel-in-progress` is only true for pull requests, so neither cancels the other), the guard
+  (`changes` ran its steps to success and the shards started: no earlier plain run existed that day, because `mutation.yml` has no
+  dispatcher since 2026-11-16, see below), and a runner limit (all cancelled jobs had started or were queued; none ended with a
+  runner error).
+- Dispatcher status: the coordinator's tasks "Dispatch nightly mutation run" and "Dispatch Monday mutation run" were disabled on
+  2026-11-16 when #958 moved the schedule into the cron lines of the workflow (the coordinator disabled them). The cron lines (GitHub
+  runs them 7 to 8 h late or not at all) are the only starter of `mutation.yml` now; manual `shards=all` dispatches remain possible.
+  The dispatch rows above for `nightly.yml` and `coverage.yml` still apply.
+- Until 2026-11-16 the cron line was Monday only, so there was one schedule run per week; the Mon-Sat nightly lines were added on
+  2026-11-16 (8f0c5c8e), so 44003452066 is the first run of the new lines and says nothing yet about the other days.
+- Not built: no guard or workflow change fixes a manual cancel. (1) A policy for late cron runs (eg the guard
+  skips a `schedule` run created more than N hours after its cron time) is not built: late cron runs stay as they are,
+  since the cron lines are the only starter of `mutation.yml` (owner 2026-11-17). (2) A watch item, not a change: the slowest shards stay
+  well under `timeout-minutes: 350` (watch any shard near 350 min).
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
 
@@ -507,8 +587,8 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
   11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
   visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
-  for a full run of all 25 shards is not confirmed or refuted yet.
-- `coverage.yml` ended red in every run since 11-12 (the changed-line gate, a separate matter).
+  for a full run of all 46 shards (45 mesh shards plus the arithmetic job since #1006) was not confirmed or refuted by the 11-15 data. Since 2026-11-17 one full run exists, which does not settle it either (shards run at most 6 at a time and 5 failed): master run 44013112256 (dispatched 03:51 UTC, the Exact Boolean 3.0 gate), 35 shards green, 5 red.
+- `coverage.yml` ended red in every scheduled and dispatched run from 11-12 to 11-15 (the pull_request runs were green) (the changed-line gate, a separate matter); green on 11-16 (the 06:52 UTC dispatch and the 12:01 UTC cron run, after #959); red again on 11-17 (dispatch 03:47 UTC and cron 12:25 UTC, job `gate`, step "Changed-line coverage").
 - Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
   run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
   cancelling master group and the draft skip (15 Nov morning, two PR runs): `linux` 11 and 16 min, `isolated` 0.3 and 4.6 min,
@@ -593,6 +673,38 @@ Not used: ShapeNet and ModelNet (non-commercial research licenses).
 
 This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
 `CompatibilitySuppressions.xml`, and changed results in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
+
+### 2.8a Gate-change check (owner 2026-11-17)
+
+A change must not modify the checks that judge it. `.github/workflows/gate-change.yml` (`pull_request_target`, so it runs
+from the base branch and never checks out or runs PR code; token `contents: read`, `pull-requests: read`) lists the PR's
+changed files through the REST API (`filename` and `previous_filename`, so a rename out of a gate path counts) and the live
+labels, reads the gate list `tools/gate_files.txt` from the base branch and applies it with `tools/gate_check.py` (unit tests:
+`tools/test_gate_check.py`, in the `linux` job and at the start of the workflow). A PR that changes a gate file fails
+unless it carries the label `gate-change` (in enforce mode, see below). The list holds globs with a reason each: the
+workflows, the analyzers and their lists (`BannedSymbols.txt`, `DeterministicApis.txt`, `core/ExactCodeAllowList.cs`,
+`.editorconfig`, `CompatibilitySuppressions.xml`), the time-rule inputs (`SLOW_BACKLOG.txt`, `tools/*.py`), the
+mutation configs, thresholds and test filters, the golden rows and ratchet limits of the 2D mesher, the design notes
+that tests check against generators, the rules (`CLAUDE.md`, `AGENTS.md`, `docs/AGENT_WORKFLOW.md`,
+`docs/REVIEW_CHECKLIST.md`) and the list and script themselves. A new gate input (a threshold, allow list or baseline
+file) is added to the list in the PR that introduces it.
+
+Who sets the label (owner 2026-11-17): the coordinator, after reviewing the gate-file diff, for a change that keeps or
+tightens the checks (tests added to filters or projects, a `#pragma` for the obsolete warning CS0618 in a tool or test, a new
+CI test, a threshold raised), and logs it with the PR and the gate file; the owner for a change that loosens a check (a
+threshold lowered, a new allow-list, `SLOW_BACKLOG.txt` or suppression entry, any other warning disabled, a job or test removed
+or disabled, a trigger narrowed) or changes the gate check itself (list, script, workflow) or the rules; in doubt, the owner.
+Workers never set it. A push after the coordinator's label gets a fresh review of the gate-file diff before the merge; if it
+loosens a check, the label is removed and the owner decides ([AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 8).
+
+Limits of the label (a social rule, not a technical one): it approves the PR, not a diff, so it is set after the last
+push (a later push keeps it, hence the fresh review above); and nothing checks who set it (branch protection and the repository's permissions do). A broken
+`gate_files.txt` or a failing `test_gate_check.py` fails the job (a broken list must not pass silently; the unit-test step only
+in enforce mode). A PR against another base branch is judged by that branch's workflow and list.
+
+Observe mode is the current state: the job reports (step summary, one warning annotation per file) and passes. The owner
+switches to enforce mode with the repository variable `GATE_CHANGE_ENFORCE=1`; no PR is needed. A PR with 3000 or more changed
+files (the REST list is cut there) counts as a gate change. The workflow itself takes effect only once it is on master.
 
 ### 2.9 Minimizing a failure
 

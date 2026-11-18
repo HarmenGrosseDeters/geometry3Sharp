@@ -101,7 +101,9 @@ namespace geometry3Sharp.Tests
         public void PassThrough_EmptyResultOfTheOthers_UnionIsThePassedParts()
         {
             DMesh3 clean = Sphere(0, 1);
-            var r = new MeshRobustRepair(Union(clean, WithHole(Sphere(8, 0.5, 5)))) { SolidifyResolution = 32 };
+            // (the hook empties the result of the others, so the open part is lost: the final lost-part check reports it, below; off
+            // here, to reach the union of the passed parts with an empty rest)
+            var r = new MeshRobustRepair(Union(clean, WithHole(Sphere(8, 0.5, 5)))) { SolidifyResolution = 32, NoLostPartCheck = true };
             r.PassThroughTestHook = (m) => {
                 foreach (int t in m.TriangleIndices().ToList()) m.RemoveTriangle(t, true, false);
             };
@@ -111,6 +113,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(clean.TriangleCount, r.Mesh.TriangleCount);
             Assert.True(Vertices(clean).SetEquals(Vertices(r.Mesh)));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            var reported = new MeshRobustRepair(Union(clean, WithHole(Sphere(8, 0.5, 5)))) { SolidifyResolution = 32 };
+            reported.PassThroughTestHook = r.PassThroughTestHook;
+            Assert.False(reported.Apply());
+            Assert.Equal(MeshRobustRepair.LostFarOpenPart, reported.ResultReason);
         }
 
         // ---- MeshRepairMetrics.cs:372: an unused vertex far away keeps the mesh out of the canonical frame (its scaled coordinate would overflow)

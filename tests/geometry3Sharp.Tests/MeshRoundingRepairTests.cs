@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using gs;
@@ -968,6 +969,92 @@ namespace geometry3Sharp.Tests
             Assert.Equal("rounding not clean (StrictRounding)", robust.ExactResolveReason);
             Assert.NotNull(robust.ExactResolveRounding);
             Assert.Equal(0, robust.ExactResolveRounding.UlpFactor);
+        }
+
+        [Fact]
+        public void RoundingBudgetGrowth_Defaults_AreTheRepairsDefaults()
+        {
+            var fresh = new MeshRoundingRepair(new DMesh3());
+            var robust = new MeshRobustRepair(new DMesh3());
+            var imprint = new ExactMeshImprint();
+            Assert.Equal(fresh.PairTestsDefectScale, robust.RoundingPairTestsDefectScale);
+            Assert.Equal(fresh.PairTestsMaxGrowth, robust.RoundingPairTestsMaxGrowth);
+            Assert.Equal(fresh.PairTestsDefectScale, imprint.RoundingPairTestsDefectScale);
+            Assert.Equal(fresh.PairTestsMaxGrowth, imprint.RoundingPairTestsMaxGrowth);
+            Assert.Equal(50000.0, imprint.RoundingPairTestsDefectScale);
+            Assert.Equal(4.0, imprint.RoundingPairTestsMaxGrowth);
+        }
+
+        [Fact]
+        public void RoundingBudgetGrowth_Robust_ReachesBothRepairs()
+        {
+            // the pyramid in a dent: both rounding repairs (exact resolve, after SeparateTouchingVertices) run
+            var robust = new MeshRobustRepair(PyramidInADent(0.49)) {
+                AlphaWrapFallback = false, RoundingPairTestsDefectScale = 1234, RoundingPairTestsMaxGrowth = 2.5
+            };
+            Assert.True(robust.Apply());
+            Assert.True(robust.UsedExactResolve, robust.ExactResolveReason);
+            foreach (MeshRoundingRepair r in new[] { robust.ExactResolveRounding, robust.SeparatedRounding }) {
+                Assert.NotNull(r);
+                Assert.Equal(1234.0, r.PairTestsDefectScale);
+                Assert.Equal(2.5, r.PairTestsMaxGrowth);
+            }
+        }
+
+        [Fact]
+        public void RoundingBudgetGrowth_Robust_ChangesTheBudgetOfTheExactStage()
+        {
+            // two nearly coincident spheres (318 initial defects, 19076 pair tests to finish): at a budget of 8000, scale 0 stops the
+            // exact stage's repair at the budget, a scale of 100 grows the budget to 3.18 times, a ceiling of 1 stops the growth
+            DMesh3 sa = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh(), sb = new DMesh3(sa);
+            MeshTransforms.Rotate(sb, Vector3d.Zero, new Quaterniond(new Vector3d(0.6, 0.3, 0.1).Normalized, 1e-10 * MathUtil.Rad2Deg));
+            MeshTransforms.Translate(sb, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            DMesh3 both = new DMesh3(sa);
+            new MeshEditor(both).AppendMesh(sb);
+            MeshRoundingRepair Rounding(double scale, double growth)
+            {
+                var robust = new MeshRobustRepair(new DMesh3(both)) {
+                    AlphaWrapFallback = false, ExactResolveRounds = 1, RoundingMaxPairTests = 8000, RoundingPairTestsDefectScale = scale, RoundingPairTestsMaxGrowth = growth
+                };
+                robust.Apply();
+                Assert.NotNull(robust.ExactResolveRounding);
+                return robust.ExactResolveRounding;
+            }
+            MeshRoundingRepair none = Rounding(0, 4), capped = Rounding(100, 1), grown = Rounding(100, 4);
+            Assert.True(none.StoppedByPairTests);
+            Assert.Equal(8000L, none.PairBudget);
+            Assert.True(capped.StoppedByPairTests);
+            Assert.Equal(8000L, capped.PairBudget);
+            Assert.False(grown.StoppedByPairTests);
+            Assert.True(grown.PairBudget > 20000L);
+            Assert.Equal(0, grown.RemainingIntersections + grown.RemainingDegenerate);
+        }
+
+        [Fact]
+        public void RoundingBudgetGrowth_Imprint_ReachesTheRepair_AndReuseIsIdentical()
+        {
+            DMesh3 target = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, Vector3d.One) }.Generate().MakeDMesh();
+            DMesh3 cutter = new TrivialBox3Generator { Box = new Box3d(new Vector3d(0.5, 0.2, 0.1), new Vector3d(0.6, 0.6, 0.6)) }.Generate().MakeDMesh();
+            var imprint = new ExactMeshImprint {
+                Target = target, Cutters = new List<DMesh3> { cutter }, RoundingMaxPairTests = 100, RoundingPairTestsDefectScale = 1, RoundingPairTestsMaxGrowth = 3
+            };
+            Assert.True(imprint.Compute(), imprint.Error);
+            Assert.NotNull(imprint.Rounding);
+            Assert.Equal(1.0, imprint.Rounding.PairTestsDefectScale);
+            Assert.Equal(3.0, imprint.Rounding.PairTestsMaxGrowth);
+            long budget = imprint.Rounding.PairBudget;
+            DMesh3 first = imprint.Result;
+            Assert.True(imprint.Compute());
+            Assert.Equal(budget, imprint.Rounding.PairBudget);
+            Assert.Equal("", Invariance.Difference(first, imprint.Result));
+            // the defaults give the repair's own budget: a growth that does not apply gives the fixed one
+            var fixedBudget = new ExactMeshImprint {
+                Target = target, Cutters = new List<DMesh3> { cutter }, RoundingMaxPairTests = 100, RoundingPairTestsDefectScale = 0
+            };
+            Assert.True(fixedBudget.Compute());
+            Assert.Equal(100L, fixedBudget.Rounding.PairBudget);
+            Assert.True(budget >= 100L && budget <= 300L);
+            Assert.Equal("", Invariance.Difference(first, fixedBudget.Result));
         }
 
         [Fact]

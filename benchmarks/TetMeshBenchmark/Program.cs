@@ -63,19 +63,30 @@ static class Program
             Console.WriteLine(TetFiles.Header + ",status,wrap_s,refine_s,us_per_tet,counts");
             foreach (var kv in inputs) {
                 var sw = Stopwatch.StartNew();
-                var wrap = new MeshAlphaWrap(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
-                if (args.Length > 5) wrap.RefineMinAngleDegrees = double.Parse(args[5], Inv);
-                wrap.Compute();
+                // the separate wrap only times the wrap alone (wrap_s); G3_TET_WRAP_TIME=0 skips it (runner sample: halves the time),
+                // then wrap_s is 0 and refine_s is the whole Compute
+                if (Environment.GetEnvironmentVariable("G3_TET_WRAP_TIME") != "0") {
+                    var wrap = new MeshAlphaWrap(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                    if (args.Length > 5) wrap.RefineMinAngleDegrees = double.Parse(args[5], Inv);
+                    wrap.Compute();
+                }
                 double wrapS = sw.Elapsed.TotalSeconds;
                 sw.Restart();
                 var tm = new MeshTetrahedralization(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
                 if (args.Length > 4) tm.MaxSteinerPoints = int.Parse(args[4], Inv);
                 if (args.Length > 5) tm.SurfaceMinAngleDegrees = double.Parse(args[5], Inv);
+                // A/B switches of stage 2 (TET_MESHING.md section 16), from the environment: G3_TET_DIAG=1 (diagnosis lines on stderr),
+                // G3_TET_SPLIT=0, G3_TET_CONTRACT=0, G3_TET_PASSES=<n>
+                tm.DiagnoseImprovement = Environment.GetEnvironmentVariable("G3_TET_DIAG") == "1";
+                if (Environment.GetEnvironmentVariable("G3_TET_SPLIT") == "0") tm.SplitEdges = false;
+                if (Environment.GetEnvironmentVariable("G3_TET_CONTRACT") == "0") tm.ContractEdges = false;
+                if (Environment.GetEnvironmentVariable("G3_TET_PASSES") is string ps) tm.ImprovePasses = int.Parse(ps, Inv);
                 tm.Compute();
+                if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);
                 double totalS = sw.Elapsed.TotalSeconds;
                 if (tm.Result == null) { Console.WriteLine(kv.Key + "," + tm.Status + "," + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value))); continue; }
                 double refineS = Math.Max(0, totalS - wrapS);
-                string counts = string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value));
+                string counts = "input_tris=" + kv.Value.TriangleCount + " " + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value));
                 Console.WriteLine(TetFiles.Evaluate(kv.Key, tm.Result, kv.Value, totalS.ToString("G4", Inv), "1") + "," + tm.Status + "," +
                     wrapS.ToString("G4", Inv) + "," + refineS.ToString("G4", Inv) + "," + (refineS * 1e6 / Math.Max(1, tm.Result.Tets.Count)).ToString("G4", Inv) + "," + counts);
             }

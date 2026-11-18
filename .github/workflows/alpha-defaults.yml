@@ -2,7 +2,8 @@ name: Alpha-wrap defaults (800 meshes)
 
 # The alpha-wrap defaults measurement (#736 sharp-feature pass, #846 raw-size budget): three configurations of the wrap
 # pipeline over the 800-mesh Thingi10K sample (benchmarks/MeshRepairBenchmark/alpha_defaults.py, cases/alpha_defaults_list800.txt):
-#   A library defaults, B A + BENCH_WRAP_FEATURES=1, C A + BENCH_WRAP_BUDGET=300000.
+#   A library defaults, B A + BENCH_WRAP_FEATURES=1, C A + BENCH_WRAP_BUDGET=300000 (D, E: coarsening caps; F: A +
+#   BENCH_WRAP_PULL=1, MeshAlphaWrap.PullPinchPoints).
 # Manual only (workflow_dispatch, no other trigger). It moved here from a cloud session whose container restarts killed a
 # 9-13 h run. The shards are round robin slices of the mesh list; each shard fetches only its own models from huggingface at
 # run time (a PR-tier test never does), runs the three configurations one process at a time, and uploads its raw rows. The
@@ -25,7 +26,7 @@ on:
         description: 'Space-separated mesh ids of the list (overrides mesh_range; empty: the range)'
         default: ''
       configs:
-        description: 'Configurations to run (distinct letters of ABCDE: A defaults, B features, C budget 300k, D C + coarsening cap 1.5, E C + cap 1.2); the summary compares only meshes with all of them'
+        description: 'Configurations to run (distinct letters of ABCDEF: A defaults, B features, C budget 300k, D C + coarsening cap 1.5, E C + cap 1.2, F A + PullPinchPoints); the summary compares only meshes with all of them'
         default: 'ABC'
       timeout_s:
         description: 'Timeout per mesh and configuration in seconds'
@@ -59,8 +60,8 @@ jobs:
           e = os.environ
           if not re.fullmatch(r"[1-9][0-9]?", e["SHARDS"]) or not 1 <= int(e["SHARDS"]) <= 64:
               sys.exit("shards must be 1 to 64")
-          if not re.fullmatch(r"[ABCDE]{1,5}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]) or "A" not in e["CONFIGS"]:
-              sys.exit("configs must be distinct letters of ABCDE and include A, the reference of the summary")
+          if not re.fullmatch(r"[ABCDEF]{1,6}", e["CONFIGS"]) or len(set(e["CONFIGS"])) != len(e["CONFIGS"]) or "A" not in e["CONFIGS"]:
+              sys.exit("configs must be distinct letters of ABCDEF and include A, the reference of the summary")
           if not re.fullmatch(r"[0-9 ]*", e["IDS"]):
               sys.exit("ids must be numbers separated by spaces")
           if not re.fullmatch(r"[0-9]*:[0-9]*", e["RANGE"]):
@@ -91,12 +92,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Check that the ref reads BENCH_WRAP_BUDGET in the wrappipe mode (and BENCH_WRAP_COARSEN_CAP for D and E)
+      - name: Check that the ref reads BENCH_WRAP_BUDGET in the wrappipe mode (and BENCH_WRAP_COARSEN_CAP for D and E, BENCH_WRAP_PULL for F)
         env:
           CONFIGS: ${{ inputs.configs }}
         run: |
           grep -q 'wrap_estimate' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks the BENCH_WRAP_BUDGET fix, config C would equal A"; exit 1; }
           case "$CONFIGS" in *D*|*E*) grep -q 'BENCH_WRAP_COARSEN_CAP' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks BENCH_WRAP_COARSEN_CAP, configs D and E would equal C"; exit 1; } ;; esac
+          case "$CONFIGS" in *F*) grep -q 'BENCH_WRAP_PULL' benchmarks/MeshRepairBenchmark/Program.cs || { echo "::error::ref lacks BENCH_WRAP_PULL, config F would equal A"; exit 1; } ;; esac
       - name: Build the benchmark
         run: |
           dotnet build benchmarks/MeshRepairBenchmark/MeshRepairBenchmark.csproj -c Release
@@ -120,10 +122,11 @@ jobs:
           CONFIGS: ${{ inputs.configs }}
           TIMEOUT_S: ${{ inputs.timeout_s }}
         run: |
-          # no new mesh after 310 min minus the worst case of one mesh (3 x timeout): the shard ends before the 345 min job limit
+          # no new mesh after 310 min minus the worst case of one mesh (one timeout per configuration): the shard ends before the
+          # 345 min job limit
           [ -s "$RUNNER_TEMP/ids.txt" ] || { echo "empty shard"; exit 0; }
           python3 benchmarks/MeshRepairBenchmark/alpha_defaults.py run "$RUNNER_TEMP/ids.txt" "$GITHUB_WORKSPACE/out" \
-            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((310 - 3 * TIMEOUT_S / 60))"
+            --configs "$CONFIGS" --timeout "$TIMEOUT_S" --deadline-min "$((310 - ${#CONFIGS} * TIMEOUT_S / 60))"
       - name: Shard summary
         if: always()
         run: |

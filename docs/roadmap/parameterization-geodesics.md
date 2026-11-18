@@ -4,10 +4,11 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** parameterization (LSCM, ARAP, SLIM, BFF, cones, seams, charts, UV packing), intrinsic triangulations
   and refinement, the vector heat method and log maps, geodesic paths, foldover-free maps.
-- **Status (2026-11-15):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
+- **Status (2026-11-17):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
   #7) merged in #374, round-off in #754; the affine heat method stopped at its gate (#371); the AffineLocal follow-up
   closed (#538); geodesic Bézier curves merged (#540). The geodesics study (#784, #798, #807) is merged; the exact
-  geodesic distance as a test oracle is in draft #869.
+  geodesic distance as an internal test oracle (`ExactMeshGeodesicDistance`) is merged in #869 (2026-11-15), its A6 merge rule
+  fixed in PR #1062 (issue #1058, 2026-11-17); LSCM near-collapse is fixed in PR #1054 (issue #1049, 2026-11-17).
 - **Related:** [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md),
   [design/FOLDOVER_FREE_MAPS.md](../design/FOLDOVER_FREE_MAPS.md),
   [benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md);
@@ -25,12 +26,16 @@ Part of the [roadmap](../ROADMAP.md).
   2 and 3 merged (#784, #798, #807; exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
   the interval version of the probe); A7 reviewed, A8 withdrawn, A9's observations (b)-(h) not reviewed. Option C (a
   Lipschitz lower bound for the heat field) dropped.
-  **#869 (2026-11-13, ready 2026-11-15):** `ExactMeshGeodesicDistance`, internal and serial, with A1-A6, subsumption,
+  **#869 (opened 2026-11-13, merged 2026-11-15):** `ExactMeshGeodesicDistance`, internal and serial, with A1-A6, subsumption,
   terminal windows and flat vertices as pseudo-sources; no A7, no A9. As stated in the PR: terrain 101² (10201 vertices)
   in 4.0 s, but exactly flat or aligned inputs hit `WindowLimit` at about 10^3 vertices (plane 101², ridge 41²), short of
   the 10^4 target; Upper up to 1.3 % loose on flat regions. Open: A7 (continuation windows) with duplicate control, since
   it duplicates windows on flat regions (GEODESICS.md 6b); the flat-tie redesign; the heat-method tests against the
-  oracle. Before merge: an unanchored review and the exact-code review, routed by the coordinator.
+  oracle.
+  **#1058 (2026-11-17):** the 1.3 % was the plane from a corner source; measured, Upper was up to 8.2 % loose on flat and
+  nearly flat input (planes, domes and saddles with k <= 1e-5) because A6 merging dropped one of two inner intervals.
+  A6 now merges only when at most one is nonempty: width at most about 2e-8 on the whole procedural family, 2-7 times
+  fewer windows on flat input, the ridge 41² completes in 5.7 s (GEODESICS.md 6c, `benchmarks/GeodesicOracleBenchmark`).
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
@@ -42,8 +47,9 @@ Part of the [roadmap](../ROADMAP.md).
   is injective; no fix exists inside fixed-boundary untangling. Details in
   [FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12).
 - **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
-  ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
-  conformal; foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
+  ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices (spectral
+  conformal was measured 2026-11-17 and is no fix: on nearly symmetric annuli its eigenvalue pair is nearly double and
+  the map folds, [GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md); it is built as the opt-in `SpectralConformalParameterization` for disc charts, merged in #1057 on 2026-11-17, LSCM's default unchanged, P3); foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
 
 ### Done / history
 
@@ -89,8 +95,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open for the future (2026-11-15)
 
-1. #869 (draft): `ExactMeshGeodesicDistance` as a certified test oracle; reviews before ready; reach on flat / aligned inputs below 10^4 vertices.
-2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b), after #869; then a public class for 10^5 vertices (no issue).
+List as of 2026-11-17.
+
+1. `ExactMeshGeodesicDistance` as a certified test oracle (#869 merged 2026-11-15, #1062 2026-11-17): reach on flat / aligned inputs below 10^4 vertices (the ridge 41² completes in 5.7 s since #1058); the heat-method tests against the oracle.
+2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b); then a public class for 10^5 vertices (no issue).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
-4. P1 collapse: virtual fan vertices or spectral conformal (research; documented limitation).
+4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts; built in #1057 (2026-11-17) with the per-chart A/B against LSCM on the atlas corpus in `benchmarks/UVAtlasBenchmark/README.md`, default unchanged ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

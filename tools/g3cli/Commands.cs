@@ -176,6 +176,10 @@ namespace g3cli
             c.Params.Add(new Param("wrap_relative_alpha", ParamType.Number, "robust alpha wrap fallback: alpha = bounding box diagonal / this value, 1..1e6") { Default = 300.0 });
             c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value, 1..1e6") { Default = 3000.0 });
             c.Params.Add(new Param("alpha_wrap_quality_pass", ParamType.Boolean, "robust alpha wrap fallback: improve the triangle quality after the simplification (about 30 % more time, adds little)") { Default = false });
+            c.Params.Add(new Param("wrap_target_triangles", ParamType.Integer, "robust alpha wrap fallback: reduce the simplified wrap further to at most this many triangles, with the wrap's guarantees kept (0 = off; MeshRobustRepair.WrapTargetTriangles; takes precedence over wrap_target_factor)") { Default = 0 });
+            c.Params.Add(new Param("measure_result_iou", ParamType.Boolean, "robust: also report result_volume_iou, the volume IoU of the final result against the input (MeshRobustRepair.MeasureResultVolumeIoU; a diagnostic, not a check: the result is the same; costs about 15-25 % of the time on a clean or resolved input)") { Default = false });
+            c.Params.Add(new Param("wrap_target_factor", ParamType.Number, "robust alpha wrap fallback: the target as a factor of the input's triangle count, eg 1 (0 = off; MeshRobustRepair.WrapTargetFactor)") { Default = 0.0 });
+            c.Params.Add(new Param("wrap_target_max_distance", ParamType.Number, "robust alpha wrap fallback: distance in wrap offsets within which the reduction to the target is certified of the unsimplified wrap, at least 0.5 (a larger one reaches fewer triangles)") { Default = 0.5 });
             c.Params.Add(new Param("passthrough_clean_parts", ParamType.Boolean, "robust: a closed component that is clean on its own and whose bounding box meets no other component is passed through untouched (false: the whole input goes through the stages)") { Default = true });
             c.Params.Add(new Param("separate_fraction", ParamType.Number, "robust exact stage: how far vertices at the same position are moved towards the centroid of their neighbours to separate touching sheets, in (0, 1)") { Default = 1e-4 });
             AddRoundingTolerances(c, repair: true);
@@ -220,6 +224,12 @@ namespace g3cli
                     foreach (string name in new[] { "wrap_relative_alpha", "wrap_relative_offset" })
                         if (!(args.Number(name) >= 1 && args.Number(name) <= 1e6))
                             throw new CommandException(ResultCodes.InvalidArguments, "'" + name + "' must be in 1..1e6");
+                    if (args.Integer("wrap_target_triangles") < 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_triangles' must be >= 0");
+                    if (!(args.Number("wrap_target_factor") >= 0 && args.Number("wrap_target_factor") <= 1e6))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_factor' must be in 0..1e6");
+                    if (!(args.Number("wrap_target_max_distance") >= 0.5 && args.Number("wrap_target_max_distance") <= 1e6))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'wrap_target_max_distance' must be in 0.5..1e6");
                     double separate = args.Number("separate_fraction");
                     if (!(separate > 0 && separate < 1))
                         throw new CommandException(ResultCodes.InvalidArguments, "'separate_fraction' must be in (0, 1)");
@@ -238,11 +248,16 @@ namespace g3cli
                         SafeRounding = args.Bool("safe_rounding"),
                         AlphaWrapFallback = args.Bool("alpha_wrap"),
                         SimplifyAlphaWrap = args.Bool("simplify_alpha_wrap"),
+                        WrapTargetTriangles = args.Integer("wrap_target_triangles"),
+                        WrapTargetFactor = args.Number("wrap_target_factor"),
+                        MeasureResultVolumeIoU = args.Bool("measure_result_iou"),
+                        WrapTargetMaxDistance = args.Number("wrap_target_max_distance"),
                         CheckLostComponents = args.Bool("check_lost_components"),
                         RejectTopologyChange = args.Bool("reject_topology_change"),
                         RoundingMaxDisplacement = rounding.MaxDisplacement, RoundingUlpFactor = rounding.UlpFactor,
                         RoundingAbsoluteTolerance = rounding.AbsoluteTolerance, StrictRounding = rounding.Strict,
-                        RoundingMaxPairTests = rounding.MaxPairTests,
+                        RoundingMaxPairTests = rounding.MaxPairTests, RoundingPairTestsDefectScale = rounding.DefectScale,
+                        RoundingPairTestsMaxGrowth = rounding.MaxGrowth,
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
@@ -269,11 +284,18 @@ namespace g3cli
                     o["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason;
                     o["volume_iou"] = MeshReport.Num(repair.RepairVolumeIoU);
                     o["used_input"] = repair.UsedInput;
+                    // (additive: the stage that produced the result, and its volume IoU against the input, null unless --measure-result-iou)
+                    o["result_path"] = repair.ResultPath.ToString();
+                    o["result_volume_iou"] = MeshReport.Num(repair.ResultVolumeIoU);
                     o["solidify_reason"] = repair.SolidifyReason == "" ? null : repair.SolidifyReason;
                     o["used_alpha_wrap"] = repair.UsedAlphaWrap;
                     o["alpha_wrap_triangles"] = repair.AlphaWrapTriangles;
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
                     o["alpha_wrap_quality_improved"] = repair.AlphaWrapQualityImproved;
+                    // (the opt-in triangle target of the wrap: the target asked for, the count reached, what limits it; 0 / 0 / null without one)
+                    o["alpha_wrap_target"] = repair.AlphaWrapTarget;
+                    o["alpha_wrap_target_reached"] = repair.AlphaWrapTargetReached;
+                    o["alpha_wrap_target_limit"] = repair.AlphaWrapTargetLimit == "" ? null : repair.AlphaWrapTargetLimit;
                     // (measured on the alpha wrap result, null if the result is not the wrap)
                     o["alpha_wrap_min_angle"] = MeshReport.Num(repair.AlphaWrapMinAngleDegrees);
                     o["alpha_wrap_max_angle"] = MeshReport.Num(repair.AlphaWrapMaxAngleDegrees);
@@ -284,8 +306,13 @@ namespace g3cli
                         ["wrap_relative_alpha"] = repair.WrapRelativeAlpha,
                         ["wrap_relative_offset"] = repair.WrapRelativeOffset,
                         ["alpha_wrap_quality_pass"] = repair.AlphaWrapQualityPass,
+                        ["wrap_target_triangles"] = repair.WrapTargetTriangles,
+                        ["wrap_target_factor"] = repair.WrapTargetFactor,
+                        ["wrap_target_max_distance"] = repair.WrapTargetMaxDistance,
                         ["passthrough_clean_parts"] = repair.PassThroughCleanParts,
                         ["separate_fraction"] = repair.SeparateFraction,
+                        ["rounding_defect_scale"] = repair.RoundingPairTestsDefectScale,
+                        ["rounding_max_growth"] = repair.RoundingPairTestsMaxGrowth,
                     };
                     o["exact_resolve_rounds_used"] = repair.ExactResolveRoundsUsed;
                     o["passed_through_triangles"] = repair.PassedThroughTriangles;
@@ -334,6 +361,8 @@ namespace g3cli
                 ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
                 ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
                 ["rounding_max_pair_tests"] = op.RoundingMaxPairTests,
+                ["rounding_defect_scale"] = op.RoundingPairTestsDefectScale,
+                ["rounding_max_growth"] = op.RoundingPairTestsMaxGrowth,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
                 // (the status of the exact operation, positions where the solid touches itself, reoriented input triangles, the library's counters)
@@ -362,7 +391,7 @@ namespace g3cli
             };
         }
 
-        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite / ScaleDisparity reasons, else null </summary>
+        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite, ScaleDisparity, OutsideRange, LostFarPart, LostFarOpenPart, LostSeparatePart and WrapTooCoarse reasons, else null </summary>
         internal static JsonNode ReasonCode(string reason)
         {
             // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
@@ -371,6 +400,8 @@ namespace g3cli
             if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
             if (reason.Contains(MeshRobustRepair.OutsideRange)) return "outside_range";
             if (reason.Contains(MeshRobustRepair.LostFarPart)) return "lost_far_part";
+            if (reason.Contains(MeshRobustRepair.LostFarOpenPart)) return "lost_far_open_part";
+            if (reason.Contains(MeshRobustRepair.LostSeparatePart)) return "lost_separate_part";
             if (reason.Contains(MeshRobustRepair.WrapTooCoarse)) return "wrap_too_coarse";
             return null;
         }
@@ -428,8 +459,13 @@ namespace g3cli
             c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, prefix + "safe_rounding: edits may also move the surface up to this absolute " +
                 "distance (RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
             c.Params.Add(new Param("rounding_max_pair_tests", ParamType.Integer, prefix + "safe_rounding's effort budget: once the exact triangle pair " +
-                "tests of its evaluations exceed this, the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted; " +
+                "tests of its evaluations exceed this (grown with the initial defects by up to 4 times), the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted; " +
                 "0 stops once one pair test was made (there is no 'no limit' value), at most 2147483647 (RoundingMaxPairTests; MeshRoundingRepair.MaxPairTests)") { Default = 5000000 });
+            c.Params.Add(new Param("rounding_defect_scale", ParamType.Number, prefix + "safe_rounding's growth of the effort budget with the initial " +
+                "defects: the budget is rounding_max_pair_tests times min(max(1, defects / this), rounding_max_growth); 0 = no growth, >= 0 " +
+                "(RoundingPairTestsDefectScale; MeshRoundingRepair.PairTestsDefectScale)") { Default = 50000.0 });
+            c.Params.Add(new Param("rounding_max_growth", ParamType.Number, prefix + "safe_rounding's ceiling of that growth, as a factor of " +
+                "rounding_max_pair_tests, >= 1 (1 = no growth) (RoundingPairTestsMaxGrowth; MeshRoundingRepair.PairTestsMaxGrowth)") { Default = 4.0 });
             c.Params.Add(new Param("strict_rounding", ParamType.Boolean, repair
                 ? "robust, exact stage: safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them): an " +
                   "exact resolve whose rounding is not clean is rejected (exact_resolve_reason 'rounding not clean (StrictRounding)') and the other stages " +
@@ -438,7 +474,7 @@ namespace g3cli
                   "fails with operation_failed (status RoundingNotClean) instead of being written with defects (ExactMeshBoolean.StrictRounding)") { Default = false });
         }
 
-        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; public long MaxPairTests; }
+        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; public long MaxPairTests; public double DefectScale, MaxGrowth; }
 
         static RoundingSettings RoundingTolerances(Args args)
         {
@@ -446,6 +482,7 @@ namespace g3cli
                 MaxDisplacement = args.Number("rounding_max_displacement"), UlpFactor = args.Number("rounding_ulp_factor"),
                 AbsoluteTolerance = args.Number("rounding_absolute_tolerance"), Strict = args.Bool("strict_rounding"),
                 MaxPairTests = args.Integer("rounding_max_pair_tests"),
+                DefectScale = args.Number("rounding_defect_scale"), MaxGrowth = args.Number("rounding_max_growth"),
             };
             // above 1e-2 of the diagonal the repair may contract whole components away; below 1e-16 it is a no-op (the ulp term dominates)
             if (!(r.MaxDisplacement >= 1e-16 && r.MaxDisplacement <= 1e-2))
@@ -456,6 +493,10 @@ namespace g3cli
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
             if (r.MaxPairTests < 0)
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_pair_tests' must be >= 0");
+            if (!(r.DefectScale >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_defect_scale' must be >= 0");
+            if (!(r.MaxGrowth >= 1))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_growth' must be >= 1");
             if (r.Strict && args.Bool("safe_rounding") == false)
                 throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
             // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
@@ -472,6 +513,8 @@ namespace g3cli
             op.RoundingAbsoluteTolerance = r.AbsoluteTolerance;
             op.StrictRounding = r.Strict;
             op.RoundingMaxPairTests = r.MaxPairTests;
+            op.RoundingPairTestsDefectScale = r.DefectScale;
+            op.RoundingPairTestsMaxGrowth = r.MaxGrowth;
         }
 
         static Param SimplifyFlatRegions() =>
@@ -651,6 +694,9 @@ namespace g3cli
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
                 "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
+            c.Params.Add(new Param("safe", ParamType.Boolean, "opt-in safe preset (Remesher.ApplySafePreset): min_quality 0.2 and Remesher.PreventSelfIntersections; " +
+                "no self-intersecting pair that the input did not have (those of the input stay), about 19x the time of the default on Thingi10K " +
+                "(docs/perf/REMESHER_PHASE2_MEASURED.md); needs min_quality 0.2") { Default = false });
             c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "also pin vertices where the surface comes to a point (absolute " +
                 "angle deficit at least this, degrees; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
                 "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices, off in the library); vertices on kept boundaries and creases " +
@@ -688,9 +734,14 @@ namespace g3cli
                 if (!(minQuality >= 0 && minQuality < 1))
                     throw new CommandException(ResultCodes.InvalidArguments, "'min_quality' must be in 0..1 (below 1)");
 
+                bool safe = args.Bool("safe");
+                if (safe && minQuality != Remesher.SafePresetMinTriangleQuality)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'safe' sets 'min_quality' to 0.2: leave 'min_quality' at its default or give 0.2");
                 DMesh3 mesh = new DMesh3(input);
                 int pinnedSharp = 0;
                 var r = new Remesher(mesh) { SmoothSpeedT = smooth, EnableSmoothing = smooth > 0, MinTriangleQuality = minQuality };
+                if (safe)
+                    r.ApplySafePreset();
                 if (args.Bool("project"))
                     r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
                 if (args.Bool("preserve_boundary")) {
@@ -725,6 +776,8 @@ namespace g3cli
                 o["edge_length"] = len;
                 o["iterations"] = iterations;
                 o["min_quality"] = minQuality;
+                o["safe"] = safe;
+                o["self_intersections_rejected"] = r.SelfIntersectionsRejected;
                 o["sharp_vertices_pinned"] = pinnedSharp;
                 o["thickness_sizing"] = thicknessSizing;
                 o["rejected_passes"] = r.InvertingPassesRejected;

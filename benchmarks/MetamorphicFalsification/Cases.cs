@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // the cases compare the deprecated float MeshBoolean with the exact one
 using System;
 using System.Collections.Generic;
 using System.Linq;

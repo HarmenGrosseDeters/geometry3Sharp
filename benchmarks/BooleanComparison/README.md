@@ -28,6 +28,9 @@ The external code is not part of this repository; build it next to it as describ
 against CGAL's Polygon Mesh Processing, which is GPL: a compiled `cgal_bool` falls under the GPL, so it is not
 distributed, and nothing of CGAL is part of the library (which stays under the Boost license). Cherchi et al.
 (MIT) and Manifold (Apache-2.0) are only run as external programs as well. See also `docs/SOURCES.md`.
+`geogram_bool.cpp` calls Geogram's public API (BSD-3, Inria); it is built only on a GitHub-hosted runner by
+`external/build_geogram.sh`, which never downloads Triangle or any TetGen path (sparse, blob-less clone; see the script) and
+checks the checkout, the objects and the library symbols for them; the binary is not distributed, nothing of Geogram is ported.
 
 ## Methods
 
@@ -38,6 +41,7 @@ distributed, and nothing of CGAL is part of the library (which stays under the B
 | `cgal_epeck` | the same with exact constructions | GPL | 1 |
 | `cherchi` | Cherchi et al. 2022, *Interactive and Robust Mesh Booleans* | MIT | parallel |
 | `manifold` | Manifold (Python `manifold3d`) | Apache-2.0 | parallel |
+| `geogram` | Geogram `mesh_boolean_operation` (Lévy 2024, exact `expansion_nt` points, default flags), `GEOGRAM_BOOL` | BSD-3 | parallel (`GEOGRAM_THREADS` caps it) |
 
 All tools report the time of the boolean alone (without file I/O); `wall_ms` includes process start and I/O.
 CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-manifold inputs.
@@ -472,6 +476,10 @@ g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG external/cgal_bool.cpp -o cgal_bool -l
 
 # Manifold
 python3 -m venv env && env/bin/pip install manifold3d numpy
+
+# Geogram: on a GitHub-hosted runner only (t6-cgal.yml with methods ours,geogram; abc-chained.yml with method geogram);
+# needs cmake and libtbb-dev; writes <dir>/geogram_bool
+bash external/build_geogram.sh <dir>
 ```
 
 ## Running

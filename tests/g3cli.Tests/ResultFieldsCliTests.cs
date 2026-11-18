@@ -110,12 +110,22 @@ namespace g3cli.Tests
             Assert.False(B(o["alpha_wrap_quality_pass"]));
             Assert.True(B(o["passthrough_clean_parts"]));
             Assert.Equal(1e-4, D(o["separate_fraction"]));
+            Assert.Equal(0, I(o["wrap_target_triangles"]));
+            Assert.Equal(0.0, D(o["wrap_target_factor"]));
+            Assert.Equal(0.5, D(o["wrap_target_max_distance"]));
+            Assert.Equal(0, I(d["alpha_wrap_target"]));
+            Assert.Equal(0, I(d["alpha_wrap_target_reached"]));
+            Assert.Null(d["alpha_wrap_target_limit"]);
 
             var (exit, r) = Run("repair", m.Overlapping, m.Path_("rep_opts.obj"), "--compact", "--exact-resolve-rounds", "2",
                 "--wrap-relative-alpha", "150", "--wrap-relative-offset", "1500", "--alpha-wrap-quality-pass",
-                "--no-passthrough-clean-parts", "--separate-fraction", "0.001");
+                "--no-passthrough-clean-parts", "--separate-fraction", "0.001", "--wrap-target-triangles", "5000", "--wrap-target-factor", "1.5",
+                "--wrap-target-max-distance", "2");
             Assert.Equal(0, exit);
             o = r["robust_options"];
+            Assert.Equal(5000, I(o["wrap_target_triangles"]));
+            Assert.Equal(1.5, D(o["wrap_target_factor"]));
+            Assert.Equal(2.0, D(o["wrap_target_max_distance"]));
             Assert.Equal(2, I(o["exact_resolve_rounds"]));
             Assert.Equal(150.0, D(o["wrap_relative_alpha"]));
             Assert.Equal(1500.0, D(o["wrap_relative_offset"]));
@@ -140,6 +150,25 @@ namespace g3cli.Tests
             Assert.True(phases.ContainsKey("repair"));
             Assert.True(phases.ContainsKey("exact"));
             Assert.All(phases, kv => Assert.True(kv.Value.GetValue<long>() >= 0));
+        }
+
+        [Fact]
+        public void Repair_ResultVolumeIoU_IsAnOptInDiagnostic_ThatChangesNoOtherField()
+        {
+            var (e0, off) = Run("repair", m.Overlapping, m.Path_("rep_iou_off.obj"), "--compact");
+            Assert.Equal(0, e0);
+            Assert.Equal("ExactResolve", S(off["result_path"]));
+            Assert.Null(off["result_volume_iou"]);                              // not measured: NaN is null
+            var (e1, on) = Run("repair", m.Overlapping, m.Path_("rep_iou_off.obj"), "--compact", "--measure-result-iou");
+            Assert.Equal(0, e1);
+            Assert.Equal("ExactResolve", S(on["result_path"]));
+            Assert.InRange(D(on["result_volume_iou"]), 0.99, 1.0001);
+            // every other field is the same (but the times, which vary between runs)
+            foreach (var kv in off.AsObject()) {
+                if (kv.Key == "result_volume_iou" || kv.Key == "phase_milliseconds" || kv.Key == "elapsed_ms")
+                    continue;
+                Assert.True(kv.Value?.ToJsonString() == on[kv.Key]?.ToJsonString(), kv.Key + ": " + kv.Value?.ToJsonString() + " against " + on[kv.Key]?.ToJsonString());
+            }
         }
 
         [Fact]
@@ -170,6 +199,8 @@ namespace g3cli.Tests
                 new[] { "--exact-resolve-rounds", "-1" },
                 new[] { "--wrap-relative-alpha", "0" }, new[] { "--wrap-relative-alpha", "-3" }, new[] { "--wrap-relative-alpha", "0.99" }, new[] { "--wrap-relative-alpha", "1e7" }, new[] { "--wrap-relative-alpha", "NaN" },
                 new[] { "--wrap-relative-offset", "0" }, new[] { "--wrap-relative-offset", "-3" }, new[] { "--wrap-relative-offset", "0.99" }, new[] { "--wrap-relative-offset", "1e7" }, new[] { "--wrap-relative-offset", "NaN" },
+                new[] { "--wrap-target-triangles", "-1" }, new[] { "--wrap-target-factor", "-1" }, new[] { "--wrap-target-factor", "NaN" },
+                new[] { "--wrap-target-max-distance", "0.49" }, new[] { "--wrap-target-max-distance", "0" }, new[] { "--wrap-target-max-distance", "NaN" },
                 new[] { "--separate-fraction", "0" }, new[] { "--separate-fraction", "1" }, new[] { "--separate-fraction", "NaN" }, new[] { "--separate-fraction", "-0.1" },
             };
             foreach (var a in bad) {
@@ -202,6 +233,10 @@ namespace g3cli.Tests
             Assert.Equal("scale_disparity", S(Commands.ReasonCode(MeshRobustRepair.ScaleDisparity)));
             Assert.Equal("outside_range", S(Commands.ReasonCode(MeshRobustRepair.OutsideRange)));
             Assert.Equal("lost_far_part", S(Commands.ReasonCode(MeshRobustRepair.LostFarPart)));
+            Assert.Equal("lost_far_open_part", S(Commands.ReasonCode(MeshRobustRepair.LostFarOpenPart)));
+            Assert.Equal("lost_separate_part", S(Commands.ReasonCode(MeshRobustRepair.LostSeparatePart)));
+            // (a reason the stages set follows the lost-part reason)
+            Assert.Equal("lost_separate_part", S(Commands.ReasonCode(MeshRobustRepair.LostSeparatePart + "; self-intersections")));
             Assert.Equal("wrap_too_coarse", S(Commands.ReasonCode(MeshRobustRepair.WrapTooCoarse)));
             // (the library appends text to a reason)
             Assert.Equal("lost_far_part", S(Commands.ReasonCode("x; " + MeshRobustRepair.LostFarPart)));

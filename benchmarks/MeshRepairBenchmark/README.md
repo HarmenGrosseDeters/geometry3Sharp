@@ -1679,6 +1679,51 @@ All results closed and clean. "partly flipped" is a closed sphere with flipped t
 size, as for closed solids. The coarsened wrap is a complete wrap at the larger alpha (bit for bit the wrap with that
 alpha and offset given), so it wraps over cavities and gaps up to about 2 * UsedAlpha.
 
+## Alpha wrap triangle target (`WrapTargetTriangles`, `WrapTargetFactor`, `WrapTargetMaxDistance`; opt-in)
+
+`BENCH_WRAP_TARGET`, `BENCH_WRAP_TARGET_FACTOR` (of the input's triangle count) and `BENCH_WRAP_TARGET_DIST` (offsets) set the options;
+`robust_wrap_target`, `robust_wrap_target_reached` and `robust_wrap_target_limit` are in the output. Design and the measurement behind it:
+[alpha-wrap-and-repair.md](../../docs/roadmap/alpha-wrap-and-repair.md), "Triangle target of the wrap". `BENCH_REPAIR=robust BENCH_FIDELITY=hd`,
+the corpus case "flat" (a closed sphere of 1452 triangles flattened onto z = 0, written as an OBJ from the test harness' shape code; the only one of the procedural
+shapes that the robust pipeline wraps), one process each, 4-core container, target = the input's count (factor 1):
+
+| alpha | option | output triangles | limit | Hausdorff result -> input / input -> result (diag) | repair time |
+|---|---|---:|---|---|---:|
+| diag / 100 (raw 24,390) | off | 2352 | | 0.00213 / 0.00201 | 4.8 s |
+| | factor 1 | 1844 | no collapse left within the certified distance | 0.00219 / 0.00201 | 7.4 s |
+| | factor 1, distance 2 | 1690 | same | 0.00234 / 0.00201 | 6.4 s |
+| diag / 300 (raw 210,696) | off | 7526 | | 0.00137 / 0.00134 | 10.4 s |
+| | factor 1 | 5890 | same | 0.00143 / 0.00134 | 39.6 s |
+| | factor 1, distance 2 | 5360 | same | 0.00153 / 0.00134 | 21.7 s |
+
+The wrap of a zero-volume surface has two layers, so 1452 is out of reach there; the count reached is 0.78x (alpha diag / 300, distance 0.5) and 0.71x (distance 2)
+of the pipeline's. The time is the serial reduction with a certified deviation per collapse against the raw wrap (about 27 s of the 39.6 s; the final certification 0.6 s);
+`Reducer.SampleDeviation` as a pre-filter changed neither the result nor the time. The shapes with a reachable target (closed solid, thin plate, open sheet, a shell
+around a ball) are covered by `AlphaWrapTargetTests` (guarantees checked on each) and the table in the roadmap; they need no wrap in the robust pipeline's
+solidify stage, so the benchmark's robust mode does not wrap them. Thingi10K at run time: not run here (no mesh fetch in this session).
+
+### Parallel certification walk of the target reduction (#1109, 2026-11-18)
+
+Profile of the 39.6 s row above (uncommitted probes, replay of the 7,202 triangles that the Reducer's `MaxDeviation` check certified): 97 % of the check
+is `TriangleDeviationBounds.IsWithin`, the samples cost 0.3 %. The time is in the accepted collapses with a large new triangle: those of 256 or more raw wrap
+triangles in area (1,584 of 7,202 calls) are 86 % of the CPU time (31.5 ms each, up to 175 ms); each needs about 3.5 k bound evaluations and 2.6 k nearest-triangle
+queries (0.52 / 0.44 of the CPU; 26 GB of list allocations in all). Cheaper bounds first (the corner-distance bounds before the plane split) pass for only 10 % of
+the pieces and changed the time by 0; caching across attempts has nothing to reuse (every attempt has a new vertex position).
+`IsWithin` now takes the pieces beyond the first 64 on several threads, in rounds of 128 pieces per task (`ParallelDeviationCheck`, on by default): the answer is
+true iff no piece fails, so the thread schedule cannot change it, and the reduction is the same mesh bit for bit (hash of all triangle coordinates equal in every run,
+`ReducerParallelDeviationCheckTests`). The serial part left in the phase is the self-intersection check (4.2 s of 18 s) and the Reducer's own loop.
+"flat", alpha = diag / 300, factor 1, 4-core container, master f356ab5 against the branch, three runs each, interleaved for distance 0.5 (range in brackets), one run each for distance 2:
+
+| distance | | `wrap.target` | repair total | output |
+|---|---|---:|---:|---|
+| 0.5 | master | 22.2 s (22.1 .. 22.4) | 30.5 s (30.2 .. 30.7) | 5890 triangles |
+| | parallel walk | 18.3 s (18.2 .. 18.4) | 26.6 s (26.5 .. 26.8) | the same bits |
+| 2 | master | 10.1 s | 18.6 s | 5360 triangles |
+| | parallel walk | 8.4 s | 17.1 s | the same bits |
+
+-18 % and -17 % of the target phase (-13 % and -8 % of the repair). On one core the walk is the same work (not measured). A reduction with a target in
+parallel (slabs) would change the result and is not part of this.
+
 ## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
 
 The main carving in rounds of gates with disjoint cells, evaluated in parallel, committed in heap order
@@ -1751,3 +1796,30 @@ Limit on the budget's coarsening (`MeshAlphaWrap.MaxAlphaCoarsening`, `MeshRobus
 `BENCH_WRAP_COARSEN_CAP=f` in `wrappipe` and `robust`): with a budget, the factor by which alpha and offset grow is at most `f`
 (then the result can be above the budget). Configurations `D` (budget 300000, cap 1.5) and `E` (cap 1.2) of `alpha_defaults.py`;
 `alpha-defaults.yml` takes an `ids` input (space-separated mesh ids of the list) for a run on a few meshes.
+
+### Outer face classification: stall stop and incremental rounds (#1009)
+
+`fm_ms` of single meshes of the alpha-defaults run was dominated by `MeshFidelityMetrics.OuterFaces` (rounds of 8 fast winding
+numbers per face; on a self-intersecting mesh a query sums hundreds of triangles exactly). #1023 stops rounds that stall
+(`OuterFaceStallRounds`, `OuterFaceStallShare`). `BENCH_OUTER_INCREMENTAL=1` runs the measures a second time with
+`OuterFaceIncremental = true` (`fm_inc_*` fields: time, rounds, faces judged again, faces whose verdict differs from the
+default `fm_inc_changed`, outer face share and outer IoU). Rounds after the first update each face's stored winding numbers
+by subtracting the winding number of the faces the last round removed (a tree of those only) and judge a face again with the
+big tree only if a stored value is within `OuterFaceIncrementalMargin` (0.2) of a decision boundary.
+
+Thingi10K, std mode, net10.0 Release, 4 cores, one mesh at a time, the default measures first and the incremental ones second
+in one process (the second run has warm JIT and caches, which flatters it by a few hundred ms on small meshes); `fm_ms` is all
+`MeshFidelityMetrics` measures:
+
+| mesh | rounds | fm_ms default | fm_ms incremental | faces judged again | changed verdicts | outer face share, outer IoU |
+|---|---:|---:|---:|---:|---:|---|
+| 55928 (88k faces, stalls, not converged) | 5 | 12.5 s | 6.2 s | 13,040 | 0 | identical |
+| 318843 | 4 | 36.9 s | 20.5 s | 6,847 | 0 | identical |
+| 1514905 | 3 | 20.9 s | 16.1 s | 7 | 0 | identical |
+| 498456 (55 rounds) | 55 | 67.2 s | 46.7 s | 731,646 | 0 | identical |
+
+Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run; rounds, shares and IoU identical, 0 changed verdicts on all):
+37111 (88k faces, 4 rounds) 7.7 s to 4.2 s with 272 faces judged again; 37275, 37329, 37331, 37731, 37788, 37215 and 36075 (1 to 2
+rounds, 0 to 0 faces judged again after the first round) 0.2 to 1.9 s faster, the difference of the warm second run.
+Stacked interior layers (unit tests): with margin 0.1 the stack of 40 layers (60 rounds) differed in 2 of 320 faces from the
+default; from margin 0.15 on none did (5, 20, 40 layers), so the default is 0.2.

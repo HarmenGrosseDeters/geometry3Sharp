@@ -45,6 +45,10 @@ So RC4 stays on the triage's own next step.
 
 **Worth a measurement, ranked by expected value for effort.** Each is tied to an open item:
 
+Rows 1-3 were measured on 2026-11-17: [GEOGRAM_MEASUREMENTS_2026-11.md](GEOGRAM_MEASUREMENTS_2026-11.md) (spectral
+conformal: go as an opt-in for discs, no-go as the P1 fix; the lfs yardstick: a metric, not a bound; true restricted
+Voronoi cells: go for RDR stage 1b).
+
 | # | Idea | Area | Expected gain | Evidence | Effort | Risk | Exact code | Recommendation |
 |---|---|---|---|---|---|---|---|---|
 | 1 | Pin-free spectral conformal map (Mullen et al. 2008; inverse power iteration on our `SparseCholesky`) as an opt-in next to LSCM | parameterization | quality: no pin choice, the P3 asymmetry (~1e-4) should go (assumed); effect on the P1 inner-ring collapse unknown | geogram ships a spectral LSCM mode, but apparently without the boundary mass matrix (not a reference to port); the paper; our P1/P3 fixtures | M | low as an opt-in; a default change would move ARAP/SLIM/atlas results | no | **measure first** (it is open research item #4): spike on the P1 cylinders, the P3 plate, ParameterizationBenchmark |

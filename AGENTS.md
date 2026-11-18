@@ -19,7 +19,7 @@ Read both before you change anything. If anything below conflicts with them, the
 - Before every push, run the local CI steps listed in CLAUDE.md. Every push gets a PR, and red CI is fixed right
   away.
 - Before a merge, the PR gets an independent review (a different agent or model, given the diff but not the
-  author's reasoning) with [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md).
+  author's reasoning) with the matching classes of [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md) (diff triggers; the review names the classes it checked).
 - Cost controls (docs/AGENT_WORKFLOW.md §8) are binding: report only results, decisions or blockers; pause when
   nothing is on the critical path; long runs go to runner sessions as harness-tracked background tasks.
 - Stay API compatible with upstream 1.0.324.
