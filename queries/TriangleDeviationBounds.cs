@@ -50,7 +50,7 @@ namespace g3
             double u2 = dmax + covering_radius(e01, e12, e20);
 
             double u = Math.Min(u0, Math.Min(u1, u2));
-            if (PatchBound && !Certified && !(u <= threshold))
+            if (PatchBound && !(u <= threshold))
                 // (never below the largest corner distance, a distance of a point of the triangle)
                 u = Math.Min(u, Math.Max(dmax, patch_bound(p0, p1, p2, n0, n1, n2)));
             return u;
@@ -65,8 +65,8 @@ namespace g3
         /// <summary>
         /// (internal, MeshHausdorffDistance.CertifiedUpper) UpperBound is certified: never below the largest exact distance over the
         /// exact triangle with the given double corners, rounding included, if d_i are certified upper bounds of the corners' distances
-        /// to their triangles n_i (CertifiedTriangleBounds.PointTriangleUpper). The patch bound is not used then (its rounding slack is
-        /// estimated, not derived; #742). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
+        /// to their triangles n_i (CertifiedTriangleBounds.PointTriangleUpper). With PatchBound the patch bound used is
+        /// certified_patch_bound (derived error bounds, no estimated slack; #848), not patch_bound. docs/design/HAUSDORFF_CERTIFIED_UPPER.md
         /// </summary>
         internal bool Certified = false;
 
@@ -103,7 +103,11 @@ namespace g3
                 Math.Min(CertifiedTriangleBounds.up(d1 + CertifiedTriangleBounds.max(e01, e12)), CertifiedTriangleBounds.up(d2 + CertifiedTriangleBounds.max(e12, e20))));
             double u2 = CertifiedTriangleBounds.up(dmax + CertifiedTriangleBounds.CoveringUpper(p0, p1, p2, e01, e12, e20));
             // (each is +infinity, never NaN, where it cannot be bounded)
-            return Math.Min(u0, Math.Min(u1, u2));
+            double u = Math.Min(u0, Math.Min(u1, u2));
+            // the patch bound with every step certified (#848), never below the corners' certified distances (dmax)
+            if (PatchBound && !(u <= threshold))
+                u = Math.Min(u, CertifiedTriangleBounds.max(dmax, certified_patch_bound(p0, p1, p2, n0, n1, n2)));
+            return u;
         }
 
         // a convex piece of the triangle: its points as doubles and, per point, a bound of its distance from the exact point it stands
@@ -346,6 +350,244 @@ namespace g3
             // are taken relative to p0, and to the slope)
             double shape = scale * scale / nlen;       // about 1 / sin of the smallest angle, at most 1 / MinPatchShape
             return hmax + 16 * MaxPatchSlope * shape * MathUtil.Epsilon * (scale + rmax + hmax);
+        }
+
+        // ---- the certified patch bound (#848; docs/design/CERTIFIED_PATCH_BOUND.md) ----
+
+        /// <summary>
+        /// An enclosure [lo, hi] of lambda = P_a / (P_a - P_b) in [0, 1], the parameter of the crossing of the edge (a, b) of t' with a line,
+        /// P_a, P_b the exact orientations of a and b against that line (CertifiedDet3 enclosures), if their signs are certified opposite
+        /// (either order; both are negated then, which is exact, and lambda is the same function of the negated pair). lambda(P, R) =
+        /// P / (P - R) increases in P and in R on P >= 0 >= R, so lo is its value at the lower ends, hi at the upper ends. Where
+        /// P_1 - R_1 overflows, hi = 1.
+        /// </summary>
+        internal static bool lambda_enclosure(CertifiedDet3 pa, CertifiedDet3 pb, out double lo, out double hi)
+        {
+            lo = 0; hi = 1;
+            int sa = pa.Sign, sb = pb.Sign;
+            if (sa == 0 || sb == 0 || sa == sb) return false;
+            // with the signs made P > 0 > R: P in [P0, P1], R in [R0, R1]
+            double P0, P1, R0, R1;
+            if (sa > 0) { P0 = pa.Lo; P1 = pa.Hi; R0 = pb.Lo; R1 = pb.Hi; }
+            else { P0 = -pa.Hi; P1 = -pa.Lo; R0 = -pb.Hi; R1 = -pb.Lo; }
+            lo = ExactInterval.Down(P0 / CertifiedTriangleBounds.up(P0 - R0));
+            if (!(lo > 0)) lo = 0;
+            double den = P1 - R1;
+            if (den < double.PositiveInfinity) hi = Math.Min(1, CertifiedTriangleBounds.up(P1 / ExactInterval.Down(den)));
+            return true;
+        }
+
+        // what is known of a target vertex v relative to Q = (p0, p1, p2): the sign of the projected orientation of (p_j, p_j+1, v) (v is
+        // strictly left of the edge j of Q', that is inside its side, if +1), and lazily the value bound of det[e1, e2, v - p0]
+        sealed class PatchVertex
+        {
+            public Vector3d P;
+            public CertifiedDet3 Q0, Q1, Q2;
+            public CertifiedDet3 H;
+            public bool HasH;
+            public CertifiedDet3 Q(int j) { return (j == 0) ? Q0 : ((j == 1) ? Q1 : Q2); }
+            public bool Inside => Q0.Sign > 0 && Q1.Sign > 0 && Q2.Sign > 0;
+            public bool Outside => Q0.Sign < 0 || Q1.Sign < 0 || Q2.Sign < 0;
+        }
+
+        // a target triangle of S with the rows of its edges and the signs of its edges against the corners of Q
+        sealed class PatchTriangle
+        {
+            public int Tid;
+            public PatchVertex V0, V1, V2;
+            public Vector3d E0, E1, E2;                      // fl(v[k+1] - v[k])
+            public double Dt;                                // a lower bound of T(a, b, c) > 0
+            public CertifiedDet3[] Side;                     // Side[3 k + i]: orientation of (v[k], v[k+1], p_i); null until needed
+            public PatchVertex V(int k) { return (k == 0) ? V0 : ((k == 1) ? V1 : V2); }
+            public Vector3d Edge(int k) { return (k == 0) ? E0 : ((k == 1) ? E1 : E2); }
+        }
+
+        /// <summary>
+        /// The patch bound with every step certified (#848): never below the largest distance from a point of the exact triangle with the
+        /// given double corners to Target, rounding included, or +infinity. Same argument as patch_bound (points 1 and 2 of its comment,
+        /// real arithmetic), with no frame and no margin: all orientation tests are signs of the 3x3 determinants T(p, q, r) =
+        /// det[q - p, r - p, w] of input doubles, w = fl(e1 x e2) (any double vector would do), with a derived running error bound
+        /// (CertifiedDet3); a doubtful sign counts as "not shown". The heights are bounded at a superset of the vertices of the clipped
+        /// polygons, by the exact gap formulas. Section numbers: docs/design/CERTIFIED_PATCH_BOUND.md
+        /// </summary>
+        internal double certified_patch_bound(Vector3d p0, Vector3d p1, Vector3d p2, int n0, int n1, int n2)
+        {
+            Vector3d[] p = { p0, p1, p2 };
+            // the rounded rows (each one rounding per entry, section 3): the edges of Q in order, e1 = p1 - p0, e2 = p2 - p0
+            Vector3d e1 = p1 - p0, e2 = p2 - p0;
+            Vector3d[] erow = { e1, p2 - p1, p0 - p2 };
+            Vector3d w = e1.Cross(e2);
+            if (!w.IsFinite) return double.PositiveInfinity;
+            // Q must be positively oriented along w: T(p0, p1, p2) > 0 (section 4, step 1)
+            CertifiedDet3 tq = CertifiedDet3.Compute(e1, e2, w);
+            if (tq.Sign <= 0) return double.PositiveInfinity;
+            double dq = tq.Lo;
+            if (!(dq > 0)) return double.PositiveInfinity;
+            double wlen = CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, w);
+            double fw = CertifiedTriangleBounds.up(wlen / dq);            // |gap| <= fw |det[e1, e2, z - p0]| (section 6)
+            if (!(fw < double.PositiveInfinity)) return double.PositiveInfinity;
+
+            // the box test that limits the growth of S is a heuristic in doubles (any choice of S is sound, section 4): the
+            // projection of the triangles onto the plane of Q along w
+            double len1 = e1.Length, wl = w.Length;
+            if (!(len1 > 0) || !(wl > 0)) return double.PositiveInfinity;
+            Vector3d unit = w / wl;
+            Vector3d ux = e1 / len1, uy = unit.Cross(ux);
+            Vector2d q0 = Vector2d.Zero, q1 = new Vector2d(len1, 0), q2 = new Vector2d(e2.Dot(ux), e2.Dot(uy));
+            double scale = Math.Max(len1, Math.Max(e2.Length, erow[1].Length));
+            AxisAlignedBox2d box = new AxisAlignedBox2d(q0); box.Contain(q1); box.Contain(q2);
+            box.Expand(1e-9 * scale);
+
+            // the orientation of (v[k], v[k+1], p_i) of the triangle t of S: negative if p_i is certainly outside that edge of t'
+            CertifiedDet3 side(PatchTriangle t, int k, int i)
+            {
+                if (t.Side == null) t.Side = new CertifiedDet3[9];
+                // (a computed result has E > 0: at least the underflow term A, or +infinity; E == 0 is an unset entry)
+                if (t.Side[3 * k + i].E == 0)
+                    t.Side[3 * k + i] = CertifiedDet3.Compute(t.Edge(k), p[i] - t.V(k).P, w);
+                return t.Side[3 * k + i];
+            }
+            // an upper bound of |det[e1, e2, v - p0]| = |N_Q . (v - p0)| (section 6)
+            double valueH(PatchVertex v)
+            {
+                if (!v.HasH) { v.H = CertifiedDet3.Compute(e1, e2, v.P - p0); v.HasH = true; }
+                return v.H.AbsUpper;
+            }
+            // g_V: an upper bound of the gap |z - x| at the vertex z = v of a target triangle, x the point of Q below it
+            double gapV(PatchVertex v) { return CertifiedTriangleBounds.up(fw * valueH(v)); }
+            // g_C: the gap at the crossing of the edge (a, b) of t' with the line of the edge j of Q' (section 6): the larger of the two
+            // vertices' gaps (any lambda in [0, 1]), or, where the signs of a and b against that line are certainly opposite, the
+            // gap at the enclosed lambda = P_a / (P_a - P_b), the smaller of the two
+            double gapC(PatchVertex a, PatchVertex b, int j)
+            {
+                double first = CertifiedTriangleBounds.max(gapV(a), gapV(b));
+                CertifiedDet3 pa = a.Q(j), pb = b.Q(j);
+                if (!lambda_enclosure(pa, pb, out double lo, out double hi)) return first;
+                double sA = valueH(a), sB = valueH(b);
+                double tight = CertifiedTriangleBounds.up(fw * CertifiedTriangleBounds.up(
+                    CertifiedTriangleBounds.up(CertifiedTriangleBounds.up(1 - lo) * sA) + CertifiedTriangleBounds.up(hi * sB)));
+                return Math.Min(first, tight);
+            }
+
+            var verts = new Dictionary<int, PatchVertex>();
+            PatchVertex vertex(int vid)
+            {
+                if (verts.TryGetValue(vid, out PatchVertex pv)) return pv;
+                pv = new PatchVertex() { P = Target.GetVertex(vid) };
+                pv.Q0 = CertifiedDet3.Compute(erow[0], pv.P - p0, w);
+                pv.Q1 = CertifiedDet3.Compute(erow[1], pv.P - p1, w);
+                pv.Q2 = CertifiedDet3.Compute(erow[2], pv.P - p2, w);
+                verts[vid] = pv;
+                return pv;
+            }
+
+            // state of the target triangles seen: 0 = pushed, 1 = in S, 2 = rejected
+            var state = new Dictionary<int, byte>();
+            var inS = new List<PatchTriangle>();
+            var stack = new Stack<int>();
+            foreach (int s in new int[] { n0, n1, n2 })
+                if (s >= 0 && Target.IsTriangle(s) && state.ContainsKey(s) == false) { state[s] = 0; stack.Push(s); }
+            while (stack.Count > 0) {
+                int tid = stack.Pop();
+                Index3i tv = Target.GetTriangle(tid);
+                Vector3d a = Target.GetVertex(tv.a), b = Target.GetVertex(tv.b), c = Target.GetVertex(tv.c);
+                Vector3d ra = a - p0, rb = b - p0, rc = c - p0;
+                Vector2d sa = new Vector2d(ra.Dot(ux), ra.Dot(uy)), sb = new Vector2d(rb.Dot(ux), rb.Dot(uy)), sc = new Vector2d(rc.Dot(ux), rc.Dot(uy));
+                AxisAlignedBox2d tbox = new AxisAlignedBox2d(sa); tbox.Contain(sb); tbox.Contain(sc);
+                // t joins S only if T(a, b, c) > 0 for certain (section 4, step 2); slivers and triangles seen edge on are left out
+                Vector3d eab = b - a, ebc = c - b, eca = a - c;
+                CertifiedDet3 tt = default;
+                bool take = tbox.Intersects(box);
+                if (take) {
+                    tt = CertifiedDet3.Compute(eab, -eca, w);
+                    take = tt.Sign > 0 && tt.Lo > 0;
+                }
+                if (!take) { state[tid] = 2; continue; }
+                state[tid] = 1;
+                if (inS.Count >= MaxPatchTriangles)
+                    return double.PositiveInfinity;
+                var pt = new PatchTriangle() { Tid = tid, E0 = eab, E1 = ebc, E2 = eca, Dt = tt.Lo, V0 = vertex(tv.a), V1 = vertex(tv.b), V2 = vertex(tv.c) };
+                inS.Add(pt);
+                Index3i nb = Target.GetTriNeighbourTris(tid);
+                for (int k = 0; k < 3; ++k)
+                    if (nb[k] >= 0 && state.ContainsKey(nb[k]) == false) { state[nb[k]] = 0; stack.Push(nb[k]); }
+            }
+            if (inS.Count == 0)
+                return double.PositiveInfinity;
+
+            // no boundary edge of S may meet Q' (section 4, step 3): a certified strict separation
+            foreach (PatchTriangle t in inS) {
+                Index3i tv = Target.GetTriangle(t.Tid);
+                Index3i nb = Target.GetTriNeighbourTris(t.Tid);
+                for (int k = 0; k < 3; ++k) {
+                    byte st;
+                    // (an edge between triangles of S of inconsistent orientation counts as a boundary edge: both can lie on the same side)
+                    if (nb[k] >= 0 && state.TryGetValue(nb[k], out st) && st == 1 && traverses(Target.GetTriangle(nb[k]), tv[(k + 1) % 3], tv[k]))
+                        continue;
+                    PatchVertex a = t.V(k), b = t.V((k + 1) % 3);
+                    bool separated = false;
+                    // the segment strictly outside one edge of Q'
+                    for (int j = 0; j < 3 && !separated; ++j)
+                        separated = a.Q(j).Sign < 0 && b.Q(j).Sign < 0;
+                    // or Q' strictly on one side of the line of the segment
+                    if (!separated) {
+                        int s0 = side(t, k, 0).Sign, s1 = side(t, k, 1).Sign, s2 = side(t, k, 2).Sign;
+                        separated = s0 != 0 && s0 == s1 && s1 == s2;
+                    }
+                    if (!separated)
+                        return double.PositiveInfinity;
+                }
+            }
+
+            // a witness that Q' meets some t' of S (section 4, step 4): a vertex strictly inside Q', or a corner of Q strictly inside a t'
+            bool witness = false;
+            foreach (PatchTriangle t in inS)
+                if (t.V0.Inside || t.V1.Inside || t.V2.Inside) { witness = true; break; }
+            for (int ti = 0; ti < inS.Count && !witness; ++ti)
+                for (int i = 0; i < 3 && !witness; ++i)
+                    witness = side(inS[ti], 0, i).Sign > 0 && side(inS[ti], 1, i).Sign > 0 && side(inS[ti], 2, i).Sign > 0;
+            if (!witness)
+                return double.PositiveInfinity;
+
+            // the gaps at a superset of the vertices of the clipped polygons (section 6)
+            double result = 0;
+            foreach (PatchTriangle t in inS) {
+                // all three vertices strictly inside Q': the clipped polygon is t' itself
+                if (t.V0.Inside && t.V1.Inside && t.V2.Inside) {
+                    for (int k = 0; k < 3; ++k)
+                        result = CertifiedTriangleBounds.max(result, gapV(t.V(k)));
+                    continue;
+                }
+                // t' certainly outside one edge of Q': it adds nothing
+                bool outside = false;
+                for (int j = 0; j < 3 && !outside; ++j)
+                    outside = t.V0.Q(j).Sign < 0 && t.V1.Q(j).Sign < 0 && t.V2.Q(j).Sign < 0;
+                if (outside) continue;
+                // (V) the vertices of t' that are not certainly outside Q'
+                for (int k = 0; k < 3; ++k)
+                    if (!t.V(k).Outside)
+                        result = CertifiedTriangleBounds.max(result, gapV(t.V(k)));
+                // (Q) the corners of Q' that are not certainly outside t'
+                for (int i = 0; i < 3; ++i) {
+                    if (side(t, 0, i).Sign < 0 || side(t, 1, i).Sign < 0 || side(t, 2, i).Sign < 0) continue;
+                    // |gap| = |w| |det[b - a, c - a, p_i - a]| / T(a, b, c), the corner's point above it in the plane of t
+                    CertifiedDet3 h = CertifiedDet3.Compute(t.E0, -t.E2, p[i] - t.V0.P);
+                    double g = CertifiedTriangleBounds.up(CertifiedTriangleBounds.up(wlen * h.AbsUpper) / t.Dt);
+                    result = CertifiedTriangleBounds.max(result, g);
+                }
+                // (C) the crossings of an edge of t' with an edge of Q', unless they are certainly disjoint
+                for (int k = 0; k < 3; ++k) {
+                    PatchVertex a = t.V(k), b = t.V((k + 1) % 3);
+                    for (int j = 0; j < 3; ++j) {
+                        int sa = a.Q(j).Sign, sb = b.Q(j).Sign;
+                        if (sa != 0 && sa == sb) continue;
+                        int sj = side(t, k, j).Sign, sj1 = side(t, k, (j + 1) % 3).Sign;
+                        if (sj != 0 && sj == sj1) continue;
+                        result = CertifiedTriangleBounds.max(result, gapC(a, b, j));
+                    }
+                }
+            }
+            return result;
         }
 
         // does the triangle t have the edge a -> b in its order?

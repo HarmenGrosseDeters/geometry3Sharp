@@ -191,24 +191,36 @@ namespace geometry3Sharp.Tests
             } finally { gParallel.SerialOnThisThread = false; }
         }
 
-        /// <summary> the patch bound (estimated slack) is not used for a certified bound: with PatchBound the result is the same </summary>
+        /// <summary> #848: with the patch bound set, CertifiedUpper uses the certified one (TriangleDeviationBounds.certified_patch_bound):
+        /// a reduced mesh against its original converges with far fewer subdivisions, the upper bound is not below the exact distance of
+        /// the vertices, and the result is the same on a second run and serially. (Before #848 the option was ignored under
+        /// CertifiedUpper: its estimated slack could put a bound below the true maximum.) </summary>
         [Fact]
-        public void CertifiedUpper_IgnoresThePatchBound()
+        public void CertifiedUpper_UsesTheCertifiedPatchBound()
         {
             DMesh3 big = Bumpy(9, 16), red = new DMesh3(big);
             new Reducer(red).ReduceToTriangleCount(big.TriangleCount / 8);
             FieldInfo patch = typeof(MeshHausdorffDistance).GetField("PatchBound", BindingFlags.NonPublic | BindingFlags.Instance);
-            var without = new MeshHausdorffDistance(red, big) { Symmetric = false, CertifiedUpper = true };
-            var with = new MeshHausdorffDistance(red, big) { Symmetric = false, CertifiedUpper = true };
+            var without = new MeshHausdorffDistance(red, big) { Symmetric = false, CertifiedUpper = true, Tolerance = 1e-3 };
+            var with = new MeshHausdorffDistance(red, big) { Symmetric = false, CertifiedUpper = true, Tolerance = 1e-3 };
             patch.SetValue(with, true);
-            var plainWith = new MeshHausdorffDistance(red, big) { Symmetric = false };
-            patch.SetValue(plainWith, true);
-            var plainWithout = new MeshHausdorffDistance(red, big) { Symmetric = false };
-            Assert.True(without.Compute() && with.Compute() && plainWith.Compute() && plainWithout.Compute());
-            Assert.Equal(without.UpperBound, with.UpperBound);
-            Assert.Equal(without.Subdivisions, with.Subdivisions);
-            // (the patch bound is active on this input without the option: it saves subdivisions)
-            Assert.True(plainWith.Subdivisions < plainWithout.Subdivisions, $"{plainWith.Subdivisions} vs {plainWithout.Subdivisions}");
+            Assert.True(without.Compute() && with.Compute());
+            Assert.True(without.Converged && with.Converged);
+            Assert.True(with.Subdivisions < without.Subdivisions / 2, $"{with.Subdivisions} vs {without.Subdivisions}");
+            Assert.True(with.UpperBound >= with.LowerBound && with.UpperBound - with.LowerBound <= with.Tolerance + 1e-12 * with.UpperBound,
+                $"{with.LowerBound:R} .. {with.UpperBound:R}");
+            Assert.True(VerticesWithin(red, big, with.UpperBound), "a vertex of the reduced mesh is farther from the original than UpperBound");
+            // (the same input, serial and a second run: no state in the instance)
+            double up = with.UpperBound; int sub = with.Subdivisions;
+            Assert.True(with.Compute());
+            Assert.Equal(up, with.UpperBound); Assert.Equal(sub, with.Subdivisions);
+            gParallel.SerialOnThisThread = true;
+            try {
+                var serial = new MeshHausdorffDistance(red, big) { Symmetric = false, CertifiedUpper = true, Tolerance = 1e-3 };
+                patch.SetValue(serial, true);
+                Assert.True(serial.Compute());
+                Assert.Equal(up, serial.UpperBound); Assert.Equal(sub, serial.Subdivisions);
+            } finally { gParallel.SerialOnThisThread = false; }
         }
     }
 }

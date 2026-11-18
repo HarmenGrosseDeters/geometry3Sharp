@@ -633,8 +633,8 @@ Ordered by expected value for the library.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
-    - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; open,
-      parked until a use case, owner 2026-11-16; design note [CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)); #873
+    - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner
+      2026-11-18: unparked, implemented in the PR of 2026-11-18, in review; design note [CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)); #873
       (coplanar meshes stall at Upper, closed 2026-11-15, fixed in 5e7577c2).
 11. **Bit-for-bit determinism across runtimes and CPUs** (net48 / net10, x64 / ARM, parallel paths).
     - Needed: a systematic method to prove which paths are reproducible (not only test them), as a basis for
@@ -683,7 +683,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
    rule (upper bound one run). Options B and C only after a reviewed proof.
-5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). **Owner 2026-11-16: parked until a use case** (no library caller sets `CertifiedUpper` today; eg certified quality bounds for the Reducer would be one); the spike and its stop rules (section 7) are the starting point then.
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (`certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
 7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now)
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
