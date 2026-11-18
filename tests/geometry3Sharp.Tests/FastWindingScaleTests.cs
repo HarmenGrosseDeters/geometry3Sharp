@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using g3;
 using gs;
@@ -179,30 +178,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void FarPart_UnitFrame_VolumeCheck_TimeBounded()
+        public void FarPart_UnitFrame_VolumeCheck_WorkBounded()
         {
             // #693: the volume check of MeshRobustRepair on the scene in its unit frame (MeshRepairMetrics.VolumeIoUAtLeast
-            // of a mesh with itself: the samples of the input's and the result's solid, each by a FastWindingNumber). The
-            // bound is far above the time after and below the time before (4 cores: 2.8 s before, 21 ms after)
-            // #823: the first call on net48 spent 809 ms of its own against the bound of 800, mostly JIT (the same class as #827). A
-            // warm-up call of the same check comes first, then the best of two timed calls (noise only adds time): the slow path of
-            // the far part (2.8 s before the fix, in every call) still fails the bound, so a fall back to it stays killed.
+            // of a mesh with itself: the samples of the input's and the result's solid, each by a FastWindingNumber). Before the
+            // fix every query summed all triangles of the far part exactly (2.8 s on 4 cores, 21 ms after).
+            // #1118: the check was a wall-clock bound (800 ms; failed once with 10 s on a starved net48 runner, earlier on JIT: #823,
+            // #827). Now the work is counted, which no runner load changes: the triangles the queries of the check sum
+            // exactly (FastWindingExactTriangleCount, on the points the check samples: the bounding box of the scene), and the
+            // check's result is verified as before.
             double scale;
             DMesh3 m = UnitFrameScene(1e8, out scale);
             double iou;
             bool atLeast = MeshRepairMetrics.VolumeIoUAtLeast(m, new DMesh3(m), 0.9, out iou);
             Assert.True(atLeast, $"iou {iou}");
             Assert.True(iou > 0.99, $"iou {iou}");
-            long ms = long.MaxValue;
-            for (int run = 0; run < 2; ++run) {
-                var sw = Stopwatch.StartNew();
-                atLeast = MeshRepairMetrics.VolumeIoUAtLeast(m, new DMesh3(m), 0.9, out iou);
-                ms = Math.Min(ms, sw.ElapsedMilliseconds);
-                Assert.True(atLeast, $"iou {iou}");
-                Assert.True(iou > 0.99, $"iou {iou}");
+
+            var tree = new DMeshAABBTree3(m, true);
+            AxisAlignedBox3d box = tree.Bounds;
+            var rnd = new Random(1);
+            const int n = 300;
+            long exact = 0;
+            tree.FastWindingNumber(box.Center);   // builds the cache
+            for (int i = 0; i < n; ++i) {
+                Vector3d q = new Vector3d(box.Min.x + rnd.NextDouble() * box.Width, box.Min.y + rnd.NextDouble() * box.Height, box.Min.z + rnd.NextDouble() * box.Depth);
+                exact += tree.FastWindingExactTriangleCount(q);
             }
-            Assert.True(ms < BoundMs, $"{ms} ms");
+            // the sampled region lies mostly in the far part's empty space (boxes of the two parts are 1e8 apart): with the slow
+            // path every query sums all of the far part and the near spheres (the scene has TriangleCount triangles)
+            double perQuery = (double)exact / n;
+            Assert.True(perQuery < 0.05 * m.TriangleCount, $"{perQuery} of {m.TriangleCount} triangles summed exactly per query");
         }
-        const long BoundMs = 800;
     }
 }
