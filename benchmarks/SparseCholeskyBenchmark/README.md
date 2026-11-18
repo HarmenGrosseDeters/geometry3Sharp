@@ -55,3 +55,29 @@ Factorize (s), best of 3, same machine, before / after:
 1.80 -> 1.63, torus smoothest 2.08 -> 2.06, torus aligned 2.14 -> 1.95. The gain is small because the analysis of the 55k-vertex
 system is now mostly the minimum degree ordering (0.26 s of 0.33 s; the structure of L takes 0.05 s); a faster ordering with the
 same result is the next lever of the analysis.
+
+## Vector kernels of `SparseHermitianCholesky` (2026-11-17)
+
+The complex dot product of the supernode updates and of the dense block Cholesky (`SparseHermitianCholeskyKernels`) runs four products
+at a time on `Vector128` lanes, like `SparseCholeskyKernels` for the real class. The scalar `dotc` keeps two partial sums per
+component (element k into sum k mod 2); the vector version holds the two sums in the two lanes, with the same separate multiplies
+and adds (no FMA), so factor and solutions are the same bits (the golden hashes of `CholeskyAnalysisTests`, taken before
+the analysis was shared, still hold; `SparseHermitianCholeskyKernelTests`).
+
+Factorize (s), best of 3, master at 464988c8 / this change: hermitian grid2d n=40000 0.26 / 0.20, n=60000 0.43 / 0.33 (solution hashes
+unchanged). `CrossFieldBenchmark h=0.017` (one thread, best of 3, s, before / after):
+
+| shape | field | V | solves | before | after |
+|---|---|---|---|---|---|
+| sphere | smoothest | 54944 | 6 | 1.61 | 1.36 |
+| sphere | aligned s=1 | 54944 | 6 | 1.71 | 1.37 |
+| torus | smoothest | 60712 | 14 | 2.02 | 1.72 |
+| torus | aligned s=1 | 60712 | 12 | 2.02 | 1.66 |
+| noisy-torus | smoothest | 60712 | 34 | 3.24 | 2.90 |
+| noisy-torus | aligned s=1 | 60712 | 21 | 2.43 | 2.16 |
+
+Where the time goes after this change (same runs, with temporary stopwatch prints, s): sphere 1.4 = ordering 0.22 + rest of the
+analysis 0.08 + numeric 0.48 + 6 solves 0.28 + other 0.33 (frames, curvature, assembly, per face results); torus smoothest
+1.7 to 1.8 = ordering 0.24 + 0.08 + numeric 0.5 + 14 solves 0.5 + other 0.35; noisy torus smoothest 2.9 to 3.0 = ordering 0.23 + 0.07 +
+numeric 0.5 + 34 solves 1.2 + other 0.33. The minimum degree ordering alone is 8 % to 16 % of the total, so a free ordering would save at
+most 0.22 to 0.26 s.

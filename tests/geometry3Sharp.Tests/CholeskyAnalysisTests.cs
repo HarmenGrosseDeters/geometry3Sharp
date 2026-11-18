@@ -83,7 +83,7 @@ namespace geometry3Sharp.Tests
             return c;
         }
         // complex Hermitian: the grid of RealGrid with complex off-diagonal entries
-        static SparseHermitianCholesky ComplexGrid(int nx, int ny, ulong seed)
+        internal static SparseHermitianCholesky ComplexGrid(int nx, int ny, ulong seed)
         {
             ulong s = seed; var c = new SparseHermitianCholesky(nx * ny);
             for (int y = 0; y < ny; ++y)
@@ -99,7 +99,7 @@ namespace geometry3Sharp.Tests
                 }
             return c;
         }
-        static SparseHermitianCholesky ComplexRandom(int n, int perRow, ulong seed)
+        internal static SparseHermitianCholesky ComplexRandom(int n, int perRow, ulong seed)
         {
             ulong s = seed; var c = new SparseHermitianCholesky(n);
             for (int i = 0; i < n; ++i) {
