@@ -442,7 +442,7 @@ worst-case constant; the derivation (steps 1 to 4) is what justifies 10 u, not t
 |---|---|---|---|
 | `TenU` | `5 * 2^-52` (= 10 u) | derived 8.002 u (3.1 to 3.4) | `Det3_ErrorBound_*` against `ExactDyadic` (mutant 10u -> 1u killed; 10u -> 4u equivalent, above) |
 | `UnderflowUnit` | `2^-1070` | derived need `2^-1072 (M + 1) (1 + tiny)` (step 6), factor 4 spare | `Det3_Underflow_AndOverflow`: the determinant 2^-1620 computed as 0 |
-| `AbsorbedAbove`, `AbsorbFactor` | `2^-980`, `1 + 2^-39` | 10.1 | `Det3_ErrorBound_*` (fast path), the near-underflow cases (second formula) |
+| `AbsorbedAbove`, `AbsorbFactor` | `2^-980`, `1 + 2^-39` | 10.1 | the threshold (and its `(M + 1)` factor) by the mixed-magnitude rows of `Det3_Underflow_AndOverflow` (mutants killed); the factor `1 + 2^-39` and the exact position of the threshold only by the derivation (equivalent mutants) |
 | `lo`, `hi` clamps | 0, 1 | lambda is in [0, 1] | `PatchBound_*` against the exact gap |
 | `MaxPatchTriangles` | 256 | none needed (any S is sound) | refusal only |
 | box margin | `1e-9 scale` | none needed (heuristic) | none |
@@ -481,6 +481,7 @@ of a 5 ms run. The upper bound is the same or tighter (where the cascade stops e
 - `Det3_ErrorBound_HoldsAgainstExactDeterminant`, `..._NearDependentRows`: 2 x 2500 rows against `ExactDyadic`; `|det_c - Delta| <= E`
   exactly, a decided sign equals the exact sign, `[Lo, Hi]` and `AbsUpper` enclose the exact value; the largest observed
   `|err| / (u perm)` stays under 8.002.
+- `LambdaEnclosure_ContainsTheExactParameter_WhenWide` (ill-conditioned determinants, exact lambda), `PatchBound_NonDyadic_...` (random doubles), `PatchBound_NothingUnderneath_IsInfinite`, `PatchBound_CornersOnTargetVertices_KeepTheirGap`, `CertifiedUpper_WithPatchBound_UnderEverySimilarity`.
 - `Det3_ExactlyZero_IsNeverDecided`; `Det3_Underflow_AndOverflow` (subnormal rows, 2^-540 rows, rows near 2^330, overflow, NaN,
   infinite differences: undecided, never a wrong sign); `Det3_ScalesBitForBit_...` (10.1).
 - `PatchBound_Horizontal_NotBelowTheExactGap_AndTight`: random bumpy heightfields and random dyadic triangles; for dyadic samples
@@ -500,7 +501,25 @@ of a 5 ms run. The upper bound is the same or tighter (where the cascade stops e
 (local, against `CertifiedPatchBoundTests` and `HausdorffCertifiedUpperTests`; the incremental run of the hausdorff shard on the PR
 is the gate)
 
-MUTANT_TABLE
+Local hand mutants of `CertifiedDet3.cs` and the new code of `TriangleDeviationBounds.cs`, each run against `CertifiedPatchBoundTests`
+and `HausdorffCertifiedUpperTests` (one build and test run per mutant; the rows group them):
+
+| Mutant | Result |
+|---|---|
+| `10u` to `1u` | killed (`Det3_ErrorBound_NearDependentRows`, `Det3_Underflow_AndOverflow`) |
+| `A` removed; `A / 16`; "always fast path" (`perm >= 0`); threshold without `(M + 1)` | killed (the mixed-magnitude and big-first-row rows of `Det3_Underflow_AndOverflow`) |
+| sign decided without `E` | killed |
+| lambda enclosure: corners swapped; the negated branch swapped | killed (`LambdaEnclosure_ContainsTheExactParameter_WhenWide`) |
+| `lo` ignored (`1 - lo` replaced by 1); the `min` with the vertex-gap term dropped (tight term only used) | `lo` killed; dropping the vertex term: survives, equivalent (the tight term is the smaller one wherever the enclosure applies) |
+| (C) tight term dropped (vertex gaps only) | killed (`..._Horizontal_..._AndTight`: 1e-9 of the uncertified bound) |
+| witness not required | killed (`PatchBound_NothingUnderneath_IsInfinite`, the lone-triangle case of `PatchBound_CoverageFails_IsInfinite`) |
+| boundary-edge check dropped | killed |
+| (Q) candidate divides by a wrong `D` | killed (`PatchBound_UnderEverySimilarity`) |
+| `10u` to `4u`; fast-path factor `1 + 2^-39` dropped; threshold `2^-980` to `2^-1022`; `M` taken from fewer entries | survive: equivalent for every input the tests (or any search) reach, the worst observed error being 2.2 u perm against the derived 8.002 u; the derivation justifies them, not the tests (10.1) |
+| `hi` computed from `P0` instead of `P1` | survives: differs by about one ulp of lambda where the enclosure is narrow; not observable through a bound that is rounded up |
+| `lo` clamp to 0 dropped; the `hi` overflow branch dropped (`P1 - R1` infinite) | survive: reviewed-only branches (a negative `lo` only loosens the term `1 - lo`, `lo` below 0 is still a valid lower bound; the overflow branch needs determinants near 1e308 that are also certified opposite) |
+| strictness of the sign tests: separation `< 0` to `<= 0` (both forms), the "outside" and the (V), (Q), (C) exclusions allowing a zero sign, the line separation allowing zero, a triangle admitted by `Det > 0` instead of the certified sign | survive: they differ from the original only where a sign is exactly 0 or rounding-sized, which random inputs do not produce and the corner-on-vertex case (`PatchBound_CornersOnTargetVertices_KeepTheirGap`) does not make decisive (a dropped vertex of zero sign has a gap that another candidate also carries). Follow-up for the incremental run: exactly degenerate targets (a sliver whose determinant is within E of 0 next to Q') |
+| `MaxPatchTriangles` ignored; inconsistent-orientation edges treated as interior | survive: the first is a limit (refusal only), the second is covered by the certified positive-orientation test of the triangles |
 
 ### 10.7 For the bound review
 
