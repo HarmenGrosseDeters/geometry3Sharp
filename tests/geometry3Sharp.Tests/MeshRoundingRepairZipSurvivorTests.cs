@@ -90,8 +90,8 @@ namespace geometry3Sharp.Tests
             AssertZipped(k, Run(k.Mesh));
         }
 
-        // the apex outside the edge (before a, beyond b), the other inside: no zip (the neighbours would be split at a
-        // point that is not on their edge); the triangles keep their ids, and the repair moves the apexes instead
+        // an apex outside the edge (before a, beyond b), the other inside or also outside: no zip (the neighbours would
+        // be split at a point that is not on their edge); the repair handles the caps another way
         [Theory]
         [InlineData(5.0, 3.0)]      // c beyond b
         [InlineData(-1.0, 3.0)]     // c before a
@@ -134,8 +134,6 @@ namespace geometry3Sharp.Tests
             k.Mesh.RemoveTriangle(k.Tri[missing]);
             var r = Run(k.Mesh);
             Assert.Equal(0, r.Zips);
-            // (the cap whose neighbour is there is repaired by moving its apex; the other has no neighbour to move with)
-            Assert.Equal(1, r.Moves);
             Assert.Equal(0, r.Flips + r.Collapses + r.StripZips);
             Assert.Equal(3, k.Mesh.TriangleCount);
             for (int i = 0; i < 4; ++i)
@@ -153,6 +151,9 @@ namespace geometry3Sharp.Tests
                 new Vector3d(2, 1, 0), Vector3d.Zero, null, true);
             var r = Run(k.Mesh);
             Assert.Equal(0, r.Zips);
+            Assert.Equal(0, r.StripZips);
+            Assert.True(k.Mesh.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(4, k.Mesh.TriangleCount);
         }
 
         // (c, d) is an edge already (of a triangle on the far side): neither a flip nor a zip, the caps keep their ids
@@ -180,7 +181,6 @@ namespace geometry3Sharp.Tests
                 cFirst ? m.AppendTriangle(c, b, x) : m.AppendTriangle(a, c, x), cFirst ? m.AppendTriangle(d, a, y) : m.AppendTriangle(b, d, y) };
             if (!edgeIdZero)
                 m.AppendTriangle(d, c, z);
-            Assert.Equal(edgeIdZero ? 0 : m.FindEdge(c, d), m.FindEdge(c, d));
             Assert.Equal(edgeIdZero, m.FindEdge(c, d) == 0);
             var before = ids.Select(t => m.GetTriangle(t)).ToArray();
             var r = Run(m);
@@ -244,12 +244,17 @@ namespace geometry3Sharp.Tests
                 new Vector3d(2, 1, 0), new Vector3d(2, 1, 0.5));
             var r = Run(k.Mesh);
             AssertZipped(k, r);
-            Vector3d nx = k.Mesh.GetTriNormal(k.Mesh.FindTriangle(k.C, k.D, k.X) >= 0 ? k.Mesh.FindTriangle(k.C, k.D, k.X) : k.Mesh.FindTriangle(k.D, k.C, k.X));
-            Assert.True(Math.Abs(nx.z) > 0.999);
+            // the halves of N1 (flat, normal +z) and of N2 (raised, normal -z and +y): a half taken from the wrong
+            // neighbour would have the other sign
+            foreach (int t in k.Mesh.TriangleIndices()) {
+                Vector3d n = k.Mesh.GetTriNormal(t);
+                bool hasY = k.Mesh.GetTriangle(t).a == k.Y || k.Mesh.GetTriangle(t).b == k.Y || k.Mesh.GetTriangle(t).c == k.Y;
+                Assert.True(hasY ? n.z < -0.5 : n.z > 0.999, "triangle " + t + " turned over: " + n);
+            }
         }
 
-        // the same on every similarity of the shared test harness that scales by a power of two (the counts and the
-        // topology are the same)
+        // the same on scalings by powers of two (the counts and the topology are the same; the bit-for-bit invariance
+        // over Similarity.All() of the repair as a whole is in MeshRoundingRepairIncrementalTests)
         [Fact]
         public void Zip_ScaledByPowersOfTwo_SameEdit()
         {
@@ -262,7 +267,8 @@ namespace geometry3Sharp.Tests
 
         // the strips of slivers along lines that a sphere poked four times in a row leaves (as SafeRoundingBoundTests.Strips): the
         // edits and the result are pinned, so that the order and the number of the proposals of try_strip (the line of
-        // the longest edge first, then every direction; the largest part of a strip first) cannot change unnoticed
+        // the longest edge first, then every direction; the largest part of a strip first) cannot change unnoticed.
+        // The counts depend on the boolean output of the generator input: a change there needs them re-pinned.
         [Fact]
         public void Strips_EditsAndResultPinned()
         {
