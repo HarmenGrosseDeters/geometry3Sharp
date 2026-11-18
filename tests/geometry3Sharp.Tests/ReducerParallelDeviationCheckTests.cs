@@ -67,11 +67,13 @@ namespace geometry3Sharp.Tests
             var tree = new DMeshAABBTree3(reference, true);
             var bounds = new TriangleDeviationBounds(reference);
             var tris = CoarseTriangles(reference, 40);
-            int yes = 0, no = 0;
+            int yes = 0, no = 0, noAfterHandoff = 0;
             foreach (double eps in new[] { 0.02, 0.05, 0.08, 0.12, 0.2 }) {
                 foreach (Triangle3d t in tris) {
                     bool serial = bounds.IsWithin(tree, t.V0, t.V1, t.V2, eps, 10, null, false);
+                    long before = bounds.ParallelHandoffs;
                     bool parallel = bounds.IsWithin(tree, t.V0, t.V1, t.V2, eps, 10, null, true);
+                    if (!parallel && bounds.ParallelHandoffs > before) noAfterHandoff++;
                     var cache = new TriangleDeviationBounds.QueryCache(tree, eps);
                     bool parallelCached = bounds.IsWithin(tree, t.V0, t.V1, t.V2, eps, 10, cache, true);
                     Assert.Equal(serial, parallel);
@@ -81,6 +83,7 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(yes > 20 && no > 20, $"both answers occur: {yes} within, {no} not");
+            Assert.True(noAfterHandoff > 0, "some failures are found by the parallel phase");
             Assert.True(bounds.ParallelHandoffs > 20, $"the walks went past the warm-up: {bounds.ParallelHandoffs}");
         }
 
@@ -93,7 +96,7 @@ namespace geometry3Sharp.Tests
         {
             // reference: a flat grid of 40 x 40 cells at z = 0; the triangle lies at z = 0 above it, and the grid has a hole-free dent: one vertex moved down
             int n = 40;
-            int failures = 0, handoffs = 0;
+            int failures = 0, failuresAfterHandoff = 0;
             for (int dent = 0; dent < 25; ++dent) {
                 var m = new DMesh3();
                 int[,] ids = new int[n + 1, n + 1];
@@ -115,10 +118,10 @@ namespace geometry3Sharp.Tests
                 bool parallel = bounds.IsWithin(tree, a, b, c, 0.5, 10, null, true);
                 Assert.Equal(serial, parallel);
                 if (!serial) failures++;
-                handoffs = (int)bounds.ParallelHandoffs;
+                if (!parallel && bounds.ParallelHandoffs > 0) failuresAfterHandoff++;
             }
             Assert.True(failures > 0, "some dents are under the triangle");
-            Assert.True(handoffs > 0);
+            Assert.True(failuresAfterHandoff > 0, "some failures are found by the parallel phase");
         }
 
         static DMesh3 Reduce(DMesh3 input, double tol, bool parallel, out Reducer reducer)

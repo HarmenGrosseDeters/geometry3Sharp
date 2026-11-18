@@ -1712,7 +1712,7 @@ the pieces and changed the time by 0; caching across attempts has nothing to reu
 `IsWithin` now takes the pieces beyond the first 64 on several threads, in rounds of 128 pieces per task (`ParallelDeviationCheck`, on by default): the answer is
 true iff no piece fails, so the thread schedule cannot change it, and the reduction is the same mesh bit for bit (hash of all triangle coordinates equal in every run,
 `ReducerParallelDeviationCheckTests`). The serial part left in the phase is the self-intersection check (4.2 s of 18 s) and the Reducer's own loop.
-"flat", alpha = diag / 300, factor 1, 4-core container, master f356ab5 against the branch, three runs each, interleaved (range in brackets):
+"flat", alpha = diag / 300, factor 1, 4-core container, master f356ab5 against the branch, three runs each, interleaved for distance 0.5 (range in brackets), one run each for distance 2:
 
 | distance | | `wrap.target` | repair total | output |
 |---|---|---:|---:|---|
@@ -1721,7 +1721,7 @@ true iff no piece fails, so the thread schedule cannot change it, and the reduct
 | 2 | master | 10.1 s | 18.6 s | 5360 triangles |
 | | parallel walk | 8.4 s | 17.1 s | the same bits |
 
--18 % and -16 % of the target phase (-13 % and -8 % of the repair). On one core there is no gain (the walk is the same work). A reduction with a target in
+-18 % and -17 % of the target phase (-13 % and -8 % of the repair). On one core the walk is the same work (not measured). A reduction with a target in
 parallel (slabs) would change the result and is not part of this.
 
 ## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
