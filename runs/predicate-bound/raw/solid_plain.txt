@@ -1,0 +1,21 @@
+| case | in tris | boolean tris | boolean ms | contacts | 25 %: tris, reduce ms, contacts, result, stop | RobustRepair of the soup: ms, tris, result |
+|---|---|---|---|---|---|---|
+| box+box overlap U | 24 | 36 | 346 | 0 | 8 (target 9), 43, 0, clean, TargetReached | 121, 36, clean |
+| box+box face-touch U | 24 | 20 | 18 | 0 | 4 (target 5), 0, 0, clean, TargetReached | 38, 20, clean |
+| box+box edge-touch U | 24 | 24 | 8 | 2 | 24 (target 6), 4, 2, self-intersections, SelfIntersectionGuard | 31, 24, clean |
+| sphere+sphere overlap U | 12696 | 10942 | 180 | 0 | 2736 (target 2736), 344, 0, clean, TargetReached | 1117, 10942, clean |
+| sphere&sphere overlap I | 12696 | 3254 | 84 | 0 | 814 (target 814), 75, 0, clean, TargetReached | 673, 10942, clean |
+| sphere-sphere D | 12696 | 8602 | 80 | 0 | 2150 (target 2151), 189, 0, clean, TargetReached | 646, 10574, clean |
+| sphere+sphere tangent-ish U | 5400 | 5400 | 27 | 0 | 1350 (target 1350), 120, 0, clean, TargetReached | 198, 5400, clean |
+| box-cylinder D | 204 | 208 | 11 | 0 | 52 (target 52), 5, 0, clean, TargetReached | 105, 400, clean |
+| torus+cylinder U | 3264 | 3508 | 59 | 0 | 876 (target 877), 88, 0, clean, TargetReached | 300, 3508, clean |
+| torus+torus linked U | 6144 | 6048 | 119 | 0 | 1512 (target 1512), 155, 0, clean, TargetReached | 428, 6048, clean |
+| fine box edge-touch U | 5400 | 5400 | 43 | 16 | 1350 (target 1350), 2474, 16, self-intersections, TargetReached | 936, 5408, clean |
+| fine box vertex-touch U | 5400 | 5400 | 60 | 1 | 1350 (target 1350), 676, 1, self-intersections, TargetReached | 873, 5400, clean |
+| sphere on box face (pole touch) U | 9612 | 9614 | 78 | 1 | 2404 (target 2404), 347, 0, clean, TargetReached | 1231, 9614, clean |
+| two cylinders line-touch U | 512 | 512 | 7 | 0 | 128 (target 128), 9, 0, clean, TargetReached | 435, 512, clean |
+| cylinder on box, partial face-touch U | 2956 | 2866 | 95 | 0 | 716 (target 717), 125, 0, clean, TargetReached | 243, 2866, clean |
+| 3 spheres U | 12996 | 9160 | 133 | 0 | 2290 (target 2290), 91, 0, clean, TargetReached | 612, 9160, clean |
+| box+sphere+cyl U | 6488 | 5972 | 53 | 0 | 1492 (target 1493), 58, 0, clean, TargetReached | 378, 5972, clean |
+
+reduced results: 17, clean 14 (82 %); of the 13 without contacts in the boolean result, clean 13

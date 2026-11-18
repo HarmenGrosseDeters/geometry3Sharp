@@ -1,0 +1,21 @@
+| case | triangles in | out | rejected | time ms (min of 1) | all runs ms | fingerprint |
+|---|---:|---:|---:|---:|---|---|
+| reducer_harness_plate50_jitter0.5 | 5000 | 500 |  | 4800 | 4800 | a9687daf920c8ba9 |
+| reducer_harness_tilt_plate50_jitter0.5 | 5000 | 500 |  | 2700 | 2700 | 7062e82002229584 |
+| reducer_harness_tilt_plate50 | 5000 | 499 |  | 2192 | 2192 | 32ec32f24a527154 |
+| reducer_harness_plate100 | 20000 | 1999 |  | 358 | 358 | 7c04f56dd8592df2 |
+| reducer_jitter_plate_z0 | 5000 | 499 |  | 92 | 92 | 9e28a32d230a1a32 |
+| reducer_jitter_plate_z0_to50 | 5000 | 50 |  | 97 | 97 | edaff28e032f93bd |
+| reducer_jitter_plate_tilted_to50 | 5000 | 50 |  | 2124 | 2124 | e7ecddd60a105d2c |
+| reducer_jitter_plate_tilted | 5000 | 500 |  | 2092 | 2092 | 0a0c420ae0b2b56f |
+| reducer_integer_plate | 20000 | 1999 |  | 333 | 333 | 7c04f56dd8592df2 |
+| reducer_bumpy_sphere | 18252 | 1000 |  | 197 | 197 | e3b1418407bea187 |
+| reducer_box_grid | 10092 | 600 |  | 1549 | 1549 | e9ee2d533f79b2f0 |
+| remesher_bumpy_sphere | 18252 | 18190 | 0 | 401 | 401 | 6ca25fe754084ad1 |
+| remesher_jitter_plate_z0 | 3200 | 3066 | 0 | 108 | 108 | c3282b70c3860705 |
+| remesher_jitter_plate_tilted | 3200 | 3066 | 0 | 69 | 69 | 3a792e63405f5d0b |
+| remesher_box_grid | 10092 | 10100 | 0 | 145 | 145 | 7e45693ccb810cb4 |
+| remesher_bumpy_sphere_si | 18252 | 18190 | 6 | 2483 | 2483 | 6ca25fe754084ad1 |
+| remesher_jitter_plate_z0_si | 3200 | 3035 | 32 | 247 | 247 | b10ac1575d0e298f |
+| remesher_jitter_plate_tilted_si | 3200 | 3016 | 18 | 268 | 268 | 82b6c9c4b6e53e4d |
+| remesher_box_grid_si | 10092 | 10100 | 0 | 427 | 427 | 7e45693ccb810cb4 |
