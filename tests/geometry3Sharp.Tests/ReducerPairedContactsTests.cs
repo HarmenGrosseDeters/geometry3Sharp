@@ -477,14 +477,65 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.TriangleGridDifference());
         }
 
+        // the queue's quadrics are those of a fresh computation before every collapse (an edge's quadric includes its twin edge's)
+        sealed class QuadricWatcher : Reducer
+        {
+            public string FirstDifference = "";
+            public QuadricWatcher(DMesh3 m) : base(m) { }
+            protected override ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV)
+            {
+                if (FirstDifference.Length == 0)
+                    FirstDifference = QueueQuadricDifference();
+                return base.CollapseEdge(edgeID, vNewPos, out collapseToV);
+            }
+        }
+
+        [Fact]
+        public void QueueQuadrics_StayFresh_AlsoAfterACollapseOntoAContactVertex()
+        {
+            foreach (var offset in new[] { new Vector3d(2, 2, 0), new Vector3d(2, 2, 2) }) {
+                var m = TouchingBoxes(6, offset);
+                var r = new QuadricWatcher(m) { PairCoincidentVertices = true, PreventSelfIntersections = true, MinCollapseTriangleQuality = 0.02 };
+                r.ReduceToTriangleCount(10);
+                Assert.Equal("", r.FirstDifference);
+            }
+        }
+
+        [Fact]
+        public void OtherEntryPoints_ReduceContactsToo()
+        {
+            DMesh3 start = TouchingBoxes(6, new Vector3d(2, 2, 0));
+            var a = new DMesh3(start); var ra = Pairing(a); ra.ReduceToVertexCount(8);
+            AssertSolid(a); Assert.True(a.VertexCount <= 8 && ra.PairedCollapses > 0);
+            var b = new DMesh3(start); var rb = Pairing(b); rb.ReduceToMaxQuadricError(1e-3);
+            AssertSolid(b); Assert.True(b.TriangleCount < start.TriangleCount / 2 && rb.PairedCollapses > 0, b.TriangleCount + " " + rb.PairedCollapses);
+            var c = new DMesh3(start); var rc = Pairing(c); rc.ReduceToEdgeLength(1.0);
+            AssertSolid(c); Assert.True(c.TriangleCount < start.TriangleCount);
+            var d = new DMesh3(start); var rd = Pairing(d); rd.FastCollapsePass(0.8, 3);
+            AssertSolid(d); Assert.True(d.TriangleCount < start.TriangleCount);
+        }
+
+        [Fact]
+        public void SameReducer_ReducesTwice()
+        {
+            var m = TouchingBoxes(8, new Vector3d(2, 2, 0));
+            var r = Pairing(m);
+            r.ReduceToTriangleCount(60);
+            AssertSolid(m);
+            r.ReduceToTriangleCount(4);
+            AssertSolid(m);
+            Assert.Equal(8, m.TriangleCount);
+            Assert.Equal(2, ContactPositions(m));
+        }
+
         // golden: the reduction with the option on (the code of this commit), so a change of the quadrics, the order or the positions is seen
         [Fact]
         public void On_ByHash()
         {
             var a = TouchingBoxes(6, new Vector3d(2, 2, 0)); Pairing(a).ReduceToTriangleCount(10);
             var b = TouchingBoxes(6, new Vector3d(2, 2, 0)); Pairing(b, guard: false, quality: 0).ReduceToTriangleCount(30);
-            Assert.Equal("9E1772182E79E00A114AB8AF", Hash(a));
-            Assert.Equal("5FB50BFA2471C9B7F4A283F8", Hash(b));
+            Assert.Equal("78006DCF318FC437C7D498BF", Hash(a));
+            Assert.Equal("DC4F0ADD03E2A51A2E1B2727", Hash(b));
         }
 
         [Fact]

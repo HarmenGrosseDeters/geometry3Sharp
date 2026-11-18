@@ -161,20 +161,20 @@ triangle counts and by a hash test):
 | case | boolean tris | contacts | target | tris off | contacts off | result off | stop off | ms off | tris PairContacts | contacts | result | stop | paired collapses | ms | closed |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | box+box face-touch U | 20 | 0 | (no contacts: the same result, 4 = 4 tris: True) |
-| box+box edge-touch U | 24 | 2 | 6 | 24 | 2 | self-intersections | SelfIntersectionGuard | 4 | 8 | 2 | self-intersections | Exhausted | 0 | 4 | True |
+| box+box edge-touch U | 24 | 2 | 6 | 24 | 2 | self-intersections | SelfIntersectionGuard | 6 | 8 | 2 | self-intersections | Exhausted | 0 | 3 | True |
 | box+box edge-touch U | 24 | 2 | 4 | 24 | 2 | self-intersections | SelfIntersectionGuard | 0 | 8 | 2 | self-intersections | Exhausted | 0 | 0 | True |
 | sphere+sphere tangent-ish U | 5400 | 0 | (no contacts: the same result, 1350 = 1350 tris: True) |
-| fine box edge-touch U | 5400 | 16 | 1350 | 1350 | 16 | self-intersections | TargetReached | 1068 | 1350 | 16 | self-intersections | TargetReached | 0 | 318 | True |
-| fine box edge-touch U | 5400 | 16 | 540 | 540 | 16 | self-intersections | TargetReached | 949 | 540 | 4 | self-intersections | TargetReached | 12 | 452 | True |
-| fine box vertex-touch U | 5400 | 1 | 1350 | 1350 | 1 | self-intersections | TargetReached | 210 | 1350 | 1 | self-intersections | TargetReached | 0 | 179 | True |
-| fine box vertex-touch U | 5400 | 1 | 540 | 540 | 1 | self-intersections | TargetReached | 261 | 540 | 1 | self-intersections | TargetReached | 0 | 249 | True |
-| sphere on box face (pole touch) U | 9614 | 1 | 2404 | 2404 | 0 | clean | TargetReached | 216 | 2404 | 1 | self-intersections | TargetReached | 0 | 300 | True |
-| sphere on box face (pole touch) U | 9614 | 1 | 962 | 962 | 0 | clean | TargetReached | 280 | 962 | 1 | self-intersections | TargetReached | 0 | 291 | True |
+| fine box edge-touch U | 5400 | 16 | 1350 | 1350 | 16 | self-intersections | TargetReached | 983 | 1350 | 16 | self-intersections | TargetReached | 0 | 376 | True |
+| fine box edge-touch U | 5400 | 16 | 540 | 540 | 16 | self-intersections | TargetReached | 876 | 540 | 5 | self-intersections | TargetReached | 11 | 418 | True |
+| fine box vertex-touch U | 5400 | 1 | 1350 | 1350 | 1 | self-intersections | TargetReached | 184 | 1350 | 1 | self-intersections | TargetReached | 0 | 236 | True |
+| fine box vertex-touch U | 5400 | 1 | 540 | 540 | 1 | self-intersections | TargetReached | 273 | 540 | 1 | self-intersections | TargetReached | 0 | 311 | True |
+| sphere on box face (pole touch) U | 9614 | 1 | 2404 | 2404 | 0 | clean | TargetReached | 214 | 2404 | 1 | self-intersections | TargetReached | 0 | 279 | True |
+| sphere on box face (pole touch) U | 9614 | 1 | 962 | 962 | 0 | clean | TargetReached | 275 | 962 | 1 | self-intersections | TargetReached | 0 | 323 | True |
 | two cylinders line-touch U | 512 | 0 | (no contacts: the same result, 128 = 128 tris: True) |
 | cylinder on box, partial face-touch U | 2866 | 0 | (no contacts: the same result, 716 = 716 tris: True) |
 ```
 
-- The fine edge-touching boxes at 10 %: the contacts go from 16 to 4 at the same 540 triangles (12 paired collapses); at 25 % the
+- The fine edge-touching boxes at 10 %: the contacts go from 16 to 5 at the same 540 triangles (paired collapses: see the table); at 25 % the
   target is reached without touching the contact line, so nothing changes.
 - **`NotCleanReason` is not changed**: every result that keeps a contact (`contacts` > 0) is still reported as "self-intersections"
   at it, also when the sheets touch exactly; the check is not altered. All results are closed and have no crossing (tests check it
@@ -183,8 +183,7 @@ triangle counts and by a hash test):
   reduction moved the touching vertex off the face (the contact was removed, a gap appears); with `PairContacts` the contact vertex
   stays, so the result keeps one contact and `NotCleanReason` says "self-intersections". That is why the option stays opt-in
   (the pipeline's output contract is "NotCleanReason the same or better" only without contacts).
-- Time of the reduction: within the run-to-run variation, lower where the contact line is collapsed (452 against 949 ms for the
-  fine edge touch at 10 %).
+- Time of the reduction: within the run-to-run variation, lower where the contact line is collapsed (see the ms columns).
 - Not combined with `MaxDeviationTwoSided` (`InvalidInput` in the pipeline, `InvalidOperationException` in the `Reducer`).
 
 ## Repeated booleans (the `repeated` mode)

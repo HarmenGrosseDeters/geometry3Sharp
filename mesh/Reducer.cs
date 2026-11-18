@@ -158,7 +158,8 @@ namespace g3
         /// </list>
         /// The positions are taken at the start of each reduction (exact equality of the coordinates). Throws InvalidOperationException
         /// at the start of a reduction with MaxDeviationTwoSided, with edge constraints, or with the internal KeepClearOf. A mesh
-        /// with no two vertices at one position reduces as without it.
+        /// with no two vertices at one position reduces as without it. A pair collapse removes up to four triangles at once, so a
+        /// triangle or vertex count target can be undershot by up to two triangles / one vertex.
         /// </summary>
         public bool PairCoincidentVertices = false;
 
@@ -285,13 +286,13 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
+            ensure_vertex_pairs();      // (first: it may throw, before any state of the pass is begun)
             begin_pass();
 
             begin_setup();
             ensure_deviation_reference();
             ensure_triangle_grid();
             Precompute();
-            ensure_vertex_pairs();
             ensure_reference_normals();
             if (Cancelled())
                 return;
@@ -351,6 +352,9 @@ namespace g3
                     } else {
                         vertQuadrics[vKept] = EdgeQuadrics[eid].q;
                         UpdateNeighbours(vKept);
+                        // (the quadric of an edge at the twin includes this vertex's: its edges are stale now)
+                        if (pairTwin != null && pairTwin[vKept] >= 0)
+                            UpdateNeighbours(pairTwin[vKept]);
                     }
                 }
             }
@@ -445,6 +449,7 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
+            ensure_vertex_pairs();
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();
@@ -457,7 +462,6 @@ namespace g3
 
             begin_setup();
             Precompute(MeshIsClosedHint);
-            ensure_vertex_pairs();
             ensure_reference_normals();
             if (Cancelled())
                 return;
@@ -574,7 +578,7 @@ namespace g3
         // after a collapse of an edge with its twin edge: the kept vertex of the twin edge and the removed vertices (DoReduce adds
         // the quadrics); -1 if the last collapse was none
         int pairKept2 = -1, pairRemoved1 = -1, pairRemoved2 = -1;
-        /// <summary> (tests, benchmarks) the edges collapsed together with their twin edge (PairCoincidentVertices) </summary>
+        /// <summary> (tests, benchmarks) the edges collapsed together with their twin edge (PairCoincidentVertices), summed over all reductions of this instance </summary>
         internal long PairedCollapses;
 
         void ensure_vertex_pairs()
@@ -2083,6 +2087,21 @@ skip_to_end:
             if (pairTwin == null || pairTwin[ev.a] < 0 || pairTwin[ev.b] < 0)
                 return false;
             return pair_edge_collapsible(eid, ev.a, ev.b, -1, mesh.IsBoundaryEdge(eid), out e2);
+        }
+
+        /// <summary> (tests) "" if every edge in the queue has the quadric a fresh computation gives (PairCoincidentVertices: with its twin edge's), else the first difference </summary>
+        internal string QueueQuadricDifference()
+        {
+            foreach (int eid in mesh.EdgeIndices()) {
+                if (EdgeQueue == null || EdgeQueue.Contains(eid) == false)
+                    continue;
+                Index2i ev = mesh.GetEdgeV(eid);
+                QuadricError q = edge_quadric(ev.a, ev.b), have = EdgeQuadrics[eid].q;
+                if (q.Axx != have.Axx || q.Axy != have.Axy || q.Axz != have.Axz || q.Ayy != have.Ayy || q.Ayz != have.Ayz || q.Azz != have.Azz
+                    || q.bx != have.bx || q.by != have.by || q.bz != have.bz || q.c != have.c)
+                    return "edge " + eid + " has a stale quadric";
+            }
+            return "";
         }
 
         /// <summary> (tests) "" if the self-intersection grid holds exactly the mesh's triangles, each with its current box, else the first difference </summary>
