@@ -81,3 +81,24 @@ analysis 0.08 + numeric 0.48 + 6 solves 0.28 + other 0.33 (frames, curvature, as
 1.7 to 1.8 = ordering 0.24 + 0.08 + numeric 0.5 + 14 solves 0.5 + other 0.35; noisy torus smoothest 2.9 to 3.0 = ordering 0.23 + 0.07 +
 numeric 0.5 + 34 solves 1.2 + other 0.33. The minimum degree ordering alone is 8 % to 16 % of the total, so a free ordering would save at
 most 0.22 to 0.26 s.
+
+## What is left (2026-11-18)
+
+The speed sequence of `CrossField` stops here (the 2 s per 50k vertices gate is met serially on the sphere and the torus; see
+[QUAD_REMESHING.md](../../docs/design/QUAD_REMESHING.md) 4.1). The measured upper bounds of the remaining levers, on the 55k to 61k
+vertex systems above (one thread now, 4 cores for the bounds, ideal list scheduling of the supernode tree with the measured time of each
+supernode, no overhead):
+
+| lever | now (s) | upper bound (s) | note |
+|---|---|---|---|
+| parallel solves | 0.28 (6 solves) to 1.2 (34) | about 0.1 to 0.4 | needs per-supernode contribution buffers for a fixed order |
+| parallel numeric factorization | 0.5 | about 0.15 | subtree parallelism alone 1.4x (critical path 70 %); parallel dense kernels in the root supernodes needed |
+| nested dissection ordering | | 1.8x fewer flops, critical path 49 % instead of 68 % | changes the factor and the results: owner decision |
+| faster minimum degree with the same output | 0.22 to 0.26 | at most 0.25 | 8 % to 16 % of the total |
+| per-vertex and per-face loops of `CrossField` | 0.33 | about 0.1 | `gParallel`, no change of bits |
+
+The root supernode of the factor holds 36-56 % of the numeric time (the real 2n form on a 55k sphere: width 1764, 57 %), and
+the supernode tree has 30 000 supernodes of which 25 000 are narrower than 8 columns (0.8 % of the time), so a task per supernode
+is too fine below a threshold and the parallel work belongs in the few large ones. A dot kernel with a single vector chain
+is not faster than the four-accumulator scalar one (the add latency bounds both); the gain of the vector kernels comes from running four
+independent products at once.

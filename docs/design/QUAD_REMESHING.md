@@ -288,11 +288,45 @@ Owner decisions (2026-11-17, after this study):
 matches theory (8 x +1/4 on the sphere, the filleted box and the noisy sphere; 0 on the curvature-aligned torus and on
 the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic.
 
-**Speed gate (owner 2026-11-17): met on the sphere and the torus.** Stage 1 as first merged took 5.3-6.7 s per 55-60k vertices
-(serial: 3.9 s of sparse Cholesky and 0.8-1.6 s of solves). With the n x n complex Hermitian factorization
-(`SparseHermitianCholesky`) and the parallel pre/post loops it takes 1.5-2.1 s (1.3-1.7 s per 50k) on the sphere and the
-torus, and 2.7 s per 50k on the noisy torus without alignment (34 solves); see the benchmark README. The index histograms
-are unchanged.
+**Speed gate (owner 2026-11-17): met on the sphere and the torus, open on the noisy torus.** Stage 1 as first merged took
+5.3-6.7 s per 55-60k vertices (serial: 3.9 s of sparse Cholesky and 0.8-1.6 s of solves). The sequence that brought it down, all
+bit-identical to the code before it (golden hashes in the tests): the n x n complex Hermitian factorization
+(`SparseHermitianCholesky`), the parallel pre/post loops, bit-identical vector kernels for the dense dot products of both
+Cholesky classes (four products at once, `SparseCholeskyKernels`, `SparseHermitianCholeskyKernels`), and one shared ordering and
+symbolic analysis with the structure of L computed once (`CholeskyAnalysis`). End to end, `CrossFieldBenchmark h=0.017`, one
+thread, best of 3 (s, before / after the vector kernels of `SparseHermitianCholesky`, measured on master 464988c8 and
+f4f7de6f):
+
+| shape | field | V | solves | before | after |
+|---|---|---|---|---|---|
+| sphere | smoothest | 54944 | 6 | 1.61 | 1.36 |
+| sphere | aligned | 54944 | 6 | 1.71 | 1.37 |
+| torus | smoothest | 60712 | 14 | 2.02 | 1.72 |
+| torus | aligned | 60712 | 12 | 2.02 | 1.66 |
+| noisy torus | smoothest | 60712 | 34 | 3.24 | 2.90 |
+| noisy torus | aligned | 60712 | 21 | 2.43 | 2.16 |
+
+That is 1.2-1.4 s per 50k vertices on the sphere and the torus, serial (the gate is 2 s per 50k on 4 cores), and 1.8-2.4 s per 50k
+on the noisy torus (21 to 34 solves; the smoothest one is the only case over the gate, even serial). The index histograms are unchanged.
+
+Where the time goes now (the same runs with temporary stopwatch prints, s; sphere / torus smoothest / noisy torus smoothest):
+minimum degree ordering 0.22 / 0.24 / 0.23, rest of the analysis 0.08, numeric factorization 0.48 / 0.5 / 0.5, solves 0.28 (6) /
+0.5 (14) / 1.2 (34), everything else (frames, curvature, assembly, per-face results) 0.33 / 0.35 / 0.33; total 1.4 / 1.7 / 2.9.
+The levers that remain, with their upper bounds (none is built; the speed sequence stopped here, owner 2026-11-17, because the
+gate is met serially on the sphere and the torus and the pipeline is paused at stage 3B):
+- **Parallel solves**: the solves are 20 % (sphere) to 40 % (noisy torus) of the total. The solve tree has a critical path of about a
+  third of its serial time (a subtree-parallel bound of 2.4x to 3x on 4 cores, about 4x with parallel dense blocks), but parallel
+  subtrees scatter into shared ancestor entries, so a fixed order needs per-supernode contribution buffers applied in the serial
+  order. Upper bound for the noisy torus: 1.2 s to about 0.4 s.
+- **Parallel numeric factorization**: 0.5 s; one root supernode holds 36-56 % of the numeric time of the real 2n form (the same
+  shape for the n x n form), so subtree parallelism alone gives only 1.4x and the dense kernels inside the large supernodes need
+  parallel work as well (bit-identical is feasible: update order per supernode fixed from the structure, rows pipelined behind earlier rows
+  with the dot order of every entry unchanged). Upper bound 0.5 s to about 0.15 s on 4 cores. A nested dissection ordering would
+  give 1.8x fewer flops and half the critical path, but it changes the factor and the results (an owner decision).
+- **The ordering** (approximate minimum degree): 0.22-0.26 s, 8-16 % of the total; a faster implementation with the same result
+  saves at most that, about half of it realistically.
+- **The rest** (0.33 s): per-vertex and per-face loops, parallel with `gParallel` without changing a bit.
+Numbers and the method: [benchmarks/SparseCholeskyBenchmark/README.md](../../benchmarks/SparseCholeskyBenchmark/README.md).
 
 ### 4.2 Stage 2 status (2026-11-17): built, the irregular-vertex gate is the no-go
 
