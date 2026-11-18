@@ -79,6 +79,7 @@ Add both: `using g3; using gs;`.
 | An unoriented point cloud, and you need outward normals | `PointCloudNormals` | a unit normal per point: the axis from a PCA of the 16 nearest neighbours, the sign from an alpha wrap of the cloud (two probe points at `1.5 (Alpha + Offset)` along the axis, the one outside the wrap is the outer side); `Alpha` is chosen from the sampling spacing and the noise if not given and enlarged up to 3 times (x1.6) if a hole or gap lets the wrap into the solid; reports `Confident[i]`, `ConfidentFraction`, `Spacing`, `NoiseSigma` and a `Status` (`AlphaBelowCondition`, `AmbiguousOrientation` for an open sheet or thin walls: the signs are then a heuristic). Measured on torus samplings (noise, hole, 10:1 density): 97-100 % of the signs right. A wrap that stops at `MaxSteinerPoints` is used only if it is closed, valid and free of self-intersections (else a coarser `Alpha`, then `WrapFailed`); `DegenerateCount` counts the zero normals also for a `Success`. Zero normal where the neighbourhood is collinear or coincident (`DegenerateInput` if fewer than 90 % have a normal); exact duplicates are merged; any finite coordinate magnitude for the axes (the wrap has its own range, see `MeshAlphaWrap`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding` (on by default) repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`; `false` for speed), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
+| Exact boolean of triangle soups (STL-like, closed solids) and a clean, closed result with few triangles, without repairing the inputs first | `SolidBooleanPipeline` | the boolean with `AllowOpenMeshes = false` and `StrictRounding = true`, then one `Reducer` run (`PreventSelfIntersections`) to a triangle count, edge length or quadric error; `Report` has the counts, the time per stage, the repaired inputs, `NotCleanReason` and why the target was or was not reached; see [Booleans](#booleans) |
 | Cut the intersection curves of a cutter mesh into a target mesh, keeping the target's vertices, orientation and topology (the robust replacement for `MeshMeshCut`; nothing is classified or removed) | `ExactMeshImprint` | `Result` (the target with split triangles; its vertex ids kept), `SourceTriangle`, `CurveEdges` (`LabelCurves` numbers the curves); exact intersections, the new vertices rounded with `SafeRounding` (target vertices fixed, curve edges locked, `RoundingClean`); open targets and cutters, contact and coplanar overlaps are handled; a target that intersects itself is not repaired; design `docs/design/EXACT_IMPRINT.md` |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
@@ -172,6 +173,35 @@ if (result == null)
 
 The test checks the exact volumes of union, intersection and difference of a cube and a bar with
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
+
+**Soups in, a small clean solid out: `SolidBooleanPipeline`.** For the workflow "exact boolean of STL-like triangle soups,
+then a closed solid with few triangles", without a `MeshRobustRepair` of every input first (opt-in; it changes no default):
+
+```csharp
+var pipeline = new SolidBooleanPipeline(new[] { soupA, soupB }, ExactMeshBoolean.Operations.Union) { TargetFraction = 0.25 };
+if (pipeline.Compute()) {
+    DMesh3 solid = pipeline.Result;
+    SolidBooleanReport report = pipeline.Report;   // counts, time per stage, repaired inputs, NotCleanReason, StopReason
+}
+else
+    Console.WriteLine(pipeline.Status + ": " + pipeline.Error);   // OpenInput, BooleanFailed, InvalidInput, Cancelled
+```
+
+Per input it runs `ExactMeshBoolean.IsWindingClosed` (a soup of a closed solid is closed: copies of a vertex count as one).
+Only an input that fails it, and that the boolean then refuses as open, is repaired, on a copy, with `MeshAutoRepair`
+(`InputRepair = AutoRepairThenRobust` adds `MeshRobustRepair` as the fallback, which may solidify or wrap; `Refuse` repairs
+nothing and fails with `OpenInput`); `Report.RepairedInputs` names each repaired input and the method. The boolean runs with
+`AllowOpenMeshes = false` and `StrictRounding = true` (`ConfigureBoolean` runs before these are set). The reduction takes one
+of `TargetTriangleCount`, `TargetFraction` (of the boolean result), `MinEdgeLength` or `MaxQuadricError`, with
+`PreventSelfIntersections` on, an optional certified `MaxDeviation`, and `MinTriangleQuality = 0.02` (without it the
+`Reducer` leaves zero-area triangles on the creases of flat-faced solids: "degenerate triangles").
+`Report.NotCleanReason` is `MeshRobustRepair.NotCleanReason` of the result (`""` if clean, not `null`); if the target was not
+reached, `Report.StopReason` and `StopDetail` say why (self-intersection guard, contacts, `MaxDeviation`, triangle quality,
+topology). Solids that touch give duplicated vertices (`ContactsBoolean`); `NotCleanReason` reports them as
+"self-intersections" at the touching points. The reduction never creates a contact; it can remove one (`ContactsResult`
+at most `ContactsBoolean`), and the contacts limit how far a reduction goes: two subdivided boxes touching along an edge stop
+at 8 % of their triangles where the same boxes apart go down to 0.7 %. Measurements:
+[benchmarks/SolidBooleanBenchmark](../benchmarks/SolidBooleanBenchmark/README.md).
 
 Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
 (degenerate triangles) and sometimes self-intersections. `SafeRounding` (on by default) repairs them after the
