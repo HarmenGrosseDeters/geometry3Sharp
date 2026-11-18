@@ -69,6 +69,18 @@ static class Program
             bool ok = w.Compute();
             Console.WriteLine($"{name},{w.EstimatedTriangles:F0},{w.Result?.TriangleCount},{(w.Result?.TriangleCount / w.EstimatedTriangles):F2},{sw.Elapsed.TotalSeconds:F1}");
         }
+        // 3. the cost of the open-area estimate on a large input (Compute() with a coarse alpha, so that the wrap itself is small): no budget
+        // (after: the estimate is not computed) against a budget that never binds (which runs it, as every Compute() did before this change)
+        Console.WriteLine("input_triangles,budget,seconds,estimate");
+        foreach (int n in quick ? new[] { 300 } : new[] { 300, 500, 700 })
+            foreach (int budget in new[] { 0, int.MaxValue }) {
+                DMesh3 big = Sheet(n, 4);
+                var w = new MeshAlphaWrap(big) { RelativeAlpha = 8, RelativeOffset = 80, MaxEstimatedTriangles = budget };
+                var sw = Stopwatch.StartNew();
+                bool ok = w.Compute();
+                if (!ok) throw new InvalidOperationException(w.Error);
+                Console.WriteLine($"{big.TriangleCount},{budget},{sw.Elapsed.TotalSeconds:F2},{w.EstimatedTriangles:F0}");
+            }
         // 2. MeshRobustRepair at library defaults (alpha diagonal / 300) with WrapMaxEstimatedTriangles: only the open inputs reach the wrap
         Console.WriteLine("input,budget,seconds,estimate,raw_triangles,raw_over_budget_or_estimate,alpha_rel,result_triangles");
         foreach (var (name, input) in inputs.Where(i => i.Item1 != "two closed spheres"))

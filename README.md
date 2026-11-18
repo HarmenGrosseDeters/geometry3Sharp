@@ -47,7 +47,9 @@ and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
   (the wrap and its simplification), and a fixed part (about 3 s there: the failed solidify attempt, the exact resolve) stays
   whatever alpha is. `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default) coarsens alpha and offset
   until the estimated size, which counts the area of open components twice, is the budget, so a budget of N gives about N raw
-  triangles on open input as on a closed surface of zero volume (a closed solid gives about N / 2). See
+  triangles on open input as on a closed surface of zero volume (a closed solid gives about N / 2). The open components are looked
+  for only when the budget is on (a cost in proportion to the input's triangle count): without a budget `EstimatedTriangles` is the one-sided
+  estimate (an open input's wrap is then about twice as large), and the wrap is the same bit for bit. See
   [benchmarks/OpenSoupWrapBenchmark](benchmarks/OpenSoupWrapBenchmark/README.md).
 - Point clouds: `PointCloudNormals` (outward normals of an unoriented cloud) and `PointCloudSurface` (a surface with
   more detail than the wrap); `.xyz` and face-less `.ply` files read and write point sets

@@ -34,3 +34,21 @@ triangles on the open soup (before: about 2N), so each budget's after row is the
 seconds of the same alpha. About 3 s (the failed solidify attempt, the exact resolve, the repair around the wrap) stay whatever the
 budget is. The open sheet through `MeshRobustRepair` is unchanged (estimate 270,000 before and after): the mesh that the repair hands
 to the wrap has twice the sheet's area (not diagnosed further), so the one-sided estimate was already right there.
+
+## The open-area estimate only with a budget (follow-up of #1123)
+
+`MeshAlphaWrap.Compute()` ran `AlphaWrapEstimate.OpenArea` on every call only to report `EstimatedTriangles`; it now runs only when
+`MaxEstimatedTriangles > 0`. Without a budget `EstimatedTriangles` is the one-sided estimate of before #1123, and the wrap is the
+same bit for bit (`AlphaWrapOpenEstimateTests.NoBudget_EstimateIsOneSided_WrapUnchanged`). Third table of the program: `Compute()` of a
+flat welded open sheet at a coarse alpha (relative alpha 8, so that the wrap itself is small), no budget (after) against a budget of
+`int.MaxValue`, which never binds but runs the estimate, as every `Compute()` did before. Container with 4 cores, Release net10.0, one run:
+
+| input triangles | no budget (s) | budget that never binds, the old cost (s) | saved |
+|---:|---:|---:|---:|
+| 180,000 | 0.33 | 0.38 | 0.05 s |
+| 500,000 | 0.97 | 1.04 | 0.07 s |
+| 980,000 | 1.93 | 2.11 | 0.18 s |
+
+That is about 0.2 s per million input triangles at the largest size (one run each: the 0.05 s and 0.07 s of the two smaller sizes are
+within the noise of the container), less than the 1 s per million first assumed; a soup with many boundary edges is dearer (not
+measured). Measurable only at this size: the other tables are unchanged.

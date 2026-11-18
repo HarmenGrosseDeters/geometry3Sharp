@@ -368,7 +368,7 @@ namespace gs
         public int AlphaWrapTriangles;
         /// <summary>
         /// alpha wrap fallback: the factor by which WrapMaxEstimatedTriangles coarsened the wrap's alpha and offset (1: not coarsened, or
-        /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
+        /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on (the two-sided one if WrapMaxEstimatedTriangles > 0, else the one-sided one)
         /// </summary>
         public double AlphaWrapCoarsening = 1;
         /// <summary> alpha wrap fallback: the target triangle count that was asked for (WrapTargetTriangles or WrapTargetFactor; 0 = none) </summary>
