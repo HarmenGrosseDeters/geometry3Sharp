@@ -5,14 +5,14 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `ExactMeshBoolean` / `ExactMeshArrangement`, SafeRounding, boolean performance (fixed-width points,
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
-- **Status (2026-11-17):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01, "Exact Boolean 2.0" on 2026-11-11
+- **Status (2026-11-18):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01, "Exact Boolean 2.0" on 2026-11-11
   (D1 #513, counted as 2.1, merged as 69f13be3 after its 8 full rounding mutation shards passed). Exact Boolean 3.0:
   all functional and speed work is merged (see [3.0 progress](#exact-boolean-30-progress); last: #962 parallel
   assembly, #967, the `touch_only` filter #1002; speed work stopped, owner 2026-11-16), T6 is closed (#1013) and
-  `ExactMeshImprint` is merged (#981, #990). Left for "3.0 complete": the full mutation run of every touched shard on
-  master. The gate run 44013112256 (master 6117a866, 2026-11-17) had 35 shards green and 5 red: envelope-3 and
-  geodesic-1 are fixed (#1051, merged); rounding-4, rounding-7 and terrain-overlay got tests and filters in #1077 (merged; the
-  terrain-overlay break 75 with honest timeouts, owner 2026-11-17); their reruns are pending. The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
+  `ExactMeshImprint` is merged (#981, #990). **Exact Boolean 3.0 is complete (2026-11-18):** every touched mutation shard has a
+  full run above its threshold on master with no change to its mutated files since (the runs are listed in the
+  [roadmap](../ROADMAP.md#now); the last: rounding-13 and boolean-2 in 44295650298, exact-arithmetic, imprint, planar and
+  hausdorff in 44313345652); the CsCheck families and fuzz targets of #1038 are merged (#1120). The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
   RC4a #1040 merged, the pass-through of RC4a's parameters #1068 merged; see [After 3.0](#after-30-owner-2026-11-16)).
   Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 goes ahead as option A, an opt-in API (owner 2026-11-17, in progress, PR #1107). Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),

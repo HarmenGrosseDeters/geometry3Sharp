@@ -47,16 +47,23 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-17 (night, Berlin), after the merges up to #1103 and #1100 (the docs freshness audit was #1079-#1083). Each subpage ends with an "Open for
+Status on 2026-11-18 (afternoon, Berlin), after the merges up to #1127 (the docs freshness audit was #1079-#1083). Each subpage ends with an "Open for
 the future" list, ordered by priority; this section names only what is in flight.
 
-- **Exact Boolean 3.0** (closing): the functional and speed work is done; speed work has stopped (owner 2026-11-16; the
-  step-3 lead of the Geogram comparison #1056 is not diagnosed, owner 2026-11-17). T6 is closed (#1013). Left: the
-  completion gate. Gate run 44013112256 (master 6117a866): 35 shards green, 5 red; envelope-3 and geodesic-1 got tests
-  (#1051; geodesic-1 green in run 44104242651, envelope-3 rerun pending), rounding-4, rounding-7 and terrain-overlay got
-  tests and filters in #1077 (merged; terrain-overlay: additional timeout raised so starved runs do not count, break 90 -> 75,
-  owner 2026-11-17); their reruns are pending. #1064 (#1047, coplanar-stack prefilter, -7 to -14 % on 42327) is merged.
+- **Exact Boolean 3.0: complete (2026-11-18).** Every touched mutation shard has a full run above its threshold on master, and no
+  mutated file changed after its run: arrangement-1..4, boolean-1/3..7 and rounding-1..12 in run 44217581261 (3ee7afea);
+  rounding-13 (tests of #1125) and boolean-2 in 44295650298 (739e0458); terrain-overlay in 44267014937 (5b99848d);
+  exact-arithmetic, imprint, planar and hausdorff in 44313345652 (822ac229); envelope-3, terrain-arith and terrain-kernel in
+  44136162368; geodesic-1/2 in 44104242651; uv-* in 44092331961; the other envelope shards, fixed and generated in 44013112256.
+  The boolean CsCheck families and fuzz targets of #1038 are merged (#1120). Exact booleans are now in maintenance mode (owner 2026-11-16);
+  the scope freeze of the exact code (tests only, 2026-11-18) ends with this status.
   [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16)
+- **Merged on 2026-11-18:** `SolidBooleanPipeline.PairContactsMode` Off / On / Auto (#1122; Auto keeps every clean result bit for bit,
+  its second pass costs 25-50 % of the pipeline time on the contact cases, so the default stays Off per the owner's 25 % bound);
+  the alpha wrap estimate counts open input twice, so a budget means the same on open input (#1123, #1113 options 2+3, owner
+  2026-11-18; computed only with a budget, #1127); the changed-line coverage gate has tests and five reviewed allow-list
+  entries (#1124, owner label 2026-11-18); #1118 (#1121), #1074 (#1126) and #1102 (#1125) are fixed in tests. #1096 and
+  #1104 are closed: answered on master by class E option (a) (#1114), the other classes are documented behaviour pinned by tests.
 - **Exact Boolean 4.0** (owner 2026-11-17): stage 0, the design analysis of exact output with provenance (chained
   operations), is merged (#1093; verdict: stage 1 only, no materialized provenance). Stage 1 goes ahead as option A, an opt-in
   API (a lazy `ExactMesh` expression with one exact pass, PR #1107 in review).
@@ -138,16 +145,14 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- The 3.0 completion gate: the reruns of envelope-3, rounding-4, rounding-7, terrain-overlay (and the
-  terrain-kernel / terrain-arith shards, re-selected by #1066 through their `TerrainSlope*.cs` trigger paths); then the roadmap status "3.0 complete".
 - Tet P2 (output / API); #1073 is merged.
-- After the completion gate: the thingi-pairs baseline and final runs (owner 2026-11-12).
+- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs (owner 2026-11-12); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification): a measured diagnosis first.
 - Merge in flight: #1105, #1106, #1107, #999.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
-1. **Finish what runs.** Exact Boolean 3.0: everything but the completion gate is merged (#962, #967, #1002, T6
-   closed in #1013). Alpha Wrap 3.0 is done (the
+1. **Finish what runs.** Exact Boolean 3.0: complete on 2026-11-18 (#962, #967, #1002, T6
+   closed in #1013; the completion gate's runs are listed under "Now"). Alpha Wrap 3.0 is done (the
    adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949, #1059; #955 closed).
 2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
    certified runs 4 -> 10 of 14 at / 128, never wrong); refinement for thin features deferred (#944).
