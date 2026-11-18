@@ -221,7 +221,9 @@ namespace geometry3Sharp.Tests
             Assert.True(auto.Report.ContactsBoolean > 0);
             Assert.Equal(H(off), H(auto));
             Assert.Equal(off.Report.Clean, auto.Report.Clean);
-            Assert.Equal(!off.Report.Clean, auto.Report.PairPassRan);
+            Assert.True(off.Report.Clean);
+            Assert.Equal(0, off.Report.ContactsResult);
+            Assert.False(auto.Report.PairPassRan);
         }
 
         [Fact]
@@ -261,6 +263,7 @@ namespace geometry3Sharp.Tests
 
             var twoSided = RunMode(EdgeTouch(6), Auto, x => { x.TargetTriangleCount = 4; x.MaxDeviation = 0.05; x.MaxDeviationTwoSided = true; });
             Assert.False(twoSided.Report.PairPassRan);
+            Assert.Equal(H(Run(EdgeTouch(6), false, x => { x.TargetTriangleCount = 4; x.MaxDeviation = 0.05; x.MaxDeviationTwoSided = true; })), H(twoSided));
             var onTwoSided = new SolidBooleanPipeline(EdgeTouch(4), U) { PairContactsMode = SolidBooleanPipeline.PairContactsModes.On, TargetTriangleCount = 4, MaxDeviation = 0.05, MaxDeviationTwoSided = true };
             Assert.False(onTwoSided.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, onTwoSided.Status);
@@ -279,8 +282,8 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Result.IsClosed());
             Assert.Null(ReducerPairedContactsTests.FirstCrossing(p.Result));
             var on = Run(EdgeTouch(6), true, x => { x.TargetTriangleCount = 4; x.MaxDeviation = 0.05; });
-            if (p.Report.PairPassKept)
-                Assert.Equal(H(on), H(p));
+            Assert.True(p.Report.PairPassKept);
+            Assert.Equal(H(on), H(p));
         }
 
         [Fact]

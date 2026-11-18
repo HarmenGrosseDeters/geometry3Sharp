@@ -385,7 +385,8 @@ namespace gs
             // 3. the reduction (Auto: with a copy of the boolean result if it has contacts, for the second reduction)
             bool pairAlways = PairContacts || PairContactsMode == PairContactsModes.On;
             DMesh3 spare = null;
-            if (!pairAlways && PairContactsMode == PairContactsModes.Auto && Report.ContactsBoolean > 0 && !(MaxDeviation > 0 && MaxDeviationTwoSided))
+            if (!pairAlways && PairContactsMode == PairContactsModes.Auto && Report.ContactsBoolean > 0 && !(MaxDeviation > 0 && MaxDeviationTwoSided)
+                && (TargetTriangleCount > 0 || TargetFraction > 0 || MinEdgeLength > 0 || MaxQuadricError > 0))
                 spare = new DMesh3(mesh);      // (not compacted: the same ids as the mesh of the first reduction, so the second reduction is the one of On)
             clock.Restart();
             if (BeforeReduction != null)

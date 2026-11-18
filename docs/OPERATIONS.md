@@ -219,7 +219,7 @@ option and only if the result keeps contacts and is not clean, reduces the boole
 paired result if its `NotCleanReason` is the same (or empty) and it has fewer triangles, or as many and fewer contacts. A result
 that is clean, or whose boolean result has no contacts, is bit for bit the one of `Off` (hash tests; a copy of the boolean result
 is made only if it has contacts). `Report.PairPassRan`, `PairPassKept`, `PairPassFirstTriangles` and `PairPassMilliseconds` tell
-what happened; the second reduction costs up to one more reduction (26-49 % of the pipeline time on the measured contact cases,
+what happened (a paired result that is clean but has more triangles is not kept: the rule is about triangles); the second reduction costs up to one more reduction (26-49 % of the pipeline time on the measured contact cases,
 see the benchmark README), which is why Auto is not the default. Auto does nothing with `MaxDeviationTwoSided`.
 
 Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
