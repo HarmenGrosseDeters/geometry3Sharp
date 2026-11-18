@@ -102,3 +102,45 @@ the supernode tree has 30 000 supernodes of which 25 000 are narrower than 8 col
 is too fine below a threshold and the parallel work belongs in the few large ones. A dot kernel with a single vector chain
 is not faster than the four-accumulator scalar one (the add latency bounds both); the gain of the vector kernels comes from running four
 independent products at once.
+
+## Parallel solves (2026-11-18)
+
+`Solve()` of `SparseCholesky` and `SparseHermitianCholesky` runs subtrees of the supernode tree as parallel tasks
+(`CholeskySolveSchedule`). Forward solve: the tasks run in parallel; a supernode adds its updates to the rows inside its task in
+place and writes the updates for the rows above the task into a per-supernode buffer; one serial pass in supernode order then
+applies the buffers and does the top supernodes, so every entry gets its subtractions in the order of the serial loop. Backward
+solve: the top supernodes first, then the tasks in parallel. The solutions are the same bits for every schedule and thread count
+(`CholeskyParallelSolveTests`, which compare with the old serial loops; the hashes of this benchmark are unchanged).
+
+The top supernodes (the 25 supernodes above the tasks on a 55k vertex system hold about half of the factor entries) dominate what
+is left, and the backward substitution reads a column of a row-major block, a cache miss per entry in a wide block (7.6 ms for the
+961 wide root alone, 16 ns per entry; a loop of the same chain in cache takes 1.4 ns). Blocks at least 64 columns wide are read
+from a column-major copy, built in parallel on the first `Solve` after a factorization (about 24 MB on the 55k sphere; only
+for systems with at least 200 000 entries in such blocks, so small systems keep the old path and memory). The copy only moves values.
+
+`SparseCholeskyBenchmark`, best of 3, 4 cores, Solve (ms), before (master 3a991801) / after (parallel / forced serial tasks, which
+still reads the column copy):
+
+| matrix | before | after parallel | after, tasks off |
+|---|---|---|---|
+| grid2d bs=1 n=40000 | 6.9 | 3.9 | 4.7 |
+| grid2d bs=2 n=80000 | 35.6 | 19.3 | 29.6 |
+| grid2d bs=2 n=120000 | 54.8 | 28.9 | 48.9 |
+| grid3d n=27000 | 47.7 | 25.1 | 29.2 |
+| hermitian grid2d n=40000 | 17.1 | 5.8 | 8.5 |
+| hermitian grid2d n=60000 | 24.1 | 10.7 | 19.0 |
+
+`CrossFieldBenchmark h=0.017` (4 cores, best of 3, s, master / this change, two interleaved runs, the better of each):
+
+| shape | field | V | solves | before | after | gain |
+|---|---|---|---|---|---|---|
+| sphere | smoothest | 54944 | 6 | 1.33 | 1.18 | 11 % |
+| sphere | aligned s=1 | 54944 | 6 | 1.38 | 1.21 | 12 % |
+| torus | smoothest | 60712 | 14 | 1.72 | 1.47 | 15 % |
+| torus | aligned s=1 | 60712 | 12 | 1.74 | 1.47 | 16 % |
+| noisy-sphere | smoothest | 54944 | 22 | 2.21 | 1.66 | 25 % |
+| noisy-torus | smoothest | 60712 | 34 | 3.36 | 2.44 | 27 % |
+| noisy-torus | aligned s=1 | 60712 | 21 | 2.25 | 1.87 | 17 % |
+
+Left in the solves: the serial top supernodes (forward 7 ms and backward about 5 ms expected per solve on the sphere; the rows below the
+diagonal block of a top supernode are independent and could run in parallel, the triangle itself is one chain per column).
