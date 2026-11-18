@@ -48,7 +48,7 @@ class FlowResult
     public double TFlow;
     public int Splits;
     public int Quads, FlippedQuads, InvAfterFlow, InvAfterGreedy, InvAfterSat, GreedyMoves, Cancelled, SatCurViol, SatInvInRegion, SatUnsat, SatBudget, SatSolved, SatFailed, SatAttempts;
-    public double TGreedy, TSat, TPos, TExtract, TSetup, TMcf, TNet, TSub, TFlowPrep; public int HIters, NArcs, NNodes; public long Settled, SatDecisions, SatClauses;
+    public double TGreedy, TSat, TPos, TExtract, TSetup, TMcf, TNet, TSub, TFlowPrep; public int HIters, NArcs, NNodes; public int Phases; public long Settled, SatDecisions, SatClauses;
     public int LongEdgesAfter, InvBefore, DetPosBefore, InvAfterFlowPreSplit, DetPosAfterFlow;
     public PolyMeshMetrics Metrics; public DPolyMesh Out;
     public int Unpaired, BadQuads, InvertedTris;
@@ -65,8 +65,8 @@ partial class QuadFlowSpike
     Dictionary<long, V2> dMap = new Dictionary<long, V2>();
     Dictionary<long, (double, double)> rMap = new Dictionary<long, (double, double)>();
     public int CostMode = 0;      // 0 flat cost 1 per unit, 1 geometry aware (marginal misfit of the real offset, two tiers)
-    public int HStart = 2;
-    public bool FastMcf = false, FastSubdiv = false, FastPos = false, FastSat = false;
+    public int HStart = 2; public int PosMode = 1; public double PosAnchor = 0.02;
+    public bool ExcessMcf = false; public bool FastMcf = false, FastSubdiv = false, FastPos = false, FastSat = false;
     public Dictionary<int, double> EdgePen = new Dictionary<int, double>();     // edge index -> extra cost multiplier
     public HashSet<int> BadEdges = new HashSet<int>();                         // output: edges of original triangles that end up inverted
     int[] slotEdge;
@@ -410,7 +410,9 @@ partial class QuadFlowSpike
             int S = NN, Tn = NN + 1;
             long supply = 0;
             for (int i = 0; i < NN; ++i) {
-                if (res[i] > 0) { AddA(S, i, (int)res[i], 0); supply += res[i]; }
+                if (res[i] > 0) supply += res[i];
+                if (ExcessMcf) continue;
+                if (res[i] > 0) AddA(S, i, (int)res[i], 0);
                 else if (res[i] < 0) AddA(i, Tn, (int)(-res[i]), 0);
             }
             var arcF = new int[edges.Count * 2]; var arcB = new int[edges.Count * 2]; var arcLF = new List<int>[edges.Count * 2]; var arcLB = new List<int>[edges.Count * 2];
@@ -448,7 +450,8 @@ partial class QuadFlowSpike
             R.HIters++; R.NArcs = FastMcf ? net1.ArcCount : net0.To.Count / 2; R.NNodes = NN + 2;
             var swM = Stopwatch.StartNew();
             long cost; int flow;
-            if (FastMcf) { flow = net1.Solve(S, Tn, out cost); R.Augments = net1.Augmentations; R.Settled = net1.Settled; } else { flow = net0.Solve(S, Tn, out cost); R.Augments = net0.Augmentations; }
+            if (FastMcf && ExcessMcf) { var exc = new int[NN + 2]; for (int i = 0; i < NN; ++i) exc[i] = (int)res[i]; flow = (int)net1.SolveExcess(exc, out cost); R.Augments = net1.Augmentations; R.Settled = net1.Settled; R.Phases = net1.Phases; }
+            else if (FastMcf) { flow = net1.Solve(S, Tn, out cost); R.Augments = net1.Augmentations; R.Settled = net1.Settled; R.Phases = net1.Phases; } else { flow = net0.Solve(S, Tn, out cost); R.Augments = net0.Augmentations; }
             tMcf += swM.Elapsed.TotalSeconds; R.TMcf = tMcf; R.TNet = swNet.Elapsed.TotalSeconds;
             R.Hcap = H;
             if (flow < supply) continue;           // raise the capacity, solve again
@@ -788,6 +791,34 @@ partial class QuadFlowSpike
 
     Vector3d[] SolvePositions()
     {
+        var swPos = Stopwatch.StartNew();
+        if (PosMode == 2) {
+            // contracted solve: one unknown (3D point) per cluster of the d = 0 edges, residual P_b - P_a - target on every other edge, weak anchor to the cluster mean
+            int nv0 = VP.Count; var ufc = new int[nv0]; for (int i = 0; i < nv0; ++i) ufc[i] = i;
+            int Find(int x) { while (ufc[x] != x) { ufc[x] = ufc[ufc[x]]; x = ufc[x]; } return x; }
+            foreach (var t in tris) for (int sl = 0; sl < 3; ++sl) if (t.D[sl].IsZero) { int a = Find(t.V[sl]), b = Find(t.V[(sl + 1) % 3]); if (a != b) ufc[Math.Max(a, b)] = Math.Min(a, b); }
+            var cid = new int[nv0]; for (int i = 0; i < nv0; ++i) cid[i] = -1;
+            int nc = 0; var mean = new List<Vector3d>(); var cnt0 = new List<int>();
+            for (int i = 0; i < nv0; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int r = Find(i); if (cid[r] < 0) { cid[r] = nc++; mean.Add(Vector3d.Zero); cnt0.Add(0); } mean[cid[r]] += VP[i]; cnt0[cid[r]]++; }
+            for (int c = 0; c < nc; ++c) mean[c] /= cnt0[c];
+            var ch = new SparseCholesky(nc, 1); var rx = new double[nc]; var ry = new double[nc]; var rz = new double[nc];
+            double wA = PosAnchor;
+            for (int c = 0; c < nc; ++c) { ch.Add(c, c, wA); rx[c] += wA * mean[c].x; ry[c] += wA * mean[c].y; rz[c] += wA * mean[c].z; }
+            foreach (var t in tris) for (int sl = 0; sl < 3; ++sl) {
+                int a = cid[Find(t.V[sl])], b = cid[Find(t.V[(sl + 1) % 3])]; if (a == b) continue;
+                Vector3d tg = s * (t.D[sl].X * Q[t.Fa] + t.D[sl].Y * T[t.Fa]);
+                ch.Add(a, a, 1); ch.Add(b, b, 1); if (a > b) ch.Add(a, b, -1); else ch.Add(b, a, -1);
+                rx[b] += tg.x; ry[b] += tg.y; rz[b] += tg.z; rx[a] -= tg.x; ry[a] -= tg.y; rz[a] -= tg.z;
+            }
+            var pos2 = new Vector3d[nv0];
+            if (ch.Factorize()) {
+                var X = new double[nc]; var Y = new double[nc]; var Z = new double[nc];
+                ch.Solve(rx, X); ch.Solve(ry, Y); ch.Solve(rz, Z);
+                for (int i = 0; i < nv0; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int c = cid[Find(i)]; pos2[i] = new Vector3d(X[c], Y[c], Z[c]); }
+            } else for (int i = 0; i < nv0; ++i) pos2[i] = VP[i];
+            if (Environment.GetEnvironmentVariable("SPIKE_POS") == "1") Console.Error.WriteLine($"  [pos2] nv {nv0} clusters {nc} t {swPos.Elapsed.TotalSeconds:F3}");
+            return pos2;
+        }
         int nv = VP.Count;
         // tangent frames per vertex
         var E1 = new Vector3d[nv]; var E2 = new Vector3d[nv];
@@ -815,11 +846,14 @@ partial class QuadFlowSpike
                     for (int b = 0; b <= a; ++b) { int r = Math.Max(idx[a], idx[b]), cc = Math.Min(idx[a], idx[b]); addA(r, cc, cols[a].Dot(cols[b])); }
                 }
             }
+        double tAsm = swPos.Elapsed.TotalSeconds;
         var chol = cholF ?? new SparseCholesky(2 * nv, 2);
         if (cholF == null) foreach (var kv in A) chol.Add((int)(kv.Key / (2 * nv)), (int)(kv.Key % (2 * nv)), kv.Value);
         var pos = new Vector3d[nv];
         if (!chol.Factorize()) { for (int i = 0; i < nv; ++i) pos[i] = VP[i]; return pos; }
+        double tFac = swPos.Elapsed.TotalSeconds - tAsm;
         var x = new double[2 * nv]; chol.Solve(rhs, x);
+        if (Environment.GetEnvironmentVariable("SPIKE_POS") == "1") Console.Error.WriteLine($"  [pos] nv {nv} assemble {tAsm:F3} factor {tFac:F3} solve {swPos.Elapsed.TotalSeconds - tAsm - tFac:F3}");
         for (int i = 0; i < nv; ++i) pos[i] = VP[i] + s * (x[2 * i] * E1[i] + x[2 * i + 1] * E2[i]);
         return pos;
     }

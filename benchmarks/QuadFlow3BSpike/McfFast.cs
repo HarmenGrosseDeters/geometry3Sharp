@@ -11,7 +11,9 @@ class McfFast
     long[] pot; long G;
     long[] dist; int[] prev; int[] settledEp; int ep;
     long[] hk; int[] hv; int hn;
-    public int Augmentations; public long Settled;
+    public int Augmentations, Phases; public long Settled;
+    int[] it, itEp, stk, arcStk; bool[] onStk; int ep2;
+    void itSet(int u) { if (itEp[u] != ep2) { itEp[u] = ep2; it[u] = head[u]; } }
 
     public McfFast(int n, int arcHint)
     {
@@ -61,6 +63,7 @@ class McfFast
         int n = N;
         pot = new long[n]; dist = new long[n]; prev = new int[n]; settledEp = new int[n]; ep = 0; G = 0;
         for (int i = 0; i < n; ++i) dist[i] = long.MaxValue;
+        it = new int[n]; itEp = new int[n]; stk = new int[n + 1]; arcStk = new int[n + 2]; onStk = new bool[n]; ep2 = 0;
         hk = new long[1024]; hv = new int[1024]; hn = 0;
         var touched = new System.Collections.Generic.List<int>(); var settled = new System.Collections.Generic.List<int>();
         int flow = 0; totalCost = 0; Augmentations = 0;
@@ -83,16 +86,82 @@ class McfFast
                 }
             }
             Settled += settled.Count;
+            Phases++;
             if (!reached) { foreach (int u in touched) dist[u] = long.MaxValue; break; }
             long D = dist[t];
             foreach (int u in settled) pot[u] += dist[u] - D;
             G += D;
-            int b = int.MaxValue;
-            for (int v = t; v != s; v = to[prev[v] ^ 1]) b = Math.Min(b, cap[prev[v]]);
-            long pc = 0;
-            for (int v = t; v != s; v = to[prev[v] ^ 1]) { int a = prev[v]; cap[a] -= b; cap[a ^ 1] += b; pc += cost[a]; }
-            totalCost += pc * b; flow += b; Augmentations++;
             foreach (int u in touched) dist[u] = long.MaxValue;
+            // primal-dual (Ahuja et al. 9.8): saturate the admissible network (reduced cost 0) by DFS augmentations, current-arc pointers
+            ++ep2;
+            while (true) {
+                int sp = 0; stk[sp++] = s; onStk[s] = true; itSet(s);
+                bool found = false;
+                while (sp > 0) {
+                    int u = stk[sp - 1];
+                    if (u == t) { found = true; break; }
+                    int a = it[u]; bool adv = false;
+                    for (; a >= 0; a = nxt[a]) {
+                        if (cap[a] <= 0) continue;
+                        int v = to[a];
+                        if (onStk[v] || cost[a] + pot[u] - pot[v] != 0) continue;
+                        itSet(v); if (it[v] == -2) continue;   // dead
+                        it[u] = a; arcStk[sp] = a; stk[sp++] = v; onStk[v] = true; adv = true; break;
+                    }
+                    if (!adv) { it[u] = -2; onStk[u] = false; sp--; }
+                }
+                if (!found) { for (int i = 0; i < sp; ++i) onStk[stk[i]] = false; break; }
+                int b = int.MaxValue;
+                for (int i = 1; i < sp; ++i) b = Math.Min(b, cap[arcStk[i]]);
+                long pc = 0;
+                for (int i = 1; i < sp; ++i) { int a = arcStk[i]; cap[a] -= b; cap[a ^ 1] += b; pc += cost[a]; }
+                totalCost += pc * b; flow += b; Augmentations++;
+                for (int i = 0; i < sp; ++i) onStk[stk[i]] = false;
+            }
+        }
+        return flow;
+    }
+    /// <summary>Textbook SSP on the node excesses (no super source / sink): pick a node k with excess, Dijkstra from k with early termination
+    /// at the first node with a deficit, augment along that path (Ahuja et al. 9.7). Nodes in index order, deterministic.</summary>
+    public long SolveExcess(int[] excess, out long totalCost)
+    {
+        int n = N;
+        pot = new long[n]; dist = new long[n]; prev = new int[n]; settledEp = new int[n]; ep = 0; G = 0;
+        for (int i = 0; i < n; ++i) dist[i] = long.MaxValue;
+        hk = new long[1024]; hv = new int[1024]; hn = 0;
+        var touched = new System.Collections.Generic.List<int>(); var settled = new System.Collections.Generic.List<int>();
+        long flow = 0; totalCost = 0; Augmentations = 0;
+        for (int k = 0; k < n; ++k) {
+            while (excess[k] > 0) {
+                ++ep; touched.Clear(); settled.Clear(); hn = 0;
+                dist[k] = 0; touched.Add(k); Push(0, k);
+                int l = -1;
+                while (hn > 0) {
+                    Pop(out long du, out int u);
+                    if (settledEp[u] == ep || du > dist[u]) continue;
+                    settledEp[u] = ep; settled.Add(u);
+                    if (excess[u] < 0) { l = u; break; }
+                    long pu = pot[u];
+                    for (int a = head[u]; a >= 0; a = nxt[a]) {
+                        if (cap[a] <= 0) continue;
+                        int v = to[a];
+                        if (settledEp[v] == ep) continue;
+                        long nd = du + cost[a] + pu - pot[v];
+                        if (nd < dist[v]) { if (dist[v] == long.MaxValue) touched.Add(v); dist[v] = nd; prev[v] = a; Push(nd, v); }
+                    }
+                }
+                Settled += settled.Count; Phases++;
+                if (l < 0) { foreach (int u in touched) dist[u] = long.MaxValue; return flow; }
+                long D = dist[l];
+                foreach (int u in settled) pot[u] += dist[u] - D;
+                G += D;
+                int b = Math.Min(excess[k], -excess[l]);
+                for (int v = l; v != k; v = to[prev[v] ^ 1]) b = Math.Min(b, cap[prev[v]]);
+                long pc = 0;
+                for (int v = l; v != k; v = to[prev[v] ^ 1]) { int a = prev[v]; cap[a] -= b; cap[a ^ 1] += b; pc += cost[a]; }
+                totalCost += pc * b; flow += b; excess[k] -= b; excess[l] += b; Augmentations++;
+                foreach (int u in touched) dist[u] = long.MaxValue;
+            }
         }
         return flow;
     }

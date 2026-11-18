@@ -1,0 +1,114 @@
+=== A scale=1
+| sphere | 1 / 0.5 | 6390 | 8 | 77 | 94.8 | 14.5 | 0.07 | 0.33 || 8 (15) | 100.0 | 13.9 | 0.08 | yes | 0 | 0 | 1.35 | 0.35 | 2.92 | 8.9 | clean |
+PROF sphere 1/0.5 clean | t2 0.326 tpf 0.241 setup 0.085 flowprep 0.052 netbuild+mcf 1.259 (mcf 1.182, H iters 2, arcs 302383, nodes 25554, aug 44, units 44) subdiv 0.383 greedy 0.025 sat 0.347 pos 0.384 extract 0.064 tri 12776 splits 908 inv 0
+| torus | 1 / 0.5 | 7026 | 12 | 76 | 94.9 | 12.7 | 0.16 | 0.28 || 13 (19) | 100.0 | 11.8 | 0.16 | yes | 0 | 0 | 0.61 | 0.00 | 0.97 | 3.5 | clean |
+PROF torus 1/0.5 clean | t2 0.280 tpf 0.095 setup 0.045 flowprep 0.009 netbuild+mcf 0.591 (mcf 0.552, H iters 1, arcs 166460, nodes 28106, aug 43, units 43) subdiv 0.074 greedy 0.002 sat 0.003 pos 0.111 extract 0.029 tri 14052 splits 210 inv 0
+| torus-align10 | 1 / 0.5 | 7026 | 0 | 108 | 93.6 | 15.7 | 0.11 | 0.07 || 0 (10) | 100.0 | 7.2 | 0.10 | yes | 0 | 0 | 0.75 | 0.00 | 1.13 | 16.5 | clean |
+PROF torus-align10 1/0.5 clean | t2 0.069 tpf 0.069 setup 0.031 flowprep 0.005 netbuild+mcf 0.734 (mcf 0.707, H iters 1, arcs 168722, nodes 28106, aug 49, units 49) subdiv 0.163 greedy 0.001 sat 0.002 pos 0.102 extract 0.016 tri 14052 splits 485 inv 0
+| bumpy | 1 / 0.5 | 17918 | 16 | 176 | 95.9 | 10.8 | 0.10 | 0.19 || 22 (33) | 100.0 | 23.0 | 0.15 | yes | 7 | 2 | 4.30 | 2.30 | 8.54 | 45.8 | FALLBACK |
+PROF bumpy 1/0.5 FALLBACK | t2 0.187 tpf 0.155 setup 0.069 flowprep 0.017 netbuild+mcf 4.261 (mcf 4.217, H iters 1, arcs 425732, nodes 71666, aug 90, units 90) subdiv 1.118 greedy 0.006 sat 2.300 pos 0.543 extract 0.041 tri 35832 splits 1068 inv 7
+| filleted-box | 1 / 0.5 | 9092 | 8 | 16 | 99.1 | 4.9 | 0.19 | 0.08 || 8 (9) | 100.0 | 6.4 | 0.21 | yes | 0 | 0 | 0.30 | 0.00 | 0.74 | 9.7 | clean |
+PROF filleted-box 1/0.5 clean | t2 0.076 tpf 0.081 setup 0.026 flowprep 0.007 netbuild+mcf 0.275 (mcf 0.259, H iters 1, arcs 216354, nodes 36362, aug 13, units 13) subdiv 0.108 greedy 0.001 sat 0.000 pos 0.128 extract 0.090 tri 18180 splits 194 inv 0
+| noisy-sphere | 1 / 0.5 | 6390 | 8 | 92 | 93.2 | 15.7 | 0.21 | 0.05 || 24 (17) | 100.0 | 28.5 | 0.40 | yes | 13 | 3 | 0.69 | 4.15 | 5.10 | 93.9 | FALLBACK |
+PROF noisy-sphere 1/0.5 FALLBACK | t2 0.054 tpf 0.056 setup 0.023 flowprep 0.007 netbuild+mcf 0.675 (mcf 0.660, H iters 1, arcs 151902, nodes 25554, aug 53, units 53) subdiv 0.051 greedy 0.003 sat 4.151 pos 0.112 extract 0.010 tri 12776 splits 152 inv 13
+| capsule | 1 / 0.5 | 5523 | 8 | 91 | 92.7 | 15.8 | 0.12 | 0.05 || 78 (17) | 100.0 | 70.0 | 3.70 | yes | 94 | 14 | 1.57 | 20.15 | 22.01 | 462.4 | FALLBACK |
+PROF capsule 1/0.5 FALLBACK | t2 0.048 tpf 0.044 setup 0.014 flowprep 0.004 netbuild+mcf 1.558 (mcf 1.524, H iters 2, arcs 263844, nodes 22086, aug 62, units 62) subdiv 0.124 greedy 0.004 sat 20.154 pos 0.083 extract 0.008 tri 11042 splits 356 inv 94
+| genus2 | 1 / 0.5 | 13165 | 20 | 150 | 95.1 | 12.9 | 0.24 | 0.11 || 20 (35) | 100.0 | 13.5 | 0.22 | yes | 0 | 0 | 2.75 | 0.42 | 4.37 | 39.9 | clean |
+PROF genus2 1/0.5 clean | t2 0.110 tpf 0.121 setup 0.060 flowprep 0.013 netbuild+mcf 2.724 (mcf 2.665, H iters 1, arcs 311682, nodes 52670, aug 80, units 80) subdiv 0.769 greedy 0.002 sat 0.418 pos 0.219 extract 0.024 tri 26334 splits 1046 inv 0
+| capped-cylinder | 1 / 0.5 | 6508 | 8 | 87 | 93.5 | 16.4 | 0.44 | 0.06 || 95 (16) | 100.0 | 59.9 | 0.69 | yes | 150 | 46 | 1.71 | 18.28 | 20.38 | 349.5 | FALLBACK |
+PROF capped-cylinder 1/0.5 FALLBACK | t2 0.058 tpf 0.052 setup 0.021 flowprep 0.006 netbuild+mcf 1.692 (mcf 1.660, H iters 2, arcs 309732, nodes 26026, aug 61, units 61) subdiv 0.221 greedy 0.005 sat 18.275 pos 0.087 extract 0.009 tri 13012 splits 631 inv 150
+=== A scale=0.8
+| sphere | 0.8 / 0.5 | 9970 | 8 | 98 | 95.4 | 12.1 | 0.08 | 0.45 || 19 (17) | 100.0 | 17.8 | 0.09 | yes | 12 | 3 | 3.45 | 3.56 | 8.41 | 18.6 | FALLBACK |
+PROF sphere 0.8/0.5 FALLBACK | t2 0.451 tpf 0.147 setup 0.131 flowprep 0.053 netbuild+mcf 3.335 (mcf 3.236, H iters 2, arcs 473314, nodes 39874, aug 64, units 64) subdiv 0.629 greedy 0.039 sat 3.562 pos 0.341 extract 0.061 tri 19936 splits 979 inv 12
+| torus | 0.8 / 0.5 | 10982 | 12 | 104 | 96.2 | 10.3 | 0.14 | 0.16 || 15 (22) | 100.0 | 10.2 | 0.16 | yes | 1 | 0 | 1.35 | 0.21 | 2.23 | 13.6 | FALLBACK |
+PROF torus 0.8/0.5 FALLBACK | t2 0.164 tpf 0.099 setup 0.051 flowprep 0.012 netbuild+mcf 1.321 (mcf 1.287, H iters 1, arcs 260268, nodes 43930, aug 52, units 52) subdiv 0.134 greedy 0.002 sat 0.210 pos 0.331 extract 0.044 tri 21964 splits 236 inv 1
+| torus-align10 | 0.8 / 0.5 | 10982 | 0 | 116 | 95.1 | 12.4 | 0.11 | 0.12 || 0 (11) | 100.0 | 6.5 | 0.10 | yes | 0 | 0 | 1.52 | 0.00 | 2.34 | 20.2 | clean |
+PROF torus-align10 0.8/0.5 clean | t2 0.115 tpf 0.115 setup 0.035 flowprep 0.009 netbuild+mcf 1.502 (mcf 1.422, H iters 1, arcs 263680, nodes 43930, aug 56, units 56) subdiv 0.428 greedy 0.002 sat 0.002 pos 0.211 extract 0.020 tri 21964 splits 757 inv 0
+| bumpy | 0.8 / 0.5 | 27864 | 16 | 228 | 96.6 | 9.9 | 0.11 | 0.26 || 38 (38) | 100.0 | 20.4 | 0.19 | yes | 20 | 4 | 10.10 | 5.97 | 18.69 | 72.6 | FALLBACK |
+PROF bumpy 0.8/0.5 FALLBACK | t2 0.257 tpf 0.231 setup 0.132 flowprep 0.032 netbuild+mcf 10.038 (mcf 9.967, H iters 1, arcs 664965, nodes 111450, aug 119, units 119) subdiv 1.537 greedy 0.008 sat 5.965 pos 0.650 extract 0.046 tri 55724 splits 965 inv 20
+| filleted-box | 0.8 / 0.5 | 14245 | 8 | 22 | 99.1 | 3.6 | 0.18 | 0.12 || 10 (10) | 100.0 | 6.8 | 0.33 | yes | 8 | 2 | 0.77 | 1.52 | 3.14 | 25.6 | FALLBACK |
+PROF filleted-box 0.8/0.5 FALLBACK | t2 0.123 tpf 0.117 setup 0.052 flowprep 0.013 netbuild+mcf 0.742 (mcf 0.623, H iters 1, arcs 339644, nodes 56974, aug 19, units 19) subdiv 0.283 greedy 0.002 sat 1.522 pos 0.356 extract 0.027 tri 28486 splits 354 inv 8
+| noisy-sphere | 0.8 / 0.5 | 9970 | 8 | 123 | 94.4 | 14.2 | 0.19 | 0.10 || 28 (20) | 100.0 | 37.0 | 0.27 | yes | 33 | 29 | 10.67 | 5.11 | 19.33 | 202.2 | FALLBACK |
+PROF noisy-sphere 0.8/0.5 FALLBACK | t2 0.096 tpf 0.091 setup 0.034 flowprep 0.009 netbuild+mcf 10.643 (mcf 10.385, H iters 4, arcs 945246, nodes 39874, aug 77, units 77) subdiv 3.193 greedy 0.004 sat 5.105 pos 0.198 extract 0.021 tri 19936 splits 4648 inv 33
+| capsule | 0.8 / 0.5 | 8528 | 8 | 129 | 93.1 | 13.7 | 0.09 | 0.07 || 66 (20) | 98.4 | 72.3 | 2.73 | NO | 94 | 12 | 1.32 | 17.84 | 19.48 | 263.7 | FALLBACK |
+PROF capsule 0.8/0.5 FALLBACK | t2 0.074 tpf 0.070 setup 0.024 flowprep 0.007 netbuild+mcf 1.306 (mcf 1.287, H iters 1, arcs 204268, nodes 34106, aug 70, units 70) subdiv 0.028 greedy 0.054 sat 17.838 pos 0.131 extract 0.009 tri 17052 splits 64 inv 94
+| genus2 | 0.8 / 0.5 | 20486 | 20 | 205 | 96.0 | 10.6 | 0.23 | 0.19 || 20 (40) | 100.0 | 10.8 | 0.42 | yes | 0 | 0 | 5.84 | 0.01 | 7.63 | 40.8 | clean |
+PROF genus2 0.8/0.5 clean | t2 0.187 tpf 0.186 setup 0.098 flowprep 0.059 netbuild+mcf 5.761 (mcf 5.711, H iters 1, arcs 486839, nodes 81954, aug 96, units 96) subdiv 0.970 greedy 0.004 sat 0.013 pos 0.464 extract 0.037 tri 40976 splits 801 inv 0
+| capped-cylinder | 0.8 / 0.5 | 10173 | 8 | 109 | 94.9 | 12.7 | 0.38 | 0.09 || 57 (18) | 100.0 | 53.6 | 0.48 | yes | 147 | 79 | 14.89 | 12.61 | 28.70 | 307.1 | FALLBACK |
+PROF capped-cylinder 0.8/0.5 FALLBACK | t2 0.093 tpf 0.091 setup 0.033 flowprep 0.009 netbuild+mcf 14.769 (mcf 14.400, H iters 5, arcs 1211444, nodes 40686, aug 72, units 72) subdiv 0.873 greedy 0.006 sat 12.611 pos 0.178 extract 0.017 tri 20342 splits 1499 inv 147
+=== A scale=1.25
+| sphere | 1.25 / 0.5 | 4104 | 8 | 67 | 93.1 | 16.6 | 0.08 | 0.23 || 14 (14) | 100.0 | 19.9 | 0.14 | yes | 9 | 2 | 0.93 | 2.62 | 4.18 | 18.3 | FALLBACK |
+PROF sphere 1.25/0.5 FALLBACK | t2 0.228 tpf 0.202 setup 0.064 flowprep 0.050 netbuild+mcf 0.851 (mcf 0.793, H iters 2, arcs 193740, nodes 16410, aug 43, units 43) subdiv 0.054 greedy 0.026 sat 2.618 pos 0.192 extract 0.056 tri 8204 splits 239 inv 9
+| torus | 1.25 / 0.5 | 4482 | 12 | 52 | 94.1 | 12.4 | 0.16 | 0.20 || 23 (17) | 100.0 | 25.7 | 0.41 | yes | 7 | 0 | 0.60 | 1.63 | 2.88 | 14.6 | FALLBACK |
+PROF torus 1.25/0.5 FALLBACK | t2 0.197 tpf 0.045 setup 0.053 flowprep 0.006 netbuild+mcf 0.584 (mcf 0.561, H iters 2, arcs 211115, nodes 17930, aug 35, units 35) subdiv 0.426 greedy 0.001 sat 1.626 pos 0.082 extract 0.015 tri 8964 splits 1341 inv 7
+| torus-align10 | 1.25 / 0.5 | 4482 | 0 | 81 | 91.7 | 17.7 | 0.11 | 0.06 || 0 (8) | 100.0 | 8.4 | 0.11 | yes | 0 | 0 | 0.35 | 0.00 | 0.70 | 11.6 | clean |
+PROF torus-align10 1.25/0.5 clean | t2 0.060 tpf 0.042 setup 0.030 flowprep 0.005 netbuild+mcf 0.342 (mcf 0.328, H iters 1, arcs 107646, nodes 17930, aug 39, units 39) subdiv 0.091 greedy 0.003 sat 0.000 pos 0.147 extract 0.033 tri 8964 splits 293 inv 0
+| bumpy | 1.25 / 0.5 | 11407 | 16 | 142 | 94.8 | 13.3 | 0.10 | 0.13 || 24 (30) | 100.0 | 27.5 | 0.32 | yes | 12 | 4 | 2.27 | 1.71 | 4.71 | 37.1 | FALLBACK |
+PROF bumpy 1.25/0.5 FALLBACK | t2 0.127 tpf 0.094 setup 0.056 flowprep 0.013 netbuild+mcf 2.245 (mcf 2.151, H iters 1, arcs 270720, nodes 45622, aug 77, units 77) subdiv 0.343 greedy 0.004 sat 1.714 pos 0.203 extract 0.021 tri 22810 splits 525 inv 12
+| filleted-box | 1.25 / 0.5 | 5662 | 8 | 22 | 97.8 | 6.6 | 0.22 | 0.07 || 8 (10) | 100.0 | 10.1 | 0.26 | yes | 0 | 0 | 0.20 | 0.00 | 0.37 | 5.5 | clean |
+PROF filleted-box 1.25/0.5 clean | t2 0.067 tpf 0.050 setup 0.015 flowprep 0.004 netbuild+mcf 0.188 (mcf 0.177, H iters 1, arcs 134216, nodes 22642, aug 17, units 17) subdiv 0.019 greedy 0.001 sat 0.000 pos 0.076 extract 0.009 tri 11320 splits 62 inv 0
+| noisy-sphere | 1.25 / 0.5 | 4104 | 8 | 60 | 92.8 | 17.3 | 0.19 | 0.03 || 8 (14) | 100.0 | 23.2 | 0.21 | yes | 0 | 0 | 0.30 | 0.06 | 0.53 | 15.5 | clean |
+PROF noisy-sphere 1.25/0.5 clean | t2 0.034 tpf 0.033 setup 0.010 flowprep 0.003 netbuild+mcf 0.295 (mcf 0.276, H iters 1, arcs 96858, nodes 16410, aug 42, units 42) subdiv 0.060 greedy 0.001 sat 0.056 pos 0.058 extract 0.006 tri 8204 splits 306 inv 0
+| capsule | 1.25 / 0.5 | 3496 | 8 | 66 | 90.1 | 19.4 | 0.17 | 0.04 || 34 (14) | 90.1 | 74.1 | 5.00 | NO | 45 | 5 | 0.34 | 12.43 | 12.89 | 333.0 | FALLBACK |
+PROF capsule 1.25/0.5 FALLBACK | t2 0.039 tpf 0.028 setup 0.012 flowprep 0.004 netbuild+mcf 0.293 (mcf 0.282, H iters 1, arcs 83590, nodes 13978, aug 49, units 49) subdiv 0.006 greedy 0.003 sat 12.433 pos 0.063 extract 0.005 tri 6988 splits 46 inv 45
+| genus2 | 1.25 / 0.5 | 8375 | 20 | 124 | 94.0 | 14.2 | 0.28 | 0.09 || 20 (32) | 100.0 | 20.9 | 0.36 | yes | 0 | 0 | 3.15 | 0.24 | 4.07 | 45.2 | clean |
+PROF genus2 1.25/0.5 clean | t2 0.090 tpf 0.075 setup 0.029 flowprep 0.008 netbuild+mcf 3.132 (mcf 3.026, H iters 2, arcs 393816, nodes 33510, aug 72, units 72) subdiv 0.393 greedy 0.002 sat 0.245 pos 0.162 extract 0.014 tri 16754 splits 802 inv 0
+| capped-cylinder | 1.25 / 0.5 | 4147 | 8 | 65 | 91.9 | 15.3 | 0.27 | 0.06 || 16 (14) | 100.0 | 25.9 | 0.28 | yes | 7 | 2 | 0.38 | 2.23 | 2.79 | 44.2 | FALLBACK |
+PROF capped-cylinder 1.25/0.5 FALLBACK | t2 0.063 tpf 0.058 setup 0.012 flowprep 0.004 netbuild+mcf 0.373 (mcf 0.361, H iters 1, arcs 98460, nodes 16582, aug 42, units 42) subdiv 0.053 greedy 0.002 sat 2.228 pos 0.046 extract 0.006 tri 8290 splits 246 inv 7
+=== A scale=1.5
+| sphere | 1.5 / 0.5 | 2855 | 8 | 48 | 90.8 | 17.9 | 0.09 | 0.24 || 8 (12) | 100.0 | 23.8 | 0.14 | yes | 1 | 0 | 0.34 | 0.96 | 1.81 | 7.4 | FALLBACK |
+PROF sphere 1.5/0.5 FALLBACK | t2 0.244 tpf 0.185 setup 0.047 flowprep 0.046 netbuild+mcf 0.277 (mcf 0.263, H iters 1, arcs 67133, nodes 11414, aug 33, units 33) subdiv 0.021 greedy 0.025 sat 0.958 pos 0.157 extract 0.044 tri 5706 splits 171 inv 1
+| torus | 1.5 / 0.5 | 3098 | 12 | 62 | 92.7 | 17.0 | 0.18 | 0.05 || 14 (18) | 100.0 | 22.2 | 0.49 | yes | 1 | 0 | 0.18 | 0.37 | 0.76 | 16.3 | FALLBACK |
+PROF torus 1.5/0.5 FALLBACK | t2 0.047 tpf 0.058 setup 0.044 flowprep 0.004 netbuild+mcf 0.167 (mcf 0.148, H iters 1, arcs 72623, nodes 12394, aug 36, units 36) subdiv 0.026 greedy 0.001 sat 0.369 pos 0.053 extract 0.008 tri 6196 splits 227 inv 1
+| torus-align10 | 1.5 / 0.5 | 3098 | 0 | 56 | 92.4 | 17.0 | 0.16 | 0.05 || 0 (5) | 100.0 | 8.9 | 0.12 | yes | 0 | 0 | 0.14 | 0.00 | 0.27 | 5.0 | clean |
+PROF torus-align10 1.5/0.5 clean | t2 0.053 tpf 0.040 setup 0.013 flowprep 0.004 netbuild+mcf 0.135 (mcf 0.124, H iters 1, arcs 74404, nodes 12394, aug 26, units 26) subdiv 0.022 greedy 0.000 sat 0.000 pos 0.041 extract 0.009 tri 6196 splits 197 inv 0
+| bumpy | 1.5 / 0.5 | 7961 | 14 | 108 | 93.8 | 15.8 | 0.12 | 0.11 || 12 (24) | 100.0 | 27.0 | 0.16 | yes | 0 | 0 | 1.02 | 0.35 | 2.05 | 18.1 | clean |
+PROF bumpy 1.5/0.5 clean | t2 0.113 tpf 0.079 setup 0.037 flowprep 0.008 netbuild+mcf 1.007 (mcf 0.951, H iters 1, arcs 189252, nodes 31838, aug 63, units 63) subdiv 0.334 greedy 0.003 sat 0.347 pos 0.186 extract 0.039 tri 15918 splits 795 inv 0
+| filleted-box | 1.5 / 0.5 | 3936 | 8 | 27 | 97.3 | 9.4 | 0.28 | 0.04 || 8 (10) | 100.0 | 10.4 | 0.27 | yes | 0 | 0 | 0.13 | 0.00 | 0.27 | 7.5 | clean |
+PROF filleted-box 1.5/0.5 clean | t2 0.036 tpf 0.033 setup 0.021 flowprep 0.003 netbuild+mcf 0.125 (mcf 0.108, H iters 1, arcs 93068, nodes 15738, aug 15, units 15) subdiv 0.017 greedy 0.001 sat 0.003 pos 0.058 extract 0.006 tri 7868 splits 79 inv 0
+| noisy-sphere | 1.5 / 0.5 | 2855 | 8 | 59 | 89.3 | 18.6 | 0.18 | 0.03 || 21 (13) | 100.0 | 39.8 | 0.34 | yes | 20 | 6 | 0.36 | 3.06 | 3.59 | 141.3 | FALLBACK |
+PROF noisy-sphere 1.5/0.5 FALLBACK | t2 0.025 tpf 0.031 setup 0.007 flowprep 0.002 netbuild+mcf 0.358 (mcf 0.343, H iters 2, arcs 134596, nodes 11414, aug 39, units 39) subdiv 0.054 greedy 0.001 sat 3.062 pos 0.069 extract 0.004 tri 5706 splits 462 inv 20
+| capsule | 1.5 / 0.5 | 2403 | 10 | 50 | 91.3 | 21.7 | 0.18 | 0.02 || 19 (15) | 93.0 | 68.9 | 3.41 | NO | 13 | 2 | 0.13 | 4.41 | 4.62 | 238.6 | FALLBACK |
+PROF capsule 1.5/0.5 FALLBACK | t2 0.019 tpf 0.021 setup 0.008 flowprep 0.004 netbuild+mcf 0.121 (mcf 0.116, H iters 1, arcs 57495, nodes 9606, aug 36, units 36) subdiv 0.012 greedy 0.001 sat 4.412 pos 0.032 extract 0.003 tri 4802 splits 25 inv 13
+| genus2 | 1.5 / 0.5 | 5836 | 20 | 80 | 94.3 | 14.8 | 0.23 | 0.06 || 20 (28) | 100.0 | 15.8 | 0.27 | yes | 0 | 0 | 0.44 | 0.00 | 0.70 | 12.4 | clean |
+PROF genus2 1.5/0.5 clean | t2 0.057 tpf 0.045 setup 0.015 flowprep 0.005 netbuild+mcf 0.434 (mcf 0.421, H iters 1, arcs 136274, nodes 23354, aug 45, units 45) subdiv 0.085 greedy 0.001 sat 0.000 pos 0.100 extract 0.010 tri 11676 splits 307 inv 0
+| capped-cylinder | 1.5 / 0.5 | 2852 | 8 | 61 | 90.6 | 17.5 | 0.30 | 0.03 || 16 (14) | 100.0 | 45.4 | 0.74 | yes | 11 | 4 | 0.19 | 3.40 | 3.68 | 135.5 | FALLBACK |
+PROF capped-cylinder 1.5/0.5 FALLBACK | t2 0.027 tpf 0.026 setup 0.006 flowprep 0.002 netbuild+mcf 0.189 (mcf 0.179, H iters 1, arcs 67773, nodes 11402, aug 38, units 38) subdiv 0.005 greedy 0.002 sat 3.404 pos 0.043 extract 0.004 tri 5700 splits 40 inv 11
+=== A ratio=0.35
+| sphere | 1 / 0.35 | 13010 | 8 | 64 | 94.9 | 13.5 | 0.08 | 0.47 || 23 (14) | 100.0 | 16.6 | 0.08 | yes | 10 | 2 | 1.64 | 4.41 | 7.37 | 15.8 | FALLBACK |
+PROF sphere 1/0.35 FALLBACK | t2 0.467 tpf 0.186 setup 0.198 flowprep 0.062 netbuild+mcf 1.521 (mcf 1.464, H iters 1, arcs 309068, nodes 52034, aug 41, units 41) subdiv 0.359 greedy 0.027 sat 4.406 pos 0.448 extract 0.067 tri 26016 splits 487 inv 10
+| torus | 1 / 0.35 | 14254 | 12 | 66 | 95.3 | 12.4 | 0.21 | 0.24 || 13 (18) | 100.0 | 13.9 | 0.35 | yes | 0 | 0 | 1.73 | 0.24 | 3.28 | 13.7 | clean |
+PROF torus 1/0.35 clean | t2 0.239 tpf 0.251 setup 0.106 flowprep 0.043 netbuild+mcf 1.669 (mcf 1.627, H iters 1, arcs 338504, nodes 57018, aug 41, units 41) subdiv 0.363 greedy 0.003 sat 0.240 pos 0.553 extract 0.021 tri 28508 splits 455 inv 0
+| torus-align10 | 1 / 0.35 | 14254 | 0 | 93 | 93.4 | 17.3 | 0.12 | 0.14 || 0 (9) | 100.0 | 6.1 | 0.10 | yes | 0 | 0 | 1.73 | 0.15 | 2.92 | 20.8 | clean |
+PROF torus-align10 1/0.35 clean | t2 0.140 tpf 0.128 setup 0.050 flowprep 0.013 netbuild+mcf 1.701 (mcf 1.667, H iters 1, arcs 342190, nodes 57018, aug 47, units 47) subdiv 0.455 greedy 0.003 sat 0.154 pos 0.371 extract 0.023 tri 28508 splits 611 inv 0
+| bumpy | 1 / 0.35 | 36526 | 16 | 169 | 95.4 | 11.5 | 0.11 | 0.36 || 120 (32) | 100.0 | 32.7 | 0.24 | yes | 107 | 29 | 12.59 | 31.19 | 49.92 | 138.7 | FALLBACK |
+PROF bumpy 1/0.35 FALLBACK | t2 0.360 tpf 0.401 setup 0.276 flowprep 0.067 netbuild+mcf 12.482 (mcf 12.313, H iters 1, arcs 871125, nodes 146098, aug 97, units 97) subdiv 4.324 greedy 0.016 sat 31.187 pos 1.037 extract 0.056 tri 73048 splits 2269 inv 107
+| filleted-box | 1 / 0.35 | 17644 | 8 | 8 | 99.2 | 4.5 | 0.21 | 0.14 || 8 (8) | 100.0 | 6.9 | 0.22 | yes | 0 | 0 | 0.69 | 0.01 | 1.45 | 10.3 | clean |
+PROF filleted-box 1/0.35 clean | t2 0.140 tpf 0.151 setup 0.062 flowprep 0.018 netbuild+mcf 0.646 (mcf 0.605, H iters 1, arcs 420646, nodes 70570, aug 11, units 11) subdiv 0.038 greedy 0.003 sat 0.010 pos 0.458 extract 0.023 tri 35284 splits 34 inv 0
+| noisy-sphere | 1 / 0.35 | 13010 | 8 | 96 | 93.0 | 18.6 | 0.15 | 0.11 || 111 (17) | 100.0 | 54.9 | 0.17 | yes | 207 | 156 | 13.64 | 29.94 | 50.14 | 447.9 | FALLBACK |
+PROF noisy-sphere 1/0.35 FALLBACK | t2 0.112 tpf 0.109 setup 0.059 flowprep 0.014 netbuild+mcf 13.613 (mcf 13.350, H iters 4, arcs 1236206, nodes 52034, aug 72, units 72) subdiv 6.021 greedy 0.008 sat 29.942 pos 0.321 extract 0.022 tri 26016 splits 7063 inv 207
+| capsule | 1 / 0.35 | 11204 | 10 | 69 | 92.8 | 16.1 | 0.15 | 0.12 || 38 (16) | 100.0 | 66.3 | 3.69 | NO | 46 | 4 | 1.36 | 9.91 | 11.65 | 98.1 | FALLBACK |
+PROF capsule 1/0.35 FALLBACK | t2 0.119 tpf 0.108 setup 0.033 flowprep 0.009 netbuild+mcf 1.339 (mcf 1.295, H iters 1, arcs 268086, nodes 44810, aug 50, units 50) subdiv 0.051 greedy 0.004 sat 9.908 pos 0.170 extract 0.011 tri 22404 splits 93 inv 46
+| genus2 | 1 / 0.35 | 26724 | 20 | 128 | 95.3 | 11.6 | 0.29 | 0.25 || 26 (32) | 100.0 | 14.2 | 0.35 | yes | 2 | 1 | 5.50 | 0.85 | 8.90 | 36.1 | FALLBACK |
+PROF genus2 1/0.35 FALLBACK | t2 0.246 tpf 0.262 setup 0.128 flowprep 0.025 netbuild+mcf 5.446 (mcf 5.374, H iters 1, arcs 633482, nodes 106906, aug 69, units 69) subdiv 1.260 greedy 0.005 sat 0.851 pos 0.844 extract 0.039 tri 53452 splits 960 inv 2
+| capped-cylinder | 1 / 0.35 | 13305 | 8 | 88 | 92.9 | 17.3 | 0.29 | 0.16 || 27 (16) | 99.5 | 26.8 | 0.46 | NO | 41 | 16 | 4.66 | 7.72 | 13.07 | 80.2 | FALLBACK |
+PROF capped-cylinder 1/0.35 FALLBACK | t2 0.163 tpf 0.114 setup 0.060 flowprep 0.029 netbuild+mcf 4.620 (mcf 4.470, H iters 2, arcs 633706, nodes 53214, aug 62, units 62) subdiv 0.249 greedy 0.004 sat 7.717 pos 0.246 extract 0.015 tri 26606 splits 413 inv 41
+=== A ratio=0.7
+| sphere | 1 / 0.7 | 3255 | 8 | 69 | 94.8 | 13.0 | 0.07 | 0.20 || 8 (14) | 100.0 | 21.5 | 0.08 | yes | 0 | 0 | 0.48 | 0.00 | 1.11 | 5.5 | clean |
+PROF sphere 1/0.7 clean | t2 0.202 tpf 0.158 setup 0.058 flowprep 0.050 netbuild+mcf 0.410 (mcf 0.388, H iters 1, arcs 76522, nodes 13014, aug 40, units 40) subdiv 0.141 greedy 0.031 sat 0.001 pos 0.140 extract 0.062 tri 6506 splits 577 inv 0
+| torus | 1 / 0.7 | 3571 | 12 | 75 | 94.9 | 11.5 | 0.15 | 0.17 || 12 (19) | 100.0 | 13.0 | 0.18 | yes | 0 | 0 | 0.24 | 0.00 | 0.57 | 3.4 | clean |
+PROF torus 1/0.7 clean | t2 0.165 tpf 0.150 setup 0.036 flowprep 0.004 netbuild+mcf 0.231 (mcf 0.211, H iters 1, arcs 83934, nodes 14286, aug 45, units 45) subdiv 0.050 greedy 0.001 sat 0.002 pos 0.057 extract 0.009 tri 7142 splits 269 inv 0
+| torus-align10 | 1 / 0.7 | 3571 | 0 | 108 | 93.5 | 13.8 | 0.12 | 0.05 || 0 (10) | 100.0 | 8.5 | 0.11 | yes | 0 | 0 | 0.27 | 0.00 | 0.47 | 8.7 | clean |
+PROF torus-align10 1/0.7 clean | t2 0.054 tpf 0.055 setup 0.015 flowprep 0.003 netbuild+mcf 0.266 (mcf 0.258, H iters 1, arcs 85798, nodes 14286, aug 47, units 47) subdiv 0.063 greedy 0.001 sat 0.000 pos 0.051 extract 0.010 tri 7142 splits 306 inv 0
+| bumpy | 1 / 0.7 | 9135 | 16 | 175 | 96.1 | 10.2 | 0.11 | 0.10 || 20 (33) | 100.0 | 21.4 | 0.15 | NO | 4 | 1 | 1.83 | 1.38 | 3.77 | 36.5 | FALLBACK |
+PROF bumpy 1/0.7 FALLBACK | t2 0.103 tpf 0.099 setup 0.055 flowprep 0.010 netbuild+mcf 1.810 (mcf 1.766, H iters 1, arcs 216869, nodes 36534, aug 93, units 93) subdiv 0.175 greedy 0.003 sat 1.379 pos 0.185 extract 0.045 tri 18266 splits 345 inv 4
+| filleted-box | 1 / 0.7 | 4530 | 8 | 27 | 98.4 | 6.1 | 0.17 | 0.07 || 8 (10) | 100.0 | 9.1 | 0.22 | yes | 0 | 0 | 0.15 | 0.05 | 0.38 | 5.8 | clean |
+PROF filleted-box 1/0.7 clean | t2 0.065 tpf 0.043 setup 0.014 flowprep 0.003 netbuild+mcf 0.144 (mcf 0.136, H iters 1, arcs 107358, nodes 18114, aug 20, units 20) subdiv 0.028 greedy 0.001 sat 0.051 pos 0.076 extract 0.010 tri 9056 splits 104 inv 0
+| noisy-sphere | 1 / 0.7 | 3255 | 8 | 111 | 92.9 | 13.7 | 0.25 | 0.03 || 71 (19) | 100.0 | 54.7 | 0.65 | yes | 127 | 39 | 1.26 | 12.52 | 14.20 | 528.6 | FALLBACK |
+PROF noisy-sphere 1/0.7 FALLBACK | t2 0.027 tpf 0.029 setup 0.010 flowprep 0.003 netbuild+mcf 1.252 (mcf 1.177, H iters 3, arcs 230695, nodes 13014, aug 66, units 66) subdiv 0.297 greedy 0.003 sat 12.515 pos 0.079 extract 0.006 tri 6506 splits 1507 inv 127
+| capsule | 1 / 0.7 | 2790 | 12 | 81 | 92.9 | 12.3 | 0.10 | 0.04 || 32 (20) | 100.0 | 63.9 | 2.85 | yes | 35 | 1 | 0.45 | 6.46 | 6.98 | 195.0 | FALLBACK |
+PROF capsule 1/0.7 FALLBACK | t2 0.036 tpf 0.023 setup 0.006 flowprep 0.002 netbuild+mcf 0.441 (mcf 0.417, H iters 2, arcs 133458, nodes 11154, aug 49, units 49) subdiv 0.008 greedy 0.002 sat 6.458 pos 0.034 extract 0.003 tri 5576 splits 82 inv 35
+| genus2 | 1 / 0.7 | 6651 | 20 | 127 | 96.2 | 11.5 | 0.19 | 0.06 || 21 (32) | 100.0 | 13.5 | 0.29 | yes | 0 | 0 | 0.82 | 0.00 | 1.14 | 20.7 | clean |
+PROF genus2 1/0.7 clean | t2 0.055 tpf 0.056 setup 0.024 flowprep 0.018 netbuild+mcf 0.798 (mcf 0.776, H iters 1, arcs 156926, nodes 26614, aug 67, units 67) subdiv 0.122 greedy 0.001 sat 0.000 pos 0.101 extract 0.015 tri 13306 splits 279 inv 0
+| capped-cylinder | 1 / 0.7 | 3290 | 8 | 94 | 93.3 | 14.5 | 0.30 | 0.03 || 12 (17) | 100.0 | 37.8 | 0.44 | yes | 2 | 0 | 0.52 | 0.30 | 0.96 | 37.5 | FALLBACK |
+PROF capped-cylinder 1/0.7 FALLBACK | t2 0.026 tpf 0.024 setup 0.011 flowprep 0.002 netbuild+mcf 0.514 (mcf 0.485, H iters 2, arcs 156450, nodes 13154, aug 49, units 49) subdiv 0.025 greedy 0.001 sat 0.298 pos 0.073 extract 0.007 tri 6576 splits 159 inv 2
