@@ -103,7 +103,7 @@ was a scratch console app, not committed.
   share: about 0.45 s of GC pause, 4 % of wall (more if the allocation CPU falls with it). The `Reducer` is no
   allocation lever (24 GB, 0.12 s of pause).
 
-**Exact Boolean 3.0 (owner 2026-11-08; in progress since 2026-11-10; functionally done 2026-11-17, mutation gate pending, see the status above):** tighten the speed target again with two
+**Exact Boolean 3.0 (owner 2026-11-08; in progress since 2026-11-10; functionally done 2026-11-17, complete 2026-11-18, see the status above):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
 machines have 4 cores, but the trend is to many more, so the arrangement, the classification (e.g. the Lévy-style
 propagation or the open-mesh GWN, which were not worth it serially) and rounding should be re-measured for scaling
@@ -124,7 +124,7 @@ Pre-study: #532, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md.
 **3.0 process (owner 2026-11-11):** the per-PR full mutation shards cost a 6 h runner slot each and were cancelled at the limit
 (#539) without a result, so during 3.0: no full shard runs on PRs (incremental where a baseline fits); CI, new tests on base
 and the exact-code review with every new bound checked stay per PR; the full shards of the exact mesh pipeline run nightly on
-master (survivors are tasks of the area's next PR); the 3.0 completion gate is a full run of every touched shard above its
+master (survivors are tasks of the area's next PR); the 3.0 completion gate (met 2026-11-18) is a full run of every touched shard above its
 threshold on master, on GitHub or run locally by the owner (a script under `tests/mutation` writes a result JSON with the head
 sha, a CI check validates it). The boolean and arrangement shards are split finer so that each stays well under the 6 h job
 limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md). The workflow PR for
@@ -452,7 +452,7 @@ Checked against the owner's decisions, git and the open PRs and issues on 2026-1
 
 Open:
 
-- **`SolidBooleanPipeline`: soups in, a clean solid with few triangles out (owner 2026-11-17, in review).** An opt-in helper
+- **`SolidBooleanPipeline`: soups in, a clean solid with few triangles out (owner 2026-11-17, merged #1112; PairContacts #1119, PairContactsMode #1122).** An opt-in helper
   (`mesh_ops/SolidBooleanPipeline.cs`, usage in [OPERATIONS.md](../OPERATIONS.md#booleans), numbers in
   [benchmarks/SolidBooleanBenchmark](../../benchmarks/SolidBooleanBenchmark/README.md)): per input `IsWindingClosed`, a repair
   only for an input that fails it and that the boolean refuses (`MeshAutoRepair`; `MeshRobustRepair` only as the explicit
@@ -878,9 +878,8 @@ outside the edits), #837 (rounding-search upper bound: lever 1 dropped, lever 2 
 lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as an environment effect (owner
 2026-11-15; A/B runs on 42327 use `DOTNET_TieredPGO=0`), #922 (T6 against CGAL EPECK), #953 (thread-scaling analysis).
 
-1. Close out Exact Boolean 3.0: the mutation shards #913 and lever 1 of #953 (#956) are merged; what is left is the full
-   mutation run of every touched shard on master (gate run 44013112256: 35 green, 5 red; envelope-3 and geodesic-1 fixed in
-   #1051, rounding-4, rounding-7 and terrain-overlay in #1077, merged; their reruns are pending, see the status at the top).
+1. Close out Exact Boolean 3.0: done 2026-11-18 (the mutation shards #913 and lever 1 of #953 (#956) are merged; every
+   touched shard has a full run above its threshold on master, see the status at the top).
 2. The thingi-pairs baseline and final runs, after 1 (owner 2026-11-12; a Haiku runner): not run yet.
 3. The tail above 20 s: #888 is closed (#960, 2026-11-16); tail cases are judged by the regression rule only. #1047 (42327
    with its rotated copy, 18-26 s, the time is in the classification) is reduced by PR #1064 (merged; box prefilter for the coplanar stacks,
