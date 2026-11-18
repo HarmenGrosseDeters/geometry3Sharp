@@ -375,8 +375,7 @@ Every finding of the campaigns was a fault of the harness, each fixed with a reg
 
 Also checked by hand: 16 failed examples of the owner (`OpenInput` with `AllowOpenMeshes = false`) are inputs with a hole (4 and 196 unmatched edges); with the
 default `AllowOpenMeshes = true` all succeed with a valid mesh. Differential runs against Manifold (local only, nothing committed) and thread-count
-determinism on 100 Thingi10K pairs are in the issue comments of #1038. Mutation: `boolean-1` with the new property families in its filter, score 57.71 % against
-the break threshold 51 (`tests/mutation/local-results/`); the survivors are tasks of the next PR of that area.
+determinism on 100 Thingi10K pairs are in the issue comments of #1038. Mutation: the families join the filter of shard `boolean-1` (a local run on the pre-merge code scored 57.71 % against the break threshold 51 with 151 survivors; that result file is not committed, it would not match the merged config: the shard runs nightly on master, and its survivors are tasks of the next PR of that area).
 
 ## Judgement notes
 

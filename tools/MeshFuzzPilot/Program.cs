@@ -668,6 +668,11 @@ public static partial class Program
         ExpectFinding("an n-ary volume that is half the chain's", () => B30CheckVolumes("t", "n-ary", 1, 2, 1e-9), "n-ary");
         ExpectFinding("a NaN volume", () => B30CheckVolumes("t", "n-ary", double.NaN, 1, 1e-9), "n-ary");
         if (Math.Abs(B30Volume(cube) - 1) > 1e-12) throw new InvalidOperationException("the unit cube must have the volume 1: " + B30Volume(cube));
+        // a cube of edge 16 at an offset of 2^40 (the volume from the origin cancelled to 6.0815e18 against 6.0818e18 in the review of #1120): summed from its center it is 4096
+        DMesh3 far = new DMesh3(cube);
+        foreach (int v in far.VertexIndices()) far.SetVertex(v, far.GetVertex(v) * 16 + new Vector3d(Math.Pow(2, 40), Math.Pow(2, 40), Math.Pow(2, 40)));
+        double farVolume = B30Volume(far, out double farAbsolute);
+        if (Math.Abs(farVolume - 4096) > B30VolumeTolerance(0, 16, farAbsolute, farAbsolute)) throw new InvalidOperationException("a cube of edge 16 far from the origin must have the volume 4096: " + farVolume);
         if (B30OverBudget(TimeSpan.FromSeconds(4)) || !B30OverBudget(TimeSpan.FromSeconds(6)))
             throw new InvalidOperationException("the time budget of an input is 5 s");
         var T = ExactMeshBoolean.Operations.Union;

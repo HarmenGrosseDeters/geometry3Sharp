@@ -43,17 +43,31 @@ public static partial class Program
             throw new Finding($"{what}: {op} success with an invalid result on open inputs");
     }
 
-    /// <summary> signed volume by the divergence theorem over the triangles </summary>
-    static double B30Volume(DMesh3 m)
+    /// <summary> signed volume by the divergence theorem over the triangles, summed relative to the bounds center (a sum from the origin loses
+    /// the volume of a mesh far from it to cancellation: two cubes of edge 16 at an offset of 2^40 gave 6.0815e18 against 6.0818e18). absolute: the
+    /// sum of the absolute terms, the scale of the summation error </summary>
+    static double B30Volume(DMesh3 m, out double absolute)
     {
+        absolute = 0;
+        if (m.TriangleCount == 0) return 0;
+        Vector3d center = m.GetBounds().Center;
         double v = 0;
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             m.GetTriVertices(t, ref a, ref b, ref c);
-            v += a.Dot(b.Cross(c)) / 6.0;
+            double term = (a - center).Dot((b - center).Cross(c - center)) / 6.0;
+            v += term;
+            absolute += Math.Abs(term);
         }
         return v;
     }
+
+    static double B30Volume(DMesh3 m) => B30Volume(m, out _);
+
+    /// <summary> the tolerance of a volume comparison: a relative part of the cube of the scale, and the summation error of both volumes
+    /// (a thousand units of the last place of the sum of the absolute terms) </summary>
+    static double B30VolumeTolerance(double relative, double scale, double absoluteFirst, double absoluteSecond) =>
+        relative * scale * scale * scale + 1e3 * 2.220446049250313e-16 * (absoluteFirst + absoluteSecond);
 
     static double B30Scale(params DMesh3[] meshes)
     {
@@ -84,8 +98,10 @@ public static partial class Program
         if (!first.Compute()) throw new Finding($"{what}: pairwise union Compute() false where the n-ary union succeeded: {first.Error}");
         var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!chain.Compute()) throw new Finding($"{what}: pairwise chain Compute() false: {chain.Error}");
-        double tol = 1e-9 * Math.Pow(B30Scale(c.A, c.B, third), 3);
-        double vn = B30Volume(nary.Result), vc = B30Volume(chain.Result);
+        double vn = B30Volume(nary.Result, out double an), vc = B30Volume(chain.Result, out double ac);
+        double tol = B30VolumeTolerance(1e-9, B30Scale(c.A, c.B, third), an, ac);
+        // (a volume or tolerance that overflows is a representation limit, not a finding: nothing to compare)
+        if (!double.IsFinite(vn) || !double.IsFinite(vc) || !double.IsFinite(tol)) return;
         B30CheckVolumes(what, "n-ary volume against the chain", vn, vc, tol);
     }
 
@@ -108,7 +124,8 @@ public static partial class Program
         } finally { gParallel.SerialOnThisThread = serial; }
     }
 
-    /// <summary> reuse: one instance computed twice gives the same bits </summary>
+    /// <summary> reuse: one instance computed twice gives the same bits, and with new inputs and another operation it gives what a fresh instance
+    /// gives (state kept from the first call would show only there: the same inputs twice give the same result either way) </summary>
     static void RunReuse(Case c, string what)
     {
         var op = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Difference);
@@ -116,6 +133,11 @@ public static partial class Program
         DMesh3 first = new DMesh3(op.Result);
         if (!op.Compute()) throw new Finding($"{what}: second Compute() false where the first succeeded: {op.Error}");
         B30CheckIdentical(what, "second Compute() of the same instance differs", first, op.Result);
+        op.MeshA = c.B; op.MeshB = c.A; op.Operation = ExactMeshBoolean.Operations.Intersection;
+        var fresh = new ExactMeshBoolean(c.B, c.A, ExactMeshBoolean.Operations.Intersection);
+        bool okFresh = fresh.Compute(), okReused = op.Compute();
+        if (okFresh != okReused) throw new Finding($"{what}: new inputs on a reused instance: Compute() {okReused} ({op.Status}), a fresh instance {okFresh} ({fresh.Status})");
+        if (okFresh) B30CheckIdentical(what, "new inputs on a reused instance differ from a fresh instance", fresh.Result, op.Result);
     }
 
     /// <summary> the time one input may take over its operations before the rest of them is skipped: with 600 orders of magnitude between
@@ -150,8 +172,9 @@ public static partial class Program
         var safe = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
         bool okP = plain.Compute(), okS = safe.Compute();
         if (!okP || !okS || plain.Result == null || safe.Result == null || !safe.RoundingClean) return;
-        double tol = 1e-4 * Math.Pow(B30Scale(c.A, c.B), 3);
-        double vp = B30Volume(plain.Result), vs = B30Volume(safe.Result);
+        double vp = B30Volume(plain.Result, out double ap), vs = B30Volume(safe.Result, out double asf);
+        double tol = B30VolumeTolerance(1e-4, B30Scale(c.A, c.B), ap, asf);
+        if (!double.IsFinite(vp) || !double.IsFinite(vs) || !double.IsFinite(tol)) return;
         B30CheckVolumes(what, "plain volume against SafeRounding", vp, vs, tol);
     }
 }

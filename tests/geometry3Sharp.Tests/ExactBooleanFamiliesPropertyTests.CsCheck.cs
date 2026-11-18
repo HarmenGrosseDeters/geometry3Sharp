@@ -57,8 +57,6 @@ namespace geometry3Sharp.Tests
 
         static string Prefix(string what, string reason) => reason == "" ? "" : $"{what}: {reason}";
 
-        static DMesh3 Append(DMesh3 a, DMesh3 b) { var r = new DMesh3(a); MeshEditor.Append(r, b); return r; }
-
         // ---------------------------------------------------------------- generators
 
         /// <summary> a box with integer corners in [0, range]^3, extents at least 1 </summary>
@@ -76,6 +74,12 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < quarter; i++) m = Rot90(m);
                 return m;
             });
+
+        /// <summary> G4 without the rotation: boxes in [0, 4]^3, so that two independent samples overlap most of the time (a rotation moves the box to
+        /// another quadrant, where it is disjoint from or only touches an unrotated one) </summary>
+        static Gen<DMesh3> GenAligned =>
+            Gen.Select(GenBox(4), Gen.Int[0, 1], (box, levels) =>
+                BooleanOracle.Subdivided(BooleanOracle.BoxMesh(box, new BoxCase(box, box, 0, Vector3d.Zero)), levels));
 
         /// <summary> G5: a box whose corner slivers are split by 2^-tExponent offsets (BooleanOracle.SliverSplit) </summary>
         static Gen<DMesh3> GenSliver =>
@@ -116,6 +120,7 @@ namespace geometry3Sharp.Tests
             if (e != "") return e;
             double size = 4 * BooleanOracle.EdgeLength(a);   // a length scale, as the metamorphic tests use (c.Scale * 4); not a resolution
             return First(
+                () => Prefix("union", BooleanOracle.CleanReason(uu)), () => Prefix("intersection", BooleanOracle.CleanReason(ii)), () => Prefix("difference", BooleanOracle.CleanReason(dd)),
                 () => Prefix("union with itself", BooleanOracle.SameRegularizedSolid(uu, a, size)),
                 () => Prefix("intersection with itself", BooleanOracle.SameRegularizedSolid(ii, a, size)),
                 () => Prefix("difference with itself", BooleanOracle.Volume(dd) > BooleanOracle.VolumeTolerance(a, a) ? $"volume {BooleanOracle.Volume(dd)} is not empty" : ""));
@@ -167,7 +172,14 @@ namespace geometry3Sharp.Tests
             if (!op.Compute()) return "first Compute() failed: " + op.Error;
             DMesh3 first = new DMesh3(op.Result);
             if (!op.Compute()) return "second Compute() failed: " + op.Error;
-            return SameBits(first, op.Result, "second Compute() of the same instance");
+            string same = SameBits(first, op.Result, "second Compute() of the same instance");
+            if (same != "") return same;
+            // new inputs and another operation on the same instance against a fresh one (the pattern of InvarianceTests.ExactBoolean_ReusedInstance_EqualsFreshInstance)
+            op.MeshA = b; op.MeshB = a; op.Operation = Ops.Intersection;
+            var fresh = new ExactMeshBoolean(b, a, Ops.Intersection);
+            bool okFresh = fresh.Compute(), okReused = op.Compute();
+            if (okFresh != okReused) return $"new inputs on a reused instance: Compute() {okReused} ({op.Status}), a fresh instance {okFresh} ({fresh.Status})";
+            return okFresh ? SameBits(fresh.Result, op.Result, "new inputs on a reused instance against a fresh instance") : "";
         }
 
         /// <summary> n-ary entry point against the chain of pairwise unions, on the solid </summary>
@@ -178,7 +190,8 @@ namespace geometry3Sharp.Tests
             DMesh3 chain = Run(Run(a, b, Ops.Union, ref e), c, Ops.Union, ref e);
             if (e != "") return e;
             double size = 4 * Math.Max(BooleanOracle.EdgeLength(a), Math.Max(BooleanOracle.EdgeLength(b), BooleanOracle.EdgeLength(c)));
-            return BooleanOracle.SameRegularizedSolid(nary, chain, size);
+            return First(() => Prefix("n-ary union", BooleanOracle.CleanReason(nary)), () => Prefix("chain", BooleanOracle.CleanReason(chain)),
+                () => BooleanOracle.SameRegularizedSolid(nary, chain, size));
         }
 
         /// <summary> status contract: a success on closed inputs gives a closed, manifold and clean result </summary>
@@ -200,6 +213,8 @@ namespace geometry3Sharp.Tests
             string e = "";
             DMesh3 r = Run(a, b, Ops.Union, ref e), sr = Run(sa, sb, Ops.Union, ref e);
             if (e != "") return e;
+            string unclean = First(() => Prefix("unscaled union", BooleanOracle.CleanReason(r)), () => Prefix("scaled union", BooleanOracle.CleanReason(sr)));
+            if (unclean != "") return unclean;
             double s = Math.Pow(2, x.k);
             DMesh3 back = new DMesh3(sr);
             foreach (int v in back.VertexIndices()) back.SetVertex(v, back.GetVertex(v) / s);
@@ -224,7 +239,7 @@ namespace geometry3Sharp.Tests
 
         [Fact]
         public void ProceduralInclusionExclusion() =>
-            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralInclusionExclusion", Gen.Select(GenProcedural, GenProcedural, (a, b) => (a, b)), InclusionExclusion, samples: 40, campaign: 1111);
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralInclusionExclusion", Gen.Select(GenAligned, GenAligned, (a, b) => (a, b)), InclusionExclusion, samples: 40, campaign: 1111);
 
         [Fact]
         public void SliverInclusionExclusion() =>
@@ -242,13 +257,13 @@ namespace geometry3Sharp.Tests
 
         [Fact]
         public void ProceduralReuseIsIdentical() =>
-            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralReuseIsIdentical", GenProcedural.Select(a => (a, Rot90(a))),
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralReuseIsIdentical", Gen.Select(GenAligned, GenAligned, (a, b) => (a, b)),
                 x => ReuseIsIdentical(x.Item1, x.Item2), samples: 25, campaign: 1104);
 
         [Fact]
         public void NaryMatchesChain() =>
             CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "NaryMatchesChain",
-                GenProcedural.Select(a => (a, BooleanOracle.Subdivided(a, 0), Rot90(a))),
+                Gen.Select(GenAligned, GenAligned, GenAligned, (a, b, c) => (a, b, c)),
                 x => NaryAgainstChain(x.Item1, x.Item2, x.Item3), samples: 20, campaign: 1105);
 
         [Fact]
