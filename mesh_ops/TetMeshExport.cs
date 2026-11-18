@@ -54,7 +54,7 @@ namespace gs
                 var points = new Vector3d[nb];
                 for (int i = 0; i < nb; ++i) {
                     Index3i t = mesh.BoundaryTriangles[i];
-                    points[i] = (mesh.Vertices[t.a] + mesh.Vertices[t.b] + mesh.Vertices[t.c]) / 3.0;
+                    points[i] = mesh.Vertices[t.a] / 3.0 + mesh.Vertices[t.b] / 3.0 + mesh.Vertices[t.c] / 3.0;   // no overflow of the sum
                 }
                 var res = new NearestPointResult[nb];
                 BatchStatus st = MeshBatchQueries.NearestPointBatch(tree, points, res);
@@ -123,12 +123,12 @@ namespace gs
     /// Every tet is written as in the TetMesh3 (exactly positively oriented, which is the positive orientation of all four formats:
     /// the normal of the triangle (v0, v1, v2) by the right-hand rule points to v3), vertex order unchanged. Boundary triangles are
     /// written as in TetMesh3.BoundaryTriangles (outward by the right-hand rule). Vertex coordinates are written in the shortest
-    /// round-trip form ("R", invariant culture), so reading them back gives the same doubles.
+    /// round-trip form (MeshIOUtil.FormatDouble, invariant), so reading them back gives the same doubles.
     ///
     /// References (Medit "ref", Gmsh physical and elementary tag, VTK cell data "ref"): the ref of a tet is its region id + 1, the
     /// ref of a boundary triangle is its marker + 1 (TetMeshMarkers), so refs start at 1 and 0 stays "unmarked" (also for a marker of
     /// -1 or a negative group id). Without markers every ref is 0 and Gmsh 4.1 has one volume entity. Vertices carry ref 0.
-    /// Gmsh 4.1 gets one volume entity per region (tag = ref) and one surface entity per distinct boundary ref (tags in increasing
+    /// Gmsh 4.1 gets one volume entity per region (one empty one if there are vertices but no tets) (tag = ref) and one surface entity per distinct boundary ref (tags in increasing
     /// order of the ref, a ref of 0 last), each with the ref as its physical tag (none for a ref of 0); the entities carry no
     /// bounding topology (their bounding lists are empty), and all nodes are in one block of the first volume entity.
     /// Indices are 1-based in Medit and Gmsh, 0-based in VTK, as the formats say.
@@ -173,7 +173,7 @@ namespace gs
             }
         }
 
-        static string R(double x) => x.ToString("R", Inv);
+        static string R(double x) => MeshIOUtil.FormatDouble(x);
         static string I(int x) => x.ToString(Inv);
         static void Line(TextWriter w, string s) { w.Write(s); w.Write('\n'); }
 
@@ -238,6 +238,7 @@ namespace gs
             var surfRefs = new SortedSet<int>(Comparer<int>.Create((x, y) => x == 0 ? (y == 0 ? 0 : 1) : y == 0 ? -1 : x.CompareTo(y)));
             for (int i = 0; i < nb; ++i) surfRefs.Add(TriRef(m, i));
             var volTag = new Dictionary<int, int>(); var surfTag = new Dictionary<int, int>();
+            if (nt == 0 && nv > 0) volRefs.Add(0);                 // the node block needs an entity to belong to
             int usedMax = volRefs.Count > 0 ? volRefs.Max() : 0;
             foreach (int r in volRefs) volTag[r] = r > 0 ? r : ++usedMax;      // ref 0 gets a free tag above the others
             int k = 0;
@@ -254,7 +255,7 @@ namespace gs
             Line(w, "$Entities");
             Line(w, "0 0 " + I(surfRefs.Count) + " " + I(volRefs.Count));
             foreach (int r in surfRefs) Line(w, I(surfTag[r]) + " " + Box(surfBox[r]) + (r > 0 ? " 1 " + I(r) : " 0") + " 0");
-            foreach (int r in volRefs) Line(w, I(volTag[r]) + " " + Box(volBox[r]) + (r > 0 ? " 1 " + I(r) : " 0") + " 0");
+            foreach (int r in volRefs) Line(w, I(volTag[r]) + " " + Box(volBox.TryGetValue(r, out AxisAlignedBox3d vb) ? vb : VertexBox(t)) + (r > 0 ? " 1 " + I(r) : " 0") + " 0");
             Line(w, "$EndEntities");
 
             Line(w, "$Nodes");
@@ -268,29 +269,42 @@ namespace gs
             Line(w, "$EndNodes");
 
             Line(w, "$Elements");
-            int blocks = volRefs.Count + surfRefs.Count, total = nt + nb;
+            // element rows per entity, in one pass over the elements
+            var volRows = new Dictionary<int, List<string>>(); var surfRows = new Dictionary<int, List<string>>();
+            for (int i = 0; i < nt; ++i) {
+                Index4i q = t.Tets[i];
+                Rows(volRows, TetRef(m, i)).Add(I(i + 1) + " " + I(q.a + 1) + " " + I(q.b + 1) + " " + I(q.c + 1) + " " + I(q.d + 1));
+            }
+            for (int i = 0; i < nb; ++i) {
+                Index3i f = t.BoundaryTriangles[i];
+                Rows(surfRows, TriRef(m, i)).Add(I(nt + i + 1) + " " + I(f.a + 1) + " " + I(f.b + 1) + " " + I(f.c + 1));
+            }
+            int blocks = volRows.Count + surfRows.Count, total = nt + nb;
             Line(w, I(blocks) + " " + I(total) + (total > 0 ? " 1 " + I(total) : " 0 0"));
             foreach (int r in volRefs) {
-                var rows = new List<string>();
-                for (int i = 0; i < nt; ++i) {
-                    if (TetRef(m, i) != r) continue;
-                    Index4i q = t.Tets[i];
-                    rows.Add(I(i + 1) + " " + I(q.a + 1) + " " + I(q.b + 1) + " " + I(q.c + 1) + " " + I(q.d + 1));
-                }
+                if (!volRows.TryGetValue(r, out List<string> rows)) continue;
                 Line(w, "3 " + I(volTag[r]) + " 4 " + I(rows.Count));
-                foreach (string s in rows) Line(w, s);
+                foreach (string row in rows) Line(w, row);
             }
             foreach (int r in surfRefs) {
-                var rows = new List<string>();
-                for (int i = 0; i < nb; ++i) {
-                    if (TriRef(m, i) != r) continue;
-                    Index3i f = t.BoundaryTriangles[i];
-                    rows.Add(I(nt + i + 1) + " " + I(f.a + 1) + " " + I(f.b + 1) + " " + I(f.c + 1));
-                }
+                List<string> rows = surfRows[r];
                 Line(w, "2 " + I(surfTag[r]) + " 2 " + I(rows.Count));
-                foreach (string s in rows) Line(w, s);
+                foreach (string row in rows) Line(w, row);
             }
             Line(w, "$EndElements");
+        }
+
+        static AxisAlignedBox3d VertexBox(TetMesh3 t)
+        {
+            var b = AxisAlignedBox3d.Empty;
+            foreach (Vector3d v in t.Vertices) b.Contain(v);
+            return b;
+        }
+
+        static List<string> Rows(Dictionary<int, List<string>> d, int r)
+        {
+            if (!d.TryGetValue(r, out List<string> l)) d[r] = l = new List<string>();
+            return l;
         }
 
         static void Grow(Dictionary<int, AxisAlignedBox3d> boxes, int r, TetMesh3 t, int a, int b, int c, int d)

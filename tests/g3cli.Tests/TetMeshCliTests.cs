@@ -105,16 +105,14 @@ namespace g3cli.Tests
         [Fact]
         public void Markers_AreGroupIds_IfTheInputHasGroups()
         {
-            // the cube as an OBJ with two groups: the +z side (triangles 3 and 4 of the cube's faces) and the rest
+            // the cube as an OBJ with two groups: the bottom (two triangles) and the rest
             string input = m.Path_("two_groups.obj");
             File.WriteAllText(input, string.Join("\n", File.ReadAllLines(m.Cube).Where(l => l.StartsWith("v ")).Concat(new[] {
                 "g bottom", "f 1 3 2", "f 1 4 3", "g rest", "f 5 6 7", "f 5 7 8", "f 1 2 6", "f 1 6 5", "f 2 3 7", "f 2 7 6", "f 3 4 8", "f 3 8 7", "f 4 1 5", "f 4 5 8" })) + "\n");
             var (exit, r) = Run(new[] { "tetmesh", input, m.Path_("grouped.mesh") }.Concat(Fast).ToArray());
             Assert.Equal(0, exit);
-            if (S(r["markers"]["kind"]) == "group_id")
-                Assert.Equal(2, I(r["markers"]["distinct"]));
-            else                                                                         // a reader that drops OBJ groups: the markers are triangle ids
-                Assert.InRange(I(r["markers"]["distinct"]), 1, 12);
+            Assert.Equal("group_id", S(r["markers"]["kind"]));
+            Assert.Equal(2, I(r["markers"]["distinct"]));
         }
 
         [Fact]

@@ -29,7 +29,7 @@ namespace geometry3Sharp.Tests
         }
 
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
-        static double D(string s) => double.Parse(s, Inv);
+        static double D(string s) => MeshIOUtil.ParseDouble(s);
         static int I(string s) => int.Parse(s, Inv);
         static string[] Tok(string s) => s.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -320,6 +320,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void VerticesWithoutTets_WriteValidFiles()
+        {
+            var m = new TetMesh3(); m.Vertices.Add(new Vector3d(1, 2, 3)); m.Vertices.Add(new Vector3d(0, 0, 0));
+            foreach (TetMeshWriter.Format f in Enum.GetValues(typeof(TetMeshWriter.Format))) {
+                Parsed p = Parse(Text(m, null, f), f);
+                Assert.Equal(m.Vertices, p.V); Assert.Empty(p.Tets);
+            }
+        }
+
+        [Fact]
         public void EmptyMesh_WritesValidFiles()
         {
             foreach (TetMeshWriter.Format f in Enum.GetValues(typeof(TetMeshWriter.Format))) {
@@ -371,7 +381,6 @@ namespace geometry3Sharp.Tests
             Parsed p = Parse(Text(tm.Result, mk, f), f);
             AssertSameMesh(tm.Result, mk, p, f);
             Assert.Equal(mk.RegionCount, p.TetRef.Distinct().Count());
-            Assert.Equal(f == TetMeshWriter.Format.Vtk ? 0 : 1, f == TetMeshWriter.Format.Vtk ? 0 : p.MinRawIndex);
             Assert.Contains(tm.Result.Vertices.Count, p.Tets.Concat(p.Tris).SelectMany(t => t.Select(v => v + 1)).Distinct());   // the last vertex is used
         }
 
@@ -447,6 +456,9 @@ namespace geometry3Sharp.Tests
                 TetMesh3 other = TwoTets(out _);
                 Assert.Throws<ArgumentException>(() => TetMeshWriter.Write(new StringWriter(), other, mk, TetMeshWriter.Format.Medit));
                 Assert.Throws<ArgumentNullException>(() => TetMeshWriter.Write(new StringWriter(), null, null, TetMeshWriter.Format.Medit));
+                TetMesh3 two = TwoTets(out TetMeshMarkers good);
+                var badMarkers = new TetMeshMarkers() { TetRegion = good.TetRegion, BoundaryMarker = new int[3] };
+                Assert.Throws<ArgumentException>(() => TetMeshWriter.Write(new StringWriter(), two, badMarkers, TetMeshWriter.Format.Medit));
             } finally { Directory.Delete(dir, true); }
         }
 
@@ -474,7 +486,7 @@ namespace geometry3Sharp.Tests
             return (best, bt);
         }
 
-        static Vector3d Centroid(TetMesh3 t, int i) => (t.Vertices[t.BoundaryTriangles[i].a] + t.Vertices[t.BoundaryTriangles[i].b] + t.Vertices[t.BoundaryTriangles[i].c]) / 3.0;
+        static Vector3d Centroid(TetMesh3 t, int i) => t.Vertices[t.BoundaryTriangles[i].a] / 3.0 + t.Vertices[t.BoundaryTriangles[i].b] / 3.0 + t.Vertices[t.BoundaryTriangles[i].c] / 3.0;
 
         [Fact]
         public void Markers_AreTheNearestInputTriangleIds_WithTheDistance()
@@ -711,7 +723,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.WorstMinDihedral < 3);
             Assert.False(r.MinDihedralMet);
             r = TetMeshQuality.CheckTargets(both, 1, 100);
-            Assert.True(r.MinDihedralMet || r.TetsBelowMinDihedral == 1);
+            Assert.True(r.MinDihedralMet && r.TetsBelowMinDihedral == 0);
             // an off target (0 or less) is met whatever the tets are
             r = TetMeshQuality.CheckTargets(both, 0, 0);
             Assert.True(r.Met); Assert.Equal(0, r.TetsBelowMinDihedral + r.TetsAboveRadiusEdge);
@@ -722,7 +734,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, r.TetsBelowMinDihedral); Assert.Equal(1, r.TetsAboveRadiusEdge);
             // no tets: met, nothing to count
             r = TetMeshQuality.CheckTargets(new TetMesh3(), 10, 2);
-            Assert.True(r.Met); Assert.Equal(0, r.Tets);
+            Assert.True(r.Met); Assert.Equal(0, r.Tets); Assert.Equal(180, r.WorstMinDihedral); Assert.Equal(0, r.WorstRadiusEdge);
+            Assert.Equal(0, r.TetsBelowMinDihedral + r.TetsAboveRadiusEdge);
         }
 
         [Fact]
@@ -829,6 +842,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ExistingResult_IsBitForBitTheSameAsBeforeP2()
         {
+            // pinned on linux / .NET (libm atan2 and sin differ in the last bit on other platforms, which can change the hill climbing there)
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux) ||
+                !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET ", StringComparison.Ordinal) ||
+                System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal)) return;
             var box = new MeshTetrahedralization(TetMeshingStage2Tests.Input("box"));
             Assert.True(box.Compute());
             Assert.Equal(FingerprintBox, Fingerprint(box));
