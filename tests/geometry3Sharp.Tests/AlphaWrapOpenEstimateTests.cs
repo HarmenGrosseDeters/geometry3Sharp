@@ -149,6 +149,25 @@ namespace geometry3Sharp.Tests
             return l;
         }
 
+        // the guards of the estimate: no triangle, and an alpha that is not positive (zero, negative, NaN), are no open area and no opening
+        // (the changed-line coverage gate of #1123 found them unhit)
+        [Fact]
+        public void Guards_NoTrianglesOrNoAlpha_AreNoOpenArea()
+        {
+            List<Vector3d> sheet = Corners(Build("open sheet"));
+            Assert.True(AlphaWrapEstimate.OpenArea(sheet, 0.05) > 0);   // (the same input with a valid alpha is open: the guards, not the input, return 0)
+            Assert.True(AlphaWrapEstimate.LargestOpening(sheet, 0.05) > 0);
+            foreach (double alpha in new[] { 0.0, -0.05, double.NaN }) {
+                Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(sheet, alpha));
+                Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(sheet, alpha));
+            }
+            foreach (int n in new[] { 0, 1, 2 }) {
+                List<Vector3d> few = sheet.GetRange(0, n);
+                Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(few, 0.05));
+                Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(few, 0.05));
+            }
+        }
+
         // the weld is by grid cells of alpha / 8: an unwelded soup of a closed sphere is closed (no open area), like the welded mesh; a crack
         // wider than the opening makes it open (every triangle counts); -0 equals +0
         [Fact]
@@ -210,7 +229,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("7CC5E7C3C3ACC639", AlphaWrapManifoldStepTests.Hash(closed.Result));
         }
 
-        // without a budget the estimate is the one-sided one (the open area is not computed: about 1 s per million input triangles) on open input
+        // without a budget the estimate is the one-sided one (the open area is not computed) on open input
         // too, with a budget that does not bind it counts the open components twice, and the wrap is bit for bit the same in both
         [Theory]
         [InlineData("two open spheres")]
