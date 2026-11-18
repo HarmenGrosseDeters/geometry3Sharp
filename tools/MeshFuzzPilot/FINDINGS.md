@@ -354,6 +354,29 @@ The `trim-loop` removed-side bound ("no vertex beyond 3 mean edges") is loose fo
   triangles whose centroid is within 1e-4 of the polygon's edge; they are likely the absolute tolerance of the insertion (`SpatialEpsilon`), not a new class.
 - **`trim-loop`** (30 minutes, about 45 000 executions with coverage guidance): no finding.
 
+## Exact Boolean 3.0 (#1038, 2026-11-17): five targets, two 8-hour campaigns
+
+Targets `nary`, `determinism`, `reuse`, `open-antipodal`, `rounding-equivalence` (README, "Exact Boolean 3.0 targets"). Two libFuzzer campaigns, 8 hours each, 2 fork
+jobs: `nary,determinism` (4 crashes, 44 slow units) and `reuse,open-antipodal,rounding-equivalence` (2 timeouts, 31 slow units). **No library defect.**
+All 81 artifacts of the final campaigns replay clean with the corrected build and take under 10 s.
+
+Every finding of the campaigns was a fault of the harness, each fixed with a regression test in `test_pilot.py` and checked by a mutation of the judgement:
+
+- **Open operands judged by volume.** The volume is a contract of closed operands only (an open operand is a generalized winding number): `nary` and
+  `rounding-equivalence` skip open operands.
+- **SafeRounding drift.** The repair may move the surface by up to `RoundingMaxDisplacement` (1e-5 of the diagonal) and removes closed components thinner
+  than that, so a chain (repairing each intermediate result) and the n-ary union (one repair) differ within that bound: `nary` runs without SafeRounding,
+  `rounding-equivalence` allows 1e-4 of the cube of the diagonal and judges only a clean repair (`RoundingClean`).
+- **Overflow of the shifted copy.** With a coordinate near `double.MaxValue` the diagonal overflows and the shifted third operand is not finite, which the
+  boolean rightly refuses: `nary` skips it.
+- **Cost of the open-input classification (class, not a defect).** Operands with 600 orders of magnitude between the coordinates make every filter fail; the
+  classification of open inputs then runs on exact numbers, 6 to 7 s per operation on 24 and 10 triangles (50 200 exact plane tests). Below the 20 s
+  threshold of CLAUDE.md, so no issue; `open-antipodal` skips the remaining operations of an input after 5 s (`B30OverBudget`).
+
+Also checked by hand: 16 failed examples of the owner (`OpenInput` with `AllowOpenMeshes = false`) are inputs with a hole (4 and 196 unmatched edges); with the
+default `AllowOpenMeshes = true` all succeed with a valid mesh. Differential runs against Manifold (local only, nothing committed) and thread-count
+determinism on 100 Thingi10K pairs are in the issue comments of #1038. Mutation: the families join the filter of shard `boolean-1` (a local run on the pre-merge code scored 57.71 % against the break threshold 51 with 151 survivors; that result file is not committed, it would not match the merged config: the shard runs nightly on master, and its survivors are tasks of the next PR of that area).
+
 ## Judgement notes
 
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with

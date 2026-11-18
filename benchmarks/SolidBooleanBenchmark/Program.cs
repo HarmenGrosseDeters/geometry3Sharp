@@ -143,6 +143,7 @@ static class Program
         if (args.Length > 0 && args[0] == "open") { OpenInput(); return; }
         if (args.Length > 0 && args[0] == "limit") { Limit(); return; }
         if (args.Length > 0 && args[0] == "pair") { Pair(); return; }
+        if (args.Length > 0 && args[0] == "auto") { Auto(); return; }
         double[] fractions = args.Length > 0 ? args[0].Split(',').Select(double.Parse).ToArray() : new[] { 0.25, 0.1 };
         Console.WriteLine("| case | in tris | boolean tris | boolean ms | contacts | " + string.Join(" | ", fractions.Select(f => $"{f:P0}: tris, reduce ms, contacts, result, stop")) + " | RobustRepair of the soup: ms, tris, result |");
         Console.WriteLine("|---|---|---|---|---|" + string.Concat(fractions.Select(f => "---|")) + "---|");
@@ -238,6 +239,38 @@ static class Program
                 if (a.ContactsBoolean == 0) continue;
                 Console.WriteLine($"| {c.Name} | {a.BooleanTriangles} | {a.ContactsBoolean} | {a.TargetTriangles} | {a.ResultTriangles} | {a.ContactsResult} | {Short(a.NotCleanReason)} | {a.StopReason} | {a.ReductionMilliseconds} | {b.ResultTriangles} | {b.ContactsResult} | {Short(b.NotCleanReason)} | {b.StopReason} | {b.PairedCollapses} | {b.ReductionMilliseconds} | {on.Result.IsClosed()} |");
             }
+    }
+
+    // PairContactsMode Auto against Off on all cases and two targets: the share of results that take the second reduction, the triangle counts
+    // before / after, the time of the second reduction against the whole pipeline, and whether every result without a second reduction is the old one
+    static void Auto()
+    {
+        Console.WriteLine("| case | target | contacts (boolean) | tris off | result off | ms off (total) | tris Auto | result Auto | second pass: ran, kept, ms | ms Auto (total) | second pass / total Auto | results with no second pass equal Off |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
+        int rows = 0, ran = 0, kept = 0, sameWhenNotRan = 0, notRan = 0;
+        foreach (var c in Cases())
+            foreach (double f in new[] { 0.25, 0.1 }) {
+                var off = new SolidBooleanPipeline(c.Inputs, c.Op) { TargetFraction = f };
+                off.Compute();
+                var auto = new SolidBooleanPipeline(c.Inputs, c.Op) { TargetFraction = f, PairContactsMode = SolidBooleanPipeline.PairContactsModes.Auto };
+                auto.Compute();
+                var a = off.Report; var b = auto.Report;
+                bool same = SameMesh(off.Result, auto.Result);
+                rows++;
+                if (b.PairPassRan) ran++; else { notRan++; if (same) sameWhenNotRan++; }
+                if (b.PairPassKept) kept++;
+                Console.WriteLine($"| {c.Name} | {f} | {a.ContactsBoolean} | {a.ResultTriangles} | {Short(a.NotCleanReason)}, {a.ContactsResult} contacts | {a.TotalMilliseconds} | {b.ResultTriangles} | {Short(b.NotCleanReason)}, {b.ContactsResult} contacts | {b.PairPassRan}, {b.PairPassKept}, {b.PairPassMilliseconds} | {b.TotalMilliseconds} | {(b.PairPassRan ? (100.0 * b.PairPassMilliseconds / Math.Max(1, b.TotalMilliseconds)).ToString("F0", CultureInfo.InvariantCulture) + " %" : "-")} | {(b.PairPassRan ? "-" : same.ToString())} |");
+            }
+        Console.WriteLine($"rows {rows}, second pass ran {ran}, kept {kept}, results without a second pass equal to Off: {sameWhenNotRan} of {notRan}");
+    }
+
+    static bool SameMesh(DMesh3 x, DMesh3 y)
+    {
+        if (x == null || y == null) return x == y;
+        if (x.MaxVertexID != y.MaxVertexID || x.MaxTriangleID != y.MaxTriangleID) return false;
+        foreach (int v in x.VertexIndices()) { if (!y.IsVertex(v) || x.GetVertex(v) != y.GetVertex(v)) return false; }
+        foreach (int t in x.TriangleIndices()) { if (!y.IsTriangle(t) || x.GetTriangle(t) != y.GetTriangle(t)) return false; }
+        return x.VertexCount == y.VertexCount && x.TriangleCount == y.TriangleCount;
     }
 
     // inputs that are not closed: a sphere with 3 triangles removed, a box soup with a crack

@@ -33,7 +33,8 @@ public static partial class Program
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
         "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
-        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop" };
+        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop",
+        "nary", "determinism", "reuse", "open-antipodal", "rounding-equivalence" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -474,8 +475,20 @@ public static partial class Program
             RunMeshCut(c, what);
         } else if (c.Op == 20) {
             RunInsertPolygon(c, what);
-        } else {
+        } else if (c.Op == 21) {
             RunTrimLoop(c, what);
+        } else if (c.Op == 22) {
+            RunNary(c, what);
+        } else if (c.Op == 23) {
+            RunDeterminism(c, what);
+        } else if (c.Op == 24) {
+            RunReuse(c, what);
+        } else if (c.Op == 25) {
+            RunOpenAntipodal(c, what);
+        } else if (c.Op == 26) {
+            RunRoundingEquivalence(c, what);
+        } else {
+            throw new InvalidOperationException($"unknown operation {c.Op}");
         }
     }
 
@@ -645,6 +658,29 @@ public static partial class Program
         ExpectFinding("a winding number that is not the brute force one", () => CheckWinding("t", 1, 0, 0));
         ExpectFinding("a winding number that depends on the scale", () => CheckWinding("t", 1, 1, 0));
         ExpectFinding("a batch result that differs", () => CheckBatchEqual("t", "x", 1, 2));
+        // the Exact Boolean 3.0 targets (#1038): each judgement fires on a contradiction and stays silent on agreement
+        DMesh3 cubeShifted = new DMesh3(cube);
+        foreach (int v in cubeShifted.VertexIndices()) cubeShifted.SetVertex(v, cubeShifted.GetVertex(v) + new Vector3d(1e-9, 0, 0));
+        B30CheckIdentical("t", "same", cube, new DMesh3(cube));
+        ExpectFinding("two unions that differ by one vertex", () => B30CheckIdentical("t", "differ", cube, cubeShifted), "differ");
+        ExpectFinding("two unions of different size", () => B30CheckIdentical("t", "differ", cube, new DMesh3()), "differ");
+        B30CheckVolumes("t", "same", 1, 1 + 1e-12, 1e-9);
+        ExpectFinding("an n-ary volume that is half the chain's", () => B30CheckVolumes("t", "n-ary", 1, 2, 1e-9), "n-ary");
+        ExpectFinding("a NaN volume", () => B30CheckVolumes("t", "n-ary", double.NaN, 1, 1e-9), "n-ary");
+        if (Math.Abs(B30Volume(cube) - 1) > 1e-12) throw new InvalidOperationException("the unit cube must have the volume 1: " + B30Volume(cube));
+        // a cube of edge 16 at an offset of 2^40 (the volume from the origin cancelled to 6.0815e18 against 6.0818e18 in the review of #1120): summed from its center it is 4096
+        DMesh3 far = new DMesh3(cube);
+        foreach (int v in far.VertexIndices()) far.SetVertex(v, far.GetVertex(v) * 16 + new Vector3d(Math.Pow(2, 40), Math.Pow(2, 40), Math.Pow(2, 40)));
+        double farVolume = B30Volume(far, out double farAbsolute);
+        if (Math.Abs(farVolume - 4096) > B30VolumeTolerance(0, 16, farAbsolute, farAbsolute)) throw new InvalidOperationException("a cube of edge 16 far from the origin must have the volume 4096: " + farVolume);
+        if (B30OverBudget(TimeSpan.FromSeconds(4)) || !B30OverBudget(TimeSpan.FromSeconds(6)))
+            throw new InvalidOperationException("the time budget of an input is 5 s");
+        var T = ExactMeshBoolean.Operations.Union;
+        B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.Success, true, true);
+        B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.RoundingNotClean, false, false);
+        ExpectFinding("InvalidInput on finite open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.InvalidInput, false, true), "InvalidInput");
+        ExpectFinding("NotComputed on finite open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.NotComputed, false, true), "NotComputed");
+        ExpectFinding("a success with an invalid mesh on open inputs", () => B30CheckOpenStatus("t", T, ExactMeshBoolean.BooleanStatus.Success, true, false), "invalid");
         var okWrap = MeshAlphaWrap.WrapStatus.Success;
         ExpectFinding("an alpha wrap whose Compute() and Status disagree", () => CheckAlphaWrap("t", true, MeshAlphaWrap.WrapStatus.Failed, "", cube, true, true));
         ExpectFinding("EmptyInput for a mesh", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.EmptyInput, "", null, true, true));

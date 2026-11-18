@@ -51,9 +51,8 @@ namespace geometry3Sharp.Tests
                 var pts = new[] { new Vector2d(v[0], v[1]), new Vector2d(v[2], v[3]), new Vector2d(v[4], v[5]), new Vector2d(v[6], v[7]) };
                 if (pts.Distinct().Count() == 4) cases2.Add(pts);
             }
-            // perCall: the bytes the thread allocated in each call of the measured run (filled only there; preallocated, so
-            // that recording allocates nothing). It does not change what is asserted; it makes a failure explain itself
-            // (issue #1074: 2000 bytes once in a full-tier run, not reproduced locally).
+            // perCall: the bytes the thread allocated in each call of a measured run (preallocated, so that recording
+            // allocates nothing). It does not change what is asserted; it makes a failure explain itself.
             long[] perCall = new long[cases3.Count + 2 * cases2.Count];
             Func<int> run = () => {
                 int s = 0, k = 0;
@@ -70,39 +69,47 @@ namespace geometry3Sharp.Tests
                 }
                 return s;
             };
+            // Warm-up, then the least of a few measured runs (issue #1074: one run allocated 2000 bytes once in a full-tier
+            // run, and the next run of the same test allocated nothing). The runtime allocates on the calling thread
+            // itself while it optimizes code (tiered compilation, on-stack replacement), and such an allocation does not
+            // come again once the code is optimized. A predicate that allocates does so in every call, hence in every
+            // run: the least over the runs is 0 only if none of them does. The assertion is unchanged (0 bytes).
             int first = run();      // (compiles the path)
-            Array.Clear(perCall, 0, perCall.Length);
-            int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
+            first = run();
+            long least = long.MaxValue;
+            long[] bytesPerRun = new long[MeasuredRuns];
+            int attempts = 0, gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
 #if NET6_0_OR_GREATER
-            long jitThread = System.Runtime.JitInfo.GetCompiledMethodCount(true), jitAll = System.Runtime.JitInfo.GetCompiledMethodCount(false);
+            long jitAll = System.Runtime.JitInfo.GetCompiledMethodCount(false);
 #endif
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            int second = run();
-            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            int dgc0 = GC.CollectionCount(0) - gc0, dgc1 = GC.CollectionCount(1) - gc1, dgc2 = GC.CollectionCount(2) - gc2;
-#if NET6_0_OR_GREATER
-            long dJitThread = System.Runtime.JitInfo.GetCompiledMethodCount(true) - jitThread, dJitAll = System.Runtime.JitInfo.GetCompiledMethodCount(false) - jitAll;
-#endif
-            Assert.Equal(first, second);
-            if (allocated != 0) {
+            while (attempts < MeasuredRuns && least != 0) {
+                Array.Clear(perCall, 0, perCall.Length);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                int again = run();
+                long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                Assert.Equal(first, again);
+                bytesPerRun[attempts++] = allocated;
+                least = Math.Min(least, allocated);
+            }
+            if (least != 0) {
                 var sb = new System.Text.StringBuilder();
-                sb.Append($"allocated {allocated} bytes in the measured run (thread {Environment.CurrentManagedThreadId}); GC counts gen0/1/2 +{dgc0}/+{dgc1}/+{dgc2}");
+                sb.Append($"every one of {attempts} measured runs allocated (thread {Environment.CurrentManagedThreadId}): ")
+                  .Append(string.Join(", ", bytesPerRun.Take(attempts))).Append(" bytes; GC counts gen0/gen2 +")
+                  .Append(GC.CollectionCount(0) - gc0).Append("/+").Append(GC.CollectionCount(2) - gc2);
 #if NET6_0_OR_GREATER
-                sb.Append($"; methods JIT-compiled in the window: this thread {dJitThread}, all threads {dJitAll}");
+                sb.Append("; methods JIT-compiled meanwhile (all threads): ").Append(System.Runtime.JitInfo.GetCompiledMethodCount(false) - jitAll);
 #endif
                 sb.Append("; coverage instrumentation (coverlet Tracker type): library ").Append(HasCoverletTracker(typeof(ExactPredicates).Assembly))
-                  .Append(", tests ").Append(HasCoverletTracker(typeof(ExactPredicatesBeyondRangeTests).Assembly)).Append("; calls that allocated (index: bytes; 0-199 Orient3d, then Orient2d/InCircle pairs): ");
+                  .Append(", tests ").Append(HasCoverletTracker(typeof(ExactPredicatesBeyondRangeTests).Assembly))
+                  .Append("; calls that allocated in the last run (index: bytes; 0-199 Orient3d, then Orient2d/InCircle pairs): ");
                 for (int i = 0; i < perCall.Length; ++i)
                     if (perCall[i] != 0) sb.Append(i).Append(": ").Append(perCall[i]).Append(", ");
-                // (the same window again, call by call: if the bytes are gone, the allocation was once-only state)
-                Array.Clear(perCall, 0, perCall.Length);
-                run();
-                long again = 0; foreach (long b in perCall) again += b;
-                sb.Append("; a third run allocates ").Append(again).Append(" bytes");
                 Assert.Fail(sb.ToString());
             }
-            Assert.Equal(0, allocated);
+            Assert.Equal(0, least);
         }
+
+        const int MeasuredRuns = 5;
 
         static bool HasCoverletTracker(System.Reflection.Assembly a)
         {

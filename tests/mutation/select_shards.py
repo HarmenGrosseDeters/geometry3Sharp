@@ -282,6 +282,13 @@ def test_class(term):
     return term.split("~")[1].split(".")[0]
 
 
+def test_files(cls):
+    """the files of a test class: `C.cs` and/or `C.CsCheck.cs` (the property tests, which the csproj compiles on net10.0 only); `C.cs`
+    when neither exists (the existence test of the configs then reports it)"""
+    found = [TESTS + cls + suffix for suffix in (".cs", ".CsCheck.cs") if os.path.isfile(os.path.join(HERE, "..", "..", TESTS + cls + suffix))]
+    return found or [TESTS + cls + ".cs"]
+
+
 def load_configs(directory=HERE):
     """name of the config -> (config path, mutated paths, test paths)"""
     configs = {}
@@ -296,7 +303,7 @@ def load_configs(directory=HERE):
         # "(FullyQualifiedName=geometry3Sharp.Tests.C.M&DisplayName~row)" (coverage_select.py) -> class C
         terms = [t.strip("()") for alt in config["test-case-filter"].split("|") for t in alt.split("&")]
         classes = {test_class(t) for t in terms if t.startswith("FullyQualifiedName") and "!~" not in t}
-        configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
+        configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {path for c in classes for path in test_files(c)})
     return configs
 
 
