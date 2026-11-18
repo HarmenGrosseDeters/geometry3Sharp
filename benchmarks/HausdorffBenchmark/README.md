@@ -125,3 +125,23 @@ patch bound as the oracle (internals by reflection), on reduced meshes against t
 inputs. `predcost`: nanoseconds of the sign of a 3x3 determinant by a filtered double evaluation, by intervals and by
 `AdaptivePredicates.Orient2d`. Tables, reading and the recommendation:
 [docs/design/CERTIFIED_PATCH_BOUND.md](../../docs/design/CERTIFIED_PATCH_BOUND.md) section 7.
+
+## Certified patch bound, the library's own rows (#848)
+
+    dotnet run --project benchmarks/HausdorffBenchmark -c Release -- certpatch [<runs>]
+
+`MeshHausdorffDistance` with `CertifiedUpper`, one-sided A -> B, tolerance 1e-4 of the diagonal, the library's parallel run, without
+and with the (internal) `PatchBound` option, which uses `TriangleDeviationBounds.certified_patch_bound` under `CertifiedUpper`.
+Same cases as `patch`. Container, 4 cores, median of 5 runs (the table is section 10 of
+[docs/design/CERTIFIED_PATCH_BOUND.md](../../docs/design/CERTIFIED_PATCH_BOUND.md)).
+
+| case (tris A / B) | upper without -> with patch | subdivisions without -> with | ms without -> with | time |
+|---|---|---|---|---|
+| reduced 1/8 of 5k bumpy (1260 / 10092) | 0.0361267 -> 0.0361267 | 4100 -> 302 | 119 -> 109 | -8% |
+| reduced 1/32 of 5k bumpy (314 / 10092) | 0.0583846 -> 0.0583846 | 1748 -> 312 | 38 -> 32 | -15% |
+| reduced 1/8 of 21k bumpy (5220 / 41772) | 0.0303951 -> 0.0303951 | 5956 -> 2369 | 162 -> 153 | -6% |
+| reduced 1/32 of 21k bumpy (1304 / 41772) | 0.0315312 -> 0.0315312 | 6560 -> 1090 | 152 -> 110 | -28% |
+| reduced 1/16 of 21k sphere (2610 / 41772) | 0.00273712 -> 0.00239283 | 135483 -> 18 | 1583 -> 84 | -95% |
+| spheres6 vs 20 (300 / 4332) | 0.0247055 -> 0.024436 | 4512 -> 376 | 69 -> 22 | -68% |
+| bumpy5 -> bumpy6 (1452 / 588) | 0.0540244 -> 0.0540244 | 164 -> 17 | 5 -> 6 | +5% |
+| coplanar grids 16 -> 17 (jitter .3) (512 / 578) | 0.000141212 -> 1.16264E-15 | 3550 -> 105 | 65 -> 9 | -87% |

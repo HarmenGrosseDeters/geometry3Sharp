@@ -116,6 +116,13 @@ namespace gs
         /// </summary>
         public MeshAlphaWrap Wrap;
         public TetMesh3 Result;
+        /// <summary>
+        /// the quality targets checked on Result (TET_MESHING.md section 17.3, P5(a)): the minimum dihedral angle target is
+        /// SliverDihedralDegrees (0 = off), the radius-edge target MaxRadiusEdgeRatio. Counts and flags are measured on the output
+        /// (TetMeshQuality.CheckTargets), not assumed from the method: stage 1 leaves tets whose circumcentre lies beyond the fixed
+        /// surface (unrefined_bad_tets) and stage 2 is hill climbing, so the flags can be false. null if Compute() gave no Result.
+        /// </summary>
+        public TetTargetReport Targets;
         /// <summary> tet_splits (inserted points), refused_floor, refused_surface (undone: the cavity reached the surface), unrefined_bad_tets </summary>
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         public double UsedAlpha, UsedOffset, UsedFloor;
@@ -128,6 +135,7 @@ namespace gs
         public bool Compute()
         {
             Result = null;
+            Targets = null;
             DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
@@ -172,6 +180,7 @@ namespace gs
                 foreach (var kv in imp.Counts) Counts["improve_" + kv.Key] = kv.Value;
                 if (CancelF()) { Status = TetStatus.Cancelled; Result = null; return false; }
             }
+            Targets = TetMeshQuality.CheckTargets(Result, SliverDihedralDegrees, MaxRadiusEdgeRatio);
             return st == TetStatus.Success;
         }
 

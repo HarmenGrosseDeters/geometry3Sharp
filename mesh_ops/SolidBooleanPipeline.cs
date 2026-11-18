@@ -83,8 +83,10 @@ namespace gs
     {
         /// <summary> triangles per input as given (before any repair) </summary>
         public int[] InputTriangles = new int[0];
-        /// <summary> per input: ExactMeshBoolean.IsWindingClosed of the input as given </summary>
+        /// <summary> per input: ExactMeshBoolean.IsWindingClosed of the input as given (with InputGrid: of its snapped copy) </summary>
         public bool[] InputClosed = new bool[0];
+        /// <summary> with InputGrid: the input vertices that the snap moved (of all inputs); 0 otherwise </summary>
+        public int InputSnappedVertices;
         /// <summary> the inputs that were repaired, with the method (empty if none) </summary>
         public List<SolidBooleanInputRepair> RepairedInputs = new List<SolidBooleanInputRepair>();
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
@@ -262,6 +264,22 @@ namespace gs
         /// <summary> what to do with an input that is not closed (default AutoRepair) </summary>
         public InputRepairModes InputRepair = InputRepairModes.AutoRepair;
         /// <summary>
+        /// Default 0 (off: the inputs are used as given, and the result is the one without this option, bit for bit). Otherwise a
+        /// power of two (eg 2^-20, about 1e-6 in metres): every coordinate of every input is moved to the nearest multiple of it,
+        /// on copies, before the input check (ties to even). With a power of two the snap is exact, so the snapped
+        /// inputs are the grid points themselves at any distance from the origin, and scaling the inputs and the grid by
+        /// 2^k scales the result, bit for bit. What it is for: faceted CAD solids whose shared faces are nearly but not exactly
+        /// coincident (the vertices of the two sides differ by noise far below the model's tolerance, eg 1e-8 at coordinates
+        /// of 1e6). The exact boolean resolves such noise faithfully into slivers below the double grid of the coordinates,
+        /// and far from the origin their rounding can be beyond repair within the strict bound (Status BooleanFailed,
+        /// BooleanStatus RoundingNotClean); on the grid, vertices of the two sides that lie within it of each other become one
+        /// point, and faces through the same grid points coincide exactly, which the exact boolean handles without slivers.
+        /// Vertices move by at most half the grid per coordinate (Report.InputSnappedVertices counts those that moved; a
+        /// multiple that would overflow is replaced by its neighbour towards zero); features thinner than the grid can
+        /// collapse. The input check and the repair see the snapped copies; a repaired input is not snapped again (a hole fill
+        /// can add vertices off the grid). Not a power of two, negative or not finite: InvalidInput
+        /// </summary>
+        public double InputGrid = 0;
         /// Default 0 (off). Otherwise a length: every solid of the boolean result (an outer shell with the cavities inside it)
         /// whose thickness 2 Volume / Area is below it is removed before the reduction and listed in Report.RemovedThinSolids.
         /// For a flat slab or wall the measure is its thickness; compact solids measure less than their size (a cube of edge
@@ -390,6 +408,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "PairContacts is not supported with MaxDeviationTwoSided", total);
             if (PairContactsMode < PairContactsModes.Off || PairContactsMode > PairContactsModes.Auto)
                 return fail(PipelineStatus.InvalidInput, "PairContactsMode is not a defined value", total);
+            if (!(InputGrid == 0 || IsPowerOfTwo(InputGrid)))
+                return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
             if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
@@ -400,15 +420,24 @@ namespace gs
                 if (Inputs[i] == null)
                     return fail(PipelineStatus.InvalidInput, "input " + i + " is null", total);
 
-            // 1. the cheap check per input
+            // 1. the snap to InputGrid (on copies), then the cheap check per input
             var clock = Stopwatch.StartNew();
             int n = Inputs.Count;
+            List<DMesh3> given = Inputs;
+            if (InputGrid > 0) {
+                given = new List<DMesh3>(n);
+                for (int i = 0; i < n; ++i) {
+                    int moved;
+                    given.Add(Snapped(Inputs[i], InputGrid, out moved));
+                    Report.InputSnappedVertices += moved;
+                }
+            }
             Report.InputTriangles = new int[n];
             Report.InputClosed = new bool[n];
             bool anyOpen = false;
             for (int i = 0; i < n; ++i) {
                 Report.InputTriangles[i] = Inputs[i].TriangleCount;
-                Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(Inputs[i]);
+                Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(given[i]);
                 anyOpen |= !Report.InputClosed[i];
             }
             // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
@@ -419,7 +448,7 @@ namespace gs
                 var thin = new bool[n];
                 for (int i = 0; i < n; ++i) {
                     double v, a;
-                    MeasureInput(Inputs[i], out v, out a);
+                    MeasureInput(given[i], out v, out a);
                     double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
                     if (t < MinThickness) {
                         thin[i] = true;
@@ -442,11 +471,11 @@ namespace gs
 
             // 2. the boolean; an input that fails the check is tried as it is first (the boolean reorients flipped triangles, which the
             // check counts as open), and repaired only if the boolean refuses it
-            List<DMesh3> used = Inputs;
+            List<DMesh3> used = given;
             if (active.Count < n) {
                 used = new List<DMesh3>(active.Count);
                 foreach (int i in active)
-                    used.Add(Inputs[i]);
+                    used.Add(given[i]);
                 anyOpen = false;
                 foreach (int i in active)
                     anyOpen |= !Report.InputClosed[i];
@@ -468,7 +497,7 @@ namespace gs
                     if (Report.InputClosed[i])
                         continue;
                     DMesh3 repaired;
-                    SolidBooleanInputRepair r = repair(i, out repaired);
+                    SolidBooleanInputRepair r = repair(i, given[i], out repaired);
                     if (r == null)
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
                     Report.RepairedInputs.Add(r);
@@ -559,6 +588,52 @@ namespace gs
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
+        }
+
+        // a normal positive power of two: its stored significand bits are all zero (a subnormal power of two has one of them
+        // set, and the only positive value with a zero exponent field and no significand bit is 0, excluded)
+        static bool IsPowerOfTwo(double g)
+        {
+            if (!(g > 0) || double.IsInfinity(g))
+                return false;
+            return (BitConverter.DoubleToInt64Bits(g) & 0xFFFFFFFFFFFFFL) == 0;
+        }
+
+        // a copy of m with every coordinate at the nearest multiple of the power of two g (ties to even; exact: x / g and
+        // the product are exact, and the coordinate is unchanged where it is already a multiple, eg where |x| / g >= 2^52);
+        // a non-finite coordinate is left as it is (the boolean refuses it). moved: the vertices whose position changed (a
+        // negative zero written as zero is not a move)
+        internal static DMesh3 Snapped(DMesh3 m, double g, out int moved)
+        {
+            var c = new DMesh3(m);
+            moved = 0;
+            foreach (int v in c.VertexIndices()) {
+                Vector3d p = c.GetVertex(v);
+                var q = new Vector3d(snap(p.x, g), snap(p.y, g), snap(p.z, g));
+                if (bits(q.x) != bits(p.x) || bits(q.y) != bits(p.y) || bits(q.z) != bits(p.z))
+                    c.SetVertex(v, q);
+                if (!same(q.x, p.x) || !same(q.y, p.y) || !same(q.z, p.z))
+                    moved++;
+            }
+            return c;
+        }
+
+        static long bits(double x) { return BitConverter.DoubleToInt64Bits(x); }
+
+        // the same position along one axis: equal values (0 and -0 too), or both NaN
+        static bool same(double a, double b) { return a == b || (double.IsNaN(a) && double.IsNaN(b)); }
+
+        static double snap(double x, double g)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x))
+                return x;
+            double s = x / g;
+            if (double.IsInfinity(s))       // (a grid so fine that the quotient overflows: x is a multiple of it)
+                return x;
+            double r = Math.Round(s) * g;
+            if (double.IsInfinity(r))       // (a grid so coarse that the nearest multiple overflows: the other neighbour, towards zero)
+                r = Math.Truncate(s) * g;
+            return r == 0 ? 0 : r;          // (no negative zero: -0.4 g, -0 and 0.4 g snap to the same point)
         }
 
         // Status Success with an empty result (ThinInputs TreatAsEmpty)
@@ -707,10 +782,9 @@ namespace gs
         }
 
         // the cheapest allowed repair that makes input i closed (on a copy), or null
-        SolidBooleanInputRepair repair(int i, out DMesh3 repaired)
+        SolidBooleanInputRepair repair(int i, DMesh3 input, out DMesh3 repaired)
         {
             repaired = null;
-            DMesh3 input = Inputs[i];
             var clock = Stopwatch.StartNew();
             var auto = new MeshAutoRepair(new DMesh3(input));
             auto.Apply();

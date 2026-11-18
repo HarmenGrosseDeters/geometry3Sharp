@@ -1,7 +1,9 @@
 # A certified patch bound for `CertifiedUpper` (#848, design note)
 
-Status: design and upper-bound measurement only, no library code (2026-11-16). **Parked (owner 2026-11-16) until a use case:**
-no library caller sets `CertifiedUpper` today; the spike of section 7 is the starting point when one comes. Follows #742 / #847
+Status: **implemented (2026-11-18, #848)**: `TriangleDeviationBounds.certified_patch_bound` and `CertifiedDet3`; section 10 is the
+implementation record (amendments to sections 3 to 6, every constant, the measurement of the library's own rows, the tests, the
+hand mutants, the points for the bound review). History: design and upper-bound measurement 2026-11-16; **parked (owner
+2026-11-16) until a use case, unparked by the owner 2026-11-18.** Follows #742 / #847
 ([HAUSDORFF_CERTIFIED_UPPER.md](HAUSDORFF_CERTIFIED_UPPER.md), "B1" to "B6" below mean its sections) and the
 bound-review finding M3.
 
@@ -370,3 +372,172 @@ needs a determinism argument (parallel equals serial) before it is allowed, so i
 (no library caller sets it today)? (2) If the filter's constant is judged too delicate to review, accept the exact
 axis-aligned variant and its smaller gain (section 2)? (3) Should a refusal gate (section 8) be allowed under
 determinism, or stay out?
+
+## 10. Implementation record (#848, 2026-11-18)
+
+Files: `queries/CertifiedDet3.cs` (the determinant with its bound; in the exact-code list of `.editorconfig`, so FMA, `float` and
+parallel loops are build errors there), `queries/TriangleDeviationBounds.cs` (`certified_patch_bound`, used in `certified_upper`
+after the cascade when `PatchBound` is set and `u > threshold`), `mesh_ops/MeshHausdorffDistance.cs` (no longer switches the patch
+bound off under `CertifiedUpper`). Tests: `CertifiedPatchBoundTests`, `HausdorffCertifiedUpperTests.CertifiedUpper_UsesTheCertifiedPatchBound`.
+
+### 10.1 Amendments to section 3 (the determinant)
+
+**E as coded.** `t = Up(10 u * perm_c)`, `mp1 = Up(M + 1)`, and
+
+- where `perm_c >= 2^-980 * mp1` (every ordinary input): `E = Up(t * (1 + 2^-39))`;
+- otherwise: `E = Up(t + Up(mp1 * 2^-1070))`, the formula of section 3.
+
+Both are at least `10 u perm_c + A`, `A = 2^-1070 (M + 1)`. For the first: `A <= 2^-1070 mp1 <= 2^-90 perm_c`, and
+`10 u perm_c = 2^-49.68 perm_c`, so `A <= 2^-40.3 (10 u perm_c) <= 2^-39 (10 u perm_c)`; `Up(t)` is at least `10 u perm_c`
+(`t` is rounded to nearest, then one step up), times `1 + 2^-39` (a double) is at least `10 u perm_c + A`, and the last `Up` covers the
+rounding of the product. Why a second formula: `Up(M + 1) * 2^-1070` is subnormal, and a subnormal operand costs about 100 ns on x86
+(240 ns per determinant measured, against 52 ns with the first formula). A constant offset is not needed in the common case.
+Thresholds `2^-980` (normal) and `1 + 2^-39` are exact doubles.
+
+**Step 8: the sign decision.** Unchanged: `+1` if `det_c > E`, `-1` if `det_c < -E`, else undecided. `E >= A > 0` always, so a
+determinant that is computed as exactly 0 is never decided. A non-finite `det_c`, `perm_c` or `E` is undecided (`E = +infinity`).
+
+**The sentence of the #848 comment (invariance over `Similarity.All()`).** `A` does not scale with 2^k (the `+ 1` in `M + 1`).
+`det_c`, `perm_c`, and `E` of the first formula are the exact 2^3k multiples (2^4k for the determinants with `w`) of the unscaled ones
+(products and sums of doubles scale exactly, and so does `Up`), so **a result is bit for bit the scaled one wherever the first
+formula is taken both before and after the scaling**, which is every input whose permanent is above `2^-980 (M + 1)`: for the
+determinants with `w` (rows of size h, permanent about h^4) coordinate differences above about 2^-245, for the others about 2^-326.
+Where the second formula is taken (the permanent near underflow), `A` is in `E` and the scaled rows' bound is not the scaled bound;
+both hold against the exact determinant. Tests: `Det3_ScalesBitForBit_WhereTheUnderflowTermIsAbsorbed` (2^-10 and 2^10 over random
+rows, `Det`, `E` equal to the scaled values bit for bit; one case near 2^-340 where they differ and both hold),
+`PatchBound_UnderEverySimilarity` (the bound of the 2^k scaled input is the scaled bound bit for bit, the other similarities agree
+to 1e-6), `PatchBound_ScaleExtremes_RefusedOrValid` (2^-340 to 2^330: refused or not below the exact gap; bit for bit scaled from
+2^-100 to 2^100; the extremes are refused, never wrong).
+
+**The constant, measured.** The derived worst-case constant is 8.002 u, the one used 10 u. Over 20 000 random and near-dependent
+rows against exact arithmetic the largest `|det_c - Delta| / (u perm_c)` is **2.2** (random) and **1.9** (near-dependent, 30 % of them
+undecided), the largest `|det_c - Delta| / E` is **0.22**. So a mutant that lowers `10 u` to `4 u` is *equivalent for every test* (no
+input reaches 4 u); the test power is for constants below about 2 u (`10 u -> 1 u` is killed). That is the cost of a derived,
+worst-case constant; the derivation (steps 1 to 4) is what justifies 10 u, not the tests.
+
+### 10.2 Amendments to sections 4 to 7 (as coded)
+
+- **Growth of S is a heuristic in doubles** (any S is sound, section 4): the projection onto the plane of Q along `w` with a double
+  frame, the box test of the old code (`1e-9 scale` margin), `MaxPatchTriangles = 256`. `MinPatchShape`, `MaxPatchSlope` and `margin`
+  are gone: a triangle joins S only if `T(a, b, c) > 0` is certified (`sign = +1`).
+- **Boundary edges** (step 3): both separations of section 4 are tested, the first with the cached signs of the vertices against
+  the lines of Q', the second with `sigma(a, b, p_i)`, computed on demand and cached per triangle (up to 9 dets per triangle).
+- **Witness** (step 4): a vertex with all three signs `+1`, or a corner of Q with `sigma(a, b, p_i) = +1` for the three edges of one t'.
+- **Candidates** (section 6): a triangle with all three vertices strictly inside Q' contributes its three `g_V` and nothing else
+  (K = t'); a triangle with all three vertices certainly outside the same edge of Q' contributes nothing (K is empty); otherwise
+  (V), (Q) and (C) as in section 6, each excluded only by a certified strict sign (an undecided or zero sign keeps the candidate).
+- **The cut parameter** (C): `lo = Down(P0 / Up(P0 - R0))` (0 where not positive), `hi = Min(1, Up(P1 / Down(P1 - R1)))`; where
+  `P1 - R1` overflows, `hi = 1` (dividing by the overflowed value would give a `hi` that is too small). The enclosure is used when
+  the signs of `P_a`, `P_b` are certified opposite (either order: both are negated, an exact operation, and the formula is the same
+  function of the negated pair); otherwise only `max(g_V(a), g_V(b))`. The value is `min` of both. `|s_a|, |s_b|` are the absolute
+  upper bounds (`AbsUpper`): not tightened by the signs (a possible refinement: signed intervals).
+- **Rounding rule M1** as in `CertifiedTriangleBounds`: every rounded operation of a bound is wrapped in `up` (NaN becomes +infinity)
+  or `ExactInterval.Up` / `Down`.
+- **Refusals (+infinity):** `T(Q)` not certified positive, a non-finite `w`, `W / D_Q` not finite, `|S|` above `MaxPatchTriangles`,
+  S empty, a boundary edge without a certified strict separation, no witness, a NaN anywhere.
+
+### 10.3 Every constant
+
+| Constant | Value | Why it is enough | Checked by |
+|---|---|---|---|
+| `TenU` | `5 * 2^-52` (= 10 u) | derived 8.002 u (3.1 to 3.4) | `Det3_ErrorBound_*` against `ExactDyadic` (mutant 10u -> 1u killed; 10u -> 4u equivalent, above) |
+| `UnderflowUnit` | `2^-1070` | derived need `2^-1072 (M + 1) (1 + tiny)` (step 6), factor 4 spare | `Det3_Underflow_AndOverflow`: the determinant 2^-1620 computed as 0 |
+| `AbsorbedAbove`, `AbsorbFactor` | `2^-980`, `1 + 2^-39` | 10.1 | the threshold (and its `(M + 1)` factor) by the mixed-magnitude rows of `Det3_Underflow_AndOverflow` (mutants killed); the factor `1 + 2^-39` and the exact position of the threshold only by the derivation (equivalent mutants) |
+| `lo`, `hi` clamps | 0, 1 | lambda is in [0, 1] | `PatchBound_*` against the exact gap |
+| `MaxPatchTriangles` | 256 | none needed (any S is sound) | refusal only |
+| box margin | `1e-9 scale` | none needed (heuristic) | none |
+
+No other constant: no margin, no slack, no shape threshold.
+
+### 10.4 Measurement
+
+**Cost.** `CertifiedDet3.Compute`: 52 ns per determinant in the test container (random rows in [0, 1), JIT tiered, one thread; the
+note's 22 to 26 ns was a spike without the exact-code restrictions); `certified_patch_bound` 29 us per call against 15.6 us for
+`patch_bound` on the 1/8-reduced 5k bumpy sphere (|S| about 35 on average): **1.9 times**, under the stop rule (a) of section 8 (2.5).
+**Tightness.** Over the 300 triangles of a sphere of 6 edge vertices per side against one of 20, the certified value equals the
+uncertified one to 4 digits for every triangle (ratio 1.000 median, min and max), and the library's cascade takes the same
+number of subdivisions with either (376, rows below): stop rule (b) met (1.00 against 1.3). The "patch oracle" columns of section 7
+used a benchmark-local cascade that subdivides less than the library's; they are not comparable with these rows.
+
+Library rows (`dotnet run --project benchmarks/HausdorffBenchmark -c Release -- certpatch 5`; `CertifiedUpper`, one-sided A -> B,
+tolerance 1e-4 of the diagonal, the library's parallel run; container, 4 cores, median of 5):
+
+| case (tris A / B) | upper without -> with | subdivisions without -> with | ms without -> with | time |
+|---|---|---|---|---|
+| reduced 1/8 of 5k bumpy (1260 / 10092) | 0.0361267 -> 0.0361267 | 4100 -> 302 | 119 -> 109 | -8% |
+| reduced 1/32 of 5k bumpy (314 / 10092) | 0.0583846 -> 0.0583846 | 1748 -> 312 | 38 -> 32 | -15% |
+| reduced 1/8 of 21k bumpy (5220 / 41772) | 0.0303951 -> 0.0303951 | 5956 -> 2369 | 162 -> 153 | -6% |
+| reduced 1/32 of 21k bumpy (1304 / 41772) | 0.0315312 -> 0.0315312 | 6560 -> 1090 | 152 -> 110 | -28% |
+| reduced 1/16 of 21k sphere (2610 / 41772) | 0.00273712 -> 0.00239283 | 135483 -> 18 | 1583 -> 84 | -95% |
+| spheres6 vs 20 (300 / 4332) | 0.0247055 -> 0.024436 | 4512 -> 376 | 69 -> 22 | -68% |
+| bumpy5 -> bumpy6 (1452 / 588) | 0.0540244 -> 0.0540244 | 164 -> 17 | 5 -> 6 | +5% |
+| coplanar grids 16 -> 17 (jitter .3) (512 / 578) | 0.000141212 -> 1.16264E-15 | 3550 -> 105 | 65 -> 9 | -87% |
+
+Subdivisions fall by 60 to 100 %, time by 6 to 95 % on seven rows, +5 % on the one small row where the patch bound is a large part
+of a 5 ms run. The upper bound is the same or tighter (where the cascade stops earlier it stops nearer the exact value).
+
+### 10.5 Tests (all in `CertifiedPatchBoundTests` unless named)
+
+- `Det3_ErrorBound_HoldsAgainstExactDeterminant`, `..._NearDependentRows`: 2 x 2500 rows against `ExactDyadic`; `|det_c - Delta| <= E`
+  exactly, a decided sign equals the exact sign, `[Lo, Hi]` and `AbsUpper` enclose the exact value; the largest observed
+  `|err| / (u perm)` stays under 8.002.
+- `LambdaEnclosure_ContainsTheExactParameter_WhenWide` (ill-conditioned determinants, exact lambda), `PatchBound_NonDyadic_...` (random doubles), `PatchBound_NothingUnderneath_IsInfinite`, `PatchBound_CornersOnTargetVertices_KeepTheirGap`, `CertifiedUpper_WithPatchBound_UnderEverySimilarity`.
+- `Det3_ExactlyZero_IsNeverDecided`; `Det3_Underflow_AndOverflow` (subnormal rows, 2^-540 rows, rows near 2^330, overflow, NaN,
+  infinite differences: undecided, never a wrong sign); `Det3_ScalesBitForBit_...` (10.1).
+- `PatchBound_Horizontal_NotBelowTheExactGap_AndTight`: random bumpy heightfields and random dyadic triangles; for dyadic samples
+  of the triangle, the exact gap along z at the target triangle that contains the sample is at most the bound (cross-multiplied in
+  `ExactDyadic`, no rounding), and the bound is within 1e-9 of the uncertified patch bound.
+- `PatchBound_Tilted_NotBelowTheExactDistance`: the same for tilted triangles, against the exact distance
+  (`CertifiedPointMeshDistance.AtLeastDistance`).
+- `PatchBound_CoverageFails_IsInfinite`: a hole, a triangle over the border, a flipped triangle, a soup, collinear and repeated
+  corners, the reversed corner order: +infinity; the same triangle over the closed field is finite.
+- `PatchBound_FarFromTheOrigin` (offsets 1e3, a UTM offset, 2^20 + 0.5: the same value as at the origin to 1e-9 and not below the
+  exact gap), `PatchBound_ScaleExtremes_RefusedOrValid`, `PatchBound_UnderEverySimilarity`, `PatchBound_Reuse_AndParallel_Same`.
+- `HausdorffCertifiedUpperTests.CertifiedUpper_UsesTheCertifiedPatchBound`: on a reduced mesh against its original, fewer than
+  half the subdivisions, the vertices of the reduced mesh within `UpperBound` exactly, the same result on a second run and serially.
+
+### 10.6 Hand mutants
+
+(local, against `CertifiedPatchBoundTests` and `HausdorffCertifiedUpperTests`; the incremental run of the hausdorff shard on the PR
+is the gate)
+
+Local hand mutants of `CertifiedDet3.cs` and the new code of `TriangleDeviationBounds.cs`, each run against `CertifiedPatchBoundTests`
+and `HausdorffCertifiedUpperTests` (one build and test run per mutant; the rows group them):
+
+| Mutant | Result |
+|---|---|
+| `10u` to `1u` | killed (`Det3_ErrorBound_NearDependentRows`, `Det3_Underflow_AndOverflow`) |
+| `A` removed; `A / 16`; "always fast path" (`perm >= 0`); threshold without `(M + 1)` | killed (the mixed-magnitude and big-first-row rows of `Det3_Underflow_AndOverflow`) |
+| sign decided without `E` | killed |
+| lambda enclosure: corners swapped; the negated branch swapped | killed (`LambdaEnclosure_ContainsTheExactParameter_WhenWide`) |
+| `lo` ignored (`1 - lo` replaced by 1); the `min` with the vertex-gap term dropped (tight term only used) | `lo` killed; dropping the vertex term: survives, equivalent (the tight term is the smaller one wherever the enclosure applies) |
+| (C) tight term dropped (vertex gaps only) | killed (`..._Horizontal_..._AndTight`: 1e-9 of the uncertified bound) |
+| witness not required | killed (`PatchBound_NothingUnderneath_IsInfinite`, the lone-triangle case of `PatchBound_CoverageFails_IsInfinite`) |
+| boundary-edge check dropped | killed |
+| (Q) candidate divides by a wrong `D` | killed (`PatchBound_UnderEverySimilarity`) |
+| `10u` to `4u`; fast-path factor `1 + 2^-39` dropped; threshold `2^-980` to `2^-1022`; `M` taken from fewer entries | survive: equivalent for every input the tests (or any search) reach, the worst observed error being 2.2 u perm against the derived 8.002 u; the derivation justifies them, not the tests (10.1) |
+| `hi` computed from `P0` instead of `P1` | survives: differs by about one ulp of lambda where the enclosure is narrow; not observable through a bound that is rounded up |
+| `lo` clamp to 0 dropped; the `hi` overflow branch dropped (`P1 - R1` infinite) | survive: reviewed-only branches (a negative `lo` only loosens the term `1 - lo`, `lo` below 0 is still a valid lower bound; the overflow branch needs determinants near 1e308 that are also certified opposite) |
+| strictness of the sign tests: separation `< 0` to `<= 0` (both forms), the "outside" and the (V), (Q), (C) exclusions allowing a zero sign, the line separation allowing zero, a triangle admitted by `Det > 0` instead of the certified sign | survive: they differ from the original only where a sign is exactly 0 or rounding-sized, which random inputs do not produce and the corner-on-vertex case (`PatchBound_CornersOnTargetVertices_KeepTheirGap`) does not make decisive (a dropped vertex of zero sign has a gap that another candidate also carries). Follow-up for the incremental run: exactly degenerate targets (a sliver whose determinant is within E of 0 next to Q') |
+| `MaxPatchTriangles` ignored; inconsistent-orientation edges treated as interior | survive: the first is a limit (refusal only), the second is covered by the certified positive-orientation test of the triangles |
+
+### 10.7 For the bound review
+
+1. The coverage argument (section 4, review note), unchanged from `patch_bound`, now the only real-number argument not re-derived:
+   the constancy of `w` across non-boundary edges and the closed fan at a vertex.
+2. The strict witness (a strict inside vertex, or a strict inside corner); a witness on a boundary (sign 0) is not accepted.
+3. The separating-axis argument for a segment against a triangle (the line of the segment, the three lines of Q').
+4. The gap formulas with the *exact* `N_Q` against the rounded rows `e1`, `e2` (the claim of section 3 is about the determinant of the
+   exact difference rows; `D_Q` is the lower end of the same determinant with `w`).
+5. Monotonicity of lambda and the handling of overflow in `P1 - R1` (10.2).
+6. The fast path of 10.1.
+7. The one-sided candidate rules: each exclusion needs a certified strict sign.
+
+Known limits (review of the first push): (a) only `CertifiedDet3.cs` is in the exact-code list of `.editorconfig`; the one-`Up`-per-operation
+arithmetic of `gapV`, `gapC` and the (Q) value lives in `TriangleDeviationBounds.cs`, where the FMA and `float` bans do not apply:
+sound because the JIT does not contract, guarded by review only. (b) The derivation counts one rounding per operation; on net48 x86
+(x87) extended precision only improves that except for double rounding of subnormals, which the five-rounding count and the factor 4
+in A absorb; CI runs net48 on x64 only. (c) The tests that keep the rounding steps of `gapC` live (`PatchBound_NonDyadic_*`) compare
+with the uncertified patch bound to 1e-9 and sample the exact gap; a dropped `Up` is only visible to the mutants, not to a test
+(rounding up by one ulp cannot be observed through a sample). The `hi` overflow branch (`P1 - R1` infinite) is not reached by any test
+(it needs determinants near 1e308 that are also certified opposite); it is a reviewed-only branch.

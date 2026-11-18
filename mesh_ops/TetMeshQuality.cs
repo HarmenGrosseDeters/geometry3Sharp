@@ -26,6 +26,27 @@ namespace gs
         public int MaxDihedralAbove170;
     }
 
+    /// <summary>
+    /// The quality targets of a run checked on its output, not assumed (TET_MESHING.md section 17.3, P5(a)): the counts of tets that miss
+    /// a minimum dihedral angle (degrees) or a maximum radius-edge ratio, the worst values and the flags. A target that is off
+    /// (minimum dihedral angle &lt;= 0, maximum radius-edge ratio not positive) is met by definition. A tet whose orientation is not
+    /// exactly positive counts as missing both targets. The check is a statement about this mesh, not a bound the method proves.
+    /// </summary>
+    public class TetTargetReport
+    {
+        public int Tets;
+        public double MinDihedralDegrees, MaxRadiusEdgeRatio;
+        /// <summary> tets with a smallest dihedral angle below MinDihedralDegrees (0 if the target is off) </summary>
+        public int TetsBelowMinDihedral;
+        /// <summary> tets with a radius-edge ratio above MaxRadiusEdgeRatio (0 if the target is off) </summary>
+        public int TetsAboveRadiusEdge;
+        /// <summary> the smallest dihedral angle of all tets (degrees) and the largest radius-edge ratio; 180 and 0 for no tets </summary>
+        public double WorstMinDihedral = 180, WorstRadiusEdge;
+        public bool MinDihedralMet, RadiusEdgeMet;
+        /// <summary> both targets met </summary>
+        public bool Met { get { return MinDihedralMet && RadiusEdgeMet; } }
+    }
+
     /// <summary> Validity check and quality measures for TetMesh3 (docs/design/TET_MESHING.md section 7). </summary>
     public static class TetMeshQuality
     {
@@ -146,6 +167,24 @@ namespace gs
             double R = cc.Distance(a);
             radiusEdge = shortest > 0 && Math.Abs(R) <= double.MaxValue ? R / shortest : double.PositiveInfinity;
             return true;
+        }
+
+        /// <summary> checks the targets on the mesh (see TetTargetReport); serial, the same result for every call </summary>
+        public static TetTargetReport CheckTargets(TetMesh3 m, double minDihedralDegrees, double maxRadiusEdgeRatio)
+        {
+            var r = new TetTargetReport() { Tets = m.Tets.Count, MinDihedralDegrees = minDihedralDegrees, MaxRadiusEdgeRatio = maxRadiusEdgeRatio };
+            bool dihedralOn = minDihedralDegrees > 0, radiusOn = maxRadiusEdgeRatio > 0;
+            foreach (Index4i t in m.Tets) {
+                double re, mind, maxd;
+                bool ok = Measure(m.Vertices[t.a], m.Vertices[t.b], m.Vertices[t.c], m.Vertices[t.d], out re, out mind, out maxd);
+                if (mind < r.WorstMinDihedral) r.WorstMinDihedral = mind;
+                if (re > r.WorstRadiusEdge) r.WorstRadiusEdge = re;
+                if (dihedralOn && (!ok || mind < minDihedralDegrees)) r.TetsBelowMinDihedral++;
+                if (radiusOn && (!ok || re > maxRadiusEdgeRatio)) r.TetsAboveRadiusEdge++;
+            }
+            r.MinDihedralMet = r.TetsBelowMinDihedral == 0;
+            r.RadiusEdgeMet = r.TetsAboveRadiusEdge == 0;
+            return r;
         }
 
         public static TetQualityStatistics Measure(TetMesh3 m)

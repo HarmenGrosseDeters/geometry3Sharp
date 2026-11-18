@@ -811,7 +811,7 @@ namespace geometry3Sharp.Tests
         /// <summary> the kernel files of stage 0 (issue 859); a file missing from the .editorconfig section falls out of the proof </summary>
         public static readonly string[] Kernel = {
             "math/ExactIntervals.cs", "math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/ExactRayTriangle.cs", "math/ExactSlopeKernel.cs",
-            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/Generated/IndirectPredicates.cs",
+            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/ExactLimbPrepared.cs", "math/Generated/IndirectPredicates.cs",
             "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
