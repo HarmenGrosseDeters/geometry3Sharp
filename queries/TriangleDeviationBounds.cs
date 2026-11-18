@@ -354,6 +354,29 @@ namespace g3
 
         // ---- the certified patch bound (#848; docs/design/CERTIFIED_PATCH_BOUND.md) ----
 
+        /// <summary>
+        /// An enclosure [lo, hi] of lambda = P_a / (P_a - P_b) in [0, 1], the parameter of the crossing of the edge (a, b) of t' with a line,
+        /// P_a, P_b the exact orientations of a and b against that line (CertifiedDet3 enclosures), if their signs are certified opposite
+        /// (either order; both are negated then, which is exact, and lambda is the same function of the negated pair). lambda(P, R) =
+        /// P / (P - R) increases in P and in R on P >= 0 >= R, so lo is its value at the lower ends, hi at the upper ends. Where
+        /// P_1 - R_1 overflows, hi = 1.
+        /// </summary>
+        internal static bool lambda_enclosure(CertifiedDet3 pa, CertifiedDet3 pb, out double lo, out double hi)
+        {
+            lo = 0; hi = 1;
+            int sa = pa.Sign, sb = pb.Sign;
+            if (sa == 0 || sb == 0 || sa == sb) return false;
+            // with the signs made P > 0 > R: P in [P0, P1], R in [R0, R1]
+            double P0, P1, R0, R1;
+            if (sa > 0) { P0 = pa.Lo; P1 = pa.Hi; R0 = pb.Lo; R1 = pb.Hi; }
+            else { P0 = -pa.Hi; P1 = -pa.Lo; R0 = -pb.Hi; R1 = -pb.Lo; }
+            lo = ExactInterval.Down(P0 / CertifiedTriangleBounds.up(P0 - R0));
+            if (!(lo > 0)) lo = 0;
+            double den = P1 - R1;
+            if (den < double.PositiveInfinity) hi = Math.Min(1, CertifiedTriangleBounds.up(P1 / ExactInterval.Down(den)));
+            return true;
+        }
+
         // what is known of a target vertex v relative to Q = (p0, p1, p2): the sign of the projected orientation of (p_j, p_j+1, v) (v is
         // strictly left of the edge j of Q', that is inside its side, if +1), and lazily the value bound of det[e1, e2, v - p0]
         sealed class PatchVertex
@@ -439,17 +462,7 @@ namespace g3
             {
                 double first = CertifiedTriangleBounds.max(gapV(a), gapV(b));
                 CertifiedDet3 pa = a.Q(j), pb = b.Q(j);
-                int sa = pa.Sign, sb = pb.Sign;
-                if (sa == 0 || sb == 0 || sa == sb) return first;
-                // with the signs made P > 0 > R (a negation is exact): P in [P0, P1], R in [R0, R1]
-                double P0, P1, R0, R1;
-                if (sa > 0) { P0 = pa.Lo; P1 = pa.Hi; R0 = pb.Lo; R1 = pb.Hi; }
-                else { P0 = -pa.Hi; P1 = -pa.Lo; R0 = -pb.Hi; R1 = -pb.Lo; }
-                // lambda = P / (P - R) increases in P and in R: lo at (P0, R0), hi at (P1, R1)
-                double lo = ExactInterval.Down(P0 / CertifiedTriangleBounds.up(P0 - R0));
-                if (!(lo > 0)) lo = 0;
-                double hi = 1, den = P1 - R1;
-                if (den < double.PositiveInfinity) hi = Math.Min(1, CertifiedTriangleBounds.up(P1 / ExactInterval.Down(den)));
+                if (!lambda_enclosure(pa, pb, out double lo, out double hi)) return first;
                 double sA = valueH(a), sB = valueH(b);
                 double tight = CertifiedTriangleBounds.up(fw * CertifiedTriangleBounds.up(
                     CertifiedTriangleBounds.up(CertifiedTriangleBounds.up(1 - lo) * sA) + CertifiedTriangleBounds.up(hi * sB)));

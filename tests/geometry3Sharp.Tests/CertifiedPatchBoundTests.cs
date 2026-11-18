@@ -150,6 +150,18 @@ namespace geometry3Sharp.Tests
                 Vector3d[] bq = { V(rnd, 500 + rnd.Next(-3, 4)), V(rnd, -541 + rnd.Next(-3, 4)), V(rnd, -541 + rnd.Next(-3, 4)) };
                 CheckDet(bp, bq, "big first row " + it);
             }
+            // mixed magnitudes (the case where A matters): r1 = (2^40, 0, 0), r2 = (0, 2^-537, 0), r3 = (0, 0, 1.5 2^-537): exact 0.75 2^-1033,
+            // computed 2^-1033 (the products 2^-1074 and 1.5 2^-1074 round): an error of 2^-1035, far above 10 u perm (2^-1083), so a
+            // bound that always takes the fast formula, or compares the permanent without the factor (M + 1), is below it
+            {
+                Vector3d[] zp = { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero };
+                CheckDet(zp, new[] { new Vector3d(Math.Pow(2, 40), 0, 0), new Vector3d(0, Math.Pow(2, -537), 0), new Vector3d(0, 0, 1.5 * Math.Pow(2, -537)) }, "mixed 2^40");
+                for (int it = 0; it < 300; ++it) {
+                    int e1 = rnd.Next(20, 120), e2 = -537 + rnd.Next(-6, 7);
+                    CheckDet(zp, new[] { new Vector3d(R(rnd, e1), 0, 0), new Vector3d(0, R(rnd, e2), 0), new Vector3d(0, 0, R(rnd, e2)) }, "mixed " + it);
+                    CheckDet(zp, new[] { V(rnd, e1), V(rnd, e2), V(rnd, e2 - 3) }, "mixed full " + it);
+                }
+            }
             // 2^-540: the products are 2^-1080 and below, the determinant 2^-1620: computed 0, exact nonzero, within A
             Vector3d t = new Vector3d(Math.Pow(2, -540), 0, 0);
             Vector3d[] z = { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero };
@@ -402,6 +414,11 @@ namespace geometry3Sharp.Tests
                 soup.AppendTriangle(soup.AppendVertex(field.GetVertex(v.a)), soup.AppendVertex(field.GetVertex(v.b)), soup.AppendVertex(field.GetVertex(v.c)));
             }
             Assert.True(double.IsPositiveInfinity(Patch(soup, p0, p1, p2)), "soup");
+            // one target triangle in the bounding box of Q but beyond its hypotenuse (x + y > 1): nothing underneath, no boundary edge meets Q'
+            var lone = new DMesh3();
+            lone.AppendTriangle(lone.AppendVertex(new Vector3d(0.8, 0.8, 0)), lone.AppendVertex(new Vector3d(0.9, 0.8, 0)), lone.AppendVertex(new Vector3d(0.8, 0.9, 0)));
+            Assert.True(double.IsPositiveInfinity(new TriangleDeviationBounds(lone).certified_patch_bound(
+                new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(0, 1, 1), 0, 0, 0)), "no witness");
             // degenerate and edge-on triangles (T(Q) = 0 exactly), and clockwise as seen along its own normal cannot occur: the opposite order
             Assert.True(double.IsPositiveInfinity(Patch(field, p0, p1, (p0 + p1) / 2)), "collinear");
             Assert.True(double.IsPositiveInfinity(Patch(field, p0, p0, p1)), "repeated corner");
@@ -429,6 +446,81 @@ namespace geometry3Sharp.Tests
                     AssertGapWithin(target, c.x, c.y, 0.75, u, "grid corner " + c);
             }
             Assert.True(finite >= 6, finite.ToString());
+        }
+
+
+        /// <summary> the enclosure of the cut parameter against the exact lambda = P_a / (P_a - P_b), for determinants that are certified
+        /// opposite but whose enclosures are wide (rows with cancellation, |P| a few times E): lo and hi are on the right sides of the
+        /// exact value, both orders of the signs, and the enclosure is wide in some cases (a swapped lo / hi, or a one-sided enclosure,
+        /// is outside the exact value there) </summary>
+        [Fact]
+        public void LambdaEnclosure_ContainsTheExactParameter_WhenWide()
+        {
+            var rnd = new Random(8489);
+            var pos = new List<(CertifiedDet3, ExactDyadic)>(); var neg = new List<(CertifiedDet3, ExactDyadic)>();
+            for (int it = 0; it < 6000 && (pos.Count < 150 || neg.Count < 150); ++it) {
+                Vector3d b = V(rnd, 0), a1 = V(rnd, 0), a2 = V(rnd, 0);
+                double s = R(rnd, 0), t = R(rnd, 0);
+                Vector3d[] p = { b, b, b }, q = { b + a1, b + a2, Vector3d.Zero };
+                Vector3d comb = s * (q[0] - p[0]) + t * (q[1] - p[1]);
+                double rel = Math.Pow(10, -14 + 2 * rnd.NextDouble());
+                q[2] = b + new Vector3d(comb.x * (1 + rel * rnd.NextDouble()), comb.y * (1 + rel * rnd.NextDouble()), comb.z * (1 + rel * rnd.NextDouble()));
+                var d = CertifiedDet3.Compute(q[0] - p[0], q[1] - p[1], q[2] - p[2]);
+                if (d.Sign > 0) pos.Add((d, ExactDet(p, q))); else if (d.Sign < 0) neg.Add((d, ExactDet(p, q)));
+            }
+            Assert.True(pos.Count >= 50 && neg.Count >= 50, pos.Count + " / " + neg.Count);
+            int wide = 0, n = 0;
+            for (int i = 0; i < Math.Min(pos.Count, neg.Count); ++i)
+                for (int k = 0; k < 8; ++k) {
+                    var (dp, ep) = pos[i]; var (dn, en) = neg[rnd.Next(neg.Count)];
+                    foreach (bool swap in new[] { false, true }) {
+                        // lambda = P_a / (P_a - P_b); the order of the arguments is the order of the signs
+                        var (da, ea, db, eb) = swap ? (dn, en, dp, ep) : (dp, ep, dn, en);
+                        Assert.True(TriangleDeviationBounds.lambda_enclosure(da, db, out double lo, out double hi));
+                        ExactDyadic den = ea - eb;                          // P_a - P_b, nonzero, the sign of P_a
+                        // lo <= P_a / den <= hi, multiplied by den (its sign flips the comparisons)
+                        int sgn = den.Sign;
+                        Assert.True(sgn * ExactDyadic.Compare(D(lo) * den, ea) <= 0, $"lo {lo:R} above the exact lambda");
+                        Assert.True(sgn * ExactDyadic.Compare(ea, D(hi) * den) <= 0, $"hi {hi:R} below the exact lambda");
+                        Assert.True(lo >= 0 && hi <= 1 && lo <= hi);
+                        n++; if (hi - lo > 1e-3) wide++;
+                    }
+                }
+            Assert.True(wide > n / 20, wide + " wide of " + n + ": the cases are not ill-conditioned");
+            // undecided or equal signs: no enclosure
+            Assert.False(TriangleDeviationBounds.lambda_enclosure(pos[0].Item1, pos[1].Item1, out _, out _));
+            Assert.False(TriangleDeviationBounds.lambda_enclosure(pos[0].Item1, CertifiedDet3.Compute(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero), out _, out _));
+        }
+
+        /// <summary> CertifiedUpper with the patch bound under every similarity: bit for bit at the 2^k scalings </summary>
+        [Fact]
+        public void CertifiedUpper_WithPatchBound_UnderEverySimilarity()
+        {
+            var rnd = new Random(8490);
+            DMesh3 big = Heightfield(10, rnd, 0.6), red = new DMesh3(big);
+            new Reducer(red).ReduceToTriangleCount(big.TriangleCount / 6);
+            var fi = typeof(MeshHausdorffDistance).GetField("PatchBound", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            MeshHausdorffDistance run(DMesh3 a, DMesh3 b, double tol)
+            {
+                var h = new MeshHausdorffDistance(a, b) { Symmetric = false, CertifiedUpper = true, Tolerance = tol };
+                fi.SetValue(h, true);
+                Assert.True(h.Compute());
+                return h;
+            }
+            var h0 = run(red, big, 1e-3);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 a = new DMesh3(red), b = new DMesh3(big);
+                MeshTransforms.PerVertexTransform(a, s.Apply); MeshTransforms.PerVertexTransform(b, s.Apply);
+                var h = run(a, b, 1e-3 * s.Scale);
+                if (s.IsExact) {
+                    Assert.Equal(h0.LowerBound, h.LowerBound / s.Scale);
+                    Assert.Equal(h0.UpperBound, h.UpperBound / s.Scale);
+                    Assert.Equal(h0.Subdivisions, h.Subdivisions);
+                } else {
+                    double eps = 100 * s.Resolution(6);
+                    Assert.True(h.LowerBound / s.Scale <= h0.UpperBound + eps && h0.LowerBound <= h.UpperBound / s.Scale + eps, s.Name);
+                }
+            }
         }
 
         /// <summary> no witness: a triangle in the bounding box of the only target triangle, beyond its hypotenuse. No boundary edge meets it
