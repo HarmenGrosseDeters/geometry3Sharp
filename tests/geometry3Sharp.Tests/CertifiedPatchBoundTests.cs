@@ -410,6 +410,27 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsPositiveInfinity(Patch(field, p0, p2, p1)), "reversed corners");
         }
 
+        /// <summary> the corners of the triangle (and an edge midpoint, and a crossing) on target vertices and edges, as a reduced mesh
+        /// against its original has them: signs are exactly 0 there, the candidates must stay (an undecided sign is not "outside"):
+        /// the exact gap at the corners, 1.15 or more, is not below the bound </summary>
+        [Fact]
+        public void PatchBound_CornersOnTargetVertices_KeepTheirGap()
+        {
+            var rnd = new Random(8488);
+            int finite = 0;
+            for (int it = 0; it < 12; ++it) {
+                DMesh3 target = Heightfield(6, rnd, 1.0);
+                // corners on grid vertices, z0 above all
+                Vector3d p0 = new Vector3d(-1, -1, 0.75), p1 = new Vector3d(2, -1, 0.75), p2 = new Vector3d(0, 2, 0.75);
+                double u = Patch(target, p0, p1, p2);
+                if (!MathUtil.IsFinite(u)) continue;     // (touching boundary edges of S may refuse; never wrong)
+                finite++;
+                foreach (Vector3d c in new[] { p0, p1, p2, (p0 + p1) / 2, (p1 + p2) / 2, (p0 + p2) / 2, (p0 + p1 + p2) / 3 })
+                    AssertGapWithin(target, c.x, c.y, 0.75, u, "grid corner " + c);
+            }
+            Assert.True(finite >= 6, finite.ToString());
+        }
+
         /// <summary> no witness: a triangle in the bounding box of the only target triangle, beyond its hypotenuse. No boundary edge meets it
         /// (the hypotenuse's line separates), but no vertex lies inside it and no corner inside the target triangle: nothing is under it,
         /// +infinity (without the witness test the coverage would be taken for granted) </summary>
