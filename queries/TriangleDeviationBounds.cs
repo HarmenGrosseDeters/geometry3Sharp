@@ -508,6 +508,21 @@ namespace g3
         /// <summary> IsWithin with the tree queries shared through cache (null: none; a cache of another distance is not used) </summary>
         internal bool IsWithin(DMeshAABBTree3 spatial, Vector3d a, Vector3d b, Vector3d c, double eps, int maxDepth, QueryCache cache)
         {
+            return IsWithin(spatial, a, b, c, eps, maxDepth, cache, false);
+        }
+
+        // pieces the serial walk of IsWithin(.., parallel: true) takes before it hands the rest to several threads: a triangle that is
+        // certified within this many pieces is not worth the cost of a parallel loop
+        internal const int ParallelWarmupPieces = 64;
+
+        /// <summary>
+        /// IsWithin with the tree queries shared through cache. parallel: after ParallelWarmupPieces pieces the open pieces are
+        /// checked on several threads. The answer is the same as of the serial walk, whatever the threads do: the walk takes the
+        /// same pieces (a piece is split, passes or fails by its own corners alone), and the answer is true iff none of them fails
+        /// (the first failure only ends the walk early), so it does not depend on the order or on the number of threads
+        /// </summary>
+        internal bool IsWithin(DMeshAABBTree3 spatial, Vector3d a, Vector3d b, Vector3d c, double eps, int maxDepth, QueryCache cache, bool parallel)
+        {
             if (cache != null && (cache.MaxDist != eps || cache.Tree != spatial)) cache = null;
             Stack<Item> stack = new Stack<Item>();
             Item root = new Item() { P0 = a, P1 = b, P2 = c, Depth = 0, OnEdge = 7 };
@@ -515,7 +530,54 @@ namespace g3
             if (query(spatial, b, eps, out root.D1, out root.N1, cache, true) > eps) return false;
             if (query(spatial, c, eps, out root.D2, out root.N2, cache, true) > eps) return false;
             stack.Push(root);
-            while (stack.Count > 0) {
+            if (!parallel)
+                return walk(spatial, stack, eps, maxDepth, cache, int.MaxValue, null);
+            if (!walk(spatial, stack, eps, maxDepth, cache, ParallelWarmupPieces, null))
+                return false;
+            if (stack.Count == 0)
+                return true;
+            // the open pieces, in rounds: each is walked for ParallelRoundPieces pieces on its own stack, what is left goes to the next round
+            // (balanced work: the open pieces are of very different sizes); a failure of one walk stops the others at their next piece
+            System.Threading.Interlocked.Increment(ref parallelHandoffs);
+            Item[] open = stack.ToArray();
+            bool failed = false;
+            while (open.Length > 0 && !failed) {
+                Item[][] rest = new Item[open.Length][];
+                Item[] current = open;
+                gParallel.ForRange(current.Length, (k) => {
+                    if (System.Threading.Volatile.Read(ref failed))
+                        return;
+                    var own = new Stack<Item>();
+                    own.Push(current[k]);
+                    if (!walk(spatial, own, eps, maxDepth, cache, ParallelRoundPieces, () => System.Threading.Volatile.Read(ref failed)))
+                        System.Threading.Volatile.Write(ref failed, true);
+                    else if (own.Count > 0)
+                        rest[k] = own.ToArray();
+                });
+                var next = new List<Item>();
+                foreach (Item[] r in rest)
+                    if (r != null) next.AddRange(r);
+                open = next.ToArray();
+            }
+            return !failed;
+        }
+
+        long parallelHandoffs;
+        /// <summary> (tests) the parallel walks that went past the warm-up and used several tasks </summary>
+        internal long ParallelHandoffs => System.Threading.Interlocked.Read(ref parallelHandoffs);
+
+        // the pieces a task walks in one round of the parallel walk
+        internal const int ParallelRoundPieces = 128;
+
+        // the loop of IsWithin: pops pieces until the stack is empty (true), a piece fails (false), or maxPieces pieces were taken (true,
+        // the rest stays on the stack); stop(): another thread's walk has failed (the answer is then false anyway, what is returned is not used)
+        bool walk(DMeshAABBTree3 spatial, Stack<Item> stack, double eps, int maxDepth, QueryCache cache, int maxPieces, Func<bool> stop)
+        {
+            int taken = 0;
+            while (stack.Count > 0 && taken < maxPieces) {
+                if (stop != null && (taken & 15) == 15 && stop())
+                    return true;
+                ++taken;
                 Item t = stack.Pop();
                 if (UpperBound(t.P0, t.P1, t.P2, t.D0, t.D1, t.D2, t.N0, t.N1, t.N2, eps) <= eps)
                     continue;
