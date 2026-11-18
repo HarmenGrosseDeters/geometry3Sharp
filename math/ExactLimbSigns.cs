@@ -38,11 +38,11 @@ namespace g3
 #if NET
         // the limbs v needs: its two's complement bytes (one bit more than its magnitude), rounded up
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int limbs_of(BigInteger v) { return (v.GetByteCount(false) + 7) >> 3; }
+        internal static int limbs_of(BigInteger v) { return (v.GetByteCount(false) + 7) >> 3; }
 
         // the magnitude of v in dst (n limbs, n >= limbs_of(v)) and its sign
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static FixedInt load(BigInteger v, ulong* dst, int n)
+        internal static FixedInt load(BigInteger v, ulong* dst, int n)
         {
             int sign = v.Sign;
             if (sign == 0)

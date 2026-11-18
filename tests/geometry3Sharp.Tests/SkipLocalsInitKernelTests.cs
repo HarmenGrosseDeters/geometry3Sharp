@@ -90,7 +90,7 @@ namespace geometry3Sharp.Tests
         static readonly Member[] Members = {
             Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact,
             DoubleOrient2d, DoubleOrient3d, DoubleInCircle,
-            LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle };
+            LimbPreparedPlaneSide, LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle };
 
         // ExactLimbSigns: BigInteger operands loaded into stack limbs (the coordinates of the inputs' exact points)
         static ExactPoint3 E(Input x, int k) { return x.F[k].ToExact(); }
@@ -111,6 +111,14 @@ namespace geometry3Sharp.Tests
         {
             ExactPoint3 a = E(x, 0), b = E(x, 1); int used;
             Rec(t, ExactLimbSigns.PlaneSide(a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z, b.W, out used), used);
+        }
+
+        // #1047: the prepared operands (their limbs are built on the heap; the arena on the stack is the member's)
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbPreparedPlaneSide(Input x, List<long> t)
+        {
+            ExactPoint3 a = E(x, 0), b = E(x, 1);
+            Rec(t, PreparedLimbs.PlaneSide(new PreparedLimbs(a.X, a.Y, a.Z, a.W), new PreparedLimbs(b.X, b.Y, b.Z, b.W)), 0);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
