@@ -63,6 +63,19 @@ namespace gs
         public Vector3d Center;
     }
 
+    /// <summary> one input thinner than MinThickness (SolidBooleanPipeline.ThinInputs) </summary>
+    public sealed class SolidBooleanThinInput
+    {
+        /// <summary> index of the input </summary>
+        public int Index;
+        /// <summary> its volume (relative to the centre of its bounding box) and area </summary>
+        public double Volume, Area;
+        /// <summary> 2 |Volume| / Area </summary>
+        public double Thickness;
+        /// <summary> ExactMeshBoolean.IsWindingClosed of the input: for an open input the volume is an estimate </summary>
+        public bool Closed;
+    }
+
     /// <summary>
     /// What a SolidBooleanPipeline run did: counts, time per stage, repaired inputs and the reason the reduction stopped.
     /// </summary>
@@ -87,6 +100,8 @@ namespace gs
         public int ThinComponentsKept;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
+        /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
+        public List<SolidBooleanThinInput> ThinInputs = new List<SolidBooleanThinInput>();
         /// <summary> the triangle count asked for (TargetTriangleCount, or TargetFraction of BooleanTriangles); 0 for the other criteria </summary>
         public int TargetTriangles;
         /// <summary> triangles of the returned mesh </summary>
@@ -220,7 +235,23 @@ namespace gs
             /// <summary> Cancellation was cancelled; Result is null </summary>
             Cancelled = 4,
             /// <summary> Compute() was not called yet </summary>
-            NotComputed = 5
+            NotComputed = 5,
+            /// <summary> an input is thinner than MinThickness and ThinInputs is Refuse (Report.ThinInputs lists them); Result is null </summary>
+            ThinInput = 6
+        }
+
+        /// <summary> what happens to an input thinner than MinThickness (Report.ThinInputs) </summary>
+        public enum ThinInputModes
+        {
+            /// <summary> it is listed in the report and used as it is (default) </summary>
+            Keep = 0,
+            /// <summary>
+            /// it counts as an empty solid: left out of a union and as a tool of a difference; the result is empty if it is the
+            /// first operand of a difference, any operand of an intersection, or if every input of a union is thin
+            /// </summary>
+            TreatAsEmpty = 1,
+            /// <summary> Compute() fails with Status ThinInput </summary>
+            Refuse = 2
         }
 
         /// <summary> the input meshes (not modified) </summary>
@@ -242,6 +273,15 @@ namespace gs
         /// shell around them by its winding number at a point of the cavity. Negative or not finite: InvalidInput
         /// </summary>
         public double MinThickness = 0;
+        /// <summary>
+        /// With MinThickness: every input is measured by 2 |Volume| / Area (the volume relative to the centre of its bounding
+        /// box) before the boolean, and an input below MinThickness is listed in Report.ThinInputs and handled as this says
+        /// (default Keep: only listed). For a closed input the measure is that of the solids (all of them together); for an
+        /// open one it is an estimate (the volume through a hole is not defined), good where the hole has little area, eg a
+        /// sheet or a wedge whose top and bottom meet in a flap of zero thickness, the typical faceting of a layer that is in
+        /// practice a surface. Invalid values: InvalidInput
+        /// </summary>
+        public ThinInputModes ThinInputs = ThinInputModes.Keep;
         /// <summary> configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay </summary>
         public Action<ExactMeshBoolean> ConfigureBoolean;
         // (tests) runs before the reduction
@@ -352,6 +392,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "PairContactsMode is not a defined value", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
+            if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
+                return fail(PipelineStatus.InvalidInput, "ThinInputs is not a defined value", total);
             if (Inputs == null || Inputs.Count == 0)
                 return fail(PipelineStatus.InvalidInput, "no input meshes", total);
             for (int i = 0; i < Inputs.Count; ++i)
@@ -369,6 +411,31 @@ namespace gs
                 Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(Inputs[i]);
                 anyOpen |= !Report.InputClosed[i];
             }
+            // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
+            var active = new List<int>(n);
+            for (int i = 0; i < n; ++i)
+                active.Add(i);
+            if (MinThickness > 0) {
+                var thin = new bool[n];
+                for (int i = 0; i < n; ++i) {
+                    double v, a;
+                    MeasureInput(Inputs[i], out v, out a);
+                    double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
+                    if (t < MinThickness) {
+                        thin[i] = true;
+                        Report.ThinInputs.Add(new SolidBooleanThinInput { Index = i, Volume = v, Area = a, Thickness = t, Closed = Report.InputClosed[i] });
+                    }
+                }
+                if (Report.ThinInputs.Count > 0 && ThinInputs == ThinInputModes.Refuse)
+                    return fail(PipelineStatus.ThinInput, Report.ThinInputs.Count + " input(s) thinner than MinThickness, the first: input " + Report.ThinInputs[0].Index, total);
+                if (Report.ThinInputs.Count > 0 && ThinInputs == ThinInputModes.TreatAsEmpty) {
+                    active.RemoveAll(i => thin[i]);
+                    if (Operation == ExactMeshBoolean.Operations.Intersection || (Operation == ExactMeshBoolean.Operations.Difference && thin[0]) || active.Count == 0) {
+                        Report.InputCheckMilliseconds = clock.ElapsedMilliseconds;
+                        return emptyResult("an input thinner than MinThickness was treated as empty (ThinInputs), so the " + Operation + " is empty", total);
+                    }
+                }
+            }
             Report.InputCheckMilliseconds = clock.ElapsedMilliseconds;
             if (Cancellation.IsCancellationRequested)
                 return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -376,6 +443,14 @@ namespace gs
             // 2. the boolean; an input that fails the check is tried as it is first (the boolean reorients flipped triangles, which the
             // check counts as open), and repaired only if the boolean refuses it
             List<DMesh3> used = Inputs;
+            if (active.Count < n) {
+                used = new List<DMesh3>(active.Count);
+                foreach (int i in active)
+                    used.Add(Inputs[i]);
+                anyOpen = false;
+                foreach (int i in active)
+                    anyOpen |= !Report.InputClosed[i];
+            }
             clock.Restart();
             ExactMeshBoolean op = runBoolean(used);
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
@@ -384,11 +459,12 @@ namespace gs
                 if (InputRepair == InputRepairModes.Refuse)
                     return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
                 // (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)
-                if (Array.IndexOf(Report.InputClosed, false) < 0)
+                if (!anyOpen)
                     return fail(PipelineStatus.OpenInput, op.Error, total);
-                used = new List<DMesh3>(Inputs);
+                used = new List<DMesh3>(used);
                 clock.Restart();
-                for (int i = 0; i < n; ++i) {
+                for (int k = 0; k < active.Count; ++k) {
+                    int i = active[k];
                     if (Report.InputClosed[i])
                         continue;
                     DMesh3 repaired;
@@ -396,7 +472,7 @@ namespace gs
                     if (r == null)
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
                     Report.RepairedInputs.Add(r);
-                    used[i] = repaired;
+                    used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
                         return fail(PipelineStatus.Cancelled, "cancelled", total);
                 }
@@ -483,6 +559,37 @@ namespace gs
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
+        }
+
+        // Status Success with an empty result (ThinInputs TreatAsEmpty)
+        bool emptyResult(string detail, Stopwatch total)
+        {
+            Result = new DMesh3();
+            Status = PipelineStatus.Success;
+            BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
+            Report.StopReason = SolidBooleanStopReason.EmptyResult;
+            Report.StopDetail = detail;
+            Report.NotCleanReason = MeshRobustRepair.NotCleanReason(Result);
+            Report.TotalMilliseconds = total.ElapsedMilliseconds;
+            return true;
+        }
+
+        /// <summary>
+        /// the signed volume (relative to the centre of the bounding box, so that it is exact enough far from the origin and,
+        /// for an open mesh, an estimate independent of where the mesh lies) and the area of a mesh
+        /// </summary>
+        internal static void MeasureInput(DMesh3 m, out double volume, out double area)
+        {
+            Vector3d o = m.TriangleCount > 0 ? m.GetBounds().Center : Vector3d.Zero;
+            double v6 = 0, a2 = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                Vector3d p = m.GetVertex(tv.a), q = m.GetVertex(tv.b), r = m.GetVertex(tv.c);
+                v6 += (p - o).Dot((q - o).Cross(r - o));
+                a2 += (q - p).Cross(r - p).Length;
+            }
+            volume = v6 / 6;
+            area = a2 / 2;
         }
 
         // the strict rounding refused the result only for components thinner than its bound
