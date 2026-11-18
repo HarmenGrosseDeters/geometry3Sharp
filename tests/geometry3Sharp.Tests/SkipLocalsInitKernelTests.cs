@@ -118,7 +118,14 @@ namespace geometry3Sharp.Tests
         static void LimbPreparedPlaneSide(Input x, List<long> t)
         {
             ExactPoint3 a = E(x, 0), b = E(x, 1);
-            Rec(t, PreparedLimbs.PlaneSide(new PreparedLimbs(a.X, a.Y, a.Z, a.W), new PreparedLimbs(b.X, b.Y, b.Z, b.W)), 0);
+            var pa = new PreparedLimbs(a.X, a.Y, a.Z, a.W);
+            var pb = new PreparedLimbs(b.X, b.Y, b.Z, b.W);
+#if NET
+            // (Rec's guard reads `used`: the stack path ran iff the operands fit the stack budget)
+            Rec(t, PreparedLimbs.PlaneSide(pa, pb), pa.Total + pb.Total <= ExactLimbSigns.MaxOperandLimbs ? 0 : -1);
+#else
+            Rec(t, PreparedLimbs.PlaneSide(pa, pb), 0);
+#endif
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
