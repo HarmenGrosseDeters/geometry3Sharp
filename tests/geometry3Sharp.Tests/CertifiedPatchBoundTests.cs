@@ -283,7 +283,7 @@ namespace geometry3Sharp.Tests
                 var (p0, p1, p2) = RandomQ(rnd, 0.75, 0, 0);
                 double u = Patch(target, p0, p1, p2);
                 n++;
-                Assert.True(double.IsFinite(u), $"it {it}: {u}");
+                Assert.True(MathUtil.IsFinite(u), $"it {it}: {u}");
                 finite++;
                 var tree = new DMeshAABBTree3(target, true);
                 double unc = new TriangleDeviationBounds(target).patch_bound(p0, p1, p2, Nearest(tree, p0), Nearest(tree, p1), Nearest(tree, p2));
@@ -309,7 +309,7 @@ namespace geometry3Sharp.Tests
                 double sx = rnd.Next(-4, 5) / 8.0, sy = rnd.Next(-4, 5) / 8.0;
                 var (p0, p1, p2) = RandomQ(rnd, 0.5 + rnd.Next(0, 8) / 16.0, sx, sy);
                 double u = Patch(target, p0, p1, p2);
-                Assert.True(double.IsFinite(u), $"it {it}: {u}");
+                Assert.True(MathUtil.IsFinite(u), $"it {it}: {u}");
                 int tested = 0;
                 for (int i = -80; i <= 80; i += 3)
                     for (int j = -80; j <= 80; j += 3) {
@@ -332,7 +332,7 @@ namespace geometry3Sharp.Tests
             var rnd = new Random(8482);
             DMesh3 field = Heightfield(6, rnd, 0.5);
             Vector3d p0 = new Vector3d(-0.75, -0.5, 0.75), p1 = new Vector3d(0.5, -0.625, 0.75), p2 = new Vector3d(0.125, 0.75, 0.75);
-            Assert.True(double.IsFinite(Patch(field, p0, p1, p2)));
+            Assert.True(MathUtil.IsFinite(Patch(field, p0, p1, p2)));
             // a hole: remove the triangles under the corner p1 and its centroid
             foreach (Vector3d at in new[] { p1, (p0 + p1 + p2) / 3 }) {
                 DMesh3 holed = new DMesh3(field);
@@ -377,7 +377,7 @@ namespace geometry3Sharp.Tests
                 Vector3d sh = new Vector3d(off, off + 1024, 0);
                 Vector3d p0 = q0 + sh, p1 = q1 + sh, p2 = q2 + sh;
                 double u = Patch(target, p0, p1, p2);
-                Assert.True(double.IsFinite(u), $"offset {off}: {u}");
+                Assert.True(MathUtil.IsFinite(u), $"offset {off}: {u}");
                 DMesh3 local = Heightfield(6, new Random(8483), 0.9);
                 double u0 = Patch(local, q0, q1, q2);
                 Assert.True(Math.Abs(u - u0) <= 1e-9, $"offset {off}: {u:R} vs {u0:R}");
@@ -398,7 +398,7 @@ namespace geometry3Sharp.Tests
             DMesh3 field = Heightfield(6, rnd, 0.9);
             var (q0, q1, q2) = RandomQ(rnd, 0.75, 0, 0);
             double u1 = Patch(field, q0, q1, q2);
-            Assert.True(double.IsFinite(u1));
+            Assert.True(MathUtil.IsFinite(u1));
             int finite = 0, refused = 0;
             foreach (int k in new[] { -340, -300, -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250, 300, 330 }) {
                 double f = Math.Pow(2, k);
@@ -407,7 +407,7 @@ namespace geometry3Sharp.Tests
                 double u = Patch(scaled, p0, p1, p2);
                 if (double.IsPositiveInfinity(u)) { refused++; continue; }
                 finite++;
-                Assert.True(double.IsFinite(u), $"2^{k}: {u}");
+                Assert.True(MathUtil.IsFinite(u), $"2^{k}: {u}");
                 // (x, y, zq of the unscaled sample, scaled: exact; the gap formula is homogeneous)
                 for (int i = -80; i <= 80; i += 16)
                     for (int j = -80; j <= 80; j += 16) {
@@ -429,7 +429,7 @@ namespace geometry3Sharp.Tests
             DMesh3 field = Heightfield(6, rnd, 0.9);
             var (q0, q1, q2) = RandomQ(rnd, 0.75, 0.25, -0.125);
             double u0 = Patch(field, q0, q1, q2);
-            Assert.True(double.IsFinite(u0));
+            Assert.True(MathUtil.IsFinite(u0));
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 t = new DMesh3(field);
                 MeshTransforms.PerVertexTransform(t, s.Apply);
@@ -437,7 +437,7 @@ namespace geometry3Sharp.Tests
                 if (s.IsExact) {
                     Assert.Equal(s.Scale * u0, u);
                 } else {
-                    Assert.True(double.IsFinite(u), s.Name + ": " + u);
+                    Assert.True(MathUtil.IsFinite(u), s.Name + ": " + u);
                     Assert.True(Math.Abs(u / s.Scale - u0) <= 1e-6, $"{s.Name}: {u / s.Scale:R} vs {u0:R}");
                 }
             }
@@ -463,7 +463,7 @@ namespace geometry3Sharp.Tests
                 par[i] = bounds.certified_patch_bound(q.Item1, q.Item2, q.Item3, tree.FindNearestTriangle(q.Item1), tree.FindNearestTriangle(q.Item2), tree.FindNearestTriangle(q.Item3));
             });
             Assert.Equal(serial, par);
-            Assert.True(serial.Count(double.IsFinite) > 30);
+            Assert.True(serial.Count(MathUtil.IsFinite) > 30);
         }
     }
 }
