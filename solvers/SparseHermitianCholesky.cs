@@ -385,7 +385,10 @@ namespace g3
         // column-major copy of the wide supernodes (columns c = 0..w-1, rows c..h-1 of each), built on the first Solve after a
         // factorization (in parallel; it only moves values)
         internal int ColumnCopyMinWidth = 64;
+        // read when the copy is built (the first Solve after Factorize): the copy is only made for at least MinEntries and at most
+        // MaxEntries entries (256 MB for the real class, 512 MB for the Hermitian one), so Solve never needs more than that extra memory
         internal long ColumnCopyMinEntries = 200000;
+        internal long ColumnCopyMaxEntries = 32000000;
         int[] colOff; double[] colRe, colIm; bool colCopyBuilt;
 
         // the column-major copy is in use (tests)
@@ -402,7 +405,7 @@ namespace g3
                     offs[J] = -1;
                     if (w >= ColumnCopyMinWidth) { offs[J] = (int)Math.Min(total, int.MaxValue); total += (long)w * h - (long)w * (w - 1) / 2; }
                 }
-                if (total == 0 || total < ColumnCopyMinEntries || total > int.MaxValue / 2) { colOff = null; return; }
+                if (total == 0 || total < ColumnCopyMinEntries || total > ColumnCopyMaxEntries) { colOff = null; return; }
                 var cr = new double[total]; var ci = new double[total];
                 var chunks = new List<int>();            // (supernode, first column of a block of 16 columns)
                 for (int J = 0; J < snCount; ++J) {

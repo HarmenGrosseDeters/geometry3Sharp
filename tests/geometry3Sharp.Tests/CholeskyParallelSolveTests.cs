@@ -184,6 +184,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Shapes))]
         public void RealSolve_EveryScheduleGivesTheBitsOfTheSerialLoops(int nx, int ny, int bs, int divisor, int minWidth)
         {
+            if (Environment.ProcessorCount < 2) return;          // no schedule on one CPU
             var c = BuildReal(nx, ny, bs, 11, 0, divisor, minWidth);
             Assert.NotNull(c.SolveScheduleForTests);
             Assert.Equal(minWidth < 1000, c.ColumnCopyInUse);
@@ -201,6 +202,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Shapes))]
         public void HermitianSolve_EveryScheduleGivesTheBitsOfTheSerialLoops(int nx, int ny, int bs, int divisor, int minWidth)
         {
+            if (Environment.ProcessorCount < 2) return;
             var c = BuildHermitian(nx, ny, 12, 0, divisor, minWidth);
             Assert.NotNull(c.SolveScheduleForTests);
             Assert.Equal(minWidth < 1000, c.ColumnCopyInUse);
@@ -280,6 +282,30 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the schedule follows SolveMinWork / SolveTaskDivisor between solves, the column copy its size cap
+        [Fact]
+        public void ChangingTheScheduleParameters_BetweenSolves_KeepsTheBits()
+        {
+            var c = BuildReal(28, 28, 2, 3, 0, 8, 6);
+            double[] b = Rhs(c.N, 5), expected = ReferenceSolve(c, b);
+            foreach (int divisor in new[] { 8, 2, 100, 8 }) {
+                c.SolveTaskDivisor = divisor;
+                AssertSameBits(expected, SolveWith(c.Solve, c.N, b, 0), "divisor " + divisor);
+            }
+            c.SolveMinWork = long.MaxValue;
+            Assert.Null(c.SolveScheduleForTests);
+            AssertSameBits(expected, SolveWith(c.Solve, c.N, b, 0), "no schedule");
+            c.SolveMinWork = 0;
+            Assert.NotNull(c.SolveScheduleForTests);
+
+            var capped = new SparseCholesky(28 * 28 * 2, 2);
+            capped.ColumnCopyMinWidth = 6; capped.ColumnCopyMinEntries = 0; capped.ColumnCopyMaxEntries = 10; capped.SolveMinWork = 0;
+            foreach (var (r, cc, re, _) in GridEntries(28, 28, 2, 3, false)) capped.Add(r, cc, re);
+            Assert.True(capped.Factorize());
+            Assert.False(capped.ColumnCopyInUse);
+            AssertSameBits(ReferenceSolve(capped, b), SolveWith(capped.Solve, capped.N, b, 0), "capped");
+        }
+
         [Fact]
         public void SmallSystems_StayOnTheSerialPath_WithTheDefaultThreshold()
         {
@@ -301,6 +327,7 @@ namespace geometry3Sharp.Tests
         [InlineData(30, 30, 1, 8), InlineData(24, 20, 2, 4), InlineData(36, 17, 1, 64), InlineData(14, 14, 3, 2)]
         public void Schedule_TasksAreClosedUnderDescendants_AndBuffersDoNotOverlap(int nx, int ny, int bs, int divisor)
         {
+            if (Environment.ProcessorCount < 2) return;
             var c = BuildReal(nx, ny, bs, 11, 0, divisor, 1000);
             int[][] an = c.AnalysisArrays; int[] snFirst = an[3], snRowPtr = an[5], snRows = an[6], colSnode = an[7];
             var s = c.SolveScheduleForTests;
