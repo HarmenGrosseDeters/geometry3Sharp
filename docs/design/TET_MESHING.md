@@ -3,7 +3,7 @@
 **Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500).
 Stage 1 prerequisites (owner go 2026-11-13): the fTetWild black-box comparison (section 12), the sharp-feature check of #736
 (section 13) and the stage-1 plan with its owner decisions (section 14). Stages 1 and 2 are built since (sections 14.8-16);
-the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8.
+the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8; stage P2 (output and API) with P5(a) is 17.9.
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
@@ -1059,3 +1059,44 @@ the same result, `Similarity.All()` with 2^k bit for bit at the default); `TetMe
 tet >= 10 degrees with the invariants on the procedural set); the mechanism tests of peeling, splits and the diagnosis keep alpha / 20 (`MechanismAlpha`), because at the finer default
 the bad tets they act on are gone. The procedural inputs already reach 10 degrees at / 20, so the unit test that fails on the old
 code is the pinned default; the behaviour change is evidenced by the sample.
+
+### 17.9 Stage P2 (output and API) with P5(a): built (2026-11-18)
+
+Scope as decided (owner 2026-11-18): additive, no change to `MeshTetrahedralization`'s result (`ExistingResult_IsBitForBitTheSameAsBeforeP2` pins a
+fingerprint of the vertices, tets, boundary triangles and counts of the box input, computed on master before the change).
+
+- **Writers** (`TetMeshWriter`, `mesh_ops/TetMeshExport.cs`; text, ASCII, vertices in the "R" round-trip form, `\n` line ends, culture independent):
+  Medit `.mesh` (version 2: Vertices, Triangles, Tetrahedra, End), Gmsh `.msh` 4.1 and 2.2, VTK legacy `.vtk` (unstructured grid, cell types 10 and 5).
+  Our tets are exactly positive in the sense of all four formats (the normal of (v0, v1, v2) by the right-hand rule points to v3), so vertex
+  order is written unchanged; boundary triangles are outward. Indices are 1-based in Medit and Gmsh, 0-based in VTK. **Readers are not provided**
+  (so no `ReaderFuzzTests` entry); the benchmark's readers in `TetFiles.cs` stay a tool.
+- **Refs** (Medit reference, Gmsh physical and elementary tag, VTK cell data `ref`): tet = region id + 1, boundary triangle = marker + 1, so
+  refs start at 1 and 0 means "unmarked" (no markers given, or a marker of -1). Gmsh 4.1 gets one volume entity per region and one surface
+  entity per distinct boundary ref, physical tag = the ref; the entities have no bounding topology (empty lists); all nodes are in one block.
+- **Marker semantics** (`TetMeshMarkers.Compute(tetMesh, input)`): per boundary triangle the nearest input triangle to its **centroid**
+  (`MeshBatchQueries.NearestPointBatch`, the same result serial and parallel); the marker is that triangle's **group id if the input has
+  triangle groups, else its triangle id**; the distance of the centroid is kept. The boundary is the offset wrap (distance about offset ..
+  alpha from the input, 17.2), so a marker is a label for loads and supports, not a claim that the boundary triangle lies on the input
+  triangle; at a crease or a thin part a boundary triangle can take the label of the nearer of two input patches. Per tet a **region id**: the
+  connected component by shared facets, numbered by the lowest tet index. An input without triangles gives -1 and an infinite distance.
+- **P5(a)** (`TetMeshQuality.CheckTargets`, `MeshTetrahedralization.Targets`, `TetTargetReport`): the two targets are the run's own parameters,
+  `SliverDihedralDegrees` (default 10; 0 = off) as the minimum dihedral angle and `MaxRadiusEdgeRatio` (default 2) as the radius-edge bound; no new
+  input parameter was added (the refinement and the report must not disagree about the target). The report counts the tets below / above, the worst
+  values and the flags `MinDihedralMet`, `RadiusEdgeMet`, `Met`, measured on `Result` after stage 2. An off target is met; a tet that is not
+  exactly positive misses both. The flag is a statement about this mesh, not a proof. Example, cube `[-1,1]^3`, defaults: 10820 tets, worst
+  smallest dihedral 10.01 (`MinDihedralMet`), 135 tets above radius-edge 2 (worst 4.38; the tets that the fixed surface leaves, 14.8):
+  `RadiusEdgeMet` is false, which is the honest result, as 17.1 row 3 says (7.3 % at alpha / 20, 2.5 % at / 40 on the subset).
+- **g3cli** `tetmesh` and its MCP tool (`tools/g3cli/TetMeshCommand.cs`): `--format auto|medit|msh41|msh22|vtk`, `--relative-alpha`,
+  `--relative-offset`, `--min-dihedral`, `--max-radius-edge`, `--max-circumradius`, `--max-steiner-points`, `--improve`, `--markers`,
+  `--deviation`, `--self-intersections`; the JSON report has `tet_status`, `wrap_status`, `valid` (exact, `TetMeshQuality.NotValidReason`),
+  `counts` (vertices, tets, boundary triangles, regions), `steps` (the library's counters), `quality`, `targets`, `markers` (kind, distinct count),
+  `deviation` (centroid distances to the input, relative to the diagonal; `hausdorff` with `--deviation`) and the metrics of the input and of the
+  boundary. `point_limit_reached` is a valid result with a warning; other statuses write nothing.
+- **Observation for the owner** (not changed here): `MaxRadiusEdgeRatio` near 1 does not terminate in practical time (cube, alpha / 10: ratio 1.2 and
+  1.5 run in 0.5 s, 1.0 had not finished after 120 s); the floor bounds the points only by `MaxSteinerPoints`. The CLI therefore accepts
+  `--max-radius-edge` in [1.5, 1000]; the library parameter itself is unchanged. If such a value should be refused or capped in the library, that is a
+  separate change (it alters `MeshTetrahedralization`'s behaviour).
+- Tests: `TetMeshExportTests` (parsers of the four formats written for the test, golden text of a two-tet mesh in each format, round trip of a real
+  result: counts, 1-based indices, orientation of every tet, refs; markers against brute force and against the serial single queries; groups vs ids;
+  regions; `Similarity.All()` on markers of the same mesh and 2^k scales on the whole pipeline bit for bit; targets against brute force and against
+  `TetMeshQuality.Measure`; reuse) and `TetMeshCliTests` / `McpTests.TetMeshTool_*` (report, formats, errors, limits, help).

@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `curvature`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, the slope design `slope`, the cut and fill per cell `cell_volumes`, `geodesic`, the batch queries `query3d` (also as depth images from a camera, `--camera`), the polygon booleans, offsets and Minkowski sums `polygon2d`, the solid regions of loops `polygon_solids`, the offset surface `offset`, the 2D convex hull `hull2d`, the TPMS lattices `tpms`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `curvature`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the tetrahedral mesh `tetmesh`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, the slope design `slope`, the cut and fill per cell `cell_volumes`, `geodesic`, the batch queries `query3d` (also as depth images from a camera, `--camera`), the polygon booleans, offsets and Minkowski sums `polygon2d`, the solid regions of loops `polygon_solids`, the offset surface `offset`, the 2D convex hull `hull2d`, the TPMS lattices `tpms`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -993,6 +993,14 @@ implemented), so none is offered. `--epsilon` (default 1e-8, must be > 0) decide
 
 ```
 g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
+```
+
+**Tetrahedral mesh** (`tetmesh`, `MeshTetrahedralization`, `TetMeshMarkers`, `TetMeshWriter`, [TET_MESHING.md](design/TET_MESHING.md) section 17.9): a valid tet mesh of any input (alpha wrap, Delaunay refinement, flips and smoothing),
+written as Medit `.mesh`, Gmsh `.msh` 4.1 (or 2.2, `--format msh22`) or VTK legacy `.vtk`, all ASCII; the library has writers only, no readers. Boundary triangles carry a marker (the group id of the nearest input triangle if the input has triangle groups, else its triangle
+id; nearest to the boundary triangle's centroid, the distance is in the report), tets a region id (connected component by shared facets); in the files the ref is the marker or region id plus one, 0 = unmarked. `targets` is the
+P5(a) statement of the run: the minimum dihedral angle (`--min-dihedral`, default 10) and radius-edge (`--max-radius-edge`, default 2) targets checked on the output, with counts and flags; a false flag is a measured fact (tets at the fixed surface that the refinement could not improve), not a failure.
+```
+g3cli tetmesh part.stl part.msh --relative-alpha 80 --deviation
 ```
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal

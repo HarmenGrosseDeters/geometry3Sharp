@@ -793,6 +793,14 @@ fTetWild is run as a black box only (`.github/workflows/tet-compare.yml`; README
 | Boundary vertex moves with exact checks (swept region against the input, moved boundary triangles against the boundary) | the library's own, as the sharp-feature pass's sweep test (`AlphaWrapFeaturePass`, #736) |
 | The fixed surface (insertions whose cavity reaches the surface undone, on exact labels), peeling of boundary slivers (a 2-2 surface flip) with the exact input test | the library's own; the input test uses `ExactTriangleIntersection` (Devillers and Guigue 2002, above) |
 
+| Tet mesh files (`TetMeshWriter`, stage P2; writers only, no readers) | Source |
+|---|---|
+| Medit `.mesh` ASCII (version 2: Vertices, Triangles, Tetrahedra with references, 1-based, End) | the Medit / libMeshb file format documentation (format only; the libMeshb code was not read) |
+| Gmsh MSH 4.1 ASCII (Entities, Nodes and Elements blocks per entity, physical tags) and MSH 2.2 ASCII (Nodes, Elements with tags, element types 2 and 4) | the Gmsh reference manual, chapter "Gmsh file formats" (format only; Gmsh, meshio and TetGen code was not read) |
+| VTK legacy ASCII, `DATASET UNSTRUCTURED_GRID`, cell types 10 (tetrahedron) and 5 (triangle), `CELL_DATA` scalars | Kitware, *VTK File Formats* (the legacy format description) |
+| Marker and region semantics (the nearest input triangle by `MeshBatchQueries.NearestPointBatch`; regions as connected components by shared facets, union-find) | the library's own; union-find: R. E. Tarjan, *Efficiency of a good but not linear set union algorithm*, J. ACM 22(2), 1975 |
+
+
 | Read for the design |  |
 |---|---|
 | Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
