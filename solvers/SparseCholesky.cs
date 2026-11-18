@@ -191,14 +191,15 @@ namespace g3
         // work below which Solve stays serial, and the task size as a fraction of the work (tests lower them)
         internal long SolveMinWork = CholeskySolveSchedule.DefaultMinWork;
         internal int SolveTaskDivisor = CholeskySolveSchedule.DefaultDivisor;
-        CholeskySolveSchedule solveSchedule; long scheduleMinWork = -1; int scheduleDivisor; readonly object scheduleLock = new object();
+        CholeskySolveSchedule solveSchedule; bool scheduleBuilt; long scheduleMinWork; int scheduleDivisor; readonly object scheduleLock = new object();
 
         internal CholeskySolveSchedule SolveScheduleForTests { get { return getSolveSchedule(); } }
 
         CholeskySolveSchedule getSolveSchedule()
         {
             lock (scheduleLock) {
-                if (scheduleMinWork != SolveMinWork || scheduleDivisor != SolveTaskDivisor) {
+                if (!scheduleBuilt || scheduleMinWork != SolveMinWork || scheduleDivisor != SolveTaskDivisor) {
+                    scheduleBuilt = true;
                     solveSchedule = Environment.ProcessorCount < 2 ? null :
                         CholeskySolveSchedule.Build(snCount, snFirst, snRowPtr, snRows, colSnode, SolveMinWork, SolveTaskDivisor);
                     scheduleMinWork = SolveMinWork; scheduleDivisor = SolveTaskDivisor;
@@ -458,7 +459,7 @@ namespace g3
             snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
             apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;
             Lx = new double[an.ValueCount];
-            scheduleMinWork = -1; planMinWork = -1;
+            scheduleBuilt = false; planBuilt = false;
         }
 
 
@@ -554,6 +555,7 @@ namespace g3
         unsafe bool factorBlock(int J, double[] diagA, out string err)
         {
             err = null;
+            System.Threading.Interlocked.Increment(ref ParallelPanelCalls);
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
             bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
@@ -607,14 +609,17 @@ namespace g3
         // work of an update or of a dense block from which its rows run in parallel, and the width of a panel of columns of the dense factorization
         internal long KernelParallelWork = 300000;
         internal int PanelWidth = 32;
-        CholeskyNumericPlan numericPlan; long planMinWork = -1; int planDivisor;
+        CholeskyNumericPlan numericPlan; bool planBuilt; long planMinWork; int planDivisor;
+        // calls of the parallel kernels (tests: the parallel paths ran)
+        internal int ParallelUpdateCalls, ParallelPanelCalls;
 
         internal CholeskyNumericPlan NumericPlanForTests { get { return getNumericPlan(); } }
 
         CholeskyNumericPlan getNumericPlan()
         {
             if (Environment.ProcessorCount < 2) return null;
-            if (planMinWork != NumericMinWork || planDivisor != NumericTaskDivisor) {
+            if (!planBuilt || planMinWork != NumericMinWork || planDivisor != NumericTaskDivisor) {
+                planBuilt = true;
                 numericPlan = CholeskyNumericPlan.Build(snCount, snFirst, snRowPtr, snRows, colSnode, NumericMinWork, NumericTaskDivisor);
                 planMinWork = NumericMinWork; planDivisor = NumericTaskDivisor;
             }
@@ -667,6 +672,7 @@ namespace g3
                 int K = plan.UpdK[u], p0 = plan.UpdP0[u], p1 = plan.UpdP1[u];
                 int kh = snRowPtr[K + 1] - snRowPtr[K], kw = snFirst[K + 1] - snFirst[K];
                 if (par && (long)(kh - p0) * (p1 - p0) * kw >= KernelParallelWork && kh - p0 >= 8) {
+                    System.Threading.Interlocked.Increment(ref ParallelUpdateCalls);
                     int rows = kh - p0, chunk = Math.Max(4, rows / 48), nch = (rows + chunk - 1) / chunk;
                     gParallel.ForRange(nch, ch => {
                         int a = p0 + ch * chunk;
@@ -686,6 +692,7 @@ namespace g3
         unsafe bool factorBlockParallel(int J, double[] diagA, out string err)
         {
             err = null;
+            System.Threading.Interlocked.Increment(ref ParallelPanelCalls);
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
             bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;

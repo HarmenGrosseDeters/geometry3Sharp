@@ -117,7 +117,7 @@ namespace geometry3Sharp.Tests
                     SameBits(serial.FactorValues, par.FactorValues, "order " + order);
                 } finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
             }
-            for (int rep = 0; rep < 4; ++rep) {
+            for (int rep = 0; rep < 12; ++rep) {
                 var par = Real(e, 26 * 26 * 2, 2, ParallelReal(8, 4), out ok);
                 SameBits(serial.FactorValues, par.FactorValues, "repeat " + rep);
             }
@@ -214,6 +214,124 @@ namespace geometry3Sharp.Tests
             foreach (var (r, cc, re, _) in CholeskyParallelSolveTests.GridEntries(20, 20, 1, 1, false)) c.Add(r, cc, re);
             Assert.True(c.Factorize());
             Assert.Null(c.NumericPlanForTests);
+        }
+
+        // ---- the parallel kernels really ran, and the failure branches
+
+        [Fact]
+        public void ParallelKernels_RunInTheTopSupernodes_Real()
+        {
+            if (OneCpu) return;
+            var e = CholeskyParallelSolveTests.GridEntries(36, 36, 2, 6, false);
+            bool ok;
+            // 4 rows left over in the last block of a panel for some supernode, vector kernels or not
+            foreach (bool scalar in new[] { false, true }) {
+                var p = Real(e, 36 * 36 * 2, 2, ParallelReal(8, 4, scalar), out ok);
+                Assert.True(ok);
+                Assert.True(p.ParallelPanelCalls > 0, "no panel factorization ran");
+                Assert.True(p.ParallelUpdateCalls > 0, "no parallel update ran");
+                var s = Real(e, 36 * 36 * 2, 2, Serial, out ok);
+                SameBits(s.FactorValues, p.FactorValues, "scalar=" + scalar);
+                Assert.Equal(0, s.ParallelPanelCalls + s.ParallelUpdateCalls);
+            }
+        }
+
+        [Fact]
+        public void ParallelKernels_RunInTheTopSupernodes_Hermitian()
+        {
+            if (OneCpu) return;
+            var e = CholeskyParallelSolveTests.GridEntries(36, 36, 1, 6, true);
+            bool ok;
+            var p = Herm(e, 36 * 36, ParallelHerm(8, 4), out ok);
+            Assert.True(ok);
+            Assert.True(p.ParallelPanelCalls > 0 && p.ParallelUpdateCalls > 0);
+            var s = Herm(e, 36 * 36, Serial, out ok);
+            SameBits(s.FactorValues[0], p.FactorValues[0], "re"); SameBits(s.FactorValues[1], p.FactorValues[1], "im");
+        }
+
+        // two failing supernodes chosen from the layout of the plan: a task supernode below / above a top supernode. The error is the one of the
+        // smaller supernode, whichever branch of numericParallel decides
+        [Fact]
+        public void NotPositiveDefinite_TaskAndTopSupernodes_ReportTheSmallerOne()
+        {
+            if (OneCpu) return;
+            int nx = 30, ny = 30, n = nx * ny;
+            bool ok;
+            var good = Real(CholeskyParallelSolveTests.GridEntries(nx, ny, 1, 5, false), n, 1, ParallelReal(16, 4), out ok);
+            var plan = good.NumericPlanForTests; Assert.NotNull(plan);
+            int[][] an = good.AnalysisArrays; int[] perm = an[0], snFirst = an[3];
+            int snCount = snFirst.Length - 1;
+            var isTask = new bool[snCount];
+            for (int t = 0; t < plan.TaskFirst.Length; ++t) for (int J = plan.TaskFirst[t]; J < plan.TaskEnd[t]; ++J) isTask[J] = true;
+            int top = plan.Top.First(), lastTask = Enumerable.Range(0, snCount).Last(J => isTask[J]);
+            int firstTask = Enumerable.Range(0, snCount).First(J => isTask[J]);
+            int lastTop = plan.Top.Last();
+            Assert.True(top < lastTask || firstTask < lastTop);
+            var pairs = new List<(int a, int b)>();
+            foreach (int T in plan.Top) { if (T < lastTask) pairs.Add((T, lastTask)); if (T > firstTask) pairs.Add((firstTask, T)); }
+            Assert.NotEmpty(pairs);
+            foreach (var (a, b) in pairs.Take(6).Concat(pairs.Skip(pairs.Count - 3))) {
+                var e = Failing(nx, ny, 1, new[] { perm[snFirst[a]], perm[snFirst[b]] }, false);
+                bool ok1, ok2;
+                var s = Real(e, n, 1, Serial, out ok1);
+                var p = Real(e, n, 1, ParallelReal(16, 4), out ok2);
+                Assert.False(ok1); Assert.False(ok2);
+                Assert.Equal(s.Error, p.Error);
+                Assert.Contains("at unknown " + perm[snFirst[Math.Min(a, b)]] + ")", p.Error);
+            }
+        }
+
+        // a changed pattern re-analyses (new plan), changed knobs rebuild the plan, between calls
+        [Fact]
+        public void PatternAndKnobChanges_BetweenFactorizations_KeepTheSerialBits()
+        {
+            if (OneCpu) return;
+            int n = 26 * 26;
+            var par = new SparseCholesky(n, 1); ParallelReal(8, 4)(par);
+            var ser = new SparseCholesky(n, 1); Serial(ser);
+            Action<List<(int r, int c, double re, double im)>> both = e => {
+                par.Clear(); ser.Clear();
+                foreach (var (r, c, re, _) in e) { par.Add(r, c, re); ser.Add(r, c, re); }
+                Assert.True(par.Factorize()); Assert.True(ser.Factorize());
+            };
+            both(CholeskyParallelSolveTests.GridEntries(26, 26, 1, 1, false));
+            SameBits(ser.FactorValues, par.FactorValues, "grid 26x26");
+            both(CholeskyParallelSolveTests.GridEntries(13, 52, 1, 1, false));               // other pattern, same n
+            SameBits(ser.FactorValues, par.FactorValues, "grid 13x52");
+            var plan1 = par.NumericPlanForTests;
+            par.NumericTaskDivisor = 4;
+            both(CholeskyParallelSolveTests.GridEntries(13, 52, 1, 2, false));
+            Assert.NotSame(plan1, par.NumericPlanForTests);
+            SameBits(ser.FactorValues, par.FactorValues, "divisor 4");
+            par.NumericMinWork = long.MaxValue;                                              // too little work: the serial loop
+            both(CholeskyParallelSolveTests.GridEntries(13, 52, 1, 3, false));
+            Assert.Null(par.NumericPlanForTests);
+            SameBits(ser.FactorValues, par.FactorValues, "serial by threshold");
+            par.NumericMinWork = -1;                                                         // a negative threshold is a threshold, not a missing plan
+            both(CholeskyParallelSolveTests.GridEntries(26, 26, 1, 4, false));
+            SameBits(ser.FactorValues, par.FactorValues, "min work -1");
+        }
+
+        [Fact]
+        public void Hermitian_RefactorizeAndScale_GiveTheSerialFactor()
+        {
+            if (OneCpu) return;
+            int n = 26 * 26;
+            var par = new SparseHermitianCholesky(n); ParallelHerm(8, 4)(par);
+            var ser = new SparseHermitianCholesky(n); Serial(ser);
+            foreach (int seed in new[] { 1, 2, 3 }) {
+                par.Clear(); ser.Clear();
+                foreach (var (r, c, re, im) in CholeskyParallelSolveTests.GridEntries(26, 26, 1, seed, true, seed == 2 ? 16 : 1)) { par.Add(r, c, re, im); ser.Add(r, c, re, im); }
+                Assert.True(par.Factorize()); Assert.True(ser.Factorize());
+                SameBits(ser.FactorValues[0], par.FactorValues[0], "re " + seed); SameBits(ser.FactorValues[1], par.FactorValues[1], "im " + seed);
+            }
+            // scale 16: the factor is 4 times larger, exactly
+            bool ok;
+            var a = Herm(CholeskyParallelSolveTests.GridEntries(26, 26, 1, 4, true), n, ParallelHerm(8, 4), out ok);
+            var b = Herm(CholeskyParallelSolveTests.GridEntries(26, 26, 1, 4, true, 16), n, ParallelHerm(8, 4), out ok);
+            for (int k = 0; k < 2; ++k)
+                for (int i = 0; i < a.FactorValues[k].Length; ++i)
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a.FactorValues[k][i] * 4), BitConverter.DoubleToInt64Bits(b.FactorValues[k][i]));
         }
 
         // ---- the plan itself
