@@ -30,6 +30,7 @@ on:
       - 'math/AdaptivePredicates.cs'
       - 'math/FixedPoint3.cs'
       - 'math/ExactLimbSigns.cs'
+      - 'math/ExactLimbPrepared.cs'
       - 'math/Generated/*.cs'
       - 'mesh_ops/ExactMesh*.cs'
       - 'mesh_ops/ExactPlanarSimplify.cs'

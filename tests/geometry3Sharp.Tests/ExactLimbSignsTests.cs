@@ -120,6 +120,116 @@ namespace geometry3Sharp.Tests
             Assert.True(zeros > 5000 && fallback > 1500 && onStack > 10000 && decidedByD > 5000, $"{zeros} zeros, {fallback} beyond the limit, {onStack} inside, {decidedByD} decided by D");
         }
 
+        // #1047: the plane and the point prepared once (PreparedLimbs) give the sign of PlaneSide on the same eight integers: random
+        // operands with exact zeros, points on and one unit off the plane, operands at the limb boundaries, sums of limbs on both
+        // sides of the stack limit; one prepared plane against many prepared points and the reverse (the sharing of the real use)
+        [Fact]
+        public void PreparedPlaneSide_MatchesPlaneSide()
+        {
+            var r = new Random(41);
+            int zeros = 0, fallback = 0, onStack = 0, negative = 0, positive = 0;
+            BigInteger[] edge = { 0, 1, -1, BigInteger.One << 63, -(BigInteger.One << 63), (BigInteger.One << 64) - 1, BigInteger.One << 64, -(BigInteger.One << 127), Full(4), -Full(4), Full(5) + 1 };
+            for (int i = 0; i < 20000; ++i) {
+                Func<int> width = () => ((i / 4) % 5 == 4) ? r.Next(64 * 28, 64 * 48) : Width(r);
+                BigInteger[] v = new BigInteger[8];
+                for (int k = 0; k < 8; ++k)
+                    v[k] = (i % 7 == 3) ? edge[r.Next(edge.Length)] : Rand(r, width());
+                if (i % 4 == 1) { v[7] = BigInteger.One; v[3] = v[0] * v[4] + v[1] * v[5] + v[2] * v[6]; }
+                else if (i % 4 == 2) { v[7] = BigInteger.One; v[3] = v[0] * v[4] + v[1] * v[5] + v[2] * v[6] + (r.Next(2) == 0 ? 1 : -1); }
+                int expected = ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+                Assert.True(expected == (v[0] * v[4] + v[1] * v[5] + v[2] * v[6] - v[3] * v[7]).Sign, $"case {i}, the reference");
+                var plane = new PreparedLimbs(v[0], v[1], v[2], v[3]);
+                var point = new PreparedLimbs(v[4], v[5], v[6], v[7]);
+                Assert.True(expected == PreparedLimbs.PlaneSide(plane, point), $"case {i}");
+                // (the same prepared objects again, and against the operands of the next case: nothing is consumed or left behind)
+                Assert.True(expected == PreparedLimbs.PlaneSide(plane, point), $"case {i}, again");
+                int total = 0;
+                for (int k = 0; k < 8; ++k) total += Limbs(v[k]);
+                if (total > ExactLimbSigns.MaxOperandLimbs) fallback++; else onStack++;
+                if (expected == 0) zeros++; else if (expected < 0) negative++; else positive++;
+            }
+            Assert.True(zeros > 2000 && negative > 3000 && positive > 3000 && fallback > 1000 && onStack > 8000, $"{zeros} zeros, {negative} negative, {positive} positive, {fallback} beyond the limit, {onStack} inside");
+
+            // one plane against many points, and one point against many planes
+            var rr = new Random(42);
+            BigInteger[] pl = { Rand(rr, 200), Rand(rr, 190), Rand(rr, 180), Rand(rr, 400) };
+            var preparedPlane = new PreparedLimbs(pl[0], pl[1], pl[2], pl[3]);
+            for (int i = 0; i < 2000; ++i) {
+                BigInteger x = Rand(rr, 150), y = Rand(rr, 150), z = Rand(rr, 150), w = BigInteger.Abs(Rand(rr, 100)) + 1;
+                Assert.True(ExactLimbSigns.PlaneSide(pl[0], pl[1], pl[2], pl[3], x, y, z, w) == PreparedLimbs.PlaneSide(preparedPlane, new PreparedLimbs(x, y, z, w)), $"one plane, point {i}");
+                var preparedPoint = new PreparedLimbs(x, y, z, w);
+                BigInteger a = Rand(rr, 120), b = Rand(rr, 120), c = Rand(rr, 120), d = Rand(rr, 300);
+                Assert.True(ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w) == PreparedLimbs.PlaneSide(new PreparedLimbs(a, b, c, d), preparedPoint), $"one point, plane {i}");
+            }
+        }
+
+        // #1047: the stack budget: operands whose limbs sum to exactly MaxOperandLimbs (the stack path) and to one more (the BigInteger
+        // expression), and a plane alone beyond the budget (nothing is loaded for it)
+        [Fact]
+        public void PreparedPlaneSide_StackBudgetBoundary()
+        {
+            var r = new Random(44);
+            int atLimit = 0, beyond = 0;
+            for (int i = 0; i < 400; ++i) {
+                // eight operands of n limbs each, one of them widened so that the sum is 320 (+ 0 or 1)
+                int extra = i % 2;
+                BigInteger[] v = new BigInteger[8];
+                for (int k = 0; k < 8; ++k)
+                    v[k] = Full(40) - r.Next(1000);                          // limbs_of = 41: 40 limbs of magnitude plus the sign bit... checked below
+                int total = 0;
+                for (int k = 0; k < 8; ++k) total += Limbs(v[k]);
+                // (tune the last operand so that the total is the limit or one above)
+                int want = ExactLimbSigns.MaxOperandLimbs + extra;
+                int n = Limbs(v[7]) + (want - total);
+                v[7] = (BigInteger.One << (64 * (n - 1))) + r.Next(1, 1000);
+                for (int k = 0; k < 7; ++k) if (r.Next(2) == 0) v[k] = -v[k];
+                total = 0;
+                for (int k = 0; k < 8; ++k) total += Limbs(v[k]);
+                Assert.Equal(want, total);
+                if (total == ExactLimbSigns.MaxOperandLimbs) atLimit++; else beyond++;
+                int expected = (v[0] * v[4] + v[1] * v[5] + v[2] * v[6] - v[3] * v[7]).Sign;
+                Assert.Equal(expected, PreparedLimbs.PlaneSide(new PreparedLimbs(v[0], v[1], v[2], v[3]), new PreparedLimbs(v[4], v[5], v[6], v[7])));
+                Assert.Equal(expected, ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]));
+            }
+            Assert.True(atLimit == 200 && beyond == 200);
+            // a plane of its own beyond the budget
+            BigInteger big = (BigInteger.One << (64 * 330)) + 12345;
+            BigInteger one = new BigInteger(7), two = new BigInteger(-3);
+            Assert.Equal((big * 5 + one * two + 1 * 9 - big * 1).Sign, PreparedLimbs.PlaneSide(new PreparedLimbs(big, one, 1, big), new PreparedLimbs(5, two, 9, 1)));
+        }
+
+        // #1047: prepared operands are shared by the threads of the classification: the sign does not depend on the schedule
+        [Fact]
+        public void PreparedPlaneSide_IsThreadSafe()
+        {
+            var r = new Random(43);
+            var planes = new PreparedLimbs[16];
+            var points = new PreparedLimbs[64];
+            var raw = new BigInteger[16][];
+            for (int i = 0; i < planes.Length; ++i) {
+                raw[i] = new[] { Rand(r, 128), Rand(r, 128), Rand(r, 128), Rand(r, 300) };
+                planes[i] = new PreparedLimbs(raw[i][0], raw[i][1], raw[i][2], raw[i][3]);
+            }
+            var pr = new BigInteger[64][];
+            for (int j = 0; j < points.Length; ++j) {
+                pr[j] = new[] { Rand(r, 100), Rand(r, 100), Rand(r, 100), BigInteger.Abs(Rand(r, 60)) + 1 };
+                points[j] = new PreparedLimbs(pr[j][0], pr[j][1], pr[j][2], pr[j][3]);
+            }
+            var expected = new int[16, 64];
+            for (int i = 0; i < 16; ++i)
+                for (int j = 0; j < 64; ++j)
+                    expected[i, j] = ExactLimbSigns.PlaneSide(raw[i][0], raw[i][1], raw[i][2], raw[i][3], pr[j][0], pr[j][1], pr[j][2], pr[j][3]);
+            int bad = 0;
+            System.Threading.Tasks.Parallel.For(0, 8, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 8 }, t => {
+                for (int rep = 0; rep < 300; ++rep)
+                    for (int i = 0; i < 16; ++i)
+                        for (int j = 0; j < 64; ++j)
+                            if (PreparedLimbs.PlaneSide(planes[(i + t) % 16], points[(j + rep) % 64]) != expected[(i + t) % 16, (j + rep) % 64])
+                                System.Threading.Interlocked.Increment(ref bad);
+            });
+            Assert.Equal(0, bad);
+        }
+
         [Fact]
         public void Dot_MatchesBigInteger()
         {

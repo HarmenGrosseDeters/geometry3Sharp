@@ -1119,6 +1119,34 @@ raw rows in `perf/probe_2026-11-16/`.
 `touch_only` asks `TriangleTriangleFilter` before the exact test since 2026-11-16 (the former `G3_PAIR_FILTER` experiment, now the code path; `pair_probe.patch` applies on top of it): before / after on the T6 set in
 section 7.5 of that document, raw rows in `perf/touch_only_filter_2026-11-16/` (pairs phase -21 % at 1 thread, -13 % at 4; whole boolean -8.8 % / -1.3 %, hashes equal).
 
+## Prepared plane-side operands (#1047, 2026-11-18)
+
+The open-mesh pass of the classification (L2's tracing) takes the exact side of a piece centroid against a triangle's plane
+(`ExactLimbSigns.PlaneSide`, 7.03 M exact calls on Thingi10K 42327 with its rotated copy). Every call loaded its eight BigInteger
+operands into limbs (`limbs_of`, `load`), though one plane meets many centroids and one centroid (274 k of them) about 25 planes.
+`PreparedLimbs` (`math/ExactLimbPrepared.cs`) loads the four limbs of a plane (once per input triangle, lazily, shared by the threads)
+and of a centroid (once per `Center`) and runs the same `FixedArith` operations in the same order, so the signs are those of
+`PlaneSide`. The same prepared operands serve the exact side of `front_crossings`.
+
+Upper bound first (master 3c6e148e, 4-core container, `DOTNET_TieredPGO=0`, union 23.1 s median; one extra, discarded call per site, wall
+delta of the stage, raw rows `perf/prepared_planeside_2026-11-18/bounds_*.txt`, modes 0 baseline, 1 extra `PlaneSide`, 2 extra load only):
+extra `PlaneSide` +1.34 s in the open stage (+1.23 s total, 5.3 %), extra load only +1.13 s, so about 85 % of the exact stage is loading.
+Normal stratum (T6, 98 pairs, 294 booleans, 22.8 s): stacks 0.5 %, open pass 0 ms; no gain there, no risk.
+
+A/B on 42327, 5 processes per cell alternating base / new, medians (ms), `run A.off B.off <op>`, raw rows `perf/prepared_planeside_2026-11-18/ab.txt`:
+
+| op | PGO | total base | total new | | open stage base | open stage new | classification base | classification new |
+|---|---|---|---|---|---|---|---|---|
+| union | off | 24516 | 23667 | -3.5 % | 5129 | 4727 | 9306 | 9106 |
+| union | default | 23763 | 22920 | -3.5 % | 5355 | 4790 | 9472 | 8856 |
+| intersection | off | 19610 | 19053 | -2.8 % | 5455 | 4699 | 9781 | 8865 |
+| difference | off | 20198 | 19413 | -3.9 % | 5602 | 4560 | 9752 | 8831 |
+
+The result files of base and new are byte-identical for all four cells (`cmp`), and the `profile` hashes of all 294 T6 booleans are equal
+(0 differ; the T6 set does not reach L2's tracing, so the unit and end-to-end tests below cover the changed path). The gain is the
+open stage (-8 to -19 %), below the 5 % bound of the whole operation, as expected; it is not enough for the 10 % bar and was approved as an
+exception by the owner (2026-11-18).
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,

@@ -579,6 +579,7 @@ namespace g3
             PerPatchMismatches = 0;
             tracedCount = tracedDirect = tracedCarried = tracedExactCentroids = tracedCrossSteps = tracedCrossFallbacks = tracedCrossCandidates = tracedClusters = 0;
             coplanarTests = tracedExactSides = 0;
+            planeLimbs = null;
             TracedMismatches = 0;
             TracedMismatchMargins = null;
             antipodalExact.Clear();
@@ -690,6 +691,7 @@ namespace g3
             // zeros of a piece's own or a coplanar triangle included; the exact containment tests of the coplanar stacks)
             Counts["l2_exact_sides"] = tracedExactSides;
             Counts["coplanar_tests"] = coplanarTests;
+            planeLimbs = null;       // (#1047: the planes' limbs are not needed after the classification)
             Counts["antipodal_snapped"] = antipodalSnapped;
             // (lever 1: the evaluations decided by the hierarchical sum, and those it handed to the full sum)
             Counts["antipodal_hierarchical"] = hierUsed;
@@ -3280,6 +3282,27 @@ namespace g3
             return true;
         }
 
+        // #1047: the plane of input triangle ui with its operands' limbs loaded (PreparedLimbs), built when its first exact side
+        // needs it and shared by the threads: the cache holds immutable objects, and two threads that build one at once build
+        // equal ones (one wins; the loser's is dropped)
+        PreparedLimbs[] planeLimbs;
+
+        PreparedLimbs plane_limbs(ExactMeshArrangement.InputTriangle U, int ui)
+        {
+            PreparedLimbs[] cache = System.Threading.Volatile.Read(ref planeLimbs);
+            if (cache == null) {
+                System.Threading.Interlocked.CompareExchange(ref planeLimbs, new PreparedLimbs[arr.Triangles.Count], null);
+                cache = planeLimbs;
+            }
+            PreparedLimbs l = System.Threading.Volatile.Read(ref cache[ui]);
+            if (l == null) {
+                ExactMeshArrangement.Plane pl = U.P;
+                l = new PreparedLimbs(pl.A, pl.B, pl.C, pl.D);
+                System.Threading.Volatile.Write(ref cache[ui], l);
+            }
+            return l;
+        }
+
         // the side of the piece centroid c of triangle U's plane: the filter of -orient3d(corners, c) on frame coordinates
         // with their error bounds (orient3d's sign is that of -(b - a) x (c - a) . (d - a), the plane's normal), else 0 where
         // U is the piece's input triangle (src) or lies exactly in its plane (the centroid lies in that plane; T5's steps
@@ -3304,8 +3327,9 @@ namespace g3
             if (ui == src || interiorSide(ui, src) == 0)
                 r = 0;
             else {
-                ExactPoint3 P = c.P;
-                r = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+                // (#1047: the operands' limbs of the plane and of the centroid are loaded once, not on each of the up to
+                // dozens of sides that share them; the same integers and FixedArith operations, so the same sign)
+                r = PreparedLimbs.PlaneSide(plane_limbs(U, ui), c.Prepared);
             }
             if (memo != null && piece >= 0)
                 memo[key] = r;
@@ -3514,7 +3538,7 @@ namespace g3
                     sides++;
                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
                     if (sp == 2) {
-                        sp = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+                        sp = PreparedLimbs.PlaneSide(plane_limbs(U, ti), center.Prepared);
                         exactSides++;
                     }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
@@ -3572,6 +3596,22 @@ namespace g3
             // (T5: the same piece in another input triangle's frame; its exact centroid is the other's, computed once)
             readonly Center same;
             public Center(ExactMeshBoolean owner, ExactMeshArrangement.OutputTriangle piece, LocalFrame frame, Center same) : this(owner, piece, frame) { this.same = same; }
+            PreparedLimbs prepared;
+            /// <summary> P's limbs, loaded once (#1047: a centroid meets the planes of many triangles) </summary>
+            public PreparedLimbs Prepared
+            {
+                get {
+                    if (same != null)
+                        return same.Prepared;
+                    PreparedLimbs l = System.Threading.Volatile.Read(ref prepared);
+                    if (l == null) {
+                        ExactPoint3 q = P;
+                        l = new PreparedLimbs(q.X, q.Y, q.Z, q.W);
+                        System.Threading.Volatile.Write(ref prepared, l);
+                    }
+                    return l;
+                }
+            }
             public ExactPoint3 P
             {
                 get {

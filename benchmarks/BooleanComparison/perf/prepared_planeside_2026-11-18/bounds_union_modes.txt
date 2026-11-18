@@ -1,0 +1,19 @@
+0 22888 stacks 3100 open 4636 cls 8686
+1 24859 stacks 3169 open 6467 cls 10571
+2 25069 stacks 3268 open 6370 cls 10545
+3 25984 stacks 4313 open 5460 cls 11045
+4 24221 stacks 3319 open 5610 cls 9853
+5 24475 stacks 3753 open 5497 cls 10266
+0 23155 stacks 2996 open 5105 cls 8960
+1 24328 stacks 3183 open 6369 cls 10456
+2 24077 stacks 2997 open 6211 cls 10108
+3 24521 stacks 4029 open 5260 cls 10420
+4 22645 stacks 2993 open 5028 cls 8919
+5 23685 stacks 3654 open 4876 cls 9512
+0 23102 stacks 3054 open 5079 cls 9042
+1 24150 stacks 3197 open 6416 cls 10433
+2 23026 stacks 2906 open 5751 cls 9540
+3 23902 stacks 3850 open 5090 cls 10058
+4 23077 stacks 3093 open 5322 cls 9360
+5 23035 stacks 3512 open 5167 cls 9594
+done

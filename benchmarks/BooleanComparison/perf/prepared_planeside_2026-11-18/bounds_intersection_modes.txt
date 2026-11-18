@@ -1,0 +1,6 @@
+I0 18881 stacks 3183 open 5174 cls 9297
+I1 19159 stacks 3038 open 6083 cls 9931
+I3 19636 stacks 3849 open 5069 cls 9975
+I0 19200 stacks 3336 open 5120 cls 9362
+I1 20188 stacks 3211 open 6366 cls 10509
+I3 20597 stacks 4111 open 5220 cls 10394
