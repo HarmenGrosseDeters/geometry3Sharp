@@ -66,7 +66,7 @@ namespace gs
         /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound, if set, is the certified one (#848). Every
         /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
         /// meshes that touch.
-        /// Off by default (the results are then as before, bit for bit). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
+        /// Off by default (the results are then as before, bit for bit; with the internal PatchBound option too, the certified patch bound gives tighter values, #848). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
         /// </summary>
         public bool CertifiedUpper = false;
 

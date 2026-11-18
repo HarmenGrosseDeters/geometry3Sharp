@@ -142,6 +142,14 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < 3; ++i) { p[i] = V(rnd, e); q[i] = V(rnd, e); }
                 CheckDet(p, q, $"exponent {e}, it {it}");
             }
+            // a large first row against two tiny ones: the products of the tiny rows (2^-1080 and below) lose up to 2^-1075 each, times the
+            // first row's entries (2^500): an error of 2^-575 against a permanent of 2^-580, which only the absolute term A (about
+            // 2^-570) covers; without A (or with a sixteenth of it) the bound is below the exact error
+            for (int it = 0; it < 300; ++it) {
+                Vector3d[] bp = { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero };
+                Vector3d[] bq = { V(rnd, 500 + rnd.Next(-3, 4)), V(rnd, -541 + rnd.Next(-3, 4)), V(rnd, -541 + rnd.Next(-3, 4)) };
+                CheckDet(bp, bq, "big first row " + it);
+            }
             // 2^-540: the products are 2^-1080 and below, the determinant 2^-1620: computed 0, exact nonzero, within A
             Vector3d t = new Vector3d(Math.Pow(2, -540), 0, 0);
             Vector3d[] z = { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero };
@@ -277,14 +285,11 @@ namespace geometry3Sharp.Tests
         public void PatchBound_Horizontal_NotBelowTheExactGap_AndTight()
         {
             var rnd = new Random(8480);
-            int finite = 0, n = 0;
             for (int it = 0; it < 24; ++it) {
                 DMesh3 target = Heightfield(6, rnd, 0.9);
                 var (p0, p1, p2) = RandomQ(rnd, 0.75, 0, 0);
                 double u = Patch(target, p0, p1, p2);
-                n++;
                 Assert.True(MathUtil.IsFinite(u), $"it {it}: {u}");
-                finite++;
                 var tree = new DMeshAABBTree3(target, true);
                 double unc = new TriangleDeviationBounds(target).patch_bound(p0, p1, p2, Nearest(tree, p0), Nearest(tree, p1), Nearest(tree, p2));
                 Assert.True(Math.Abs(u - unc) <= 1e-9, $"it {it}: certified {u:R}, uncertified {unc:R}");
@@ -296,7 +301,44 @@ namespace geometry3Sharp.Tests
                 // (the corners themselves)
                 foreach (Vector3d c in new[] { p0, p1, p2 }) AssertGapWithin(target, c.x, c.y, 0.75, u, "corner");
             }
-            Assert.Equal(n, finite);
+        }
+
+
+        /// <summary> the same with doubles that are not dyadic: a jittered heightfield (x, y, z random doubles) and a horizontal triangle
+        /// with random double corners, so every difference rounds and the bound's rounding steps are live. Not below the exact gap at
+        /// random double samples (exact arithmetic), and within 1e-9 of the uncertified patch bound </summary>
+        [Fact]
+        public void PatchBound_NonDyadic_NotBelowTheExactGap_AndTight()
+        {
+            var rnd = new Random(8487);
+            int done = 0;
+            for (int it = 0; it < 30; ++it) {
+                DMesh3 target = Heightfield(6, rnd, 0.9);
+                foreach (int v in target.VertexIndices().ToList()) {
+                    Vector3d p = target.GetVertex(v);
+                    bool border = Math.Abs(p.x) >= 3 || Math.Abs(p.y) >= 3;
+                    target.SetVertex(v, new Vector3d(p.x + (border ? 0 : 0.3 * (rnd.NextDouble() - 0.5)), p.y + (border ? 0 : 0.3 * (rnd.NextDouble() - 0.5)), p.z + 0.01 * rnd.NextDouble()));
+                }
+                double z0 = 0.7 + 0.1 * rnd.NextDouble();
+                Vector3d[] c = new Vector3d[3];
+                for (int i = 0; i < 3; ++i) c[i] = new Vector3d(2.4 * rnd.NextDouble() - 1.2, 2.4 * rnd.NextDouble() - 1.2, z0);
+                double area2 = (c[1].x - c[0].x) * (c[2].y - c[0].y) - (c[1].y - c[0].y) * (c[2].x - c[0].x);
+                if (Math.Abs(area2) < 0.3) continue;
+                if (area2 < 0) { var s = c[1]; c[1] = c[2]; c[2] = s; }
+                double u = Patch(target, c[0], c[1], c[2]);
+                Assert.True(MathUtil.IsFinite(u), $"it {it}: {u}");
+                var tree = new DMeshAABBTree3(target, true);
+                double unc = new TriangleDeviationBounds(target).patch_bound(c[0], c[1], c[2], Nearest(tree, c[0]), Nearest(tree, c[1]), Nearest(tree, c[2]));
+                Assert.True(Math.Abs(u - unc) <= 1e-9, $"it {it}: certified {u:R}, uncertified {unc:R}");
+                for (int k = 0; k < 60; ++k) {
+                    double a = rnd.NextDouble(), b = rnd.NextDouble();
+                    if (a + b > 1) { a = 1 - a; b = 1 - b; }
+                    double x = c[0].x + a * (c[1].x - c[0].x) + b * (c[2].x - c[0].x), y = c[0].y + a * (c[1].y - c[0].y) + b * (c[2].y - c[0].y);
+                    if (InsideQ(c[0], c[1], c[2], x, y)) AssertGapWithin(target, x, y, z0, u, "non-dyadic " + it);
+                }
+                done++;
+            }
+            Assert.True(done >= 20, done.ToString());
         }
 
         /// <summary> tilted triangles over the heightfield: not below the exact distance of dyadic samples of the triangle </summary>
@@ -310,6 +352,9 @@ namespace geometry3Sharp.Tests
                 var (p0, p1, p2) = RandomQ(rnd, 0.5 + rnd.Next(0, 8) / 16.0, sx, sy);
                 double u = Patch(target, p0, p1, p2);
                 Assert.True(MathUtil.IsFinite(u), $"it {it}: {u}");
+                var ttree = new DMeshAABBTree3(target, true);
+                double unc = new TriangleDeviationBounds(target).patch_bound(p0, p1, p2, Nearest(ttree, p0), Nearest(ttree, p1), Nearest(ttree, p2));
+                Assert.True(Math.Abs(u - unc) <= 1e-9, $"it {it}: certified {u:R}, uncertified {unc:R}");
                 int tested = 0;
                 for (int i = -80; i <= 80; i += 3)
                     for (int j = -80; j <= 80; j += 3) {
@@ -363,6 +408,20 @@ namespace geometry3Sharp.Tests
             // the opposite order of the corners: the normal points down and the field is seen from below, with the opposite orientation
             // of every target triangle: T(t) < 0 for all of them, so none joins S
             Assert.True(double.IsPositiveInfinity(Patch(field, p0, p2, p1)), "reversed corners");
+        }
+
+        /// <summary> no witness: a triangle in the bounding box of the only target triangle, beyond its hypotenuse. No boundary edge meets it
+        /// (the hypotenuse's line separates), but no vertex lies inside it and no corner inside the target triangle: nothing is under it,
+        /// +infinity (without the witness test the coverage would be taken for granted) </summary>
+        [Fact]
+        public void PatchBound_NothingUnderneath_IsInfinite()
+        {
+            var target = new DMesh3();
+            target.AppendTriangle(target.AppendVertex(new Vector3d(0, 0, 0)), target.AppendVertex(new Vector3d(4, 0, 0)), target.AppendVertex(new Vector3d(0, 4, 0)));
+            Vector3d p0 = new Vector3d(3, 3, 0.5), p1 = new Vector3d(3.75, 3, 0.5), p2 = new Vector3d(3, 3.75, 0.5);
+            Assert.True(double.IsPositiveInfinity(Patch(target, p0, p1, p2)));
+            // (the same triangle moved inside the target triangle is covered: finite)
+            Assert.True(MathUtil.IsFinite(Patch(target, new Vector3d(0.5, 0.5, 0.5), new Vector3d(1.25, 0.5, 0.5), new Vector3d(0.5, 1.25, 0.5))));
         }
 
         /// <summary> large coordinates (UTM offsets, 2^20): the differences are exact there, the permanent small; and the exact gap

@@ -513,3 +513,12 @@ MUTANT_TABLE
 5. Monotonicity of lambda and the handling of overflow in `P1 - R1` (10.2).
 6. The fast path of 10.1.
 7. The one-sided candidate rules: each exclusion needs a certified strict sign.
+
+Known limits (review of the first push): (a) only `CertifiedDet3.cs` is in the exact-code list of `.editorconfig`; the one-`Up`-per-operation
+arithmetic of `gapV`, `gapC` and the (Q) value lives in `TriangleDeviationBounds.cs`, where the FMA and `float` bans do not apply:
+sound because the JIT does not contract, guarded by review only. (b) The derivation counts one rounding per operation; on net48 x86
+(x87) extended precision only improves that except for double rounding of subnormals, which the five-rounding count and the factor 4
+in A absorb; CI runs net48 on x64 only. (c) The tests that keep the rounding steps of `gapC` live (`PatchBound_NonDyadic_*`) compare
+with the uncertified patch bound to 1e-9 and sample the exact gap; a dropped `Up` is only visible to the mutants, not to a test
+(rounding up by one ulp cannot be observed through a sample). The `hi` overflow branch (`P1 - R1` infinite) is not reached by any test
+(it needs determinants near 1e308 that are also certified opposite); it is a reviewed-only branch.
