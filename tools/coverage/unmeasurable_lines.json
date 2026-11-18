@@ -465,5 +465,55 @@
     ],
     "reason": "a warning of method mesh_offset that no test input reaches: the band bound is finite for a finite input, and the command enforces a cell of at most half the distance, with which the band is certified and the repair leaves no self-intersection on every procedural input tried (cube, sphere, offsets outward and inward); the warning reports it if the library's guarantee fails on another input. Not proven unreachable: a test that finds such an input replaces the entry",
     "approved_in": "#959"
+  },
+  {
+    "file": "comp_geom/SnapRounding2.cs",
+    "text": "if (wider.Count == 0) throw new InvalidOperationException(\"snap rounding: no pixel to restore critical pixel \" + I(cp) + \" on the chain of segment \"",
+    "after": [
+      "}",
+      "if (!hot.Contains(p) && Meets(X[sa], Y[sa], X[sb], Y[sb], p, true) && Between(sa, sb, a, b, p)) wider.Add(p);"
+    ],
+    "reason": "an invariant guard (the throw's own message cites the proof, SRR Proposition 4.9): the restoration of a critical pixel always finds a pixel of the segment's envelope within two pixels that is not hot yet, so no tested input reaches the throw. Not proven unreachable here: a test that finds such an input replaces the entry; it is kept to fail loudly if the proof's premise (exact integer predicates, the pixels of the input) is ever broken. Exact code: a test cannot create the case, and the guard is not deleted for no gain",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "comp_geom/SnapRounding2.cs",
+    "text": "static string I((long, long) p) => \"(\" + I(p.Item1) + \", \" + I(p.Item2) + \")\";",
+    "after": [
+      "static string I(long v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);",
+      "/// <summary> culture-invariant text of an integer or a pixel (the minus sign of a culture is not the same everywhere; O1 of DETERMINISM_PROOF.md 5.4) </summary>"
+    ],
+    "reason": "the text of a pixel for the message of the guard at 'no pixel to restore critical pixel' (the invariant guard of Proposition 4.9, listed with it): used nowhere else, so it runs only if the guard is reached",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "mesh_ops/SolidBooleanPipeline.cs",
+    "text": "return fail(PipelineStatus.OpenInput, op.Error, total);",
+    "after": [
+      "if (Array.IndexOf(Report.InputClosed, false) < 0)",
+      "// (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)"
+    ],
+    "reason": "dead branch: it sits inside `if (anyOpen && ...)`, and anyOpen is true only if some Report.InputClosed entry is false, so `Array.IndexOf(Report.InputClosed, false) < 0` can never hold. Listed at the coordinator's request (owner decision on deletion pending); not deleted in this tests-only PR",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "mesh/Reducer.cs",
+    "text": "return false;",
+    "after": [
+      "if (et.a == DMesh3.InvalidID)",
+      "Index2i et = mesh.GetEdgeT(eab);"
+    ],
+    "reason": "invariant guard: DMesh3 keeps an edge only while at least one triangle uses it (the edge is removed with its last triangle), so an edge found by FindEdge always has a first triangle",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "mesh/Reducer.cs",
+    "text": "throw new InvalidOperationException(\"Reducer.PairCoincidentVertices: the twin edge could not be collapsed after the edge (internal error)\");",
+    "after": [
+      "if (mesh.CollapseEdge(iKeep2, iCollapse2, out info2) != MeshResult.Ok)",
+      "pairKeep2 = iKeep2; pairCollapse2 = iCollapse2;"
+    ],
+    "reason": "invariant guard (its message says internal error): the twin's collapse was accepted by MeshAcceptsCollapse before the pair was started, and the first collapse does not touch the twin's one-ring (independence check), so the second collapse cannot fail; a test cannot create the case. Not proven unreachable beyond that argument: a test that finds such an input replaces the entry",
+    "approved_in": "#1124"
   }
 ]
