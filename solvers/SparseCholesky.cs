@@ -555,7 +555,6 @@ namespace g3
         unsafe bool factorBlock(int J, double[] diagA, out string err)
         {
             err = null;
-            System.Threading.Interlocked.Increment(ref ParallelPanelCalls);
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
             bool vec = !ForceScalarKernels && SparseCholeskyKernels.VectorPath;
