@@ -78,6 +78,7 @@ static partial class Program
     static void Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "predcost") { PredCost(); return; }
+        if (args.Length > 0 && args[0] == "certpatch") { CertifiedPatchRows(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0 && args[0] == "patch") { PatchOracle(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0) Runs = int.Parse(args[0]);
         Console.WriteLine($"| case | sym | lower (default) | upper default → certified | subdivisions | ms, median of {Runs} | time |");

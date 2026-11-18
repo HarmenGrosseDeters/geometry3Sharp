@@ -157,9 +157,11 @@ near-right ones.
     other piece covers it.
   - The early exit `best ≤ threshold` only chooses an option. Whatever it chooses is bounded with B2.
 - **The result:** u = min(u0, u1, u2), each +∞ where it cannot be bounded.
-- **No patch bound (owner, 2026-11-13; review M3).** `patch_bound` carries an estimated slack, not a derived one, so it
-  can push u below the true maximum. Under `Certified` it is skipped in code, whatever `PatchBound` says
-  (`CertifiedUpper_IgnoresThePatchBound`). Its certification is the follow-up #848.
+- **The patch bound (#848).** The uncertified `patch_bound` carries an estimated slack, not a derived one, so it can push u
+  below the true maximum (review M3); under `Certified` it was skipped (owner, 2026-11-13). Since #848, with `PatchBound`
+  set, `certified_upper` uses `certified_patch_bound` instead: every step certified, derivation in
+  [CERTIFIED_PATCH_BOUND.md](CERTIFIED_PATCH_BOUND.md) (sections 3 to 6 and 10). `u = min(u, max(dmax, u_patch))`, with
+  `u_patch` +infinity where anything cannot be shown (`CertifiedUpper_UsesTheCertifiedPatchBound`).
 - **Corner distances:** `OneSided.query` computes U_i as B1 of each point to the triangle the tree search returns. Any
   triangle gives an upper bound of d(x, B), and B2 reuses U_i only for that triangle. The float `dist` keeps feeding the
   computed `Lower`, which L certifies (#738).
@@ -248,7 +250,7 @@ prototype. That bound is new and needs its own review.
   - ordinary inputs close to the default;
   - `Similarity.All()`, bit for bit at 2^k;
   - reuse, serial and fresh instances;
-  - the patch bound is ignored.
+  - the patch bound under `CertifiedUpper` is the certified one (#848; `CertifiedPatchBoundTests`).
 
 Mutation: section 11.
 
@@ -265,9 +267,8 @@ mutants are among them: the parents' off with one end only (either end), and the
 - **The non-acute test on `Lo` instead of `Hi`.** The mutant takes an undecided, near-right triangle for a right one and
   returns e^/2. For such a triangle R exceeds l/2 by second order in the angle's distance from 90° (about ε² l). The
   rounding up of e^ covers that, so the mutant is equivalent in doubles. The `Hi` test is the derived one.
-- **The `!Certified` guards on the patch bound** (in `MeshHausdorffDistance` and `UpperBound`): equivalent.
-  `certified_upper` returns before the patch bound is reached, so the patch bound is skipped by construction. The guards
-  keep it explicit.
+- **The `!Certified` guards on the patch bound** (in `MeshHausdorffDistance` and `UpperBound`): removed by #848, which uses
+  the certified patch bound under `Certified` (its mutation record is section 10 of CERTIFIED_PATCH_BOUND.md).
 
 **Killed** (each named in the PR):
 - B1's enclosure end, the clamp's Down and its Sterbenz threshold, the edge length's end;
