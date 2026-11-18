@@ -127,6 +127,7 @@ namespace g3
         {
             Error = null;
             factored = false;
+            colCopyBuilt = false; colOff = null; colVal = null;
             int[] colPtr, row; double[] val;
             compress(out colPtr, out row, out val);
             if (Error != null)
@@ -149,38 +150,153 @@ namespace g3
             double[] y = new double[N];
             for (int k = 0; k < N; ++k)
                 y[k] = b[perm[k]];
-            // L y = Pb
-            for (int J = 0; J < snCount; ++J) {
-                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
-                for (int c = 0; c < w; ++c) {
-                    double sum = y[f + c];
-                    int co = off + c * w;
-                    for (int t = 0; t < c; ++t)
-                        sum -= Lx[co + t] * y[f + t];
-                    y[f + c] = sum / Lx[co + c];
+            ensureColumnCopy();
+            CholeskySolveSchedule sch = ForceSerialSolve ? null : getSolveSchedule();
+            if (sch == null) {
+                // L y = Pb
+                for (int J = 0; J < snCount; ++J)
+                    forwardStep(J, y, null, 0, int.MaxValue);
+                // L^T z = y
+                for (int J = snCount - 1; J >= 0; --J)
+                    backwardStep(J, y);
+            } else {
+                // the same operations in the same order for every entry, see CholeskySolveSchedule
+                double[] buf = new double[sch.BufSize];
+                gParallel.ForRange(sch.TaskFirst.Length, t => {
+                    for (int J = sch.TaskFirst[t]; J < sch.TaskEnd[t]; ++J)
+                        forwardStep(J, y, buf, sch.BufOff[J], sch.Split[J]);
+                });
+                for (int J = 0; J < snCount; ++J) {
+                    if (sch.TaskOf[J] < 0) {
+                        forwardStep(J, y, null, 0, int.MaxValue);
+                    } else {
+                        int rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, bo = sch.BufOff[J] - sch.Split[J];
+                        for (int i = sch.Split[J]; i < h; ++i)
+                            y[snRows[rp + i]] -= buf[bo + i];
+                    }
                 }
-                for (int i = w; i < h; ++i) {
-                    double sum = 0;
-                    int io = off + i * w;
-                    for (int t = 0; t < w; ++t)
-                        sum += Lx[io + t] * y[f + t];
-                    y[snRows[rp + i]] -= sum;
-                }
-            }
-            // L^T z = y
-            for (int J = snCount - 1; J >= 0; --J) {
-                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
-                for (int c = w - 1; c >= 0; --c) {
-                    double sum = y[f + c];
-                    for (int i = c + 1; i < h; ++i)
-                        sum -= Lx[off + i * w + c] * y[snRows[rp + i]];
-                    y[f + c] = sum / Lx[off + c * w + c];
-                }
+                for (int J = snCount - 1; J >= 0; --J)
+                    if (sch.TaskOf[J] < 0) backwardStep(J, y);
+                gParallel.ForRange(sch.TaskFirst.Length, t => {
+                    for (int J = sch.TaskEnd[t] - 1; J >= sch.TaskFirst[t]; --J)
+                        backwardStep(J, y);
+                });
             }
             for (int k = 0; k < N; ++k)
                 x[perm[k]] = y[k];
         }
 
+        // test switch: the serial solve even where the schedule of parallel tasks applies (the results are the same bits)
+        internal bool ForceSerialSolve;
+        // work below which Solve stays serial, and the task size as a fraction of the work (tests lower them)
+        internal long SolveMinWork = CholeskySolveSchedule.DefaultMinWork;
+        internal int SolveTaskDivisor = CholeskySolveSchedule.DefaultDivisor;
+        CholeskySolveSchedule solveSchedule; long scheduleMinWork = -1; int scheduleDivisor; readonly object scheduleLock = new object();
+
+        internal CholeskySolveSchedule SolveScheduleForTests { get { return getSolveSchedule(); } }
+
+        CholeskySolveSchedule getSolveSchedule()
+        {
+            lock (scheduleLock) {
+                if (scheduleMinWork != SolveMinWork || scheduleDivisor != SolveTaskDivisor) {
+                    solveSchedule = Environment.ProcessorCount < 2 ? null :
+                        CholeskySolveSchedule.Build(snCount, snFirst, snRowPtr, snRows, colSnode, SolveMinWork, SolveTaskDivisor);
+                    scheduleMinWork = SolveMinWork; scheduleDivisor = SolveTaskDivisor;
+                }
+                return solveSchedule;
+            }
+        }
+
+        // forward substitution of supernode J: the updates of the rows [w, split) go into y, those of [split, h) into buf at
+        // bufOff + (i - split) (split = int.MaxValue: all into y)
+        [System.Runtime.CompilerServices.MethodImpl(JitHints.Optimize)]
+        void forwardStep(int J, double[] y, double[] buf, int bufOff, int split)
+        {
+            int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+            for (int c = 0; c < w; ++c) {
+                double sum = y[f + c];
+                int co = off + c * w;
+                for (int t = 0; t < c; ++t)
+                    sum -= Lx[co + t] * y[f + t];
+                y[f + c] = sum / Lx[co + c];
+            }
+            for (int i = w; i < h; ++i) {
+                double sum = 0;
+                int io = off + i * w;
+                for (int t = 0; t < w; ++t)
+                    sum += Lx[io + t] * y[f + t];
+                if (i < split) y[snRows[rp + i]] -= sum;
+                else buf[bufOff + i - split] = sum;
+            }
+        }
+
+        // backward substitution of supernode J. The sum of a column runs over the rows below it in the row order (one chain,
+        // so its bits are fixed). The entries of a column are a stride of w apart in the row-major block, a cache miss each
+        // in a wide block, so wide blocks are read from a column-major copy (the same values, the same operations)
+        [System.Runtime.CompilerServices.MethodImpl(JitHints.Optimize)]
+        void backwardStep(int J, double[] y)
+        {
+            int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+            if (colOff != null && colOff[J] >= 0) {
+                int co = colOff[J];
+                for (int c = w - 1; c >= 0; --c) {
+                    double sum = y[f + c];
+                    int q = co + c * h - c * (c - 1) / 2 - c;         // column c, row i at q + i (i >= c)
+                    for (int i = c + 1; i < h; ++i)
+                        sum -= colVal[q + i] * y[snRows[rp + i]];
+                    y[f + c] = sum / colVal[q + c];
+                }
+                return;
+            }
+            for (int c = w - 1; c >= 0; --c) {
+                double sum = y[f + c];
+                for (int i = c + 1; i < h; ++i)
+                    sum -= Lx[off + i * w + c] * y[snRows[rp + i]];
+                y[f + c] = sum / Lx[off + c * w + c];
+            }
+        }
+
+        // column-major copy of the wide supernodes (columns c = 0..w-1, rows c..h-1 of each), built on the first Solve after a
+        // factorization (in parallel; it only moves values)
+        internal int ColumnCopyMinWidth = 64;
+        internal long ColumnCopyMinEntries = 200000;
+        int[] colOff; double[] colVal; bool colCopyBuilt;
+
+        // the column-major copy is in use (tests)
+        internal bool ColumnCopyInUse { get { ensureColumnCopy(); return colOff != null; } }
+
+        void ensureColumnCopy()
+        {
+            lock (scheduleLock) {
+                if (colCopyBuilt) return;
+                colCopyBuilt = true;
+                var offs = new int[snCount]; long total = 0;
+                for (int J = 0; J < snCount; ++J) {
+                    int w = snFirst[J + 1] - snFirst[J], h = snRowPtr[J + 1] - snRowPtr[J];
+                    offs[J] = -1;
+                    if (w >= ColumnCopyMinWidth) { offs[J] = (int)Math.Min(total, int.MaxValue); total += (long)w * h - (long)w * (w - 1) / 2; }
+                }
+                if (total == 0 || total < ColumnCopyMinEntries || total > int.MaxValue / 2) { colOff = null; return; }
+                var cv = new double[total];
+                var chunks = new List<int>();            // (supernode, first column of a block of 16 columns)
+                for (int J = 0; J < snCount; ++J) {
+                    if (offs[J] < 0) continue;
+                    int w = snFirst[J + 1] - snFirst[J];
+                    for (int c0 = 0; c0 < w; c0 += 16) { chunks.Add(J); chunks.Add(c0); }
+                }
+                gParallel.ForRange(chunks.Count / 2, k => {
+                    int J = chunks[2 * k], c0 = chunks[2 * k + 1];
+                    int w = snFirst[J + 1] - snFirst[J], h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J], co = offs[J];
+                    int c1 = Math.Min(c0 + 16, w);
+                    for (int i = c0; i < h; ++i) {
+                        int src = off + i * w;
+                        for (int c = c0; c < c1 && c <= i; ++c)
+                            cv[co + c * h - c * (c - 1) / 2 - c + i] = Lx[src + c];
+                    }
+                });
+                colOff = offs; colVal = cv;
+            }
+        }
 
         /// <summary>
         /// Solve A x = b in the log domain, for an M-matrix A (positive diagonal, off-diagonal entries &lt;= 0)
@@ -339,6 +455,7 @@ namespace g3
             snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
             apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;
             Lx = new double[an.ValueCount];
+            scheduleMinWork = -1;
         }
 
 
