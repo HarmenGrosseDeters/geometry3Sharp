@@ -13,6 +13,7 @@ dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- repeated   #
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- open       # open input and the three repair modes
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- limit      # what contacts do to a reduction
 dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- plain      # the Reducer alone, MinCollapseTriangleQuality 0 / 0.02
+dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- pair       # PairContacts off and on, the touching cases
 ```
 
 Linux container, 4 cores, `net10.0`, Release, one process, no warm-up (the first row includes the JIT: the 361 ms of the
@@ -106,9 +107,84 @@ A contact line of m positions holds about 12 m triangles (4, 8, 12 positions: 48
 That is 8 % of 1176 and 5 % of 2904, so a 10 % target is reached (the fine box rows above); a contact line of m vertices
 blocks a target below about 12 m triangles, whatever the input size. The pipeline does not freeze or move contact vertices
 (that would change the result's guarantees); it reports the stop (`StopReason.Contacts`, `BlockedAtContacts`,
-`StopDetail`). Options if a caller needs more: collapse the two twin edges of a contact line together in the `Reducer` (a
-paired collapse that keeps the contact; algorithm work in `Reducer`), or separate the touching sheets by a tiny gap before the
+`StopDetail`). Options if a caller needs more: `PairContacts` (below: the two twin edges of a contact line collapse together, built), or separate the touching sheets by a tiny gap before the
 reduction (changes the exact result's semantics: solids that touch no longer do).
+
+## Paired collapse of contact edges (`PairContacts`, the `pair` mode)
+
+`PairContacts = true` (default off; the result is bit for bit the old one when off, hash tests) collapses each edge of a contact
+line together with its twin edge (`Reducer.PairCoincidentVertices`): both sheets move to the same new position, so the contact
+stays exactly coincident (no gap, no crossing). The guards run for both sheets (the exact self-intersection check with the twins'
+shared position counted as a shared vertex, `MaxDeviation`, fold-over, `MinTriangleQuality`). A contact vertex without a twin
+edge (a contact point) is only a collapse target, never moved. Same machine and settings as above, run 2026-11-18.
+
+**Upper bound** (before the implementation: what the boolean result offers a paired collapse; `limit` mode, second part):
+
+```
+Edges at contacts in the boolean result (the upper bound of what a paired collapse can take): vertices at contacts, edges with an end at one, of those the paired ones (both ends with one twin, twin edge exists), contact positions with 3 or more vertices
+box+box face-touch U: boolean 20 tris, 0 vertices at contacts, 0 edges at them, 0 paired, 0 positions with 3+ vertices
+box+box edge-touch U: boolean 24 tris, 4 vertices at contacts, 16 edges at them, 2 paired, 0 positions with 3+ vertices
+sphere+sphere tangent-ish U: boolean 5400 tris, 0 vertices at contacts, 0 edges at them, 0 paired, 0 positions with 3+ vertices
+fine box edge-touch U: boolean 5400 tris, 32 vertices at contacts, 156 edges at them, 30 paired, 0 positions with 3+ vertices
+fine box vertex-touch U: boolean 5400 tris, 2 vertices at contacts, 9 edges at them, 0 paired, 0 positions with 3+ vertices
+sphere on box face (pole touch) U: boolean 9614 tris, 2 vertices at contacts, 10 edges at them, 0 paired, 0 positions with 3+ vertices
+two cylinders line-touch U: boolean 512 tris, 0 vertices at contacts, 0 edges at them, 0 paired, 0 positions with 3+ vertices
+cylinder on box, partial face-touch U: boolean 2866 tris, 0 vertices at contacts, 0 edges at them, 0 paired, 0 positions with 3+ vertices
+```
+
+Only contact lines have paired edges (fine box edge touch: 16 positions, 30 paired edges = 15 segments x 2 sheets); a contact
+point has none, so a pair cannot help there.
+
+**Before / after, the contacts limit** (two boxes asked for 4 triangles; "off" is the table of the `limit` section above):
+
+```
+| boxes (EdgeVertices) | placement | boolean tris | result tris (target 4) | contacts left | stop reason | blocked edges: guard / quality, at contacts | with PairContacts: result tris, contacts left, stop reason, paired collapses, result |
+|---|---|---|---|---|---|---|---|
+| 4 | apart | 216 | 8 | 0 | Exhausted | 12 / 0, 0 | 8, 0, Exhausted, 0, clean |
+| 4 | vertex touch | 216 | 18 | 1 | SelfIntersectionGuard | 18 / 9, 9 | 8, 1, Exhausted, 0, self-intersections |
+| 4 | edge touch | 216 | 48 | 4 | SelfIntersectionGuard | 53 / 19, 36 | 8, 2, Exhausted, 2, self-intersections |
+| 8 | apart | 1176 | 8 | 0 | Exhausted | 12 / 0, 0 | 8, 0, Exhausted, 0, clean |
+| 8 | vertex touch | 1176 | 18 | 1 | SelfIntersectionGuard | 19 / 8, 9 | 8, 1, Exhausted, 0, self-intersections |
+| 8 | edge touch | 1176 | 96 | 8 | Contacts | 115 / 29, 76 | 8, 2, Exhausted, 6, self-intersections |
+| 12 | apart | 2904 | 8 | 0 | Exhausted | 12 / 0, 0 | 8, 0, Exhausted, 0, clean |
+| 12 | vertex touch | 2904 | 18 | 1 | SelfIntersectionGuard | 19 / 8, 9 | 8, 1, Exhausted, 0, self-intersections |
+| 12 | edge touch | 2904 | 144 | 12 | Contacts | 179 / 37, 116 | 8, 2, Exhausted, 10, self-intersections |
+```
+
+(last column: result triangles, contacts left, stop reason, paired collapses, `NotCleanReason`). An edge-touching pair now reaches
+8 triangles (one tetrahedron per solid, `Exhausted`) instead of 48 / 96 / 144; the two ends of the contact line remain contacts.
+
+**The touching cases of the 17-case table** (`pair` mode; cases without contacts give the same result, checked by equality of the
+triangle counts and by a hash test):
+
+```
+| case | boolean tris | contacts | target | tris off | contacts off | result off | stop off | ms off | tris PairContacts | contacts | result | stop | paired collapses | ms | closed |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| box+box face-touch U | 20 | 0 | (no contacts: the same result, 4 = 4 tris: True) |
+| box+box edge-touch U | 24 | 2 | 6 | 24 | 2 | self-intersections | SelfIntersectionGuard | 6 | 8 | 2 | self-intersections | Exhausted | 0 | 3 | True |
+| box+box edge-touch U | 24 | 2 | 4 | 24 | 2 | self-intersections | SelfIntersectionGuard | 0 | 8 | 2 | self-intersections | Exhausted | 0 | 0 | True |
+| sphere+sphere tangent-ish U | 5400 | 0 | (no contacts: the same result, 1350 = 1350 tris: True) |
+| fine box edge-touch U | 5400 | 16 | 1350 | 1350 | 16 | self-intersections | TargetReached | 983 | 1350 | 16 | self-intersections | TargetReached | 0 | 376 | True |
+| fine box edge-touch U | 5400 | 16 | 540 | 540 | 16 | self-intersections | TargetReached | 876 | 540 | 5 | self-intersections | TargetReached | 11 | 418 | True |
+| fine box vertex-touch U | 5400 | 1 | 1350 | 1350 | 1 | self-intersections | TargetReached | 184 | 1350 | 1 | self-intersections | TargetReached | 0 | 236 | True |
+| fine box vertex-touch U | 5400 | 1 | 540 | 540 | 1 | self-intersections | TargetReached | 273 | 540 | 1 | self-intersections | TargetReached | 0 | 311 | True |
+| sphere on box face (pole touch) U | 9614 | 1 | 2404 | 2404 | 0 | clean | TargetReached | 214 | 2404 | 1 | self-intersections | TargetReached | 0 | 279 | True |
+| sphere on box face (pole touch) U | 9614 | 1 | 962 | 962 | 0 | clean | TargetReached | 275 | 962 | 1 | self-intersections | TargetReached | 0 | 323 | True |
+| two cylinders line-touch U | 512 | 0 | (no contacts: the same result, 128 = 128 tris: True) |
+| cylinder on box, partial face-touch U | 2866 | 0 | (no contacts: the same result, 716 = 716 tris: True) |
+```
+
+- The fine edge-touching boxes at 10 %: the contacts go from 16 to 5 at the same 540 triangles (paired collapses: see the table); at 25 % the
+  target is reached without touching the contact line, so nothing changes.
+- **`NotCleanReason` is not changed**: every result that keeps a contact (`contacts` > 0) is still reported as "self-intersections"
+  at it, also when the sheets touch exactly; the check is not altered. All results are closed and have no crossing (tests check it
+  with an exact pairwise test where vertices of one position count as one).
+- **A contact point is kept.** In the pole-touch case (a sphere touching a box face) the off result is clean because the
+  reduction moved the touching vertex off the face (the contact was removed, a gap appears); with `PairContacts` the contact vertex
+  stays, so the result keeps one contact and `NotCleanReason` says "self-intersections". That is why the option stays opt-in
+  (the pipeline's output contract is "NotCleanReason the same or better" only without contacts).
+- Time of the reduction: within the run-to-run variation, lower where the contact line is collapsed (see the ms columns).
+- Not combined with `MaxDeviationTwoSided` (`InvalidInput` in the pipeline, `InvalidOperationException` in the `Reducer`).
 
 ## Repeated booleans (the `repeated` mode)
 

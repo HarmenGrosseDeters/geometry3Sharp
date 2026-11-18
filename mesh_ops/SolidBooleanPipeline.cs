@@ -93,6 +93,8 @@ namespace gs
         public int BlockedByGuard, BlockedByDeviation, BlockedByQuality, BlockedByTopology;
         /// <summary> of the blocked edges, those with an end at a position where the result's solids touch (ContactsResult) </summary>
         public int BlockedAtContacts;
+        /// <summary> with PairContacts: the collapses of an edge together with its twin edge (two edges each); 0 otherwise </summary>
+        public int PairedCollapses;
         /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check, and the sum </summary>
         public long InputCheckMilliseconds, RepairMilliseconds, BooleanMilliseconds, ReductionMilliseconds, FinalCheckMilliseconds, TotalMilliseconds;
     }
@@ -196,6 +198,18 @@ namespace gs
         /// the creases (NotCleanReason "degenerate triangles", measured on a subdivided box at 25 % and 10 %); 0 switches it off
         /// </summary>
         public double MinTriangleQuality = 0.02;
+        /// <summary>
+        /// Default false (the result is then the one without this option, bit for bit). Where the solids touch, the boolean result
+        /// holds the contact as sheets with duplicated vertices at one position (Report.ContactsBoolean); without this option the
+        /// reduction cannot collapse a contact line (about 12 triangles per vertex of it stay, SolidBooleanStopReason.Contacts). With it
+        /// the reduction collapses each edge of a contact line together with its twin edge (Reducer.PairCoincidentVertices): both
+        /// sheets move to the same new position, so the contact stays exactly coincident (no gap, no crossing), and every collapse is
+        /// still checked as before (PreventSelfIntersections with the sheets touching, not intersecting, along the contact;
+        /// MaxDeviation; fold-over; MinTriangleQuality). NotCleanReason is unchanged: a result that keeps contacts
+        /// (Report.ContactsResult &gt; 0) is still reported as "self-intersections" at them (see SolidBooleanReport.Clean).
+        /// Not combined with MaxDeviationTwoSided (InvalidInput).
+        /// </summary>
+        public bool PairContacts = false;
 
         /// <summary> the returned solid, or null if Status is not Success </summary>
         public DMesh3 Result;
@@ -245,6 +259,8 @@ namespace gs
                 || MaxQuadricError < 0 || double.IsNaN(MaxQuadricError) || MaxDeviation < 0 || double.IsNaN(MaxDeviation) || double.IsInfinity(MaxDeviation)
                 || double.IsInfinity(MinEdgeLength) || double.IsInfinity(MaxQuadricError) || TargetTriangleCount < 0 || !(MinTriangleQuality >= 0 && MinTriangleQuality <= 1))
                 return fail(PipelineStatus.InvalidInput, "a reduction setting is out of range (TargetFraction in [0, 1), MinTriangleQuality in [0, 1], the others finite and not negative)", total);
+            if (PairContacts && MaxDeviation > 0 && MaxDeviationTwoSided)
+                return fail(PipelineStatus.InvalidInput, "PairContacts is not supported with MaxDeviationTwoSided", total);
             if (Inputs == null || Inputs.Count == 0)
                 return fail(PipelineStatus.InvalidInput, "no input meshes", total);
             for (int i = 0; i < Inputs.Count; ++i)
@@ -432,6 +448,7 @@ namespace gs
                 MaxDeviation = MaxDeviation,
                 MaxDeviationTwoSided = MaxDeviation > 0 && MaxDeviationTwoSided,
                 MinCollapseTriangleQuality = MinTriangleQuality,
+                PairCoincidentVertices = PairContacts,
                 Progress = new ProgressCancel(() => Cancellation.IsCancellationRequested)
             };
             int target = 0;
@@ -443,6 +460,7 @@ namespace gs
             if (target > 0) reducer.ReduceToTriangleCount(target);
             else if (MaxQuadricError > 0) reducer.ReduceToMaxQuadricError(MaxQuadricError);
             else reducer.ReduceToEdgeLength(MinEdgeLength);
+            Report.PairedCollapses = (int)reducer.PairedCollapses;
 
             bool reached;
             if (target > 0) reached = mesh.TriangleCount <= target;

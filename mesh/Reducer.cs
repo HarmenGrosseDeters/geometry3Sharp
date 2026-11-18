@@ -138,6 +138,32 @@ namespace g3
         public bool PreventSelfIntersections = false;
 
         /// <summary>
+        /// Default false (the reduction is then bit for bit the one without this option). If true, vertices at one position are
+        /// treated as one vertex that is stored twice: the result of an exact boolean of touching solids holds the contact
+        /// (a line or a point) as sheets, each a manifold, with duplicated vertices at the same positions (ExactMeshBoolean.Contacts).
+        /// Without the option the two sheets are different vertices and the exact self-intersection check counts the other sheet as a
+        /// triangle the new ones must not touch, so no collapse that keeps the surface on the contact is possible and a contact
+        /// line of m positions keeps about 12 m triangles (benchmarks/SolidBooleanBenchmark/README.md, "limit"). With it:
+        /// <list type="bullet">
+        /// <item><description>an edge whose two ends each have exactly one twin vertex and whose twin edge exists is collapsed together with
+        /// its twin edge, both to the same new position: the sheets stay exactly coincident (no gap, no crossing). The quadrics of
+        /// both sheets are added for the position and the priority; every check (flip, fold-over, MinCollapseTriangleQuality,
+        /// MaxDeviation, the exact self-intersection check) is made for both sheets and both must pass, else neither collapses;</description></item>
+        /// <item><description>an edge with one end that has twins (and one that has none) collapses onto the end with twins, which stays where it is;</description></item>
+        /// <item><description>any other edge with an end that has twins (no twin edge, three or more vertices at the position, the ends adjacent to
+        /// the twin edge's) is not collapsed; so is one with a bowtie or boundary end in a pair;</description></item>
+        /// <item><description>with PreventSelfIntersections the sheets count as touching, not intersecting, where they share a position (the
+        /// triangles' vertices at one position are the same vertex for the check): the check still refuses a new triangle that crosses
+        /// the other sheet or touches it anywhere else.</description></item>
+        /// </list>
+        /// The positions are taken at the start of each reduction (exact equality of the coordinates). Throws InvalidOperationException
+        /// at the start of a reduction with MaxDeviationTwoSided, with edge constraints, or with the internal KeepClearOf. A mesh
+        /// with no two vertices at one position reduces as without it. A pair collapse removes up to four triangles at once, so a
+        /// triangle or vertex count target can be undershot by up to two triangles / one vertex.
+        /// </summary>
+        public bool PairCoincidentVertices = false;
+
+        /// <summary>
         /// (internal) a mesh the reduced mesh must not touch: a collapse whose new triangles intersect a triangle of it
         /// (exact tests, ExactTriangleIntersection.Intersects, shared points count) is skipped. Needs the tree to be
         /// built and current; it is only read, so one tree can serve several Reducers (PartitionedReduction slabs).
@@ -260,6 +286,7 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
+            ensure_vertex_pairs();      // (first: it may throw, before any state of the pass is begun)
             begin_pass();
 
             begin_setup();
@@ -314,8 +341,21 @@ namespace g3
                     enforceQuadricBudget = false;
                 }
                 if (result == ProcessResult.Ok_Collapsed) {
-                    vertQuadrics[vKept] = EdgeQuadrics[eid].q;
-                    UpdateNeighbours(vKept);
+                    if (pairKept2 >= 0) {
+                        // an edge and its twin edge: each kept vertex gets the quadrics of its own sheet
+                        vertQuadrics[vKept] = new QuadricError(ref vertQuadrics[vKept], ref vertQuadrics[pairRemoved1]);
+                        vertQuadrics[pairKept2] = new QuadricError(ref vertQuadrics[pairKept2], ref vertQuadrics[pairRemoved2]);
+                        int kept2 = pairKept2;
+                        pairKept2 = -1;
+                        UpdateNeighbours(vKept);
+                        UpdateNeighbours(kept2);
+                    } else {
+                        vertQuadrics[vKept] = EdgeQuadrics[eid].q;
+                        UpdateNeighbours(vKept);
+                        // (the quadric of an edge at the twin includes this vertex's: its edges are stale now)
+                        if (pairTwin != null && pairTwin[vKept] >= 0)
+                            UpdateNeighbours(pairTwin[vKept]);
+                    }
                 }
             }
             } finally {
@@ -409,6 +449,7 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
+            ensure_vertex_pairs();
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();
@@ -528,6 +569,148 @@ namespace g3
         internal bool CacheBowtieStates = true;
         protected HashSet<int> gridRingTris = new HashSet<int>();
         AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
+
+        // PairCoincidentVertices, per vertex (null if off): the one other vertex at its position (-1 none; -2 three or more at the
+        // position, or two that are the ends of an edge); and the smallest vertex id at its position, which names the position in the
+        // self-intersection check (two triangles with a vertex of one position share it)
+        int[] pairTwin;
+        int[] pairCanon;
+        // after a collapse of an edge with its twin edge: the kept vertex of the twin edge and the removed vertices (DoReduce adds
+        // the quadrics); -1 if the last collapse was none
+        int pairKept2 = -1, pairRemoved1 = -1, pairRemoved2 = -1;
+        /// <summary> (tests, benchmarks) the edges collapsed together with their twin edge (PairCoincidentVertices), summed over all reductions of this instance </summary>
+        internal long PairedCollapses;
+
+        void ensure_vertex_pairs()
+        {
+            pairTwin = null; pairCanon = null;
+            if (PairCoincidentVertices == false)
+                return;
+            if (constraints != null)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support edge constraints");
+            if (two_sided_active)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support MaxDeviationTwoSided");
+            if (KeepClearOf != null)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support KeepClearOf");
+            int n = mesh.MaxVertexID;
+            var twin = new int[n]; var canon = new int[n]; var count = new int[n]; var second = new int[n];
+            var first = new Dictionary<(double, double, double), int>();
+            foreach (int v in mesh.VertexIndices()) {
+                twin[v] = -1; canon[v] = v; count[v] = 1; second[v] = -1;
+                Vector3d p = mesh.GetVertex(v);
+                if (p.IsFinite == false)
+                    continue;
+                var key = (p.x == 0 ? 0 : p.x, p.y == 0 ? 0 : p.y, p.z == 0 ? 0 : p.z);
+                int f;
+                if (first.TryGetValue(key, out f) == false) {
+                    first[key] = v;
+                    continue;
+                }
+                canon[v] = f;
+                if (++count[f] == 2) second[f] = v;
+            }
+            foreach (int v in mesh.VertexIndices()) {
+                int c = canon[v];
+                if (count[c] == 1)
+                    continue;
+                // (two vertices of one position that are the ends of an edge: a zero-length edge, left alone)
+                bool pinned = count[c] > 2 || mesh.FindEdge(c, second[c]) != DMesh3.InvalidID;
+                twin[v] = pinned ? -2 : (v == c ? second[c] : c);
+            }
+            pairTwin = twin; pairCanon = canon;
+        }
+
+        // the ids of a triangle as the self-intersection check sees them (the vertices of one position are one)
+        Index3i pair_ids(Index3i t)
+        {
+            if (pairCanon == null)
+                return t;
+            return new Index3i(pairCanon[t.a], pairCanon[t.b], pairCanon[t.c]);
+        }
+
+        // the edge between the twins of the ends of edge (a, b), or -1
+        int twin_edge(int a, int b)
+        {
+            if (pairTwin == null)
+                return -1;
+            int ta = pairTwin[a], tb = pairTwin[b];
+            if (ta < 0 || tb < 0)
+                return -1;
+            int e = mesh.FindEdge(ta, tb);
+            return e == DMesh3.InvalidID ? -1 : e;
+        }
+
+        // the quadric of an edge: its ends' quadrics, and with PairCoincidentVertices those of its twin edge
+        QuadricError edge_quadric(int a, int b)
+        {
+            QuadricError q = new QuadricError(ref vertQuadrics[a], ref vertQuadrics[b]);
+            if (pairTwin == null)
+                return q;
+            int e2 = twin_edge(a, b);
+            if (e2 < 0)
+                return q;
+            Index2i ev2 = mesh.GetEdgeV(e2);
+            QuadricError q2 = new QuadricError(ref vertQuadrics[ev2.a], ref vertQuadrics[ev2.b]);
+            return new QuadricError(ref q, ref q2);
+        }
+
+        /// <summary>
+        /// would DMesh3.CollapseEdge(vKeep, vRemove) succeed? Its tests of the neighbourhood, on the mesh as it is, without the edit
+        /// (the tests in the order of DMesh3.CollapseEdge; compared with it on every edge of several meshes in the tests)
+        /// </summary>
+        internal static bool MeshAcceptsCollapse(DMesh3 mesh, int vKeep, int vRemove)
+        {
+            if (mesh.IsVertex(vKeep) == false || mesh.IsVertex(vRemove) == false)
+                return false;
+            int b = vKeep, a = vRemove;
+            int eab = mesh.FindEdge(a, b);
+            if (eab == DMesh3.InvalidID)
+                return false;
+            Index2i et = mesh.GetEdgeT(eab);
+            if (et.a == DMesh3.InvalidID)
+                return false;
+            int c = IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(et.a));
+            int d = DMesh3.InvalidID;
+            bool boundaryEdge = et.b == DMesh3.InvalidID;
+            if (boundaryEdge == false) {
+                d = IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(et.b));
+                if (c == d)
+                    return false;
+            }
+            int edgesA = 0;
+            foreach (int eid in mesh.VtxEdgesItr(a)) {
+                edgesA++;
+                Index2i ev = mesh.GetEdgeV(eid);
+                int vax = ev.a == a ? ev.b : ev.a;
+                if (vax == c || vax == d || vax == b)
+                    continue;
+                foreach (int eidB in mesh.VtxEdgesItr(b)) {
+                    Index2i evb = mesh.GetEdgeV(eidB);
+                    if ((evb.a == b ? evb.b : evb.a) == vax)
+                        return false;
+                }
+            }
+            if (edgesA == 3 && boundaryEdge == false) {
+                int edc = mesh.FindEdge(d, c);
+                if (edc != DMesh3.InvalidID) {
+                    Index2i dt = mesh.GetEdgeT(edc);
+                    if (dt.b != DMesh3.InvalidID) {
+                        Index3i t0 = mesh.GetTriangle(dt.a), t1 = mesh.GetTriangle(dt.b);
+                        bool t0a = t0.a == a || t0.b == a || t0.c == a, t0b = t0.a == b || t0.b == b || t0.c == b;
+                        bool t1a = t1.a == a || t1.b == a || t1.c == a, t1b = t1.a == b || t1.b == b || t1.c == b;
+                        if ((t0a && t1b) || (t0b && t1a))
+                            return false;
+                    }
+                }
+            } else if (boundaryEdge && mesh.IsBoundaryEdge(mesh.FindEdge(a, c))) {
+                int ebc = mesh.FindEdgeFromTri(b, c, et.a);
+                if (mesh.IsBoundaryEdge(ebc))
+                    return false;
+            }
+            if (boundaryEdge == false && mesh.IsBoundaryVertex(a) && mesh.IsBoundaryVertex(b))
+                return false;
+            return true;
+        }
 
         protected void ensure_triangle_grid()
         {
@@ -691,11 +874,22 @@ namespace g3
 
         protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
         {
-            if (SelfIntersectionUnionQuery == false)
+            return collapse_creates_intersection(a, b, vKeep, newPos, -1, -1, -1);
+        }
+
+        // (a2, b2, vKeep2 >= 0, PairCoincidentVertices: the twin edge collapses at the same time, to the same position; its new
+        // triangles are checked as well, and a triangle's vertices of one position are one vertex)
+        bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos, int a2, int b2, int vKeep2)
+        {
+            if (SelfIntersectionUnionQuery == false && a2 < 0)
                 return collapse_creates_intersection_per_triangle(a, b, vKeep, newPos);
             gridRingTris.Clear();
             foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
             foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            if (a2 >= 0) {
+                foreach (int tid in mesh.VtxTrianglesItr(a2)) gridRingTris.Add(tid);
+                foreach (int tid in mesh.VtxTrianglesItr(b2)) gridRingTris.Add(tid);
+            }
             // (the lists and the query's callback are kept between collapses: this runs for every collapse)
             List<Index3i> newIds = siNewIds;
             List<Triangle3d> newTris = siNewTris;
@@ -704,13 +898,15 @@ namespace g3
                 Index3i t = mesh.GetTriangle(tid);
                 bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
                 if (hasA && hasB) continue;     // removed by the collapse
+                if (a2 >= 0 && (t.a == a2 || t.b == a2 || t.c == a2) && (t.a == b2 || t.b == b2 || t.c == b2)) continue;
                 Index3i nt = t;
                 for (int k = 0; k < 3; ++k)
                     if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                    else if (a2 >= 0 && (nt[k] == a2 || nt[k] == b2)) nt[k] = vKeep2;
                 Triangle3d tri = new Triangle3d(
-                    nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+                    nt.a == vKeep || nt.a == vKeep2 ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep || nt.b == vKeep2 ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep || nt.c == vKeep2 ? newPos : mesh.GetVertex(nt.c));
                 if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
-                newIds.Add(nt); newTris.Add(tri);
+                newIds.Add(pair_ids(nt)); newTris.Add(tri);
             }
             if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
                 return true;
@@ -762,6 +958,7 @@ namespace g3
             Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
             // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
             if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+            ic = pair_ids(ic);
             for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
                 if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
                     continue;
@@ -1379,7 +1576,7 @@ namespace g3
                 for (int eid = start_eid; eid <= end_eid; eid++) {
                     if (mesh.IsEdge(eid)) {
                         Index2i ev = mesh.GetEdgeV(eid);
-                        QuadricError Q = new QuadricError(ref vertQuadrics[ev.a], ref vertQuadrics[ev.b]);
+                        QuadricError Q = edge_quadric(ev.a, ev.b);
                         Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
                         errors[eid] = evaluate(ref Q, opt);
                         EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
@@ -1484,7 +1681,7 @@ namespace g3
 		{
 			foreach (int eid in mesh.VtxEdgesItr(vid)) {
 				Index2i nev = mesh.GetEdgeV(eid);
-				QuadricError Q = new QuadricError(ref vertQuadrics[nev.a], ref vertQuadrics[nev.b]);
+				QuadricError Q = edge_quadric(nev.a, nev.b);
 				Vector3d opt = OptimalPoint(eid, ref Q, nev.a, nev.b);
 				double err = evaluate(ref Q, opt);
                 EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
@@ -1635,6 +1832,7 @@ namespace g3
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
 		{
 			collapseToV = DMesh3.InvalidID;
+            pairKept2 = -1;
             // (fail closed: a pass of a subclass that skipped ensure_deviation_reference would collapse without the check)
             if (two_sided_active && reverseCoverage == null)
                 throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a collapse without the reverse coverage (a pass that skipped ensure_deviation_reference)");
@@ -1712,6 +1910,24 @@ namespace g3
             //  (or maybe we can collapse if cd exists? edge-collapse doesn't check for it explicitly...)
             ProcessResult retVal = ProcessResult.Failed_OpNotSuccessful;
 
+            // PairCoincidentVertices: an edge with an end that has twin vertices (at its position) is collapsed with its twin edge,
+            // or onto that end, or not at all (see the option)
+            int twinEdge = -1, ta = -1, tb = -1, tT0 = -1, tT1 = -1;
+            if (pairTwin != null && (pairTwin[a] != -1 || pairTwin[b] != -1)) {
+                if (pairTwin[a] == -1 || pairTwin[b] == -1) {
+                    int fixedEnd = pairTwin[a] == -1 ? b : a;
+                    if (collapse_to != -1 && collapse_to != fixedEnd)
+                        return ProcessResult.Ignored_Constrained;
+                    collapse_to = fixedEnd;
+                } else {
+                    if (pair_edge_collapsible(edgeID, a, b, collapse_to, bIsBoundaryEdge, out twinEdge) == false)
+                        return ProcessResult.Ignored_CannotCollapse;
+                    ta = pairTwin[a]; tb = pairTwin[b];
+                    Index2i tt = mesh.GetEdgeT(twinEdge);
+                    tT0 = tt.a; tT1 = tt.b;
+                }
+            }
+
             int iKeep = b, iCollapse = a;
 
             // if either vtx is fixed, collapse to that position
@@ -1733,31 +1949,35 @@ namespace g3
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
             // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
             // (with PreventFoldOver in one pass with its check; without it, as before)
-            begin_quality_check(a, b, t0, t1);
-            if (refNormals != null && FusedFoldCheck) {
-                if (collapse_creates_flip_invalid_or_fold(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_invalid_or_fold(b, a, ref vNewPos, t0, t1)) {
-                    retVal = ProcessResult.Ignored_CreatesFlip;
+            // (the twin edge, if there is one, is checked like the edge, for the same new position: the two one-rings do not meet)
+            for (int side = 0; side < (twinEdge >= 0 ? 2 : 1); ++side) {
+                int sa = side == 0 ? a : ta, sb = side == 0 ? b : tb, s0 = side == 0 ? t0 : tT0, s1 = side == 0 ? t1 : tT1;
+                begin_quality_check(sa, sb, s0, s1);
+                if (refNormals != null && FusedFoldCheck) {
+                    if (collapse_creates_flip_invalid_or_fold(sa, sb, ref vNewPos, s0, s1) || collapse_creates_flip_invalid_or_fold(sb, sa, ref vNewPos, s0, s1)) {
+                        retVal = ProcessResult.Ignored_CreatesFlip;
+                        goto skip_to_end;
+                    }
+                } else {
+                    if (collapse_creates_flip_or_invalid(sa, sb, ref vNewPos, s0, s1) || collapse_creates_flip_or_invalid(sb, sa, ref vNewPos, s0, s1)) {
+                        retVal = ProcessResult.Ignored_CreatesFlip;
+                        goto skip_to_end;
+                    }
+                    if (refNormals != null && (collapse_turns_from_reference(sa, sb, ref vNewPos, s0, s1) || collapse_turns_from_reference(sb, sa, ref vNewPos, s0, s1))) {
+                        retVal = ProcessResult.Ignored_CreatesFlip;
+                        goto skip_to_end;
+                    }
+                }
+                if (SampleDeviation > 0 && SampleReference != null && collapse_samples_far(sa, sb, vNewPos)) {
+                    retVal = ProcessResult.Ignored_ExceedsDeviation;
                     goto skip_to_end;
                 }
-            } else {
-                if (collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0, t1)) {
-                    retVal = ProcessResult.Ignored_CreatesFlip;
-                    goto skip_to_end;
-                }
-                if (refNormals != null && (collapse_turns_from_reference(a, b, ref vNewPos, t0, t1) || collapse_turns_from_reference(b, a, ref vNewPos, t0, t1))) {
-                    retVal = ProcessResult.Ignored_CreatesFlip;
+                if (MaxDeviation > 0 && collapse_within_deviation(sa, sb, vNewPos) == false) {
+                    retVal = ProcessResult.Ignored_ExceedsDeviation;
                     goto skip_to_end;
                 }
             }
-            if (SampleDeviation > 0 && SampleReference != null && collapse_samples_far(a, b, vNewPos)) {
-                retVal = ProcessResult.Ignored_ExceedsDeviation;
-                goto skip_to_end;
-            }
-            if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
-                retVal = ProcessResult.Ignored_ExceedsDeviation;
-                goto skip_to_end;
-            }
-            if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
+            if (PreventSelfIntersections && (twinEdge >= 0 ? collapse_creates_intersection(a, b, iKeep, vNewPos, ta, tb, iKeep == b ? tb : ta) : collapse_creates_intersection(a, b, iKeep, vNewPos))) {
                 retVal = ProcessResult.Ignored_CreatesIntersection;
                 goto skip_to_end;
             }
@@ -1783,7 +2003,25 @@ namespace g3
                     refNormals[iKeep] += refNormals[iCollapse];
                     refLengths[iKeep] += refLengths[iCollapse];
                 }
-                if (triangleGrid != null)
+                DMesh3.EdgeCollapseInfo info2 = new DMesh3.EdgeCollapseInfo();
+                int pairKeep2 = -1, pairCollapse2 = -1;
+                if (twinEdge >= 0) {
+                    // (checked before: the twin edge's neighbourhood is that of the edge's twins, which the edit above did not touch)
+                    int iKeep2 = iKeep == b ? tb : ta, iCollapse2 = iKeep == b ? ta : tb;
+                    pairKeep2 = iKeep2; pairCollapse2 = iCollapse2;
+                    if (mesh.CollapseEdge(iKeep2, iCollapse2, out info2) != MeshResult.Ok)
+                        throw new InvalidOperationException("Reducer.PairCoincidentVertices: the twin edge could not be collapsed after the edge (internal error)");
+                    mesh.SetVertex(iKeep2, vNewPos);
+                    forget_bowtie_states(iKeep2, iCollapse2);
+                    if (refNormals != null) {
+                        refNormals[iKeep2] += refNormals[iCollapse2];
+                        refLengths[iKeep2] += refLengths[iCollapse2];
+                    }
+                    pairKept2 = iKeep2; pairRemoved1 = iCollapse; pairRemoved2 = iCollapse2;
+                    PairedCollapses++;
+                    if (triangleGrid != null)
+                        update_triangle_grid_pair(iKeep, iKeep2);
+                } else if (triangleGrid != null)
                     update_triangle_grid(iKeep);
                 if (constraints != null) {
                     constraints.ClearEdgeConstraint(edgeID);
@@ -1793,6 +2031,8 @@ namespace g3
                     constraints.ClearVertexConstraint(iCollapse);
                 }
                 OnEdgeCollapse(edgeID, iKeep, iCollapse, collapseInfo);
+                if (twinEdge >= 0)
+                    OnEdgeCollapse(twinEdge, pairKeep2, pairCollapse2, info2);
                 DoDebugChecks();
 
 				retVal = ProcessResult.Ok_Collapsed;
@@ -1806,6 +2046,92 @@ skip_to_end:
 
 
 
+
+        // PairCoincidentVertices: may edge (a, b), both ends with one twin vertex, be collapsed with its twin edge? Its twin edge exists, no
+        // end is a bowtie or boundary vertex or has a position forced (collapseTo), the two one-rings are independent (no end next to
+        // an end of the twin edge), and the mesh accepts both collapses. With these, the twin edge's collapse is the same after the
+        // edge's: its neighbourhood does not change
+        bool pair_edge_collapsible(int edgeID, int a, int b, int collapseTo, bool boundaryEdge, out int twinEdge)
+        {
+            twinEdge = -1;
+            int ta = pairTwin[a], tb = pairTwin[b];
+            if (ta < 0 || tb < 0 || collapseTo != -1 || boundaryEdge)
+                return false;
+            int e2 = mesh.FindEdge(ta, tb);
+            if (e2 == DMesh3.InvalidID || e2 == edgeID || mesh.IsBoundaryEdge(e2))
+                return false;
+            if (HaveBoundary && (IsBoundaryV(a) || IsBoundaryV(b) || IsBoundaryV(ta) || IsBoundaryV(tb)))
+                return false;
+            if (mesh.FindEdge(a, ta) != DMesh3.InvalidID || mesh.FindEdge(a, tb) != DMesh3.InvalidID
+                || mesh.FindEdge(b, ta) != DMesh3.InvalidID || mesh.FindEdge(b, tb) != DMesh3.InvalidID)
+                return false;
+            if (is_bowtie(ta) || is_bowtie(tb))
+                return false;
+            // (the edge goes to b, the twin edge to tb, as in CollapseEdge: ids only, the geometry is the same either way)
+            if (MeshAcceptsCollapse(mesh, b, a) == false || MeshAcceptsCollapse(mesh, tb, ta) == false)
+                return false;
+            twinEdge = e2;
+            return true;
+        }
+
+        /// <summary>
+        /// (tests) PairCoincidentVertices: would edge eid be collapsed together with its twin edge as far as the structure goes (both ends have
+        /// one twin, the twin edge exists, the one-rings are independent, no bowtie or boundary end, the mesh accepts both collapses)?
+        /// Takes the positions as they are now
+        /// </summary>
+        internal bool PairStructureAllows(int eid)
+        {
+            ensure_vertex_pairs();
+            Index2i ev = mesh.GetEdgeV(eid);
+            int e2;
+            if (pairTwin == null || pairTwin[ev.a] < 0 || pairTwin[ev.b] < 0)
+                return false;
+            return pair_edge_collapsible(eid, ev.a, ev.b, -1, mesh.IsBoundaryEdge(eid), out e2);
+        }
+
+        /// <summary> (tests) "" if every edge in the queue has the quadric a fresh computation gives (PairCoincidentVertices: with its twin edge's), else the first difference </summary>
+        internal string QueueQuadricDifference()
+        {
+            foreach (int eid in mesh.EdgeIndices()) {
+                if (EdgeQueue == null || EdgeQueue.Contains(eid) == false)
+                    continue;
+                Index2i ev = mesh.GetEdgeV(eid);
+                QuadricError q = edge_quadric(ev.a, ev.b), have = EdgeQuadrics[eid].q;
+                if (q.Axx != have.Axx || q.Axy != have.Axy || q.Axz != have.Axz || q.Ayy != have.Ayy || q.Ayz != have.Ayz || q.Azz != have.Azz
+                    || q.bx != have.bx || q.by != have.by || q.bz != have.bz || q.c != have.c)
+                    return "edge " + eid + " has a stale quadric";
+            }
+            return "";
+        }
+
+        /// <summary> (tests) "" if the self-intersection grid holds exactly the mesh's triangles, each with its current box, else the first difference </summary>
+        internal string TriangleGridDifference()
+        {
+            if (triangleGrid == null)
+                return "no grid";
+            if (triangleGrid.Count != mesh.TriangleCount)
+                return "the grid holds " + triangleGrid.Count + " triangles, the mesh " + mesh.TriangleCount;
+            foreach (int tid in mesh.TriangleIndices()) {
+                AxisAlignedBox3d box;
+                if (triangleGrid.TryGetBox(tid, out box) == false)
+                    return "triangle " + tid + " is not in the grid";
+                AxisAlignedBox3d now = tri_box(tid);
+                if (box.Min != now.Min || box.Max != now.Max)
+                    return "triangle " + tid + " has a stale box";
+            }
+            return "";
+        }
+
+        // after two collapses (an edge and its twin edge): the grid without the triangles of both one-rings, with those around both kept vertices
+        void update_triangle_grid_pair(int vKeep, int vKeep2)
+        {
+            foreach (int tid in gridRingTris)
+                triangleGrid.Remove(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep))
+                triangleGrid.Insert(tid, tri_box(tid));
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep2))
+                triangleGrid.Insert(tid, tri_box(tid));
+        }
 
         protected void project_vertex(int vID, IProjectionTarget targetIn)
         {
