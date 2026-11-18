@@ -50,7 +50,7 @@ class FlowResult
     public int Quads, FlippedQuads, InvAfterFlow, InvAfterGreedy, InvAfterSat, GreedyMoves, Cancelled, SatCurViol, SatInvInRegion, SatUnsat, SatBudget, SatSolved, SatFailed, SatAttempts;
     public double TGreedy, TSat, TPos, TExtract, TSetup;
     public int LongEdgesAfter, InvBefore, DetPosBefore, InvAfterFlowPreSplit, DetPosAfterFlow;
-    public PolyMeshMetrics Metrics;
+    public PolyMeshMetrics Metrics; public DPolyMesh Out;
     public int Unpaired, BadQuads, InvertedTris;
     public string Note = "";
 }
@@ -79,7 +79,7 @@ partial class QuadFlowSpike
     }
     public bool SatStrict = false;
     public bool SmartSplit = false;
-    public bool Cancel = false;
+    public bool Cancel = false, Project = false;
     public int SatMaxRing = 6;
     public long SatBudget = 100000;
 
@@ -265,6 +265,8 @@ partial class QuadFlowSpike
     static int MarginalCost(int a, int b, double r) { return (int)Math.Round(100 * (Math.Abs(b - r) - Math.Abs(a - r) + 1)); }
     // cost mode 2: as mode 1, times SignPen when the step moves the value to the side opposite the real offset (an axis reversal)
     public double SignPen = 10, SignTol = 0.25;
+    bool Against(int a, int b, double r) { return Math.Abs(b) > Math.Abs(a) && b * r < 0 && Math.Abs(r) > SignTol; }
+    // cost mode 3: hard form (the step arcs against the sign are not created; the [C1] analogue of Protais et al. 2022)
     int StepCost(int a, int b, double r)
     {
         int c = MarginalCost(a, b, r);
@@ -421,8 +423,8 @@ partial class QuadFlowSpike
                     } else {
                         double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
                         var lf = new List<int>(); var lb = new List<int>();
-                        for (int st = 1; st <= capF; ++st) lf.Add(net.Add(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r))));
-                        for (int st = 1; st <= capB; ++st) lb.Add(net.Add(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r))));
+                        for (int st = 1; st <= capF; ++st) { if (CostMode == 3 && Against(v + st - 1, v + st, r)) break; lf.Add(net.Add(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r)))); }
+                        for (int st = 1; st <= capB; ++st) { if (CostMode == 3 && Against(v - st + 1, v - st, r)) break; lb.Add(net.Add(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r)))); }
                         arcLF[2 * k + j] = lf; arcLB[2 * k + j] = lb;
                     }
                 }
@@ -799,7 +801,8 @@ partial class QuadFlowSpike
         }
         var outMesh = new DPolyMesh();
         var vmap = new Dictionary<int, int>();
-        Func<int, int> vid = c => { if (!vmap.TryGetValue(c, out int id)) { Vector3d p = sum[c] / cnt[c]; id = outMesh.AppendVertex(p.x, p.y, p.z); vmap[c] = id; } return id; };
+        DMeshAABBTree3 tree = null; if (Project) { tree = new DMeshAABBTree3(mesh, true); }
+        Func<int, int> vid = c => { if (!vmap.TryGetValue(c, out int id)) { Vector3d p = sum[c] / cnt[c]; if (tree != null) { int nt = tree.FindNearestTriangle(p); if (nt >= 0) { var dq = MeshQueries.TriangleDistance(mesh, nt, p); p = dq.TriangleClosest; } } id = outMesh.AppendVertex(p.x, p.y, p.z); vmap[c] = id; } return id; };
         foreach (var kv in hyp) {
             var l = new List<(int a, int b, int c)>(kv.Value);
             if (Cancel) for (int i = 0; i < l.Count; ++i) for (int j = i + 1; j < l.Count; ++j)
@@ -819,6 +822,7 @@ partial class QuadFlowSpike
             }
         }
         foreach (var tr in leftover) outMesh.AppendFace(new List<int> { vid(tr[0]), vid(tr[1]), vid(tr[2]) }, 0);
+        R.Out = outMesh;
         if (outMesh.FaceCount > 0) R.Metrics = PolyMeshMetrics.Compute(outMesh);
     }
 }

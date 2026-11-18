@@ -22,3 +22,11 @@ and frame-jump edges and, per inverted component, the winding number of the boun
 negative winding inside a cone-free disk proves that no det >= 0 assignment exists with that boundary). `cost=2 signpen=<x>
 signtol=<r>` multiplies the step cost by `signpen` when a step grows |d| against the sign of the real offset (|r| > signtol).
 Results: `results_round3_diag.txt`, `results_round3_signcost.txt`.
+
+Round 4 (gate table and fallback rate, coordinator request): `gate=1` prints one table row per shape with stage 2 and 3B side by
+side and a class: clean, FALLBACK (exact `det < 0` count > 0 or flow infeasible), UNDETECTED-BAD (not manifold, < 100 % quads,
+unpaired or flipped quads without a detected fold). `proj=1` projects the extracted vertices onto the input (without it the sphere's
+Hausdorff is 1.1 s). Six more procedural shapes (bumpy, filleted box, noisy sphere, capsule, genus 2, capped cylinder), the same
+six variations (scale 1, 0.8, 1.25, 1.5; ratio 0.35, 0.7). `cost=3` is a hard sign constraint (too slow to measure). Results:
+`results_round4_gate.txt`. Option A over 54 runs: 23 clean, 31 fallback, **0 undetected bad**. Clean rows: irregular gate 23/23,
+Hausdorff 23/23, corner p95 <= 15 18/23, time <= 2x stage 2 0/23 (median 10x). Library brief: `LIBRARY_BRIEF.md`.

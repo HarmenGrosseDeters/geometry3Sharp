@@ -31,15 +31,37 @@ static class Program
         double scaleMul = A.ContainsKey("scale") ? double.Parse(A["scale"], CultureInfo.InvariantCulture) : 1.0;
         Func<Vector3d, double> sphere = p => p.Length - 1;
         Func<Vector3d, double> torus = p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 1; return Math.Sqrt(q * q + p.z * p.z) - 0.35; };
-        var shapes = new[] {
-            ("sphere", sphere, 0.1, 0.0),
-            ("torus", torus, 0.1, 0.0),
-            ("torus-align10", torus, 0.1, 10.0),
+        Func<Vector3d, double> bumpy = p => p.Length - 1 - 0.08 * Math.Sin(4 * p.x) * Math.Sin(4 * p.y) * Math.Sin(4 * p.z);
+        Vector3d ext = new Vector3d(1, 0.7, 0.5); double fr = 0.15;
+        Func<Vector3d, double> rbox = p => {
+            Vector3d q = new Vector3d(Math.Abs(p.x) - (ext.x - fr), Math.Abs(p.y) - (ext.y - fr), Math.Abs(p.z) - (ext.z - fr));
+            Vector3d qp = new Vector3d(Math.Max(q.x, 0), Math.Max(q.y, 0), Math.Max(q.z, 0));
+            return qp.Length + Math.Min(Math.Max(q.x, Math.Max(q.y, q.z)), 0) - fr;
         };
-        foreach (var (name, fn, s0, align) in shapes) {
+        Func<Vector3d, double> capsule = p => { double x = Math.Max(-0.6, Math.Min(0.6, p.x)); return new Vector3d(p.x - x, p.y, p.z).Length - 0.5; };
+        Func<Vector3d, double> genus2 = p => {
+            Func<double, double> tor = cx => { double q = Math.Sqrt((p.x - cx) * (p.x - cx) + p.y * p.y) - 0.6; return Math.Sqrt(q * q + p.z * p.z) - 0.22; };
+            double a = tor(-0.62), b = tor(0.62), k = 0.1, h = Math.Max(k - Math.Abs(a - b), 0) / k;
+            return Math.Min(a, b) - h * h * k * 0.25;
+        };
+        Func<Vector3d, double> cylinder = p => { double dx = Math.Sqrt(p.x * p.x + p.y * p.y) - 0.6, dz = Math.Abs(p.z) - 0.8; return Math.Min(Math.Max(dx, dz), 0) + new Vector2d(Math.Max(dx, 0), Math.Max(dz, 0)).Length; };
+        var shapes = new List<(string, Func<Vector3d, double>, double, double, double)> {
+            ("sphere", sphere, 0.1, 0.0, 0.0),
+            ("torus", torus, 0.1, 0.0, 0.0),
+            ("torus-align10", torus, 0.1, 10.0, 0.0),
+            ("bumpy", bumpy, 0.06, 0.0, 0.0),
+            ("filleted-box", rbox, 0.08, 0.0, 0.0),
+            ("noisy-sphere", sphere, 0.1, 0.0, 0.2),
+            ("capsule", capsule, 0.08, 0.0, 0.0),
+            ("genus2", genus2, 0.06, 0.0, 0.0),
+            ("capped-cylinder", cylinder, 0.08, 0.0, 0.0),
+        };
+        bool gate = A.ContainsKey("gate");
+        foreach (var (name, fn, s0, align, noise) in shapes) {
             if (only != null && !only.IsMatch(name)) continue;
             double s = s0 * scaleMul;
-            DMesh3 input = MakeInput(fn, s * ratio);
+            var swAll = Stopwatch.StartNew();
+            DMesh3 input = MakeInput(fn, s * ratio, noise);
             var cf = new CrossField(input) { CurvatureAlignment = align }; cf.Compute();
             if (!cf.Success) { Console.WriteLine(name + ": cross field failed " + cf.Status); continue; }
             var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s };
@@ -48,17 +70,21 @@ static class Program
             var pf = new PositionField(input, cf) { TargetEdgeLength = s };
             var swp = Stopwatch.StartNew(); pf.Compute(); double tpf = swp.Elapsed.TotalSeconds;
             int rounds = A.ContainsKey("rounds") ? int.Parse(A["rounds"]) : 1; double pen = A.ContainsKey("pen") ? double.Parse(A["pen"], CultureInfo.InvariantCulture) : 3;
-            var pens = new Dictionary<int, double>(); FlowResult R = null; int bestInv = int.MaxValue; var Rbest = (FlowResult)null; QuadFlowSpike spike = null;
+            double tRun = 0, tRunTotal = 0; var pens = new Dictionary<int, double>(); FlowResult R = null; int bestInv = int.MaxValue; var Rbest = (FlowResult)null; QuadFlowSpike spike = null;
             for (int round = 0; round < rounds; ++round) {
-            spike = new QuadFlowSpike(input, cf, pf, s) { SatStrict = strict, Cancel = A.ContainsKey("cancel") && A["cancel"] == "1", CostMode = A.ContainsKey("cost") ? int.Parse(A["cost"]) : 0, HStart = A.ContainsKey("h") ? int.Parse(A["h"]) : 2, SmartSplit = A.ContainsKey("smartsplit") && A["smartsplit"] == "1", SatMaxRing = A.ContainsKey("satring") ? int.Parse(A["satring"]) : 6, SatBudget = A.ContainsKey("satbudget") ? long.Parse(A["satbudget"]) : 100000, SignPen = A.ContainsKey("signpen") ? double.Parse(A["signpen"], CultureInfo.InvariantCulture) : 10, SignTol = A.ContainsKey("signtol") ? double.Parse(A["signtol"], CultureInfo.InvariantCulture) : 0.25 };
+            spike = new QuadFlowSpike(input, cf, pf, s) { SatStrict = strict, Cancel = A.ContainsKey("cancel") && A["cancel"] == "1", Project = A.ContainsKey("proj") && A["proj"] == "1", CostMode = A.ContainsKey("cost") ? int.Parse(A["cost"]) : 0, HStart = A.ContainsKey("h") ? int.Parse(A["h"]) : 2, SmartSplit = A.ContainsKey("smartsplit") && A["smartsplit"] == "1", SatMaxRing = A.ContainsKey("satring") ? int.Parse(A["satring"]) : 6, SatBudget = A.ContainsKey("satbudget") ? long.Parse(A["satbudget"]) : 100000, SignPen = A.ContainsKey("signpen") ? double.Parse(A["signpen"], CultureInfo.InvariantCulture) : 10, SignTol = A.ContainsKey("signtol") ? double.Parse(A["signtol"], CultureInfo.InvariantCulture) : 0.25 };
             spike.EdgePen = pens;
+            var swRun = Stopwatch.StartNew();
             R = spike.Run(name, greedy, sat);
+            tRun = swRun.Elapsed.TotalSeconds;
             Console.WriteLine($"  round {round}: inverted left {R.InvAfterSat}, irregular {(R.Metrics == null ? -1 : R.Metrics.IrregularVertices)}");
+            tRunTotal += tRun;
             if (R.InvAfterSat < bestInv) { bestInv = R.InvAfterSat; Rbest = R; }
             if (R.InvAfterSat == 0) break;
             foreach (int e in spike.BadEdges) { pens.TryGetValue(e, out double pv); pens[e] = pv + pen; }
             }
             R = Rbest;
+            if (gate) { GateLine(name, input, cf, qr, m2, R, s, tpf, tRunTotal, scaleMul, ratio); continue; }
             Console.WriteLine($"## {name}: input V {input.VertexCount}, singular faces {cf.SingularFaces.Count}, s {s}");
             Console.WriteLine($"stage 2 : irregular {m2.IrregularVertices}, quads {F(100 * m2.QuadFraction, "F1")} %, tris {m2.Triangles}, manifold {m2.IsManifold}, corner p95 {F(PolyMeshMetrics.Percentile(m2.CornerDeviations, 0.95), "F1")}, t pos {F(qr.PositionSeconds, "F2")} s, t extract {F(qr.ExtractSeconds, "F2")} s");
             Console.WriteLine($"position singular triangles: before flow {R.PosSingBefore}, after flow {R.PosSingAfter}; vars balanced {R.Balanced}, fixed {R.Fixed} (boundary {R.FixedBoundary}), network components {R.Components}, clamped {R.Clamped}{R.Note}");
@@ -71,6 +97,28 @@ static class Program
             Console.WriteLine();
         }
         return 0;
+    }
+
+    static double Haus(DPolyMesh pm, DMesh3 input, double s)
+    {
+        if (pm == null || pm.FaceCount == 0) return double.NaN;
+        DMesh3 tri = pm.ToDMesh3(out int[] map, new List<int>());
+        if (tri.TriangleCount == 0) return double.NaN;
+        var hd = new MeshHausdorffDistance(tri, input) { Symmetric = false, RelativeTolerance = 1e-3 };
+        hd.Compute(); return hd.UpperBound / s;
+    }
+
+    static void GateLine(string name, DMesh3 input, CrossField cf, QuadRemesher qr, PolyMeshMetrics m2, FlowResult R, double s, double tpf, double tRun, double scaleMul, double ratio)
+    {
+        var m = R.Metrics; int sing = cf.SingularFaces.Count;
+        double t2 = qr.PositionSeconds + qr.ExtractSeconds, t3 = tpf + tRun;
+        double h2 = Haus(qr.Result, input, s), h3 = Haus(R.Out, input, s);
+        int gateIrr = sing + (int)Math.Floor(0.1 * m2.IrregularVertices);
+        bool detected = R.InvAfterSat > 0 || R.PosSingAfter > 0;
+        bool bad = m == null || !m.IsManifold || R.FlippedQuads > 0 || m.QuadFraction < 1 || R.BadQuads > 0 || R.Unpaired > 0 || m.Pentagons + m.Hexagons > 0;
+        string cls = R.PosSingAfter > 0 ? "FALLBACK(flow infeasible)" : detected ? "FALLBACK" : bad ? "UNDETECTED-BAD" : "clean";
+        string p95(PolyMeshMetrics x) => F(PolyMeshMetrics.Percentile(x.CornerDeviations, 0.95), "F1");
+        Console.WriteLine($"| {name} | {F(scaleMul, "G3")} / {F(ratio, "G3")} | {input.VertexCount} | {sing} | {m2.IrregularVertices} | {F(100 * m2.QuadFraction, "F1")} | {p95(m2)} | {F(h2, "F2")} | {F(t2, "F2")} || {(m == null ? -1 : m.IrregularVertices)} ({gateIrr}) | {(m == null ? "-" : F(100 * m.QuadFraction, "F1"))} | {(m == null ? "-" : p95(m))} | {F(h3, "F2")} | {(m != null && m.IsManifold ? "yes" : "NO")} | {R.InvAfterSat} | {R.FlippedQuads} | {F(R.TFlow, "F2")} | {F(R.TSat, "F2")} | {F(t3, "F2")} | {F(t3 / t2, "F1")} | {cls} |");
     }
 
     static void DpllSelfTest()
@@ -111,7 +159,7 @@ static class Program
         Console.WriteLine($"dpll self test: {total} instances, {sat} satisfiable, {bad} wrong");
     }
 
-    static DMesh3 MakeInput(Func<Vector3d, double> fn, double h)
+    static DMesh3 MakeInput(Func<Vector3d, double> fn, double h, double noise)
     {
         var B = new AxisAlignedBox3d(new Vector3d(-1.6, -1.6, -1.6), new Vector3d(1.6, 1.6, 1.6));
         var mc = new MarchingCubes { Implicit = new Fn { F = fn, B = B }, Bounds = B, CubeSize = h * 0.5, ParallelCompute = false, RootMode = MarchingCubes.RootfindingModes.Bisection };
@@ -122,6 +170,12 @@ static class Program
         r.SetProjectionTarget(MeshProjectionTarget.Auto(src));
         r.SetTargetEdgeLength(h);
         for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
-        return new DMesh3(m, true);
+        m = new DMesh3(m, true);
+        if (noise > 0) {
+            var rnd = new Random(1);
+            MeshNormals.QuickCompute(m);
+            foreach (int v in m.VertexIndices()) { Vector3d n = (Vector3d)m.GetVertexNormal(v); m.SetVertex(v, m.GetVertex(v) + n * ((rnd.NextDouble() * 2 - 1) * noise * h)); }
+        }
+        return m;
     }
 }
