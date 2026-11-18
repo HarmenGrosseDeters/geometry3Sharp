@@ -464,7 +464,10 @@ Open:
   touching points. Limit: a contact line of m vertices holds about 12 m triangles (the twin vertices cannot be collapsed one
   by one). Built (opt-in, default off, bit-identical when off): `PairContacts` / `Reducer.PairCoincidentVertices`, a paired collapse of
   each contact edge with its twin edge, both to one position, every guard checked for both sheets (contact lines only: a contact
-  point stays where it is; `NotCleanReason` still says "self-intersections" for a result with contacts, not changed); not built:
+  point stays where it is; `NotCleanReason` still says "self-intersections" for a result with contacts, not changed); `PairContactsMode = Auto`
+  (default Off; owner 2026-11-18): a second, paired reduction only for a result that keeps contacts and is not clean, kept if it has fewer
+  triangles (or as many and fewer contacts); every clean result is bit for bit the one of Off, the second pass costs 26-49 % of the pipeline
+  time on the contact cases (above the 25 % bound for a default), so Off stays the default; not built:
   opening the touching sheets by a gap (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
 - **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
   and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
