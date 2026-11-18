@@ -485,5 +485,35 @@
     ],
     "reason": "the text of a pixel for the message of the guard at 'no pixel to restore critical pixel' (the invariant guard of Proposition 4.9, listed with it): used nowhere else, so it runs only if the guard is reached",
     "approved_in": "#1124"
+  },
+  {
+    "file": "mesh_ops/SolidBooleanPipeline.cs",
+    "text": "return fail(PipelineStatus.OpenInput, op.Error, total);",
+    "after": [
+      "if (Array.IndexOf(Report.InputClosed, false) < 0)",
+      "// (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)"
+    ],
+    "reason": "dead branch: it sits inside `if (anyOpen && ...)`, and anyOpen is true only if some Report.InputClosed entry is false, so `Array.IndexOf(Report.InputClosed, false) < 0` can never hold. Listed at the coordinator's request (owner decision on deletion pending); not deleted in this tests-only PR",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "mesh/Reducer.cs",
+    "text": "return false;",
+    "after": [
+      "if (et.a == DMesh3.InvalidID)",
+      "Index2i et = mesh.GetEdgeT(eab);"
+    ],
+    "reason": "invariant guard: DMesh3 keeps an edge only while at least one triangle uses it (the edge is removed with its last triangle), so an edge found by FindEdge always has a first triangle",
+    "approved_in": "#1124"
+  },
+  {
+    "file": "mesh/Reducer.cs",
+    "text": "throw new InvalidOperationException(\"Reducer.PairCoincidentVertices: the twin edge could not be collapsed after the edge (internal error)\");",
+    "after": [
+      "if (mesh.CollapseEdge(iKeep2, iCollapse2, out info2) != MeshResult.Ok)",
+      "pairKeep2 = iKeep2; pairCollapse2 = iCollapse2;"
+    ],
+    "reason": "invariant guard (its message says internal error): the twin's collapse was accepted by MeshAcceptsCollapse before the pair was started, and the first collapse does not touch the twin's one-ring (independence check), so the second collapse cannot fail; a test cannot create the case. Not proven unreachable beyond that argument: a test that finds such an input replaces the entry",
+    "approved_in": "#1124"
   }
 ]
