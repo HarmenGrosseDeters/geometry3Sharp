@@ -52,11 +52,20 @@ namespace g3
         /// the sign of a x + b y + c z - d w for the plane (a, b, c, d) and the point (x, y, z, w): the value of
         /// ExactLimbSigns.PlaneSide on the same eight integers
         /// </summary>
+#if G3_PREDICATE_TIME
+        internal static int PlaneSide(PreparedLimbs plane, PreparedLimbs point) { long tk = PredicateTime.EBegin((int)PredicateStats.Kind.LimbPlaneSide); int wr_ = PlaneSide_t(plane, point); PredicateTime.EEnd((int)PredicateStats.Kind.LimbPlaneSide, tk); return wr_; }
+        [MethodImpl(JitHints.Optimize)]
+#if NET
+        [SkipLocalsInit]
+#endif
+        private static int PlaneSide_t(PreparedLimbs plane, PreparedLimbs point)
+#else
         [MethodImpl(JitHints.Optimize)]
 #if NET
         [SkipLocalsInit]
 #endif
         internal static int PlaneSide(PreparedLimbs plane, PreparedLimbs point)
+#endif
         {
 #if NET
             int total = plane.Total + point.Total;
