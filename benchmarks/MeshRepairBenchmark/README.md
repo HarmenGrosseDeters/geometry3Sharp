@@ -1702,6 +1702,28 @@ of the pipeline's. The time is the serial reduction with a certified deviation p
 around a ball) are covered by `AlphaWrapTargetTests` (guarantees checked on each) and the table in the roadmap; they need no wrap in the robust pipeline's
 solidify stage, so the benchmark's robust mode does not wrap them. Thingi10K at run time: not run here (no mesh fetch in this session).
 
+### Parallel certification walk of the target reduction (#1109, 2026-11-18)
+
+Profile of the 39.6 s row above (uncommitted probes, replay of the 7,202 triangles that the Reducer's `MaxDeviation` check certified): 97 % of the check
+is `TriangleDeviationBounds.IsWithin`, the samples cost 0.3 %. The time is in the accepted collapses with a large new triangle: those of 256 or more raw wrap
+triangles in area (1,584 of 7,202 calls) are 86 % of the CPU time (31.5 ms each, up to 175 ms); each needs about 3.5 k bound evaluations and 2.6 k nearest-triangle
+queries (0.52 / 0.44 of the CPU; 26 GB of list allocations in all). Cheaper bounds first (the corner-distance bounds before the plane split) pass for only 10 % of
+the pieces and changed the time by 0; caching across attempts has nothing to reuse (every attempt has a new vertex position).
+`IsWithin` now takes the pieces beyond the first 64 on several threads, in rounds of 128 pieces per task (`ParallelDeviationCheck`, on by default): the answer is
+true iff no piece fails, so the thread schedule cannot change it, and the reduction is the same mesh bit for bit (hash of all triangle coordinates equal in every run,
+`ReducerParallelDeviationCheckTests`). The serial part left in the phase is the self-intersection check (4.2 s of 18 s) and the Reducer's own loop.
+"flat", alpha = diag / 300, factor 1, 4-core container, master f356ab5 against the branch, three runs each, interleaved (range in brackets):
+
+| distance | | `wrap.target` | repair total | output |
+|---|---|---:|---:|---|
+| 0.5 | master | 22.2 s (22.1 .. 22.4) | 30.5 s (30.2 .. 30.7) | 5890 triangles |
+| | parallel walk | 18.3 s (18.2 .. 18.4) | 26.6 s (26.5 .. 26.8) | the same bits |
+| 2 | master | 10.1 s | 18.6 s | 5360 triangles |
+| | parallel walk | 8.4 s | 17.1 s | the same bits |
+
+-18 % and -16 % of the target phase (-13 % and -8 % of the repair). On one core there is no gain (the walk is the same work). A reduction with a target in
+parallel (slabs) would change the result and is not part of this.
+
 ## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
 
 The main carving in rounds of gates with disjoint cells, evaluated in parallel, committed in heap order

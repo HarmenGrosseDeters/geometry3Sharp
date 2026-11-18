@@ -182,6 +182,10 @@ namespace g3
 
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
+        /// <summary> (internal) the MaxDeviation check of a collapse splits the triangles it certifies across threads (the answer is the same) </summary>
+        internal bool ParallelDeviationCheck = true;
+        /// <summary> (tests) the parallel walks of the check that went past the warm-up </summary>
+        internal long DeviationParallelHandoffs => deviationBounds == null ? 0 : deviationBounds.ParallelHandoffs;
 
         /// <summary>
         /// (tests, benchmarks) share the tree queries of one collapse's MaxDeviation check between its samples and
@@ -1095,7 +1099,7 @@ namespace g3
             }
             bool ok = true;
             gParallel.ForRange(tris.Count, (k) => {
-                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache, ParallelDeviationCheck) == false)
                     ok = false;
             });
             if (cache != null) {
