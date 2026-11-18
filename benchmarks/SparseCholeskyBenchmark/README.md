@@ -142,5 +142,5 @@ still reads the column copy):
 | noisy-torus | smoothest | 60712 | 34 | 3.36 | 2.44 | 27 % |
 | noisy-torus | aligned s=1 | 60712 | 21 | 2.25 | 1.87 | 17 % |
 
-Left in the solves: the serial top supernodes (forward 7 ms and backward about 5 ms expected per solve on the sphere; the rows below the
+Left in the solves: the serial top supernodes (the forward pass over them took about 7 ms per solve on the sphere before the column copy; the backward pass was not timed again after it; the rows below the
 diagonal block of a top supernode are independent and could run in parallel, the triangle itself is one chain per column).
