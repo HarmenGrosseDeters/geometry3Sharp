@@ -36,6 +36,7 @@ class Tri
     public int[] Nb = { -1, -1, -1 };   // neighbour across slot s
     public int[] NbS = new int[3];      // its slot (the reversed edge)
     public int[] Rot = new int[3];      // D_neighbour = - R^Rot D_self
+    public int[] E = new int[3];        // mesh edge ids (original triangles only)
     public int Fa;                      // frame vertex (an original mesh vertex)
 }
 
@@ -61,21 +62,19 @@ partial class QuadFlowSpike
     int maxV;
     Vector3d[] P, Nrm, Q, T;
     // per edge (u<v) data
-    Dictionary<long, int> gMap = new Dictionary<long, int>();
-    Dictionary<long, V2> dMap = new Dictionary<long, V2>();
-    Dictionary<long, (double, double)> rMap = new Dictionary<long, (double, double)>();
+    int[] gA; V2[] dA; (double, double)[] rA;
     public int CostMode = 0;      // 0 flat cost 1 per unit, 1 geometry aware (marginal misfit of the real offset, two tiers)
     public int HStart = 2; public int PosMode = 1; public double PosAnchor = 0.02;
-    public bool ExcessMcf = false; public bool FastMcf = false, FastSubdiv = false, FastPos = false, FastSat = false;
+    public long SatTotalBudget = long.MaxValue; public bool SatStopOnFail = false; public bool SatBudgetHit; public bool ExcessMcf = false; public bool FastMcf = false, FastSubdiv = false, FastPos = false, FastSat = false;
     public Dictionary<int, double> EdgePen = new Dictionary<int, double>();     // edge index -> extra cost multiplier
     public HashSet<int> BadEdges = new HashSet<int>();                         // output: edges of original triangles that end up inverted
     int[] slotEdge;
     static (double, double) RotD((double X, double Y) v, int k) { k = ((k % 4) + 4) % 4; for (int i = 0; i < k; ++i) v = (-v.Y, v.X); return v; }
     (double, double) DirR(int u, int w)
     {
-        if (u < w) return rMap[Key(u, w)];
-        var d = rMap[Key(w, u)];
-        var r = RotD(d, -(gMap[Key(w, u)]));
+        if (u < w) return rA[mesh.FindEdge(u, w)];
+        var d = rA[mesh.FindEdge(w, u)];
+        var r = RotD(d, -(gA[mesh.FindEdge(w, u)]));
         return (-r.Item1, -r.Item2);
     }
     public bool SatStrict = false;
@@ -85,12 +84,12 @@ partial class QuadFlowSpike
     public long SatBudget = 100000;
 
     long Key(int u, int v) { return (long)u * maxV + v; }
-    int G(int u, int w) { if (u == w) return 0; return u < w ? gMap[Key(u, w)] : (4 - gMap[Key(w, u)]) % 4; }       // coords_u = R^G coords_w
+    int G(int u, int w) { if (u == w) return 0; return u < w ? gA[mesh.FindEdge(u, w)] : (4 - gA[mesh.FindEdge(w, u)]) % 4; }       // coords_u = R^G coords_w
     V2 Dir(int u, int w)
     {   // offset of w's origin from u's, in u's frame
-        if (u < w) return dMap[Key(u, w)];
-        V2 d = dMap[Key(w, u)];                        // in w's frame (w<u): offset u from w
-        return -V2.Rot(d, -(gMap[Key(w, u)]));          // coords_u = R^{-g_wu} coords_w ... see below
+        if (u < w) return dA[mesh.FindEdge(u, w)];
+        V2 d = dA[mesh.FindEdge(w, u)];                        // in w's frame (w<u): offset u from w
+        return -V2.Rot(d, -(gA[mesh.FindEdge(w, u)]));          // coords_u = R^{-g_wu} coords_w ... see below
     }
 
     public QuadFlowSpike(DMesh3 m, CrossField c, PositionField p, double scale) { mesh = m; cf = c; pf = p; s = scale; }
@@ -108,7 +107,7 @@ partial class QuadFlowSpike
 
     void BuildOffsets()
     {
-        maxV = mesh.MaxVertexID;
+        maxV = mesh.MaxVertexID; gA = new int[mesh.MaxEdgeID]; dA = new V2[mesh.MaxEdgeID]; rA = new (double, double)[mesh.MaxEdgeID];
         P = new Vector3d[maxV]; Nrm = new Vector3d[maxV]; Q = new Vector3d[maxV]; T = new Vector3d[maxV];
         foreach (int v in mesh.VertexIndices()) {
             P[v] = mesh.GetVertex(v); Nrm[v] = cf.VertexNormal(v); Q[v] = pf.Orientation(v); T[v] = Nrm[v].Cross(Q[v]);
@@ -131,11 +130,11 @@ partial class QuadFlowSpike
             Vector3d a = oi + s * (kq0 * qi + kt0 * ti);
             Vector3d d2 = a - oj;
             int kq1 = (int)Math.Round(b.Dot(d2) / s), kt1 = (int)Math.Round(tb.Dot(d2) / s);
-            gMap[Key(u, v)] = (4 - m) % 4;
-            dMap[Key(u, v)] = new V2(kq0 - kq1, kt0 - kt1);
+            gA[e] = (4 - m) % 4;
+            dA[e] = new V2(kq0 - kq1, kt0 - kt1);
             {   // real offset: coordinates of x relative to o_u minus coordinates of x relative to o_v (in the compatible basis)
                 Vector3d dv = x - oj;
-                rMap[Key(u, v)] = (qi.Dot(d) / s - b.Dot(dv) / s, ti.Dot(d) / s - tb.Dot(dv) / s);
+                rA[e] = (qi.Dot(d) / s - b.Dot(dv) / s, ti.Dot(d) / s - tb.Dot(dv) / s);
             }
         }
     }
@@ -163,30 +162,52 @@ partial class QuadFlowSpike
         }
     }
 
+    // edge-id based lookups (the edge id replaces the FindEdge search)
+    (double, double) DirRe(int u, int w, int e)
+    {
+        if (u < w) return rA[e];
+        var d = rA[e]; var r = RotD(d, -gA[e]); return (-r.Item1, -r.Item2);
+    }
+    int Ge(int u, int w, int e) { if (u == w) return 0; return u < w ? gA[e] : (4 - gA[e]) % 4; }
+    V2 Dire(int u, int w, int e) { if (u < w) return dA[e]; return -V2.Rot(dA[e], -gA[e]); }
+
     void BuildTriangles()
     {
+        var tidToF = new int[mesh.MaxTriangleID]; var slotE = new List<int>(); int[] gv = new int[1];
         foreach (int t in mesh.TriangleIndices()) {
             Index3i tv = mesh.GetTriangle(t);
             int a = tv.a, b = tv.b, c = tv.c;
             var tr = new Tri { Fa = a, Orig = tris.Count };
             tr.V[0] = a; tr.V[1] = b; tr.V[2] = c;
-            tr.D[0] = Dir(a, b);
-            tr.D[1] = V2.Rot(Dir(b, c), G(a, b));
-            tr.D[2] = V2.Rot(Dir(c, a), G(a, c));
-            tr.Dr[0] = DirR(a, b); tr.Dr[1] = RotD(DirR(b, c), G(a, b)); tr.Dr[2] = RotD(DirR(c, a), G(a, c));
+            Index3i te = mesh.GetTriEdges(t); tr.E[0] = te.a; tr.E[1] = te.b; tr.E[2] = te.c;
+            int gab = Ge(a, b, te.a), gac = Ge(a, c, te.c);
+            tr.D[0] = Dire(a, b, te.a);
+            tr.D[1] = V2.Rot(Dire(b, c, te.b), gab);
+            tr.D[2] = V2.Rot(Dire(c, a, te.c), gac);
+            tr.Dr[0] = DirRe(a, b, te.a); tr.Dr[1] = RotD(DirRe(b, c, te.b), gab); tr.Dr[2] = RotD(DirRe(c, a, te.c), gac);
+            tidToF[t] = tris.Count;
             tris.Add(tr);
         }
-        foreach (int v in mesh.VertexIndices()) { }
-        var dir = new Dictionary<long, (int, int)>();
-        for (int f = 0; f < tris.Count; ++f)
-            for (int sl = 0; sl < 3; ++sl) dir[(long)tris[f].V[sl] * maxV + tris[f].V[(sl + 1) % 3]] = (f, sl);
+        // G of two vertices of triangle f (frame vertex V[0] with another vertex)
+        int GT(Tri T, int u, int w)
+        {
+            if (u == w) return 0;
+            int iu = T.V[0] == u ? 0 : T.V[1] == u ? 1 : 2, iw = T.V[0] == w ? 0 : T.V[1] == w ? 1 : 2;
+            int sl = (iu + 1) % 3 == iw ? iu : iw;      // slot of the edge {u, w}
+            return Ge(u, w, T.E[sl]);
+        }
         for (int f = 0; f < tris.Count; ++f)
             for (int sl = 0; sl < 3; ++sl) {
+                int e = tris[f].E[sl]; Index2i et = mesh.GetEdgeT(e);
+                int ntid = et.a == -1 ? -1 : et.b == -1 ? -1 : (tidToF[et.a] == f ? et.b : et.a);
+                if (ntid < 0) continue;
+                int nb = tidToF[ntid];
+                int ns = tris[nb].E[0] == e ? 0 : tris[nb].E[1] == e ? 1 : 2;
                 int p = tris[f].V[sl], q = tris[f].V[(sl + 1) % 3];
-                if (!dir.TryGetValue((long)q * maxV + p, out var nb)) continue;
-                tris[f].Nb[sl] = nb.Item1; tris[f].NbS[sl] = nb.Item2;
-                int fa = tris[f].V[0], fb = tris[nb.Item1].V[0];
-                tris[f].Rot[sl] = (((G(fb, q) - G(p, q) - G(fa, p)) % 4) + 4) % 4;
+                tris[f].Nb[sl] = nb; tris[f].NbS[sl] = ns;
+                Tri Tf = tris[f], Tn = tris[nb];
+                int fa = Tf.V[0], fb = Tn.V[0];
+                tris[f].Rot[sl] = (((GT(Tn, fb, q) - Ge(p, q, e) - GT(Tf, fa, p)) % 4) + 4) % 4;
             }
     }
 
@@ -196,8 +217,9 @@ partial class QuadFlowSpike
     {
         var R = new FlowResult { Name = name };
         var sw = Stopwatch.StartNew();
-        BuildOffsets();
+        BuildOffsets(); double tOff = sw.Elapsed.TotalSeconds;
         BuildTriangles();
+        if (Environment.GetEnvironmentVariable("SPIKE_POS") == "1") Console.Error.WriteLine($"  [setup] offsets {tOff:F3} triangles {sw.Elapsed.TotalSeconds - tOff:F3}");
         R.TSetup = sw.Elapsed.TotalSeconds;
         R.Vertices = mesh.VertexCount; R.Triangles = tris.Count;
         foreach (var t in tris) if (!(t.D[0] + t.D[1] + t.D[2]).IsZero) R.PosSingBefore++;
@@ -276,6 +298,8 @@ partial class QuadFlowSpike
     }
 
     int Pen(int k, int c) { return EdgePen.TryGetValue(k, out double m) ? (int)Math.Round(c * (1 + m)) : c; }
+
+    static int SumArcs(McfFast n, int first, int cnt) { int s = 0; for (int i = 0; i < cnt; ++i) s += n.Flow(first + 2 * i); return s; }
 
     void SolveFlow(FlowResult R)
     {
@@ -415,6 +439,7 @@ partial class QuadFlowSpike
                 if (res[i] > 0) AddA(S, i, (int)res[i], 0);
                 else if (res[i] < 0) AddA(i, Tn, (int)(-res[i]), 0);
             }
+            var fF = new int[edges.Count * 2]; var nF = new int[edges.Count * 2]; var fB = new int[edges.Count * 2]; var nB = new int[edges.Count * 2];
             var arcF = new int[edges.Count * 2]; var arcB = new int[edges.Count * 2]; var arcLF = new List<int>[edges.Count * 2]; var arcLB = new List<int>[edges.Count * 2];
             for (int k = 0; k < edges.Count; ++k) {
                 arcF[2 * k] = arcF[2 * k + 1] = arcB[2 * k] = arcB[2 * k + 1] = -1;
@@ -431,15 +456,16 @@ partial class QuadFlowSpike
                         arcB[2 * k + j] = AddA(head, tail, capB, 1);
                     } else {
                         double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
-                        var lf = new List<int>(); var lb = new List<int>();
+                        List<int> lf = null, lb = null;
                         if (FastMcf) {
-                            int run = 0, pc = 0;
-                            for (int st = 1; st <= capF; ++st) { int c = Pen(k, StepCost(v + st - 1, v + st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) lf.Add(AddA(tail, head, run, pc)); pc = c; run = 1; } }
-                            if (run > 0) lf.Add(AddA(tail, head, run, pc));
-                            run = 0;
-                            for (int st = 1; st <= capB; ++st) { int c = Pen(k, StepCost(v - st + 1, v - st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) lb.Add(AddA(head, tail, run, pc)); pc = c; run = 1; } }
-                            if (run > 0) lb.Add(AddA(head, tail, run, pc));
+                            int run = 0, pc = 0; int idx = 2 * k + j; fF[idx] = net1.ArcCount * 2; nF[idx] = 0;
+                            for (int st = 1; st <= capF; ++st) { int c = Pen(k, StepCost(v + st - 1, v + st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) { AddA(tail, head, run, pc); nF[idx]++; } pc = c; run = 1; } }
+                            if (run > 0) { AddA(tail, head, run, pc); nF[idx]++; }
+                            run = 0; fB[idx] = net1.ArcCount * 2; nB[idx] = 0;
+                            for (int st = 1; st <= capB; ++st) { int c = Pen(k, StepCost(v - st + 1, v - st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) { AddA(head, tail, run, pc); nB[idx]++; } pc = c; run = 1; } }
+                            if (run > 0) { AddA(head, tail, run, pc); nB[idx]++; }
                         } else {
+                            lf = new List<int>(); lb = new List<int>();
                             for (int st = 1; st <= capF; ++st) { if (CostMode == 3 && Against(v + st - 1, v + st, r)) break; lf.Add(AddA(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r)))); }
                             for (int st = 1; st <= capB; ++st) { if (CostMode == 3 && Against(v - st + 1, v - st, r)) break; lb.Add(AddA(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r)))); }
                         }
@@ -459,7 +485,7 @@ partial class QuadFlowSpike
             for (int k = 0; k < edges.Count; ++k) {
                 if (!balanced[k]) continue;
                 var e = edges[k];
-                Func<int, int> fl = jj => CostMode == 0 ? FlowA(arcF[2 * k + jj]) - FlowA(arcB[2 * k + jj]) : arcLF[2 * k + jj].Sum(a => FlowA(a)) - arcLB[2 * k + jj].Sum(a => FlowA(a));
+                Func<int, int> fl = jj => CostMode == 0 ? FlowA(arcF[2 * k + jj]) - FlowA(arcB[2 * k + jj]) : FastMcf ? SumArcs(net1, fF[2 * k + jj], nF[2 * k + jj]) - SumArcs(net1, fB[2 * k + jj], nB[2 * k + jj]) : arcLF[2 * k + jj].Sum(a => FlowA(a)) - arcLB[2 * k + jj].Sum(a => FlowA(a));
                 int dx = fl(0), dy = fl(1);
                 e.Dv = new V2(e.Dv.X + dx, e.Dv.Y + dy);
             }
@@ -689,7 +715,7 @@ partial class QuadFlowSpike
                 if (nb >= 0 && inR.ContainsKey(nb) && nb > f) { edgeId[(f, sl)] = masters.Count; masters.Add((f, sl)); edgeId[(nb, tris[f].NbS[sl])] = -1 - (masters.Count - 1); }
             }
         int M = masters.Count; if (M == 0) return false;
-        var sat = new Dpll(9 * M) { Budget = SatBudget };
+        var sat = new Dpll(9 * M) { Budget = Math.Min(SatBudget, Math.Max(1, SatTotalBudget - R.SatDecisions)) };
         var groups = new int[M][];
         for (int e = 0; e < M; ++e) {
             var (f, sl) = masters[e];
@@ -782,8 +808,9 @@ partial class QuadFlowSpike
             for (int f = 0; f < tris.Count; ++f) if (Det(tris[f]) < 0 && !failed.Contains(f)) { seed = f; break; }
             if (seed < 0) break;
             bool ok = false;
-            for (int ring = 1; ring <= SatMaxRing && !ok; ++ring) ok = TrySat(seed, ring, R);
-            if (ok) R.SatSolved++; else { R.SatFailed++; failed.Add(seed); }
+            for (int ring = 1; ring <= SatMaxRing && !ok && R.SatDecisions < SatTotalBudget; ++ring) ok = TrySat(seed, ring, R);
+            if (ok) R.SatSolved++; else { R.SatFailed++; failed.Add(seed); if (SatStopOnFail) { SatBudgetHit = true; break; } }
+            if (R.SatDecisions >= SatTotalBudget) { SatBudgetHit = true; break; }
         }
     }
 

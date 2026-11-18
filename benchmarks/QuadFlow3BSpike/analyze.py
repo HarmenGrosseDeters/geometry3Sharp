@@ -10,7 +10,7 @@ def parse(path):
         if line.startswith("|"):
             f = [x.strip() for x in line.strip("|").split("|")]
             f = [x for x in f if x != ""]
-            cur = {"name": f[0], "var": f[1], "tot": float(f[-3]), "ratio": float(f[-2]), "cls": f[-1], "t2": float(f[7])}
+            cur = {"name": f[0], "var": f[1], "tot": float(f[-3]), "ratio": float(f[-2]), "cls": f[-1], "t2": float(f[8])}
         elif line.startswith("PROF") and cur is not None:
             def g(k):
                 m = re.search(r"\b" + k + r" ([0-9.]+)", line); return float(m.group(1)) if m else 0.0
