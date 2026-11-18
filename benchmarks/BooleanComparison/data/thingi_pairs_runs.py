@@ -12,9 +12,9 @@
 #   python3 data/thingi_pairs_runs.py summary <results.jsonl | directory>...
 #                                                  per class and method: success, clean, NotCleanReason histogram, max identity error,
 #                                                  time median / p90 / max, operations above 5 s and 20 s
-#   python3 data/thingi_pairs_runs.py compare <base> <final> [--method ours] [--floor-ms 100]
+#   python3 data/thingi_pairs_runs.py compare <base> <final> [--method ours] [--floor-ms 100] [--strict]
 #                                                  baseline against final, per pair and operation: clean before and not after,
-#                                                  slower than 2x, faster, and the table of the time ratios
+#                                                  slower than 2x, faster, and the table of the time ratios (--strict: exit 1 on a regression)
 #
 # A <directory> argument is searched (recursively) for results*.jsonl. The last row of a (class, file, method) wins, as compare.py
 # --resume may append a case again. The oracle is the one of thingi_pairs.py (NotCleanReason of the result, the volume identities
@@ -97,7 +97,7 @@ def result_files(paths):
         if os.path.isdir(p):
             for root, _, names in sorted(os.walk(p)):
                 out += [os.path.join(root, n) for n in sorted(names) if n.startswith("results") and n.endswith(".jsonl")]
-        else:
+        elif os.path.exists(p):
             out.append(p)
     return out
 
@@ -117,6 +117,11 @@ def load(paths):
                     last[(r["class"], r.get("file"), r["method"])] = r
     return last
 
+def consistent(r):
+    """as thingi_pairs.consistent, but a self-intersection count of -1 (not computed: a result above 400k triangles) is unknown, not a hit"""
+    return all((r.get(k) or 0) <= tp.TOL for k in ("ie_error", "diff_error")) and \
+        all(r.get(f"{op}_clean_reason") != "self-intersections" and (r.get(f"{op}_selfint") or 0) <= 0 for op in OPS)
+
 def outcome(r, op):
     """'clean' | 'empty' (volume-consistent) | the NotCleanReason, 'empty (inconsistent)' or the status (rejected, failed, crash, timeout, ...)"""
     s = r.get(f"{op}_status")
@@ -126,7 +131,7 @@ def outcome(r, op):
     if reason == "":
         return "clean"
     if reason == "empty":
-        return "empty" if tp.consistent(r) else "empty (inconsistent)"
+        return "empty" if consistent(r) else "empty (inconsistent)"
     return reason if reason is not None else "not evaluated"
 
 def good(o):
@@ -171,29 +176,40 @@ def summary(paths):
 # --- baseline against final
 
 def compare(base_paths, final_paths, method="ours", floor_ms=100):
+    """per pair and operation of one method. A pair that is good in the baseline and has no row in the final run (a job that died, an
+    export error) is a regression ("missing"), not skipped. "pinches" (the result is clean except where the solid touches itself) is
+    a reason of the final tool only: the baseline tool reports such a result differently, so clean before and pinches after is
+    listed apart from the regressions."""
     base, final = load([base_paths] if isinstance(base_paths, str) else base_paths), load([final_paths] if isinstance(final_paths, str) else final_paths)
-    keys = sorted(k for k in base if k[2] == method and k in final)
-    only_base = sum(1 for k in base if k[2] == method and k not in final)
+    bkeys = sorted(k for k in base if k[2] == method)
+    keys = [k for k in bkeys if k in final]
+    missing = [k for k in bkeys if k not in final]
     only_final = sum(1 for k in final if k[2] == method and k not in base)
-    lost, gained, slower, faster, ratios = [], [], [], [], []
+    lost, pinch, gained, slower, faster, ratios = [], [], [], [], [], []
     ops = 0
+    for k in missing:
+        for op in OPS:
+            if good(outcome(base[k], op)):
+                lost.append((f"{k[0]} {k[1]} {op}", outcome(base[k], op), "missing in the final run"))
     for k in keys:
         b, f = base[k], final[k]
         for op in OPS:
             ops += 1
             ob, of = outcome(b, op), outcome(f, op)
             tag = f"{k[0]} {k[1]} {op}"
-            if good(ob) and not good(of): lost.append((tag, ob, of))
+            if good(ob) and of == "pinches": pinch.append((tag, ob, of))
+            elif good(ob) and not good(of): lost.append((tag, ob, of))
             if not good(ob) and good(of): gained.append((tag, ob, of))
             mb, mf = op_ms(b, op), op_ms(f, op)
             if b.get(f"{op}_status") == "ok" and f.get(f"{op}_status") == "ok" and mb and mf:
                 ratios.append(mf / mb)
                 if mf > 2 * mb: slower.append((tag, mb, mf))
                 elif mb > 2 * mf: faster.append((tag, mb, mf))
-    out = [f"Baseline against final, method {method}: {len(keys)} pairs, {ops} operations "
-           f"({only_base} pairs only in the baseline, {only_final} only in the final run).", ""]
+    out = [f"Baseline against final, method {method}: {len(keys)} pairs in both runs, {ops} operations "
+           f"({len(missing)} pairs of the baseline have no row in the final run, {only_final} pairs only in the final run).", ""]
     out += ["| | operations |", "|---|---|",
-            f"| clean (or volume-consistent empty) before, not after | {len(lost)} |",
+            f"| clean (or volume-consistent empty) before, not after (including a missing pair) | {len(lost)} |",
+            f"| clean before, pinches after (a reason of the final tool only) | {len(pinch)} |",
             f"| not clean before, clean after | {len(gained)} |",
             f"| slower than 2x (final ms > 2 x baseline ms) | {len(slower)} |",
             f"| ... of which baseline >= {floor_ms} ms | {sum(1 for _, mb, _ in slower if mb >= floor_ms)} |",
@@ -202,12 +218,14 @@ def compare(base_paths, final_paths, method="ours", floor_ms=100):
         g = math.exp(sum(math.log(max(r, 1e-6)) for r in ratios) / len(ratios))
         out += ["", f"Time ratio final / baseline over {len(ratios)} operations ok in both: median {pct(ratios, 50):.2f}, "
                     f"p10 {pct(ratios, 10):.2f}, p90 {pct(ratios, 90):.2f}, max {max(ratios):.2f}, geomean {g:.2f}."]
-    if lost:
-        out += ["", "**Regressions (clean before, not after):**", "", "| pair and operation | before | after |", "|---|---|---|"]
-        out += [f"| {t} | {a} | {b} |" for t, a, b in lost]
+    for title, rows in (("Regressions (clean before, not after)", lost), ("Clean before, pinches after", pinch)):
+        if rows:
+            out += ["", f"**{title}:**", "", "| pair and operation | before | after |", "|---|---|---|"]
+            out += [f"| {t} | {a} | {b} |" for t, a, b in rows]
     if slower:
         out += ["", "**Slower than 2x:**", "", "| pair and operation | baseline ms | final ms | ratio |", "|---|---|---|---|"]
         out += [f"| {t} | {a:.0f} | {b:.0f} | {b / a:.1f} |" for t, a, b in sorted(slower, key=lambda x: -x[2] / x[1])]
+    compare.regressions = len(lost)
     return "\n".join(out)
 
 def main(a):
@@ -221,6 +239,8 @@ def main(a):
     elif a[:1] == ["summary"]: print(summary(a[1:]))
     elif a[:1] == ["compare"]:
         print(compare(a[1], a[2], opt("--method", "ours"), opt("--floor-ms", 100, float)))
+        if "--strict" in a and compare.regressions:
+            sys.exit(1)
     else: sys.exit(__doc__)
 
 if __name__ == "__main__":

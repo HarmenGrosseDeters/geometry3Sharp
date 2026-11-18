@@ -116,8 +116,9 @@ class AnalysisTests(unittest.TestCase):
                       row("p2", status=("ok", "ok", "timeout")),                           # difference ok before, timeout after
                       row("p0", method="manifold", ms=(1, 1, 1))])                         # another method: not compared for ours
             out = run.compare(b, f)
-            self.assertIn("3 pairs, 9 operations (1 pairs only in the baseline, 0 only in the final run)", out)
-            self.assertIn("| clean (or volume-consistent empty) before, not after | 2 |", out)
+            self.assertIn("3 pairs in both runs, 9 operations (1 pairs of the baseline have no row in the final run, 0 pairs only in the final run)", out)
+            self.assertIn("(including a missing pair) | 5 |", out)   # p1 union, p2 difference, and the 3 operations of the missing p3
+            self.assertIn("| thingi-pairs p3 union | clean | missing in the final run |", out)
             self.assertIn("| slower than 2x (final ms > 2 x baseline ms) | 1 |", out)
             self.assertIn("| faster than 2x | 1 |", out)
             self.assertIn("| thingi-pairs p1 union | clean | degenerate triangles |", out)
@@ -129,15 +130,40 @@ class AnalysisTests(unittest.TestCase):
             p = os.path.join(d, "r.jsonl")
             write(p, [row("p0"), row("p1", reasons=("", "empty", ""))])
             out = run.compare(p, p)
-            self.assertIn("| clean (or volume-consistent empty) before, not after | 0 |", out)
+            self.assertIn("(including a missing pair) | 0 |", out)
             self.assertIn("| slower than 2x (final ms > 2 x baseline ms) | 0 |", out)
             self.assertNotIn("Regressions", out)
+
+    def test_export_error_row_counts_as_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            b, f = os.path.join(d, "b.jsonl"), os.path.join(d, "f.jsonl")
+            write(b, [row("p0")])
+            write(f, [{"class": "thingi-pairs", "file": "p0", "method": "export", "error": "boom"}])
+            self.assertIn("| thingi-pairs p0 union | clean | missing in the final run |", run.compare(b, f))
+
+    def test_pinches_are_listed_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            b, f = os.path.join(d, "b.jsonl"), os.path.join(d, "f.jsonl")
+            write(b, [row("p0")])
+            write(f, [row("p0", reasons=("pinches", "", ""))])
+            out = run.compare(b, f)
+            self.assertIn("(including a missing pair) | 0 |", out)
+            self.assertIn("| clean before, pinches after (a reason of the final tool only) | 1 |", out)
+
+    def test_selfint_minus_one_is_unknown(self):
+        e = row("a", reasons=("", "empty", ""), union_selfint=-1)       # a union above 400k triangles: self-intersections not computed
+        self.assertEqual(run.outcome(e, "intersection"), "empty")
+        e["union_selfint"] = 2
+        self.assertEqual(run.outcome(e, "intersection"), "empty (inconsistent)")
+
+    def test_missing_path_is_empty(self):
+        self.assertIn("| class |", run.summary(["/nonexistent/art"]))
 
     def test_compare_method_not_in_both_runs(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "r.jsonl")
             write(p, [row("p0")])
-            self.assertIn("0 pairs, 0 operations", run.compare(p, p, method="manifold"))
+            self.assertIn("0 pairs in both runs, 0 operations", run.compare(p, p, method="manifold"))
 
 if __name__ == "__main__":
     unittest.main()

@@ -199,7 +199,10 @@ python3 data/thingi_pairs_runs.py compare run-<id>-baseline/ run-<id>-final/ --m
 `NotCleanReason`s and the statuses rejected / failed / crash / timeout), the largest volume-identity error, the median, p90 and
 maximum time of the successful operations, and the operations above 5 s and above 20 s. `compare` takes two runs and lists, per pair
 and operation of one method, those that were clean before and not after (regressions), those slower than 2x with the baseline and
-final milliseconds, and the table of the time ratios; the pairs present in only one run are counted.
+final milliseconds, and the table of the time ratios. A pair of the baseline with no row in the final run (a job that died) counts as a
+regression; `--strict` makes `compare` exit 1 on one. "pinches" (clean except where the solid touches itself) is a reason of
+the final tool only, so clean before and pinches after is listed apart. A self-intersection count of -1 (a result above 400k triangles,
+not computed) is unknown, not a hit.
 
 ### Trial run (2026-11-08, not the full run)
 

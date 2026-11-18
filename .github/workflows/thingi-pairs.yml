@@ -196,6 +196,7 @@ jobs:
           fi
           r="run-$GITHUB_RUN_ID-$LABEL"
           mkdir -p "$r"
+          shopt -s nullglob
           for a in "$GITHUB_WORKSPACE"/art/pairs-*; do mkdir -p "$r/$(basename "$a")" && cp "$a"/* "$r/$(basename "$a")/"; done
           cp "$RUNNER_TEMP/table.md" "$r/table.md"
           echo "library_ref $LIB_REF" > "$r/run.txt"
