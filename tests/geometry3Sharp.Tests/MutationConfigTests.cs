@@ -95,6 +95,14 @@ namespace geometry3Sharp.Tests
                     .Select(mi => t.FullName + "." + mi.Name)).ToList();
             string sources = string.Join("\n", Directory.GetFiles(Path.Combine(root, "tests", "geometry3Sharp.Tests"), "*.cs", SearchOption.AllDirectories)
                 .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)).Select(File.ReadAllText));
+            // the classes of *.CsCheck.cs files are compiled on net10.0 only (the csproj drops them on net48; the shards
+            // run on net10.0): on net48 a term may name one of them
+            var netOnlyClasses = new List<string>();
+#if NETFRAMEWORK
+            foreach (string f in Directory.GetFiles(Path.Combine(root, "tests", "geometry3Sharp.Tests"), "*.CsCheck.cs", SearchOption.AllDirectories))
+                foreach (Match c in Regex.Matches(File.ReadAllText(f), @"\bclass\s+(\w+)"))
+                    netOnlyClasses.Add("geometry3Sharp.Tests." + c.Groups[1].Value + ".");
+#endif
             var filters = TestFilters(root);
             Assert.True(filters.Count >= 24);
             foreach (var kv in filters)
@@ -107,7 +115,7 @@ namespace geometry3Sharp.Tests
                         Match d = Regex.Match(cond, @"^DisplayName!?~([\w^.\- ]+)$");
                         Assert.True(m.Success || e.Success || d.Success, kv.Key + ": unknown condition " + cond);
                         if (m.Success)
-                            Assert.True(names.Any(n => n.Contains(m.Groups[1].Value)), kv.Key + ": " + cond + " names no test");
+                            Assert.True(names.Any(n => n.Contains(m.Groups[1].Value)) || netOnlyClasses.Any(n => n.Contains(m.Groups[1].Value)), kv.Key + ": " + cond + " names no test");
                         else if (e.Success)
                             Assert.True(names.Contains(e.Groups[1].Value), kv.Key + ": " + cond + " names no test method");
                         else if (cond.StartsWith("DisplayName!~"))

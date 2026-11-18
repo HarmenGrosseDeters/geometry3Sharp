@@ -112,6 +112,19 @@ keeps 1e-2 of the width from the ring and edges of 1e-3 of it; `mesh-cut` also s
 `MESH_FUZZ_STRICT=1` judges it (FINDINGS.md, third wave): `insert-polygon` "could not find seed triangle!" (an upstream TODO of the polygon inserter; about 1 in 5 000 inputs).
 The `trim-loop` and `mesh-cut` gates of the first smoke runs are gone (5 000 strict inputs each, no exception inside the domain).
 
+**Exact Boolean 3.0 targets** (`Targets4.cs`, #1038; appended after `trim-loop`, so the indices of the older operations and their artifacts do not change). Each judgement is a
+pure check (`B30Check*`) with a contradiction case in the self-test:
+- `nary`: the union of A, B and a copy of B shifted by twice the diagonal, as one n-ary `ExactMeshBoolean`, against the chain `(A | B) | C`; the volumes agree within
+  1e-9 of the cube of the diagonal. Closed operands only (for an open operand the union is a generalized winding number, a chain of results is no contract) and without
+  SafeRounding (the repair may move the surface by `RoundingMaxDisplacement`, 1e-5 of the diagonal, so a chain of repaired results and one n-ary union differ by that much). A shifted copy that is not
+  finite (a coordinate near `double.MaxValue`) is skipped.
+- `determinism`: one union serial (`gParallel.SerialOnThisThread`), parallel, and parallel again gives the same vertices and triangles bit for bit (#774).
+- `reuse`: `Compute()` twice on one difference instance gives the same bits.
+- `open-antipodal`: A and B with one triangle removed through all three operations: no status `InvalidInput` or `NotComputed` on finite input, and a success is a valid mesh.
+- `rounding-equivalence`: SafeRounding against the plain arrangement on closed operands: when the repair is clean the volumes agree within 1e-4 of the cube of the diagonal (the documented displacement bound).
+The campaigns run in a container (`run.sh` with `jobs` > 0, fork mode); the instrumented build cannot replay outside the fuzzer (its coverage map is the fuzzer's shared memory), artifacts are
+triaged with the plain `replay/` build and the same `MESH_FUZZ_OPS`.
+
 `MeshFuzzPilot random <n> <seed>` runs n pseudo-random inputs of the selected operations in one process with a 60 s watchdog and prints the hex
 of every input that gives a finding or an exception: a smoke test without coverage guidance and without libFuzzer, for a first look at a target
 (`MESH_FUZZ_TRACE=1` prints some internals of the 2D mesher and Clipper2 targets, and for `quality-mesh2` the time of the mesher and of the oracle apart: the oracle is most of a slow unit, #947; `G3_ORACLE_TIMING=1` adds the oracle's own phases; `MESH_FUZZ_SLOW_MS` is the time in ms above which `random` reports an input as `SLOW`, default 5000).

@@ -293,7 +293,10 @@ whether a hard limit can end in a success status.
 - Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
   `ExactPoint3ConversionTests`). Boolean identities are covered by `ExactBooleanMetamorphicTests` and the seeded
   CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs` (2D mesher: `QualityMesh2PropertyCampaign.CsCheck.cs`, `G3_PROPERTY_SAMPLES`, `G3_PROPERTY_CAMPAIGN` / `G3_PROPERTY_REPLAY`, `G3_PROPERTY_STRICT`); the directed-family follow-up gives each
-  box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
+  box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`). `ExactBooleanFamiliesPropertyTests.CsCheck.cs` (#1038) adds the families
+  beyond boxes (subdivided and rotated boxes, corner slivers, components touching at a face, edge or vertex, open inputs, scales 2^-150 to 2^150) with the algebraic
+  laws (also two-operand inclusion-exclusion: one operand cannot tell an intersection from a union), serial against parallel, reuse, n-ary against the chain, the status
+  contract and bit-exact power-of-two scaling; the fuzz targets `nary`, `determinism`, `reuse`, `open-antipodal` and `rounding-equivalence` of `tools/MeshFuzzPilot` cover the same properties on arbitrary decoded inputs.
 
 ### 2.4a Certifying checker of the exact boolean (test-only, owner 2026-11-17)
 
