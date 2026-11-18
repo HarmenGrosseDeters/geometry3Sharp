@@ -99,7 +99,7 @@ namespace g3cli
                 if (!usable || tm.Result == null || tm.Result.Tets.Count == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "tet mesh failed: " + tetStatus + (tm.Status == MeshTetrahedralization.TetStatus.WrapFailed ? " (" + wrapStatus + ")" : ""), failure);
                 if (tm.Status == MeshTetrahedralization.TetStatus.PointLimitReached)
-                    warnings.Add("max_steiner_points reached: the tet mesh is valid but not fully refined");
+                    warnings.Add((tm.Counts.ContainsKey("work_limit_reached") ? "the refinement work bound was reached" : "max_steiner_points reached") + ": the tet mesh is valid but not fully refined (see targets)");
 
                 TetMesh3 t = tm.Result;
                 TetMeshMarkers markers = args.Bool("markers") ? TetMeshMarkers.Compute(t, input) : null;

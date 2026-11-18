@@ -96,6 +96,15 @@ namespace gs
         public double MinFeatureFactor = 0.125;
         /// <summary> stop (status PointLimitReached, result still valid) after this many inserted points </summary>
         public int MaxSteinerPoints = 2000000;
+        /// <summary>
+        /// work bound of the refinement (docs/design/TET_MESHING.md section 17.10): stop (status PointLimitReached, result still valid, the
+        /// count "work_limit_reached" = 1) after this many trial insertions (the count "trial_insertions", the refinement's unit of work,
+        /// kept points and undone ones) per vertex of the wrap, plus 2000. Delaunay refinement is proven to end only for a radius-edge
+        /// bound above 2; below about 1.3 it can cascade without end (measured: 700 to 1400 trial insertions per wrap vertex and rising,
+        /// against at most 2.5 on the default path and 7 for the slowest terminating runs, at radius-edge 1.1 to 1.3). Not used with a size
+        /// bound (MaxCircumradius &gt; 0: the point count then follows the volume, not the wrap); 0 turns it off. Targets says what was reached.
+        /// </summary>
+        public double MaxTrialInsertionsPerWrapVertex = 48;
         public Func<bool> CancelF = () => false;
 
         public enum TetStatus
@@ -103,7 +112,7 @@ namespace gs
             Success = 0,
             /// <summary> the alpha wrap did not give a result (WrapStatus says why) </summary>
             WrapFailed = 1,
-            /// <summary> MaxSteinerPoints reached: Result is valid but not fully refined </summary>
+            /// <summary> MaxSteinerPoints or the work bound (MaxTrialInsertionsPerWrapVertex, Counts "work_limit_reached") reached: Result is valid but not fully refined </summary>
             PointLimitReached = 2,
             Cancelled = 3
         }
@@ -153,7 +162,9 @@ namespace gs
             dt.RefinementSupport = true;
             foreach (int c in dt.CellIndices())
                 dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
+            double workLimit = MaxTrialInsertionsPerWrapVertex > 0 && MaxCircumradius <= 0 ? MaxTrialInsertionsPerWrapVertex * dt.VertexCount + 2000 : double.PositiveInfinity;
             var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
+                TrialLimit = workLimit,
                 Input = PeelBoundarySlivers ? Mesh : null };
             TetStatus st = r.Run();
             Status = st;
@@ -164,6 +175,7 @@ namespace gs
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
+            if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
@@ -201,6 +213,9 @@ namespace gs
             readonly List<int> removed = new List<int>(), added = new List<int>();
             int inserted;
             readonly int firstSteiner;
+            /// <summary> stop after this many trial insertions (the work bound); infinity = none </summary>
+            internal double TrialLimit = double.PositiveInfinity;
+            internal bool WorkLimitHit;
 
             internal Refiner(Delaunay3 dt, double floor, double rho, double size, double sliver, int maxPoints, Func<bool> cancel)
             {
@@ -220,6 +235,7 @@ namespace gs
                 while (tetQueue.Count > 0) {
                     if (cancel()) return TetStatus.Cancelled;
                     if (inserted >= maxPoints) return TetStatus.PointLimitReached;
+                    if (Counts["trial_insertions"] >= TrialLimit) { WorkLimitHit = true; return TetStatus.PointLimitReached; }
                     var (c, st) = tetQueue.Dequeue();
                     if (!dt.IsCell(c) || dt.CellStamp(c) != st || dt.CellLabel(c) != 1 || !is_bad(c)) continue;
                     split_tet(c);
