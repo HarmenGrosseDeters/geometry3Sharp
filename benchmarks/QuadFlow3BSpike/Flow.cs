@@ -48,7 +48,7 @@ class FlowResult
     public double TFlow;
     public int Splits;
     public int Quads, FlippedQuads, InvAfterFlow, InvAfterGreedy, InvAfterSat, GreedyMoves, Cancelled, SatCurViol, SatInvInRegion, SatUnsat, SatBudget, SatSolved, SatFailed, SatAttempts;
-    public double TGreedy, TSat, TPos, TExtract, TSetup;
+    public double TGreedy, TSat, TPos, TExtract, TSetup, TMcf, TNet, TSub, TFlowPrep; public int HIters, NArcs, NNodes; public long Settled, SatDecisions, SatClauses;
     public int LongEdgesAfter, InvBefore, DetPosBefore, InvAfterFlowPreSplit, DetPosAfterFlow;
     public PolyMeshMetrics Metrics; public DPolyMesh Out;
     public int Unpaired, BadQuads, InvertedTris;
@@ -66,6 +66,7 @@ partial class QuadFlowSpike
     Dictionary<long, (double, double)> rMap = new Dictionary<long, (double, double)>();
     public int CostMode = 0;      // 0 flat cost 1 per unit, 1 geometry aware (marginal misfit of the real offset, two tiers)
     public int HStart = 2;
+    public bool FastMcf = false, FastSubdiv = false, FastPos = false, FastSat = false;
     public Dictionary<int, double> EdgePen = new Dictionary<int, double>();     // edge index -> extra cost multiplier
     public HashSet<int> BadEdges = new HashSet<int>();                         // output: edges of original triangles that end up inverted
     int[] slotEdge;
@@ -215,7 +216,7 @@ partial class QuadFlowSpike
         foreach (var t in tris) if (!(t.D[0] + t.D[1] + t.D[2]).IsZero) R.PosSingAfter++;
         R.InvAfterFlowPreSplit = Inverted(); R.DetPosAfterFlow = tris.Count(t => Det(t) > 0);
         // step 7: subdivision
-        R.Splits = Subdivide();
+        sw.Restart(); R.Splits = Subdivide(); R.TSub = sw.Elapsed.TotalSeconds;
         R.LongEdgesAfter = tris.Count(t => t.D.Any(d => d.Inf > 1));
         R.InvAfterFlow = Inverted();
         if (doGreedy) { sw.Restart(); Greedy(R); R.TGreedy = sw.Elapsed.TotalSeconds; }
@@ -278,6 +279,7 @@ partial class QuadFlowSpike
 
     void SolveFlow(FlowResult R)
     {
+        var swFlow = Stopwatch.StartNew();
         int F = tris.Count;
         // edges
         slotEdge = new int[tris.Count * 3];
@@ -397,14 +399,19 @@ partial class QuadFlowSpike
             R.Note += " B-fallback";
         }
         var preFlow = edges.Select(e => e.Dv).ToArray();
+        R.TFlowPrep = swFlow.Elapsed.TotalSeconds; var swNet = Stopwatch.StartNew(); double tMcf = 0;
         // network, with capacities growing until full flow
         for (int H = H0; H <= 40; H += 2) {
             recompute();
-            var net = new Mcf(NN + 2); int S = NN, Tn = NN + 1;
+            Mcf net0 = null; McfFast net1 = null;
+            if (FastMcf) net1 = new McfFast(NN + 2, edges.Count * 6); else net0 = new Mcf(NN + 2);
+            int AddA(int u, int v, int c, int w) { return FastMcf ? net1.Add(u, v, c, w) : net0.Add(u, v, c, w); }
+            int FlowA(int a) { return FastMcf ? net1.Flow(a) : net0.Flow(a); }
+            int S = NN, Tn = NN + 1;
             long supply = 0;
             for (int i = 0; i < NN; ++i) {
-                if (res[i] > 0) { net.Add(S, i, (int)res[i], 0); supply += res[i]; }
-                else if (res[i] < 0) net.Add(i, Tn, (int)(-res[i]), 0);
+                if (res[i] > 0) { AddA(S, i, (int)res[i], 0); supply += res[i]; }
+                else if (res[i] < 0) AddA(i, Tn, (int)(-res[i]), 0);
             }
             var arcF = new int[edges.Count * 2]; var arcB = new int[edges.Count * 2]; var arcLF = new List<int>[edges.Count * 2]; var arcLB = new List<int>[edges.Count * 2];
             for (int k = 0; k < edges.Count; ++k) {
@@ -418,25 +425,38 @@ partial class QuadFlowSpike
                     int v = j == 0 ? e.Dv.X : e.Dv.Y;
                     int capF = Math.Max(0, H - v), capB = Math.Max(0, H + v);
                     if (CostMode == 0) {
-                        arcF[2 * k + j] = net.Add(tail, head, capF, 1);
-                        arcB[2 * k + j] = net.Add(head, tail, capB, 1);
+                        arcF[2 * k + j] = AddA(tail, head, capF, 1);
+                        arcB[2 * k + j] = AddA(head, tail, capB, 1);
                     } else {
                         double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
                         var lf = new List<int>(); var lb = new List<int>();
-                        for (int st = 1; st <= capF; ++st) { if (CostMode == 3 && Against(v + st - 1, v + st, r)) break; lf.Add(net.Add(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r)))); }
-                        for (int st = 1; st <= capB; ++st) { if (CostMode == 3 && Against(v - st + 1, v - st, r)) break; lb.Add(net.Add(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r)))); }
+                        if (FastMcf) {
+                            int run = 0, pc = 0;
+                            for (int st = 1; st <= capF; ++st) { int c = Pen(k, StepCost(v + st - 1, v + st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) lf.Add(AddA(tail, head, run, pc)); pc = c; run = 1; } }
+                            if (run > 0) lf.Add(AddA(tail, head, run, pc));
+                            run = 0;
+                            for (int st = 1; st <= capB; ++st) { int c = Pen(k, StepCost(v - st + 1, v - st, r)); if (run > 0 && c == pc) run++; else { if (run > 0) lb.Add(AddA(head, tail, run, pc)); pc = c; run = 1; } }
+                            if (run > 0) lb.Add(AddA(head, tail, run, pc));
+                        } else {
+                            for (int st = 1; st <= capF; ++st) { if (CostMode == 3 && Against(v + st - 1, v + st, r)) break; lf.Add(AddA(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r)))); }
+                            for (int st = 1; st <= capB; ++st) { if (CostMode == 3 && Against(v - st + 1, v - st, r)) break; lb.Add(AddA(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r)))); }
+                        }
                         arcLF[2 * k + j] = lf; arcLB[2 * k + j] = lb;
                     }
                 }
             }
-            int flow = net.Solve(S, Tn, out long cost);
-            R.Hcap = H; R.Augments = net.Augmentations;
+            R.HIters++; R.NArcs = FastMcf ? net1.ArcCount : net0.To.Count / 2; R.NNodes = NN + 2;
+            var swM = Stopwatch.StartNew();
+            long cost; int flow;
+            if (FastMcf) { flow = net1.Solve(S, Tn, out cost); R.Augments = net1.Augmentations; R.Settled = net1.Settled; } else { flow = net0.Solve(S, Tn, out cost); R.Augments = net0.Augmentations; }
+            tMcf += swM.Elapsed.TotalSeconds; R.TMcf = tMcf; R.TNet = swNet.Elapsed.TotalSeconds;
+            R.Hcap = H;
             if (flow < supply) continue;           // raise the capacity, solve again
             R.FlowUnits = (int)supply; R.FlowCost = (int)cost;
             for (int k = 0; k < edges.Count; ++k) {
                 if (!balanced[k]) continue;
                 var e = edges[k];
-                Func<int, int> fl = jj => CostMode == 0 ? net.Flow(arcF[2 * k + jj]) - net.Flow(arcB[2 * k + jj]) : arcLF[2 * k + jj].Sum(a => net.Flow(a)) - arcLB[2 * k + jj].Sum(a => net.Flow(a));
+                Func<int, int> fl = jj => CostMode == 0 ? FlowA(arcF[2 * k + jj]) - FlowA(arcB[2 * k + jj]) : arcLF[2 * k + jj].Sum(a => FlowA(a)) - arcLB[2 * k + jj].Sum(a => FlowA(a));
                 int dx = fl(0), dy = fl(1);
                 e.Dv = new V2(e.Dv.X + dx, e.Dv.Y + dy);
             }
@@ -467,6 +487,22 @@ partial class QuadFlowSpike
     {
         for (int v = 0; v < maxV; ++v) { VP.Add(mesh.IsVertex(v) ? P[v] : Vector3d.Zero); VN.Add(mesh.IsVertex(v) ? Nrm[v] : Vector3d.Zero); VFrame.Add(v); }
         int splits = 0;
+        if (FastSubdiv) {
+            // same order as the scan below (largest |d|inf first, then lowest triangle, then lowest slot), by a priority queue with lazy invalidation
+            var pq = new PriorityQueue<(int f, int sl, int inf), long>();
+            long Key(int f, int sl, int inf) { return ((long)(100000 - Math.Min(inf, 99999)) << 40) | ((long)f << 2) | (long)sl; }
+            void PushTri(int f) { for (int sl = 0; sl < 3; ++sl) { int inf = tris[f].D[sl].Inf; if (inf > 1) pq.Enqueue((f, sl, inf), Key(f, sl, inf)); } }
+            for (int f = 0; f < tris.Count; ++f) PushTri(f);
+            while (pq.Count > 0) {
+                var (f, sl, inf) = pq.Dequeue();
+                if (tris[f].D[sl].Inf != inf) continue;
+                if (++splits > 400000) break;
+                int nf = tris[f].Nb[sl];
+                int n0 = tris.Count; SplitEdge(f, sl);
+                PushTri(f); PushTri(n0); if (nf >= 0) { PushTri(nf); PushTri(n0 + 1); }
+            }
+            return splits;
+        }
         while (true) {
             int bf = -1, bs = -1, best = 1;
             for (int f = 0; f < tris.Count; ++f)
@@ -677,6 +713,26 @@ partial class QuadFlowSpike
             }
             // enumerate the combinations of the mutable slots
             var mutSlots = Enumerable.Range(0, 3).Where(sl => varOf[sl] >= 0).ToArray();
+            if (FastSat) {
+                // implication encoding: the last mutable slot is determined by the other values (sum = 0): (-a -b c) instead of the 9^k - valid forbidden triples
+                int mk = mutSlots.Length;
+                if (mk == 0) { if (!(fixedVal[0] + fixedVal[1] + fixedVal[2]).IsZero || V2.Det(fixedVal[0], fixedVal[1]) < 0) return false; continue; }
+                int last = mutSlots[mk - 1]; int free = mk - 1; int combosF = 1; for (int i = 0; i < free; ++i) combosF *= 9;
+                for (int c = 0; c < combosF; ++c) {
+                    int cc = c; V2[] val = { fixedVal[0], fixedVal[1], fixedVal[2] }; var picks = new int[free];
+                    for (int i = 0; i < free; ++i) { int k = cc % 9; cc /= 9; picks[i] = k; int sl = mutSlots[i]; val[sl] = V2.Rot(Dom[k], rotOf[sl]); }
+                    V2 need = -(val[0] + val[1] + val[2] - val[last]);   // val[last] was the (unset) fixed value of the slot, remove it
+                    V2 masterVal = V2.Rot(need, -rotOf[last]);
+                    bool okv = masterVal.Inf <= 1;
+                    if (okv) { val[last] = need; if (V2.Det(val[0], val[1]) < 0) okv = false; }
+                    var lits = new int[free + (okv ? 1 : 0)];
+                    for (int i = 0; i < free; ++i) lits[i] = -(9 * varOf[mutSlots[i]] + picks[i] + 1);
+                    if (okv) lits[free] = 9 * varOf[last] + DomIdx(masterVal) + 1;
+                    if (lits.Length == 0) return false;
+                    sat.AddClause(lits);
+                }
+                continue;
+            }
             int combos = 1; for (int i = 0; i < mutSlots.Length; ++i) combos *= 9;
             for (int c = 0; c < combos; ++c) {
                 int cc = c; V2[] val = { fixedVal[0], fixedVal[1], fixedVal[2] }; var picks = new int[mutSlots.Length];
@@ -701,7 +757,7 @@ partial class QuadFlowSpike
         }
         R.SatAttempts++;
         foreach (int f in inR.Keys) if (Det(tris[f]) < 0) R.SatInvInRegion++;
-        int res = sat.Solve(groups, out bool[] model);
+        int res = sat.Solve(groups, out bool[] model); R.SatDecisions += sat.Decisions; R.SatClauses += sat.Clauses.Count;
         if (res == 0) R.SatUnsat++; else if (res < 0) R.SatBudget++;
         if (res != 1) return false;
         for (int e = 0; e < M; ++e) {
@@ -744,7 +800,8 @@ partial class QuadFlowSpike
         }
         var A = new Dictionary<long, double>(); var rhs = new double[2 * nv];
         double lam = 1e-6 * s * s;
-        Action<int, int, double> addA = (r, c, v) => { if (r < c) return; long k = (long)r * (2 * nv) + c; A.TryGetValue(k, out double o); A[k] = o + v; };
+        var cholF = FastPos ? new SparseCholesky(2 * nv, 2) : null;
+        Action<int, int, double> addA = (r, c, v) => { if (r < c) return; if (cholF != null) { cholF.Add(r, c, v); return; } long k = (long)r * (2 * nv) + c; A.TryGetValue(k, out double o); A[k] = o + v; };
         for (int i = 0; i < nv; ++i) { if (i < maxV && !mesh.IsVertex(i)) { for (int k = 0; k < 2; ++k) addA(2 * i + k, 2 * i + k, 1); continue; } for (int k = 0; k < 2; ++k) addA(2 * i + k, 2 * i + k, lam / (s * s)); }
         foreach (var t in tris)
             for (int sl = 0; sl < 3; ++sl) {
@@ -758,8 +815,8 @@ partial class QuadFlowSpike
                     for (int b = 0; b <= a; ++b) { int r = Math.Max(idx[a], idx[b]), cc = Math.Min(idx[a], idx[b]); addA(r, cc, cols[a].Dot(cols[b])); }
                 }
             }
-        var chol = new SparseCholesky(2 * nv, 2);
-        foreach (var kv in A) chol.Add((int)(kv.Key / (2 * nv)), (int)(kv.Key % (2 * nv)), kv.Value);
+        var chol = cholF ?? new SparseCholesky(2 * nv, 2);
+        if (cholF == null) foreach (var kv in A) chol.Add((int)(kv.Key / (2 * nv)), (int)(kv.Key % (2 * nv)), kv.Value);
         var pos = new Vector3d[nv];
         if (!chol.Factorize()) { for (int i = 0; i < nv; ++i) pos[i] = VP[i]; return pos; }
         var x = new double[2 * nv]; chol.Solve(rhs, x);
