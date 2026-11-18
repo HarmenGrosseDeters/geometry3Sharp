@@ -123,3 +123,25 @@ and `refine_s` the whole `Compute`). `compare/summarize_sample.py <dir> 20 40 80
 | input to boundary max, median | 0.0343 | 0.0228 | 0.0135 |
 | time median / max (s) | 0.64 / 8.6 | 0.83 / 9.8 | 1.41 / 11.7 |
 | tets, median | 4.1k | 7.3k | 19.5k |
+
+### Rescue phase (TET_MESHING.md sections 17.9, 2026-11-17 / 18)
+
+`G3_TET_RESCUE=<n>` sets `RescuePasses` (default 150 since owner decision 2026-11-18, 0 = off). Subset, five variants interleaved per mesh, one
+process at a time (`results/thingi10k-subset-stage2-ab-{a20_off,a20_on,a20_p200,a40_off,a40_on}-2026-11-17.csv`; `a40` = `refine <mesh> 40 600`):
+
+| | every tet >= 10 degrees | worst | time sum |
+|---|---|---|---|
+| alpha 20, rescue off / on / off with 200 passes | 36 / 38 / 37 | 6.11 / 7.67 / 6.11 | 47.5 / 48.5 / 53.3 s |
+| alpha 40, rescue off / on | 40 / 40 (identical) | 10.00 / 10.00 | 41.6 / 42.5 s |
+
+The 6 meshes of the 500-mesh sample left below 10 degrees at alpha 40 (`results/thingi10k-sample6-rescue-ab-alpha40-2026-11-18.csv`, rows with
+`rescue_passes` 0 and 150):
+
+| mesh | worst dihedral off -> on | time off -> on |
+|---|---|---|
+| 138102 | 7.118 -> 10.005 | 1.71 -> 2.01 s |
+| 763398 | 9.148 -> 10.004 | 1.45 -> 1.33 s |
+| 83719 | 9.604 -> 10.002 | 2.42 -> 2.82 s |
+| 50656 | 9.877 -> 10.003 | 1.41 -> 1.20 s |
+| 38781 | 9.432 -> 9.432 | 3.01 -> 3.15 s |
+| 282598 | 9.532 -> 9.532 | 2.67 -> 3.26 s |

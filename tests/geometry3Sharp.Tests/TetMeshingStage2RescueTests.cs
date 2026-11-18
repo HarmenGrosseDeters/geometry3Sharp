@@ -68,6 +68,19 @@ namespace geometry3Sharp.Tests
         static MeshTetrahedralization Short(DMesh3 input, int rescue) => new MeshTetrahedralization(input) {
             RelativeAlpha = 12, RelativeOffset = 200, SplitEdges = false, ContractEdges = false, ImprovePasses = 3, RescuePasses = rescue };
 
+        [Fact]
+        public void RescuePasses_IsOnByDefault()
+        {
+            // owner decision 2026-11-18 (#1072): the rescue phase is part of the default path
+            Assert.Equal(150, new MeshTetrahedralization(TetMeshingStage2Tests.Input("sphere")).RescuePasses);
+            DMesh3 input = TetMeshingStage2Tests.Torus(48, 12, 1, 0.15);
+            var d = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200, SplitEdges = false, ContractEdges = false, ImprovePasses = 3 };
+            Assert.True(d.Compute());
+            Assert.True(d.Counts["improve_rescue_passes"] > 0);
+            var e = Short(input, 150); Assert.True(e.Compute());
+            Assert.Equal(e.Result.Tets, d.Result.Tets); Assert.Equal(e.Result.Vertices, d.Result.Vertices);
+        }
+
         [Theory]
         [MemberData(nameof(SimilarityNames))]
         public void Rescue_KeepsTheInvariants_AndPow2ScalesBitForBit(string simName)

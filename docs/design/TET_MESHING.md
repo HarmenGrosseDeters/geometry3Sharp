@@ -1059,3 +1059,41 @@ the same result, `Similarity.All()` with 2^k bit for bit at the default); `TetMe
 tet >= 10 degrees with the invariants on the procedural set); the mechanism tests of peeling, splits and the diagnosis keep alpha / 20 (`MechanismAlpha`), because at the finer default
 the bad tets they act on are gone. The procedural inputs already reach 10 degrees at / 20, so the unit test that fails on the old
 code is the pinned default; the behaviour change is evidenced by the sample.
+
+### 17.9 The rescue lever for the meshes left at alpha / 40 (#1072, 2026-11-18)
+
+The 6 meshes of 17.8 below 10 degrees at the new default go to the parked lever of the backup branch `claude/tet-floor-last4`: a **rescue
+phase** in `TetMeshImprover`, run only if tets below the target are left after the main passes. Up to `RescuePasses` (150) more passes,
+in which the smoothing of interior vertices, after the worst tet's gradient steps fail, also tries the active-set direction: the point of
+least norm in the convex hull of the gradients of the tets within `ActiveBand` = 1 degree of the star's worst (Freitag, Jones, Plassmann,
+*An efficient parallel algorithm for mesh smoothing*, IMR 1995; Gilbert's iteration; no direction when that point is below 1e-9 of the
+longest gradient). Library search first: no least-norm, active-set or max-min smoothing code exists in the library. Every move is still kept
+only if the star's worst angle rises, with the exact checks of section 15 unchanged; boundary moves are as before.
+
+Diagnosis of the original four (36 of 40 at alpha / 20 after section 16): 120628 stops at the pass cap while boundary moves still help,
+46460 creeps by tiny boundary steps, 113956 is a true optimum of the worst-tet gradient (two tets compete, every step is refused),
+839690 has 13 to 60 all-boundary wedges and needles in a thin part, pinned by the 0.5-offset slide cap.
+
+**A/B on the 6 meshes of 17.8** (`refine <mesh> 40 600`, `G3_TET_RESCUE=0` against 150, one process at a time, cloud container, meshes
+fetched at run time from the Hugging Face mirror and not kept; rows `results/thingi10k-sample6-rescue-ab-alpha40-2026-11-18.csv`):
+
+| mesh | worst dihedral, off -> on | tets, off -> on | time, off -> on |
+|---|---|---|---|
+| 138102 | 7.118 -> **10.005** | 10668 -> 10711 | 1.71 -> 2.01 s |
+| 763398 | 9.148 -> **10.004** | 10085 -> 10089 | 1.45 -> 1.33 s |
+| 83719 | 9.604 -> **10.002** | 12884 -> 12914 | 2.42 -> 2.82 s |
+| 50656 | 9.877 -> **10.003** | 10556 -> 10556 | 1.41 -> 1.20 s |
+| 38781 | 9.432 -> 9.432 | 20735 | 3.01 -> 3.15 s |
+| 282598 | 9.532 -> 9.532 | 18563 | 2.67 -> 3.26 s |
+
+All outputs valid (exact) with a boundary without self-intersection. 4 of the 6 reach 10 degrees: the sample goes from 494 to 498 of 500.
+38781 and 282598 stay at 9.4 and 9.5 degrees (the worst tets there are not helped by the active-set direction; left open). Meshes that
+reached the target skip the phase (the check of the bad tets costs one scan), so they are bit for bit unchanged: test
+`Rescue_LeavesAMeshThatReachedTheTarget_BitForBit`, and a check on every 6th mesh of the 500-id sample (80 meshes, `refine <mesh> 40 600`, rescue 0 against
+150): all 80 reach 10 degrees in the main passes, and tets, vertices, worst dihedral and the validity columns are identical.
+
+**Owner decision (2026-11-18): the rescue phase is on by default, `RescuePasses` = 150.** It changes the output of
+`MeshTetrahedralization` only for meshes that still have a tet below 10 degrees after the main passes. At the old alpha / 20 it gave 36 -> 38
+of 40 on the subset for +2 % time (rows `results/thingi10k-subset-stage2-ab-*-2026-11-17.csv`; at / 40 every subset mesh reaches the target
+in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap, which stays an
+owner decision.
