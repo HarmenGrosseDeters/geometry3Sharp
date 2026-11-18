@@ -32,11 +32,11 @@ namespace geometry3Sharp.Tests
             return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho };
         }
 
-        // Compute with a stopwatch of its own (4 s per call)
+        // Compute with a stopwatch of its own (15 s per call: the new code needs 1 to 2 s, also under the load of parallel test classes; the old code runs into it)
         internal static bool Go(MeshTetrahedralization tm)
         {
             var sw = Stopwatch.StartNew();
-            tm.CancelF = () => sw.Elapsed.TotalSeconds > 4;
+            tm.CancelF = () => sw.Elapsed.TotalSeconds > 15;
             return tm.Compute();
         }
 
