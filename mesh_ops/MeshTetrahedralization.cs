@@ -27,6 +27,9 @@ namespace gs
     /// of the wrap's own vertex separation), so the vertices are a packing of a bounded region and the number of insertions is
     /// finite whatever the input's angles; tets whose point the floor refuses are counted (refused_floor, unrefined_bad_tets).
     ///
+    /// The refinement has a work bound (MaxTrialInsertionsPerWrapVertex): below a radius-edge bound of 2 termination is not proven, and near 1 it does
+    /// not end in practice; the run then stops with status PointLimitReached and Targets says what was reached (TET_MESHING.md 17.10).
+    ///
     /// Serial and deterministic; relative parameters only, so scaling the input by 2^k gives the scaled result bit for bit.
     /// </summary>
     public class MeshTetrahedralization
@@ -100,9 +103,11 @@ namespace gs
         /// work bound of the refinement (docs/design/TET_MESHING.md section 17.10): stop (status PointLimitReached, result still valid, the
         /// count "work_limit_reached" = 1) after this many trial insertions (the count "trial_insertions", the refinement's unit of work,
         /// kept points and undone ones) per vertex of the wrap, plus 2000. Delaunay refinement is proven to end only for a radius-edge
-        /// bound above 2; below about 1.3 it can cascade without end (measured: 700 to 1400 trial insertions per wrap vertex and rising,
-        /// against at most 2.5 on the default path and 7 for the slowest terminating runs, at radius-edge 1.1 to 1.3). Not used with a size
-        /// bound (MaxCircumradius &gt; 0: the point count then follows the volume, not the wrap); 0 turns it off. Targets says what was reached.
+        /// bound above 2; below about 1.3 it can cascade without end (measured: 370 to 1400 trial insertions per wrap vertex within 25 s and rising,
+        /// against at most 2.5 on the default path and 7.2 for the slowest terminating runs, at radius-edge 1.1 to 1.3; measured at the default
+        /// sliver and floor settings: more candidate points per split (a larger SliverDihedralDegrees) cost up to 30 trials per split, so such a run can reach the bound
+        /// sooner and then reports it; raise this value or set it to 0 for it). Not used with a size
+        /// bound (MaxCircumradius &gt; 0: the point count then follows the volume, not the wrap); 0, a negative value or NaN turns it off. Targets says what was reached.
         /// </summary>
         public double MaxTrialInsertionsPerWrapVertex = 48;
         public Func<bool> CancelF = () => false;

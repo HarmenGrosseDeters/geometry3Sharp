@@ -1107,7 +1107,7 @@ fingerprint of the vertices, tets, boundary triangles and counts of the box inpu
 thin torus, cylinder of `TetMeshingStage2Tests.Input`, `RelativeAlpha` 12 and 40; v0 = vertices of the wrap's triangulation). Per wrap vertex v0, the **default path (ratio 2)
 needs at most 2.5 trial insertions** (0.5 splits), ratio 1.5 at most 5, and the slowest runs that do end (ratios 1.1 to 1.3) 7.2; **runs that do not end
 reach 370 to 1400 trial insertions per v0 within 25 s and keep rising** (35 to 250 splits per v0), with `refused_surface` growing along (50k to 130k) and
-`refused_floor` staying small (under 350): the cascade is new bad tets next to the fixed surface that each insertion creates. Where it ends:
+`refused_floor` staying small (under 350): the cascade is new bad tets next to the fixed surface that each insertion creates. Where it ends (the box is `TetMeshingStage2Tests.Input("box")`, not the g3cli cube of 17.9, whose ratio-1.2 run at alpha / 10 ended in 0.5 s):
 
 | ratio | box 12 | box 40 | sphere 12 / 40 | thin torus 12 / 40 | cylinder 12 | cylinder 40 |
 |---|---|---|---|---|---|---|
@@ -1125,7 +1125,7 @@ or right (Shewchuk 1998; 17.6), and the floor (`MinFeatureFactor`) only bounds t
 `PointLimitReached`, a valid result, `Counts["work_limit_reached"] = 1` (the key exists only then, so every other `Counts` stays as it was) and
 `Targets` saying which target was missed. 48 is 19 times the default path's maximum (2.5) and 6 times the slowest run that ends (7.2); it costs 1.7 s
 on the cylinder / 12 runaway (measured) and, at the measured trial rate of about 20 000 per second, 3 to 5 s on a 2000-vertex wrap. It is not used with a size bound (`MaxCircumradius` > 0, where the point count follows the
-volume), 0 turns it off, and `MaxSteinerPoints` still applies (reported as before, without the work key). **Default outputs unchanged, bit for bit**: the
+volume), 0, a negative value or NaN turn it off; a run with more candidate points per split (a larger `SliverDihedralDegrees`, up to 30 trials per split instead of about 5) reaches it sooner, which was not measured; `MaxSteinerPoints` still applies (reported as before, without the work key). **Default outputs unchanged, bit for bit**: the
 vertices, tets, boundary triangles and counts of 16 runs (4 inputs x alpha 12 and 40 x ratio 2 and 1.5) hash to the same values on master and on the
 branch (`DefaultPathAndRadiusEdge15_AreBitForBitTheSameAsBeforeTheBound` pins them). Tests: `TetRefinementWorkBoundTests` (stopwatch as `CancelF`, so the
 old code fails them as `Cancelled`; runaways stop valid with the target missed, terminating runs are not cut, the default path stays 16 times below

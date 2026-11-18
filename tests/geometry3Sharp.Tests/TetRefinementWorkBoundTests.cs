@@ -9,23 +9,40 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// The work bound of the tet refinement (docs/design/TET_MESHING.md section 17.10, issue #1138): MaxTrialInsertionsPerWrapVertex stops a
-    /// refinement that does not end (MaxRadiusEdgeRatio near 1) with status PointLimitReached and a valid result, never on the default
-    /// path. Every run here has a stopwatch as CancelF, so that the old code (no bound) fails these tests by status Cancelled instead of
-    /// running for minutes.
+    /// The work bound of the tet refinement (docs/design/TET_MESHING.md section 17.10, issue #1138): a refinement that does not end
+    /// (MaxRadiusEdgeRatio near 1) stops with status PointLimitReached, a valid result and Counts["work_limit_reached"], never on the
+    /// default path. This file only uses what the library had before the bound (the default value of the bound applies), and every run has
+    /// its own stopwatch as CancelF, so the old code, which does not stop, fails these tests as status Cancelled instead of hanging.
+    /// The tests that need the new field are in TetRefinementWorkBoundParameterTests.
     /// </summary>
-    public class TetRefinementWorkBoundTests
+    public class TetRefinementWorkBoundTests : IClassFixture<TetRefinementWorkBoundTests.ReferenceRun>
     {
-        static MeshTetrahedralization Make(string shape, double alpha, double rho, double seconds = 6)
+        readonly ReferenceRun fixture;
+        public TetRefinementWorkBoundTests(ReferenceRun f) { fixture = f; }
+
+        /// <summary> the untransformed limited run, built once before the tests (deterministic) </summary>
+        public sealed class ReferenceRun
         {
-            var sw = Stopwatch.StartNew();
-            return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) {
-                RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho, CancelF = () => sw.Elapsed.TotalSeconds > seconds };
+            public readonly MeshTetrahedralization Tm = Make("sphere", 12, 1.0);
+            public ReferenceRun() { Go(Tm); }
         }
 
-        static int WrapVertices(MeshTetrahedralization tm) => tm.Wrap.Triangulation.VertexCount;
+        internal static MeshTetrahedralization Make(string shape, double alpha, double rho)
+        {
+            return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho };
+        }
 
-        // the runs that do not end: 700 to 1400 trial insertions per wrap vertex and rising
+        // Compute with a stopwatch of its own (4 s per call)
+        internal static bool Go(MeshTetrahedralization tm)
+        {
+            var sw = Stopwatch.StartNew();
+            tm.CancelF = () => sw.Elapsed.TotalSeconds > 4;
+            return tm.Compute();
+        }
+
+        internal static int WrapVertices(MeshTetrahedralization tm) => tm.Wrap.Triangulation.VertexCount;
+
+        // the runs that do not end: 370 to 1400 trial insertions per wrap vertex within 25 s and rising
         public static IEnumerable<object[]> Runaways() => new[] { new object[] { "sphere", 12.0, 1.0 }, new object[] { "box", 12.0, 1.2 }, new object[] { "cylinder", 12.0, 1.3 } };
 
         [Theory]
@@ -33,10 +50,11 @@ namespace geometry3Sharp.Tests
         public void RunawayRefinement_StopsAtTheBound_WithAValidResultAndTheTargetNotMet(string shape, double alpha, double rho)
         {
             MeshTetrahedralization tm = Make(shape, alpha, rho);
-            tm.Compute();
+            Go(tm);
             Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, tm.Status);
             Assert.Equal(1, tm.Counts["work_limit_reached"]);
-            Assert.InRange(tm.Counts["trial_insertions"], 48 * WrapVertices(tm) * 0.95, 48 * WrapVertices(tm) + 2000 + 40);   // the last split may overshoot by its candidates
+            // the default bound is 48 trial insertions per wrap vertex + 2000, checked before each split (one split adds at most 30)
+            Assert.InRange(tm.Counts["trial_insertions"], 48 * WrapVertices(tm) + 2000, 48 * WrapVertices(tm) + 2000 + 30);
             Assert.NotNull(tm.Result);
             Assert.Null(TetMeshQuality.NotValidReason(tm.Result));
             Assert.NotNull(tm.Targets);
@@ -45,109 +63,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(rho, tm.Targets.MaxRadiusEdgeRatio);
         }
 
-        [Fact]
-        public void TerminatingRuns_AreNotCut()
-        {
-            // 1.1 on the sphere ends with 7 trial insertions per wrap vertex: below the bound, so the same result as without it
-            MeshTetrahedralization a = Make("sphere", 12, 1.1), off = Make("sphere", 12, 1.1);
-            off.MaxTrialInsertionsPerWrapVertex = 0;
-            Assert.True(a.Compute()); Assert.True(off.Compute());
-            Assert.False(a.Counts.ContainsKey("work_limit_reached"));
-            Assert.Equal(off.Result.Vertices, a.Result.Vertices);
-            Assert.Equal(off.Result.Tets, a.Result.Tets);
-            Assert.Equal(off.Counts, a.Counts);
-            Assert.True(a.Counts["trial_insertions"] > 5 * WrapVertices(a));                  // and it did real work
-        }
-
-        [Theory]
-        [InlineData("box"), InlineData("sphere"), InlineData("torus thin"), InlineData("cylinder")]
-        public void DefaultPath_NeverComesNearTheBound(string shape)
-        {
-            foreach (double alpha in new[] { 12.0, 40.0 }) {
-                MeshTetrahedralization tm = Make(shape, alpha, 2);
-                Assert.True(tm.Compute());
-                Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
-                Assert.True(tm.Counts["trial_insertions"] < 3 * WrapVertices(tm), shape + " " + tm.Counts["trial_insertions"] + " of " + WrapVertices(tm));   // 16 times below the bound
-            }
-        }
-
-        [Fact]
-        public void TheParameter_TurnsTheBoundOffOrTightensIt()
-        {
-            MeshTetrahedralization one = Make("sphere", 12, 1.0);
-            one.MaxTrialInsertionsPerWrapVertex = 1;
-            one.Compute();
-            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, one.Status);
-            Assert.InRange(one.Counts["trial_insertions"], WrapVertices(one) * 0.9, WrapVertices(one) + 2000 + 40);
-            // off: only MaxSteinerPoints stops it, and that is the user's own limit, not reported as the work bound
-            MeshTetrahedralization off = Make("sphere", 12, 1.0);
-            off.MaxTrialInsertionsPerWrapVertex = 0; off.MaxSteinerPoints = 3000;
-            off.Compute();
-            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, off.Status);
-            Assert.Equal(3000, off.Counts["tet_splits"]);
-            Assert.False(off.Counts.ContainsKey("work_limit_reached"));
-            // the user's lower limit wins over the bound, also unreported
-            MeshTetrahedralization user = Make("sphere", 12, 1.0);
-            user.MaxSteinerPoints = 500;
-            user.Compute();
-            Assert.Equal(500, user.Counts["tet_splits"]);
-            Assert.False(user.Counts.ContainsKey("work_limit_reached"));
-        }
-
-        [Fact]
-        public void WithASizeBound_TheBoundIsNotUsed()
-        {
-            // a size bound makes the point count follow the volume, not the wrap: far more than the bound allows, and legitimate
-            MeshTetrahedralization tm = Make("box", 12, 2);
-            tm.MaxCircumradius = 0.025;
-            Assert.True(tm.Compute());
-            Assert.Equal(MeshTetrahedralization.TetStatus.Success, tm.Status);
-            Assert.True(tm.Counts["trial_insertions"] > 48 * WrapVertices(tm) + 2000, tm.Counts["trial_insertions"] + " trials");
-            Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
-        }
-
-        [Fact]
-        public void ReuseAndMaxThreads_GiveTheSameLimitedResult()
-        {
-            MeshTetrahedralization tm = Make("box", 12, 1.2);
-            tm.Compute();
-            List<Vector3d> v = tm.Result.Vertices.ToList(); List<Index4i> t = tm.Result.Tets.ToList();
-            var counts = new Dictionary<string, long>(tm.Counts);
-            tm.Compute();                                                                // the same instance again
-            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, tm.Status);
-            Assert.Equal(v, tm.Result.Vertices); Assert.Equal(t, tm.Result.Tets); Assert.Equal(counts, tm.Counts);
-            MeshTetrahedralization serial = Make("box", 12, 1.2);
-            serial.MaxThreads = 1;
-            serial.Compute();
-            Assert.Equal(v, serial.Result.Vertices); Assert.Equal(t, serial.Result.Tets); Assert.Equal(counts, serial.Counts);
-            // a run without the limit after a limited one on the same instance: no stale count
-            tm.MaxRadiusEdgeRatio = 2;
-            Assert.True(tm.Compute());
-            Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
-        }
-
-        [Theory]
-        [MemberData(nameof(SimilarityNames))]
-        public void LimitedRun_Similarity_PowerOfTwoScalesBitForBit(string simName)
-        {
-            Similarity s = Similarity.ByName(simName);
-            MeshTetrahedralization a = Reference.Value;
-            var sw = Stopwatch.StartNew();
-            var b = new MeshTetrahedralization(Invariance.Transformed(TetMeshingStage2Tests.Input("box"), s)) {
-                RelativeAlpha = 12, MaxRadiusEdgeRatio = 1.2, CancelF = () => sw.Elapsed.TotalSeconds > 6 };
-            b.Compute();
-            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, b.Status);
-            Assert.Null(TetMeshQuality.NotValidReason(b.Result));
-            Assert.False(b.Targets.RadiusEdgeMet);
-            if (s.IsExact) {
-                Assert.Equal(a.Result.Tets, b.Result.Tets);
-                for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);
-                Assert.Equal(a.Counts, b.Counts);
-            }
-        }
-
-        // fingerprints (FNV-1a over the bits of vertices, tets, boundary triangles and counts) computed on master before the work bound:
-        // the default path, and radius-edge 1.5, give the same result bit for bit. Pinned on linux / .NET (libm differs in the last bit elsewhere)
+        // the default path and ratio 1.5 on every input at two resolutions: not near the bound, and bit for bit the result of master before
+        // the bound (fingerprints computed there; pinned on linux x64 / .NET, where libm gives the same last bits)
         static readonly (string shape, double alpha, double rho, ulong fingerprint, int tets)[] Pinned = {
             ("box", 12, 2, 9245319534554302762UL, 1527),
             ("box", 12, 1.5, 13204798993680902105UL, 3264),
@@ -167,6 +84,7 @@ namespace geometry3Sharp.Tests
             ("cylinder", 40, 1.5, 9464946764192240814UL, 11263)
         };
 
+
         static ulong Fingerprint(MeshTetrahedralization tm)
         {
             ulong h = 14695981039346656037UL;
@@ -179,25 +97,83 @@ namespace geometry3Sharp.Tests
             return h;
         }
 
-        [Fact]
-        public void DefaultPathAndRadiusEdge15_AreBitForBitTheSameAsBeforeTheBound()
+        static bool PinnedPlatform()
         {
-            var fw = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux) ||
-                !fw.StartsWith(".NET ", StringComparison.Ordinal) || fw.StartsWith(".NET Framework", StringComparison.Ordinal)) return;
-            foreach (var p in Pinned) {
-                var tm = new MeshTetrahedralization(TetMeshingStage2Tests.Input(p.shape)) { RelativeAlpha = p.alpha, MaxRadiusEdgeRatio = p.rho };
-                Assert.True(tm.Compute());
+                        return System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux) && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.X64
+                && System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET ", StringComparison.Ordinal) && !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData("box"), InlineData("sphere"), InlineData("torus thin"), InlineData("cylinder")]
+        public void DefaultPathAndRadiusEdge15_AreFarFromTheBound_AndBitForBitTheSameAsBeforeIt(string shape)
+        {
+            foreach (var p in Pinned.Where(x => x.shape == shape)) {
+                var tm = Make(shape, p.alpha, p.rho);
+                Assert.True(Go(tm));
                 Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
+                if (p.rho == 2) Assert.True(tm.Counts["trial_insertions"] < 3 * WrapVertices(tm), shape + ": " + tm.Counts["trial_insertions"] + " of " + WrapVertices(tm));   // 16 times below the bound
+                if (!PinnedPlatform()) continue;
                 Assert.Equal(p.tets, tm.Result.Tets.Count);
                 Assert.Equal(p.fingerprint, Fingerprint(tm));
             }
         }
 
-        public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
+        [Fact]
+        public void WithASizeBound_TheBoundIsNotUsed()
+        {
+            // a size bound makes the point count follow the volume, not the wrap: far more than the bound allows, and legitimate
+            MeshTetrahedralization tm = Make("box", 12, 2);
+            tm.MaxCircumradius = 0.025;
+            Assert.True(Go(tm));
+            Assert.Equal(MeshTetrahedralization.TetStatus.Success, tm.Status);
+            Assert.True(tm.Counts["trial_insertions"] > 48 * WrapVertices(tm) + 2000, tm.Counts["trial_insertions"] + " trials");
+            Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
+        }
 
-        static readonly Lazy<MeshTetrahedralization> Reference = new Lazy<MeshTetrahedralization>(() => {
-            MeshTetrahedralization tm = Make("box", 12, 1.2); tm.Compute(); return tm;
-        });
+        [Fact]
+        public void Reuse_GivesTheSameLimitedResult()
+        {
+            MeshTetrahedralization tm = Make("sphere", 12, 1.0);
+            Go(tm);
+            List<Vector3d> v = tm.Result.Vertices.ToList(); List<Index4i> t = tm.Result.Tets.ToList();
+            var counts = new Dictionary<string, long>(tm.Counts);
+            Go(tm);                                                                      // the same instance again
+            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, tm.Status);
+            Assert.Equal(v, tm.Result.Vertices); Assert.Equal(t, tm.Result.Tets); Assert.Equal(counts, tm.Counts);
+            // a run that ends after a limited one on the same instance: no stale count, status or targets
+            tm.MaxRadiusEdgeRatio = 2;
+            Assert.True(Go(tm));
+            Assert.Equal(MeshTetrahedralization.TetStatus.Success, tm.Status);
+            Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
+        }
+
+        [Fact]
+        public void EveryMaxThreads_GivesTheSameLimitedResult()
+        {
+            MeshTetrahedralization serial = Make("sphere", 12, 1.0);
+            serial.MaxThreads = 1;
+            Go(serial);
+            MeshTetrahedralization a = fixture.Tm;
+            Assert.Equal(a.Result.Vertices, serial.Result.Vertices); Assert.Equal(a.Result.Tets, serial.Result.Tets); Assert.Equal(a.Counts, serial.Counts);
+        }
+
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void LimitedRun_Similarity_PowerOfTwoScalesBitForBit(string simName)
+        {
+            Similarity s = Similarity.ByName(simName);
+            MeshTetrahedralization a = fixture.Tm;
+            var b = new MeshTetrahedralization(Invariance.Transformed(TetMeshingStage2Tests.Input("sphere"), s)) { RelativeAlpha = 12, MaxRadiusEdgeRatio = 1.0 };
+            Go(b);
+            Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, b.Status);
+            Assert.Null(TetMeshQuality.NotValidReason(b.Result));
+            Assert.False(b.Targets.RadiusEdgeMet);
+            if (s.IsExact) {
+                Assert.Equal(a.Result.Tets, b.Result.Tets);
+                for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);
+                Assert.Equal(a.Counts, b.Counts);
+            }
+        }
+        public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }
