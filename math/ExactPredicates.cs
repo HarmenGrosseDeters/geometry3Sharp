@@ -52,14 +52,8 @@ namespace g3
         }
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
-#if G3_PREDICATE_TIME
-        public static int Orient2d(Vector2d a, Vector2d b, Vector2d c) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.Orient2d); int r = Orient2d_t(a, b, c); PredicateTime.Leave((int)PredicateStats.Kind.Orient2d, tk); return r; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int Orient2d_t(Vector2d a, Vector2d b, Vector2d c)
-#else
         [MethodImpl(JitHints.Optimize)]
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
-#endif
         {
             PredicateStats.Call(PredicateStats.Kind.Orient2d);
             double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
@@ -78,14 +72,8 @@ namespace g3
         /// sign of ((b - a) x (c - a)) . (d - a): +1 if d is on the side the normal of the counter-clockwise
         /// triangle (a, b, c) points to, -1 on the other side, 0 if the four points are coplanar
         /// </summary>
-#if G3_PREDICATE_TIME
-        public static int Orient3d(Vector3d a, Vector3d b, Vector3d c, Vector3d d) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.Orient3d); int r = Orient3d_t(a, b, c, d); PredicateTime.Leave((int)PredicateStats.Kind.Orient3d, tk); return r; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int Orient3d_t(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
-#else
         [MethodImpl(JitHints.Optimize)]
         public static int Orient3d(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
-#endif
         {
             PredicateStats.Call(PredicateStats.Kind.Orient3d);
             int s = Orient3dFilter(b.x - a.x, b.y - a.y, b.z - a.z, c.x - a.x, c.y - a.y, c.z - a.z, d.x - a.x, d.y - a.y, d.z - a.z);
@@ -122,14 +110,8 @@ namespace g3
         /// +1 if d lies inside the circle through a, b, c (given counter-clockwise; the sign is reversed for
         /// clockwise input), -1 outside, 0 if the four points are cocircular
         /// </summary>
-#if G3_PREDICATE_TIME
-        public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.InCircle); int wr_ = InCircle_t(a, b, c, d); PredicateTime.Leave((int)PredicateStats.Kind.InCircle, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int InCircle_t(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
-#else
         [MethodImpl(JitHints.Optimize)]
         public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
-#endif
         {
             PredicateStats.Call(PredicateStats.Kind.InCircle);
             double adx = a.x - d.x, bdx = b.x - d.x, cdx = c.x - d.x;
@@ -156,16 +138,9 @@ namespace g3
         /// the sign is reversed for negative orientation), -1 outside, 0 if the five points are cospherical.
         /// Exact (floating-point filter, integer arithmetic for the uncertain cases).
         /// </summary>
-#if G3_PREDICATE_TIME
-        public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.InSphere); int wr_ = InSphere_t(a, b, c, d, e); PredicateTime.Leave((int)PredicateStats.Kind.InSphere, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int InSphere_t(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
-#else
         [MethodImpl(JitHints.Optimize)]
         public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
-#endif
         {
-            PredicateStats.Call(PredicateStats.Kind.InSphere);
             double aex = a.x - e.x, bex = b.x - e.x, cex = c.x - e.x, dex = d.x - e.x;
             double aey = a.y - e.y, bey = b.y - e.y, cey = c.y - e.y, dey = d.y - e.y;
             double aez = a.z - e.z, bez = b.z - e.z, cez = c.z - e.z, dez = d.z - e.z;
@@ -196,7 +171,6 @@ namespace g3
                 + Math.Abs(abc) + Math.Abs(bcd) + Math.Abs(cda) + Math.Abs(dab) + 1);
             if (det > bound && permanent > UnderflowLimit) return -1;
             if (-det > bound && permanent > UnderflowLimit) return 1;
-            PredicateStats.ExactStage(PredicateStats.Kind.InSphere);
             return insphere_exact(a, b, c, d, e);
         }
 
@@ -480,25 +454,16 @@ namespace g3
         /// exceeds the bound, S has the sign of the exact sum; elsewhere (and where a value is not finite) the sum is
         /// evaluated exactly, in integers (the coordinates scaled to a common exponent, the differences exact).
         /// </summary>
-#if G3_PREDICATE_TIME
-        internal static int VolumeSign(double[] xyz, int[] corners) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.VolumeSign); int wr_ = VolumeSign_t(xyz, corners); PredicateTime.Leave((int)PredicateStats.Kind.VolumeSign, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int VolumeSign_t(double[] xyz, int[] corners)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSign(double[] xyz, int[] corners)
-#endif
         {
             if (corners == null || corners.Length < 3)
                 return 0;
             for (int k = 0; k < xyz.Length; ++k)
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
                     return 0;
-            PredicateStats.Call(PredicateStats.Kind.VolumeSign);
             int s = VolumeSignFilter(xyz, corners);
-            if (s != 0) return s;
-            PredicateStats.ExactStage(PredicateStats.Kind.VolumeSign);
-            return VolumeSignExact(xyz, corners);
+            return s != 0 ? s : VolumeSignExact(xyz, corners);
         }
 
         /// <summary>

@@ -45,7 +45,6 @@
     <Product>geometry3Sharp</Product>
     <!-- -p:G3PredicateStats=true: count the filter failures of the exact predicates (PredicateStats; profiling only) -->
     <DefineConstants Condition="'$(G3PredicateStats)' == 'true'">$(DefineConstants);G3_PREDICATE_STATS</DefineConstants>
-    <DefineConstants Condition="'$(G3PredicateTime)' == 'true'">$(DefineConstants);G3_PREDICATE_TIME;G3_PREDICATE_STATS</DefineConstants>
     <PackageId>geometry3Sharp</PackageId>
   </PropertyGroup>
 

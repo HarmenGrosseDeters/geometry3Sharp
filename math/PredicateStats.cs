@@ -21,8 +21,6 @@ namespace g3
             ArrExactPoint,                                  // exact point constructions (BigInteger)
             ArrImplicitOverflow,                            // implicit points without a usable approximation
             WindingPlaneSide, WindingOrient3d,              // ExactMeshBoolean ray tests
-            InSphere, VolumeSign,                           // ExactPredicates (tetrahedralization)
-            LimbPlaneSide, LimbOther,                       // ExactLimbSigns / PreparedLimbs called by the boolean (always exact)
             Count
         }
 
@@ -30,8 +28,7 @@ namespace g3
             "orient2d", "orient3d", "incircle",
             "arr.orient", "arr.incircle", "arr.along", "arr.compare",
             "arr.exact_point", "arr.implicit_overflow",
-            "winding.plane_side", "winding.orient3d",
-            "insphere", "volume_sign", "limb.plane_side", "limb.other" };
+            "winding.plane_side", "winding.orient3d" };
 
         // (padded: one cache line per counter pair)
         static readonly long[] counters = new long[16 * (int)Kind.Count];
@@ -47,19 +44,7 @@ namespace g3
         [Conditional("G3_PREDICATE_STATS")]
         internal static void ExactStage(Kind kind)
         {
-#if G3_PREDICATE_TIME
-            PredicateTime.ExactStage((int)kind);
-#endif
             Interlocked.Increment(ref counters[16 * (int)kind + 1]);
-        }
-
-        /// <summary> the exact stage ends in stage `tag` of its predicate (timing only) </summary>
-        [Conditional("G3_PREDICATE_TIME")]
-        internal static void Tag(int tag)
-        {
-#if G3_PREDICATE_TIME
-            PredicateTime.Tag(tag);
-#endif
         }
 
         internal static long Calls(int kind) { return Interlocked.Read(ref counters[16 * kind]); }

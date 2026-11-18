@@ -76,20 +76,11 @@ namespace g3
         }
 
         /// <summary> PlaneSide, and the scratch limbs it used (-1: the BigInteger expression; for the tests) </summary>
-#if G3_PREDICATE_TIME
-        internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w, out int used) { long tk = PredicateTime.EBegin((int)PredicateStats.Kind.LimbPlaneSide); int wr_ = PlaneSide_t(a, b, c, d, x, y, z, w, out used); PredicateTime.EEnd((int)PredicateStats.Kind.LimbPlaneSide, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-#if NET
-        [SkipLocalsInit]
-#endif
-        private static int PlaneSide_t(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w, out int used)
-#else
         [MethodImpl(JitHints.Optimize)]
 #if NET
         [SkipLocalsInit]
 #endif
         internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w, out int used)
-#endif
         {
 #if NET
             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z), nw = limbs_of(w);
@@ -127,20 +118,11 @@ namespace g3
         }
 
         /// <summary> PlaneSide of an integer point, and the scratch limbs it used (-1: the BigInteger expression) </summary>
-#if G3_PREDICATE_TIME
-        internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, out int used) { long tk = PredicateTime.EBegin((int)PredicateStats.Kind.LimbPlaneSide); int wr_ = PlaneSide_t(a, b, c, d, x, y, z, out used); PredicateTime.EEnd((int)PredicateStats.Kind.LimbPlaneSide, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-#if NET
-        [SkipLocalsInit]
-#endif
-        private static int PlaneSide_t(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, out int used)
-#else
         [MethodImpl(JitHints.Optimize)]
 #if NET
         [SkipLocalsInit]
 #endif
         internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, out int used)
-#endif
         {
 #if NET
             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
@@ -177,20 +159,11 @@ namespace g3
         }
 
         /// <summary> Dot, and the scratch limbs it used (-1: the BigInteger expression) </summary>
-#if G3_PREDICATE_TIME
-        internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z, out int used) { long tk = PredicateTime.EBegin((int)PredicateStats.Kind.LimbOther); int wr_ = Dot_t(a, b, c, x, y, z, out used); PredicateTime.EEnd((int)PredicateStats.Kind.LimbOther, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-#if NET
-        [SkipLocalsInit]
-#endif
-        private static int Dot_t(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z, out int used)
-#else
         [MethodImpl(JitHints.Optimize)]
 #if NET
         [SkipLocalsInit]
 #endif
         internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z, out int used)
-#endif
         {
 #if NET
             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
@@ -239,20 +212,11 @@ namespace g3
         }
 
         /// <summary> Det4, and the scratch limbs it used (-1: the BigInteger form) </summary>
-#if G3_PREDICATE_TIME
-        internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, out int used) { long tk = PredicateTime.EBegin((int)PredicateStats.Kind.LimbOther); int r = Det4_t(a, b, c, d, out used); PredicateTime.EEnd((int)PredicateStats.Kind.LimbOther, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-#if NET
-        [SkipLocalsInit]
-#endif
-        private static int Det4_t(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, out int used)
-#else
         [MethodImpl(JitHints.Optimize)]
 #if NET
         [SkipLocalsInit]
 #endif
         internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, out int used)
-#endif
         {
 #if NET
             int* n = stackalloc int[16];

@@ -590,14 +590,7 @@ namespace g3
                 return r;
             PredicateStats.Call(PredicateStats.Kind.ArrExactPoint);
             PointKey key = keys[id];
-#if G3_PREDICATE_TIME
-            long ct = PredicateTime.CBegin();
-            int pr = publish_exact(id, (key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
-            PredicateTime.CEnd(ct);
-            return pr;
-#else
             return publish_exact(id, (key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
-#endif
         }
 
         // the exact point of id as an integer point with double coordinates, if it is one
@@ -970,14 +963,8 @@ namespace g3
         }
 
         /// <summary> a total order of the exact points (deterministic, unlike point ids); 0 iff the points are equal </summary>
-#if G3_PREDICATE_TIME
-        public int ComparePoints(int a, int b) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.ArrCompare); int wr_ = ComparePoints_t(a, b); PredicateTime.Leave((int)PredicateStats.Kind.ArrCompare, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private int ComparePoints_t(int a, int b)
-#else
         [MethodImpl(JitHints.Optimize)]
         public int ComparePoints(int a, int b)
-#endif
         {
             if (a == b)
                 return 0;
@@ -991,11 +978,8 @@ namespace g3
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrCompare);
             int ra = exact_ref(a), rb = exact_ref(b);
-            if (ra > 0 && rb > 0) {
-                PredicateStats.Tag(2);
+            if (ra > 0 && rb > 0)
                 return FixedArith.ComparePoints(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], AlphaLimb[0], AlphaLimb[1], AlphaLimb[2]);
-            }
-            PredicateStats.Tag(4);
             ExactPoint3 pa = Exact(a), pb = Exact(b);
             BigInteger fa = (AlphaInt[0] * pa.X + AlphaInt[1] * pa.Y + AlphaInt[2] * pa.Z) * pb.W;
             BigInteger fb = (AlphaInt[0] * pb.X + AlphaInt[1] * pb.Y + AlphaInt[2] * pb.Z) * pa.W;
@@ -1633,14 +1617,8 @@ namespace g3
         }
 
         /// <summary> Orient, with the local points of t as a second filter (null: none) </summary>
-#if G3_PREDICATE_TIME
-        internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.ArrOrient); int wr_ = Orient_t(t, p, q, r, local); PredicateTime.Leave((int)PredicateStats.Kind.ArrOrient, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private int Orient_t(InputTriangle t, int p, int q, int r, LocalPoints local)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local)
-#endif
         {
             if (p == q || q == r || r == p)
                 return 0;
@@ -1658,18 +1636,14 @@ namespace g3
             Vector3d da, db, dc;
             if (exact_double(p, ra, out da) && exact_double(q, rb, out db) && exact_double(r, rc, out dc)) {
                 // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
-                PredicateStats.Tag(1);
                 return ExactPredicates.Orient2d(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]), new Vector2d(dc[i], dc[j])) * t.Sign;
             }
-            if (ra > 0 && rb > 0 && rc > 0) {
-                PredicateStats.Tag(2);
+            if (ra > 0 && rb > 0 && rc > 0)
                 return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
-            }
             // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
             // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
             // above beat: they cost less than the conversion)
             if (local != null && local.CollinearByConstruction(p, q, r)) {
-                PredicateStats.Tag(3);
                 local.Zeros++;
                 return 0;
             }
@@ -1677,10 +1651,9 @@ namespace g3
             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr)) {
                 double err;
                 double fdet = orient2d_approx(lp, lq, lr, 0, 1, Math.Max(lp.z, Math.Max(lq.z, lr.z)), out err);
-                if (fdet > err) { PredicateStats.Tag(3); local.Decided++; return t.Sign; }
-                if (-fdet > err) { PredicateStats.Tag(3); local.Decided++; return -t.Sign; }
+                if (fdet > err) { local.Decided++; return t.Sign; }
+                if (-fdet > err) { local.Decided++; return -t.Sign; }
             }
-            PredicateStats.Tag(4);
             return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
         }
 
@@ -1728,14 +1701,8 @@ namespace g3
         }
 
         /// <summary> InCircle, with the local points of t as a second filter (null: none) </summary>
-#if G3_PREDICATE_TIME
-        internal int InCircle(InputTriangle t, int p, int q, int r, int s, LocalPoints local) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.ArrInCircle); int wr_ = InCircle_t(t, p, q, r, s, local); PredicateTime.Leave((int)PredicateStats.Kind.ArrInCircle, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private int InCircle_t(InputTriangle t, int p, int q, int r, int s, LocalPoints local)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal int InCircle(InputTriangle t, int p, int q, int r, int s, LocalPoints local)
-#endif
         {
             PredicateStats.Call(PredicateStats.Kind.ArrInCircle);
             if (DisableFilters == false) {
@@ -1750,7 +1717,6 @@ namespace g3
             if (exact_double(p, ra, out da) && exact_double(q, rb, out db) && exact_double(r, rc, out dc) && exact_double(s, rd, out dd)) {
                 // integer points with double coordinates: the same determinant (W = 1, see below), by the adaptive
                 // predicate
-                PredicateStats.Tag(1);
                 return ExactPredicates.InCircle(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]),
                     new Vector2d(dc[i], dc[j]), new Vector2d(dd[i], dd[j])) * t.Sign;
             }
@@ -1758,21 +1724,18 @@ namespace g3
             // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
             // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
-            if (ra > 0 && rb > 0 && rc > 0 && rd > 0) {
-                PredicateStats.Tag(2);
+            if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
                 return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
-            }
             // (the local filter only before the BigInteger stage, as in Orient)
             Vector3d lp, lq, lr, ls;
             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
                 double bound;
                 double fdet = incircle_approx(lp, lq, lr, ls, 0, 1, Math.Max(Math.Max(lp.z, lq.z), Math.Max(lr.z, ls.z)), out bound);
-                if (fdet > bound) { PredicateStats.Tag(3); local.Decided++; return t.Sign; }
-                if (-fdet > bound) { PredicateStats.Tag(3); local.Decided++; return -t.Sign; }
+                if (fdet > bound) { local.Decided++; return t.Sign; }
+                if (-fdet > bound) { local.Decided++; return -t.Sign; }
             }
             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
             // may mirror the triangle, which flips the orientation of a, b, c and the sign
-            PredicateStats.Tag(4);
             return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
         }
 
@@ -1818,14 +1781,8 @@ namespace g3
             return compare_along(new Direction(dx, dy, dz), p1, p2);
         }
 
-#if G3_PREDICATE_TIME
-        internal int compare_along(in Direction d, int p1, int p2) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.ArrAlong); int wr_ = compare_along_t(in d, p1, p2); PredicateTime.Leave((int)PredicateStats.Kind.ArrAlong, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private int compare_along_t(in Direction d, int p1, int p2)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal int compare_along(in Direction d, int p1, int p2)
-#endif
         {
             if (p1 == p2)
                 return 0;
@@ -1840,12 +1797,9 @@ namespace g3
             int r1 = exact_ref(p1), r2 = exact_ref(p2);
             if (r1 > 0 && r2 > 0) {
                 int c;
-                if (compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c)) {
-                    PredicateStats.Tag(2);
+                if (compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c))
                     return c;
-                }
             }
-            PredicateStats.Tag(4);
             ExactPoint3 a = Exact(p1), b = Exact(p2);
             BigInteger ka = (d.X * a.X + d.Y * a.Y + d.Z * a.Z) * b.W;
             BigInteger kb = (d.X * b.X + d.Y * b.Y + d.Z * b.Z) * a.W;

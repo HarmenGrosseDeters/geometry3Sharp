@@ -3806,14 +3806,8 @@ namespace g3
         /// most 2^-52 each); 2 if the error bound does not decide (also for overflow or tiny values, and for
         /// coordinates below TinyCoordinate, where the relative error of the rounding is not bounded)
         /// </summary>
-#if G3_PREDICATE_TIME
-        internal static int plane_side_filtered(double[] pa, double x, double y, double z) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.WindingPlaneSide); int wr_ = plane_side_filtered_t(pa, x, y, z); PredicateTime.Leave((int)PredicateStats.Kind.WindingPlaneSide, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int plane_side_filtered_t(double[] pa, double x, double y, double z)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal static int plane_side_filtered(double[] pa, double x, double y, double z)
-#endif
         {
             if (tiny(x) || tiny(y) || tiny(z))
                 return 2;
@@ -3837,14 +3831,8 @@ namespace g3
         /// coefficients |pa_k| (1 + 2^-52) bound |A| etc.) plus, as in plane_side_filtered, below 8 * 2^-52 of the terms'
         /// magnitudes for the coefficients' errors and the roundings (taken as 1e-14); 2 where that does not decide
         /// </summary>
-#if G3_PREDICATE_TIME
-        internal static int plane_side_abs(double[] pa, Vector3d x, double e) { long tk = PredicateTime.Enter((int)PredicateStats.Kind.WindingPlaneSide); int wr_ = plane_side_abs_t(pa, x, e); PredicateTime.Leave((int)PredicateStats.Kind.WindingPlaneSide, tk); return wr_; }
-        [MethodImpl(JitHints.Optimize)]
-        private static int plane_side_abs_t(double[] pa, Vector3d x, double e)
-#else
         [MethodImpl(JitHints.Optimize)]
         internal static int plane_side_abs(double[] pa, Vector3d x, double e)
-#endif
         {
             double a = pa[0] * x.x, b = pa[1] * x.y, c = pa[2] * x.z, d = pa[3];
             double mag = Math.Abs(a) + Math.Abs(b) + Math.Abs(c) + Math.Abs(d);
@@ -4663,14 +4651,7 @@ namespace g3
         int orient3d_filter(ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
             PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
-#if G3_PREDICATE_TIME
-            long tk = PredicateTime.Enter((int)PredicateStats.Kind.WindingOrient3d);
-            int fr = DisableFilters ? 2 : orient3d_filtered(ref da, ref db, ref dc, ref dd);
-            PredicateTime.Leave((int)PredicateStats.Kind.WindingOrient3d, tk);
-            return fr;
-#else
             return DisableFilters ? 2 : orient3d_filtered(ref da, ref db, ref dc, ref dd);
-#endif
         }
 
         // the exact stage of orient3d_filter (when it gave 2)
@@ -4678,13 +4659,7 @@ namespace g3
         static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
         {
             PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
-#if G3_PREDICATE_TIME
-            int er = orient3d(a, b, c, d);
-            PredicateTime.Leave((int)PredicateStats.Kind.WindingOrient3d, 0);
-            return er;
-#else
             return orient3d(a, b, c, d);
-#endif
         }
 
         /// <summary>
