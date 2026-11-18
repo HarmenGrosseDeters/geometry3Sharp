@@ -96,7 +96,7 @@ namespace geometry3Sharp.Tests
         {
             var warnings = new List<string>();
             DPolyMesh m;
-            // line 2 has two coordinates, line 3 a word: both skipped, so the face of line 7 refers to the 3 good vertices only
+            // line 2 has two coordinates, line 3 a word: both skipped, so the face of line 6 is the only valid one and "f 1 2 4" of line 7 (corner 4 does not exist) is dropped
             string obj = "v 0 0 0\nv 1 0\nv 1 x 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\nf 1 2 4\n";
             IOReadResult r = PolyMeshIO.ReadOBJ(new StringReader(obj), ReadOptions.Defaults, out m, (s, e) => warnings.Add(s));
             Assert.Equal(IOCode.Ok, r.code);
@@ -206,7 +206,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void CrossField_HugeCoordinates_FailWithSolverFailed_AndTheInstanceRecovers()
         {
-            // areas of 1e300 overflow: the mass shift of the matrix is NaN, no pivot is positive
+            // areas of about 1e300 leave the range of the sums that follow: the mass shift of the matrix is NaN, no pivot is positive
             DMesh3 mesh = CrossFieldShapes.UnitSphere();
             var original = new List<Vector3d>();
             foreach (int v in mesh.VertexIndices()) original.Add(mesh.GetVertex(v));
@@ -255,11 +255,12 @@ namespace geometry3Sharp.Tests
             double rms = 0;
             for (int i = 0; i < n; ++i) rms += x[2 * i] * x[2 * i] + x[2 * i + 1] * x[2 * i + 1];
             Assert.Equal(1.0, Math.Sqrt(rms / n), 12);
-            // a rotation of the whole component only: the pairwise relations of the vertices are kept
+            // the magnitudes keep their ratios (the gauge multiplies the whole component by one factor)
+            double rmsBefore = Math.Sqrt(before.Select(v => v * v).Sum() / n);
             for (int i = 0; i < n; ++i) {
                 double mb = Math.Sqrt(before[2 * i] * before[2 * i] + before[2 * i + 1] * before[2 * i + 1]);
                 double ma = Math.Sqrt(x[2 * i] * x[2 * i] + x[2 * i + 1] * x[2 * i + 1]);
-                Assert.Equal(mb / Math.Sqrt(before.Where((v, k) => true).Select(v => v * v).Sum() / n), ma, 10);
+                Assert.Equal(mb / rmsBefore, ma, 10);
             }
         }
 
@@ -463,7 +464,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SpectralConformal_HugeCoordinates_AreRefusedAsDegenerate_AndTheInstanceRecovers()
         {
-            // the trace of the energy matrix and the lengths of the boundary overflow at 1e150: no unit for the eigenvalues, so no
+            // the sums over weights and boundary lengths leave the range of double at 1e150 (trace not positive or not finite): no unit for the eigenvalues, so no
             // result (a status, not an exception or a map of NaNs)
             DMesh3 mesh = CrossFieldShapes.OpenPatch(6);
             var original = new List<Vector3d>();

@@ -473,8 +473,8 @@
       "}",
       "if (!hot.Contains(p) && Meets(X[sa], Y[sa], X[sb], Y[sb], p, true) && Between(sa, sb, a, b, p)) wider.Add(p);"
     ],
-    "reason": "an invariant guard (the throw's own message cites the proof, SRR Proposition 4.9): the restoration of a critical pixel always finds a pixel of the segment's envelope within two pixels that is not hot yet, so no input reaches the throw; it is kept to fail loudly if the proof's premise (exact integer predicates, the pixels of the input) is ever broken. Exact code: a test cannot create the case, and the guard is not deleted for no gain",
-    "approved_in": "#1122"
+    "reason": "an invariant guard (the throw's own message cites the proof, SRR Proposition 4.9): the restoration of a critical pixel always finds a pixel of the segment's envelope within two pixels that is not hot yet, so no tested input reaches the throw. Not proven unreachable here: a test that finds such an input replaces the entry; it is kept to fail loudly if the proof's premise (exact integer predicates, the pixels of the input) is ever broken. Exact code: a test cannot create the case, and the guard is not deleted for no gain",
+    "approved_in": "#1124"
   },
   {
     "file": "comp_geom/SnapRounding2.cs",
@@ -484,6 +484,6 @@
       "/// <summary> culture-invariant text of an integer or a pixel (the minus sign of a culture is not the same everywhere; O1 of DETERMINISM_PROOF.md 5.4) </summary>"
     ],
     "reason": "the text of a pixel for the message of the guard at 'no pixel to restore critical pixel' (the invariant guard of Proposition 4.9, listed with it): used nowhere else, so it runs only if the guard is reached",
-    "approved_in": "#1122"
+    "approved_in": "#1124"
   }
 ]
