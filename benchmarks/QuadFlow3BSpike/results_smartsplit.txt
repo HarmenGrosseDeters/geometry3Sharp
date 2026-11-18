@@ -1,0 +1,21 @@
+## sphere: input V 6390, singular faces 8, s 0.1
+stage 2 : irregular 77, quads 94.8 %, tris 66, manifold True, corner p95 14.5, t pos 0.23 s, t extract 0.02 s
+position singular triangles: before flow 72, after flow 0; vars balanced 18894, fixed 270 (boundary 0), network components 2, clamped 0
+orientation: before flow inverted 0 (det>0: 2507 of 12776); after flow, before subdivision inverted 237 (det>0: 2406)
+flow: units 44, cost 1908, capacity H 4, augmentations 44, t flow 0.69 s (setup 0.05 s)
+subdivision: splits 407, long edges left 0; inverted triangles: after flow 274, after greedy 51 (211 moves, 0.02 s), after SAT 43 (solved 8, failed 43, attempts 294 [dbg viol 1180 inv-in-region 1180] (unsat 228, budget 58), 6.75 s, det<0 forbidden)
+result: faces 1169, quads 98.6 %, tris 16, 5-6 0, irregular 28, manifold NO (5e 10i 0v), corner p50/p95 4.5 / 15.9, unpaired tris 16, bad tris 0, inverted nondegenerate 43; t pos solve 0.19 s, t extract 0.03 s
+## torus: input V 7026, singular faces 12, s 0.1
+stage 2 : irregular 76, quads 94.9 %, tris 71, manifold True, corner p95 12.7, t pos 0.22 s, t extract 0.02 s
+position singular triangles: before flow 77, after flow 0; vars balanced 20797, fixed 281 (boundary 0), network components 2, clamped 0
+orientation: before flow inverted 2 (det>0: 2788 of 14052); after flow, before subdivision inverted 98 (det>0: 2778)
+flow: units 43, cost 1145, capacity H 2, augmentations 43, t flow 0.29 s (setup 0.03 s)
+subdivision: splits 136, long edges left 0; inverted triangles: after flow 98, after greedy 5 (89 moves, 0.00 s), after SAT 1 (solved 4, failed 1, attempts 21 [dbg viol 21 inv-in-region 21] (unsat 15, budget 2), 0.25 s, det<0 forbidden)
+result: faces 1376, quads 99.4 %, tris 8, 5-6 0, irregular 19, manifold NO (3e 6i 0v), corner p50/p95 3.5 / 12.4, unpaired tris 8, bad tris 0, inverted nondegenerate 1; t pos solve 0.09 s, t extract 0.02 s
+## torus-align10: input V 7026, singular faces 0, s 0.1
+stage 2 : irregular 108, quads 93.6 %, tris 87, manifold True, corner p95 15.7, t pos 0.05 s, t extract 0.00 s
+position singular triangles: before flow 95, after flow 0; vars balanced 21078, fixed 0 (boundary 0), network components 2, clamped 0
+orientation: before flow inverted 0 (det>0: 2768 of 14052); after flow, before subdivision inverted 157 (det>0: 2805)
+flow: units 49, cost 1594, capacity H 2, augmentations 49, t flow 0.35 s (setup 0.02 s)
+subdivision: splits 241, long edges left 0; inverted triangles: after flow 155, after greedy 4 (146 moves, 0.00 s), after SAT 0 (solved 3, failed 0, attempts 15 [dbg viol 17 inv-in-region 17] (unsat 12, budget 0), 0.08 s, det<0 forbidden)
+result: faces 1386, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes, corner p50/p95 2.7 / 7.9, unpaired tris 0, bad tris 0, inverted nondegenerate 0; t pos solve 0.08 s, t extract 0.00 s
