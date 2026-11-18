@@ -55,7 +55,7 @@ class FlowResult
     public string Note = "";
 }
 
-class QuadFlowSpike
+partial class QuadFlowSpike
 {
     DMesh3 mesh; CrossField cf; PositionField pf; double s;
     int maxV;
@@ -251,6 +251,7 @@ class QuadFlowSpike
                 shown++;
             }
         }
+        if (Environment.GetEnvironmentVariable("SPIKE_DBG2") == "1") Diag2();
         sw.Restart();
         Vector3d[] pos = SolvePositions();
         R.TPos = sw.Elapsed.TotalSeconds;
@@ -262,6 +263,14 @@ class QuadFlowSpike
 
     // integer cost of moving the value from a to b (a unit step) for the real value r: 100 * (|b-r| - |a-r| + 1), >= 0
     static int MarginalCost(int a, int b, double r) { return (int)Math.Round(100 * (Math.Abs(b - r) - Math.Abs(a - r) + 1)); }
+    // cost mode 2: as mode 1, times SignPen when the step moves the value to the side opposite the real offset (an axis reversal)
+    public double SignPen = 10, SignTol = 0.25;
+    int StepCost(int a, int b, double r)
+    {
+        int c = MarginalCost(a, b, r);
+        if (CostMode == 2 && Math.Abs(b) > Math.Abs(a) && b * r < 0 && Math.Abs(r) > SignTol) c = (int)Math.Round(c * SignPen);
+        return c;
+    }
 
     int Pen(int k, int c) { return EdgePen.TryGetValue(k, out double m) ? (int)Math.Round(c * (1 + m)) : c; }
 
@@ -308,6 +317,7 @@ class QuadFlowSpike
             balanced[k] = e.F1 >= 0 && (((ex[e.F0][e.S0] - ex[e.F1][e.S1] - 2) % 4) + 4) % 4 == 0;
             if (balanced[k]) R.Balanced++; else { R.Fixed++; if (e.F1 < 0) R.FixedBoundary++; }
         }
+        var initDv = edges.Select(e => e.Dv).ToArray();
         // clamp initial values to [-2,2]
         int H0 = HStart;
         foreach (var e in edges) {
@@ -384,6 +394,7 @@ class QuadFlowSpike
             recompute(); Bc = compSums(res);
             R.Note += " B-fallback";
         }
+        var preFlow = edges.Select(e => e.Dv).ToArray();
         // network, with capacities growing until full flow
         for (int H = H0; H <= 40; H += 2) {
             recompute();
@@ -410,8 +421,8 @@ class QuadFlowSpike
                     } else {
                         double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
                         var lf = new List<int>(); var lb = new List<int>();
-                        for (int st = 1; st <= capF; ++st) lf.Add(net.Add(tail, head, 1, Pen(k, MarginalCost(v + st - 1, v + st, r))));
-                        for (int st = 1; st <= capB; ++st) lb.Add(net.Add(head, tail, 1, Pen(k, MarginalCost(v - st + 1, v - st, r))));
+                        for (int st = 1; st <= capF; ++st) lf.Add(net.Add(tail, head, 1, Pen(k, StepCost(v + st - 1, v + st, r))));
+                        for (int st = 1; st <= capB; ++st) lb.Add(net.Add(head, tail, 1, Pen(k, StepCost(v - st + 1, v - st, r))));
                         arcLF[2 * k + j] = lf; arcLB[2 * k + j] = lb;
                     }
                 }
@@ -432,6 +443,7 @@ class QuadFlowSpike
             if (bad != 0) R.Note += " RESIDUAL " + bad;
             break;
         }
+        DiagRecord(F, balanced, preFlow, initDv);
         // write the edge values back to the triangles
         foreach (var e in edges) {
             tris[e.F0].D[e.S0] = e.Dv;

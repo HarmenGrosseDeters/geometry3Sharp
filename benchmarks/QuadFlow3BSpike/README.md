@@ -16,3 +16,9 @@ Equation rotation by a BFS over the triangles balances the tree edges and every 
 Round 2 (coordinator request): `cost=1` geometry-aware flow cost (marginal |d - d_real| tiers, +1 per unit), `h=<n>` start capacity,
 `cancel=1` extraction drops pairs of triangles with the same three clusters (a 2-gon), `rounds=<n> pen=<x>` re-solves the flow with
 the edges of leftover inverted triangles penalized. Results: `results_round2_*.txt`.
+
+Round 3 (diagnosis of the sphere inversions): `SPIKE_DBG2=1` prints the relation of the leftover inversions to fixed, flow-changed
+and frame-jump edges and, per inverted component, the winding number of the boundary image of growing disks (`Diag.cs`; a
+negative winding inside a cone-free disk proves that no det >= 0 assignment exists with that boundary). `cost=2 signpen=<x>
+signtol=<r>` multiplies the step cost by `signpen` when a step grows |d| against the sign of the real offset (|r| > signtol).
+Results: `results_round3_diag.txt`, `results_round3_signcost.txt`.

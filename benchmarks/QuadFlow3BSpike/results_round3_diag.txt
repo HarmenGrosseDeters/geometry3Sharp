@@ -1,0 +1,40 @@
+# round 3: SPIKE_DBG2=1 only=^sphere cost=1 cancel=1 (baseline diagnosis)
+  [dbg2] ring distance to nearest fixed edge: inverted 0:13 1:17 2:5 3:1 4:3 5:3 >=6:0 | all original triangles 0:527 1:520 2:510 3:506 4:494 5:493 >=6:9726
+  [dbg2] ring distance to nearest flow-changed edge: inverted 0:42 1:0 2:0 3:0 4:0 5:0 >=6:0 | all original triangles 0:1592 1:1390 2:1370 3:1250 4:1188 5:1048 >=6:4938
+  [dbg2] ring distance to nearest frame jump: inverted 0:41 1:1 2:0 3:0 4:0 5:0 >=6:0 | all original triangles 0:10794 1:1784 2:177 3:20 4:1 5:0 >=6:0
+  [dbg2] ring distance to nearest fixed edge changed by the B=0 greedy: inverted 0:1 1:1 2:0 3:1 4:0 5:5 >=6:34 | all original triangles 0:4 1:8 2:16 3:20 4:29 5:32 >=6:12667
+  [dbg2] fixed edges changed by the B=0 greedy: 2
+  [dbg2] det histogram: -1:42 0:11228 1:2278
+  [dbg2] vertex-connected inverted components: 12
+  [dbg2] comp 0 size 3 det -1,-1,-1: first r with boundary winding in [0,1]: 10; stop at r15 (cone inside); r0 notdisk r1:W[-1,-1] neg3/3 n10 r2:W[-1,-1] neg3/3 n20 r3:W[-1,0] neg2/3 n33 r5:W[-1,1] neg2/6 n67 r10:W[0,1] neg0/14 n246
+  [dbg2] comp 1 size 5 det -1,-1,-1,-1,-1: first r with boundary winding in [0,1]: -1; stop at r2 (cone inside); r0 notdisk r1:W[-1,-1] neg5/5 n14
+  [dbg2] comp 2 size 6 det -1,-1,-1,-1,-1,-1: first r with boundary winding in [0,1]: 10; stop at r34 (cone inside); r0 notdisk r1:W[-1,-1] neg6/6 n15 r2:W[-1,-1] neg6/6 n26 r3:W[-1,0] neg4/6 n44 r5:W[-1,0] neg4/7 n83 r10:W[0,1] neg0/19 n270 r15:W[-1,1] neg2/28 n561 r20:W[0,1] neg0/31 n863 r25:W[1,1] neg0/32 n1240 r30:W[1,1] neg0/35 n1687
+  [dbg2] comp 3 size 7 det -1,-1,-1,-1,-1,-1,-1: first r with boundary winding in [0,1]: -1; stop at r1 (not a disk); r0 notdisk
+  [dbg2] comp 4 size 1 det -1: first r with boundary winding in [0,1]: 9; stop at r22 (cone inside); r0:W[-1,-1] neg1/1 n1 r1:W[-1,-1] neg1/1 n4 r2:W[-1,-1] neg1/1 n10 r3:W[-1,0] neg1/2 n20 r5:W[-1,1] neg4/5 n53 r10:W[-1,1] neg1/13 n208 r15:W[-1,1] neg1/22 n466 r20:W[-1,1] neg2/34 n807
+  [dbg2] comp 5 size 4 det -1,-1,-1,-1: first r with boundary winding in [0,1]: -1; stop at r7 (cone inside); r0 notdisk r1:W[-1,-1] neg4/4 n11 r2:W[-1,-1] neg4/4 n22 r3:W[-1,0] neg2/4 n36 r5:W[-1,1] neg2/5 n80
+  [dbg2] comp 6 size 2 det -1,-1: first r with boundary winding in [0,1]: 8; stop at r20 (cone inside); r0:W[-1,-1] neg2/2 n2 r1:W[-1,-1] neg2/2 n6 r2:W[-1,-1] neg2/2 n14 r3:W[-1,0] neg2/3 n26 r5:W[-1,1] neg6/8 n60 r10:W[-1,1] neg1/14 n242 r15:W[-1,1] neg1/22 n498
+  [dbg2] comp 7 size 6 det -1,-1,-1,-1,-1,-1: first r with boundary winding in [0,1]: 15; stop at r29 (cone inside); r0:W[-1,-1] neg6/6 n6 r1:W[-1,-1] neg6/6 n14 r2:W[-1,-1] neg6/6 n24 r3:W[-1,0] neg4/6 n36 r5:W[-1,1] neg3/6 n72 r10:W[-1,1] neg2/18 n230 r15:W[0,1] neg0/27 n477 r20:W[0,1] neg0/32 n779 r25:W[1,1] neg0/35 n1118
+  [dbg2] comp 8 size 2 det -1,-1: first r with boundary winding in [0,1]: -1; stop at r3 (cone inside); r0:W[-1,-1] neg2/2 n2 r1:W[-1,-1] neg2/2 n6 r2:W[-1,-1] neg2/2 n12
+  [dbg2] comp 9 size 2 det -1,-1: first r with boundary winding in [0,1]: 8; stop at r36 (cone inside); r0:W[-1,-1] neg2/2 n2 r1:W[-1,-1] neg2/2 n6 r2:W[-1,-1] neg2/2 n13 r3:W[-1,-1] neg3/3 n21 r5:W[-1,-1] neg3/3 n46 r10:W[0,1] neg0/9 n172 r15:W[0,1] neg0/15 n393 r20:W[0,1] neg0/20 n713 r25:W[0,1] neg0/28 n1101 r30:W[0,1] neg0/31 n1560 r35:W[0,1] neg0/33 n2099
+  [dbg2] comp 10 size 3 det -1,-1,-1: first r with boundary winding in [0,1]: 13; stop at r25 (cone inside); r0:W[-1,-1] neg3/3 n3 r1:W[-1,-1] neg3/3 n8 r2:W[-1,-1] neg3/3 n16 r3:W[-1,-1] neg4/4 n26 r5:W[-1,-1] neg6/6 n51 r10:W[-1,1] neg4/16 n175 r15:W[0,1] neg0/23 n411 r20:W[-1,1] neg1/33 n745
+  [dbg2] comp 11 size 1 det -1: first r with boundary winding in [0,1]: 12; stop at r25 (cone inside); r0:W[-1,-1] neg1/1 n1 r1:W[-1,-1] neg1/1 n4 r2:W[-1,-1] neg1/1 n9 r3:W[-1,-1] neg2/2 n16 r5:W[-1,0] neg4/6 n38 r10:W[-1,1] neg4/14 n169 r15:W[0,1] neg0/20 n401 r20:W[0,2] neg0/30 n716
+
+# round 3: SPIKE_DBG2=1 only=^sphere cost=2 signpen=100 signtol=0 scale=0.8
+  [dbg2] ring distance to nearest fixed edge: inverted 0:5 1:1 2:0 3:0 4:1 5:0 >=6:5 | all original triangles 0:647 1:649 2:642 3:648 4:643 5:648 >=6:16059
+  [dbg2] ring distance to nearest flow-changed edge: inverted 0:12 1:0 2:0 3:0 4:0 5:0 >=6:0 | all original triangles 0:3136 1:2589 2:2259 3:1924 4:1752 5:1511 >=6:6765
+  [dbg2] ring distance to nearest frame jump: inverted 0:12 1:0 2:0 3:0 4:0 5:0 >=6:0 | all original triangles 0:16673 1:2828 2:372 3:52 4:10 5:1 >=6:0
+  [dbg2] ring distance to nearest fixed edge changed by the B=0 greedy: inverted 0:0 1:1 2:5 3:0 4:0 5:0 >=6:6 | all original triangles 0:4 1:8 2:14 3:20 4:26 5:33 >=6:19831
+  [dbg2] fixed edges changed by the B=0 greedy: 2
+  [dbg2] det histogram: -1:12 0:18176 1:3706
+  [dbg2] vertex-connected inverted components: 5
+  [dbg2] comp 0 size 2 det -1,-1: first r with boundary winding in [0,1]: 7; stop at r34 (cone inside); r0 notdisk
+  [dbg2] comp 1 size 1 det -1: first r with boundary winding in [0,1]: 4; stop at r25 (cone inside);
+  [dbg2] comp 2 size 6 det -1,-1,-1,-1,-1,-1: first r with boundary winding in [0,1]: 7; stop at r26 (cone inside); r0 notdisk
+  [dbg2] comp 3 size 1 det -1: first r with boundary winding in [0,1]: 8; stop at r37 (cone inside);
+  [dbg2] comp 4 size 2 det -1,-1: first r with boundary winding in [0,1]: 5; stop at r18 (cone inside);
+result: faces 1857, quads 100.0 %, tris 0, 5-6 0, irregular 19, manifold yes, corner p50/p95 5.8 / 17.7, unpaired tris 0, cancelled pillow pairs 2, geometrically flipped quads 3/1857, bad tris 0, inverted nondegenerate 12; t pos solve 0.42 s, t extract 0.05 s
+
+# round 3: only=^sphere cost=1 cancel=1 satring=14 satbudget=2000000
+subdivision: splits 386, long edges left 0; inverted triangles: after flow 334, after greedy 50 (254 moves, 0.03 s), after SAT 42 (solved 6, failed 42, attempts 611 [dbg viol 5122 inv-in-region 5122] (unsat 353, budget 252), 609.68 s, det<0 forbidden)
+result: faces 1155, quads 100.0 %, tris 0, 5-6 0, irregular 20, manifold yes, corner p50/p95 4.5 / 16.1, unpaired tris 0, cancelled pillow pairs 5, geometrically flipped quads 16/1155, bad tris 0, inverted nondegenerate 42; t pos solve 0.25 s, t extract 0.05 s
+real	10m14.693s

@@ -1,0 +1,213 @@
+# round 3, sphere only, sign penalty variants (cost=2)
+=== signpen=3 signtol=0.25
+flow: units 44, cost 373173, capacity H 4, augmentations 44, t flow 1.30 s (setup 0.08 s)
+subdivision: splits 320, long edges left 0; inverted triangles: after flow 312, after greedy 36 (246 moves, 0.03 s), after SAT 33 (solved 3, failed 33, attempts 209  (unsat 172, budget 34), 6.49 s, det<0 forbidden)
+result: faces 1145, quads 100.0 %, tris 0, 5-6 0, irregular 19, manifold yes, corner p50/p95 4.5 / 16.1, unpaired tris 0, cancelled pillow pairs 6, geometrically flipped quads 10/1145, bad tris 0, inverted nondegenerate 33; t pos solve 0.24 s, t extract 0.04 s
+=== signpen=10 signtol=0.25
+flow: units 44, cost 378652, capacity H 4, augmentations 44, t flow 1.18 s (setup 0.08 s)
+subdivision: splits 317, long edges left 0; inverted triangles: after flow 322, after greedy 33 (260 moves, 0.03 s), after SAT 27 (solved 5, failed 27, attempts 183  (unsat 147, budget 31), 5.59 s, det<0 forbidden)
+result: faces 1140, quads 100.0 %, tris 0, 5-6 0, irregular 17, manifold yes, corner p50/p95 4.6 / 16.3, unpaired tris 0, cancelled pillow pairs 5, geometrically flipped quads 8/1140, bad tris 0, inverted nondegenerate 27; t pos solve 0.32 s, t extract 0.05 s
+=== signpen=100 signtol=0.25
+flow: units 44, cost 432652, capacity H 4, augmentations 44, t flow 1.34 s (setup 0.09 s)
+subdivision: splits 321, long edges left 0; inverted triangles: after flow 315, after greedy 32 (255 moves, 0.02 s), after SAT 25 (solved 6, failed 25, attempts 176  (unsat 140, budget 30), 5.64 s, det<0 forbidden)
+result: faces 1140, quads 100.0 %, tris 0, 5-6 0, irregular 17, manifold yes, corner p50/p95 4.6 / 16.2, unpaired tris 0, cancelled pillow pairs 3, geometrically flipped quads 8/1140, bad tris 0, inverted nondegenerate 25; t pos solve 0.23 s, t extract 0.05 s
+=== signpen=10 signtol=0
+flow: units 44, cost 577228, capacity H 4, augmentations 44, t flow 1.41 s (setup 0.12 s)
+subdivision: splits 562, long edges left 0; inverted triangles: after flow 177, after greedy 4 (150 moves, 0.02 s), after SAT 1 (solved 3, failed 1, attempts 19  (unsat 14, budget 2), 0.64 s, det<0 forbidden)
+result: faces 1119, quads 100.0 %, tris 0, 5-6 0, irregular 11, manifold yes, corner p50/p95 4.3 / 15.1, unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1119, bad tris 0, inverted nondegenerate 1; t pos solve 0.27 s, t extract 0.05 s
+=== signpen=10 signtol=0.5
+flow: units 44, cost 377700, capacity H 4, augmentations 44, t flow 1.30 s (setup 0.07 s)
+subdivision: splits 318, long edges left 0; inverted triangles: after flow 322, after greedy 32 (259 moves, 0.02 s), after SAT 28 (solved 4, failed 28, attempts 185  (unsat 149, budget 32), 5.50 s, det<0 forbidden)
+result: faces 1139, quads 100.0 %, tris 0, 5-6 0, irregular 21, manifold yes, corner p50/p95 4.6 / 16.3, unpaired tris 0, cancelled pillow pairs 7, geometrically flipped quads 7/1139, bad tris 0, inverted nondegenerate 28; t pos solve 0.35 s, t extract 0.05 s
+
+# round 3, all shapes
+=== cost=1
+## sphere: input V 6390, singular faces 8, s 0.1
+flow: units 44, cost 368111, capacity H 4, augmentations 44, t flow 1.36 s (setup 0.09 s)
+subdivision: splits 386, long edges left 0; inverted triangles: after flow 334, after greedy 50 (254 moves, 0.02 s), after SAT 42 (solved 6, failed 42, attempts 275  (unsat 216, budget 53), 7.87 s, det<0 forbidden)
+result: faces 1155, quads 100.0 %, tris 0, 5-6 0, irregular 20, manifold yes,  unpaired tris 0, cancelled pillow pairs 5, geometrically flipped quads 16/1155, bad tris 0, inverted nondegenerate 42
+## torus: input V 7026, singular faces 12, s 0.1
+flow: units 43, cost 216394, capacity H 2, augmentations 43, t flow 0.57 s (setup 0.04 s)
+subdivision: splits 136, long edges left 0; inverted triangles: after flow 125, after greedy 4 (115 moves, 0.00 s), after SAT 0 (solved 4, failed 0, attempts 17  (unsat 13, budget 0), 0.01 s, det<0 forbidden)
+result: faces 1368, quads 100.0 %, tris 0, 5-6 0, irregular 14, manifold yes,  unpaired tris 0, cancelled pillow pairs 3, geometrically flipped quads 0/1368, bad tris 0, inverted nondegenerate 0
+## torus-align10: input V 7026, singular faces 0, s 0.1
+flow: units 49, cost 300888, capacity H 2, augmentations 49, t flow 0.61 s (setup 0.02 s)
+subdivision: splits 247, long edges left 0; inverted triangles: after flow 169, after greedy 5 (160 moves, 0.00 s), after SAT 0 (solved 3, failed 1, attempts 21  (unsat 16, budget 2), 0.36 s, det<0 forbidden)
+result: faces 1386, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1386, bad tris 0, inverted nondegenerate 0
+=== cost=2 signpen=10 signtol=0
+## sphere: input V 6390, singular faces 8, s 0.1
+flow: units 44, cost 577228, capacity H 4, augmentations 44, t flow 1.23 s (setup 0.08 s)
+subdivision: splits 562, long edges left 0; inverted triangles: after flow 177, after greedy 4 (150 moves, 0.02 s), after SAT 1 (solved 3, failed 1, attempts 19  (unsat 14, budget 2), 0.59 s, det<0 forbidden)
+result: faces 1119, quads 100.0 %, tris 0, 5-6 0, irregular 11, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1119, bad tris 0, inverted nondegenerate 1
+## torus: input V 7026, singular faces 12, s 0.1
+flow: units 43, cost 244000, capacity H 2, augmentations 43, t flow 0.55 s (setup 0.04 s)
+subdivision: splits 195, long edges left 0; inverted triangles: after flow 94, after greedy 1 (86 moves, 0.00 s), after SAT 0 (solved 1, failed 0, attempts 4  (unsat 3, budget 0), 0.01 s, det<0 forbidden)
+result: faces 1322, quads 100.0 %, tris 0, 5-6 0, irregular 13, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/1322, bad tris 0, inverted nondegenerate 0
+## torus-align10: input V 7026, singular faces 0, s 0.1
+flow: units 49, cost 312289, capacity H 2, augmentations 49, t flow 0.63 s (setup 0.03 s)
+subdivision: splits 482, long edges left 0; inverted triangles: after flow 87, after greedy 1 (85 moves, 0.00 s), after SAT 0 (solved 1, failed 0, attempts 3  (unsat 2, budget 0), 0.00 s, det<0 forbidden)
+result: faces 1408, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1408, bad tris 0, inverted nondegenerate 0
+=== cost=2 signpen=100 signtol=0
+## sphere: input V 6390, singular faces 8, s 0.1
+flow: units 44, cost 1511114, capacity H 4, augmentations 44, t flow 1.35 s (setup 0.08 s)
+subdivision: splits 908, long edges left 0; inverted triangles: after flow 166, after greedy 4 (145 moves, 0.02 s), after SAT 0 (solved 2, failed 0, attempts 10  (unsat 8, budget 0), 0.32 s, det<0 forbidden)
+result: faces 1118, quads 100.0 %, tris 0, 5-6 0, irregular 8, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1118, bad tris 0, inverted nondegenerate 0
+## torus: input V 7026, singular faces 12, s 0.1
+flow: units 43, cost 245193, capacity H 2, augmentations 43, t flow 0.47 s (setup 0.04 s)
+subdivision: splits 210, long edges left 0; inverted triangles: after flow 90, after greedy 2 (82 moves, 0.00 s), after SAT 0 (solved 1, failed 0, attempts 4  (unsat 3, budget 0), 0.00 s, det<0 forbidden)
+result: faces 1322, quads 100.0 %, tris 0, 5-6 0, irregular 13, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/1322, bad tris 0, inverted nondegenerate 0
+## torus-align10: input V 7026, singular faces 0, s 0.1
+flow: units 49, cost 312289, capacity H 2, augmentations 49, t flow 0.62 s (setup 0.03 s)
+subdivision: splits 485, long edges left 0; inverted triangles: after flow 88, after greedy 1 (86 moves, 0.00 s), after SAT 0 (solved 1, failed 0, attempts 3  (unsat 2, budget 0), 0.00 s, det<0 forbidden)
+result: faces 1408, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1408, bad tris 0, inverted nondegenerate 0
+=== cost=2 signpen=10 signtol=0.1
+## sphere: input V 6390, singular faces 8, s 0.1
+flow: units 44, cost 383015, capacity H 4, augmentations 44, t flow 1.22 s (setup 0.07 s)
+subdivision: splits 325, long edges left 0; inverted triangles: after flow 309, after greedy 30 (251 moves, 0.02 s), after SAT 16 (solved 8, failed 19, attempts 148  (unsat 118, budget 22), 4.27 s, det<0 forbidden)
+result: faces 1130, quads 100.0 %, tris 0, 5-6 0, irregular 17, manifold yes,  unpaired tris 0, cancelled pillow pairs 4, geometrically flipped quads 4/1130, bad tris 0, inverted nondegenerate 16
+## torus: input V 7026, singular faces 12, s 0.1
+flow: units 43, cost 219517, capacity H 2, augmentations 43, t flow 0.51 s (setup 0.04 s)
+subdivision: splits 150, long edges left 0; inverted triangles: after flow 126, after greedy 3 (116 moves, 0.00 s), after SAT 0 (solved 3, failed 0, attempts 13  (unsat 10, budget 0), 0.02 s, det<0 forbidden)
+result: faces 1371, quads 100.0 %, tris 0, 5-6 0, irregular 12, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1371, bad tris 0, inverted nondegenerate 0
+## torus-align10: input V 7026, singular faces 0, s 0.1
+flow: units 49, cost 301421, capacity H 2, augmentations 49, t flow 0.60 s (setup 0.02 s)
+subdivision: splits 307, long edges left 0; inverted triangles: after flow 168, after greedy 3 (163 moves, 0.00 s), after SAT 0 (solved 2, failed 1, attempts 16  (unsat 12, budget 2), 0.39 s, det<0 forbidden)
+result: faces 1408, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1408, bad tris 0, inverted nondegenerate 0
+
+# round 3, scale/ratio matrix
+=== scale=0.8 cost=1
+## sphere: V 9970, singular faces 8, s 0.08000000000000002
+subdivision: splits 495, long edges left 0; inverted triangles: after flow 385, after greedy 44 (312 moves, 0.03 s), after SAT 33
+result: faces 1876, quads 100.0 %, tris 0, 5-6 0, irregular 22, manifold yes,  unpaired tris 0, cancelled pillow pairs 4, geometrically flipped quads 13/1876, bad tris 0, inverted nondegenerate 33
+## torus: V 10982, singular faces 12, s 0.08000000000000002
+subdivision: splits 155, long edges left 0; inverted triangles: after flow 173, after greedy 11 (154 moves, 0.00 s), after SAT 3
+result: faces 2095, quads 100.0 %, tris 0, 5-6 0, irregular 18, manifold yes,  unpaired tris 0, cancelled pillow pairs 2, geometrically flipped quads 2/2095, bad tris 0, inverted nondegenerate 3
+## torus-align10: V 10982, singular faces 0, s 0.08000000000000002
+subdivision: splits 430, long edges left 0; inverted triangles: after flow 232, after greedy 6 (216 moves, 0.00 s), after SAT 1
+result: faces 2212, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/2212, bad tris 0, inverted nondegenerate 1
+=== scale=0.8 cost=2 signpen=100 signtol=0
+## sphere: V 9970, singular faces 8, s 0.08000000000000002
+subdivision: splits 979, long edges left 0; inverted triangles: after flow 300, after greedy 26 (250 moves, 0.03 s), after SAT 12
+result: faces 1857, quads 100.0 %, tris 0, 5-6 0, irregular 19, manifold yes,  unpaired tris 0, cancelled pillow pairs 2, geometrically flipped quads 3/1857, bad tris 0, inverted nondegenerate 12
+## torus: V 10982, singular faces 12, s 0.08000000000000002
+subdivision: splits 236, long edges left 0; inverted triangles: after flow 144, after greedy 1 (140 moves, 0.00 s), after SAT 1
+result: faces 2030, quads 100.0 %, tris 0, 5-6 0, irregular 15, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/2030, bad tris 0, inverted nondegenerate 1
+## torus-align10: V 10982, singular faces 0, s 0.08000000000000002
+subdivision: splits 757, long edges left 0; inverted triangles: after flow 131, after greedy 1 (127 moves, 0.00 s), after SAT 0
+result: faces 2184, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/2184, bad tris 0, inverted nondegenerate 0
+=== scale=1.25 cost=1
+## sphere: V 4104, singular faces 8, s 0.125
+subdivision: splits 135, long edges left 0; inverted triangles: after flow 198, after greedy 50 (138 moves, 0.03 s), after SAT 40
+result: faces 734, quads 100.0 %, tris 0, 5-6 0, irregular 18, manifold yes,  unpaired tris 0, cancelled pillow pairs 4, geometrically flipped quads 16/734, bad tris 0, inverted nondegenerate 40
+## torus: V 4482, singular faces 12, s 0.125
+subdivision: splits 450, long edges left 0; inverted triangles: after flow 134, after greedy 13 (110 moves, 0.02 s), after SAT 7
+result: faces 915, quads 100.0 %, tris 0, 5-6 0, irregular 19, manifold yes,  unpaired tris 0, cancelled pillow pairs 4, geometrically flipped quads 8/915, bad tris 0, inverted nondegenerate 7
+## torus-align10: V 4482, singular faces 0, s 0.125
+subdivision: splits 177, long edges left 0; inverted triangles: after flow 124, after greedy 3 (115 moves, 0.00 s), after SAT 0
+result: faces 846, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/846, bad tris 0, inverted nondegenerate 0
+=== scale=1.25 cost=2 signpen=100 signtol=0
+## sphere: V 4104, singular faces 8, s 0.125
+subdivision: splits 239, long edges left 0; inverted triangles: after flow 131, after greedy 17 (101 moves, 0.02 s), after SAT 9
+result: faces 685, quads 100.0 %, tris 0, 5-6 0, irregular 14, manifold yes,  unpaired tris 0, cancelled pillow pairs 3, geometrically flipped quads 2/685, bad tris 0, inverted nondegenerate 9
+## torus: V 4482, singular faces 12, s 0.125
+subdivision: splits 1341, long edges left 0; inverted triangles: after flow 142, after greedy 11 (114 moves, 0.00 s), after SAT 7
+result: faces 1001, quads 100.0 %, tris 0, 5-6 0, irregular 23, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/1001, bad tris 0, inverted nondegenerate 7
+## torus-align10: V 4482, singular faces 0, s 0.125
+subdivision: splits 293, long edges left 0; inverted triangles: after flow 41, after greedy 0 (40 moves, 0.00 s), after SAT 0
+result: faces 882, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/882, bad tris 0, inverted nondegenerate 0
+=== scale=1.5 cost=1
+## sphere: V 2855, singular faces 8, s 0.15000000000000002
+subdivision: splits 94, long edges left 0; inverted triangles: after flow 130, after greedy 10 (112 moves, 0.02 s), after SAT 5
+result: faces 485, quads 100.0 %, tris 0, 5-6 0, irregular 15, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 2/485, bad tris 0, inverted nondegenerate 5
+## torus: V 3098, singular faces 12, s 0.15000000000000002
+subdivision: splits 111, long edges left 0; inverted triangles: after flow 123, after greedy 19 (99 moves, 0.00 s), after SAT 16
+result: faces 558, quads 99.3 %, tris 4, 5-6 0, irregular 27, manifold NO (1e 2i 0v),  unpaired tris 4, cancelled pillow pairs 0, geometrically flipped quads 8/554, bad tris 0, inverted nondegenerate 16
+## torus-align10: V 3098, singular faces 0, s 0.15000000000000002
+subdivision: splits 118, long edges left 0; inverted triangles: after flow 63, after greedy 0 (60 moves, 0.00 s), after SAT 0
+result: faces 615, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/615, bad tris 0, inverted nondegenerate 0
+=== scale=1.5 cost=2 signpen=100 signtol=0
+## sphere: V 2855, singular faces 8, s 0.15000000000000002
+subdivision: splits 171, long edges left 0; inverted triangles: after flow 110, after greedy 9 (96 moves, 0.02 s), after SAT 1
+result: faces 438, quads 100.0 %, tris 0, 5-6 0, irregular 8, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/438, bad tris 0, inverted nondegenerate 1
+## torus: V 3098, singular faces 12, s 0.15000000000000002
+subdivision: splits 227, long edges left 0; inverted triangles: after flow 112, after greedy 6 (99 moves, 0.00 s), after SAT 1
+result: faces 500, quads 100.0 %, tris 0, 5-6 0, irregular 14, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/500, bad tris 0, inverted nondegenerate 1
+## torus-align10: V 3098, singular faces 0, s 0.15000000000000002
+subdivision: splits 197, long edges left 0; inverted triangles: after flow 19, after greedy 0 (18 moves, 0.00 s), after SAT 0
+result: faces 615, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/615, bad tris 0, inverted nondegenerate 0
+=== ratio=0.35 cost=1
+## sphere: V 13010, singular faces 8, s 0.1
+subdivision: splits 124, long edges left 0; inverted triangles: after flow 272, after greedy 60 (206 moves, 0.03 s), after SAT 13
+result: faces 1122, quads 100.0 %, tris 0, 5-6 0, irregular 28, manifold yes,  unpaired tris 0, cancelled pillow pairs 2, geometrically flipped quads 4/1122, bad tris 0, inverted nondegenerate 13
+## torus: V 14254, singular faces 12, s 0.1
+subdivision: splits 115, long edges left 0; inverted triangles: after flow 240, after greedy 39 (198 moves, 0.00 s), after SAT 13
+result: faces 1303, quads 100.0 %, tris 0, 5-6 0, irregular 29, manifold NO (1e 2i 0v),  unpaired tris 0, cancelled pillow pairs 6, geometrically flipped quads 2/1303, bad tris 0, inverted nondegenerate 13
+## torus-align10: V 14254, singular faces 0, s 0.1
+subdivision: splits 279, long edges left 0; inverted triangles: after flow 228, after greedy 23 (202 moves, 0.00 s), after SAT 0
+result: faces 1386, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1386, bad tris 0, inverted nondegenerate 0
+=== ratio=0.35 cost=2 signpen=100 signtol=0
+## sphere: V 13010, singular faces 8, s 0.1
+subdivision: splits 487, long edges left 0; inverted triangles: after flow 156, after greedy 24 (130 moves, 0.02 s), after SAT 10
+result: faces 1120, quads 100.0 %, tris 0, 5-6 0, irregular 23, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 2/1120, bad tris 0, inverted nondegenerate 10
+## torus: V 14254, singular faces 12, s 0.1
+subdivision: splits 455, long edges left 0; inverted triangles: after flow 209, after greedy 23 (179 moves, 0.00 s), after SAT 0
+result: faces 1274, quads 100.0 %, tris 0, 5-6 0, irregular 13, manifold yes,  unpaired tris 0, cancelled pillow pairs 1, geometrically flipped quads 0/1274, bad tris 0, inverted nondegenerate 0
+## torus-align10: V 14254, singular faces 0, s 0.1
+subdivision: splits 611, long edges left 0; inverted triangles: after flow 115, after greedy 7 (104 moves, 0.00 s), after SAT 0
+result: faces 1386, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1386, bad tris 0, inverted nondegenerate 0
+=== ratio=0.7 cost=1
+## sphere: V 3255, singular faces 8, s 0.1
+subdivision: splits 247, long edges left 0; inverted triangles: after flow 115, after greedy 5 (92 moves, 0.03 s), after SAT 0
+result: faces 1252, quads 100.0 %, tris 0, 5-6 0, irregular 8, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1252, bad tris 0, inverted nondegenerate 0
+## torus: V 3571, singular faces 12, s 0.1
+subdivision: splits 189, long edges left 0; inverted triangles: after flow 47, after greedy 0 (38 moves, 0.00 s), after SAT 0
+result: faces 1439, quads 100.0 %, tris 0, 5-6 0, irregular 12, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1439, bad tris 0, inverted nondegenerate 0
+## torus-align10: V 3571, singular faces 0, s 0.1
+subdivision: splits 214, long edges left 0; inverted triangles: after flow 110, after greedy 0 (89 moves, 0.00 s), after SAT 0
+result: faces 1302, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1302, bad tris 0, inverted nondegenerate 0
+=== ratio=0.7 cost=2 signpen=100 signtol=0
+## sphere: V 3255, singular faces 8, s 0.1
+subdivision: splits 577, long edges left 0; inverted triangles: after flow 96, after greedy 0 (85 moves, 0.02 s), after SAT 0
+result: faces 1318, quads 100.0 %, tris 0, 5-6 0, irregular 8, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1318, bad tris 0, inverted nondegenerate 0
+## torus: V 3571, singular faces 12, s 0.1
+subdivision: splits 269, long edges left 0; inverted triangles: after flow 78, after greedy 0 (67 moves, 0.00 s), after SAT 0
+result: faces 1374, quads 100.0 %, tris 0, 5-6 0, irregular 12, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1374, bad tris 0, inverted nondegenerate 0
+## torus-align10: V 3571, singular faces 0, s 0.1
+subdivision: splits 306, long edges left 0; inverted triangles: after flow 61, after greedy 0 (53 moves, 0.00 s), after SAT 0
+result: faces 1281, quads 100.0 %, tris 0, 5-6 0, irregular 0, manifold yes,  unpaired tris 0, cancelled pillow pairs 0, geometrically flipped quads 0/1281, bad tris 0, inverted nondegenerate 0
+
+# round 3, cost=2 signpen=100 signtol=0 + rounds=5 pen=3
+== scale=0.8 rounds=5
+  round 0: inverted left 12, irregular 19
+  round 1: inverted left 6, irregular 12
+  round 2: inverted left 4, irregular 12
+  round 3: inverted left 4, irregular 12
+  round 4: inverted left 5, irregular 14
+## sphere
+result: F 1850 irr 12 man yes flipped 1/1850 inv 4
+  round 0: inverted left 1, irregular 15
+  round 1: inverted left 0, irregular 12
+## torus
+result: F 2029 irr 12 man yes flipped 0/2029 inv 0
+== scale=1.25 rounds=5
+  round 0: inverted left 9, irregular 14
+  round 1: inverted left 8, irregular 14
+  round 2: inverted left 6, irregular 12
+  round 3: inverted left 6, irregular 12
+  round 4: inverted left 6, irregular 12
+## sphere
+result: F 682 irr 12 man yes flipped 1/682 inv 6
+  round 0: inverted left 7, irregular 23
+  round 1: inverted left 2, irregular 18
+  round 2: inverted left 0, irregular 12
+## torus
+result: F 1009 irr 12 man yes flipped 0/1009 inv 0
+== ratio=0.35 rounds=5
+  round 0: inverted left 10, irregular 23
+  round 1: inverted left 3, irregular 12
+  round 2: inverted left 0, irregular 8
+## sphere
+result: F 1111 irr 8 man yes flipped 0/1111 inv 0
+  round 0: inverted left 0, irregular 13
+## torus
+result: F 1274 irr 13 man yes flipped 0/1274 inv 0
