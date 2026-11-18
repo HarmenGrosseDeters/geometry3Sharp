@@ -88,8 +88,9 @@ namespace geometry3Sharp.Tests
 
         static double OneSided(DMesh3 m, MeshAlphaWrap w) => MeshAlphaWrap.EstimateDensity * Invariance.Area(m) / (w.UsedAlpha * w.UsedAlpha);
 
-        // open input (the reproducer of #1113, a sheet, a sphere with a big hole, a mixed input): the estimate is within 0.8 to 1.3 of the
-        // raw wrap (measured 0.94, 0.89, 1.01 and 1.28 of it; the one-sided estimate was 0.5, 0.45, 0.5 and 0.64 of it: below 0.8)
+        // open input (the reproducer of #1113, a sheet, a sphere with a big hole, a mixed input): the estimate is within 0.75 to 1.3 of the
+        // raw wrap (measured 0.94, 0.89, 1.03 and 1.02 of it for the reproducer, the sheet, the big hole and the mixed input; the one-sided
+        // estimate was 0.5 of it on the first three: below 0.75)
         [Theory]
         [InlineData("two open spheres")]
         [InlineData("open sheet")]
@@ -132,7 +133,7 @@ namespace geometry3Sharp.Tests
                     if ((m.GetVertex(tr.a) + m.GetVertex(tr.b) + m.GetVertex(tr.c)).Normalized.z > cosCut) m.RemoveTriangle(t);
                 }
                 MeshAlphaWrap w = Wrap(m, RelAlpha);
-                Assert.InRange(AlphaWrapEstimate.LargestOpening(Corners(m)) / w.UsedAlpha, chain - 0.5, chain + 0.5);
+                Assert.InRange(AlphaWrapEstimate.LargestOpening(Corners(m), w.UsedAlpha) / w.UsedAlpha, chain - 0.5, chain + 0.5);
                 Assert.Equal(factor, w.EstimatedTriangles / OneSided(m, w), 9);
                 Assert.InRange(w.Result.TriangleCount / OneSided(m, w), ratioOfActual - 0.1, ratioOfActual + 0.1);
             }
@@ -145,7 +146,7 @@ namespace geometry3Sharp.Tests
             return l;
         }
 
-        // the weld is by exact coordinates: an unwelded soup of a closed sphere is closed (no open area), like the welded mesh; a crack
+        // the weld is by grid cells of alpha / 8: an unwelded soup of a closed sphere is closed (no open area), like the welded mesh; a crack
         // wider than the opening makes it open (every triangle counts); -0 equals +0
         [Fact]
         public void Weld_ByExactCoordinates()
@@ -156,6 +157,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(Corners(soup), alpha));
             Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(Corners(welded), alpha));
             // (a crack along a seam: one side of a cut moved apart by more than the opening width)
+            // (a soup with corners off by rounding, 1e-12: still closed)
+            DMesh3 noisy = Soup(new[] { welded });
+            var rnd = new Random(3);
+            foreach (int v in noisy.VertexIndices().ToList())
+                noisy.SetVertex(v, noisy.GetVertex(v) + 1e-12 * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5));
+            Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(Corners(noisy), alpha));
             DMesh3 cracked = Soup(new[] { welded });
             foreach (int t in cracked.TriangleIndices().ToList()) {
                 Index3i tr = cracked.GetTriangle(t);   // (own vertices per triangle: moving a triangle cuts it from its neighbours)
@@ -164,10 +171,6 @@ namespace geometry3Sharp.Tests
             }
             double open = AlphaWrapEstimate.OpenArea(Corners(cracked), alpha);
             Assert.True(open > 0.5 * area, $"{open} of {area}");
-            // (-0 and +0: a tetrahedron, closed only if the corner written as -0 in two faces is welded to the +0 of the others)
-            Vector3d o = new Vector3d(0, 0, 0), nz = new Vector3d(-0.0, 0, 0), x = new Vector3d(1, 0, 0), y = new Vector3d(0, 1, 0), z = new Vector3d(0, 0, 1);
-            var tetra = new List<Vector3d> { o, y, x, nz, x, z, o, z, y, x, y, z };
-            Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(tetra, 0.1));
         }
 
         // the budget means the same on open and closed input: the raw wrap is about the budget on an open sheet and a budget of

@@ -123,7 +123,7 @@ namespace gs
         /// budget or the budget. An open input is wrapped on both sides of every sheet, so the area of its open components counts twice
         /// (issue #1113; a component is open if a chain of its boundary edges has a bounding box diagonal above 4 * alpha, see
         /// AlphaWrapEstimate): the result is about the budget there too, where it was twice the budget before. Vertices are welded
-        /// by exact coordinates, so a crack between nearly equal corners is an opening of its own. The area counts every input triangle, also
+        /// by the cells of Alpha / 8, so corners that differ by rounding are one vertex, and a crack wider than a cell is an opening of its own. The area counts every input triangle, also
         /// duplicated faces, nested shells and interior walls that the wrap does not follow: their estimate is higher still, and the wrap
         /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
         /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the

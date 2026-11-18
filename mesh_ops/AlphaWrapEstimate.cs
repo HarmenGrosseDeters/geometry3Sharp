@@ -11,15 +11,6 @@ namespace g3
     static class AlphaWrapEstimate
     {
         /// <summary>
-        /// The total area (summed in triangle order) of the triangles in components with an opening. tris holds three corners per
-        /// triangle. Vertices are welded by their exact coordinates (-0 equals +0; a soup of triangles with the same corner
-        /// coordinates is welded, a crack between different coordinates is an opening of its own), components are the vertex
-        /// connectivity of the triangles, an edge used by exactly one triangle is a boundary edge, and the boundary edges' vertex
-        /// chains are the openings: one whose bounding box diagonal is above OpeningFactor * alpha (a smaller hole is wrapped over
-        /// from the outside only) makes its component open. Not a decision on the result:
-        /// an estimate, so folds, non-manifold edges and the like are counted as they come.
-        /// </summary>
-        /// <summary>
         /// the largest diagonal of the bounding box of an opening's boundary chain, in alpha, from which the wrap goes through it to the other
         /// side. Measured on a sphere with a circular hole of grid-ragged boundary (n = 16 and 24 quads per cube edge, relative alpha 40): the
         /// wrap is one-sided up to chain diagonals of 3.0 alpha (4.63 in one case) and covers both sides from 4.63 (5.03) alpha on; the
@@ -28,11 +19,26 @@ namespace g3
         /// </summary>
         public const double OpeningFactor = 4.0;
 
+        /// <summary> the grid cells per alpha of the weld </summary>
+        public const double WeldCells = 8.0;
+
+        /// <summary>
+        /// The total area (summed in triangle order) of the triangles in components with an opening. tris holds three corners per
+        /// triangle. Vertices are welded by the cells of a grid of alpha / WeldCells (a soup of triangles with equal corners is welded, and so
+        /// are corners that differ by rounding; a crack wider than a cell is an opening of its own: a corner pair that straddles a cell
+        /// border makes a small local chain, not an opening), components are the vertex
+        /// connectivity of the triangles, an edge used by exactly one triangle is a boundary edge, and the boundary edges' vertex
+        /// chains are the openings: one whose bounding box diagonal is above OpeningFactor * alpha (a smaller hole is wrapped over
+        /// from the outside only) makes its component open. An estimate, not a decision: folds and
+        /// non-manifold edges are counted as they come. The width is an axis-aligned box diagonal, so it is not rotation invariant
+        /// (the same hole turned by 45 degrees changes it by up to 1.4), and a long thin slit counts as wide: near the threshold the
+        /// estimate steps by a factor of 2.
+        /// </summary>
         public static double OpenArea(List<Vector3d> tris, double alpha)
         {
             if (tris.Count < 3 || !(alpha > 0))
                 return 0;
-            Analyze(tris, out int[] corner, out int[] comp, out double[] opening);
+            Analyze(tris, alpha, out int[] corner, out int[] comp, out double[] opening);
             double width = OpeningFactor * alpha;
             bool any = false;
             for (int v = 0; v < opening.Length; ++v)
@@ -46,25 +52,26 @@ namespace g3
             return area;
         }
 
-        /// <summary> the largest opening of the input: the largest bounding box diagonal of a chain of boundary edges (0 if there are none) </summary>
-        public static double LargestOpening(List<Vector3d> tris)
+        /// <summary> the largest opening of the input: the largest bounding box diagonal of a chain of boundary edges (0 if there are none), welded with the cells of alpha </summary>
+        public static double LargestOpening(List<Vector3d> tris, double alpha)
         {
-            if (tris.Count < 3)
+            if (tris.Count < 3 || !(alpha > 0))
                 return 0;
-            Analyze(tris, out _, out _, out double[] opening);
+            Analyze(tris, alpha, out _, out _, out double[] opening);
             return opening.Length == 0 ? 0 : opening.Max();
         }
 
         // corner: the welded vertex of each corner; comp: the union-find of the vertices by triangle; opening: by component root, the
         // largest diagonal of its boundary chains
-        static void Analyze(List<Vector3d> tris, out int[] corner, out int[] comp, out double[] opening)
+        static void Analyze(List<Vector3d> tris, double alpha, out int[] corner, out int[] comp, out double[] opening)
         {
             int n = tris.Count / 3;
+            double cell = alpha / WeldCells;
             var ids = new Dictionary<(long, long, long), int>(Math.Min(tris.Count, 1 << 20));
             corner = new int[tris.Count];
             for (int i = 0; i < tris.Count; ++i) {
                 Vector3d p = tris[i];
-                var key = (Bits(p.x), Bits(p.y), Bits(p.z));
+                var key = (Cell(p.x, cell), Cell(p.y, cell), Cell(p.z, cell));
                 if (!ids.TryGetValue(key, out int id)) { id = ids.Count; ids.Add(key, id); }
                 corner[i] = id;
             }
@@ -107,7 +114,8 @@ namespace g3
                 }
         }
 
-        static long Bits(double d) => d == 0 ? 0 : BitConverter.DoubleToInt64Bits(d);
+        // (beyond the range of a long, a tiny alpha against large coordinates, the cells merge: the estimate is then infinite anyway)
+        static long Cell(double v, double cell) => (long)Math.Max(-9e18, Math.Min(9e18, Math.Floor(v / cell)));
 
         static void CountEdge(Dictionary<(int, int), int> uses, int a, int b)
         {
