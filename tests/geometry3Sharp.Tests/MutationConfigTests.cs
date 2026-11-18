@@ -202,6 +202,8 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~ExactBooleanContactCountTests", "FullyQualifiedName~ExactBooleanRoundingContactsTests",
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits" },
+                // (try_zip and try_strip: the survivors of the scheduled run 44217581261)
+                ["stryker-mesh-rounding-13"] = new[] { "FullyQualifiedName~MeshRoundingRepairZipSurvivorTests" },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
