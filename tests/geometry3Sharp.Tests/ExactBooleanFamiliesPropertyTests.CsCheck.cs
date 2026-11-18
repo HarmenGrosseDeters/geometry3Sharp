@@ -82,7 +82,7 @@ namespace geometry3Sharp.Tests
             Gen.Select(GenBox(3), Gen.Int[1, 4], Gen.Int[10, 30], Gen.Int[0, 1000], (box, count, tExp, seed) =>
                 BooleanOracle.SliverSplit(BooleanOracle.BoxMesh(box, new BoxCase(box, box, 0, Vector3d.Zero)), count, tExp, seed));
 
-        /// <summary> G6: two boxes that touch at a face, an edge or a vertex (one shell each side), as one mesh with two components </summary>
+        /// <summary> G6: two boxes that touch at a face, an edge or a vertex (one shell each side), as two operands (two separate meshes, one shell each) </summary>
         /// mode 0: the second box starts at the first one's +x face (shared face); 1: at its +x +y edge (shared edge);
         /// 2: at its +x +y +z corner (shared vertex). Extents are the second box's own, 1 to 3 units.
         static Gen<(DMesh3 a, DMesh3 b)> GenTouching =>
@@ -122,7 +122,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> two operands: V(A|B) + V(A&amp;B) = V(A) + V(B), V(A-B) + V(A&amp;B) = V(A) and V(B-A) + V(A&amp;B) = V(B) (the laws of one operand
-        /// cannot tell an intersection from a union: A&amp;A = A|A); each result also closed and manifold-valid through BooleanOracle.Run </summary>
+        /// cannot tell an intersection from a union: A&amp;A = A|A); each result also clean (closed, manifold, no self-intersections) through CleanReason </summary>
         static string InclusionExclusion((DMesh3 a, DMesh3 b) x)
         {
             DMesh3 a = x.a, b = x.b;
@@ -133,6 +133,10 @@ namespace geometry3Sharp.Tests
             DMesh3 u = Run(a, b, Ops.Union, ref e, false), i = Run(a, b, Ops.Intersection, ref e, false);
             DMesh3 d = Run(a, b, Ops.Difference, ref e, false), d2 = Run(b, a, Ops.Difference, ref e, false);
             if (e != "") return e;
+            // (allowDegenerate: the sliver inputs have thin triangles that the result may keep)
+            string unclean = First(() => Prefix("union", BooleanOracle.CleanReason(u, true)), () => Prefix("intersection", BooleanOracle.CleanReason(i, true)),
+                () => Prefix("A-B", BooleanOracle.CleanReason(d, true)), () => Prefix("B-A", BooleanOracle.CleanReason(d2, true)));
+            if (unclean != "") return unclean;
             double tol = 4 * BooleanOracle.VolumeTolerance(a, b);
             double va = BooleanOracle.Volume(a), vb = BooleanOracle.Volume(b), vi = BooleanOracle.Volume(i);
             return First(
@@ -231,6 +235,11 @@ namespace geometry3Sharp.Tests
             CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "TouchingComponentsAreDeterministic", GenTouching,
                 x => SerialEqualsParallel(x.a, x.b), samples: 25, campaign: 1103);
 
+        // (touching boxes: V(A|B) = V(A) + V(B) and V(A&B) = 0 exactly, so a union that drops or duplicates a component fails here)
+        [Fact]
+        public void TouchingInclusionExclusion() =>
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "TouchingInclusionExclusion", GenTouching, InclusionExclusion, samples: 25, campaign: 1113);
+
         [Fact]
         public void ProceduralReuseIsIdentical() =>
             CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "ProceduralReuseIsIdentical", GenProcedural.Select(a => (a, Rot90(a))),
@@ -265,8 +274,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OpenInputsDoNotThrow() =>
-            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "OpenInputsDoNotThrow", GenOpen,
-                a => { string e = ""; Run(a, BooleanOracle.Subdivided(a, 0), Ops.Union, ref e); return ""; }, samples: 25, campaign: 1108);
+        public void OpenInputsGiveAValidResult() =>
+            CampaignRunner.Run(log, nameof(ExactBooleanFamiliesPropertyTests), "OpenInputsGiveAValidResult", GenOpen,
+                a => {
+                    // the boundary of an open input is not promised to be closed: the status must not be a failure and a success a valid mesh
+                    var x = new ExactMeshBoolean(a, BooleanOracle.Subdivided(a, 0), Ops.Union);
+                    bool ok = x.Compute();
+                    if (x.Status == ExactMeshBoolean.BooleanStatus.InvalidInput || x.Status == ExactMeshBoolean.BooleanStatus.NotComputed)
+                        return $"status {x.Status} on a finite open input: {x.Error}";
+                    if (ok && (x.Result == null || (x.Result.TriangleCount > 0 && !x.Result.CheckValidity(true, FailMode.ReturnOnly))))
+                        return "success with a missing or invalid result on an open input";
+                    return "";
+                }, samples: 25, campaign: 1108);
     }
 }

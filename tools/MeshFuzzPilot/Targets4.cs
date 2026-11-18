@@ -81,7 +81,7 @@ public static partial class Program
         var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!nary.Compute()) throw new Finding($"{what}: n-ary union Compute() false: {nary.Error}");
         var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
-        if (!first.Compute()) return;
+        if (!first.Compute()) throw new Finding($"{what}: pairwise union Compute() false where the n-ary union succeeded: {first.Error}");
         var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
         if (!chain.Compute()) throw new Finding($"{what}: pairwise chain Compute() false: {chain.Error}");
         double tol = 1e-9 * Math.Pow(B30Scale(c.A, c.B, third), 3);
@@ -103,7 +103,7 @@ public static partial class Program
             if (!p.Compute()) throw new Finding($"{what}: parallel Compute() false where serial succeeded: {p.Error}");
             B30CheckIdentical(what, "serial and parallel union differ", sr, p.Result);
             var q = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
-            q.Compute();
+            if (!q.Compute()) throw new Finding($"{what}: second parallel Compute() false where the first succeeded: {q.Error}");
             B30CheckIdentical(what, "two parallel runs differ", p.Result, q.Result);
         } finally { gParallel.SerialOnThisThread = serial; }
     }
@@ -136,7 +136,7 @@ public static partial class Program
             if (B30OverBudget(clock.Elapsed)) return;
             var x = new ExactMeshBoolean(a, b, op);
             bool ok = x.Compute();
-            B30CheckOpenStatus(what, op, x.Status, ok, x.Result == null || x.Result.TriangleCount == 0 || x.Result.CheckValidity(true, FailMode.ReturnOnly));
+            B30CheckOpenStatus(what, op, x.Status, ok, x.Result != null && (x.Result.TriangleCount == 0 || x.Result.CheckValidity(true, FailMode.ReturnOnly)));
         }
     }
 
