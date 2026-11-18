@@ -488,13 +488,16 @@ namespace gs
                 var q = new Vector3d(snap(p.x, g), snap(p.y, g), snap(p.z, g));
                 if (bits(q.x) != bits(p.x) || bits(q.y) != bits(p.y) || bits(q.z) != bits(p.z))
                     c.SetVertex(v, q);
-                if (q.x != p.x || q.y != p.y || q.z != p.z)
+                if (!same(q.x, p.x) || !same(q.y, p.y) || !same(q.z, p.z))
                     moved++;
             }
             return c;
         }
 
         static long bits(double x) { return BitConverter.DoubleToInt64Bits(x); }
+
+        // the same position along one axis: equal values (0 and -0 too), or both NaN
+        static bool same(double a, double b) { return a == b || (double.IsNaN(a) && double.IsNaN(b)); }
 
         static double snap(double x, double g)
         {
