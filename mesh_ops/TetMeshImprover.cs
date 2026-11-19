@@ -32,6 +32,18 @@ namespace gs
         internal readonly Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> tets with a smallest dihedral angle below this are worked on </summary>
         internal double TargetDegrees = 10;
+        /// <summary>
+        /// opt-in objective on both ends (Klingner's thesis ch. 3-5, "op 4"): the quality of a tet is min(smallest dihedral,
+        /// TargetDegrees + MaxDihedralDegrees - largest dihedral), so a tet reaches TargetDegrees exactly when its smallest dihedral
+        /// is at least TargetDegrees and its largest at most MaxDihedralDegrees. 0 (or not finite, or negative) = off: the quality
+        /// is the smallest dihedral and nothing here runs
+        /// </summary>
+        internal double MaxDihedralDegrees = 0;
+        /// <summary>
+        /// with MaxDihedralDegrees: no operation may leave a tet with a smallest dihedral below min(TargetDegrees, the smallest
+        /// dihedral of the tets it replaces): trading a tet that is too flat on the max side for one below the floor is refused
+        /// </summary>
+        internal bool MaxDihedralGuard = true;
         internal int MaxPasses = 20;
         internal int MaxRing = 8;
         internal Func<bool> CancelF = () => false;
@@ -166,10 +178,72 @@ namespace gs
         }
         static double dih(Vector3d ni, Vector3d nj) { return 180 - Math.Atan2(ni.Cross(nj).Length, ni.Dot(nj)) * (180 / Math.PI); }
 
-        double quality(int id) { Index4i t = tets[id]; return Quality(pos[t.a], pos[t.b], pos[t.c], pos[t.d]); }
-        double quality(int a, int b, int c, int d) { return Quality(pos[a], pos[b], pos[c], pos[d]); }
+        // an exactly non-positive tet in the objective's scale (valid tets reach below -1 there: TargetDegrees + MaxDihedralDegrees - 180)
+        const double InvalidObjective = -1e9;
+        bool invalid_q(double q) { return objective_on() ? q <= InvalidObjective : q < 0; }
+        bool objective_on() { return MaxDihedralDegrees > 0 && MaxDihedralDegrees < double.PositiveInfinity; }
+        // while not -infinity: tets with a smallest dihedral below it get InvalidObjective (the guard of one operation's candidates)
+        double guardFloor = double.NegativeInfinity;
+        // evaluations the guard turned invalid (diagnosis): Counts["guard_trips_<operation>"] counts the candidates of that operation with one,
+        // so these keys exist only with the objective on
+        long guardTrips;
+        void note_guard(string op, long before)
+        {
+            if (guardTrips == before) return;
+            string k = "guard_trips_" + op;
+            Counts[k] = (Counts.TryGetValue(k, out long x) ? x : 0) + 1;
+        }
+
+        /// <summary> smallest dihedral and largest dihedral of an exactly positive tet; false if it is not exactly positive </summary>
+        static bool dihedral_range(Vector3d a, Vector3d b, Vector3d c, Vector3d d, out double mn, out double mx)
+        {
+            mn = 180; mx = 0;
+            if (ExactPredicates.Orient3d(a, b, c, d) <= 0) return false;
+            Vector3d n0 = (c - b).Cross(d - b), n1 = (d - a).Cross(c - a), n2 = (b - a).Cross(d - a), n3 = (c - a).Cross(b - a);
+            double x;
+            x = dih(n0, n1); mn = Math.Min(mn, x); mx = Math.Max(mx, x); x = dih(n0, n2); mn = Math.Min(mn, x); mx = Math.Max(mx, x);
+            x = dih(n0, n3); mn = Math.Min(mn, x); mx = Math.Max(mx, x); x = dih(n1, n2); mn = Math.Min(mn, x); mx = Math.Max(mx, x);
+            x = dih(n1, n3); mn = Math.Min(mn, x); mx = Math.Max(mx, x); x = dih(n2, n3); mn = Math.Min(mn, x); mx = Math.Max(mx, x);
+            return true;
+        }
+
+        double quality(int id) { Index4i t = tets[id]; return quality(t.a, t.b, t.c, t.d); }
+        double quality(int a, int b, int c, int d)
+        {
+            if (!objective_on()) return Quality(pos[a], pos[b], pos[c], pos[d]);
+            if (!dihedral_range(pos[a], pos[b], pos[c], pos[d], out double mn, out double mx)) return InvalidObjective;
+            if (mn < guardFloor) { guardTrips++; return InvalidObjective; }
+            return Math.Min(mn, TargetDegrees + (MaxDihedralDegrees - mx));
+        }
+
+        // the guard's floor for an operation that replaces the tets ids: min(TargetDegrees, their smallest dihedral); -infinity if off
+        double guard_floor(IEnumerable<int> ids)
+        {
+            if (!objective_on() || !MaxDihedralGuard) return double.NegativeInfinity;
+            double f = TargetDegrees;
+            foreach (int id in ids) { Index4i t = tets[id]; f = Math.Min(f, Quality(pos[t.a], pos[t.b], pos[t.c], pos[t.d])); }
+            return f;
+        }
+
+        /// <summary>
+        /// with MaxDihedralDegrees: first run the improver on the smallest dihedral alone (the objective off) to completion, then the
+        /// objective with the guard, which then keeps what the first phase reached on the min side
+        /// </summary>
+        internal bool MaxDihedralStaged = false;
 
         internal void Run()
+        {
+            if (objective_on() && MaxDihedralStaged) {
+                double g = MaxDihedralDegrees;
+                MaxDihedralDegrees = 0;
+                try { run_phase(); }
+                finally { MaxDihedralDegrees = g; }
+            }
+            run_phase();
+            classify_left();
+        }
+
+        void run_phase()
         {
             hill_climb(MaxPasses);
             // rescue phase (TET_MESHING.md section 17): only if tets below the target are left (a mesh without any would stop after one
@@ -179,9 +253,8 @@ namespace gs
                 long p = Counts["passes"];
                 try { hill_climb(RescuePasses); }
                 finally { ActiveSet = false; }
-                Counts["rescue_passes"] = Counts["passes"] - p;
+                Counts["rescue_passes"] = (Counts.TryGetValue("rescue_passes", out long rp) ? rp : 0) + Counts["passes"] - p;
             }
-            classify_left();
         }
 
         /// <summary> passes of the rescue phase (active-set smoothing) after the main passes, if tets below the target are left </summary>
@@ -447,6 +520,7 @@ namespace gs
             List<int> star = vtets[v];
             double old = 180; int worst = -1;
             foreach (int id in star) { double q = quality(id); if (q < old) { old = q; worst = id; } }
+            double gf = guard_floor(star);
             lastBoundary = "no_star";
             if (worst < 0) return false;
             Vector3d p0 = pos[v];
@@ -481,7 +555,9 @@ namespace gs
                 if (p.Distance(orig[v]) > slide_limit(v)) { lastBoundary = "budget"; continue; }
                 pos[v] = p;
                 double q = 180;
+                guardFloor = gf; long gt = guardTrips;
                 foreach (int id in star) { q = Math.Min(q, quality(id)); if (q <= old) break; }
+                guardFloor = double.NegativeInfinity; note_guard("boundary_move", gt);
                 if (q > old) {
                     long ri = Counts["boundary_refused_input"];
                     if (boundary_move_ok(v, p0, p)) {
@@ -676,10 +752,13 @@ namespace gs
             foreach (int id in ringT) { ringMark[id] = markStamp; Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (nbMark[t[i]] != markStamp) { nbMark[t[i]] = markStamp; nb.Add(t[i]); } }
             // old: the smallest quality over the stars of nb; untouched: the same over the tets that are not in the ring
             double old = 180, untouched = 180;
+            bool guardOn = objective_on() && MaxDihedralGuard, splitTripped = false;
+            double gmin = TargetDegrees;                // the guard's floor: min(TargetDegrees, the smallest dihedral of the neighbourhood's tets)
             foreach (int x in nb) foreach (int id in vtets[x])
                 if (seenMark[id] != markStamp) {
                     seenMark[id] = markStamp;
                     double qi = quality(id);
+                    if (guardOn) { Index4i gt = tets[id]; gmin = Math.Min(gmin, Quality(pos[gt.a], pos[gt.b], pos[gt.c], pos[gt.d])); }
                     old = Math.Min(old, qi);
                     if (ringMark[id] != markStamp) untouched = Math.Min(untouched, qi);
                 }
@@ -728,7 +807,7 @@ namespace gs
                 remove_tet(id);
                 Index4i t1 = t, t2 = t;
                 for (int i = 0; i < 4; ++i) { if (t1[i] == a) t1[i] = v; if (t2[i] == b) t2[i] = v; }
-                if (quality(t1.a, t1.b, t1.c, t1.d) < 0 || quality(t2.a, t2.b, t2.c, t2.d) < 0) ok = false;
+                if (ExactPredicates.Orient3d(pos[t1.a], pos[t1.b], pos[t1.c], pos[t1.d]) <= 0 || ExactPredicates.Orient3d(pos[t2.a], pos[t2.b], pos[t2.c], pos[t2.d]) <= 0) ok = false;
                 add_tet(t1); add_tet(t2);
             }
             if (ok && be) {
@@ -758,7 +837,9 @@ namespace gs
                 }
                 foreach (int x in nb) try_edge_removal(v, x);
                 nb.Add(v);
+                guardFloor = guardOn ? gmin : double.NegativeInfinity; long gt = guardTrips;
                 double now = nbmin(nb);
+                guardFloor = double.NegativeInfinity; splitTripped = guardTrips != gt;
                 ok = now > old || IgnoreQualityForTest;
             }
             if (ok) {
@@ -796,6 +877,7 @@ namespace gs
             // the counts of the undone operations go, the refusal stays
             Counts.Clear(); foreach (var kv in countsBefore) Counts[kv.Key] = kv.Value;
             if (refusedInput) Counts["split_refused_input"]++;
+            if (splitTripped) Counts["guard_trips_split"] = (Counts.TryGetValue("guard_trips_split", out long gs) ? gs : 0) + 1;
             return false;
         }
 
@@ -884,13 +966,16 @@ namespace gs
             double old = 180;
             foreach (int id in su) old = Math.Min(old, quality(id));
             double q = 180;
+            double gf = guard_floor(su);
             foreach (int id in su) {
                 Index4i t = tets[id];
                 if (idx2(t, w)) continue;
                 Index4i nt = t; for (int i = 0; i < 4; ++i) if (nt[i] == u) nt[i] = w;
+                guardFloor = gf; long gt = guardTrips;
                 q = Math.Min(q, quality(nt.a, nt.b, nt.c, nt.d));
+                guardFloor = double.NegativeInfinity; note_guard("contract", gt);
                 if (!(q > old) && !IgnoreQualityForTest) return false;
-                if (q < 0) return false;
+                if (invalid_q(q)) return false;
             }
             lastContract = "ok";
             if (dry) return true;
@@ -1007,13 +1092,15 @@ namespace gs
             int m = ring.Count;
             double old = 180;
             foreach (int id in ringTets) old = Math.Min(old, quality(id));
+            double none = objective_on() ? double.NegativeInfinity : -1;     // below every quality of a valid tet (the objective's go below -1)
+            guardFloor = guard_floor(ringTets); long gt = guardTrips;
             // DP over the ring polygon r0..r(m-1): best[i, k] = best min quality triangulating r_i..r_k (k - i >= 2)
             var best = new double[m, m];
             var split = new int[m, m];
             for (int len = 2; len < m; ++len)
                 for (int i = 0; i + len < m; ++i) {
                     int k = i + len;
-                    best[i, k] = -1; split[i, k] = -1;
+                    best[i, k] = none; split[i, k] = -1;
                     for (int j = i + 1; j < k; ++j) {
                         // triangle (r_i, r_j, r_k): the ring runs c -> d with Orient3d(a, b, c, d) > 0, which is clockwise seen from
                         // a, so (r_i, r_j, r_k, b) and (r_k, r_j, r_i, a) are the positive orientations
@@ -1024,7 +1111,9 @@ namespace gs
                         if (q > best[i, k]) { best[i, k] = q; split[i, k] = j; }
                     }
                 }
+            guardFloor = double.NegativeInfinity;
             lastDp = best[0, m - 1];
+            if (guardTrips != gt && !(best[0, m - 1] > old)) note_guard("edge_removal", gt);
             if (!(best[0, m - 1] > old)) return false;
             if (dry) return true;
             foreach (int id in ringTets) remove_tet(id);
@@ -1063,12 +1152,14 @@ namespace gs
             }
             if (other < 0) return false;
             double old = Math.Min(quality(id), quality(other));
+            guardFloor = guard_floor(new[] { id, other }); long gt = guardTrips;
             // the outward facet (f0, f1, f2) of t: e is behind it, d in front (Orient3d(f0, f1, f2, d) > 0). New tets around edge
             // (d, e), one per facet edge, oriented as t: (f1, f0, d, e) etc.; all three positive exactly iff the segment de
             // crosses the facet's interior (the 2-3 flip is valid)
             double q0 = quality(f1, f0, d, e), q1 = quality(f2, f1, d, e), q2 = quality(f0, f2, d, e);
             double q = Math.Min(q0, Math.Min(q1, q2));
-            if (!(q > old)) { lastFace = q < 0 ? "invalid" : "not_better"; return false; }
+            guardFloor = double.NegativeInfinity; note_guard("face_removal", gt);
+            if (!(q > old)) { lastFace = invalid_q(q) ? "invalid" : "not_better"; return false; }
             if (dry) return true;
             remove_tet(id); remove_tet(other);
             add_tet(new Index4i(f1, f0, d, e)); add_tet(new Index4i(f2, f1, d, e)); add_tet(new Index4i(f0, f2, d, e));
@@ -1086,6 +1177,7 @@ namespace gs
             double old = 180;
             int worst = -1;
             foreach (int id in star) { double q = quality(id); if (q < old) { old = q; worst = id; } }
+            double gf = guard_floor(star);
             Vector3d p0 = pos[v];
             // the star's mean edge length sets the step scale
             double h = 0; int ne = 0;
@@ -1122,7 +1214,9 @@ namespace gs
                 }
                 pos[v] = candidates[k];
                 double q = 180;
+                guardFloor = gf; long gt = guardTrips;
                 foreach (int id in star) { q = Math.Min(q, quality(id)); if (q <= old) break; }
+                guardFloor = double.NegativeInfinity; note_guard("smooth", gt);
                 if (q > old) { if (dry) { pos[v] = p0; return true; } Counts["smooth_moves"]++; bump(v); return true; }
             }
             pos[v] = p0;

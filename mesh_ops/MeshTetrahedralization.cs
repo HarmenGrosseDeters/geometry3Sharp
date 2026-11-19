@@ -125,6 +125,17 @@ namespace gs
         /// the link condition and only if the smallest dihedral angle of the changed tets strictly increases
         /// </summary>
         public bool ContractEdges = true;
+        /// <summary>
+        /// stage 2, opt-in objective on both ends (B. M. Klingner's thesis, ch. 3-5): with a value above 0, the improver also works on
+        /// tets with a largest dihedral angle above it (degrees). The quality of a tet becomes min(smallest dihedral, SliverDihedralDegrees
+        /// + MaxDihedralDegrees - largest dihedral), so a tet meets the target exactly when its smallest dihedral is at least
+        /// SliverDihedralDegrees and its largest at most MaxDihedralDegrees; no operation may leave a tet with a smallest dihedral below
+        /// min(SliverDihedralDegrees, that of the tets it replaces). A target, not a guarantee: tets can be left outside it (Targets
+        /// does not report the largest dihedral; TetMeshQuality.Measure does). 0 (the default), a negative value, NaN or infinity: off, the stage is as without this option. Needs Improve and a
+        /// positive SliverDihedralDegrees; the refinement of stage 1 is unchanged
+        /// </summary>
+        public double MaxDihedralDegrees = 0;
+        internal bool MaxDihedralGuard = true;
         /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
         public int ImprovePasses = 50;
         /// <summary>
@@ -358,6 +369,7 @@ namespace gs
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
+                if (MaxDihedralDegrees > 0 && !double.IsInfinity(MaxDihedralDegrees)) { imp.MaxDihedralDegrees = MaxDihedralDegrees; imp.MaxDihedralGuard = MaxDihedralGuard; }
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
                     imp.InputTree = new DMeshAABBTree3(Mesh, true);
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
