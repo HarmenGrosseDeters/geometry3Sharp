@@ -108,6 +108,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MissedDihedralTarget_RunsOnceMoreWithASmootherField_AndKeepsTheBetterResult()
+        {
+            DMesh3 input = Comb();
+            var met = Local(input); Run(met);
+            Assert.True(met.Targets.MinDihedralMet);
+            Assert.False(met.Counts.ContainsKey("local_alpha_retry"));            // the target is met: no second run
+            // a dihedral target that one pass of stage 2 does not reach (20 degrees): the field is smoothed once, the target is still reported as missed
+            var hard = Local(input); hard.SliverDihedralDegrees = 20; hard.ImprovePasses = 1; hard.RescuePasses = 0;
+            hard.Compute(); Assert.NotNull(hard.Result);
+            Assert.Equal(1, hard.Counts["local_alpha_retry"]);
+            Assert.False(hard.Targets.MinDihedralMet);
+            Assert.Null(TetMeshQuality.NotValidReason(hard.Result));
+        }
+
+        [Fact]
         public void SphereAndBox_WhichHaveNoDetail_KeepTheirTets_AndAbove2OffsetsNothingIsRefined()
         {
             // the tolerance is not below the distance of the uniform wrap (about 1 offset): no sample is farther, no field, the second wrap is not run

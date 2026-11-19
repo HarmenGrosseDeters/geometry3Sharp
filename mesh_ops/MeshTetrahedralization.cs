@@ -203,6 +203,7 @@ namespace gs
 
         const int DeviationSamples = 20000;
         const double LocalAlphaGradation = 0.25, LocalAlphaMaxRefinement = 4;
+        double gradation = LocalAlphaGradation;
 
         /// <summary>
         /// The passes of MaxSurfaceDeviation: starting from the uniform wrap (wrap), measure the distance d_j of fixed area-weighted input samples
@@ -227,7 +228,7 @@ namespace gs
                     tree.FindNearestTriangle(pos[i], out double d2);
                     aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, a0, aMin);
                 }
-                field = new AlphaSizeField(pos, aj, a0, aMin, LocalAlphaGradation);
+                field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
                 if (field.FineSamples == 0)
                     break;
                 MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
@@ -250,7 +251,33 @@ namespace gs
         long localAlphaPasses, localFineSamples;
         bool localCancelled;
 
+        /// <summary>
+        /// Runs the pipeline. With MaxSurfaceDeviation, if the result misses the dihedral target (Targets.MinDihedralMet is false: the size jumps of
+        /// the local alpha can cost the floor on a few meshes, 17.13), (and Improve is on: the target is about the improved mesh) it runs once more with half the gradation slope (0.125, a smoother field) and keeps
+        /// the result that meets the target, else the one with the larger smallest dihedral angle (Counts["local_alpha_retry"] = 1, and "local_alpha_retry_kept" = 1 if the
+        /// second was kept); the target is checked on the output as ever, so a miss is reported in Targets, never silent.
+        /// </summary>
         public bool Compute()
+        {
+            gradation = LocalAlphaGradation;
+            bool ok = ComputeOnce();
+            if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localAlphaPasses == 0 || localFineSamples == 0)
+                return ok;
+            // keep the first run, try the smoother field
+            var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, ok);
+            gradation = LocalAlphaGradation / 2;
+            bool ok2 = ComputeOnce();
+            bool keepSecond = Result != null && Targets != null && (Targets.MinDihedralMet || Targets.WorstMinDihedral > first.Item2.WorstMinDihedral) && Status != TetStatus.Cancelled;
+            if (keepSecond) {
+                Counts["local_alpha_retry"] = 1; Counts["local_alpha_retry_kept"] = 1;
+                return ok2;
+            }
+            (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, ok) = first;
+            Counts["local_alpha_retry"] = 1;
+            return ok;
+        }
+
+        bool ComputeOnce()
         {
             localAlphaPasses = 0; localFineSamples = 0; localCancelled = false;
             Result = null;
