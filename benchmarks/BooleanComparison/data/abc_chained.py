@@ -394,6 +394,32 @@ def run_exact(case, files, rows, info, timeout, method="ours_exact"):
     if got < len(PLANS[case["variant"]]) and err:
         rows.append({"class": EXACT_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
 
+AB_CLASS = "abc-chained-ab"     # rows of the method ours_ab (run_ab)
+AB_REPS = 4
+
+def run_ab(case, files, rows, info, timeout):
+    """method ours_ab (docs/perf/BOOLEAN_COPLANAR_PREDECISION.md): `chain-ab` on the chain's A, B, C: per step the coplanar pre-decision
+    (ExactMeshArrangement.PreDecideCoplanar) on and off, in a random order, in one process; one row per step, also printed as a line
+    `AB {json}` (the job log keeps it where the artifact cannot be fetched); class abc-chained-ab (read by coplanar_ab.py)"""
+    import compare
+    try:
+        s = subprocess.run(compare.tool + ["chain-ab", files["A"], files["B"], files["C"], case["variant"], str(AB_REPS)], capture_output=True, text=True,
+                           timeout=2 * AB_REPS * len(PLANS[case["variant"]]) * timeout)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
+    got = 0
+    for l in out.splitlines():
+        if l.startswith("{"):
+            r = json.loads(l)
+            r.update({"class": AB_CLASS, "file": case["name"], "method": "ours_ab", "chain_inputs": info})
+            rows.append(r)
+            got += 1
+            print("AB " + json.dumps({k: r[k] for k in ("file", "step", "op", "on_median_ms", "off_median_ms", "hash_equal", "tris_in", "tris_out", "ok")}), flush=True)
+    if got < len(PLANS[case["variant"]]) and err:
+        rows.append({"class": AB_CLASS, "file": case["name"], "method": "ours_ab", "runner_error": err[-300:]})
+
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
     results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's operations
@@ -418,9 +444,12 @@ def run_chain(case, methods, timeout):
                 if m in ("ours_exact", "ours_exact_time"):
                     run_exact(case, files, rows, info, timeout, m)
                     continue
+                if m == "ours_ab":
+                    run_ab(case, files, rows, info, timeout)
+                    continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else AB_CLASS if m == "ours_ab" else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)
@@ -438,7 +467,7 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
-                if r.get("class") == EXACT_CLASS and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
+                if r.get("class") in (EXACT_CLASS, AB_CLASS) and "runner_error" in r:    # ours_exact / ours_ab: a timed-out or failed chain runs again
                     retry.add(r["file"])
             except ValueError:
                 pass
@@ -479,7 +508,7 @@ def cmd_summary(files):
         with open(f) as fh:
             rows += [json.loads(l) for l in fh if l.strip()]
     steps, refused, runner = {}, {}, {}
-    rows = [r for r in rows if r.get("class") != EXACT_CLASS]    # ours_exact: chain_exact.py summary
+    rows = [r for r in rows if r.get("class") not in (EXACT_CLASS, AB_CLASS)]    # ours_exact: chain_exact.py summary; ours_ab: coplanar_ab.py summary
     for r in rows:
         if r.get("method") == "export":
             refused[r["file"]] = r.get("error", "")

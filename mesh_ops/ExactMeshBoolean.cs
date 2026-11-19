@@ -216,6 +216,10 @@ namespace g3
         /// <summary> for tests (issue 789): ExactMeshArrangement.HashSalt and SingleShard of the arrangement </summary>
         internal int ArrangementHashSalt;
         internal bool ArrangementSingleShard;
+        /// <summary> for tests and the benchmark A/B: ExactMeshArrangement.PreDecideCoplanar (default true; the result is the same either way) </summary>
+        internal bool ArrangementPreDecideCoplanar = true;
+        /// <summary> coplanar pairs the arrangement decided without clipping (ExactMeshArrangement.PreDecidedPairs) </summary>
+        internal int ArrangementPreDecidedPairs;
         /// <summary>
         /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
         /// RoundingMaxDisplacement of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
@@ -615,7 +619,7 @@ namespace g3
                 return cancelled();
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
-                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard };
+                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar };
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -632,6 +636,7 @@ namespace g3
                 }
             }
             arr.Compute();
+            ArrangementPreDecidedPairs = arr.PreDecidedPairs;
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
             foreach (var kv in arr.PhaseMilliseconds)

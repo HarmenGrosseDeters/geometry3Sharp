@@ -181,7 +181,7 @@ static class Profile
     }
 
     // vertex coordinates (bits) and triangles, in the order of the mesh
-    static string Hash(DMesh3 mesh)
+    internal static string Hash(DMesh3 mesh)
     {
         var sb = new StringBuilder();
         foreach (int vid in mesh.VertexIndices()) {
