@@ -46,3 +46,27 @@ reset (commit 708d637) a 2048 x 2048 run did not finish within 10 minutes (O(m n
 Reading: about 50-60 ns per m n log2 n for the search, the exact slope oracle adds about 100 ns per candidate
 triangle pair (2 m n calls), the exact self-intersection check of the band is below the noise. At the default
 `MaxCells` (2^22) a call takes about 3 s, 7 s with the slope oracle.
+
+## Stack (stage 2, `ContourLoftStack`, docs/design/CONTOUR_LOFT.md section 10)
+
+```
+dotnet run --project benchmarks/ContourLoftBenchmark -c Release -- stack          # median of 3 runs per row
+dotnet run --project benchmarks/ContourLoftBenchmark -c Release -- stack quick
+```
+
+33 slices: one contour (an ellipse of n vertices) for 8 slices, then two (n vertices each) for 8, and so on (four switches: two
+branches, two merges). "contained": the two pieces lie inside the single contour (the bridge is at the slice's plane, no
+intermediate vertices); "cut": they stick out of it (the pieces of the overlap at an intermediate plane). `CapEnds`, exact
+self-intersection check of the whole mesh, no refinement. Results (cloud container, 4 cores, serial):
+
+| slices | n per contour | pieces | status | vertices | triangles | median ms | ms per slab |
+|---:|---:|---|---|---:|---:|---:|---:|
+| 33 | 100 | contained | Success | 4900 | 9804 | 641.6 | 20.1 |
+| 33 | 100 | cut | Success | 5532 | 11068 | 388.5 | 12.1 |
+| 33 | 400 | contained | Success | 19600 | 39204 | 5951.4 | 186.0 |
+| 33 | 400 | cut | Success | 22088 | 44180 | 6169.1 | 192.8 |
+| 33 | 1000 | contained | Success | 49000 | 98004 | 40131.9 | 1254.1 |
+| 33 | 1000 | cut | Success | 55200 | 110404 | 42578.0 | 1330.6 |
+
+Reading: the time is the stage 1 search of each slab (a composite contour of 2n vertices against n: about 1.3 s at n = 1000, as
+the stage 1 table above for 2048 x 1024); the overlay, the bridges and the exact check of the whole mesh are small against it.

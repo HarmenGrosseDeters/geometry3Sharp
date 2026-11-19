@@ -178,6 +178,24 @@ namespace geometry3Sharp.Tests
 
         // ---- MinThickness on procedural solids ----
 
+        /// <summary> an empty boolean result (the intersection of two disjoint boxes) has no solids to judge: nothing is removed, with
+        /// MinThickness set or not, and the result is the empty one both times </summary>
+        [Fact]
+        public void EmptyBooleanResult_HasNoThinSolids()
+        {
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One), b = Box(new Vector3d(3, 0, 0), new Vector3d(4, 1, 1));
+            var p = new SolidBooleanPipeline(a, b, ExactMeshBoolean.Operations.Intersection) { MinThickness = 0.05 };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(0, p.Report.BooleanTriangles);
+            Assert.Empty(p.Report.RemovedThinSolids);
+            Assert.Equal(0, p.Result.TriangleCount);
+            var plain = new SolidBooleanPipeline(a, b, ExactMeshBoolean.Operations.Intersection);
+            Assert.True(plain.Compute(), plain.Error);
+            Assert.Equal(0, plain.Result.TriangleCount);
+            Assert.Equal(plain.Report.NotCleanReason, p.Report.NotCleanReason);
+            Assert.Empty(SolidBooleanPipeline.RemoveThinSolids(new DMesh3(), 0.05));
+        }
+
         [Fact]
         public void ThinSlab_IsRemoved_TheBoxStays()
         {
