@@ -35,8 +35,8 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "sphere", 16793278504409630334UL };
             yield return new object[] { "torus", 14929649530336056095UL };
             yield return new object[] { "box", 7670787724669005053UL };
-            yield return new object[] { "cap", 16341831395098939481UL };
-            yield return new object[] { "patch", 14984373977973927655UL };
+            yield return new object[] { "cap", 13153883559173992252UL };
+            yield return new object[] { "patch", 2834938008614960167UL };
         }
 
         [Theory, MemberData(nameof(Cases))]

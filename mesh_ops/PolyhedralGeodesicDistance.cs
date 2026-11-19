@@ -22,9 +22,10 @@ namespace g3
     /// closed form or from the straight line was 2.4e-15 relative. The sliver test (a height of 1e-7 to 1e-12 against a length of 1) enforces 1e-8 against the
     /// straight distance. For a certified enclosure use the oracle (up to about 10^4 vertices, serial), for a smooth
     /// approximation on any mesh <see cref="MeshGeodesicDistance"/> (the heat method).</para>
-    /// <para><b>Limits.</b> (1) Windows per vertex grow with the grid width on meshes with many saddle vertices (a saddle of 101 x 101 needs
-    /// about 120, 317 x 317 more than the default budget of 64: the run ends with <see cref="PolyhedralGeodesicStatus.WindowLimit"/>, after
-    /// about 40 s at 317 x 317, v1 has no ICH or VTP pruning). (2) On meshes whose triangles have an aspect ratio beyond about 10^5 (a strip of height 1e-6 against a length of 1 with several rows)
+    /// <para><b>Limits.</b> (1) Windows per vertex grow with the grid width on meshes with many saddle vertices: on the saddle 0.3 (x^2 - y^2) the final windows are
+        /// essentially all needed (each is the minimum of its edge somewhere; GEODESICS.md A.7 note 11), about 0.8 to 0.9 per vertex and grid width (64 at about 78 x 78 vertices, about 120 at 141 x 141,
+        /// about 270 at 317 x 317). Such a mesh needs an explicit <see cref="MaxWindows"/> beyond about 78 x 78 vertices; at the default budget of 64 per vertex the run ends with
+        /// <see cref="PolyhedralGeodesicStatus.WindowLimit"/> (after about 13 s at 317 x 317). (2) On meshes whose triangles have an aspect ratio beyond about 10^5 (a strip of height 1e-6 against a length of 1 with several rows)
     /// a vertex can stay unreached; the status is then <see cref="PolyhedralGeodesicStatus.PartiallyReached"/> (owner decision 2026-11-19), the reached
     /// values are kept and <see cref="UnreachedVertices"/> counts the others. Ok guarantees a distance for every vertex of the sources' components
     /// when MaxDistance is infinite.</para>
@@ -336,18 +337,14 @@ namespace g3
                 // w certainly worse than b over a piece: drop it (the margins make a near tie stay)
                 {
                     var rem = remM; rem.Clear();
-                    foreach (var sg in segs) { double l = Math.Max(sg.l, b.B0), r = Math.Min(sg.r, b.B1); if (r > l) Dominated(in win, in b, l, r, 6, rem, xiM + b.Xi + margin); }
+                    foreach (var sg in segs) { double l = Math.Max(sg.l, b.B0), r = Math.Min(sg.r, b.B1); if (r > l) Dominated(in win, in b, l, r, rem, xiM + b.Xi + margin); }
                     if (rem.Count > 0) { var res = segB; Minus(segs, rem, res); segB = segs; segA = res; segs = res; if (segs.Count == 0) return; }
                 }
-                // b certainly worse than w over its end: cut b's end
+                // b certainly worse than w over a piece: cut b's ends (a piece in the middle of b stays: splitting b makes more windows than it saves)
                 {
-                    foreach (var sg in segs) {
-                        double l = Math.Max(b.B0, sg.l), r = Math.Min(b.B1, sg.r);
-                        if (r > l && FMin(b, l, r) - b.Xi > FMax(win, l, r) + xiM + margin) {
-                            if (l <= b.B0) b.B0 = r; else if (r >= b.B1) b.B1 = l;
-                            break;
-                        }
-                    }
+                    var rb = remM; rb.Clear();
+                    foreach (var sg in segs) { double l = Math.Max(sg.l, b.B0), r = Math.Min(sg.r, b.B1); if (r > l) Dominated(in b, in win, l, r, rb, xiM + b.Xi + margin); }
+                    if (rb.Count > 0) { CutEnds(rb, b.B0, b.B1, out double lo, out double hi); b.B0 = lo; b.B1 = hi; }
                 }
                 prev = cur; cur = nx;
             }
@@ -384,18 +381,56 @@ namespace g3
             }
         }
 
-        // the part of [l, r] where a is certainly worse than b, to the given depth
-        static void Dominated(in Window a, in Window b, double l, double r, int depth, List<(double l, double r)> rem, double m)
+        // The part of [l, r] where a is certainly worse than b: FAt(a, x) > FAt(b, x) + m (A.7, "Exact trimming"). The difference of the two
+        // functions is |x - sa| - |x - sb| + const, and the derivative cos(angle at a) - cos(angle at b) vanishes only where x, sa and sb are
+        // collinear: at one point xs at most (the line through the two origins meets the line of the edge once). So the difference is monotone on
+        // [l, xs] and on [xs, r], and on each the set where the test holds is a prefix or a suffix of the piece, which a bisection finds from
+        // the end at which the test holds (so the reported set is always inside the true one, whatever the rounding of the last step).
+        static void Dominated(in Window a, in Window b, double l, double r, List<(double l, double r)> rem, double m)
         {
             if (!(r > l)) return;
-            if (FMin(a, l, r) > FMax(b, l, r) + m) { rem.Add((l, r)); return; }
-            if (depth == 0) return;
-            // no piece inside [l, r] can pass the test unless FMax(a) > FMin(b) + m: the two functions are monotone in |x - Sx| (also
-            // in floating point: every step of Hyp is monotone), so FMin(a, piece) <= FMax(a, l, r) and FMax(b, piece) >= FMin(b, l, r);
-            // the pruned recursion gives the same pieces bit for bit
+            // no point of [l, r] can pass unless FMax(a) > FMin(b) + m (Hyp is monotone in |x - sx| also in floating point)
             if (!(FMax(a, l, r) > FMin(b, l, r) + m)) return;
-            double mid = 0.5 * l + 0.5 * r;
-            Dominated(a, b, l, mid, depth - 1, rem, m); Dominated(a, b, mid, r, depth - 1, rem, m);
+            if (FMin(a, l, r) > FMax(b, l, r) + m) { rem.Add((l, r)); return; }
+            double xs = double.NaN;
+            if (a.Sy != b.Sy) xs = a.Sx + a.Sy / (a.Sy - b.Sy) * (b.Sx - a.Sx);
+            if (xs > l && xs < r) { DominatedMonotone(in a, in b, l, xs, rem, m); DominatedMonotone(in a, in b, xs, r, rem, m); }
+            else DominatedMonotone(in a, in b, l, r, rem, m);
+        }
+
+        /// <summary> the part of [l, r] where the window of the origin (ax, ay) (ay &lt;= 0, the edge on the x axis) at distance sigmaA is worse than that of (bx, by) at sigmaB by more than m; for the tests </summary>
+        internal static List<(double l, double r)> DominatedPieces(double ax, double ay, double sigmaA, double bx, double by, double sigmaB, double l, double r, double m)
+        {
+            var a = new Window { Sx = ax, Sy = ay, Sigma = sigmaA }; var b = new Window { Sx = bx, Sy = by, Sigma = sigmaB };
+            var rem = new List<(double l, double r)>(); Dominated(in a, in b, l, r, rem, m); return rem;
+        }
+
+        /// <summary> the interval [b0, b1] of a window without the pieces at its ends that are in the ascending list rem (a piece in the middle stays); lo >= hi: nothing is left </summary>
+        internal static void CutEnds(List<(double l, double r)> rem, double b0, double b1, out double lo, out double hi)
+        {
+            lo = b0; hi = b1;
+            for (int k = 0; k < rem.Count && rem[k].l <= lo; ++k) lo = Math.Max(lo, rem[k].r);
+            for (int k = rem.Count - 1; k >= 0 && rem[k].r >= hi; --k) hi = Math.Min(hi, rem[k].l);
+        }
+
+        static bool Worse(in Window a, in Window b, double x, double m) => FAt(a, x) > FAt(b, x) + m;
+
+        // [l, r] is a piece on which FAt(a) - FAt(b) is monotone: the set where it exceeds m is a prefix or a suffix (or all, or nothing)
+        static void DominatedMonotone(in Window a, in Window b, double l, double r, List<(double l, double r)> rem, double m)
+        {
+            bool wl = Worse(in a, in b, l, m), wr = Worse(in a, in b, r, m);
+            if (!wl && !wr) return;
+            if (wl && wr) { AddPiece(rem, l, r); return; }
+            double good = wl ? l : r, bad = wl ? r : l;
+            for (int it = 0; it < 48; ++it) { double mid = 0.5 * good + 0.5 * bad; if (Worse(in a, in b, mid, m)) good = mid; else bad = mid; }
+            if (wl) { if (good > l) AddPiece(rem, l, good); } else if (good < r) AddPiece(rem, good, r);
+        }
+
+        // pieces arrive in ascending order; touching ones are joined
+        static void AddPiece(List<(double l, double r)> rem, double l, double r)
+        {
+            int k = rem.Count - 1;
+            if (k >= 0 && rem[k].r >= l) rem[k] = (rem[k].l, Math.Max(rem[k].r, r)); else rem.Add((l, r));
         }
 
         // dst = the parts of segs not covered by rem (empty pieces dropped); no allocation: the lists are members
