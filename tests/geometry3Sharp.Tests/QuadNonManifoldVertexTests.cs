@@ -79,6 +79,20 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Strip_CanBeComputedAgainOnTheSameInstance()
+        {
+            DMesh3 m = Strip(100, 8, 0.1);
+            var cf = new CrossField(m); cf.Compute();
+            var qr = new QuadRemesher(m) { Field = cf, TargetEdgeLength = 0.04 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            int[] idx = qr.Result.FaceIndices.ToArray(); int nv = qr.Result.VertexCount;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(nv, qr.Result.VertexCount);
+            Assert.Equal(idx, qr.Result.FaceIndices.ToArray());
+            Assert.True(PolyMeshMetrics.Compute(qr.Result).IsManifold);
+        }
+
         public static IEnumerable<object[]> Frames() => Similarity.Names();
 
         [Theory, MemberData(nameof(Frames))]
@@ -139,6 +153,28 @@ namespace geometry3Sharp.Tests
             DPolyMesh r2 = QuadRemesher.BuildFaces(Graph(pts, edges), 6, out dropped);
             Assert.Equal(r.FaceIndices.ToArray(), r2.FaceIndices.ToArray());
             Assert.Equal(r.FaceOffsets.ToArray(), r2.FaceOffsets.ToArray());
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(-1.0)]
+        public void BuildFaces_SplitsAVertexWhereTwoQuadsTouch_WhateverTheNormals(double nz)
+        {
+            // normals +z or -z: the faces are turned to agree with them (the flip path of BuildFaces)
+            var pts = new List<(double, double)> { (0, 0), (1, 0), (1, 1), (0, 1), (-1, 0), (-1, -1), (0, -1) };
+            var edges = new List<(int, int)> { (0, 1), (1, 2), (2, 3), (3, 0), (0, 4), (4, 5), (5, 6), (6, 0) };
+            var g = Graph(pts, edges);
+            for (int k = 0; k < g.Nrm.Count; ++k) g.Nrm[k] = new Vector3d(0, 0, nz);
+            int dropped;
+            DPolyMesh r = QuadRemesher.BuildFaces(g, 6, out dropped);
+            Assert.Equal(2, r.FaceCount);
+            Assert.Equal(8, r.VertexCount);
+            Assert.True(PolyMeshMetrics.Compute(r).IsManifold);
+            for (int f = 0; f < r.FaceCount; ++f) {
+                int[] fv = r.GetFace(f);
+                Vector3d nw = (r.GetVertex(fv[1]) - r.GetVertex(fv[0])).Cross(r.GetVertex(fv[2]) - r.GetVertex(fv[0]));
+                Assert.True(nw.z * nz > 0, "a face turns away from the normals");
+            }
         }
 
         [Fact]
