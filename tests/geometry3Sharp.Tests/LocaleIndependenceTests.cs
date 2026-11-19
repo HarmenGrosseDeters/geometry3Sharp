@@ -39,6 +39,25 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FanToleranceMessages_AreTheSameUnderAGermanCulture()
+        {
+            // the fan directions' InvalidInput names the Tolerance from which the facets fit ("... from Tolerance 0.0123")
+            Func<string> message = () => {
+                var d = new TerrainSlopeDesign() {
+                    Toes = { SlopeToe.Constant(TerrainSlopeFanDirectionsTests.SevenGon(), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)) },
+                    Terrain = TerrainSlopeCatchLineTests.Grid(new g3.AxisAlignedBox2d(-60, -60, 60, 60), 16, 16, (x, y) => x > 0 ? 2 + 0.3 * x : 2 + x),
+                    Direction = TerrainSlopeDesign.Directions.Auto, Tolerance = 0.002, MaxFanDirections = 16
+                };
+                Assert.False(d.Compute());
+                Assert.Contains("the facets fit from Tolerance", d.Message);
+                return d.Message;
+            };
+            string invariant = Under("", message);
+            Assert.Matches(@"Tolerance \d+\.\d", invariant);
+            Assert.Equal(invariant, Under("de-DE", message));
+        }
+
+        [Fact]
         public void TimedMessages_AreTheSameUnderAGermanCulture()
         {
             string tripped = Under("de-DE", () => {

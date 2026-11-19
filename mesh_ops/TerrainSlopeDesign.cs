@@ -625,7 +625,7 @@ namespace gs
             }
             FanTolerance = fits ? t : 0;
             ToeProblems = new List<Index2i>();
-            return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+            return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : NoFit));
         }
 
         // a run of one direction with this one's inputs (Direction Auto)
@@ -697,7 +697,7 @@ namespace gs
                         }
                         FanTolerance = fits ? t : 0;
                         string head = r.Message.Substring(0, r.Message.IndexOf(FacetsFitFrom));
-                        return fail(r.Status, "cut: " + head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+                        return fail(r.Status, "cut: " + head + (fits ? FacetsFitFrom + t.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : NoFit));
                     }
                     return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
                 }
@@ -1354,7 +1354,7 @@ namespace gs
                 // 0.75 sMin (1 - δ) / (1.1 sMax) - δ as t grows, which slopes far apart keep below what the bound needs)
                 FanTolerance = fits ? t : 0;
                 string head = FormattableString.Invariant($"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})");
-                return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+                return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : NoFit));
             }
             if (fanCheckOnly)
                 return fail(Statuses.InvalidInput, FacetsChecked);
