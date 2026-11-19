@@ -196,5 +196,33 @@ namespace geometry3Sharp.Tests
             Assert.Equal(once, Positions(m, Similarity.Identity));
             Assert.Equal(once, Positions(Repaired(input).Mesh, Similarity.Identity));
         }
+
+        /// <summary>
+        /// a zero-volume sheet next to a flattened tetrahedron (which the repair removes, 2^-46 thin): together they are the whole
+        /// mesh, so KeepWhenEmptied (ExactMeshBoolean's setting) keeps both and counts them; the triangles of the decided
+        /// components are summed against the triangle count (without it both go)
+        /// </summary>
+        [Fact]
+        public void TheWholeMesh_KeepWhenEmptied_IsKept()
+        {
+            var (ta, _) = ExactBooleanMetamorphicTests.TetFamilies["nested"];
+            Func<DMesh3> input = () => {
+                DMesh3 m = MetamorphicRelations.Stretch(ta.Mesh(Vector3d.Zero), 0, -46);
+                new MeshEditor(m).AppendMesh(Sheet(Right, 0.0005, 0.75, true));
+                return m;
+            };
+            DMesh3 plainMesh = input();
+            var plain = new MeshRoundingRepair(plainMesh);
+            plain.Apply();
+            Assert.Equal(0, plainMesh.TriangleCount);
+            Assert.Equal(2, plain.RemovedComponents);
+            DMesh3 m2 = input();
+            int tris = m2.TriangleCount;
+            var keep = new MeshRoundingRepair(m2) { KeepWhenEmptied = true };
+            keep.Apply();
+            Assert.Equal(tris, m2.TriangleCount);
+            Assert.Equal(0, keep.RemovedComponents);
+            Assert.Equal(2, keep.KeptWhenEmptied);
+        }
     }
 }
