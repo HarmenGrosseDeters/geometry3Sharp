@@ -84,6 +84,7 @@ namespace g3cli.Tests
         [InlineData("tet22.msh", "msh22", "msh22", "$MeshFormat\n2.2 0 8\n")]
         [InlineData("tet41.out", "msh41", "msh41", "$MeshFormat\n4.1 0 8\n")]
         [InlineData("tet.vtk", "auto", "vtk", "# vtk DataFile Version 3.0\n")]
+        [InlineData("tet_v.out", "vtk", "vtk", "# vtk DataFile Version 3.0\n")]
         [InlineData("tet_m.out", "medit", "medit", "MeshVersionFormatted 2\n")]
         public void Format_FollowsTheExtensionOrTheOption(string file, string format, string reported, string header)
         {
@@ -159,6 +160,22 @@ namespace g3cli.Tests
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("max_steiner_points"));
         }
 
+        /// <summary> an input the wrap refuses (coordinates outside the supported range, not invalid parameters) fails with operation_failed
+        /// and both statuses, and writes nothing </summary>
+        [Fact]
+        public void InvalidInput_FailsWithOperationFailed_AndWritesNothing()
+        {
+            string huge = m.Path_("tet_huge.obj");
+            File.WriteAllText(huge, "v 0 0 0\nv 1e300 0 0\nv 0 1e300 0\nf 1 2 3\n");
+            string output = m.Path_("tet_huge.mesh");
+            var (exit, r) = Run("tetmesh", huge, output, "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("wrap_failed", S(r["tet_status"]));
+            Assert.Equal("invalid_input", S(r["wrap_status"]));
+            Assert.Contains("tet mesh failed: wrap_failed (invalid_input)", S(r["message"]));
+            Assert.False(File.Exists(output));
+        }
+
         [Fact]
         public void WrapFailure_FailsWithStatus_AndWritesNothing()
         {
@@ -183,6 +200,12 @@ namespace g3cli.Tests
             (e, r) = Run("tetmesh", m.Empty, m.Path_("x.mesh"), "--compact"); AssertError(e, r, "empty_mesh");
             (e, r) = Run("tetmesh", m.Cube, Path.Combine(m.Dir, "no_such_dir", "x.mesh"), "--compact"); AssertError(e, r, "write_error");
             (e, r) = Run("tetmesh", m.Cube, "--compact"); AssertError(e, r, "invalid_arguments");
+            // an output path that is an existing directory: the writer's exception becomes write_error, nothing else is written
+            string asDir = m.Path_("is_a_dir.mesh");
+            Directory.CreateDirectory(asDir);
+            (e, r) = Run("tetmesh", m.Cube, asDir, "--compact", "--relative-alpha", "10"); AssertError(e, r, "write_error");
+            Assert.Contains("cannot write", S(r["message"]));
+            Assert.True(Directory.Exists(asDir) && Directory.GetFileSystemEntries(asDir).Length == 0);
             foreach (string[] bad in new[] {
                 new[] { "--relative-alpha", "0" }, new[] { "--relative-alpha", "1001" }, new[] { "--relative-offset", "100001" },
                 new[] { "--min-dihedral", "-1" }, new[] { "--min-dihedral", "71" }, new[] { "--max-radius-edge", "1.4" }, new[] { "--max-radius-edge", "1001" },
