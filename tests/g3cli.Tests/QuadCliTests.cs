@@ -219,7 +219,7 @@ namespace g3cli.Tests
         [Fact]
         public void NoFaces_IsOperationFailed_WithTheStatus_NothingWritten()
         {
-            // the cube has 12 triangles: the default edge length (1/30 of the diagonal) is far below its edges
+            // the cube (side 2, 12 triangles) has edges of 2 and 2.8: the default edge length is twice the mean edge (about 4.8), larger than the whole cube, so no lattice face is extracted
             string output = m.Path_("nofaces.obj");
             var (exit, r) = Quad(m.Cube, output);
             AssertError(exit, r, "operation_failed");
@@ -229,6 +229,24 @@ namespace g3cli.Tests
             (exit, r) = Quad(m.Cube, output, "--edge-length", "1e9", "--pure-quads");
             AssertError(exit, r, "operation_failed");
             Assert.Equal("no_faces", S(r["quad_status"]));
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
+        public void DegenerateBoundingBox_NeedsAnExplicitEdgeLength()
+        {
+            // one point repeated: the diagonal and the mean edge are 0, so no default edge length exists
+            string input = m.Path_("one_point.obj");
+            File.WriteAllText(input, "v 1 1 1\nv 1 1 1\nv 1 1 1\nf 1 2 3\n");
+            string output = m.Path_("one_point_out.obj");
+            var (exit, r) = Quad(input, output);
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("give 'edge_length'", S(r["message"]));
+            Assert.False(File.Exists(output));
+            // with an explicit edge length the remeshing runs and fails in the cross field
+            (exit, r) = Quad(input, output, "--edge-length", "0.5");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("field_failed", S(r["quad_status"]));
             Assert.False(File.Exists(output));
         }
 
