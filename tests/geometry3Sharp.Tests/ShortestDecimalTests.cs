@@ -380,7 +380,25 @@ namespace geometry3Sharp.Tests
             Assert.True(double.Parse(ours, Inv).Equals(x), ours + " does not read back to " + BitConverter.DoubleToInt64Bits(x).ToString("X16"));
             int digits = SignificantDigits(ours);
             for (int k = 1; k < digits; ++k)
-                Assert.False(double.Parse(x.ToString("E" + (k - 1), Inv), Inv).Equals(x), x.ToString("E" + (k - 1), Inv) + " is shorter than " + ours);
+                foreach (string shorter in Candidates(x, k))
+                    Assert.False(double.Parse(shorter, Inv).Equals(x), shorter + " is shorter than " + ours);
+        }
+
+        // the k-digit decimals next to x: the nearest and its neighbours one unit of the last digit below and above (at a
+        // power of two the read-back interval is ulp/4 below and ulp/2 above x, so a neighbour can read back where the
+        // nearest does not)
+        static IEnumerable<string> Candidates(double x, int k)
+        {
+            string e = x.ToString("E" + (k - 1), Inv);              // eg "-4.105E-289"
+            int ePos = e.IndexOf('E');
+            string mant = e.Substring(0, ePos).Replace(".", "");
+            int exp = int.Parse(e.Substring(ePos + 1), Inv) - (k - 1);
+            BigInteger d = BigInteger.Parse(mant, Inv);
+            for (int step = -1; step <= 1; ++step) {
+                BigInteger c = d + (d.Sign < 0 ? -step : step);
+                if (!c.IsZero)
+                    yield return c.ToString(Inv) + "E" + exp.ToString(Inv);
+            }
         }
 
         static int SignificantDigits(string s)
