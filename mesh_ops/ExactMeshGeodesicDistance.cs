@@ -202,19 +202,13 @@ namespace g3
         void Classify()
         {
             // a vertex without triangles carries no surface: no path passes through it (it stays unreachable, NaN)
+            // FlatVertices counts exactly flat vertices before a source is forced to kind 1 (a flat source still emits)
             FlatVertices = 0;
-            foreach (int v in Mesh.VertexIndices()) kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)VertexKind(v);
-            if (!FlatVerticesEmit) foreach (int v in Mesh.VertexIndices()) if (kind[v] == 0 && Mesh.GetVtxTriangleCount(v) > 0 && IsFlatNotConvex(v)) ++FlatVertices;
-        }
-
-        bool IsFlatNotConvex(int v)
-        {
-            if (Mesh.IsBoundaryVertex(v)) return false;
-            var fan = Fan(v);
-            if (fan.Count != Mesh.GetVtxTriangleCount(v)) return false;
-            ExactInterval sum = I(0);
-            for (int i = 0; i < fan.Count; ++i) sum = sum + CornerAngle(v, fan[i], fan[(i + 1) % fan.Count]);
-            return !(sum.Hi < 2 * Math.PI);
+            foreach (int v in Mesh.VertexIndices()) {
+                lastWasFlat = false;
+                kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)VertexKind(v);
+                if (lastWasFlat && kind[v] == 0) ++FlatVertices;
+            }
         }
 
         /// <summary> 0: the vertex needs no emission: certainly convex (no shortest path passes through it, Fact F), or exactly
@@ -224,6 +218,7 @@ namespace g3
         /// nearly flat vertex whose sum may exceed 2 pi by rounding noise). For tests. </summary>
         internal int VertexKind(int v)
         {
+            lastWasFlat = false;
             if (Mesh.IsBoundaryVertex(v)) return 1;
             var fan = Fan(v);
             // a walk that stopped early (or wrapped twice) does not see every corner: never certainly convex
@@ -232,12 +227,13 @@ namespace g3
             for (int i = 0; i < fan.Count; ++i) sum = sum + CornerAngle(v, fan[i], fan[(i + 1) % fan.Count]);
             // Math.PI is the double below pi, so 2 * Math.PI (an exact doubling) is below 2 pi
             if (sum.Hi < 2 * Math.PI) return 0;
-            if (!FlatVerticesEmit && IsExactlyFlat(v, fan)) return 0;
+            if (!FlatVerticesEmit && IsExactlyFlat(v, fan)) { lastWasFlat = true; return 0; }
             return 1;
         }
 
         /// <summary> the pre-A7' behaviour (S1): every vertex that is not certainly convex is a pseudo-source, flat ones included.
         /// For tests, which compare the two. </summary>
+        bool lastWasFlat;           // the last VertexKind call returned 0 because the vertex is exactly flat
         internal bool FlatVerticesEmit;
         /// <summary> the number of vertices of the last run that are exactly flat and so of kind 0 without being certainly
         /// convex. For tests </summary>

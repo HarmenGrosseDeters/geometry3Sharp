@@ -298,6 +298,37 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, Kind(g, 2 * 5 + 2));                                          // an interior vertex of the plane
         }
 
+        [Fact]
+        public void Classification_ExactFlatnessTest_IsIndependentOfTheCoordinateAxes()
+        {
+            // the same fans with the coordinates permuted: flat fans in planes x = c, y = c and tilted, folds along x, y and z,
+            // and the double winding with the reference neighbour on each axis (every projection and SameWay branch)
+            var perms = new Func<Vector3d, Vector3d>[] { q => q, q => new Vector3d(q.y, q.z, q.x), q => new Vector3d(q.z, q.x, q.y),
+                q => new Vector3d(q.y, q.x, q.z), q => new Vector3d(q.x, q.z, q.y), q => new Vector3d(q.z, q.y, q.x) };
+            Func<double, Vector3d[]> fold = kink => new[] { new Vector3d(0, 1, 0), new Vector3d(-1, 1, 1), new Vector3d(-1, 0, 1), new Vector3d(-1, -1, 1),
+                new Vector3d(0, -1, 0), new Vector3d(1, -1, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 1 + kink) };
+            Vector3d[] twice = Enumerable.Range(0, 8).Select(i => (1 + 0.5 * i) * new Vector3d(Math.Cos(i * Math.PI / 2), Math.Sin(i * Math.PI / 2), 0)).Select(q => new Vector3d(Math.Round(q.x), Math.Round(q.y), 0)).ToArray();
+            foreach (var f in perms) {
+                Assert.Equal(0, Kind(Fan(Lattice8.Select(f).ToArray()), 0));
+                Assert.Equal(0, Kind(Fan(fold(0).Select(f).ToArray()), 0));
+                Assert.Equal(1, Kind(Fan(fold(Math.Pow(2, -40)).Select(f).ToArray()), 0));
+                Assert.Equal(1, Kind(Fan(twice.Select(f).ToArray()), 0));
+            }
+        }
+
+        [Fact]
+        public void Classification_AFlatPinchedVertex_IsAPseudoSource()
+        {
+            // two coplanar closed fans sharing one vertex: the vertex is not manifold, its walk does not see every triangle
+            var m = new DMesh3(); int p = m.AppendVertex(Vector3d.Zero);
+            for (int f = 0; f < 2; ++f) {
+                int[] r = new int[4]; double sx = f == 0 ? 1 : -1;
+                for (int i = 0; i < 4; ++i) r[i] = m.AppendVertex(new Vector3d(sx * Math.Cos(i * Math.PI / 2 + 0.3 * f + 0.1), Math.Sin(i * Math.PI / 2 + 0.3 * f + 0.1) + 3 * f, 0));
+                for (int i = 0; i < 4; ++i) m.AppendTriangle(p, r[i], r[(i + 1) % 4]);
+            }
+            Assert.Equal(1, Kind(m, p));
+        }
+
         static readonly Vector3d[] Lattice8 = { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 1, 0),
             new Vector3d(-1, 0, 0), new Vector3d(-1, -1, 0), new Vector3d(0, -1, 0), new Vector3d(1, -1, 0) };
 
@@ -379,7 +410,7 @@ namespace geometry3Sharp.Tests
             int src = at == "centre" ? (n / 2) * n + n / 2 : at == "corner" ? 0 : 5 * n + 11;
             var g = Run(m, src);
             AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 1e-7);
-            AssertFlatPathAndOverlap(m, g, (n - 2) * (n - 2) - (at == "flat vertex" || at == "centre" ? 0 : 0), src);
+            AssertFlatPathAndOverlap(m, g, (n - 2) * (n - 2), src);
         }
 
         [Fact]
@@ -426,7 +457,7 @@ namespace geometry3Sharp.Tests
             int flat = 0; foreach (int v in m.VertexIndices()) if (g.Kind(v) == 0 && !m.IsBoundaryVertex(v)) ++flat;
             Assert.True(g.FlatVertices > 20 && flat >= g.FlatVertices - 1, $"flat {g.FlatVertices}");
             foreach (int v in m.VertexIndices()) if (g.Emitted(v)) Assert.True(v == src || m.IsBoundaryVertex(v));
-            Assert.True(g.Emitted(4 * 9 + 4) || m.IsBoundaryVertex(4 * 9 + 4), "the reflex corner is a boundary vertex, a pseudo-source");
+            Assert.True(m.IsBoundaryVertex(4 * 9 + 4) && g.Emitted(4 * 9 + 4), "the reflex corner is a boundary vertex and emitted");
             var old = RunS1(m, src);
             foreach (int v in m.VertexIndices()) { Assert.True(g.Lower[v] <= old.Upper[v]); Assert.True(old.Lower[v] <= g.Upper[v]); }
             Assert.True(g.Windows < old.Windows);
@@ -618,10 +649,10 @@ namespace geometry3Sharp.Tests
         {
             // a limit must end with WindowLimit and NaN arrays, never with values that look valid. The exactly aligned 41 x 41
             // ridge needs about 98000 windows with the flat vertices emitting (S1; GEODESICS.md 6b; 286000 before #1058; A7' needs
-            // about 65000 on this tan(75 degree) ridge, whose rounded slope vertices are not exactly flat), so a limit of 60000 ends it
+            // about 32000 here, every vertex of this cylinder being an exactly flat straight fold), so the S1 path with a limit of 20000 ends it
             int n = 41; double h = 0.25, half = (n - 1) * h / 2;
             DMesh3 m = Grid(half, n, (x, y) => Ridge(x));
-            var g = new ExactMeshGeodesicDistance(m) { MaxWindows = 60000, FlatVerticesEmit = true };
+            var g = new ExactMeshGeodesicDistance(m) { MaxWindows = 20000, FlatVerticesEmit = true };
             Assert.Equal(ExactMeshGeodesicDistance.Result.WindowLimit, g.Compute(new[] { (n / 2) * n + 3 }));
             Assert.True(g.Lower.All(double.IsNaN) && g.Upper.All(double.IsNaN));
         }
