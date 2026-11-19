@@ -160,6 +160,11 @@ static class CandidateBench
             r["cand_total_ms"] = total.ElapsedMilliseconds;
             return;
         }
+        if (Environment.GetEnvironmentVariable("BENCH_CAND_PATCH_ONLY") == "1") {
+            PatchesOnly(r, rejected, realStage, diag);
+            r["cand_total_ms"] = total.ElapsedMilliseconds;
+            return;
+        }
         var treeIn = new DMeshAABBTree3(orig, true);
         Vector3d[] inSamples = Sample(orig, 10000, 11);
         var treeFinal = new DMeshAABBTree3(final, true);
@@ -208,20 +213,24 @@ static class CandidateBench
         r["cand_list"] = outList;
 
         // ---- (3) patch footprint of the best rejected candidate of a mesh that ends in a fallback
-        if (realStage == "solidify" || realStage == "wrap") {
-            // every rejected candidate with a mesh (the best one, with the fewest defect triangles, is chosen by the analysis)
-            var patches = new List<object>();
-            foreach (var c in rejected.Where(x => x.Kind != "S" && x.Mesh != null && x.Mesh.TriangleCount > 0)) {
-                var ds = FindDefects(c.Mesh, diag, out var st);
-                var pf = new Dictionary<string, object> { ["kind"] = c.Kind, ["class"] = c.Class, ["defects"] = st };
-                if (st.ContainsKey("capped")) pf["note"] = "too many self-intersections (capped)";
-                else if (ds.Tris.Count == 0) pf["note"] = "no defects (rejected by volume or lost parts)";
-                else PatchFootprint(c.Mesh, ds.Tris, diag, pf);
-                patches.Add(pf);
-            }
-            r["patches"] = patches;
-        }
+        PatchesOnly(r, rejected, realStage, diag);
         r["cand_total_ms"] = total.ElapsedMilliseconds;
+    }
+
+
+    static void PatchesOnly(Dictionary<string, object> r, List<Cand> rejected, string realStage, double diag)
+    {
+        if (realStage != "solidify" && realStage != "wrap") return;
+        var patches = new List<object>();
+        foreach (var c in rejected.Where(x => x.Kind != "S" && x.Mesh != null && x.Mesh.TriangleCount > 0)) {
+            var ds = FindDefects(c.Mesh, diag, out var st);
+            var pf = new Dictionary<string, object> { ["kind"] = c.Kind, ["class"] = c.Class, ["defects"] = st };
+            if (st.ContainsKey("capped")) pf["note"] = "too many self-intersections (capped)";
+            else if (ds.Tris.Count == 0) pf["note"] = "no defects (rejected by volume or lost parts)";
+            else PatchFootprint(c.Mesh, ds.Tris, diag, pf);
+            patches.Add(pf);
+        }
+        r["patches"] = patches;
     }
 
     static double lastIou;
@@ -428,6 +437,12 @@ static class CandidateBench
             pf[tag + "_loop_len_rel"] = single.LoopLength / diag;
             pf[tag + "_ok"] = single.Ok;
             pf[tag + "_ms"] = sw.ElapsedMilliseconds;
+            // strategy 2: rings of triangles around all defects until they are one component, then closed
+            var grown = new HashSet<int>(seed);
+            for (int i = 0; i < 400 && Components(m, grown, false).Count > 1; ++i) grown = Dilate(m, grown, false);
+            var ring = Close(m, grown, area);
+            pf[tag + "_ring_area_frac"] = areaOf(ring.Tris) / totalArea;
+            pf[tag + "_ring_ok"] = ring.Ok;
 
             // disjoint patches
             var cl = Components(m, seed, true);

@@ -24,22 +24,26 @@ def mid(f): return f.split(".")[0]
 
 def hd(m):
     """two-sided certified Hausdorff upper bound (relative to the diagonal)"""
-    a, b = m.get("hd_fwd_hi"), m.get("hd_back_hi")
+    a, b = num(m, "hd_fwd_hi"), num(m, "hd_back_hi")
     return None if a is None or b is None else max(a, b)
 
 def clean(m): return m.get("not_clean", "x") == "" and m.get("si", 1) == 0
 
+def num(m, k):
+    v = m.get(k)
+    return v if isinstance(v, (int, float)) and v == v else None
+
 def cmp_geo(c, f, tol=1e-3):
     """per measure: +1 candidate better, 0 about equal, -1 worse (iou, hd, chamfer); equal within tol (iou: absolute; hd, chamfer: of the diagonal)"""
     res = {}
-    if c.get("iou") is not None and f.get("iou") is not None:
+    if num(c, "iou") is not None and num(f, "iou") is not None:
         d = c["iou"] - f["iou"]
         res["iou"] = 1 if d > 0.002 else -1 if d < -0.002 else 0
     ch, fh = hd(c), hd(f)
     if ch is not None and fh is not None:
         d = fh - ch
         res["hd"] = 1 if d > 0.002 else -1 if d < -0.002 else 0
-    if c.get("chamfer") is not None and f.get("chamfer") is not None:
+    if num(c, "chamfer") is not None and num(f, "chamfer") is not None:
         d = f["chamfer"] - c["chamfer"]
         res["chamfer"] = 1 if d > 1e-4 else -1 if d < -1e-4 else 0
     return res
@@ -142,6 +146,19 @@ def part1(rows, title):
     t = [r.get("cand_total_ms", 0) for r in ok]
     print("\nharness time per mesh: total %.1f min (sum), max %.0f s" % (sum(t) / 60000.0, max(t) / 1000.0 if t else 0))
 
+def best_patch(p):
+    """smallest single patch of the strategies (path joined / rings; with and without a ring of margin) with one simple boundary loop; a single
+    patch is also a valid set of disjoint patches, so multi is at most single. Margin variants contain the plain ones: they are upper bounds too."""
+    c = []
+    for tag in ("single", "single_ring", "single_m1", "single_m1_ring"):
+        k = tag + "_area_frac"
+        if k in p and p.get(tag + "_ok", p.get("single_ok" if tag == "single" else "single_m1_ok")):
+            c.append(p[k])
+    p["single_area_frac"] = min(c) if c else p["single_area_frac"]
+    p["single_valid"] = bool(c)
+    p["multi_area_frac"] = min(p["multi_area_frac"], p["single_area_frac"]) if c else p["multi_area_frac"]
+    return p
+
 def part3(rows, title):
     print("\n## (3) %s" % title)
     fb = [r for r in rows if r.get("status") == "ok" and r.get("real_stage") in ("solidify", "wrap")]
@@ -156,7 +173,7 @@ def part3(rows, title):
         if zero:
             nodef.append(mid(r["file"]))      # a rejected candidate without any defect (rejected by volume / parts only): no patch to measure, listed too
         if withd:
-            p = min(withd, key=lambda p: p["defects"]["defect_tris"]); best.append((mid(r["file"]), p))
+            p = best_patch(min(withd, key=lambda p: p["defects"]["defect_tris"])); best.append((mid(r["file"]), p))
         else:
             nomesh.append(mid(r["file"]) + "(capped)")
     print("a rejected candidate is defect-free (volume or lost parts only; a patch cannot fix that): %d  %s" % (len(nodef), " ".join(nodef)))
@@ -165,7 +182,7 @@ def part3(rows, title):
     print("meshes with a rejected candidate that has defects: %d" % len(best))
     def bucket(x): return "< 1 %" if x < 0.01 else "1-5 %" if x < 0.05 else "5-20 %" if x < 0.2 else "> 20 %"
     order = ["< 1 %", "1-5 %", "5-20 %", "> 20 %"]
-    for tag, name in (("single", "single patch, defect triangles only"), ("single_m1", "single patch, defects with one ring of margin")):
+    for tag, name in (("single", "single patch (best of 4 growth strategies; defects strictly inside not required)"),):
         b = collections.defaultdict(list)
         for i, p in best:
             b[bucket(p[tag + "_area_frac"])].append(i)
@@ -173,8 +190,8 @@ def part3(rows, title):
         print("| area share | meshes | ids |"); print("|---|---|---|")
         for k in order:
             print("| %s | %d | %s |" % (k, len(b[k]), " ".join(b[k][:40])))
-        ok_ = sum(p[tag + "_ok"] for _, p in best)
-        print("patch has a single simple boundary loop (or none): %d of %d" % (ok_, len(best)))
+        ok_ = sum(p["single_valid"] for _, p in best)
+        print("a growth strategy reached a single simple boundary loop: %d of %d" % (ok_, len(best)))
     b = collections.defaultdict(list)
     for i, p in best:
         b[bucket(p["multi_area_frac"])].append(i)
@@ -186,7 +203,7 @@ def part3(rows, title):
     for i, p in best:
         n = p["multi_patches"]; pc["1" if n == 1 else "2-3" if n <= 3 else "4-10" if n <= 10 else ">10"] += 1
     print("number of disjoint patches: " + ", ".join("%s: %d" % (k, pc[k]) for k in ["1", "2-3", "4-10", ">10"]))
-    ll = sorted(p["single_loop_len_rel"] for _, p in best if p.get("single_ok"))
+    ll = sorted(p["single_loop_len_rel"] for _, p in best if p.get("single_valid"))
     if ll:
         print("boundary loop length of the single patch (relative to the bbox diagonal): median %.2f, p90 %.2f, max %.2f" % (ll[len(ll) // 2], ll[int(len(ll) * 0.9)], ll[-1]))
     dt = sorted(p["defects"]["defect_tris"] / max(1, p["defects"]["tris"]) for _, p in best)
