@@ -532,6 +532,7 @@ class Program
         double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000", inv);
         var sw = Stopwatch.StartNew();
         var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_PULL") == "1") wrap.PullPinchPoints = true;
         wrap.Compute();
         r["wrap_ms"] = sw.ElapsedMilliseconds;
         r["wrap_status"] = wrap.Status.ToString();
@@ -542,6 +543,7 @@ class Program
         r["wrap_offset"] = wrap.UsedOffset;
         r["wrap_counts"] = wrap.Counts;
         r["wrap_phases"] = wrap.PhaseMilliseconds;
+        if (wrap.Result != null) PinchProbe.Exposure(wrap.Result, input, wrap.UsedAlpha, wrap.UsedOffset, r, "out_");
         return wrap.Result ?? new DMesh3();
     }
 
@@ -646,6 +648,8 @@ class Program
         Quality(raw, r, "raw", false);
         // (the wrap's own result, also with BENCH_WRAP_FEATURES, whose pass replaces raw above: the bounds are those of the wrap)
         RawWrapBounds(wrap, input, wrap.Result, r);
+        PinchProbe.Exposure(wrap.Result, input, wrap.UsedAlpha, wrap.UsedOffset, r, "rawx_");
+        PinchProbe.Exposure(result, input, wrap.UsedAlpha, wrap.UsedOffset, r, "out_");
         return result;
     }
 
