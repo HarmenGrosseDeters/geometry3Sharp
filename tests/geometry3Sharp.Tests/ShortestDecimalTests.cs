@@ -362,9 +362,61 @@ namespace geometry3Sharp.Tests
         {
             if (!PlatformRIsShortest) return;     // (.NET Framework: the golden strings below carry the check)
             int n = 0;
-            foreach (double x in DoubleClasses()) { Assert.Equal(x.ToString("R", Inv), MeshIOUtil.FormatDouble(x)); ++n; }
-            foreach (double x in RandomDoubles(1500000, 777)) { Assert.Equal(x.ToString("R", Inv), MeshIOUtil.FormatDouble(x)); ++n; }
+            foreach (double x in DoubleClasses()) { MatchesPlatformR(x); ++n; }
+            foreach (double x in RandomDoubles(1500000, 777)) { MatchesPlatformR(x); ++n; }
             Assert.True(n > 1000000);
+        }
+
+        // the platform's "R" is the reference where it reads back to x. On Windows x64 (.NET 10) it does not for some powers of
+        // two at the lower end of an exponent (0x0410000000000000: "4.104536801298376E-289" reads back to 0x040FFFFFFFFFFFFF, #1151);
+        // there the text must read back to x, and no text with fewer significant digits may
+        static void MatchesPlatformR(double x)
+        {
+            string r = x.ToString("R", Inv), ours = MeshIOUtil.FormatDouble(x);
+            if (double.IsNaN(x) || double.Parse(r, Inv).Equals(x)) {
+                Assert.Equal(r, ours);
+                return;
+            }
+            Assert.True(double.Parse(ours, Inv).Equals(x), ours + " does not read back to " + BitConverter.DoubleToInt64Bits(x).ToString("X16"));
+            int digits = SignificantDigits(ours);
+            for (int k = 1; k < digits; ++k)
+                foreach (string shorter in Candidates(x, k))
+                    Assert.False(double.Parse(shorter, Inv).Equals(x), shorter + " is shorter than " + ours);
+        }
+
+        // the k-digit decimals next to x: the nearest and its neighbours one unit of the last digit below and above (at a
+        // power of two the read-back interval is ulp/4 below and ulp/2 above x, so a neighbour can read back where the
+        // nearest does not)
+        static IEnumerable<string> Candidates(double x, int k)
+        {
+            string e = x.ToString("E" + (k - 1), Inv);              // eg "-4.105E-289"
+            int ePos = e.IndexOf('E');
+            string mant = e.Substring(0, ePos).Replace(".", "");
+            int exp = int.Parse(e.Substring(ePos + 1), Inv) - (k - 1);
+            BigInteger d = BigInteger.Parse(mant, Inv);
+            for (int step = -1; step <= 1; ++step) {
+                BigInteger c = d + (d.Sign < 0 ? -step : step);
+                if (!c.IsZero)
+                    yield return c.ToString(Inv) + "E" + exp.ToString(Inv);
+            }
+        }
+
+        static int SignificantDigits(string s)
+        {
+            int e = s.IndexOfAny(new[] { 'E', 'e' });
+            string m = (e < 0 ? s : s.Substring(0, e)).TrimStart('-').Replace(".", "").TrimStart('0').TrimEnd('0');
+            return Math.Max(1, m.Length);
+        }
+
+        [Fact]
+        public void PowerOfTwoAtTheEndOfAnExponent_IsTheShortestTextThatReadsBack()
+        {
+            // the value where the platform's "R" fails on Windows (net10.0): the shortest text that reads back has 17 digits.
+            // (The 16-digit "4.104536801298376E-289" denotes 0x040FFFFFFFFFFFFF; a correctly rounded parser reads it so, net48's
+            // parser is not correctly rounded and reads it as x: so that is not asserted here)
+            double x = BitConverter.Int64BitsToDouble(0x0410000000000000);
+            Assert.Equal("4.1045368012983762E-289", MeshIOUtil.FormatDouble(x));
+            Assert.Equal(x, double.Parse(MeshIOUtil.FormatDouble(x), Inv));
         }
 
         [Fact]

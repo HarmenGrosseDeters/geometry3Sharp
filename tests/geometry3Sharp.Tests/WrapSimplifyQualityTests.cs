@@ -42,7 +42,7 @@ namespace geometry3Sharp.Tests
         {
             if (name == "box")
                 return new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.3)), NoSharedVertices = false }.Generate().MakeDMesh();
-            return new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1.5f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
+            return PortableMath.CappedCylinder(0.5f, 0.5f, 1.5f, 24, false);      // (#1151: CappedCylinderGenerator with the same bits on every platform)
         }
 
         [Trait("Category", "Slow")]
