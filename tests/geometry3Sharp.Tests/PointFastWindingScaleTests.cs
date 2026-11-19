@@ -50,6 +50,75 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void SubnormalArea_DipoleRetainsItsContribution(bool powerOfTwo)
+        {
+            double scale = powerOfTwo ? Math.Pow(2, -530) : 1e-160;
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisX);
+            double area = scale * scale;
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => area };
+            double expected = (area / scale / scale) / MathUtil.FourPI;
+            double actual = tree.FastWindingNumber(-scale * Vector3d.AxisX);
+            Assert.True(MathUtil.IsFinite(actual));
+            Assert.Equal(expected, actual, 14);
+            Assert.Equal(0, tree.FastWindingNumber(Vector3d.Zero));
+        }
+
+        [Fact]
+        public void OverflowingDistanceCube_DipoleRetainsItsContribution()
+        {
+            double actual = AxialDipoleWinding(Math.Pow(2, 520), Math.Pow(2, 1000));
+            double expected = Math.Pow(2, -40) / MathUtil.FourPI;
+            Assert.Equal(1, actual / expected, 14);
+        }
+
+        [Fact]
+        public void ExtremePowerOfTwoScale_SameDipoleValueBitForBit()
+        {
+            double small = AxialDipoleWinding(Math.Pow(2, -530), Math.Pow(2, -1060));
+            double large = AxialDipoleWinding(Math.Pow(2, -520), Math.Pow(2, -1040));
+            Assert.Equal(1, small * MathUtil.FourPI, 14);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(small), BitConverter.DoubleToInt64Bits(large));
+        }
+
+        static double AxialDipoleWinding(double distance, double area)
+        {
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisX);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => area };
+            return tree.FastWindingNumber(-distance * Vector3d.AxisX);
+        }
+
+        [Fact]
+        public void NearlyTangentialDipole_WithUnderflowingDistanceCubeAndLargeArea()
+        {
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisY);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => Math.Pow(2, 500) };
+            var query = new Vector3d(-Math.Pow(2, -532), -double.Epsilon, 0);
+            double expected = Math.Pow(2, 1022) / MathUtil.FourPI;
+            Assert.Equal(1, tree.FastWindingNumber(query) / expected, 14);
+        }
+
+        [Fact]
+        public void NearlyTangentialDipole_RetainsTheContributionOfASubnormalArea()
+        {
+            double scale = Math.Pow(2, -530);
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisY);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => scale * scale };
+            var query = new Vector3d(-scale, -double.Epsilon, 0);
+            double expected = (double.Epsilon / scale) / MathUtil.FourPI;
+            Assert.Equal(1, tree.FastWindingNumber(query) / expected, 14);
+        }
+
+        [Theory]
         [InlineData(-30)]
         [InlineData(-40)]
         [InlineData(-50)]

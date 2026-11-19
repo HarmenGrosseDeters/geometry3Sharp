@@ -391,6 +391,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SizeAdaptation_CollapseLengthFollowsTheLocalSpacing()
+        {
+            // the cells of a size field are down to 0.55 of the target: a collapse limit of 0.6 target edges would remove edges of regular cells there
+            // (the quad share of the sphere fell from 96.5 to 93.0 % before the limit was relative to the local spacing)
+            PolyMeshMetrics m06 = CheckResult(Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => q.CollapseLength = 0.6).Result, "0.6");
+            PolyMeshMetrics m04 = CheckResult(Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => q.CollapseLength = 0.4).Result, "0.4");
+            Assert.True(m06.QuadFraction >= m04.QuadFraction - 0.01, "quads " + m04.QuadFraction + " (0.4), " + m06.QuadFraction + " (0.6)");
+            Assert.True(m06.QuadFraction >= 0.95, "quads " + m06.QuadFraction);
+        }
+
+        [Fact]
         public void SizeAdaptation_IsNotUsedWhereTheCurlDoesNotDrop_AndThenTheResultIsTheUniformOne()
         {
             // the filleted box: the curl hardly changes, the option leaves the result as it is

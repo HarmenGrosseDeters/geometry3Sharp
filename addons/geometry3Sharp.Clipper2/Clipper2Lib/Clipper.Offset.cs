@@ -107,6 +107,17 @@ namespace g3.Clipper2.Vendored
     public bool PreserveCollinear { get; set; }
     public bool ReverseSolution { get; set; }
 
+    // geometry3Sharp change (#1169): a concave vertex whose two offset edges intersect inside both of them gets the one
+    // point of that intersection (the miter point) instead of the 3 points perp(k), vertex, perp(j). The 3-point detour
+    // adds a loop that the final union removes, but on a dense smooth ring it leaves about delta / spacing edges of
+    // length delta active at once, so the union costs O(n^2) (100k vertices: 20 s, 50 ms with the miter point). The
+    // result differs from the 3-point one by the rounding of that point (a few grid units). Off here (upstream behaviour);
+    // the adapter turns it on by default (Clipper2Options.SinglePointInnerJoin, owner 2026-11-19).
+    public bool SinglePointInnerJoin { get; set; }
+
+    // the number of vertices of the raw offset, before the union (for the tests of SinglePointInnerJoin)
+    internal int RawVertexCount { get; private set; }
+
     public delegate double DeltaCallback64(Path64 path,
       PathD path_norms, int currPt, int prevPt);
     public DeltaCallback64? DeltaCallback { get; set; }
@@ -194,8 +205,11 @@ namespace g3.Clipper2.Vendored
       _mitLimSqr = (MiterLimit <= 1 ?
         2.0 : 2.0 / Clipper.Sqr(MiterLimit));
 
+      RawVertexCount = 0;
       foreach (Group group in _groupList)
         DoGroupOffset(group);
+      foreach (Path64 raw in _solution)
+        RawVertexCount += raw.Count;
 
       if (_groupList.Count == 0) return;
 
@@ -517,7 +531,24 @@ namespace g3.Clipper2.Vendored
       _normals.Add(GetUnitNormal(path[cnt - 1], path[0]));
     }
 
-    private void OffsetPoint(Group group, Path64 path, int j, ref int k)
+    // the miter point of a concave join is the intersection of the two offset edges. Each edge is cut at both ends by the
+    // miter points of its two vertices, so these must not cross: the distance |delta| tan(A / 2) (A = turn angle, sinA /
+    // (1 + cosA) = tan(A / 2)) of the miter point from the end of an offset edge is at most half the length of the edge
+    // (for a smooth ring this reads |delta| <= the radius of curvature; with more, the cut edge runs backwards and the union
+    // keeps a notch the 3-point join does not have). A margin of 1e-9 keeps the borderline case on the 3-point path. Only
+    // for turns below 90 degrees: the rounding of the offset edges' ends moves the intersection of two edges that meet at a
+    // sharp angle by up to 1 / sin(half the angle between them) grid units (5 units seen at cosA = -0.99), so sharp corners
+    // keep the 3-point join and the result stays within 3 grid units of it
+    private bool InnerJoinIsSimple(Path64 path, int j, int k, int next, double sinA, double cosA)
+    {
+      if (!SinglePointInnerJoin || DeltaCallback != null || cosA <= 0) return false;
+      double t = Math.Abs(_groupDelta) * Math.Abs(sinA) / (1.0 + cosA);
+      double limit = 0.5 * (1.0 - 1e-9) * Math.Sqrt(Math.Min(Clipper.DistanceSqr(path[j], path[k]),
+        Clipper.DistanceSqr(path[j], path[next])));
+      return t < limit;
+    }
+
+    private void OffsetPoint(Group group, Path64 path, int j, ref int k, int next)
     {
       if (path[j] == path[k]) { k = j; return; }
 
@@ -542,7 +573,11 @@ namespace g3.Clipper2.Vendored
         return;
       }
 
-      if (cosA > -0.999 && (sinA * _groupDelta < 0)) // test for concavity first (#593)
+      if (cosA > -0.999 && (sinA * _groupDelta < 0) && InnerJoinIsSimple(path, j, k, next, sinA, cosA))
+      {
+        DoMiter(path, j, k, cosA);
+      }
+      else if (cosA > -0.999 && (sinA * _groupDelta < 0)) // test for concavity first (#593)
       {
         // is concave
         // by far the simplest way to construct concave joins, especially those joining very 
@@ -587,7 +622,7 @@ namespace g3.Clipper2.Vendored
       pathOut = new Path64();
       int cnt = path.Count, prev = cnt - 1;
       for (int i = 0; i < cnt; i++)
-        OffsetPoint(group, path, i, ref prev);
+        OffsetPoint(group, path, i, ref prev, i + 1 == cnt ? 0 : i + 1);
       _solution.Add(pathOut);
     }
 
@@ -627,7 +662,7 @@ namespace g3.Clipper2.Vendored
 
       // offset the left side going forward
       for (int i = 1, k = 0; i < highI; i++)
-        OffsetPoint(group, path, i, ref k);
+        OffsetPoint(group, path, i, ref k, i + 1);
 
       // reverse normals ...
       for (int i = highI; i > 0; i--)
@@ -655,7 +690,7 @@ namespace g3.Clipper2.Vendored
 
       // offset the left side going back
       for (int i = highI -1, k = highI; i > 0; i--)
-        OffsetPoint(group, path, i, ref k);
+        OffsetPoint(group, path, i, ref k, i - 1);
 
       _solution.Add(pathOut);
     }

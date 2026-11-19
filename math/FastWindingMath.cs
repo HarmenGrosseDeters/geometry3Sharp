@@ -260,11 +260,42 @@ namespace g3
         {
             Vector3d dv = (x - q);
             double len = dv.Length;
-            // q at the dipole itself: the kernel is singular (0 / 0 = NaN), and a point on the sample has no
-            // defined contribution; it adds nothing, so the winding number of the rest is returned
-            if (len == 0)
+            double len3 = len * len * len;
+            if (len3 >= 2.2250738585072014e-308 && !double.IsInfinity(len3))
+                return (xA / MathUtil.FourPI) * xn.Dot(dv / len3);
+
+            // Factor the distance scale out of the dipole. This avoids forming
+            // the square or cube of an extreme distance before applying its area.
+            double scale = Math.Max(Math.Abs(dv.x), Math.Max(Math.Abs(dv.y), Math.Abs(dv.z)));
+            if (scale == 0 || xA == 0)
+                return 0; // a coincident sample is singular and contributes nothing
+            Vector3d offset = dv / scale;
+            double length = offset.Length;
+            double angular = xn.Dot(offset) / (MathUtil.FourPI * length * length * length);
+            if (angular == 0)
                 return 0;
-            return (xA / MathUtil.FourPI) * xn.Dot(dv / (len * len * len));
+            if (!MathUtil.IsFinite(scale) || !MathUtil.IsFinite(xA) || !MathUtil.IsFinite(angular))
+                return (xA / MathUtil.FourPI) * xn.Dot(dv / len3);
+
+            int areaExponent = binary_exponent(xA);
+            int angleExponent = binary_exponent(angular);
+            int distanceExponent = binary_exponent(scale);
+            double areaMantissa = CoreMathPort.CoreMath.Ldexp(xA, -areaExponent);
+            double angleMantissa = CoreMathPort.CoreMath.Ldexp(angular, -angleExponent);
+            double distanceMantissa = CoreMathPort.CoreMath.Ldexp(scale, -distanceExponent);
+            double mantissa = areaMantissa * angleMantissa / (distanceMantissa * distanceMantissa);
+            return CoreMathPort.CoreMath.Ldexp(mantissa, areaExponent + angleExponent - 2 * distanceExponent);
+        }
+
+        // Finite nonzero input. Promote subnormals exactly before reading the exponent.
+        static int binary_exponent(double value)
+        {
+            int exponent = (int)((BitConverter.DoubleToInt64Bits(value) >> 52) & 0x7FF);
+            if (exponent != 0)
+                return exponent - 1023;
+            const double twoTo64 = 18446744073709551616.0;
+            exponent = (int)((BitConverter.DoubleToInt64Bits(value * twoTo64) >> 52) & 0x7FF);
+            return exponent - 1023 - 64;
         }
 
         // point-winding-number first-order approximation. 

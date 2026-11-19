@@ -201,7 +201,8 @@ namespace gs
             public List<Vector3d> Nrm = new List<Vector3d>();
             public List<List<int>> Adj = new List<List<int>>();
             public List<byte> Kind = new List<byte>();      // 0 interior, 1 boundary, 2 corner of the boundary
-            public int Add(Vector3d p, Vector3d n, byte kind) { Pos.Add(p); Nrm.Add(n); Adj.Add(new List<int>()); Kind.Add(kind); return Pos.Count - 1; }
+            public List<double> Spc = new List<double>();   // the lattice spacing factor of the vertex (1: uniform spacing; the size field of SizeAdaptation)
+            public int Add(Vector3d p, Vector3d n, byte kind) { Pos.Add(p); Nrm.Add(n); Adj.Add(new List<int>()); Kind.Add(kind); Spc.Add(1.0); return Pos.Count - 1; }
             public bool Has(int a, int b) { return Adj[a].Contains(b); }
             public void Link(int a, int b) { if (a == b || Adj[a].Contains(b)) return; Adj[a].Add(b); Adj[b].Add(a); }
             public void Unlink(int a, int b) { Adj[a].Remove(b); Adj[b].Remove(a); }
@@ -231,24 +232,25 @@ namespace gs
             for (int i = 0; i < n; ++i) id[i] = -1;
             // a cluster is at the mean lattice point of its members; the members of the highest kind decide (a corner of the boundary
             // is a lattice point itself, a boundary vertex is on its lattice line: interior members must not pull them off)
-            var sumP = new List<Vector3d>(); var sumN = new List<Vector3d>(); var cnt = new List<int>(); var kinds = new List<byte>();
+            var sumP = new List<Vector3d>(); var sumN = new List<Vector3d>(); var cnt = new List<int>(); var kinds = new List<byte>(); var sumSpc = new List<double>();
             for (int pass = 0; pass < 2; ++pass)
                 for (int i = 0; i < n; ++i) {
                     int r = Find(uf, i);
                     if (pass == 0) {
-                        if (id[r] < 0) { id[r] = sumP.Count; sumP.Add(Vector3d.Zero); sumN.Add(Vector3d.Zero); cnt.Add(0); kinds.Add(0); }
+                        if (id[r] < 0) { id[r] = sumP.Count; sumP.Add(Vector3d.Zero); sumN.Add(Vector3d.Zero); cnt.Add(0); kinds.Add(0); sumSpc.Add(0); }
                         int c0 = id[r];
                         sumN[c0] += L.Nrm[i];
                         if (L.Kind[i] > kinds[c0]) kinds[c0] = L.Kind[i];
                     } else {
                         int c = id[r];
                         if (L.Kind[i] != kinds[c]) continue;
-                        sumP[c] += pf.Origins[i]; cnt[c]++;
+                        sumP[c] += pf.Origins[i]; cnt[c]++; sumSpc[c] += L.Sc == null ? 1.0 : L.Sc[i];
                     }
                 }
             for (int c = 0; c < sumP.Count; ++c) {
                 Vector3d nn = sumN[c]; double nl = nn.Length;
-                g.Add(sumP[c] / cnt[c], nl > 0 ? nn / nl : sumN[c], kinds[c]);
+                int gi = g.Add(sumP[c] / cnt[c], nl > 0 ? nn / nl : sumN[c], kinds[c]);
+                if (L.Sc != null) g.Spc[gi] = sumSpc[c] / cnt[c];
             }
             for (int u = 0; u < unitA.Count; ++u) {
                 int a = id[Find(uf, unitA[u])], b = id[Find(uf, unitB[u])];
@@ -279,8 +281,12 @@ namespace gs
             return any;
         }
 
-        /// <summary> edges shorter than this (in units of the edge length) are collapsed by the cleanup: their end points are one point </summary>
-        public double CollapseLength = 0.4;
+        /// <summary>
+        /// edges shorter than this (in units of the edge length, of the local spacing with SizeAdaptation) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
+        /// 2026-11-19; it was 0.4): the ragged boundary of an open mesh is a row of short edges, 0.6 removes them (open patch 32 -> 17 irregular
+        /// vertices, 95.8 -> 98.3 % quads), and the closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.5)
+        /// </summary>
+        public double CollapseLength = 0.6;
         /// <summary> short edges collapsed and valence 2 vertices removed by the last Compute() </summary>
         public int CollapsedEdges, RemovedValence2;
         /// <summary> faces of the traced graph that are not in the result (the outer loops of an open mesh, folded faces, faces above MaxFaceSides) </summary>
@@ -292,22 +298,23 @@ namespace gs
         internal static void CleanupGraph(PolyGraph g, double s, double collapseLength, out int collapsedEdges, out int removedValence2)
         {
             collapsedEdges = 0; removedValence2 = 0;
-            double lim = collapseLength * s;
+            double lim0 = collapseLength * s;       // the limit is relative to the local spacing (a factor 1 without a size field)
             for (int round = 0; round < 8; ++round) {
                 bool changed = false;
                 var cand = new List<(double, int, int)>();
                 for (int a = 0; a < g.Pos.Count; ++a)
                     foreach (int b in g.Adj[a])
-                        if (a < b) { double l = (g.Pos[a] - g.Pos[b]).Length; if (l < lim) cand.Add((l, a, b)); }
+                        if (a < b) { double l = (g.Pos[a] - g.Pos[b]).Length; if (l < lim0 * Math.Min(g.Spc[a], g.Spc[b])) cand.Add((l, a, b)); }
                 cand.Sort();
                 foreach (var c in cand) {
                     int a = c.Item2, b = c.Item3;
-                    if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim) continue;
+                    if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim0 * Math.Min(g.Spc[a], g.Spc[b])) continue;
                     if (g.Kind[a] == 2 && g.Kind[b] == 2) continue;
                     if (g.Kind[b] > g.Kind[a]) { int t = a; a = b; b = t; }
                     // the vertex of the higher kind keeps its place (a boundary vertex stays on its lattice line, a corner on its point)
                     Vector3d p = g.Kind[a] > g.Kind[b] ? g.Pos[a] : 0.5 * (g.Pos[a] + g.Pos[b]);
                     g.Pos[a] = p;
+                    g.Spc[a] = 0.5 * (g.Spc[a] + g.Spc[b]);
                     Vector3d nn = g.Nrm[a] + g.Nrm[b]; double nl = nn.Length; if (nl > 0) g.Nrm[a] = nn / nl;
                     foreach (int x in g.Adj[b].ToArray()) { g.Unlink(b, x); if (x != a) g.Link(a, x); }
                     collapsedEdges++; changed = true;
@@ -382,18 +389,62 @@ namespace gs
             bool flip = agree < 0;
             var mesh = new DPolyMesh();
             dropped = 0;
-            int[] remap = new int[nv];
-            for (int k = 0; k < nv; ++k) remap[k] = -1;
-            var buf = new List<int>();
+            // the faces that stay, their loops turned to agree with the normals
+            var kept = new List<int>(); var loops = new int[faces.Count][];
             for (int f = 0; f < faces.Count; ++f) {
                 int[] fv = faces[f];
                 double a = flip ? -area[f] : area[f];
                 if (!(a > 0) || fv.Length < 3 || fv.Length > maxSides) { dropped++; continue; }     // the outer loop of an open mesh, a folded face, a hole
+                if (flip) { fv = (int[])fv.Clone(); Array.Reverse(fv); }
+                loops[f] = fv; kept.Add(f);
+            }
+            // A vertex whose kept faces form more than one fan (the faces touch only at the vertex: a degenerate star of the extraction, a hole or the outer
+            // loop between them) is split into one copy per fan, numbered by the smallest face index of the fan: the polygon mesh is then manifold
+            // at every vertex. A mesh without such a vertex is built exactly as before.
+            var inc = new List<int>[nv];
+            foreach (int f in kept) foreach (int v in loops[f]) { if (inc[v] == null) inc[v] = new List<int>(); inc[v].Add(f); }
+            Dictionary<long, int> fanOf = null;      // (face, vertex) -> fan number above 0
+            for (int v = 0; v < nv; ++v) {
+                List<int> fs = inc[v];
+                if (fs == null || fs.Count < 2) continue;
+                var parent = new int[fs.Count];
+                for (int i = 0; i < parent.Length; ++i) parent[i] = i;
+                var byNb = new Dictionary<int, int>();
+                for (int i = 0; i < fs.Count; ++i) {
+                    int[] lv = loops[fs[i]]; int c = Array.IndexOf(lv, v);
+                    foreach (int w in new[] { lv[(c + 1) % lv.Length], lv[(c + lv.Length - 1) % lv.Length] }) {
+                        int o;
+                        if (byNb.TryGetValue(w, out o)) { int ra = Find(parent, i), rb = Find(parent, o); if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb); }
+                        else byNb[w] = i;
+                    }
+                }
+                int fans = 0;
+                for (int i = 0; i < fs.Count; ++i) if (Find(parent, i) == i) fans++;
+                if (fans < 2) continue;
+                var number = new Dictionary<int, int>();     // root -> fan number, in the order of the faces
+                for (int i = 0; i < fs.Count; ++i) {
+                    int r = Find(parent, i), n;
+                    if (!number.TryGetValue(r, out n)) { n = number.Count; number[r] = n; }
+                    if (n > 0) { if (fanOf == null) fanOf = new Dictionary<long, int>(); fanOf[(long)fs[i] * nv + v] = n; }
+                }
+            }
+            int[] remap = new int[nv];
+            for (int k = 0; k < nv; ++k) remap[k] = -1;
+            var copies = fanOf == null ? null : new Dictionary<long, int>();      // (vertex, fan) -> mesh vertex
+            var buf = new List<int>();
+            foreach (int f in kept) {
+                int[] fv = loops[f];
                 buf.Clear();
                 for (int k = 0; k < fv.Length; ++k) {
-                    int v = fv[flip ? fv.Length - 1 - k : k];
-                    if (remap[v] < 0) { remap[v] = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); }
-                    buf.Add(remap[v]);
+                    int v = fv[k], fan;
+                    if (fanOf != null && fanOf.TryGetValue((long)f * nv + v, out fan)) {
+                        long key = (long)v * (nv + 1) + fan; int id;
+                        if (!copies.TryGetValue(key, out id)) { id = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); copies[key] = id; }
+                        buf.Add(id);
+                    } else {
+                        if (remap[v] < 0) { remap[v] = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); }
+                        buf.Add(remap[v]);
+                    }
                 }
                 mesh.AppendFace(buf, 0);
             }
