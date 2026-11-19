@@ -60,6 +60,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
+    <!-- the fold diagnosis of the pure-quad flow (benchmarks/QuadFoldDiagnosis, data branch runs/quad-folds, not merged) -->
+    <InternalsVisibleTo Include="QuadFoldDiagnosis" />
     <InternalsVisibleTo Include="ReaderFuzzPilot" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
