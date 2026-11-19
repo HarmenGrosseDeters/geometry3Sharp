@@ -1,0 +1,285 @@
+## per row: part R tri k | raw: tris s clr/r open half | simp: tris s clr/r open half | bound/r bound-ok
+angled R=1.5 t0 k=0.5  |  26376   0.9s 0.870 Y Y |   6422   0.8s 0.870 Y Y | 0.857 ok
+angled R=1.5 t0 k=0.8  |  12008   0.6s 0.626 Y Y |   3972   0.4s 0.626 Y Y | 0.591 ok
+angled R=1.5 t0 k=0.95 |   9220   0.6s 0.389 Y - |   3492   0.5s 0.389 Y - | 0.307 ok
+angled R=1.5 t0 k=1    |   8668   0.6s 0.283 Y - |   3388   0.5s 0.283 Y - | 0.000 ok
+angled R=1.5 t0 k=1.05 |   7850   0.6s 0.000 - - |   3084   0.4s 0.000 - - | 0.000 
+angled R=1.5 t0 k=1.1  |   7282   0.6s 0.000 - - |   2956   0.5s 0.000 - - | 0.000 
+angled R=1.5 t0 k=1.25 |   6130   0.5s 0.000 - - |   2618   0.4s 0.000 - - | 0.000 
+angled R=1.5 t0 k=1.5  |   5076   0.6s 0.000 - - |   2470   0.4s 0.000 - - | 0.000 
+angled R=1.5 t0 k=2    |   3248   0.5s 0.000 - - |   1678   0.5s 0.000 - - | 0.000 
+angled R=1.5 t0 k=3    |   1982   0.5s 0.000 - - |   1152   0.5s 0.000 - - | 0.000 
+angled R=1.5 t1 k=0.5  |  25334   0.8s 0.868 Y Y |   6366   6.0s 0.868 Y Y | 0.857 ok
+angled R=1.5 t1 k=0.8  |  11630   0.6s 0.639 Y Y |   4144   5.4s 0.639 Y Y | 0.591 ok
+angled R=1.5 t1 k=0.95 |   8848   0.6s 0.370 Y - |   3498   5.2s 0.370 Y - | 0.307 ok
+angled R=1.5 t1 k=1    |   8498   0.6s 0.287 Y - |   3546   5.0s 0.287 Y - | 0.000 
+angled R=1.5 t1 k=1.05 |   7446   0.6s 0.000 - - |   3074   4.5s 0.000 - - | 0.000 
+angled R=1.5 t1 k=1.1  |   6766   0.6s 0.000 - - |   2876   4.5s 0.000 - - | 0.000 
+angled R=1.5 t1 k=1.25 |   5914   0.6s 0.000 - - |   2756   4.4s 0.000 - - | 0.000 
+angled R=1.5 t1 k=1.5  |   4578   0.5s 0.000 - - |   2334   4.3s 0.000 - - | 0.000 
+angled R=1.5 t1 k=2    |   3002   0.5s 0.000 - - |   1662   3.7s 0.000 - - | 0.000 
+angled R=1.5 t1 k=3    |   1754   0.5s 0.000 - - |   1080   2.9s 0.000 - - | 0.000 
+angled R=3   t0 k=0.5  |   8028   0.2s 0.869 Y Y |   3060   0.3s 0.869 Y Y | 0.857 ok
+angled R=3   t0 k=0.8  |   4154   0.2s 0.679 Y Y |   2006   0.2s 0.679 Y Y | 0.591 ok
+angled R=3   t0 k=0.95 |   3412   0.2s 0.443 Y - |   1706   0.2s 0.443 Y - | 0.307 ok
+angled R=3   t0 k=1    |   3252   0.2s 0.167 Y - |   1710   0.2s 0.167 Y - | 0.000 ok
+angled R=3   t0 k=1.05 |   3020   0.2s 0.000 - - |   1508   0.2s 0.000 - - | 0.000 
+angled R=3   t0 k=1.1  |   2876   0.2s 0.000 - - |   1468   0.2s 0.000 - - | 0.000 
+angled R=3   t0 k=1.25 |   2388   0.2s 0.000 - - |   1278   0.2s 0.000 - - | 0.000 
+angled R=3   t0 k=1.5  |   2072   0.2s 0.000 - - |   1236   0.1s 0.000 - - | 0.000 
+angled R=3   t0 k=2    |   1634   0.1s 0.000 - - |   1016   0.2s 0.000 - - | 0.000 
+angled R=3   t0 k=3    |   1016   0.1s 0.000 - - |    686   0.2s 0.000 - - | 0.000 
+angled R=3   t1 k=0.5  |   7866   0.3s 0.881 Y Y |   3306   1.6s 0.881 Y Y | 0.857 ok
+angled R=3   t1 k=0.8  |   4040   0.2s 0.681 Y Y |   2204   1.2s 0.681 Y Y | 0.591 ok
+angled R=3   t1 k=0.95 |   3108   0.2s 0.384 Y - |   1822   1.0s 0.384 Y - | 0.307 ok
+angled R=3   t1 k=1    |   3004   0.2s 0.262 Y - |   1794   0.9s 0.262 Y - | 0.000 ok
+angled R=3   t1 k=1.05 |   2822   0.1s 0.000 - - |   1652   0.9s 0.000 - - | 0.000 
+angled R=3   t1 k=1.1  |   2542   0.1s 0.000 - - |   1510   0.8s 0.000 - - | 0.000 
+angled R=3   t1 k=1.25 |   2182   0.1s 0.000 - - |   1336   0.8s 0.000 - - | 0.000 
+angled R=3   t1 k=1.5  |   1712   0.1s 0.000 - - |   1088   0.8s 0.000 - - | 0.000 
+angled R=3   t1 k=2    |   1130   0.1s 0.000 - - |    752   0.6s 0.000 - - | 0.000 
+angled R=3   t1 k=3    |    740   0.1s 0.000 - - |    510   0.5s 0.000 - - | 0.000 
+angled R=6   t0 k=0.5  |   3078   0.1s 0.874 Y Y |   1724   0.1s 0.874 Y Y | 0.857 ok
+angled R=6   t0 k=0.8  |   1842   0.1s 0.636 Y Y |   1172   0.1s 0.636 Y Y | 0.591 ok
+angled R=6   t0 k=0.95 |   1350   0.0s 0.376 Y - |    928   0.1s 0.376 Y - | 0.307 ok
+angled R=6   t0 k=1    |   1258   0.0s 0.170 Y - |    848   0.1s 0.170 Y - | 0.000 ok
+angled R=6   t0 k=1.05 |   1082   0.0s 0.000 - - |    724   0.1s 0.000 - - | 0.000 
+angled R=6   t0 k=1.1  |   1172   0.0s 0.000 - - |    774   0.1s 0.000 - - | 0.000 
+angled R=6   t0 k=1.25 |    808   0.0s 0.000 - - |    576   0.0s 0.000 - - | 0.000 
+angled R=6   t0 k=1.5  |    678   0.0s 0.000 - - |    470   0.1s 0.000 - - | 0.000 
+angled R=6   t0 k=2    |    466   0.0s 0.000 - - |    298   0.1s 0.000 - - | 0.000 
+angled R=6   t0 k=3    |    214   0.0s 0.000 - - |    164   0.0s 0.000 - - | 0.000 
+angled R=6   t1 k=0.5  |   2642   0.1s 0.886 Y Y |   1584   0.3s 0.886 Y Y | 0.857 ok
+angled R=6   t1 k=0.8  |   1510   0.1s 0.662 Y Y |   1064   0.2s 0.662 Y Y | 0.591 ok
+angled R=6   t1 k=0.95 |   1342   0.1s 0.432 Y - |    958   0.2s 0.432 Y - | 0.307 ok
+angled R=6   t1 k=1    |   1200   0.1s 0.342 Y - |    848   0.1s 0.342 Y - | 0.000 ok
+angled R=6   t1 k=1.05 |   1074   0.0s 0.000 - - |    764   0.1s 0.000 - - | 0.000 
+angled R=6   t1 k=1.1  |   1032   0.0s 0.000 - - |    750   0.2s 0.000 - - | 0.000 
+angled R=6   t1 k=1.25 |    810   0.0s 0.000 - - |    590   0.2s 0.000 - - | 0.000 
+angled R=6   t1 k=1.5  |    644   0.0s 0.000 - - |    480   0.1s 0.000 - - | 0.000 
+angled R=6   t1 k=2    |    532   0.0s 0.000 - - |    396   0.1s 0.000 - - | 0.000 
+angled R=6   t1 k=3    |    304   0.0s 0.000 - - |    236   0.1s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=0.5  |  25756   0.8s 0.864 Y Y |   5842   0.8s 0.864 Y Y | 0.857 ok
+blind  R=1.5 t0 k=0.8  |  11792   0.6s 0.625 Y Y |   3740   0.5s 0.625 Y Y | 0.591 ok
+blind  R=1.5 t0 k=0.95 |   9118   0.6s 0.386 Y - |   3394   0.4s 0.386 Y - | 0.307 ok
+blind  R=1.5 t0 k=1    |   8548   0.5s 0.145 Y - |   3280   0.5s 0.145 Y - | 0.000 ok
+blind  R=1.5 t0 k=1.05 |   7732   0.6s 0.000 - - |   2970   0.5s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=1.1  |   7362   0.6s 0.000 - - |   2946   0.4s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=1.25 |   6078   0.5s 0.000 - - |   2620   0.4s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=1.5  |   5048   0.5s 0.000 - - |   2478   0.4s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=2    |   3204   0.5s 0.000 - - |   1688   0.5s 0.000 - - | 0.000 
+blind  R=1.5 t0 k=3    |   2016   0.5s 0.000 - - |   1174   0.5s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=0.5  |  24850   0.8s 0.870 Y Y |   5780   5.8s 0.870 Y Y | 0.857 ok
+blind  R=1.5 t1 k=0.8  |  11350   0.6s 0.630 Y Y |   3906   5.1s 0.630 Y Y | 0.591 ok
+blind  R=1.5 t1 k=0.95 |   8730   0.6s 0.431 Y - |   3352   5.2s 0.431 Y - | 0.307 ok
+blind  R=1.5 t1 k=1    |   8310   0.6s 0.316 Y - |   3382   4.9s 0.316 Y - | 0.000 ok
+blind  R=1.5 t1 k=1.05 |   7426   0.6s 0.000 - - |   3014   5.1s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=1.1  |   6722   0.6s 0.000 - - |   2774   5.1s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=1.25 |   5914   0.7s 0.000 - - |   2758   4.8s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=1.5  |   4464   0.5s 0.000 - - |   2230   4.7s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=2    |   3016   0.6s 0.000 - - |   1672   3.8s 0.000 - - | 0.000 
+blind  R=1.5 t1 k=3    |   1670   0.5s 0.000 - - |   1032   2.8s 0.000 - - | 0.000 
+blind  R=3   t0 k=0.5  |   7544   0.2s 0.869 Y Y |   2644   0.3s 0.869 Y Y | 0.857 ok
+blind  R=3   t0 k=0.8  |   3936   0.2s 0.654 Y Y |   1768   0.3s 0.654 Y Y | 0.591 ok
+blind  R=3   t0 k=0.95 |   3254   0.2s 0.357 Y - |   1602   0.2s 0.357 Y - | 0.307 ok
+blind  R=3   t0 k=1    |   3144   0.2s 0.170 Y - |   1572   0.2s 0.170 Y - | 0.000 ok
+blind  R=3   t0 k=1.05 |   2956   0.1s 0.000 - - |   1470   0.2s 0.000 - - | 0.000 
+blind  R=3   t0 k=1.1  |   2744   0.2s 0.000 - - |   1384   0.2s 0.000 - - | 0.000 
+blind  R=3   t0 k=1.25 |   2308   0.1s 0.000 - - |   1248   0.2s 0.000 - - | 0.000 
+blind  R=3   t0 k=1.5  |   2046   0.2s 0.000 - - |   1212   0.2s 0.000 - - | 0.000 
+blind  R=3   t0 k=2    |   1594   0.1s 0.000 - - |    996   0.2s 0.000 - - | 0.000 
+blind  R=3   t0 k=3    |   1014   0.1s 0.000 - - |    688   0.2s 0.000 - - | 0.000 
+blind  R=3   t1 k=0.5  |   7480   0.2s 0.869 Y Y |   2916   1.4s 0.869 Y Y | 0.857 ok
+blind  R=3   t1 k=0.8  |   3752   0.2s 0.678 Y Y |   1964   1.2s 0.678 Y Y | 0.591 ok
+blind  R=3   t1 k=0.95 |   3028   0.2s 0.484 Y - |   1742   1.0s 0.484 Y - | 0.307 ok
+blind  R=3   t1 k=1    |   2806   0.1s 0.284 Y - |   1650   1.0s 0.284 Y - | 0.000 ok
+blind  R=3   t1 k=1.05 |   2762   0.2s 0.000 - - |   1604   1.0s 0.000 - - | 0.000 
+blind  R=3   t1 k=1.1  |   2522   0.1s 0.000 - - |   1488   1.0s 0.000 - - | 0.000 
+blind  R=3   t1 k=1.25 |   2164   0.1s 0.000 - - |   1330   0.8s 0.000 - - | 0.000 
+blind  R=3   t1 k=1.5  |   1698   0.1s 0.000 - - |   1086   0.9s 0.000 - - | 0.000 
+blind  R=3   t1 k=2    |   1250   0.1s 0.000 - - |    854   0.7s 0.000 - - | 0.000 
+blind  R=3   t1 k=3    |    742   0.1s 0.000 - - |    512   0.4s 0.000 - - | 0.000 
+blind  R=6   t0 k=0.5  |   2852   0.1s 0.864 Y Y |   1468   0.1s 0.864 Y Y | 0.857 ok
+blind  R=6   t0 k=0.8  |   1714   0.1s 0.645 Y Y |   1056   0.1s 0.645 Y Y | 0.591 ok
+blind  R=6   t0 k=0.95 |   1214   0.0s 0.541 Y Y |    774   0.1s 0.541 Y Y | 0.307 ok
+blind  R=6   t0 k=1    |   1202   0.0s 0.162 Y - |    768   0.1s 0.162 Y - | 0.000 ok
+blind  R=6   t0 k=1.05 |   1076   0.0s 0.000 - - |    718   0.1s 0.000 - - | 0.000 
+blind  R=6   t0 k=1.1  |   1024   0.0s 0.000 - - |    652   0.1s 0.000 - - | 0.000 
+blind  R=6   t0 k=1.25 |    784   0.0s 0.000 - - |    558   0.1s 0.000 - - | 0.000 
+blind  R=6   t0 k=1.5  |    660   0.0s 0.000 - - |    452   0.1s 0.000 - - | 0.000 
+blind  R=6   t0 k=2    |    466   0.0s 0.000 - - |    298   0.1s 0.000 - - | 0.000 
+blind  R=6   t0 k=3    |    214   0.0s 0.000 - - |    166   0.0s 0.000 - - | 0.000 
+blind  R=6   t1 k=0.5  |   2440   0.1s 0.879 Y Y |   1416   0.3s 0.879 Y Y | 0.857 ok
+blind  R=6   t1 k=0.8  |   1340   0.1s 0.636 Y Y |    886   0.2s 0.636 Y Y | 0.591 ok
+blind  R=6   t1 k=0.95 |   1238   0.0s 0.446 Y - |    866   0.2s 0.446 Y - | 0.307 ok
+blind  R=6   t1 k=1    |   1026   0.0s 0.272 Y - |    734   0.2s 0.272 Y - | 0.000 ok
+blind  R=6   t1 k=1.05 |   1014   0.1s 0.000 - - |    710   0.2s 0.000 - - | 0.000 
+blind  R=6   t1 k=1.1  |    956   0.0s 0.000 - - |    682   0.1s 0.000 - - | 0.000 
+blind  R=6   t1 k=1.25 |    738   0.0s 0.000 - - |    546   0.1s 0.000 - - | 0.000 
+blind  R=6   t1 k=1.5  |    628   0.0s 0.000 - - |    468   0.1s 0.000 - - | 0.000 
+blind  R=6   t1 k=2    |    538   0.0s 0.000 - - |    392   0.1s 0.000 - - | 0.000 
+blind  R=6   t1 k=3    |    330   0.0s 0.000 - - |    246   0.1s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=0.5  |  26028   1.6s 0.872 Y Y |   6264   1.8s 0.872 Y Y | 0.857 ok
+cross  R=1.5 t0 k=0.8  |  11870   0.7s 0.639 Y Y |   3964   0.6s 0.639 Y Y | 0.591 ok
+cross  R=1.5 t0 k=0.95 |   9276   0.7s 0.364 Y - |   3532   0.5s 0.364 Y - | 0.307 ok
+cross  R=1.5 t0 k=1    |   8514   0.7s 0.188 Y - |   3372   0.5s 0.188 Y - | 0.000 
+cross  R=1.5 t0 k=1.05 |   7598   0.7s 0.000 - - |   2998   0.5s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=1.1  |   7184   0.7s 0.000 - - |   2892   0.5s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=1.25 |   6132   0.6s 0.000 - - |   2612   0.5s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=1.5  |   4916   0.6s 0.000 - - |   2340   0.5s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=2    |   3302   0.6s 0.000 - - |   1762   0.4s 0.000 - - | 0.000 
+cross  R=1.5 t0 k=3    |   2118   0.5s 0.000 - - |   1240   0.5s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=0.5  |  25062   0.9s 0.870 Y Y |   6272   6.2s 0.870 Y Y | 0.857 ok
+cross  R=1.5 t1 k=0.8  |  11688   0.6s 0.622 Y Y |   4280   5.0s 0.622 Y Y | 0.591 ok
+cross  R=1.5 t1 k=0.95 |   8838   0.7s 0.373 Y - |   3504   4.9s 0.373 Y - | 0.307 ok
+cross  R=1.5 t1 k=1    |   8360   0.6s 0.163 Y - |   3492   5.1s 0.163 Y - | 0.000 
+cross  R=1.5 t1 k=1.05 |   7412   0.6s 0.000 - - |   3058   4.9s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=1.1  |   6906   0.5s 0.000 - - |   2908   4.8s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=1.25 |   5868   0.5s 0.000 - - |   2764   4.5s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=1.5  |   4406   0.5s 0.000 - - |   2176   4.4s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=2    |   3016   0.5s 0.000 - - |   1694   3.4s 0.000 - - | 0.000 
+cross  R=1.5 t1 k=3    |   1850   0.5s 0.000 - - |   1118   3.0s 0.000 - - | 0.000 
+cross  R=3   t0 k=0.5  |   7834   0.3s 0.865 Y Y |   2806   0.3s 0.865 Y Y | 0.857 ok
+cross  R=3   t0 k=0.8  |   4112   0.2s 0.612 Y Y |   1914   0.2s 0.612 Y Y | 0.591 ok
+cross  R=3   t0 k=0.95 |   3460   0.2s 0.392 Y - |   1736   0.2s 0.392 Y - | 0.307 ok
+cross  R=3   t0 k=1    |   3250   0.2s 0.130 Y - |   1660   0.3s 0.130 Y - | 0.000 ok
+cross  R=3   t0 k=1.05 |   2806   0.2s 0.000 - - |   1450   0.2s 0.000 - - | 0.000 
+cross  R=3   t0 k=1.1  |   2764   0.2s 0.000 - - |   1448   0.2s 0.000 - - | 0.000 
+cross  R=3   t0 k=1.25 |   2426   0.1s 0.000 - - |   1306   0.2s 0.000 - - | 0.000 
+cross  R=3   t0 k=1.5  |   2100   0.1s 0.000 - - |   1224   0.2s 0.000 - - | 0.000 
+cross  R=3   t0 k=2    |   1588   0.1s 0.000 - - |   1030   0.1s 0.000 - - | 0.000 
+cross  R=3   t0 k=3    |    902   0.2s 0.000 - - |    598   0.3s 0.000 - - | 0.000 
+cross  R=3   t1 k=0.5  |   7694   0.3s 0.884 Y Y |   3178   1.5s 0.884 Y Y | 0.857 ok
+cross  R=3   t1 k=0.8  |   3996   0.2s 0.648 Y Y |   2174   1.1s 0.648 Y Y | 0.591 ok
+cross  R=3   t1 k=0.95 |   3136   0.2s 0.425 Y - |   1830   1.0s 0.425 Y - | 0.307 ok
+cross  R=3   t1 k=1    |   2992   0.2s 0.331 Y - |   1788   1.0s 0.331 Y - | 0.000 ok
+cross  R=3   t1 k=1.05 |   2770   0.2s 0.000 - - |   1610   0.9s 0.000 - - | 0.000 
+cross  R=3   t1 k=1.1  |   2402   0.1s 0.000 - - |   1384   1.0s 0.000 - - | 0.000 
+cross  R=3   t1 k=1.25 |   2134   0.1s 0.000 - - |   1290   0.8s 0.000 - - | 0.000 
+cross  R=3   t1 k=1.5  |   1702   0.1s 0.000 - - |   1116   0.7s 0.000 - - | 0.000 
+cross  R=3   t1 k=2    |   1258   0.1s 0.000 - - |    874   0.6s 0.000 - - | 0.000 
+cross  R=3   t1 k=3    |    714   0.1s 0.000 - - |    502   0.4s 0.000 - - | 0.000 
+cross  R=6   t0 k=0.5  |   2894   0.1s 0.881 Y Y |   1634   0.1s 0.881 Y Y | 0.857 ok
+cross  R=6   t0 k=0.8  |   1742   0.1s 0.633 Y Y |   1118   0.1s 0.633 Y Y | 0.591 ok
+cross  R=6   t0 k=0.95 |   1286   0.0s 0.437 Y - |    860   0.1s 0.437 Y - | 0.307 ok
+cross  R=6   t0 k=1    |   1288   0.1s 0.375 Y - |    868   0.1s 0.375 Y - | 0.000 ok
+cross  R=6   t0 k=1.05 |   1210   0.1s 0.000 - - |    792   0.1s 0.000 - - | 0.000 
+cross  R=6   t0 k=1.1  |   1110   0.0s 0.000 - - |    720   0.1s 0.000 - - | 0.000 
+cross  R=6   t0 k=1.25 |    804   0.0s 0.000 - - |    542   0.1s 0.000 - - | 0.000 
+cross  R=6   t0 k=1.5  |    674   0.0s 0.000 - - |    448   0.1s 0.000 - - | 0.000 
+cross  R=6   t0 k=2    |    482   0.1s 0.000 - - |    310   0.1s 0.000 - - | 0.000 
+cross  R=6   t0 k=3    |    206   0.0s 0.000 - - |    148   0.0s 0.000 - - | 0.000 
+cross  R=6   t1 k=0.5  |   2530   0.1s 0.882 Y Y |   1512   0.3s 0.882 Y Y | 0.857 ok
+cross  R=6   t1 k=0.8  |   1524   0.1s 0.706 Y Y |   1090   0.2s 0.706 Y Y | 0.591 ok
+cross  R=6   t1 k=0.95 |   1158   0.0s 0.437 Y - |    852   0.1s 0.437 Y - | 0.307 ok
+cross  R=6   t1 k=1    |   1160   0.0s 0.227 Y - |    850   0.1s 0.227 Y - | 0.000 
+cross  R=6   t1 k=1.05 |    882   0.0s 0.000 - - |    644   0.1s 0.000 - - | 0.000 
+cross  R=6   t1 k=1.1  |    924   0.0s 0.000 - - |    650   0.1s 0.000 - - | 0.000 
+cross  R=6   t1 k=1.25 |    842   0.0s 0.000 - - |    616   0.1s 0.000 - - | 0.000 
+cross  R=6   t1 k=1.5  |    726   0.0s 0.000 - - |    536   0.1s 0.000 - - | 0.000 
+cross  R=6   t1 k=2    |    560   0.0s 0.000 - - |    394   0.1s 0.000 - - | 0.000 
+cross  R=6   t1 k=3    |    340   0.1s 0.000 - - |    240   0.1s 0.000 - - | 0.000 
+
+## theorem check: raw clearance >= sqrt((r-offset)^2 - alpha^2) wherever the bound is positive
+rows with a positive bound: 68, violations: 0, smallest measured/bound (1.0087636325050686, 'blind', 1.5, 0, 0.5)
+measured / bound: min 1.009 median 1.151 max 23885318.236
+
+## open passage (clearance > 1 %% of r, ends outside) and half pin (p = r/2) by k; Y = pass in all configs of the cell
+variant raw
+part    R     0.5   0.8  0.95     1  1.05   1.1  1.25   1.5     2     3   (open: count of passing / configs per k; configs = 2 triangulations)
+angled  1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+angled  3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+angled  6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+variant simp
+part    R     0.5   0.8  0.95     1  1.05   1.1  1.25   1.5     2     3   (open: count of passing / configs per k; configs = 2 triangulations)
+angled  1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+angled  3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+angled  6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+blind   6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   1.5   2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   3     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+cross   6     2/2   2/2   2/2   2/2   0/2   0/2   0/2   0/2   0/2   0/2
+
+## monotonicity per config (open passage): first k that fails, and passes after a fail
+raw configs with a pass after a fail: 0 of 18
+   ('angled', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('angled', 3, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 3, 1) first fail k = 1.05 pass after fail at []
+   ('angled', 6, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 6, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 3, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 3, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 6, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 6, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 3, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 3, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 6, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 6, 1) first fail k = 1.05 pass after fail at []
+simp configs with a pass after a fail: 0 of 18
+   ('angled', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('angled', 3, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 3, 1) first fail k = 1.05 pass after fail at []
+   ('angled', 6, 0) first fail k = 1.05 pass after fail at []
+   ('angled', 6, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 3, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 3, 1) first fail k = 1.05 pass after fail at []
+   ('blind', 6, 0) first fail k = 1.05 pass after fail at []
+   ('blind', 6, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 1.5, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 1.5, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 3, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 3, 1) first fail k = 1.05 pass after fail at []
+   ('cross', 6, 0) first fail k = 1.05 pass after fail at []
+   ('cross', 6, 1) first fail k = 1.05 pass after fail at []
+
+## largest pin radius that passes (clearance / r) vs the a priori value, per k, median over configs
+variant raw  k: median clr/r (a priori bound/r median)
+  k=0.5   0.870  (0.857)  n=18
+  k=0.8   0.639  (0.591)  n=18
+  k=0.95  0.425  (0.307)  n=18
+  k=1     0.262  (0.000)  n=18
+  k=1.05  0.000  (0.000)  n=12
+  k=1.1   0.000  (0.000)  n=12
+  k=1.25  0.000  (0.000)  n=12
+  k=1.5   0.000  (0.000)  n=12
+  k=2     0.000  (0.000)  n=12
+  k=3     0.000  (0.000)  n=12
+variant simp  k: median clr/r (a priori bound/r median)
+  k=0.5   0.870  (0.857)  n=18
+  k=0.8   0.639  (0.591)  n=18
+  k=0.95  0.425  (0.307)  n=18
+  k=1     0.262  (0.000)  n=18
+  k=1.05  0.000  (0.000)  n=12
+  k=1.1   0.000  (0.000)  n=12
+  k=1.25  0.000  (0.000)  n=12
+  k=1.5   0.000  (0.000)  n=12
+  k=2     0.000  (0.000)  n=12
+  k=3     0.000  (0.000)  n=12
+
+## size and time (median over configs): raw / simplified triangles, raw s, simplify s
+  k=0.5   raw tris    7834  simp tris    3060  raw   0.3s  simp   0.8s
+  k=0.8   raw tris    4040  simp tris    2006  raw   0.2s  simp   0.4s
+  k=0.95  raw tris    3254  simp tris    1742  raw   0.2s  simp   0.4s
+  k=1     raw tris    3144  simp tris    1710  raw   0.2s  simp   0.5s
+  k=1.05  raw tris    2822  simp tris    1604  raw   0.2s  simp   0.4s
+  k=1.1   raw tris    2744  simp tris    1468  raw   0.2s  simp   0.4s
+  k=1.25  raw tris    2308  simp tris    1306  raw   0.1s  simp   0.4s
+  k=1.5   raw tris    2046  simp tris    1212  raw   0.1s  simp   0.4s
+  k=2     raw tris    1588  simp tris     996  raw   0.1s  simp   0.4s
+  k=3     raw tris     902  simp tris     598  raw   0.1s  simp   0.4s
