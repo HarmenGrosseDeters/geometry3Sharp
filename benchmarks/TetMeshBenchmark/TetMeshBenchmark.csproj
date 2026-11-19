@@ -6,6 +6,7 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\SharpFeatureProbe\Procedural.cs" Link="Procedural.cs" />
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
 </Project>
