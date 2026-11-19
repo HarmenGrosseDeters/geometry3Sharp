@@ -15,7 +15,7 @@ namespace g3
         InvalidInput,
         /// <summary> Two contours of one slice touch or cross (or a contour touches itself). </summary>
         CrossingContours,
-        /// <summary> A case stage 2 does not build (reported, never a wrong mesh): a terminal contour with a child that continues, a branching or merging group whose contours have children, an intersection that touches itself. </summary>
+        /// <summary> A case stage 2 does not build (reported, never a wrong mesh): a terminal contour with a child that continues, a branching or merging group whose holes have islands, an intersection that touches itself. </summary>
         Unsupported,
         /// <summary> No vertex pair of two contours to be joined by a bridge sees each other. </summary>
         BridgeNotFound,
@@ -94,8 +94,9 @@ namespace g3
     /// ridge at the bridge (the known look of composite contours), no medial axis is used.</para>
     /// <para>A slice is taken as planar: its height is the mean of its vertices' heights and the 2D work (nesting, overlay) uses the
     /// projection along the stacking direction; the exact check of the assembled mesh protects against slices that are not.</para>
-    /// <para>Limits (status Unsupported, never a wrong mesh): the contours of a branching or merging group must have no holes; a
-    /// contour that ends must have only children that end too. Serial and deterministic.</para>
+    /// <para>Limits (status Unsupported, never a wrong mesh): a hole of a branching or merging solid group may have no island inside it; a
+    /// contour that ends must have only children that end too. A hole of a branching or merging group is lofted through the group's intermediate plane
+    /// (docs/design/CONTOUR_LOFT.md section 10.10); where its pieces lie in different solid pieces there is no bridge (BridgeNotFound). Serial and deterministic.</para>
     /// </remarks>
     public sealed class ContourLoftStack
     {
