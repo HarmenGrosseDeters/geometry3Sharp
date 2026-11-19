@@ -437,7 +437,10 @@ namespace gs
             Func<Vector3d, bool> inMesh = (p) => meshSurface.Winding(p) > 0.5;
             Func<Vector3d, bool> inRef = (p) => refTree.FastWindingNumber(p) > 0.5;
             bool serial = Parallel == false;
-            VolumeIoU = iou(oriented, inRef, mesh, inMesh, serial, out VolumeMissing, out VolumeExtra);
+            // (the mesh's inside test is the same for both IoUs: where their sample points coincide, eg the same region and seed, its
+            // answers are taken from the first)
+            var meshInside = new MeshRepairMetrics.InsideCache();
+            VolumeIoU = iou(oriented, inRef, mesh, inMesh, serial, meshInside, out VolumeMissing, out VolumeExtra);
             if (OuterSurface == false)
                 return;
             double outerArea;
@@ -452,15 +455,15 @@ namespace gs
             outerTree.FastWindingNumber(Vector3d.Zero);
             if (OuterFacesConverged == false)
                 return;     // the faces of an unfinished classification: not stable (eg under rotation)
-            OuterVolumeIoU = iou(outer, (p) => outerTree.FastWindingNumber(p) > 0.5, mesh, inMesh, serial, out OuterVolumeMissing, out OuterVolumeExtra);
+            OuterVolumeIoU = iou(outer, (p) => outerTree.FastWindingNumber(p) > 0.5, mesh, inMesh, serial, meshInside, out OuterVolumeMissing, out OuterVolumeExtra);
         }
 
         // as MeshRepairMetrics.VolumeIoU: NaN (missing, extra NaN) if the reference encloses nothing, 0 (missing, extra
         // NaN) if its solid is too small to be hit by the samples
-        double iou(DMesh3 reference, Func<Vector3d, bool> inRef, DMesh3 mesh, Func<Vector3d, bool> inMesh, bool serial, out double missing, out double extra)
+        double iou(DMesh3 reference, Func<Vector3d, bool> inRef, DMesh3 mesh, Func<Vector3d, bool> inMesh, bool serial, MeshRepairMetrics.InsideCache meshInside, out double missing, out double extra)
         {
             double v = MeshRepairMetrics.volume_iou(inRef, MeshRepairMetrics.sample_region(reference, mesh), inMesh,
-                out missing, out extra, VolumeSamples, Seed, serial);
+                out missing, out extra, VolumeSamples, Seed, serial, meshInside);
             if (double.IsNaN(v)) {
                 missing = extra = double.NaN;
                 if (MeshRepairMetrics.has_solid(inRef, reference, Seed))

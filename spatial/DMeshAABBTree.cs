@@ -1558,7 +1558,11 @@ namespace g3
                 }
             }
 
-            double sum = branch_fast_winding_num(root_index, p);
+            // (the flat traversal makes the same decisions and sums the same terms in the same order as branch_fast_winding_num:
+            // the value is the same bit for bit; FastWindingForceScalar takes the reference path)
+            double sum = (fast_winding_flat != null && FastWindingForceScalar == false && FWNBeta >= 1.7320508075688772)
+                ? flat_fast_winding_num(root_index, ref p)
+                : branch_fast_winding_num(root_index, p);
             return sum;
         }
 
@@ -1572,7 +1576,20 @@ namespace g3
             if (idx < triangles_end) {            // triange-list case, array is [N t1 t2 ... tN]
                 int num_tris = index_list[idx];
                 Vector3d[] verts = fast_winding_leaf_vertices;
-                for (int i = 1; i <= num_tris; ++i) {
+                int i = 1;
+#if NET8_0_OR_GREATER
+                // (groups of four triangles in the lanes of a vector: the same terms, bit for bit, FastWindingLeafKernel)
+                double[] lanes = fast_winding_leaf_lanes;
+                if (lanes != null && num_tris >= 2 && FastWindingForceScalar == false) {
+                    int lane_o = fast_winding_leaf_lane_start[iBox];
+                    for (; i <= num_tris; i += 4, lane_o += FastWindingLeafKernel.GroupSize) {
+                        int n = Math.Min(4, num_tris - i + 1);
+                        if (FastWindingLeafKernel.TrySum(lanes, lane_o, ref p, n, ref branch_sum) == false)
+                            break;      // a triangle that needs the rescaled path: the scalar loop below, from this group on
+                    }
+                }
+#endif
+                for (; i <= num_tris; ++i) {
                     int o = 3 * (idx + i);
                     branch_sum += MathUtil.TriSolidAngle(verts[o], verts[o + 1], verts[o + 2], ref p) / MathUtil.FourPI;
                 }
@@ -1656,6 +1673,100 @@ namespace g3
         }
 
 
+        // The traversal of FastWindingNumber on flat arrays: the DVector lookups of box_to_index, index_list, box_centers and
+        // box_extents and the construction of a box per test were about half of the time of a query on a mesh whose queries sum
+        // hundreds of exact terms. Per box: its bounds (centre -/+ extents, as AxisAlignedBox3d builds them) and the centre and
+        // radius of its expansion, so the two tests of a child (contained, expansion allowed) read one entry.
+        struct FWFlatBox
+        {
+            public double MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
+            public double CX, CY, CZ, R;
+            public bool Cached;
+        }
+        FWFlatBox[] fast_winding_flat;
+        int[] fast_winding_flat_to_index, fast_winding_flat_index_list;
+
+        void build_fast_winding_flat()
+        {
+            int n = box_centers.size;
+            var flat = new FWFlatBox[n];
+            for (int i = 0; i < n; ++i) {
+                Vector3d c = box_centers[i], e = box_extents[i];
+                ref FWFlatBox f = ref flat[i];
+                f.MinX = c.x - e.x; f.MinY = c.y - e.y; f.MinZ = c.z - e.z;
+                f.MaxX = c.x + e.x; f.MaxY = c.y + e.y; f.MaxZ = c.z + e.z;
+                if (fast_winding_cached[i]) {
+                    f.Cached = true;
+                    f.CX = FastWindingCache[i].Center.x; f.CY = FastWindingCache[i].Center.y; f.CZ = FastWindingCache[i].Center.z;
+                    f.R = FastWindingCache[i].R;
+                }
+            }
+            var toIndex = new int[box_to_index.size];
+            for (int i = 0; i < toIndex.Length; ++i) toIndex[i] = box_to_index[i];
+            var list = new int[index_list.size];
+            for (int i = 0; i < list.Length; ++i) list[i] = index_list[i];
+            fast_winding_flat_to_index = toIndex;
+            fast_winding_flat_index_list = list;
+            fast_winding_flat = flat;
+        }
+
+        // the contribution of child box iBox of a box: its expansion if allowed (use_fast_winding_expansion, with FWNBeta >= sqrt 3), else its triangles
+        double flat_fast_winding_child(int iBox, ref Vector3d p)
+        {
+            ref FWFlatBox f = ref fast_winding_flat[iBox];
+            if (f.Cached
+                && (f.MinX <= p.x && f.MinY <= p.y && f.MinZ <= p.z && f.MaxX >= p.x && f.MaxY >= p.y && f.MaxZ >= p.z) == false) {
+                // (can_use_fast_winding_cache)
+                double dx = p.x - f.CX, dy = p.y - f.CY, dz = p.z - f.CZ;
+                double dist_qp = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                double magnitude = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)))
+                    + Math.Max(Math.Abs(f.CX), Math.Max(Math.Abs(f.CY), Math.Abs(f.CZ)));
+                if (dist_qp > FWNBeta * f.R + 3.552713678800501e-15 * magnitude) {
+                    double d2 = dist_qp * dist_qp, d5 = d2 * d2 * dist_qp;
+                    if (d5 >= 2.2250738585072014e-308 && d5 <= 5.617791046444737e306)
+                        return evaluate_box_fast_winding_cache(iBox, ref p);
+                }
+            }
+            return flat_fast_winding_num(iBox, ref p);
+        }
+
+        // branch_fast_winding_num on the flat arrays
+        double flat_fast_winding_num(int iBox, ref Vector3d p)
+        {
+            double branch_sum = 0;
+            int idx = fast_winding_flat_to_index[iBox];
+            int[] list = fast_winding_flat_index_list;
+            if (idx < triangles_end) {
+                int num_tris = list[idx];
+                Vector3d[] verts = fast_winding_leaf_vertices;
+                int i = 1;
+#if NET8_0_OR_GREATER
+                double[] lanes = fast_winding_leaf_lanes;
+                if (lanes != null && num_tris >= 2) {
+                    int lane_o = fast_winding_leaf_lane_start[iBox];
+                    for (; i <= num_tris; i += 4, lane_o += FastWindingLeafKernel.GroupSize) {
+                        int n = Math.Min(4, num_tris - i + 1);
+                        if (FastWindingLeafKernel.TrySum(lanes, lane_o, ref p, n, ref branch_sum) == false)
+                            break;
+                    }
+                }
+#endif
+                for (; i <= num_tris; ++i) {
+                    int o = 3 * (idx + i);
+                    branch_sum += MathUtil.TriSolidAngle(verts[o], verts[o + 1], verts[o + 2], ref p) / MathUtil.FourPI;
+                }
+            } else {
+                int iChild1 = list[idx];
+                if (iChild1 < 0) {
+                    branch_sum += flat_fast_winding_child((-iChild1) - 1, ref p);
+                } else {
+                    branch_sum += flat_fast_winding_child(iChild1 - 1, ref p);
+                    branch_sum += flat_fast_winding_child(list[idx + 1] - 1, ref p);
+                }
+            }
+            return branch_sum;
+        }
+
         struct FWNInfo
         {
             public Vector3d Center;
@@ -1669,6 +1780,12 @@ namespace g3
         FWNInfo[] FastWindingCache;
         bool[] fast_winding_cached;
         Vector3d[] fast_winding_leaf_vertices;
+        // the leaves of two or more triangles as groups of four in vector lanes (FastWindingLeafKernel), and the start of the
+        // groups of each box; null without 256-bit vectors
+        double[] fast_winding_leaf_lanes;
+        int[] fast_winding_leaf_lane_start;
+        /// <summary> Test hook: FastWindingNumber on the reference path (the DVector traversal, the exact terms one triangle at a time with MathUtil.TriSolidAngle) instead of the flat traversal and FastWindingLeafKernel; the same value bit for bit </summary>
+        internal bool FastWindingForceScalar;
         volatile int fast_winding_cache_timestamp = -1;
         readonly object fast_winding_cache_lock = new object();
 
@@ -1707,10 +1824,38 @@ namespace g3
                     mesh.GetTriVertices(index_list[idx + i], ref fast_winding_leaf_vertices[o], ref fast_winding_leaf_vertices[o + 1], ref fast_winding_leaf_vertices[o + 2]);
                 }
             }
+            fast_winding_leaf_lanes = null;
+            fast_winding_leaf_lane_start = null;
+#if NET8_0_OR_GREATER
+            if (FastWindingLeafKernel.Available) {
+                int groups = 0;
+                for (int iBox = 0; iBox < box_to_index.size; ++iBox) {
+                    int idx = box_to_index[iBox];
+                    if (idx < triangles_end && index_list[idx] >= 2)
+                        groups += (index_list[idx] + 3) / 4;
+                }
+                var lanes = new double[FastWindingLeafKernel.GroupSize * groups];
+                var starts = new int[box_to_index.size];
+                int next = 0;
+                for (int iBox = 0; iBox < box_to_index.size; ++iBox) {
+                    int idx = box_to_index[iBox];
+                    if (idx >= triangles_end || index_list[idx] < 2)
+                        continue;
+                    int num_tris = index_list[idx];
+                    starts[iBox] = next;
+                    for (int i = 1; i <= num_tris; i += 4, next += FastWindingLeafKernel.GroupSize)
+                        FastWindingLeafKernel.StoreGroup(lanes, next, fast_winding_leaf_vertices, 3 * (idx + i), Math.Min(4, num_tris - i + 1));
+                }
+                fast_winding_leaf_lanes = lanes;
+                fast_winding_leaf_lane_start = starts;
+            }
+#endif
             FastWindingCache = new FWNInfo[box_centers.size];
             fast_winding_cached = new bool[box_centers.size];
             List<int> root_list;
             build_fast_winding_cache_lists(root_index, 0, WINDING_CACHE_THRESH, out root_list, triCache);
+            fast_winding_flat = null;
+            build_fast_winding_flat();
         }
         // the levels of the tree whose two subtrees build their caches concurrently (2^3 = 8 tasks at most): each
         // subtree writes only the cache entries of its own boxes, its triangle set is its own, and the work per box and
