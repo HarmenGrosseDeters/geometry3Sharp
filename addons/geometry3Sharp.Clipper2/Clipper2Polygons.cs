@@ -52,6 +52,15 @@ namespace g3.Clipper2
         /// <summary> booleans: keep vertices in the middle of straight edges (Clipper2 removes them by default) </summary>
         public bool PreserveCollinear = false;
 
+        /// <summary>
+        /// offsets: a concave vertex whose two offset edges meet inside both gets one point (their intersection) instead of
+        /// the 3 points of Clipper2's detour, which the final union removes again (#1169). On by default (owner 2026-11-19):
+        /// linear instead of quadratic time on dense smooth rings (100k vertices: 0.2 s instead of 20 s). The result differs
+        /// from the detour's by the rounding of that point (a few grid units, more at the tip of a thin spike of the result or at a nearly straight vertex, where the single point is the more accurate);
+        /// set false for Clipper2's output bit for bit.
+        /// </summary>
+        public bool SinglePointInnerJoin = true;
+
         /// <summary> offsets: corner treatment (Round default, Miter, Square, Bevel) </summary>
         public JoinType JoinType = JoinType.Round;
 
@@ -385,6 +394,7 @@ namespace g3.Clipper2
                     offset.AddRange(paths);
             } else if (paths.Count > 0) {
                 var clipperOffset = new ClipperOffset(Math.Min(options.MiterLimit, Clipper2Options.MaxMiterLimit), arcTolerance * scale);
+                clipperOffset.SinglePointInnerJoin = options.SinglePointInnerJoin;
                 clipperOffset.AddPaths(paths, Bridge.ToVendored(options.JoinType), Bridge.ToVendored(endType));
                 clipperOffset.Execute(delta * scale, offset);
             }
