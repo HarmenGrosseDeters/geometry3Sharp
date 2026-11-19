@@ -230,3 +230,34 @@ Over the 19 recovered: tets 1.05 times S1-R at the median (0.94 to 1.25), time 4
 So the gain on real meshes is much smaller than on CAD solids: most of their concave edges are not the alpha-scale bridges that the pass moves (they are fine detail below alpha or noise), at a clear time cost.
 
 **Worst absolute time with `CreaseAngleDegrees` on** (this container, one run): 0.58 s on the solids (the slot, 10.7k tets), 3.0 s on the Thingi meshes (94240: 4.4k boundary triangles, S1-R 0.25 s; the exact input-touch check of the changed triangles is up to 1.9 s of it). No input is near the 20 s limit of CLAUDE.md.
+
+### MaxDihedralDegrees: the objective on both ends (opt-in, 2026-11-19)
+
+`MeshTetrahedralization.MaxDihedralDegrees` (0 = off, the default; bit for bit the stage as before) adds the "op 4" of Klingner's thesis (ch. 3-5, paper only) to
+stage 2: the quality of a tet is min(smallest dihedral, F + G - largest dihedral), F = `SliverDihedralDegrees`, G = the option, so a tet meets the target
+exactly when its smallest dihedral is >= F and its largest <= G. The measurement on the throwaway branch `runs/tet-stellar` (objective alone, "p4") lost
+meshes on the min side (498 -> 458 of 500 reach min >= F at 10 / 150). Two additions, both inside the option:
+
+- **guard**: no operation may leave a tet with a smallest dihedral below min(F, that of the tets it replaces) (smoothing, boundary moves, contraction, edge
+  and face removal, split). It does not repair the loss: the stage-1 result has about 100 tets below F that master fixes, and with the objective a max-side
+  tet next to such a tet masks it (the neighbourhood's worst quality is the max-side one), so the repair is not accepted.
+- **staged**: the improver first runs on the smallest dihedral alone (master's behaviour), then with the objective and the guard. The guard then keeps what
+  the first phase reached.
+
+500-mesh sample (`compare/thingi-sample-ids.txt`, alpha / 40, relative offset 600, floor 10, G = 150; `MaxDihedral.cs`, `compare/run_maxdih_shard.sh`,
+`compare/maxdih_summary.py`; stage 1 once per mesh, then each configuration's improver from that result; meshes fetched at run time, not kept; 4-core cloud container,
+3 shards in parallel, so the improver times are indicative only). master = option off; p4 = objective alone; p4g = with the guard; p4s = guard and staged (the option as built):
+
+| config | min>=F | max<=G | both | valid | median p01 / p99 | worst min / max | tets vs master | improver us/tet (median) | improver s (sum / max) | violating tets (sum) |
+|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|
+| master | 498 | 0 | 0 | 500 | 11.4 / 157.8 | 9.43 / 179.0 | 1.000 | 18 | 89 / 1 | 164860 |
+| p4 | 454 | 466 | 449 | 500 | 14.0 / 148.2 | 2.58 / 158.8 | 0.981 | 26 | 166 / 10 | 443 |
+| p4g | 462 | 467 | 447 | 500 | 14.0 / 148.2 | 3.87 / 168.5 | 0.982 | 19 | 122 / 5 | 322 |
+| p4s | 499 | 443 | 443 | 500 | 14.0 / 148.2 | 9.53 / 170.4 | 0.983 | 22 | 161 / 8 | 748 |
+
+The measurement's numbers for p4 were 458 / 472 / 456 (before #1180 and #1184). The guard alone gives back 8 meshes on the min side (44 -> 36 meshes lost
+against master) and costs 2 on the max side; p4s loses no mesh on the min side (0 meshes below min(F, master's worst min); 499 against master's 498) and
+clears the max side on 443 meshes (the other 57 keep a few tets above G). The improver costs 1.8x master's time (161 s against 89 s over 500 meshes, max
+8 s). A 24-mesh subset with `G3_CHECK=1` (boundary self-intersection, input vertices outside): 0 and 0 in every configuration. Rows: data branch `runs/tet-maxdih`.
+
+Cost of a target the shape cannot meet (`Compute()` of the 4.4k-tet sphere of `TetMeshingStage2Tests.Input("sphere")`, alpha 40, offset 600, floor 10, one run each, shared container). Without a stall stop: G = 130: 2.0 s; 120: 12 s; 110: 147 s; 100, 90, 80: more than 200 s (stopped). With the stall stop (`maxdih_stall_stop`: 4 passes that neither lower the number of bad tets nor raise the worst quality by 0.1 degrees, while more than 1 % of the tets are bad): G = 150: 1.4 s (3 passes, no stop); 130: 1.5 s; 110: 10 s; 100: 9 s; 90: 13 s; 80: 13 s, ending at a largest dihedral of 125-128 degrees and a smallest of 10.0-10.6. Values below 70.6 are off (no tet can meet them). At G = 150 the stop is never taken on the 500-mesh sample (rows equal, see above).

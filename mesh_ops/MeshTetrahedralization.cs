@@ -139,6 +139,22 @@ namespace gs
         /// the link condition and only if the smallest dihedral angle of the changed tets strictly increases
         /// </summary>
         public bool ContractEdges = true;
+        /// <summary>
+        /// stage 2, opt-in objective on both ends (B. M. Klingner's thesis, ch. 3-5): with a value from 70.6 to below 180, the improver also
+        /// works on tets with a largest dihedral angle above it (degrees). The quality of a tet becomes min(smallest dihedral,
+        /// SliverDihedralDegrees + MaxDihedralDegrees - largest dihedral), so a tet meets the target exactly when its smallest dihedral
+        /// is at least SliverDihedralDegrees and its largest at most MaxDihedralDegrees. The improver first runs on the smallest dihedral
+        /// alone (as without the option), then with the objective; there no operation may leave a tet with a smallest dihedral below
+        /// min(SliverDihedralDegrees, that of the tets it replaces). So the worst smallest dihedral never ends below
+        /// min(SliverDihedralDegrees, the first phase's worst) (measured: no mesh of 500 lost on the min side); single tets can trade
+        /// places within that. A target, not a guarantee: tets can be left above it (Targets does not report the largest dihedral;
+        /// TetMeshQuality.Measure does). Off (the stage is as without the option): 0 (the default), a negative value, NaN, a value
+        /// below 70.6 (no tet has a largest dihedral below 70.53 degrees, so every tet would miss it) and 180 or more (none can).
+        /// A target that the shape cannot meet keeps many tets bad and costs time: the second phase stops when passes stall (4 passes that neither lower the number of bad tets nor raise the worst quality by 0.1 degrees, while more than 1 % of the tets are bad; deterministic, Counts["improve_maxdih_stall_stop"] = 1, the result is still a valid mesh with the guard's min-side bound). 4.4k-tet sphere, alpha 40: G = 130 takes 1.5 s, 110 10 s, 100 9 s, 90 and 80 13 s. Needs Improve and a positive SliverDihedralDegrees; the refinement
+        /// of stage 1 is unchanged
+        /// </summary>
+        public double MaxDihedralDegrees = 0;
+        internal bool MaxDihedralGuard = true, MaxDihedralStaged = true;
         /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
         public int ImprovePasses = 50;
         /// <summary>
@@ -382,6 +398,7 @@ namespace gs
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
+                if (TetMeshImprover.ObjectiveActive(MaxDihedralDegrees)) { imp.MaxDihedralDegrees = MaxDihedralDegrees; imp.MaxDihedralGuard = MaxDihedralGuard; imp.MaxDihedralStaged = MaxDihedralStaged; }
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
                     imp.InputTree = new DMeshAABBTree3(Mesh, true);
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;

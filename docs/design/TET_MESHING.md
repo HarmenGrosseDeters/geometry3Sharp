@@ -1283,7 +1283,6 @@ no `AlphaField` the output is bit for bit the same (`ExistingResult_IsBitForBitT
 - **Limits**: only an input with triangles; not applied to the wrap's other passes (simplification, quality pass, feature pass); the tolerance cannot go below 2 offsets (raised); the field is built from 20000 samples, so a detail smaller than the sample spacing (about sqrt(area / 20000)) can be missed; the cost of the field is about 2 us per gate test (0.24 s of CPU per run in the spike, 37 % of the local run's wall time as an upper bound).
 - **Not built**: the a-priori estimator (free distance along the outward normal, one pass, no second wrap: 0.64x tets at 1.0x max distance, 1.18x the p95, better than uniform /80 on only 14 of 39 meshes), the oracle, a lattice field.
 
-
 ### 17.14 Stage P4(b): sharp creases through the featured surface, `CreaseAngleDegrees` (2026-11-19)
 
 Coordinator go 2026-11-19 (phase 1 plan, option 1 with a gate). Opt-in and additive: with `CreaseAngleDegrees` 0 (the default), negative, NaN or infinity the output is bit for bit the same
@@ -1307,3 +1306,9 @@ Coordinator go 2026-11-19 (phase 1 plan, option 1 with a gate). Opt-in and addit
   survivor: the edge branch of the recovery round (edges first, then triangles) disabled, which only changes the order of the splits (a missing edge is also the edge of a missing triangle, whose longest-edge split reaches the same state on the tested inputs). Review (independent, 2026-11-19) findings fixed: flips need a convex quad and the result is checked against the input; the cancel is polled in the flip passes; numbers recomputed from the CSVs.
 - **Open**: protecting balls for a guaranteed recovery at acute creases; a pinned-vertex input for the improver (not needed: the slide takes nothing back); three-plane corners (the pass does not handle them: the crease ends keep the largest deviation, 5 to 11 offsets);
   crease-local alpha (option 2 of the plan, 2.5 to 3 times the triangles, for slits narrower than what the pass reaches).
+
+### 17.15 MaxDihedralDegrees (opt-in, 2026-11-19)
+
+Stage 2 can also work on the largest dihedral angle: `MaxDihedralDegrees` > 0 (default 0 = off, bit for bit as before) uses the quality
+min(smallest, F + G - largest) with a guard and a first phase on the smallest angle alone. The worst smallest angle never ends below min(F, the first phase's worst) (not a per-tet claim: the guard's floor is per operation). Off for 0, negative, NaN, below 70.6 (impossible: every tet would miss it, minutes of work) and from 180. Result on the 500-mesh sample and the numbers against the
+measurement: [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "MaxDihedralDegrees". No default change.
