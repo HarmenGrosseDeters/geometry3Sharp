@@ -145,3 +145,18 @@ The 6 meshes of the 500-mesh sample left below 10 degrees at alpha 40 (`results/
 | 50656 | 9.877 -> 10.003 | 1.41 -> 1.20 s |
 | 38781 | 9.432 -> 9.432 | 3.01 -> 3.15 s |
 | 282598 | 9.532 -> 9.532 | 2.67 -> 3.26 s |
+
+### Size control (TET_MESHING.md section 17.12, 2026-11-19)
+
+`size [relativeAlpha] [relativeOffset]` (default 12 / 600) runs `MeshTetrahedralization` on sphere n=16, the box, the cylinder and the torus with a uniform
+`TargetEdgeLength` h = 1, 0.7, 0.5, 0.35, 0.25 times alpha and with `GradingFactor` 2, 1, 0.5, 0.25, and prints the tet count, the estimate volume / (0.12 h^3) and their
+ratio, the time, the smallest dihedral and the counts (`results/tet-size-control-alpha12-2026-11-19.csv`, one thread, local). For h at most alpha / 2 the count is 1.41 to 1.5 times the
+estimate (1.8 on the torus at alpha / 2); at h = alpha the wrap's own tets dominate (2.3 to 8.7 times). Time 10 to 40 us per tet (wrap included).
+
+| tets | h = alpha | 0.7 | 0.5 | 0.35 | 0.25 | graded g = 2 | 1 | 0.5 | 0.25 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| sphere n=16 (unsized 3 122) | 3 863 | 7 208 | 16 889 | 48 065 | 130 727 | 3 618 | 4 928 | 6 687 | 8 863 |
+| box (unsized 1 527) | 2 706 | 5 829 | 13 923 | 39 462 | 108 580 | 1 951 | 2 598 | 3 253 | 4 068 |
+| cylinder (unsized 3 733) | 5 188 | 9 819 | 22 990 | 64 261 | 174 664 | 4 487 | 5 825 | 7 615 | 9 803 |
+| torus (unsized 5 014) | 5 091 | 5 455 | 8 469 | 20 645 | 54 695 | 5 104 | 5 525 | 6 336 | 7 594 |
+
