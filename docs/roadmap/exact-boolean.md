@@ -839,6 +839,11 @@ extrapolated). What is left is a second, quantized
 plane-based kernel: a speed lever after the speed work stopped, months of work, and it gives up exact computation on
 the input doubles while still needing our rounding for double output. The plane-based representation stays a
 question for the design analysis of Exact Boolean 4.0 (stage 0, started 2026-11-17 (owner), no PR yet); later stages wait for a use case.
+Re-examined 2026-11-19 at the owner's request ("months are acceptable if quality does not drop"):
+[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). Leaning **no-go**, both for a
+replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 % (12 threads: 1.43x → 0.93x
+CGAL). The realistic gain is −17 to −26 %. 0 of 294 T6 booleans are on a short grid (13 of 190 raw models fit 27 bits).
+The rounding (20 %) and the self-join (19 %) stay with any kernel.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.
