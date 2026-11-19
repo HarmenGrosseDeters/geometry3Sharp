@@ -1328,3 +1328,10 @@ needs its own exactness argument and is not part of this change.
 Normal stratum (the first 12 pairs of `pairs.csv` whose models could be fetched, 3 operations, 36 operations): simplify 163 ms in total on
 master, 170 ms after (no polygon there has a long collinear run: the largest simplify is 22 ms on master and 29 ms after, within the noise of a
 one-shot measurement); total 9 693 ms and 9 454 ms.
+
+## Coplanar pair pre-decision (2026-11-19)
+
+`ExactMeshArrangement.intersect_coplanar` decides coplanar pairs that meet only in their shared corners or shared edge before clipping them
+(`docs/perf/BOOLEAN_COPLANAR_PREDECISION.md`: the change, its argument and the numbers). Order-randomized A/B on ABC chains (`chain-ab`, method
+`ours_ab`, `data/coplanar_ab.py summary`; GitHub runner, 12 chains per variant): step 1 +9.3 %, step 2 +0.5 %, **step 3 -15.4 % (median chain -22.3 %)**,
+steps 1 to 3 -9.6 %; result hashes equal in all chains. Step 1 gets slower (the check on pairs it cannot decide); see the page.
