@@ -246,7 +246,7 @@ namespace gs
                 finally { MaxDihedralDegrees = g; }
                 splitFailed.Clear();      // a failed split of the first phase says nothing about the objective's
             }
-            run_phase();
+            if (!visitCapSpent) run_phase();
             classify_left();
         }
 
@@ -256,7 +256,7 @@ namespace gs
             hill_climb(MaxPasses);
             // rescue phase (TET_MESHING.md section 17): only if tets below the target are left (a mesh without any would stop after one
             // empty pass anyway; the test saves that scan and keeps the counts as before)
-            if (RescuePasses > 0 && !CancelF() && !stalled && any_bad()) {
+            if (RescuePasses > 0 && !CancelF() && !stalled && !visitCapSpent && any_bad()) {
                 ActiveSet = true;
                 long p = Counts["passes"];
                 try { hill_climb(RescuePasses); }
@@ -336,6 +336,18 @@ namespace gs
         int stallBestBad, stallCount;
         double stallBestWorst;
 
+        /// <summary>
+        /// work cap over every operation (opt-in, MeshTetrahedralization.MaxImproveVisitsPerVertex): at most this many visits of a bad tet (one visit
+        /// tries edge removal, face removal, contraction, split, smoothing and boundary moves on it) over the whole run, all phases and the rescue
+        /// passes together. 0 = no cap (the default: the run is bit for bit as without the option). A count, never wall-clock, so the result is
+        /// deterministic and the same for every 2^k scale. When spent the improvement ends and Counts["work_cap_reached"] = 1 (only then the key exists).
+        /// </summary>
+        internal long MaxVisits = 0;
+        long visits;
+        bool visitCapSpent;
+        /// <summary> the visits made so far </summary>
+        internal long Visits { get { return visits; } }
+
         void hill_climb(int maxPasses)
         {
             for (int pass = 0; pass < maxPasses && !CancelF(); ++pass) {
@@ -358,8 +370,12 @@ namespace gs
                 foreach (var (q0, id) in bad) {
                     if (CancelF()) break;
                     if (!alive[id] || quality(id) >= TargetDegrees) continue;
+                    // the work cap (opt-in): when the budget is spent, the improvement ends (the worst tets are visited first in each pass)
+                    if (MaxVisits > 0 && visits >= MaxVisits) { Counts["work_cap_reached"] = 1; visitCapSpent = true; break; }
+                    visits++;
                     improve(id);
                 }
+                if (visitCapSpent) break;
                 if (Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count() == before) break;
             }
         }
