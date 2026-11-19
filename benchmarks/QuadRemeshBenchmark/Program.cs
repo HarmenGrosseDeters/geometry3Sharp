@@ -5,7 +5,7 @@
 // with the stage 2 gate numbers: quads %, faces above 6 sides (always 0: MaxFaceSides), irregular vertices against the field's
 // singularities, corner deviation p95, one-sided Hausdorff (output to input) over s, manifold, and the times of the stages.
 //
-//   dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [big=<n>] [align=<s>]
+//   dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [big=<n>] [align=<s>] [adapt=0|1|2] [digest=1]
 //
 // align is CrossField.CurvatureAlignment (default 0: the smoothest field); scale multiplies every s; serial=1 runs the position field without parallel loops; big=<n> adds a sphere of about n input vertices
 // (the speed gate: at most 5 s of position field and extraction per 100k input vertices on 4 cores).
@@ -107,6 +107,7 @@ static class Program
             }
             qr.Compute();
             double tPos = qr.PositionSeconds, tExt = qr.ExtractSeconds;
+            if (A.ContainsKey("digest") && qr.Success) Console.Error.WriteLine($"  {sh.Name}: digest {Digest(qr.Result):x16}");
             if (adapt != 0) Console.Error.WriteLine($"  {sh.Name}: size adaptation {(qr.SizeAdaptationApplied ? "applied" : "NOT applied")}, curl {qr.CurlBefore:F1} -> {qr.CurlAfter:F1}, spacing {qr.MinSpacing:F2}..{qr.MaxSpacing:F2}, solve {qr.SizeSeconds:F2} s");
             if (!qr.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | quad remesh " + qr.Status + " " + qr.Error + " |"); continue; }
             PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
@@ -123,6 +124,20 @@ static class Program
             Console.WriteLine($"| {sh.Name} | {input.VertexCount} | {F(s, "G3")} | {sing} | {m.Faces} | {F(100.0 * m.QuadFraction, "F1")} | {m.Triangles} | {m.Pentagons + m.Hexagons} | {m.IrregularVertices} | {(cf.SingularFaces.Count == 0 ? "-" : F((double)m.IrregularVertices / cf.SingularFaces.Count, "F1"))} | {m.BoundaryVertices} | {(m.IsManifold ? "yes" : "NO (" + m.NonManifoldEdges + "e " + m.InconsistentEdges + "i " + m.NonManifoldVertices + "v)")} | {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.5), "F1")} / {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")} | {F(PolyMeshMetrics.Percentile(m.Aspects, 0.95), "F2")} | {F(haus, "F2")} | {F(tField, "F2")} | {F(tPos, "F2")} | {F(tExt, "F2")} | {qr.Positions.Levels} / {qr.Positions.Colors} / {qr.Positions.SweepsRun} | {qr.CollapsedEdges} / {qr.RemovedValence2} / {qr.DroppedFaces} |");
         }
         return 0;
+    }
+
+    // FNV-1a over the bits of the vertex positions and the face indices: equal digests mean the same mesh bit for bit
+    static ulong Digest(DPolyMesh r)
+    {
+        ulong h = 14695981039346656037UL;
+        for (int v = 0; v < r.VertexCount; ++v) {
+            Vector3d p = r.GetVertex(v);
+            h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(p.x)) * 1099511628211UL;
+            h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(p.y)) * 1099511628211UL;
+            h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(p.z)) * 1099511628211UL;
+        }
+        for (int f = 0; f < r.FaceCount; ++f) { h = (h ^ 0xffffffffUL) * 1099511628211UL; foreach (int v in r.GetFace(f)) h = (h ^ (ulong)v) * 1099511628211UL; }
+        return h;
     }
 
     static void Diag(DPolyMesh r, double s)

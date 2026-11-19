@@ -63,6 +63,8 @@ namespace gs
 
         // test hook: the first trial step is this multiple of the Gauss-Newton step (an overshoot that the backtracking has to halve)
         internal double InitialStepFactor = 1;
+        // test hook: solve the scale-only problem with the rotation unknown as well (2 per vertex, its normal matrix is the scalar one plus a diagonal), the layout before the scalar path
+        internal bool ForceTwoUnknowns;
 
         public IntegrableFramesStatus Status = IntegrableFramesStatus.Success;
         public string Error;
@@ -140,45 +142,47 @@ namespace gs
             double cost = Cost(tri, edgeVec, sig, phi, useRot, out CurlBefore);
             CurlAfter = CurlBefore;
             if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the edge vectors are not finite in units of TargetEdgeLength"); }
+            // unknowns per vertex: sigma, and phi only if the rotation is solved for (a scale-only solve has no use for phi: half the unknowns)
+            int u = useRot || ForceTwoUnknowns ? 2 : 1;
             SparseCholesky chol = null; bool refactor = true;
             var w = new Vector2d[m]; var B = new double[m][];
             for (int step = 0; step < Iterations; ++step) {
                 Linearize(tri, edgeVec, sig, phi, useRot, w, B);
-                var rhs = new double[2 * n];
+                var rhs = new double[u * n];
                 for (int t = 0; t < m; ++t)
                     for (int k = 0; k < 3; ++k) {
                         int v = tri[t][k]; double[] b = B[t];
-                        rhs[2 * v] -= b[4 * k + 0] * w[t].x + b[4 * k + 2] * w[t].y;
-                        rhs[2 * v + 1] -= b[4 * k + 1] * w[t].x + b[4 * k + 3] * w[t].y;
+                        rhs[u * v] -= b[4 * k + 0] * w[t].x + b[4 * k + 2] * w[t].y;
+                        if (u == 2) rhs[2 * v + 1] -= b[4 * k + 1] * w[t].x + b[4 * k + 3] * w[t].y;
                     }
                 bool fresh = false;
                 if (chol == null || refactor) {
                     fresh = true;
-                    if (chol == null) chol = new SparseCholesky(2 * n, 2); else chol.Clear();
+                    if (chol == null) chol = new SparseCholesky(u * n, u); else chol.Clear();
                     for (int t = 0; t < m; ++t) {
                         double[] b = B[t];
                         for (int k = 0; k < 3; ++k)
                             for (int l = k; l < 3; ++l)
-                                for (int ca = 0; ca < 2; ++ca)
-                                    for (int cb = 0; cb < 2; ++cb) {
+                                for (int ca = 0; ca < u; ++ca)
+                                    for (int cb = 0; cb < u; ++cb) {
                                         if (k == l && cb > ca) continue;       // the entries of one block are added once for the off-diagonal pairs
-                                        chol.Add(2 * tri[t][k] + ca, 2 * tri[t][l] + cb, b[4 * k + ca] * b[4 * l + cb] + b[4 * k + 2 + ca] * b[4 * l + 2 + cb]);
+                                        chol.Add(u * tri[t][k] + ca, u * tri[t][l] + cb, b[4 * k + ca] * b[4 * l + cb] + b[4 * k + 2 + ca] * b[4 * l + 2 + cb]);
                                     }
                     }
-                    for (int i = 0; i < 2 * n; ++i) chol.Add(i, i, Damping);
+                    for (int i = 0; i < u * n; ++i) chol.Add(i, i, Damping);
                     if (!chol.Factorize()) break;
                     refactor = false;
                 }
-                var d = new double[2 * n];
+                var d = new double[u * n];
                 chol.Solve(rhs, d);
-                double dm = 0; for (int i = 0; i < n; ++i) if (used[i]) dm += d[2 * i]; dm /= nUsed;
-                for (int i = 0; i < n; ++i) d[2 * i] = used[i] ? d[2 * i] - dm : 0;      // vertices of no used triangle keep spacing 1
+                double dm = 0; for (int i = 0; i < n; ++i) if (used[i]) dm += d[u * i]; dm /= nUsed;
+                for (int i = 0; i < n; ++i) d[u * i] = used[i] ? d[u * i] - dm : 0;      // vertices of no used triangle keep spacing 1
                 // backtracking: halve a step that does not lower the cost
                 double alpha = InitialStepFactor, newCost = cost, newCurl = CurlAfter; bool accepted = false;
                 var sig2 = new double[n]; var phi2 = new double[n];
                 for (int tries = 0; tries < 8; ++tries) {
                     for (int i = 0; i < n; ++i) {
-                        sig2[i] = Math.Max(-maxSig, Math.Min(maxSig, sig[i] + alpha * d[2 * i]));
+                        sig2[i] = Math.Max(-maxSig, Math.Min(maxSig, sig[i] + alpha * d[u * i]));
                         phi2[i] = (bnd[i] || !useRot) ? 0 : Math.Max(-maxPhi, Math.Min(maxPhi, phi[i] + alpha * d[2 * i + 1]));
                     }
                     newCost = Cost(tri, edgeVec, sig2, phi2, useRot, out newCurl);
