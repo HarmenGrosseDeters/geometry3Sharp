@@ -74,7 +74,7 @@ the future" list, ordered by priority; this section names only what is in flight
   for "exact boolean on triangle soups -> clean closed low-poly solid" is `SolidBooleanPipeline` (#1112, below).
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
-  #1067 (p0008: an untouched zero-volume sheet survived the component removal; #1152, #1170, owner decision 2026-11-19) is fixed in the removal (PR pending); open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
+  #1067 (p0008: an untouched zero-volume sheet survived the component removal; #1152, #1170, owner decision 2026-11-19) is fixed in the removal (PR pending); sheets whose floating-point margin cannot decide (iud p0029, dui p0019/21/22) are decided exactly for the computed area (#1191, [EXACT_VOLUME_SIGN.md](design/EXACT_VOLUME_SIGN.md)); open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
   [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
 - **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
   and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is merged (#1112); 26 of 26 reduced

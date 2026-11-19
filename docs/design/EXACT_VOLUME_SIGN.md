@@ -80,3 +80,32 @@ still uses the floating-point |V|, as before.
 Mutants that survive and are equivalent in practice: g with n + 1 in place of n + 2 (one u of slack, which the tests are
 not tight enough to see), and the factor below. The factor (1 + 3 g) is second order (about 1e-13 relative at n = 1000): a mutant (1 - 3 g) survives the tests and is
 equivalent in practice (it is not in the proof: the factor stays).
+
+## Magnitude compare for the zero-volume rule (#1191)
+
+`ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out sign)` compares |S| = 6 |V| exactly with 3 t, for the rule of
+`MeshRoundingRepair.numerically_zero_volume` (#1067: a closed component whose thickness 2 |V| / area is below the ulp of its
+largest coordinate L is removed). The rule is decided exactly **for the computed area**: t = ulp(L) * A_fp, with A_fp the
+floating-point sum of the triangle areas that the repair computes anyway (an exact area is a sum of square roots; the rule is
+defined with the computed one, so equal input gives an equal answer). ulp(L) is a power of two, so t is exact in a double
+(t must be a positive normal number: otherwise nothing is decided and the sheet is kept), and ulp(L) * A_fp scales by exactly
+2^3k with the coordinates at the 2^k scales, as S does (down to t of 2^-1022: below that nothing is decided and the sheet is kept; such components are tiny, coordinates of about 1e-100).
+
+No new bound. The filter is `VolumeSumWithBound`, the sum and the bound E of `VolumeSignFilter` (`VolumeSignFilter` now calls it,
+unchanged in behaviour): |S_fp - S| <= E. Used for a magnitude, not only a sign: |S| lies in [|S_fp| - E, |S_fp| + E]
+(reverse triangle inequality), so |S_fp| - E > 3 t proves |S| > 3 t and |S_fp| + E < 3 t proves |S| < 3 t. The floating-point
+evaluation of the two comparisons has at most a few roundings (the subtraction or addition, the product 3 t, and the
+product with the slack); a relative slack of 4 u on each side, in the conservative direction, covers them (the bound E itself
+is the computed upper bound, already inflated by (1 + 3 g)). Where the filter does not decide (or g >= 1/4, or the bound is not
+finite), S is summed in integers exactly (the code of `VolumeSignExact`, coordinates at the common exponent emin: S =
+total * 2^(3 emin)) and compared as BigInteger with 3 t formed as the integer 3 * m_t at the exponent e_t of t (never the
+double 3 * t, which may round): |total| 2^(3 emin - e_t) against 3 m_t, shifted to a common exponent. Not decided (the callers keep the sheet):
+a coordinate not finite, t not a positive normal number, S_fp not finite (overflow; the sum is not evaluated further).
+
+The floating-point margin of #1178, (n + 16) u sum |pa-o||pb-o||pc-o|, is not proven (it is an "about" bound) and no longer decides a
+removal. It remains as a keep shortcut only, with a factor of 8: a component with 2 (|V_fp| - 8 margin) >= t is kept without the exact
+test (a speed measure for the many components that are thick; where it would be wrong the sheet is kept, which is the behaviour before #1191).
+
+Surviving mutants that are equivalent in practice: the guard g < 1/4 (n of about 2^50 triangles), the overflow guard of 3 t in the
+filter (the exact path gives the same answer), and the sign of the 4 u slack on the keep side (the slack only moves a decision to the exact
+path where |S| is within 8 u of the filter's edge).

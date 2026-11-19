@@ -32,6 +32,7 @@ namespace g3
         // are multiplied by (plus 1); the filters add that sum times 2^-1066.
         internal const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
         // below this sum the underflow term adds nothing to the bound (with_underflow)
+        internal const double MinNormal = 2.2250738585072014e-308;     // 2^-1022
         internal const double UnderflowSumNegligible = 1.157920892373162e77;    // 2^256
 
         /// <summary>
@@ -473,9 +474,25 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSignFilter(double[] xyz, int[] corners)
         {
+            if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
+                if (sum > bound) return 1;
+                if (-sum > bound) return -1;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// the floating-point sum S_fp of the determinants of VolumeSign and the bound E of the filter (see VolumeSignFilter):
+        /// |S_fp - S| &lt;= E, S the exact sum. False where the bound does not hold or is not computable (a value not finite,
+        /// g >= 1/4); then sum and bound mean nothing. Finite coordinates and at least one triangle
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool VolumeSumWithBound(double[] xyz, int[] corners, out double sum, out double bound)
+        {
             int io = 3 * corners[0];
             double ox = xyz[io], oy = xyz[io + 1], oz = xyz[io + 2];
-            double sum = 0, perm = 0, under = 0, abs = 0;
+            sum = 0;
+            double perm = 0, under = 0, abs = 0;
             int n = corners.Length / 3;
             for (int t = 0; t < n; ++t) {
                 int ia = 3 * corners[3 * t], ib = 3 * corners[3 * t + 1], ic = 3 * corners[3 * t + 2];
@@ -492,13 +509,58 @@ namespace g3
                 under += Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1;
             }
             double g = (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
-            double bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+            bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
             bool finite = !(double.IsNaN(sum) || double.IsInfinity(sum) || double.IsNaN(bound) || double.IsInfinity(bound));
-            if (finite && g < 0.25) {
-                if (sum > bound) return 1;
-                if (-sum > bound) return -1;
+            return finite && g < 0.25;
+        }
+
+        /// <summary>
+        /// Compares |S| = 6 |V| of the triangles with 3 t, exactly (#1191): sign = -1, 0 or +1 for |S| &lt;, =, &gt; 3 t, where
+        /// S is the sum of VolumeSign and t is a double (the rule 2 |V| &lt; t of the numerically zero volume: t = ulp(largest
+        /// coordinate) * area). False, and nothing decided, where a coordinate is not finite, t is not a positive normal
+        /// number, or S_fp overflows (the callers keep). 3 t is formed as the integer 3 * mantissa(t) at the exponent of t, never
+        /// as the double 3 * t, which may round. The filter is the proven bound of VolumeSign (docs/design/EXACT_VOLUME_SIGN.md):
+        /// |S_fp| - E and |S_fp| + E against 3 t, each side with a relative slack of 4 u that covers the roundings of the
+        /// subtraction or addition (u each, E and |S_fp| are non-negative so the addition has one rounding, the subtraction
+        /// one), of the product 3 t (u), and of the bound's own evaluation; the bound is E (1 + 3g) already inflated, so the slack
+        /// is for the comparison only. Where the filter does not decide, S is evaluated exactly in integers
+        /// (VolumeSignExact) and compared as BigInteger: |total| 2^(3 emin) against 3 m_t 2^e_t, shifted to a common exponent.
+        /// </summary>
+        internal static bool TryCompareAbsVolume6(double[] xyz, int[] corners, double t, out int sign)
+        {
+            sign = 0;
+            if (corners == null || corners.Length < 3 || !(t >= MinNormal) || double.IsInfinity(t))
+                return false;
+            for (int k = 0; k < xyz.Length; ++k)
+                if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
+                    return false;
+            if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
+                double t3 = 3 * t;
+                if (!double.IsInfinity(t3)) {
+                    double a = Math.Abs(sum);
+                    // (the exact S has |S| in [a - E, a + E]; the slack 4 u per side)
+                    if ((a - bound) * (1 - 4 * Epsilon) > t3 * (1 + 4 * Epsilon)) { sign = 1; return true; }
+                    if ((a + bound) * (1 + 4 * Epsilon) < t3 * (1 - 4 * Epsilon)) { sign = -1; return true; }
+                }
+            } else if (double.IsNaN(sum) || double.IsInfinity(sum))
+                return false;
+            BigInteger[] q = to_integers(xyz, out int emin);
+            int io = 3 * corners[0];
+            BigInteger total = BigInteger.Zero;
+            for (int i = 0; i < corners.Length / 3; ++i) {
+                int ia = 3 * corners[3 * i], ib = 3 * corners[3 * i + 1], ic = 3 * corners[3 * i + 2];
+                BigInteger ux = q[ia] - q[io], uy = q[ia + 1] - q[io + 1], uz = q[ia + 2] - q[io + 2];
+                BigInteger vx = q[ib] - q[io], vy = q[ib + 1] - q[io + 1], vz = q[ib + 2] - q[io + 2];
+                BigInteger wx = q[ic] - q[io], wy = q[ic + 1] - q[io + 1], wz = q[ic + 2] - q[io + 2];
+                total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
             }
-            return 0;
+            decompose(t, out long mt, out int et);
+            BigInteger lhs = BigInteger.Abs(total), rhs = 3 * new BigInteger(mt);
+            // (|S| = lhs 2^(3 emin), 3 t = rhs 2^et)
+            int shift = 3 * emin - et;
+            if (shift >= 0) lhs <<= shift; else rhs <<= -shift;
+            sign = lhs.CompareTo(rhs);
+            return true;
         }
 
         /// <summary> VolumeSign without the filter: the sum of the determinants in integers (exact, slow) </summary>
@@ -531,10 +593,17 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         static BigInteger[] to_integers(params double[] values)
         {
+            return to_integers(values, out int _);
+        }
+
+        // the values as integers at the common exponent emin (value = result * 2^emin)
+        [MethodImpl(JitHints.Optimize)]
+        static BigInteger[] to_integers(double[] values, out int emin)
+        {
             int n = values.Length;
             long[] mant = new long[n];
             int[] exp = new int[n];
-            int emin = int.MaxValue;
+            emin = int.MaxValue;
             for (int i = 0; i < n; ++i) {
                 double v = values[i];
                 if (double.IsNaN(v) || double.IsInfinity(v))
