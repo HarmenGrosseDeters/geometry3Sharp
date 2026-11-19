@@ -98,7 +98,8 @@ namespace geometry3Sharp.Tests
         public void ResultIsValid_TheInputInside_AndTheFloorIsMet()
         {
             DMesh3 input = Comb();
-            foreach (int passes in new[] { 2 }) {          // (one pass: the identity case of the similarity test below checks the same invariants)
+            {          // (one pass: the identity case of the similarity test below checks the same invariants)
+                int passes = 2;
                 var tm = Local(input, 150, passes); Run(tm);
                 Assert.Equal(0.0, tm.Wrap.RefineMinAngleDegrees);       // the wrap's surface angle refinement is not used with a local alpha (17.13)
                 TetMeshingStage2Tests.Invariants(tm);
@@ -120,6 +121,28 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, hard.Counts["local_alpha_retry"]);
             Assert.False(hard.Targets.MinDihedralMet);
             Assert.Null(TetMeshQuality.NotValidReason(hard.Result));
+            // the kept result is the better one: kept <=> the smoother field gave a larger smallest angle than the first run
+            bool kept = hard.Counts.ContainsKey("local_alpha_retry_kept");
+            if (kept) Assert.True(hard.Targets.WorstMinDihedral > hard.RetryFirstWorstMinDihedral);
+            else Assert.Equal(hard.RetryFirstWorstMinDihedral, hard.Targets.WorstMinDihedral);
+            Assert.False(double.IsNaN(hard.RetryFirstWorstMinDihedral));
+            // the result, counts and targets belong to each other: the targets are those of the result
+            var check = TetMeshQuality.CheckTargets(hard.Result, 20, hard.MaxRadiusEdgeRatio);
+            Assert.Equal(check.WorstMinDihedral, hard.Targets.WorstMinDihedral);
+        }
+
+        [Fact]
+        public void CancelledDuringTheRetry_IsCancelled_NotTheFirstResult()
+        {
+            // the retry starts when Compute() resets Result after the first run's last check saw it set
+            MeshTetrahedralization tm = Local(Comb());
+            tm.SliverDihedralDegrees = 20; tm.ImprovePasses = 1; tm.RescuePasses = 0;
+            bool sawResult = false;
+            tm.CancelF = () => { if (tm.Result != null) sawResult = true; return sawResult && tm.Result == null; };
+            Assert.False(tm.Compute());
+            Assert.True(sawResult);
+            Assert.Equal(MeshTetrahedralization.TetStatus.Cancelled, tm.Status);
+            Assert.Null(tm.Result);
         }
 
         [Fact]
@@ -152,6 +175,9 @@ namespace geometry3Sharp.Tests
             var two = Local(input, 150, 2); Run(two);
             Assert.True(MaxDeviation(two) <= MaxDeviation(one) * 1.05, MaxDeviation(two) + " against " + MaxDeviation(one));
             Assert.True(two.Counts["local_alpha_fine_samples"] >= one.Counts["local_alpha_fine_samples"]);
+            Assert.Equal(1, one.Counts["local_alpha_passes"]);
+            Assert.Equal(2, two.Counts["local_alpha_passes"]);       // the executed passes
+            Assert.NotEqual(one.Result.Tets, two.Result.Tets);       // the second pass changed the field
             foreach (int bad in new[] { 0, 4 }) {
                 var tm = Local(input, 150, bad); Run(tm);
                 Assert.Equal(one.Result.Tets, tm.Result.Tets);       // out of range counts as 1
@@ -317,14 +343,18 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void NextAlpha_RefinesWhereTheDistanceIsAboveTheTolerance_AndNeverRelaxes()
         {
-            // alpha0 = 1, floor 0.25, tolerance 0.1
-            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.05, 0.1, 1.0, 0.25));          // within: unchanged
-            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.1, 0.1, 1.0, 0.25));           // at the tolerance: unchanged
-            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(1.0, 0.2, 0.1, 1.0, 0.25), 12);       // twice the tolerance: half
-            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(1.0, 10, 0.1, 1.0, 0.25));           // far: the floor
-            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(0.5, 0.05, 0.1, 1.0, 0.25));          // the pass before got it within the tolerance: stays fine
-            Assert.Equal(0.3, MeshTetrahedralization.NextAlpha(0.3, 0.2, 0.1, 1.0, 0.25));          // the rule gives 0.5, the old alpha is finer: stays
-            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(0.25, double.PositiveInfinity, 0.1, 1.0, 0.25));
+            // floor 0.25, tolerance 0.1; the alpha the sample was wrapped with is the first argument
+            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.05, 0.1, 0.25));          // within: unchanged
+            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.1, 0.1, 0.25));           // at the tolerance: unchanged
+            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(1.0, 0.2, 0.1, 0.25), 12);       // twice the tolerance: half
+            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(1.0, 10, 0.1, 0.25));           // far: the floor
+            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(0.5, 0.05, 0.1, 0.25));          // the pass before got it within the tolerance: stays fine
+            // a later pass refines a sample that is still above the tolerance, in proportion to the alpha it was wrapped with
+            Assert.Equal(0.5 * (0.1 / 0.15), MeshTetrahedralization.NextAlpha(0.5, 0.15, 0.1, 0.25), 12);
+            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(0.3, 0.2, 0.1, 0.25));          // 0.15 is below the floor
+            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(0.25, double.PositiveInfinity, 0.1, 0.25));
+            // no overflow of a product at extreme scales: alphaJ * (tol / d)
+            Assert.Equal(5e199, MeshTetrahedralization.NextAlpha(1e200, 2e300, 1e300, 1.0), 1e187);
         }
 
         [Fact]

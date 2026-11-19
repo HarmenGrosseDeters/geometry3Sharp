@@ -213,20 +213,23 @@ namespace gs
         /// </summary>
         bool RefineAlpha(ref MeshAlphaWrap wrap, double surfaceAngle)
         {
-            double a0 = wrap.UsedAlpha, tol = Math.Max(MaxSurfaceDeviation, 2 * wrap.UsedOffset), aMin = a0 / LocalAlphaMaxRefinement;
+            double a0 = wrap.UsedAlpha, tol = Math.Max(MaxSurfaceDeviation, 2 * wrap.UsedOffset);
+            // (the wrap clamps a local alpha to 3 offsets: nothing to refine if alpha is not above that)
+            double aMin = Math.Max(a0 / LocalAlphaMaxRefinement, MeshAlphaWrap.AlphaFieldFloorOffsets * wrap.UsedOffset);
             Vector3d[] pos = AlphaSizeField.Samples(Mesh, DeviationSamples);
             int passes = LocalAlphaPasses >= 1 && LocalAlphaPasses <= 3 ? LocalAlphaPasses : 1;
-            if (pos.Length == 0 || !(aMin > 0))
+            if (pos.Length == 0 || !(aMin > 0) || !(aMin < a0))
                 return true;
             var aj = new double[pos.Length];
             for (int i = 0; i < aj.Length; ++i) aj[i] = a0;
             AlphaSizeField field = null;
+            int executed = 0;
             for (int pass = 0; pass < passes; ++pass) {
                 var tree = new DMeshAABBTree3(wrap.Result, true);
                 for (int i = 0; i < pos.Length; ++i) {
                     if (CancelF()) { localCancelled = true; return false; }
                     tree.FindNearestTriangle(pos[i], out double d2);
-                    aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, a0, aMin);
+                    aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
                 }
                 field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
                 if (field.FineSamples == 0)
@@ -234,21 +237,24 @@ namespace gs
                 MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
                 bool ok = next.Compute();
                 wrap = next;
+                executed++;
                 if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success)
                     return false;
             }
-            localAlphaPasses = field == null ? 0 : passes; localFineSamples = field == null ? 0 : field.FineSamples;
+            localAlphaPasses = executed; localFineSamples = field == null ? 0 : field.FineSamples;
             return true;
         }
         /// <summary>
-        /// the alpha of a sample after a pass (tests): unchanged if the wrap is within the tolerance of it, else the smaller of the old alpha and a0 * tol / d
-        /// (a0 / aMin at most), so a later pass never makes a sample coarser, also where the pass before got it within the tolerance
+        /// the alpha of a sample after a pass (tests): unchanged if the wrap is within the tolerance of it, else alphaJ * tol / d (the alpha it was wrapped with, scaled
+        /// by how far the distance is above the tolerance; alphaJ is alpha at the first pass), at least aMin, and never above the old alphaJ, so a later pass never
+        /// makes a sample coarser, also where the pass before got it within the tolerance. Written as alphaJ * (tol / d): no overflow of the product at extreme scales.
         /// </summary>
-        internal static double NextAlpha(double alphaJ, double d, double tol, double a0, double aMin)
+        internal static double NextAlpha(double alphaJ, double d, double tol, double aMin)
         {
-            return d > tol ? Math.Min(alphaJ, Math.Max(aMin, a0 * tol / d)) : alphaJ;
+            return d > tol ? Math.Min(alphaJ, Math.Max(aMin, alphaJ * (tol / d))) : alphaJ;
         }
         long localAlphaPasses, localFineSamples;
+        bool localRan;
         bool localCancelled;
 
         /// <summary>
@@ -260,26 +266,32 @@ namespace gs
         public bool Compute()
         {
             gradation = LocalAlphaGradation;
+            RetryFirstWorstMinDihedral = double.NaN;
             bool ok = ComputeOnce();
-            if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localAlphaPasses == 0 || localFineSamples == 0)
+            if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localFineSamples == 0)
                 return ok;
             // keep the first run, try the smoother field
-            var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, ok);
+            var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, DiagnosticLines, localAlphaPasses, localFineSamples, localRan, ok);
+            RetryFirstWorstMinDihedral = Targets.WorstMinDihedral;
             gradation = LocalAlphaGradation / 2;
             bool ok2 = ComputeOnce();
-            bool keepSecond = Result != null && Targets != null && (Targets.MinDihedralMet || Targets.WorstMinDihedral > first.Item2.WorstMinDihedral) && Status != TetStatus.Cancelled;
+            if (Status == TetStatus.Cancelled) return ok2;        // cancelled during the retry: cancelled, not the first result
+            bool keepSecond = Result != null && Targets != null && (Status == TetStatus.Success || Status == first.Item4)
+                && (Targets.MinDihedralMet || Targets.WorstMinDihedral > first.Item2.WorstMinDihedral);
             if (keepSecond) {
                 Counts["local_alpha_retry"] = 1; Counts["local_alpha_retry_kept"] = 1;
                 return ok2;
             }
-            (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, ok) = first;
+            (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, DiagnosticLines, localAlphaPasses, localFineSamples, localRan, ok) = first;
             Counts["local_alpha_retry"] = 1;
             return ok;
         }
+        /// <summary> (tests) the smallest dihedral angle of the first run, when Compute() ran a second time with a smoother field </summary>
+        internal double RetryFirstWorstMinDihedral;
 
         bool ComputeOnce()
         {
-            localAlphaPasses = 0; localFineSamples = 0; localCancelled = false;
+            localAlphaPasses = 0; localFineSamples = 0; localCancelled = false; localRan = false;
             Result = null;
             Targets = null;
             InvalidSizeSamples = 0;
@@ -296,6 +308,7 @@ namespace gs
                 Status = wrap.Status == MeshAlphaWrap.WrapStatus.Cancelled ? TetStatus.Cancelled : TetStatus.WrapFailed;
                 return false;
             }
+            localRan = local;
             if (local && !RefineAlpha(ref wrap, surfaceAngle)) {
                 Wrap = wrap;
                 WrapStatus = wrap.Status;
@@ -327,7 +340,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
-            if (localAlphaPasses > 0) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; }   // only then: the default counts do not change
+            if (localRan) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; }   // only then: the default counts do not change
             if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change

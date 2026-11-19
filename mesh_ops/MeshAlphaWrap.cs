@@ -325,7 +325,9 @@ namespace gs
         {
             if (AlphaField == null) return alpha;
             Index3i f = dt.FacetVertices(c, i);
-            Vector3d p = (dt.GetVertex(f.a) + dt.GetVertex(f.b) + dt.GetVertex(f.c)) / 3.0;
+            // (summed in the order of the vertex ids, so the two cells that share a facet get the same centroid to the last bit)
+            int lo = Math.Min(f.a, Math.Min(f.b, f.c)), hi = Math.Max(f.a, Math.Max(f.b, f.c)), mid = f.a + f.b + f.c - lo - hi;
+            Vector3d p = (dt.GetVertex(lo) + dt.GetVertex(mid) + dt.GetVertex(hi)) / 3.0;
             double a = AlphaField(p);
             return a < alpha ? Math.Min(alpha, Math.Max(a, AlphaFieldFloorOffsets * offset)) : alpha;
         }
