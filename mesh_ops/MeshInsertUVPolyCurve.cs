@@ -37,7 +37,9 @@ namespace g3
         // probably always makes sense to use this...maybe not for very small problems?
         public bool UseTriSpatial = true;
 
-        // points/edges within this distance are considered the same
+        // Points and edges within this distance are considered the same. The default
+        // value is relative to the largest UV dimension of the input curve.
+        // Other values are absolute distances in UV space.
         public double SpatialEpsilon = MathUtil.ZeroTolerance;
 
         // Results
@@ -87,8 +89,36 @@ namespace g3
         }
 
 
+        AxisAlignedBox2d uv_bounds()
+        {
+            AxisAlignedBox2d bounds = AxisAlignedBox2d.Empty;
+            foreach (int vid in Mesh.VertexIndices()) {
+                if (Mesh.GetVtxEdgeCount(vid) > 0)
+                    bounds.Contain(PointF(vid));
+            }
+            return bounds;
+        }
+
+
+        static double uv_size(AxisAlignedBox2d bounds)
+        {
+            double size = bounds.MaxDim;
+            return size > 0 && !double.IsInfinity(size) ? size : 1;
+        }
+
+
+        static Segment2d uv_segment(Vector2d a, Vector2d b, double normalizationEpsilon)
+        {
+            Vector2d direction = b - a;
+            double length = direction.Normalize(normalizationEpsilon);
+            return new Segment2d(0.5 * (a + b), direction, 0.5 * length);
+        }
+
+
         public virtual ValidationStatus Validate(double fDegenerateTol = MathUtil.ZeroTolerancef)
 		{
+            if (fDegenerateTol == MathUtil.ZeroTolerancef)
+                fDegenerateTol *= uv_size(Curve.Bounds);
             double dist_sqr_thresh = fDegenerateTol * fDegenerateTol;
 
             int nStop = IsLoop ? Curve.VertexCount - 1 : Curve.VertexCount;
@@ -146,18 +176,17 @@ namespace g3
 
         // (sequentially) find each triangle that path point lies in, and insert a vertex for
         // that point into mesh.
-        void insert_corners(HashSet<int> MeshVertsOnCurve)
+        void insert_corners(HashSet<int> MeshVertsOnCurve, AxisAlignedBox2d bounds, double spatialEpsilon, double normalizationEpsilon)
         {
             PrimalQuery2d query = new PrimalQuery2d(PointF);
 
+            triSpatial = null;
             if (UseTriSpatial) {
                 int count = Mesh.TriangleCount + Curve.VertexCount;
                 int bins = 32;
                 if (count < 25) bins = 8;
                 else if (count < 100) bins = 16;
-                AxisAlignedBox3d bounds3 = Mesh.CachedBounds;
-                AxisAlignedBox2d bounds2 = new AxisAlignedBox2d(bounds3.Min.xy, bounds3.Max.xy);
-                triSpatial = new TriangleBinsGrid2d(bounds2, bins);
+                triSpatial = new TriangleBinsGrid2d(bounds, bins);
                 foreach (int tid in Mesh.TriangleIndices())
                     spatial_add_triangle(tid);
             }
@@ -198,7 +227,7 @@ namespace g3
                     Vector3d bary = MathUtil.BarycentricCoords(vInsert, PointF(tv.a), PointF(tv.b), PointF(tv.c));
                     // SpatialEpsilon is our zero-tolerance, so merge if we are closer than that
                     bool is_existing_v;
-                    int vid = insert_corner_from_bary(i, contain_tid, bary, 0.01, 100*SpatialEpsilon, out is_existing_v);
+                    int vid = insert_corner_from_bary(i, contain_tid, bary, 0.01, 100 * spatialEpsilon, normalizationEpsilon, out is_existing_v);
                     if (vid >= 0) {
                         CurveVertices[i] = vid;
                         if (is_existing_v)
@@ -213,7 +242,7 @@ namespace g3
                 if (inserted == false) {
                     foreach (int vid in Mesh.VertexIndices()) {
                         Vector2d v = PointF(vid);
-                        if (vInsert.Distance(v) < SpatialEpsilon) {
+                        if (vInsert.Distance(v) < spatialEpsilon) {
                             CurveVertices[i] = vid;
                             MeshVertsOnCurve.Add(vid);
                             inserted = true;
@@ -237,7 +266,7 @@ namespace g3
         // insert point at bary_coords inside tid. If point is at vtx, just use that vtx.
         // If it is on an edge, do an edge split. Otherwise poke face.
         int insert_corner_from_bary(int iCorner, int tid, Vector3d bary_coords, 
-            double bary_tol, double spatial_tol, out bool is_existing_v)
+            double bary_tol, double spatial_tol, double normalizationEpsilon, out bool is_existing_v)
         {
             is_existing_v = false;
             Vector2d vInsert = Curve[iCorner];
@@ -268,7 +297,7 @@ namespace g3
                 int eid = Mesh.GetTriEdge(tid, split_edge);
 
                 Index2i ev = Mesh.GetEdgeV(eid);
-                Segment2d seg = new Segment2d(PointF(ev.a), PointF(ev.b));
+                Segment2d seg = uv_segment(PointF(ev.a), PointF(ev.b), normalizationEpsilon);
                 if (seg.DistanceSquared(vInsert) < spatial_tol*spatial_tol) {
                     Index2i et = Mesh.GetEdgeT(eid);
                     spatial_remove_triangles(et.a, et.b);
@@ -311,7 +340,21 @@ namespace g3
         public virtual bool Apply()
 		{
             HashSet<int> OnCurveVerts = new HashSet<int>();     // original vertices that were epsilon-coincident w/ curve vertices
-            insert_corners(OnCurveVerts);
+            AxisAlignedBox2d bounds = uv_bounds();
+            AxisAlignedBox2d curveBounds = Curve.Bounds;
+            double size = double.IsInfinity(bounds.MaxDim) ? 1 : uv_size(curveBounds);
+            bool useRelativeEpsilon = SpatialEpsilon == MathUtil.ZeroTolerance;
+            double spatialEpsilon = useRelativeEpsilon ? SpatialEpsilon * size : SpatialEpsilon;
+            double normalizationEpsilon = MathUtil.Epsilon * size;
+            insert_corners(OnCurveVerts, bounds, spatialEpsilon, normalizationEpsilon);
+
+            // Inserted vertices are stored in UV coordinates, so rounding at their
+            // coordinate magnitude also affects the distance to the segment.
+            double magnitude = Math.Max(Math.Max(Math.Abs(curveBounds.Min.x), Math.Abs(curveBounds.Max.x)),
+                                        Math.Max(Math.Abs(curveBounds.Min.y), Math.Abs(curveBounds.Max.y)));
+            double segmentEpsilon = useRelativeEpsilon
+                ? Math.Max(spatialEpsilon, 4 * MathUtil.Epsilon * magnitude)
+                : spatialEpsilon;
 
             // [RMS] not using this?
             //HashSet<int> corner_v = new HashSet<int>(CurveVertices);
@@ -334,7 +377,7 @@ namespace g3
             for ( int si = 0; si < N; ++si ) {
                 int i0 = si;
                 int i1 = (si + 1) % Curve.VertexCount;
-                Segment2d seg = new Segment2d(Curve[i0], Curve[i1]);
+                Segment2d seg = uv_segment(Curve[i0], Curve[i1], normalizationEpsilon);
 
                 int i0_vid = CurveVertices[i0];
                 int i1_vid = CurveVertices[i1];
@@ -346,10 +389,12 @@ namespace g3
                     continue;
                 }
 
+                // WhichSide compares an area, so convert the distance band to a determinant band.
+                double sideEpsilon = useRelativeEpsilon ? segmentEpsilon * seg.Length : SpatialEpsilon;
                 if (triSpatial != null) {
                     segTriangles.Clear(); segVertices.Clear(); segEdges.Clear();
                     AxisAlignedBox2d segBounds = new AxisAlignedBox2d(seg.P0); segBounds.Contain(seg.P1);
-                    segBounds.Expand(MathUtil.ZeroTolerancef * 10);
+                    segBounds.Expand(MathUtil.ZeroTolerancef * 10 * size);
                     triSpatial.FindTrianglesInRange(segBounds, segTriangles);
                     IndexUtil.TrianglesToVertices(Mesh, segTriangles, segVertices);
                     IndexUtil.TrianglesToEdges(Mesh, segTriangles, segEdges);
@@ -371,7 +416,7 @@ namespace g3
                         } else {
                             Vector2d v2 = PointF(vid);
                             // tolerance defines band in which we will consider values to be zero
-                            signs[vid] = (sbyte)seg.WhichSide(v2, SpatialEpsilon);
+                            signs[vid] = (sbyte)seg.WhichSide(v2, sideEpsilon);
                         }
                     } else
                         signs[vid] = sbyte.MaxValue;
@@ -409,10 +454,10 @@ namespace g3
                     // need that to catch the edges we split in the poke?
                     bool eva_in_segment = false;
                     if ( eva_sign == 0 ) 
-                        eva_in_segment = OnCurveVerts.Contains(ev.a) || Math.Abs(seg.Project(PointF(ev.a))) < (seg.Extent + SpatialEpsilon);
+                        eva_in_segment = OnCurveVerts.Contains(ev.a) || Math.Abs(seg.Project(PointF(ev.a))) < (seg.Extent + segmentEpsilon);
                     bool evb_in_segment = false;
                     if (evb_sign == 0)
-                        evb_in_segment = OnCurveVerts.Contains(ev.b) || Math.Abs(seg.Project(PointF(ev.b))) < (seg.Extent + SpatialEpsilon);
+                        evb_in_segment = OnCurveVerts.Contains(ev.b) || Math.Abs(seg.Project(PointF(ev.b))) < (seg.Extent + segmentEpsilon);
 
                     // If one or both vertices are on-segment, we have special case.
                     // If just one vertex is on the segment, we can skip this edge.
@@ -437,7 +482,7 @@ namespace g3
                     // compute segment/segment intersection
                     Vector2d va = PointF(ev.a);
                     Vector2d vb = PointF(ev.b);
-                    Segment2d edge_seg = new Segment2d(va, vb);
+                    Segment2d edge_seg = uv_segment(va, vb, normalizationEpsilon);
                     IntrSegment2Segment2 intr = new IntrSegment2Segment2(seg, edge_seg);
                     intr.Compute();
                     if (intr.Type == IntersectionType.Segment) {
@@ -457,7 +502,7 @@ namespace g3
                     // is within epsilon of one end of the edge. This is a spurious t-intersection and we
                     // can ignore it. Some other edge should exist that picks up this vertex as part of it.
                     // [TODO] what about if this edge is degenerate?
-                    bool x_in_segment = Math.Abs(edge_seg.Project(x)) < (edge_seg.Extent - SpatialEpsilon);
+                    bool x_in_segment = Math.Abs(edge_seg.Project(x)) < (edge_seg.Extent - segmentEpsilon);
                     if (! x_in_segment ) {
                         continue;
                     }
