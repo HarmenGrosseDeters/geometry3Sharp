@@ -591,5 +591,49 @@ class ChainEndToEndTests(unittest.TestCase):
         self.assertEqual(rows[0]["method"], "export")
         self.assertIn("inexact transform", rows[0]["error"])
 
+def off_volume(path):
+    """the enclosed volume of a closed OFF triangle mesh (divergence theorem)"""
+    lines = [l.split() for l in open(path) if l.strip()]
+    nv, nf = int(lines[1][0]), int(lines[1][1])
+    v = [tuple(map(float, l[:3])) for l in lines[2:2 + nv]]
+    s = 0.0
+    for l in lines[2 + nv:2 + nv + nf]:
+        a, b, c = (v[int(i)] for i in l[1:4])
+        s += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+    return s / 6
+
+class PipelineMethodCommandTests(unittest.TestCase):
+    """the methods pipeline and pipeline_cad run SolidBooleanPipeline through the tool's run-pipeline command"""
+    def test_commands(self):
+        import compare
+        self.assertEqual(compare.commands("pipeline", "union", "A.off", "B.off", "/t/pipeline_union")[-6:],
+                         ["run-pipeline", "A.off", "B.off", "union", "/t/pipeline_union.off", "default"])
+        self.assertEqual(compare.commands("pipeline_cad", "difference", "A.off", "B.off", "/t/x")[-6:],
+                         ["run-pipeline", "A.off", "B.off", "difference", "/t/x.off", "cad"])
+
+@unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
+class PipelineMethodEndToEndTests(unittest.TestCase):
+    def test_both_variants_give_the_volume_of_the_union_of_two_cubes(self):
+        import compare
+        with tempfile.TemporaryDirectory() as d:
+            write_off(os.path.join(d, "A.off"), *cube(0.0, 1.0))
+            write_off(os.path.join(d, "B.off"), *cube(0.5, 1.5))
+            for m in ("pipeline", "pipeline_cad"):
+                r = compare.run_one(m, "union", d, 300)
+                self.assertEqual(r["status"], "ok", r)
+                self.assertEqual(r["pipeline_status"], "Success")
+                self.assertEqual(r["pipeline"]["not_clean"], "")
+                # the cad variant snaps to 2^(floor(log2 1.5) - 20) = 2^-20; the default does not snap
+                self.assertEqual(r["input_grid"], 2.0 ** -20 if m == "pipeline_cad" else 0)
+                self.assertAlmostEqual(off_volume(os.path.join(d, m + "_union.off")), 1.875, places=12)
+
+    def test_an_unknown_variant_is_refused(self):
+        import subprocess, compare
+        with tempfile.TemporaryDirectory() as d:
+            write_off(os.path.join(d, "A.off"), *cube(0.0, 1.0))
+            p = subprocess.run(compare.tool + ["run-pipeline", os.path.join(d, "A.off"), os.path.join(d, "A.off"), "union", os.path.join(d, "o.off"), "nope"],
+                               capture_output=True, text=True, timeout=300)
+            self.assertNotEqual(p.returncode, 0)
+
 if __name__ == "__main__":
     unittest.main()

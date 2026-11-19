@@ -37,6 +37,8 @@ checks the checkout, the objects and the library symbols for them; the binary is
 | name | implementation | license | threads |
 |---|---|---|---|
 | `ours` | `ExactMeshBoolean` (this library) | Boost | parallel |
+| `pipeline` | `SolidBooleanPipeline` (this library) with its defaults: input checks and repair of open inputs, `ExactMeshBoolean`, the reduction, the final check (`run-pipeline <A> <B> <op> <out> default`) | Boost | parallel |
+| `pipeline_cad` | the same with the settings for faceted CAD inputs: `InputGrid` = 2^(floor(log2(largest box dimension of the inputs)) - 20), an exact snap of the inputs relative to the model size (`run-pipeline ... cad`) | Boost | parallel |
 | `cgal_epick` | CGAL Polygon Mesh Processing corefinement, inexact constructions | GPL | 1 |
 | `cgal_epeck` | the same with exact constructions | GPL | 1 |
 | `cherchi` | Cherchi et al. 2022, *Interactive and Robust Mesh Booleans* | MIT | parallel |
@@ -44,6 +46,9 @@ checks the checkout, the objects and the library symbols for them; the binary is
 | `geogram` | Geogram `mesh_boolean_operation` (Lévy 2024, exact `expansion_nt` points, default flags), `GEOGRAM_BOOL` | BSD-3 | parallel (`GEOGRAM_THREADS` caps it) |
 
 All tools report the time of the boolean alone (without file I/O); `wall_ms` includes process start and I/O.
+For `pipeline` and `pipeline_cad` that time is the whole pipeline (repair, boolean, reduction, checks); their rows also carry
+`pipeline_status`, `input_grid` and `pipeline` (the report: `not_clean`, triangle counts, contacts, kept thin components, the
+time of the boolean and of the reduction). Their result is reduced, so its triangle count is not comparable with `ours`.
 CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-manifold inputs.
 
 ## Data classes
