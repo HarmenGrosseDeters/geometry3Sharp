@@ -19,6 +19,25 @@ namespace gs
         NoFaces = 4
     }
 
+    /// <summary> Result of the pure-quad attempt of QuadRemesher (PureQuads): the first check that failed, see PureQuads </summary>
+    public enum PureQuadStatus
+    {
+        /// <summary> PureQuads is false (or Compute() failed before the attempt) </summary>
+        NotRequested = 0,
+        /// <summary> every check passed: Result is the mesh of quads only </summary>
+        Success = 1,
+        /// <summary> the repaired integer map still has triangles of negative orientation (InvertedTriangles, exact integer determinant) </summary>
+        OrientationFolds = 2,
+        /// <summary> the extracted faces include a quad that faces away from the surface (FlippedQuads) </summary>
+        FlippedFaces = 3,
+        /// <summary> the extracted mesh is not a manifold of quads only (an unpaired triangle, a face that is not a quad, a non-manifold edge or vertex) </summary>
+        NotManifold = 4,
+        /// <summary> the flow of the integer corrections could not be completed (or the lattice offsets are out of range) </summary>
+        FlowInfeasible = 5,
+        /// <summary> the repair used up its deterministic budget (the decisions of the SAT, the edge splits) before the map was free of folds </summary>
+        BudgetExceeded = 6
+    }
+
     /// <summary>
     /// Quad-dominant remeshing by an instant field-aligned mesh: the cross field (CrossField, Knöppel et al. 2013), the position
     /// field (PositionField, Jakob et al. 2015) and the extraction of the polygon mesh from the integer lattice offsets with a
@@ -35,6 +54,11 @@ namespace gs
     /// are on the tangent planes of the input, not projected). Deterministic: the same input gives the same output bit for bit,
     /// serial or parallel; power of two scalings of the mesh and of TargetEdgeLength give the same polygon mesh up to the scaling.
     /// Compute() can be called again.
+    ///
+    /// Pure quads (opt-in, PureQuads = true): after the extraction the integer offsets of the position field are repaired (a flow
+    /// for the regularity, subdivision, local SAT; QuadFlowRepair, QUAD_REMESHING.md stage 3B) and a mesh of quads only is
+    /// extracted. It is used only if every check passes; otherwise Result is the quad-dominant mesh of stage 2 and PureQuadStatus
+    /// says which check failed (never silent).
     /// </summary>
     public class QuadRemesher
     {
@@ -57,6 +81,28 @@ namespace gs
 
         internal int ChunkSize = 512;
 
+        /// <summary>
+        /// Off (default): Result is the quad-dominant mesh of stage 2, bit for bit as without this option. On: the pure-quad repair
+        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, no triangle of the integer
+        /// map is inverted (exact), the repair stays in its budget, the extracted mesh is a manifold of quads only, no quad is flipped)
+        /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
+        /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
+        /// PureQuadStatus names the first failed check. The attempt succeeds on some meshes only (on shapes with long sharp
+        /// features or strong curvature changes the integer map often has folds that the repair does not remove): test
+        /// PureQuadStatus. Costs a few times the stage 2 time (QUAD_REMESHING.md, stage 3B).
+        /// </summary>
+        public bool PureQuads = false;
+        /// <summary> the outcome of the pure-quad attempt of the last Compute(): NotRequested when PureQuads is false </summary>
+        public PureQuadStatus PureQuadStatus = PureQuadStatus.NotRequested;
+        /// <summary> the detection counters of the last pure-quad attempt: triangles of the repaired integer map with a negative determinant, and extracted quads that face away from the surface </summary>
+        public int InvertedTriangles, FlippedQuads;
+        /// <summary> seconds of the pure-quad attempt of the last Compute(): the offsets and the flow, then the subdivision and the local repair (the extraction is not counted here) </summary>
+        public double FlowSeconds, RepairSeconds;
+        /// <summary> test hook: false switches off the sign penalty of the flow cost (the plain marginal cost, which lets the sphere fold) </summary>
+        internal bool SignPenalty = true;
+        /// <summary> the last pure-quad attempt (profile and offsets for tests and benchmarks) </summary>
+        internal QuadFlowRepair PureQuadRepair;
+
         public QuadRemeshStatus Status = QuadRemeshStatus.Success;
         public string Error;
         public CrossFieldStatus FieldStatus = CrossFieldStatus.Success;
@@ -73,6 +119,7 @@ namespace gs
         public QuadRemeshStatus Compute()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+            PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
@@ -88,6 +135,14 @@ namespace gs
             Result = Extract(pf);
             ExtractSeconds = sw.Elapsed.TotalSeconds;
             if (Result.FaceCount == 0) { Result = null; return Fail(QuadRemeshStatus.NoFaces, "no face was extracted"); }
+            if (PureQuads) {
+                var rep = new QuadFlowRepair(Mesh, cf, pf, TargetEdgeLength) { SignPenalty = SignPenalty };
+                PureQuadRepair = rep;
+                PureQuadStatus = rep.Run();
+                InvertedTriangles = rep.InvertedTriangles; FlippedQuads = rep.FlippedQuads;
+                FlowSeconds = rep.FlowSeconds; RepairSeconds = rep.RepairSeconds;
+                if (PureQuadStatus == PureQuadStatus.Success) Result = rep.Result;
+            }
             return Status;
         }
 

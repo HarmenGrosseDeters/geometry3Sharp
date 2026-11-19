@@ -308,6 +308,19 @@ did not accept; no code of Instant Meshes, QuadriFlow, QuadWild or libigl was re
 | Deterministic parallel Gauss-Seidel: a fixed greedy colouring in vertex order, the colours one after the other, so that serial and parallel runs execute the same updates | multi-colour Gauss-Seidel, standard (eg Y. Saad, *Iterative Methods for Sparse Linear Systems*, 2nd ed. 2003, section 12.4) |
 | The quality numbers of `PolyMeshMetrics` (face mix, valence, corner angles, manifold polygon mesh) | QUAD_REMESHING.md section 1 |
 
+## Pure quads (`QuadRemesher.PureQuads`, `QuadFlowRepair`, `MinCostFlow`, `GroupSatSolver`)
+
+Stage 3B of [design/QUAD_REMESHING.md](design/QUAD_REMESHING.md), implemented from the papers and textbooks only (owner 2026-11-19: no
+code of QuadriFlow, Instant Meshes, QuadWild, LEMON, MiniSat or MapleSAT, and no other quad meshing, flow or SAT solver code, was read).
+
+| Part | Source |
+|---|---|
+| The repair of the position field's integer offsets: the integer variable per edge in the lattice frame of each triangle with the frame transition, the regularity constraint (the three offsets of a triangle sum to zero) as a network flow after a breadth-first rotation of the equations, the capacity growing until the flow is full, subdivision of edges with a large offset, the greedy move of vertices, the local SAT repair of inverted triangles, the position solve over the clusters of zero offsets, and the extraction of quads by pairing triangles over their hypotenuses (sections 3.2-3.6) | J. Huang, Y. Zhou, M. Niessner, J. R. Shewchuk, L. J. Guibas, *QuadriFlow: A Scalable and Robust Method for Quadrangulation*, Computer Graphics Forum 37(5), 2018 (the paper only) |
+| `MinCostFlow`: successive shortest paths with node potentials, Dijkstra with early termination at the first node with a deficit (the unsettled nodes keep their potential relative to the distance of that node) per source node of the excess network | R. K. Ahuja, T. L. Magnanti, J. B. Orlin, *Network Flows: Theory, Algorithms, and Applications*, Prentice Hall 1993, section 9.7 (successive shortest path algorithm; node potentials and reduced costs as defined there) |
+| The sign-aware unit cost of a step of the flow (the marginal increase of the distance to the real offset, two tiers, times 100 when a step grows the offset against the sign of the real offset): own choice; it softens the frame-aligned orientation constraints of the integer-grid map | M. Bommes, M. Campen, H.-C. Ebke, P. Alliez, L. Kobbelt, *Integer-Grid Maps for Reliable Quad Meshing*, ACM TOG 32(4) 98, SIGGRAPH 2013 |
+| `GroupSatSolver`: unit propagation over watched literals and chronological backtracking with "exactly one" variable groups, a decision count as the budget (never a clock) | M. Davis, H. Putnam, *A computing procedure for quantification theory*, JACM 7(3), 1960; M. Davis, G. Logemann, D. Loveland, *A machine program for theorem-proving*, CACM 5(7), 1962; M. Moskewicz, C. Madigan, Y. Zhao, L. Zhang, S. Malik, *Chaff: Engineering an Efficient SAT Solver*, DAC 2001 (the two watched literals; from the description) |
+| The implication encoding of the triangle constraints (the last mutable offset of a triangle is determined by the others), the total decision budget of 300k, the priority-queue subdivision with the order (largest offset, triangle, slot), the exact integer fold count (det < 0), the contracted position solve, the fallback to the stage 2 mesh | own choices (benchmarks/QuadFlow3BGate/README.md, QUAD_REMESHING.md 4.4) |
+
 ## Parameterization (`LSCMParameterization`, `SpectralConformalParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.
