@@ -231,6 +231,15 @@ namespace g3
             return 1;
         }
 
+        /// <summary> whether the vertex is an interior vertex of angle sum exactly 2 pi (the exact flatness test of A.5), whatever the
+        /// run's settings; used by <see cref="PolyhedralGeodesicDistance"/>, whose clips are closed (carry the ray) at these vertices only </summary>
+        internal bool IsFlatVertex(int v)
+        {
+            if (Mesh.GetVtxTriangleCount(v) == 0 || Mesh.IsBoundaryVertex(v)) return false;
+            var fan = Fan(v);
+            return fan.Count == Mesh.GetVtxTriangleCount(v) && IsExactlyFlat(v, fan);
+        }
+
         /// <summary> the pre-A7' behaviour (S1): every vertex that is not certainly convex is a pseudo-source, flat ones included.
         /// For tests, which compare the two. </summary>
         bool lastWasFlat;           // the last VertexKind call returned 0 because the vertex is exactly flat

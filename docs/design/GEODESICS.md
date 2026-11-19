@@ -1275,6 +1275,29 @@ gate-2 baseline of 3.3 s had it) is part of the class: a piece of w is dropped i
 + 4 eps extent for u an end of the edge or the third vertex, with U(u) the current best `Distance` estimate of u; by R,
 d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No lemma-based rule (ICH, VTP) in v1.
 
+**Implementation notes (2026-11-19, the code PR; where the code differs from the text above, the code is right).**
+1. *The end error is an angle.* The recurrence e' = e x g of rule 2 grew exponentially on lattices (the end error reached 1e-7 extent on a
+   25 x 25 plane: g > 1 at every hop, and a doubling cap did not help). The window carries an **angular** error E (radians) of its rays and
+   the error of an end on its edge is E R^2 / h (R: the distance of the origin from the end point, h: its distance from the edge's line, floored
+   at 16 eps extent). A hop adds the rounding, 16 eps + 4 cEps / R_p (R_p: the distance of the origin from the nearer clip end). Rays nearly along an
+   edge are badly conditioned (h small) and get wide ends, which only widens clips. This is rule 2's content without its exponential.
+2. *No recentring.* Every quantity the class uses is a difference of coordinates or a length derived from differences (accurate relative to
+   itself), so the magnitude of the coordinates does not enter; the shifted copies of the similarity tests agree (rule 2 (c) is not needed).
+3. *The clips are closed only at exactly flat vertices.* At every other vertex the plain clips (strict inequalities, no margin, the split end still
+   mapped to the vertex exactly): the tiny windows at the vertex ends of the closed clips tripled the windows on lattices where every vertex is flat
+   (4115 of 6580 windows on a 21 x 21 plane), and they are needed only for the ray through a flat vertex (A.6). `ExactMeshGeodesicDistance`
+   got an internal `IsFlatVertex` for this (the exact flatness test, whatever the run's settings).
+4. *The cap on xi at a merge is a safeguard, 1e-6 extent.* At 1e-9 extent the merging stopped after about 70 crossings on the plane (xi had grown
+   to 2e-9 through the charges of the openings) and the windows per vertex grew from 7 to 20 and then without bound; the accuracy is what the tests
+   enforce, the cap does not bound it.
+5. *delta = 1e-12 extent, measured.* On the plane, the ridges and the terrain, every touching pair of one origin was either within delta (merged) or
+   at least 3.9e-5 extent apart (the largest distance below 1e-6 extent was 0 on the planes and the ridges, 3.9e-5 on the 41 x 41 terrain: the
+   windows of one origin at a different image).
+6. *The vertex test is in; ICH and VTP are not.* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
+   `WindowLimit`: a mesh whose pseudo-sources are dense needs the stronger pruning of the lemma-based filters, which v1 leaves out (the oracle
+   needs 120 windows per vertex there too). The target families (terrain, plane, the ridges) stay below 40 per vertex (the benchmark numbers in
+   `benchmarks/GeodesicOracleBenchmark/README.md`).
+
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
 through, a flat vertex, which A.6 does not need but the tolerance does? (2) R for the exceptions of rule 4: the along-the-edge window and

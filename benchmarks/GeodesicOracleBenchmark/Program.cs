@@ -4,7 +4,9 @@
 // (flat vertices emit) to compare with A7'.
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- reach      the reach meshes of GEODESICS.md 6b
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- sweep      domes and saddles over a curvature sweep
+//   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- poly 101,201,317   the public PolyhedralGeodesicDistance (docs/design/GEODESICS.md 6e): time, windows, memory; no oracle
 using System;
+using System.Linq;
 using System.Diagnostics;
 using g3;
 
@@ -77,7 +79,24 @@ static class Program
                             int src = at == "centre" ? (n / 2) * n + n / 2 : at == "corner" ? 0 : n / 2;
                             Row($"{kind} k = {k:G2}, {n} x {n}, {at}", Grid(1, n, h), src);
                         }
-        } else { Console.Error.WriteLine("modes: reach, sweep"); return 1; }
+        } else if (mode == "poly") {
+            Console.WriteLine("| mesh | vertices | status | seconds | windows | windows per vertex | allocated MB | peak working set MB |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|");
+            foreach (int n in (args.Length > 1 ? args[1] : "101,201,317").Split(',').Select(int.Parse)) {
+                foreach (string fam in (Environment.GetEnvironmentVariable("G3_FAMS") ?? "terrain,plane,ridge4,ridge75,saddle").Split(',')) {
+                    double half = (n - 1) * 0.25 / 2;
+                    DMesh3 m = fam == "terrain" ? Grid(n / 2, n, Terrain) : fam == "plane" ? Grid(1, n, (x, y) => 0) : fam == "saddle" ? Grid(1, n, (x, y) => 0.3 * (x * x - y * y))
+                        : fam == "ridge4" ? Grid(half, n, (x, y) => Ridge4(x)) : Grid(half, n, (x, y) => Ridge(x));
+                    int src = fam.StartsWith("ridge") ? (n / 2) * n + 3 : (n / 2) * n + n / 2;
+                    var g = new PolyhedralGeodesicDistance(m) { MaxWindows = long.Parse(Environment.GetEnvironmentVariable("G3_MAXW") ?? "0") };
+                    long a0 = GC.GetAllocatedBytesForCurrentThread(); var sw = Stopwatch.StartNew();
+                    var st = g.Compute(new[] { src });
+                    double secs = sw.Elapsed.TotalSeconds; long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+                    long peak = Process.GetCurrentProcess().PeakWorkingSet64;
+                    Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {st} | {secs:F2} | {g.Windows} | {(double)g.Windows / m.VertexCount:F1} | {alloc / 1048576} | {peak / 1048576} | xi {g.PrMaxXi:E1} E {g.PrMaxE:E1} tiny {g.PrTiny} merges {g.Merges} pairs {g.PrPairs} |");
+                }
+            }
+        } else { Console.Error.WriteLine("modes: reach, sweep, poly"); return 1; }
         return 0;
     }
 }

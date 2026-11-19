@@ -88,6 +88,7 @@ namespace DeterminismHarness
             list.Add(new Case("geodesic.path", serial => GeodesicPath(serial)));
             list.Add(new Case("geodesic.bezier", serial => GeodesicBezier(serial)));
             list.Add(new Case("geodesic.exact", serial => GeodesicExact(serial)));
+            list.Add(new Case("geodesic.polyhedral", serial => GeodesicPolyhedral(serial)));
             return list;
         }
 
@@ -468,6 +469,18 @@ namespace DeterminismHarness
             t.Add(m, "input");
             t.Add(g.Compute(new[] { Inputs.Nearest(m, new Vector3d(1, 1, 0)) }) == ExactMeshGeodesicDistance.Result.Ok);
             if (g.Status == ExactMeshGeodesicDistance.Result.Ok) { t.Add(g.Lower); t.Add(g.Upper); }
+            return t;
+        }
+
+        // plain-double window propagation: only + - * / sqrt, so the same bits everywhere
+        static Trace GeodesicPolyhedral(bool serial)
+        {
+            DMesh3 m = Inputs.Grid(10, 9, 0.15, 5, true);
+            var g = new PolyhedralGeodesicDistance(m);
+            var t = new Trace();
+            t.Add(m, "input");
+            t.Add(g.Compute(new[] { Inputs.Nearest(m, new Vector3d(1, 1, 0)) }) == PolyhedralGeodesicStatus.Ok);
+            if (g.Status == PolyhedralGeodesicStatus.Ok) { t.Add(g.Distance); foreach (int s in g.NearestSource) t.Add(s); }
             return t;
         }
 

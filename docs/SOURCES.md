@@ -195,6 +195,18 @@ taken over (Kirsanov's `geodesic`, geometry-central, CGAL were not read).
 | Interval arithmetic with one-spacing widening (division and square root added) | R. E. Moore, *Interval Analysis*, Prentice-Hall 1966; IEEE 754 correct rounding of +, -, *, / and sqrt |
 | Corner angles by the correctly rounded atan2 | CORE-MATH (CoreMathSharp port), see "Correctly rounded sin, cos, tan, atan2, acos, exp, log" below |
 
+## Polyhedral geodesic distance in plain doubles (`PolyhedralGeodesicDistance`, public, uncertified)
+
+Implemented from the papers and the own claims of [docs/design/GEODESICS.md](design/GEODESICS.md) (section 6e, Appendix A.6 and
+A.7); no code taken over. No ICH (Xin and Wang) and no VTP filter is used; the certified oracle is the test reference.
+
+| Part | Source |
+|---|---|
+| Window propagation, pseudo-sources, the priority queue by window distance | J. S. B. Mitchell, D. M. Mount, C. H. Papadimitriou, *The discrete geodesic problem*, SIAM J. Comput. 16(4), 1987; V. Surazhsky, T. Surazhsky, D. Kirsanov, S. J. Gortler, H. Hoppe, *Fast exact and approximate geodesics on meshes*, ACM TOG 24(3), 2005 (as for the oracle above) |
+| The accumulated error of a window and merging of windows of one source within a tolerance | Surazhsky et al. 2005 (approximate variant), restated in own terms (A.7) |
+| Exactly flat vertices emit nothing; the ray through them is carried by the closed clips; the straight-fold and coplanar-fan test | own (A.5, A.6; the test is the oracle's `IsExactlyFlat`) |
+| Realisability and coverage of the windows, the margins, snapping of a clip end to a vertex, the pruning with errors | own (A.7) |
+
 ## Intrinsic triangulations and geodesics (`IntrinsicTriangulation`, `VectorHeatMethod`, `MeshGeodesicDistance`)
 
 Implemented from the papers, no code taken over (geometry-central, MIT, was not used as a source).
