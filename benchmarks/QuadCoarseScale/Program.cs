@@ -327,7 +327,7 @@ static class Program
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
-        double ratio = 0.5, mm = 0.5, minGain = 0.2;
+        double ratio = 0.5, mm = 0.5, minGain = A.ContainsKey("gate") ? double.Parse(A["gate"], CultureInfo.InvariantCulture) : 0.2;
         int gs = A.ContainsKey("gs") ? int.Parse(A["gs"]) : 5;
         int minN = A.ContainsKey("minN") ? int.Parse(A["minN"]) : 300;
         bool det = A.ContainsKey("det") && A["det"] == "1";
@@ -394,7 +394,7 @@ static class Program
                     double[] sig = Solve(P, R, g, st);
                     var st2 = new SolveStats(); double[] sigB = Solve(P, R, g, st2);
                     bool same = HashArr(sig) == HashArr(sigB);
-                    bool applied = st.CurlBefore > 0 && st.CurlAfter <= (1 - minGain) * st.CurlBefore;
+                    bool applied = st.CurlBefore > 0 && (minGain <= 0 ? st.CurlAfter < st.CurlBefore : st.CurlAfter <= (1 - minGain) * st.CurlBefore);
                     double[] sp = applied ? ToVertexArray(P, sig, input.MaxVertexID) : null;
                     var o = Finish(input, cf, s, sp, mm, true, P.ToVertex);
                     o.Applied = applied;
