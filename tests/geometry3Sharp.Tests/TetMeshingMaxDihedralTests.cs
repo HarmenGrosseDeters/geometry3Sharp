@@ -203,6 +203,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void LowAttainableMaximum_StopsThroughTheStallStop_AndKeepsTheInvariantsAndTheMinSide()
+        {
+            // a maximum the shape cannot meet keeps every tet bad; the passes then stop when they stall (not on time), Success is kept
+            DMesh3 input = TetMeshingStage2Tests.Torus(48, 12, 1, 0.15);
+            var plain = Run(input, 0, alpha: 12, offset: 200);
+            var low = Run(input, 100, alpha: 12, offset: 200);
+            Assert.Equal(1, low.Counts["improve_maxdih_stall_stop"]);
+            TetMeshingStage2Tests.Invariants(low);
+            Assert.True(WorstMin(low.Result) >= Math.Min(10, WorstMin(plain.Result)) - 1e-9, WorstMin(low.Result) + " vs " + WorstMin(plain.Result));
+            double maxLow = TetMeshQuality.Measure(low.Result).MaxDihedral.Worst, maxPlain = TetMeshQuality.Measure(plain.Result).MaxDihedral.Worst;
+            Assert.True(maxLow < maxPlain, maxLow + " vs " + maxPlain);           // it did work before stalling: the worst largest angle fell
+            Assert.True(low.Counts["improve_passes"] < 40, low.Counts["improve_passes"].ToString());
+            // deterministic: the same stop twice
+            AssertSame(low.Result, Run(input, 100, alpha: 12, offset: 200).Result);
+        }
+
+        [Fact]
+        public void StallStop_IsNotTakenWhereTheTargetIsMet()
+        {
+            foreach (string name in new[] { "sphere", "box", "cylinder", "torus thin" })
+                Assert.False(Run(TetMeshingStage2Tests.Input(name), G).Counts.ContainsKey("improve_maxdih_stall_stop"), name);
+        }
+
+        [Fact]
         public void On_ReuseAndRepeatedRuns_GiveTheSameTets()
         {
             DMesh3 input = TetMeshingStage2Tests.Input("torus thin");

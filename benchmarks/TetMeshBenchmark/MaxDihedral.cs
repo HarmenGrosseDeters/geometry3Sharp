@@ -37,7 +37,7 @@ static class MaxDihedralSample
         var tm = new MeshTetrahedralization(input) { RelativeAlpha = alpha, RelativeOffset = 600, SliverDihedralDegrees = floor, Improve = false };
         tm.Compute();
         double stage1 = sw0.Elapsed.TotalSeconds;
-        foreach (string cfg in new[] { "master", "p4", "p4g", "p4s" }) {
+        foreach (string cfg in (Environment.GetEnvironmentVariable("G3_CFGS") ?? "master,p4,p4g,p4s").Split(',')) {
             string row;
             try { row = One(name, input, alpha, floor, G, cfg, tm, stage1); }
             catch (Exception e) { row = name + "," + F(alpha) + "," + F(floor) + "," + F(G) + "," + cfg + ",EXCEPTION_" + e.GetType().Name; }

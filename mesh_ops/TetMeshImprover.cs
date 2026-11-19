@@ -252,10 +252,11 @@ namespace gs
 
         void run_phase()
         {
+            stallInit = true; stalled = false;
             hill_climb(MaxPasses);
             // rescue phase (TET_MESHING.md section 17): only if tets below the target are left (a mesh without any would stop after one
             // empty pass anyway; the test saves that scan and keeps the counts as before)
-            if (RescuePasses > 0 && !CancelF() && any_bad()) {
+            if (RescuePasses > 0 && !CancelF() && !stalled && any_bad()) {
                 ActiveSet = true;
                 long p = Counts["passes"];
                 try { hill_climb(RescuePasses); }
@@ -321,6 +322,20 @@ namespace gs
         /// <summary> tets within this many degrees of the worst of a star are active in the active-set direction </summary>
         internal double ActiveBand = 1;
 
+        /// <summary>
+        /// with the objective on (not time-based, so deterministic): stop when MaxDihedralStallPasses passes in a row neither lower the
+        /// number of tets below the target nor raise the worst quality by more than MaxDihedralStallDegrees, beyond the best of both so
+        /// far, while more than 1 / MaxDihedralStallFraction of the tets are below the target (a target the shape cannot meet keeps many
+        /// tets bad, and every pass then works on all of them for a sliver of progress; a short tail of a few tets does not stall). Counts["maxdih_stall_stop"] = 1 when it stops the run. 0 = never
+        /// </summary>
+        internal int MaxDihedralStallPasses = 4;
+        internal double MaxDihedralStallDegrees = 0.1;
+        /// <summary> the stall stop applies only while more than 1 / this of the tets are below the target (a short tail of a few tets still makes progress after a plateau) </summary>
+        internal int MaxDihedralStallFraction = 100;
+        bool stallInit = true, stalled;
+        int stallBestBad, stallCount;
+        double stallBestWorst;
+
         void hill_climb(int maxPasses)
         {
             for (int pass = 0; pass < maxPasses && !CancelF(); ++pass) {
@@ -328,9 +343,18 @@ namespace gs
                 long before = Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count();
                 // the bad tets, worst first (ids for ties: deterministic)
                 var bad = new List<(double q, int id)>();
+                int nAlive = 0;
                 for (int id = 0; id < tets.Count; ++id)
-                    if (alive[id]) { double q = quality(id); if (q < TargetDegrees) bad.Add((q, id)); }
+                    if (alive[id]) { nAlive++; double q = quality(id); if (q < TargetDegrees) bad.Add((q, id)); }
                 bad.Sort();
+                if (objective_on() && MaxDihedralStallPasses > 0 && bad.Count * MaxDihedralStallFraction > nAlive) {
+                    double worst = bad[0].q;
+                    if (stallInit) { stallInit = false; stallBestBad = bad.Count; stallBestWorst = worst; stallCount = 0; }
+                    else if (bad.Count < stallBestBad || worst > stallBestWorst + MaxDihedralStallDegrees) {
+                        stallBestBad = Math.Min(stallBestBad, bad.Count); stallBestWorst = Math.Max(stallBestWorst, worst); stallCount = 0;
+                    }
+                    else if (++stallCount >= MaxDihedralStallPasses) { Counts["maxdih_stall_stop"] = 1; stalled = true; break; }
+                }
                 foreach (var (q0, id) in bad) {
                     if (CancelF()) break;
                     if (!alive[id] || quality(id) >= TargetDegrees) continue;
