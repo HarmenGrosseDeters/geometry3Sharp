@@ -1295,7 +1295,7 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
 5. *delta = 1e-12 extent, measured.* On the plane, the ridges and the terrain, every touching pair of one origin was either within delta (merged) or
    at least 3.9e-5 extent apart (the largest distance below 1e-6 extent was 0 on the planes and the ridges, 3.9e-5 on the 41 x 41 terrain: the
    windows of one origin at a different image).
-6. *The vertex test is in; ICH and VTP are not.* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
+6. *The vertex test is in; ICH and VTP are not (see 11 for what was measured later).* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
    `WindowLimit`: a mesh whose pseudo-sources are dense needs the stronger pruning of the lemma-based filters, which v1 leaves out (the oracle
    needs 120 windows per vertex there too). The target families (terrain, plane, the ridges) stay below 40 per vertex (the benchmark numbers in
    `benchmarks/GeodesicOracleBenchmark/README.md`).
@@ -1328,6 +1328,35 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
     edges from the sources and, if a vertex of their components has no distance, returns the new status `PartiallyReached` (appended to the enum: an
     API addition) with the reached values kept and `UnreachedVertices` counting the rest; `Ok` guarantees a distance for every vertex of the sources'
     components. The test forces `Ok` as a mutant (it fails). The class docs state it.
+
+11. *Exact trimming (issue #1186, 2026-11-19).* The dominance test of the pruning no longer bisects to depth 6; it computes the set where a
+    window is certainly worse than another on the part of the edge they share. Claim: for two windows with origins sa = (ax, ay) and
+    sb = (bx, by) (both with y <= 0, the edge on the x axis) the function g(x) = |x - sa| - |x - sb| has at most one critical point. Proof: g'(x) =
+    cos(alpha_a) - cos(alpha_b), the cosines of the angles between the edge and the rays from the origins to x; they are equal only if the two rays are
+    parallel, that is if x, sa and sb are collinear, and the line through sa and sb meets the line of the edge once (if ay = by it is parallel to
+    the edge and there is no critical point: g is monotone). There g takes the extreme value +-|sa - sb| (the triangle inequality, both origins on one
+    side of the edge). The set {x: sigma_a + |x - sa| > sigma_b + |x - sb| + m} (m = xi_a + xi_b + the margin of the pruning, as before) is therefore, on each of the
+    two monotone pieces [l, xs] and [xs, r], a prefix or a suffix of the piece; its end is found by bisection from the end at which the test
+    was **verified** in floating point (48 steps), so the reported set lies inside the true set up to the rounding of the two evaluations, which the
+    margin of 4 cEps covers (the same reliance as the old test, which compared the same two evaluations). The old depth-6 recursion found only whole
+    dyadic pieces of 1/64 of the overlap: at every crossing of two windows both stayed alive over up to 1/64 of the edge, and at hundreds of crossings per
+    edge on the saddle that is most of the windows. The new set contains the old one, so coverage C and realisability R of this note hold unchanged: a
+    dropped piece is one on which another window is certainly better, by the margin that C already charges. The same function trims the end of an existing
+    window b where the new window w is certainly better (the old test cut only an end if the whole overlap qualified); a piece that lies **inside** b is left:
+    splitting b into two windows was measured to create more windows than it saves (with the split: plane corner +1 % to +2 %, ridge +2 %, the cone with k = 1e-6 +2 %,
+    against the run before the change; without it no family has more windows than before, and terrain and saddle have 1 % to 3 % fewer), so b keeps the hull of what remains.
+    The early exit `FMax(a) <= FMin(b) + m` of note 7 stays (it makes the common case cost two
+    evaluations).
+    *Measured, same machine and runs as the benchmark README.* Distances: 39 runs (plane, terrain, saddle 21 to 141, dome, a rotated saddle, ridge, three sources each)
+    against the run before the change: the largest difference is 8.9e-16 absolute and 4.3e-16 relative (the tolerance of the class is 5e-15); 37 of the 39 runs are
+    bit for bit equal. Windows: saddle 101 x 101 centre 1.216M to 0.855M, 141 x 141 3.72M to 2.39M; terrain 101 -9 %; plane 101 and 317 unchanged (same digest). Seconds:
+    `benchmarks/GeodesicOracleBenchmark/README.md`.
+    *Why this is not enough for the 317 x 317 saddle.* At the end of a run on the saddle, 99 % to 100 % of the windows alive on an edge side are *essential*:
+    each is the minimum of all live windows of its side, to 1e-12 extent, at some point of its own interval (31, 48 and 82 per vertex at 41, 61 and 101 vertices a side, growing
+    linearly with the width). The geodesics follow the lattice lines through chains of saddle vertices, every vertex of a chain adds a piece of the distance function of about
+    1e-4 of the edge's length, and any exact window method has to create these windows: a filter that only drops dominated windows (ICH, VTP) cannot reduce the final count,
+    and the budget of 64 per vertex is passed at about 78 x 78 (it was passed at about 62 x 62). The 317 x 317 saddle needs about 250 to 275 windows per vertex (27M windows, 1.8 GB)
+    and still ends in `WindowLimit`, now after 14 s instead of 41 s; that is by design, the budget is the owner's, and a saddle mesh beyond about 78 x 78 needs an explicit `MaxWindows`.
 
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
