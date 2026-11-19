@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     {
         // The tolerances the class docs quote (the tests enforce exactly these): relative to the distance d plus a fraction of the
         // mesh extent. TolOracle also covers the oracle's own width (its enclosure is up to about 2e-8 relative on terrains).
-        const double TolRel = 1e-9, TolExt = 1e-12;
+        const double TolRel = 5e-15, TolExt = 5e-16;
         static double Tol(double d, double extent) => TolRel * d + TolExt * extent;
 
         // ------------------------------------------------------------------ meshes
@@ -354,6 +354,74 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ------------------------------------------------------------------ the pruning decisions, pinned
+
+        // A mutation of a margin of the pruning (the dominance margin, the vertex test, the merge guards, the snapping, the flat
+        // flags) changes which windows survive, not the distances beyond about 1e-15 (every pruning decision is conservative by a
+        // margin of a few cEps), so the distance checks above cannot see it. The window and merge counts of a run can: the meshes
+        // below are built from rational arithmetic (no sin or cos: the same bits on every platform), thin slivers and rotated or
+        // jittered grids (the rounding noise puts near ties on both sides of a margin). The numbers are what the code gave when it was
+        // written; a deliberate change of the pruning moves them, and the new values go here together with a look at the
+        // accuracy tests (docs/design/GEODESICS.md A.7, "hand mutants").
+
+        // rotation by the angle of the 3-4-5 triangle (the cosine 0.6 and the sine 0.8 are doubles): rounding noise in every coordinate
+        static DMesh3 Rotated(DMesh3 m, double scale)
+        {
+            var r = new DMesh3(m);
+            foreach (int v in r.VertexIndices()) { Vector3d p = r.GetVertex(v); r.SetVertex(v, new Vector3d((0.6 * p.x - 0.8 * p.y) * scale + 0.3, (0.8 * p.x + 0.6 * p.y) * scale - 0.7, p.z * scale + 1.1)); }
+            return r;
+        }
+        static DMesh3 Jittered(DMesh3 m, double amp, int seed)
+        {
+            var rnd = new Random(seed); var r = new DMesh3(m);
+            foreach (int v in r.VertexIndices()) { Vector3d p = r.GetVertex(v); r.SetVertex(v, new Vector3d(p.x + amp * (rnd.NextDouble() - 0.5), p.y + amp * (rnd.NextDouble() - 0.5), p.z + amp * (rnd.NextDouble() - 0.5))); }
+            return r;
+        }
+
+        static (DMesh3 m, int[] src) PinMesh(string name)
+        {
+            switch (name) {
+                case "sliver 1e-6": return (Grid(-1, -1e-6, 1, 1e-6, 21, 5, (x, y) => 0), new[] { 10 });
+                case "sliver 1e-4 rotated": return (Rotated(Grid(-1, -1e-4, 1, 1e-4, 21, 5, (x, y) => 0), 1.0), new[] { 10, 20 });
+                case "pyramid rotated": return (Rotated(Grid(1, 15, (x, y) => 1 - Math.Max(Math.Abs(x), Math.Abs(y))), 1.37), new[] { 0 });
+                case "plane corner": return (Grid(1, 21, (x, y) => 0), new[] { 0 });
+                case "plane two sources rotated": return (Rotated(Grid(1, 15, (x, y) => 0), 1.37), new[] { 0, 15 * 15 - 1 });
+                case "valley rotated": return (Rotated(Grid(-1, -1, 1, 1, 15, 15, (x, y) => 0.75 * Math.Abs(x)), 1.37), new[] { (15 / 2) * 15 + 2 });
+                case "jittered plane rotated": return (Rotated(Jittered(Grid(1, 21, (x, y) => 0), 0.01, 22), 1.0), new[] { 220, 5 });
+            }
+            throw new ArgumentException(name);
+        }
+
+        public static IEnumerable<object[]> Pins()
+        {
+            yield return new object[] { "sliver 1e-6", 1661L, 57L };
+            yield return new object[] { "sliver 1e-4 rotated", 2133L, 146L };
+            yield return new object[] { "pyramid rotated", 3446L, 270L };
+            yield return new object[] { "plane corner", 2940L, 637L };
+            yield return new object[] { "plane two sources rotated", 1605L, 212L };
+            yield return new object[] { "valley rotated", 2924L, 354L };
+            yield return new object[] { "jittered plane rotated", 5429L, 85L };
+        }
+
+        [Theory]
+        [MemberData(nameof(Pins))]
+        public void Pruning_WindowAndMergeCounts_ArePinned(string name, long windows, long merges)
+        {
+            var (m, src) = PinMesh(name);
+            var g = Run(m, src);
+            Assert.Equal((windows, merges), (g.Windows, g.Merges));
+            AssertAboveStraight(m, g, src);
+        }
+
+        [Theory]
+        [InlineData("jittered plane rotated")]
+        [InlineData("pyramid rotated")]
+        public void PinnedMeshes_AgreeWithTheCertifiedOracle(string name)
+        {
+            var (m, src) = PinMesh(name);
+            AssertAgreesWithOracle(m, Run(m, src), src);
+        }
+
         // ------------------------------------------------------------------ the 10^4-vertex comparisons (the oracle's run is the check)
 
         [Theory]
@@ -366,7 +434,8 @@ namespace geometry3Sharp.Tests
         {
             // Nightly: the oracle needs 3-14 s at 101 x 101 vertices, more than the 5 s of a PR test, and its run is the check
             var (m, src) = Family(f, 101);
-            var g = new PolyhedralGeodesicDistance(m); Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(src));
+            // the saddle needs about 120 windows per vertex at 101 x 101 (the count grows with the grid width): above the default budget of 64
+            var g = new PolyhedralGeodesicDistance(m) { MaxWindows = 3_000_000 }; Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(src));
             var orc = new ExactMeshGeodesicDistance(m) { MaxWindows = 3_000_000 };
             Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, orc.Compute(src));
             double ext = Extent(m);

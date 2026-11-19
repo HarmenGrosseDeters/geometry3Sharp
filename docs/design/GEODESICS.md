@@ -726,8 +726,10 @@ Invariance over `Similarity.All()` (2^k bit equality, tolerance overlap for rota
 statuses, `MaxDistance`, the cancel poll, the memory test. Mutants by hand (the by-hand list is in A.7), and the incremental run.
 
 **Determinism and the build rules.** The convexity test of the classification uses `CoreMath.Atan2`, so the new file gets
-its `.editorconfig` entry (G3E0004: no platform libm), a `tools/DeterminismHarness` case and a `DeterministicApis.txt` entry
-with the code PR. The classification reuses the oracle's `VertexKind` (the certified interval test of the angle sum, `CoreMath.Atan2`, and
+its `.editorconfig` entry (G3E0004: no platform libm), a `tools/DeterminismHarness` case. **No `DeterministicApis.txt` entry (decided with the code PR):** that list and the analyzers G3D0001-9 are the closed
+world of the exact kernel and its building blocks (the files named in the second `.editorconfig` section), which the class is not part of: it is serial, uses only
+IEEE +, -, *, / and `Math.Sqrt`, `Math.Min` and `Math.Max`, no parallel loop and no transcendental function, and its bits are checked by the harness case and by
+the invariance and determinism tests. The classification reuses the oracle's `VertexKind` (the certified interval test of the angle sum, `CoreMath.Atan2`, and
 the exact flatness test): kind 0 only if certainly convex or exactly flat, so the coordinate size does not enter a margin (a
 margin in radians would be wrong by the ratio of the coordinates to the edge lengths, 1e-10 rad at UTM scale).
 
@@ -1297,6 +1299,33 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
    `WindowLimit`: a mesh whose pseudo-sources are dense needs the stronger pruning of the lemma-based filters, which v1 leaves out (the oracle
    needs 120 windows per vertex there too). The target families (terrain, plane, the ridges) stay below 40 per vertex (the benchmark numbers in
    `benchmarks/GeodesicOracleBenchmark/README.md`).
+
+7. *The dominance recursion stops early (the performance fix of the code PR).* `Dominated` recursed to depth 6 into every piece (127 calls
+   per piece and per overlapping window, 824 million calls on a 201 x 201 plane). A piece [l, r] is now left when
+   `FMax(a, l, r) <= FMin(b, l, r) + m`: a sub-piece that passes the test needs `FMin(a, sub) > FMax(b, sub) + m`, and `FMin(a, sub) <= FMax(a, l, r)`
+   and `FMax(b, sub) >= FMin(b, l, r)` because `Hyp(x - sx, sy)` is monotone in |x - sx| in floating point (every step, the subtraction, the
+   squares, the sum and the square root, is monotone), so no sub-piece can pass. The pieces are the same bit for bit (checked by the benchmark's digest over
+   all five families at 101, 201 and 317 vertices a side, and by the pins of the window and merge counts). Plane 317 x 317: 24.5 s to 6.1 s; the
+   terrain is unchanged at 3.3 s. A second finding of the profile: a debug log of the first version grew a string by concatenation (6 GB allocated
+   at 317 x 317); it is gone.
+8. *Hand mutants (outcome).* Each mutant of the list above is run against the PR tests. Killed: no snapping of both ends, e = 0, delta = 0
+   (the window budget), no position check and a huge delta (the jittered plane), no sigma check, no xi cap, the minimum of the pruning at the
+   piece ends, xi_w and xi_b dropped from the dominance margin (each alone and both), from the cut of b's end, the vertex test without xi_u or
+   without xi_w, the along-the-edge window as the whole edge, all flat flags false, the sign of either margin flipped. Most of these change the
+   window count, not the distances beyond about 1e-15 (the margins are a few cEps), so the kill is the **pinned window and merge counts** of
+   `Pruning_WindowAndMergeCounts_ArePinned` (thin slivers, rotated and jittered grids put near ties on both sides of a margin). Two
+   survive: (a) snapping of the clip's upper end only (`snap1`): it differs only on a strip of height 1e-8 with five rows (a mesh on which the class leaves
+   vertices unreached, item 10), where no result is to be pinned; (b) the escape direction when D is uncertain always `+MaxValue`: the branch
+   (a clip end ray parallel to the child edge within the rounding of D) was **not reached by any input of 129 test and benchmark meshes, 3000
+   lattice meshes with random diagonals, shears and scalings, and 6000 random integer strips**, in which exact parallelism is common, so the
+   mutant is invisible; the branch is the defensive fallback of rule 3 and stays.
+9. *Accuracy (measured).* Against the oracle's enclosure the deviation is exactly 0 (the result lies inside [Lower, Upper]) on 12 families at 31 and 41
+   vertices a side (and the four 10^4 comparisons of the nightly tier pass at the same tolerance); against closed forms and the straight line the
+   largest deviation is 2.4e-15 relative. The tests enforce 5e-15 d + 5e-16 extent (twice the measurement, was 1e-9 and 1e-12, unmeasured), and the class docs quote
+   exactly these.
+10. *Known limit: thin slivers.* A strip of height 1e-6 (and 1e-7 .. 1e-8) with five rows of 21 vertices leaves 2-7 of 105 vertices unreached with
+    status Ok (aspect ratios of 10^5 to 10^7; heights 1e-9 to 1e-12 and three rows are fine). The class docs state it. A fix needs a decision (a new status
+    value, or a fall back to the oracle's intervals), which is the owner's.
 
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not

@@ -12,16 +12,26 @@ namespace g3
     /// "polyhedral" distance) from one or more source vertices to every vertex, by window propagation (Mitchell, Mount and
     /// Papadimitriou 1987; Surazhsky et al. 2005) in plain double arithmetic. Meant for meshes of 10^4 to 10^5 vertices.
     /// <para>Accuracy: <b>measured on the tested families, not a certified bound</b> (docs/design/GEODESICS.md 6e, A.7). The
-    /// values are those of the numbers in <see cref="AccuracyNote"/>; for a certified enclosure see the internal oracle
-    /// <c>ExactMeshGeodesicDistance</c> (up to about 10^4 vertices, serial), and for a smooth approximation on any mesh
-    /// <see cref="MeshGeodesicDistance"/> (the heat method).</para>
+    /// tests enforce |Distance - d| &lt;= 5e-15 d + 5e-16 extent against the closed forms and the certified enclosure of the internal
+    /// oracle <c>ExactMeshGeodesicDistance</c> (a distance outside [Lower, Upper] by more than that fails), and Distance never below the
+    /// straight 3D distance by more than that. Measured: on 24 runs (12 families of 31 x 31 and 41 x 41 vertices, planes, a terrain, a saddle,
+    /// domes, ridges, a valley, an L-shape, two sources) the result lies inside the enclosure, which is up to 2e-8 relative wide on
+    /// the terrain, saddle and plane families, so the agreement claimed there is that of the enclosure; the largest deviation from a
+    /// closed form or from the straight line was 2.4e-15 relative. The sliver test (a height of 1e-7 to 1e-12 against a length of 1) enforces 1e-8 against the
+    /// straight distance. For a certified enclosure use the oracle (up to about 10^4 vertices, serial), for a smooth
+    /// approximation on any mesh <see cref="MeshGeodesicDistance"/> (the heat method).</para>
+    /// <para><b>Limits.</b> (1) Windows per vertex grow with the grid width on meshes with many saddle vertices (a saddle of 101 x 101 needs
+    /// about 120, 317 x 317 more than the default budget of 64: the run ends with <see cref="PolyhedralGeodesicStatus.WindowLimit"/>, after
+    /// about 40 s at 317 x 317, v1 has no ICH or VTP pruning). (2) On meshes whose triangles have an aspect ratio beyond about 10^5
+    /// (a strip of height 1e-6 against a length of 1 with several rows) a vertex can stay unreached: the status is Ok and its Distance is NaN.
+    /// Check the array for NaN when the input can be that thin.</para>
     /// <para>Memory: a window is a 64-byte struct; a run holds at most about 120 bytes x (MaxWindows + 2 x the largest vertex
     /// valence) plus about 57 bytes per vertex (see the design note). Serial and deterministic: every operation is IEEE
     /// double without FMA, and 2^k scalings of the input give the same bits (away from overflow and the subnormal range).</para>
     /// </summary>
     public sealed class PolyhedralGeodesicDistance
     {
-        /// <summary> What was measured (filled in by the tests' constants; see the design note). </summary>
+        /// <summary> The wording of the accuracy claim; the numbers are in the class remarks and are the constants of the tests </summary>
         public const string AccuracyNote = "measured on the tested families, not a certified bound";
 
         /// <summary> the mesh (read only during Compute) </summary>
