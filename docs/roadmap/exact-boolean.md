@@ -872,7 +872,7 @@ Triage of #985, #993, #994, #1010, #1011 by root cause (2026-11-17, merged as #1
 - RC4a (effort limit): the pair-test budget grows with the initial defects, #1040; the pass-through of its parameters to
   `MeshRobustRepair`, `ExactMeshImprint` and g3cli is merged (#1068). No budget raise below D = 50000 (owner 2026-11-17).
 - RC4b (the drift bound `MaxLength`): kept as a documented limit (owner 2026-11-17).
-- The iud p0008 step-2 residue of 34 near-zero-volume triangles (#1067) came from the component removal skipping components that no edit touched: an untouched, closed, tiny or thin component that is inside out and enclosed by nothing now goes too (a cavity stays). Reproduced procedurally (`SafeRoundingInsideOutResidueTests`); the ABC chain is to be rerun on runners to confirm. Left: the CsCheck / fuzz campaign plan is #1038 (open).
+- The iud p0008 step-3 residue of 34 near-zero-volume triangles (#1067) came from the component removal skipping components that no edit touched. #1152 took untouched tiny inside-out residues (procedural case); the abc-chained rerun on 29ba341f (run 44485992303, diagnostic of #1170) showed the real one: an 8-triangle inside-out double-sided sheet of area 6.5e-6 (not tiny), thickness 2.2e-18 at coordinates of 0.3 (numerically zero), untouched. Owner decision 2026-11-19: an untouched closed component whose thickness 2 |V| / area is below the ulp of its largest coordinate is removed, any orientation, whatever encloses it; a sheet with a resolvable thickness stays (an inverted one is reported). Left: the CsCheck / fuzz campaign plan is #1038 (open).
 
 ### Open for the future (2026-11-15)
 

@@ -127,13 +127,24 @@ namespace geometry3Sharp.Tests
             Assert.Null(c.Error);
             DMesh3 Run(DMesh3 x, DMesh3 y, Ops op) { var b = new ExactMeshBoolean(x, y, op); Assert.True(b.Compute()); return b.Result; }
             DMesh3 r2 = Run(Run(c.A, c.B, Ops.Union), c.C, Ops.Difference);
-            var d = new ExactMeshBoolean(r2, c.A, Ops.Difference);
-            Assert.True(d.Compute());
-            Assert.True(d.RoundingClean);
-            var comps = new MeshConnectedComponents(d.Result);
+            // the exact result (no rounding): the slivers are there, each of exact volume +1, none inside out
+            var exact = new ExactMeshBoolean(r2, c.A, Ops.Difference) { SafeRounding = false };
+            Assert.True(exact.Compute());
+            var comps = new MeshConnectedComponents(exact.Result);
             comps.FindConnectedT();
             Assert.True(comps.Count >= 2);
             foreach (var comp in comps.Components)
+                Assert.Equal(1, Exact(exact.Result, comp.Indices));
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(exact.Result));
+            // the rounded result: clean and not inside out; the slivers of numerically zero volume are removed by the rounding
+            // (#1067: untouched closed components thinner than the ulp of their coordinates), so there are fewer components
+            var d = new ExactMeshBoolean(r2, c.A, Ops.Difference);
+            Assert.True(d.Compute());
+            Assert.True(d.RoundingClean);
+            var rounded = new MeshConnectedComponents(d.Result);
+            rounded.FindConnectedT();
+            Assert.True(rounded.Count < comps.Count, $"{rounded.Count} components against {comps.Count} of the exact result");
+            foreach (var comp in rounded.Components)
                 Assert.Equal(1, Exact(d.Result, comp.Indices));
             Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(d.Result));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(d.Result));
