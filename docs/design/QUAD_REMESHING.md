@@ -396,7 +396,8 @@ The ragged boundary of an open mesh is a row of short edges and 0.4 s never reac
 The open patch goes 32 -> 17 irregular vertices and 95.8 -> 98.3 % quads (faces 659 -> 642), the sphere 77 -> 75, the bumpy sphere 176 -> 174; the torus,
 box, noisy sphere and cap are unchanged, nothing is worse, the times are the same. The pure-quad gate of 3B (`benchmarks/QuadFlow3BGate`, 54 runs) is
 unchanged: 25 clean / 29 fallback / 0 undetected bad, time gate 25 / 25, irregular gate 25 / 25, Hausdorff 24 / 25, corner p95 17 / 25 (stage 2 on
-the same rows 18 / 25), clean rows median 2.7 x stage 2 (before 2.6). The value 0.6 is the owner's; 0.7 was measured on the data branch `runs/quad-stage2` (sphere 77 -> 68 irregular vertices but quads 94.8 -> 94.6 %, sphere cap
+the same rows 18 / 25), clean rows median 2.7 x stage 2 (before 2.6). Found by the review of this change and not caused by it: an open strip only 2.5 to 4 target edges wide (1 x 0.1, `QuadCollapseDefaultTests`) gives 1 to 2 non-manifold vertices of the polygon mesh with 0.4 and 0.6 alike (the two boundary rows of the lattice meet); an open item next to the ragged boundary.
+The value 0.6 is the owner's; 0.7 was measured on the data branch `runs/quad-stage2` (sphere 77 -> 68 irregular vertices but quads 94.8 -> 94.6 %, sphere cap
 quads 91.4 -> 91.1 %) and not taken.
 
 

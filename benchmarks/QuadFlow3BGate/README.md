@@ -28,6 +28,8 @@ min-cost flow, subdivision, greedy moves, SAT, position solve, extraction) and t
 
 ## Results (2026-11-19)
 
+(Measured with the stage 2 default `CollapseLength` 0.4. With the new default 0.6 (owner approved 2026-11-19) the 54 runs give the same counts: 25 clean / 29 fallback / 0 undetected bad, time gate 25 / 25, irregular gate 25 / 25, Hausdorff 24 / 25, corner p95 17 / 25; clean rows median 2.7 x stage 2, max 8.1.)
+
 | | spike baseline (round 4, 54 runs) | spike, chosen levers (round 5) | **library (this PR)** |
 |---|---|---|---|
 | clean / fallback / undetected bad | 23 / 31 / 0 | 25 / 29 / 0 | **25 / 29 / 0** |
