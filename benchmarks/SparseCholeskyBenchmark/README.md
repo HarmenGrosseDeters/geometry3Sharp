@@ -186,3 +186,19 @@ two interleaved runs, the better of each; field, eigenvalue and singular faces u
 | noisy-sphere | smoothest | 22 | 1.58 | 1.35 | 15 % |
 | noisy-torus | smoothest | 34 | 2.39 | 1.96 | 18 % |
 | noisy-torus | aligned s=1 | 21 | 1.76 | 1.48 | 16 % |
+
+## What is left after the parallel solves and the parallel numeric factorization (2026-11-19)
+
+The first two levers of the table above are done (the parallel solves, #1136, and the parallel numeric factorization, #1141; bit
+identical, 11 % to 28 % of the `CrossField` total each time it was measured). The third, the loops of `CrossField` outside the
+solver, is not worth a change. `CrossFieldBenchmark h=0.017` on the 55k vertex sphere, 4 cores, one run (ms): `ParamMesh` 85 to 97,
+frames, topology and edge weights 64 (smoothest) to 175 (aligned: `MeshPrincipalCurvature`), assembly 21, ordering and numeric
+factorization 520 to 530, solves 590 to 1190 (6 to 34 solves), per-vertex and per-face results about 45. The loops that can be parallel with
+the same bits already are (`gParallel` over the faces, the edges and the corners and vertices of `MeshPrincipalCurvature`); the rest
+are scatter-adds whose per-vertex sum order is the triangle order, and dictionary-based edge building. The only clean candidates are the
+triangle frames of `ParamMesh` (about 21 ms) and its bowtie test (about 28 ms): at most 4 % of the sphere, 3 % of the torus, under 2 % of
+the noisy torus. With every non-solver phase perfectly parallel (not possible with the same bits) the bound is 20 %, 14 % and 8 %.
+
+What remains is in the solver: the minimum degree ordering (0.2 to 0.25 s, serial; a parallel one must give the same permutation bit for
+bit) and the serial top supernodes of the solves (25 supernodes above the tasks on the 55k sphere); a nested dissection ordering changes
+the factor and the results (owner decision).
