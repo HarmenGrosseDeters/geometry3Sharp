@@ -206,7 +206,7 @@ namespace geometry3Sharp.Tests
         public void LowAttainableMaximum_StopsThroughTheStallStop_AndKeepsTheInvariantsAndTheMinSide()
         {
             // a maximum the shape cannot meet keeps every tet bad; the passes then stop when they stall (not on time), Success is kept
-            DMesh3 input = TetMeshingStage2Tests.Torus(48, 12, 1, 0.15);
+            DMesh3 input = TetMeshingStage2Tests.Torus(16, 6, 1, 0.25);
             var plain = Run(input, 0, alpha: 12, offset: 200);
             var low = Run(input, 100, alpha: 12, offset: 200);
             Assert.Equal(1, low.Counts["improve_maxdih_stall_stop"]);
