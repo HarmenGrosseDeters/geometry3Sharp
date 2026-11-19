@@ -88,13 +88,26 @@ Checks (probe `fastchk`: the decision is compared with the clips' outcome of eve
 |---|---|
 | procedural (box shapes, flat faces, 16 chains), 4 threads | -26.6 % (serial -26.7 %) |
 | procedural, 1 thread (15 chains) | -22.7 % (serial -22.2 %) |
-| **ABC, GitHub runner** | see "ABC result of the pre-decision" below |
+| **ABC, GitHub runner, 36 chains (run 44501586260), 4 cores** | **step 3: -17.2 % time-weighted (67.0 -> 55.4 s), -26.7 % median chain; serial -14.8 %** |
+
+ABC result of the pre-decision (run 44501586260, 36 chains = 12 per variant, 4 cores, `fast` against `p1` in one process, sum of the median times over chains):
+
+| step | chains | p1 s | fast s | change | median chain | serial (`p1s` -> `fasts`) | hash equal (fast / fastchk) | pairs agree / mismatch / missed |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 36 | 3.6 | 3.9 | +9.2 % | +13.5 % | 6.4 -> 6.8 s (+7.5 %) | 36 / 36 of 36 | 0 / 0 / 0 |
+| 2 | 35 | 26.3 | 26.4 | +0.4 % | -0.3 % | 49.8 -> 49.7 s (-0.2 %) | 35 / 35 of 35 | 63 / 0 / 0 |
+| **3** | 35 | 67.0 | 55.4 | **-17.2 %** | **-26.7 %** | 114.8 -> 97.9 s (**-14.8 %**) | 35 / 35 of 35 | 2 610 432 / 0 / 0 |
+
+No result hash of any probe configuration differs from the unmodified run (0 of 106 rows). Step 1: the pre-decision decides no pair there (no shared corners: first-step
+operands are raw inputs), so +9 % on 3.6 s total (about 0.1 s per chain) is timing noise of the in-process order, not work; it must be re-checked in the PR benchmark. Step 2: no
+change (only 63 pairs decided). The pre-decision is only taken when a pair shares a corner, i.e. when an operand is a result of the other's surface, which is step 3's situation.
+The same run's phase table (36 chains): step 3 intersect 27 % of the summed time (446 ms median), triangulation 14 %, classification 16 %, rounding 26 %.
 
 ## 4. Report (time split, bound, lean)
 
 | item | bound | measured | lean |
 |---|---|---|---|
-| 1. step 3: top phase intersect | 26-28 % of step 3 | trivial coplanar pairs 15 % + downstream 5 % | **go** (bit-identical, no new bound), pending the ABC number of section 3 |
+| 1. step 3: top phase intersect | 26-28 % of step 3 (bit-identical lever bound about 20 %) | **-17.2 % time-weighted, -26.7 % median chain, -14.8 % serial** on ABC step 3; steps 1 and 2 unchanged (no pair decided) | **go** (bit-identical, no new bound; owner decision, speed work stopped 2026-11-16) |
 | 2. lever 2, chains | 1.4-4 % (certified operand) | -0.9 % / -1.6 % | no-go |
 | 2. lever 2, ExactMesh expressions | 3 % per source, 9-10 % for 3 | -2.6 % / -4.1 % (sum), -10 / -13 % (median chain), only for sources that are library results | no-go (below 10 % of the time, certificate only for re-fed results) |
 
@@ -124,4 +137,4 @@ with `intersect_coplanar` expected.
 
 Notes: the publish job of the workflow could not push to the branch it runs from (three runs); rows are committed from the artifacts by hand, the last run pushes
 to `runs/boolean-chains-rows`. Run 44470885321 (the first with the pre-decision, 90 ABC chains) finished, but its artifact could not be downloaded from the
-session (the proxy denies the blob host), so its numbers are replaced by the smaller rerun below.
+session (the proxy denies the blob host), so its numbers are replaced by the smaller rerun (run 44501586260), read from the Report step of its job log.
