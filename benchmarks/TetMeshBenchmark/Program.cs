@@ -23,6 +23,7 @@ static class Program
     {
         string mode = args.Length > 0 ? args[0] : "wrap";
         if (mode == "feature") { FeatureProbe.Run(args.Length > 1 ? double.Parse(args[1], Inv) : 40, args.Length > 2 ? double.Parse(args[2], Inv) : 600); return 0; }
+        if (mode == "featurefiles") { FeatureProbe.RunFiles(System.IO.Directory.GetFiles(args[1], "*.stl").OrderBy(x => x), 40, 600); return 0; }
         if (mode == "insert") {
             foreach (int n in args.Length > 1 ? args.Skip(1).Select(int.Parse) : new[] { 20000, 100000, 400000 })
                 Insert(n);

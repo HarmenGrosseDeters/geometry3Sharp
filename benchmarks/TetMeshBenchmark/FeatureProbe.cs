@@ -44,6 +44,8 @@ static class FeatureProbe
         yield return new KeyValuePair<string, DMesh3>("box 3x2x1", Box(3, 2, 1));
         yield return new KeyValuePair<string, DMesh3>("wedge 60", Wedge(60));
         yield return new KeyValuePair<string, DMesh3>("wedge 30", Wedge(30));
+        yield return new KeyValuePair<string, DMesh3>("wedge 20", Wedge(20));
+        yield return new KeyValuePair<string, DMesh3>("wedge 12", Wedge(12));
         yield return new KeyValuePair<string, DMesh3>("box rotated", Transform(Box(3, 2, 1), new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37), Vector3d.Zero, 1));
         yield return new KeyValuePair<string, DMesh3>("box offset", Transform(Box(3, 2, 1), Quaterniond.Identity, new Vector3d(1000.25, -300.5, 50), 1));
         yield return new KeyValuePair<string, DMesh3>("box x2^-10", Transform(Box(3, 2, 1), Quaterniond.Identity, Vector3d.Zero, 1.0 / 1024));
@@ -74,6 +76,21 @@ static class FeatureProbe
     }
 
     // max / mean over the samples of convex (concave = false) or concave creases, in offsets; NaN if there are none
+    // the smallest interior dihedral angle (degrees) over the convex edges of the input (180 - the turn of the normals)
+    static double MinInteriorAngle(DMesh3 m)
+    {
+        double min = 180;
+        foreach (int e in m.EdgeIndices()) {
+            Index2i et = m.GetEdgeT(e);
+            if (et.b == DMesh3.InvalidID) continue;
+            Index2i ev = m.GetEdgeV(e), op = m.GetEdgeOpposingV(e);
+            if (m.GetTriNormal(et.a).Dot(m.GetVertex(op.b) - m.GetVertex(ev.a)) >= 0) continue;       // concave
+            double turn = Math.Acos(Math.Max(-1, Math.Min(1, m.GetTriNormal(et.a).Dot(m.GetTriNormal(et.b))))) * 180 / Math.PI;
+            min = Math.Min(min, 180 - turn);
+        }
+        return min;
+    }
+
     static void CreaseDev(DMesh3 surface, List<Vector3d> samples, double offset, bool concave, out double max, out double mean)
     {
         var tree = new DMeshAABBTree3(surface, true);
@@ -232,7 +249,7 @@ static class FeatureProbe
 
     public static void Run(double ra, double ro)
     {
-        bool recover = Environment.GetEnvironmentVariable("G3_PROBE_RECOVER") != "0";
+        bool recover = Environment.GetEnvironmentVariable("G3_PROBE_RECOVER") == "1";
         Console.WriteLine("input,mode,status,tets,time_s,crease_dev_convex_max/mean_concave_max/mean_in_offsets,min_dihedral,p01_dihedral,surf_tris,missing_tris,missing_edges,extra");
         foreach (var kv in Solids()) {
             DMesh3 input = kv.Value;
@@ -272,8 +289,53 @@ static class FeatureProbe
                 string rn = Recover(g, floor, 8 * g.VertexCount, out bool ok, out int st, out int rounds);
                 Console.WriteLine(string.Join(",", kv.Key, "recovery proxy", ok ? "converged" : "NOT converged", "", sw.Elapsed.TotalSeconds.ToString("G3", Inv), "", "", "", "", "", "", "steiner=" + st + " rounds=" + rounds + " " + rn));
             }
+            // the library path: MeshTetrahedralization with CreaseAngleDegrees = 30
+            {
+                sw.Restart();
+                var tf = new MeshTetrahedralization(input) { RelativeAlpha = ra, RelativeOffset = ro, CreaseAngleDegrees = 30 };
+                tf.Compute();
+                double tt = sw.Elapsed.TotalSeconds;
+                if (tf.Result == null) Console.WriteLine(kv.Key + ",S1-F tets," + tf.Status);
+                else {
+                    DMesh3 bF = tf.Result.ToSurfaceMesh();
+                    var qf = Dihedrals(tf.Result);
+                    Console.WriteLine(string.Join(",", kv.Key, "S1-F tets", tf.Status, tf.Result.Tets.Count, tt.ToString("G4", Inv), Dev(bF, samples, offset), qf.min.ToString("G4", Inv), qf.p01.ToString("G4", Inv), bF.TriangleCount, "", "",
+                        string.Join(" ", tf.Counts.Where(c => c.Key.StartsWith("crease")).Select(c => c.Key + "=" + c.Value)) + " fail=" + TetFeatureSurface.LastFailure + " minInterior=" + MinInteriorAngle(input).ToString("G3", Inv) + " dihMet=" + tf.Targets.MinDihedralMet + " NotValid=" + TetMeshQuality.NotValidReason(tf.Result)));
+                }
+            }
+            // the slide's effect: the same without the boundary slide (BoundarySlideFactor 0)
+            {
+                var tn = new MeshTetrahedralization(input) { RelativeAlpha = ra, RelativeOffset = ro, CreaseAngleDegrees = 30, BoundarySlideFactor = 0 };
+                tn.Compute();
+                if (tn.Result != null) Console.WriteLine(string.Join(",", kv.Key, "S1-F noslide", tn.Status, tn.Result.Tets.Count, "", Dev(tn.Result.ToSurfaceMesh(), samples, offset), Dihedrals(tn.Result).min.ToString("G4", Inv)));
+            }
             // option C: local alpha near the creases
             Console.WriteLine(string.Join(",", kv.Key, "local alpha at creases", "", "", "", LocalAlphaNearCreases(input, samples, ra, ro, offset, out _), "", "", "", "", "", ""));
+        }
+    }
+
+    // S1-R and S1-F (CreaseAngleDegrees = 30) on mesh files: one row each
+    public static void RunFiles(IEnumerable<string> files, double ra, double ro)
+    {
+        Console.WriteLine("input,mode,status,tets,time_s,crease_dev_convex_max/mean_concave_max/mean_in_offsets,min_dihedral,p01_dihedral,boundary_tris,dihMet,creases,extra");
+        foreach (string f in files) {
+            DMesh3 input = StandardMeshReader.ReadMesh(f);
+            string name = System.IO.Path.GetFileName(f);
+            var samples = CreaseSamples(input, 30);
+            double offset = 0;
+            foreach (double crease in new[] { 0.0, 30.0 }) {
+                var sw = Stopwatch.StartNew();
+                var tm = new MeshTetrahedralization(input) { RelativeAlpha = ra, RelativeOffset = ro, CreaseAngleDegrees = crease };
+                tm.Compute();
+                double t = sw.Elapsed.TotalSeconds;
+                string mode = crease > 0 ? "S1-F" : "S1-R";
+                if (tm.Result == null) { Console.WriteLine(name + "," + mode + "," + tm.Status); continue; }
+                offset = tm.UsedOffset;
+                DMesh3 b = tm.Result.ToSurfaceMesh();
+                var q = Dihedrals(tm.Result);
+                Console.WriteLine(string.Join(",", name, mode, tm.Status, tm.Result.Tets.Count, t.ToString("G4", Inv), Dev(b, samples, offset), q.min.ToString("G4", Inv), q.p01.ToString("G4", Inv), b.TriangleCount,
+                    tm.Targets.MinDihedralMet, samples.Count / 17 + " minInterior=" + MinInteriorAngle(input).ToString("G3", Inv), string.Join(" ", tm.Counts.Where(c => c.Key.StartsWith("crease")).Select(c => c.Key + "=" + c.Value)) + (tm.Counts.ContainsKey("crease_recovery_failed") ? " why=" + TetFeatureSurface.LastFailure : "") + " notValid=" + TetMeshQuality.NotValidReason(tm.Result)));
+            }
         }
     }
 

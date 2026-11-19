@@ -85,7 +85,7 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
   1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. P2 (output / API) is merged. P3 (interior size control,
-  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is merged (#1155); boundary fidelity is P4: (a) the local alpha (opt-in `MaxSurfaceDeviation`, owner 2026-11-19, TET_MESHING.md 17.13: the fidelity of uniform /80 at about half its tets) is built, (b) S1-F creases and (c) option (b) are open.
+  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is merged (#1155); boundary fidelity is P4: (a) the local alpha (opt-in `MaxSurfaceDeviation`, owner 2026-11-19, TET_MESHING.md 17.13: the fidelity of uniform /80 at about half its tets) is built, (b) S1-F creases (opt-in `CreaseAngleDegrees`, TET_MESHING.md 17.14: concave creases 4 to 6 times closer on CAD solids, fallback to S1-R when the recovery does not finish) is built, (c) option (b) is open.
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
   parked).
