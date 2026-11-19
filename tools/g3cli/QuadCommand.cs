@@ -62,7 +62,7 @@ namespace g3cli
                     foreach (int eid in input.EdgeIndices()) { Index2i ev = input.GetEdgeV(eid); sum += input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); n++; }
                     edge = Math.Max(diagonal / 30, n > 0 ? 2 * sum / n : 0);
                     if (!(edge > 0) || double.IsInfinity(edge))
-                        throw new CommandException(ResultCodes.InvalidArguments, "the bounding box of the input is degenerate: give 'edge_length'");
+                        throw new CommandException(ResultCodes.InvalidArguments, "the bounding box of the input is degenerate or not finite: give 'edge_length' (non-finite coordinates cannot be remeshed)");
                 }
                 bool pure = args.Bool("pure_quads");
                 var qr = new QuadRemesher(input) { TargetEdgeLength = edge, PureQuads = pure, Parallel = args.Bool("parallel") };
@@ -82,23 +82,37 @@ namespace g3cli
                     warnings.Add("pure_quads fell back to the quad-dominant mesh: " + pureStatus + " (the file has triangles, pentagons or hexagons; see pure_quad_status)");
 
                 PolyMeshMetrics pm = PolyMeshMetrics.Compute(result);
+                JsonObject deviation = null;
+                if (args.Bool("deviation")) {
+                    DMesh3 tri = result.ToDMesh3(out int[] unusedMap);
+                    JsonObject h = Hausdorff(input, tri);
+                    if (h == null)
+                        throw new CommandException(ResultCodes.OperationFailed, "the Hausdorff distance could not be computed; nothing is written", new JsonObject() { ["quad_status"] = status });
+                    deviation = new JsonObject() { ["hausdorff"] = h, ["measured_on"] = "the result triangulated (every face fanned into triangles)" };
+                }
                 try {
                     string dir = Path.GetDirectoryName(Path.GetFullPath(output));
                     if (Directory.Exists(dir) == false)
                         throw new CommandException(ResultCodes.WriteError, $"cannot write '{output}': directory does not exist");
-                    IOWriteResult w;
-                    if (format == "obj") {
-                        using (var sw = new StreamWriter(output, false, new System.Text.UTF8Encoding(false)))
-                            w = PolyMeshIO.WriteOBJ(sw, result);
-                    } else if (args.Bool("binary")) {
-                        using (var bw = new BinaryWriter(File.Open(output, FileMode.Create)))
-                            w = PolyMeshIO.WritePLY(bw, result);
-                    } else {
-                        using (var sw = new StreamWriter(output, false, new System.Text.UTF8Encoding(false)))
-                            w = PolyMeshIO.WritePLY(sw, result);
+                    string temp = Path.Combine(dir, ".g3cli-quad-" + Guid.NewGuid().ToString("N") + ".tmp");
+                    try {
+                        IOWriteResult w;
+                        if (format == "obj") {
+                            using (var sw = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false)))
+                                w = PolyMeshIO.WriteOBJ(sw, result);
+                        } else if (args.Bool("binary")) {
+                            using (var bw = new BinaryWriter(File.Open(temp, FileMode.Create)))
+                                w = PolyMeshIO.WritePLY(bw, result);
+                        } else {
+                            using (var sw = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false)))
+                                w = PolyMeshIO.WritePLY(sw, result);
+                        }
+                        if (w.code != IOCode.Ok)
+                            throw new CommandException(ResultCodes.WriteError, $"cannot write '{output}': {w.code}: {w.message}");
+                        File.Move(temp, output, true);   // an existing output is replaced only by a complete file
+                    } finally {
+                        try { if (File.Exists(temp)) File.Delete(temp); } catch { }
                     }
-                    if (w.code != IOCode.Ok)
-                        throw new CommandException(ResultCodes.WriteError, $"cannot write '{output}': {w.code}: {w.message}");
                 } catch (CommandException) {
                     throw;
                 } catch (Exception e) {
@@ -115,7 +129,7 @@ namespace g3cli
                 o["edge_length_defaulted"] = defaulted;
                 int nonQuads = pm.Faces - pm.Quads;
                 o["faces"] = new JsonObject() {
-                    ["total"] = result.FaceCount, ["quads"] = pm.Quads, ["non_quads"] = nonQuads, ["quad_fraction"] = Val(pm.QuadFraction),
+                    ["total"] = pm.Faces, ["quads"] = pm.Quads, ["non_quads"] = nonQuads, ["quad_fraction"] = Val(pm.QuadFraction),
                     ["triangles"] = pm.Triangles, ["pentagons"] = pm.Pentagons, ["hexagons"] = pm.Hexagons, ["larger"] = pm.LargerFaces, ["max_sides"] = pm.MaxSides,
                     ["pure_quads"] = pm.Faces > 0 && nonQuads == 0,
                 };
@@ -140,10 +154,7 @@ namespace g3cli
                 };
                 o["pure_quad_counters"] = new JsonObject() { ["inverted_triangles"] = qr.InvertedTriangles, ["flipped_quads"] = qr.FlippedQuads };
                 o["cleanup"] = new JsonObject() { ["collapsed_edges"] = qr.CollapsedEdges, ["removed_valence_2"] = qr.RemovedValence2, ["dropped_faces"] = qr.DroppedFaces };
-                if (args.Bool("deviation")) {
-                    DMesh3 tri = result.ToDMesh3(out int[] map);
-                    o["deviation"] = new JsonObject() { ["hausdorff"] = Hausdorff(input, tri), ["measured_on"] = "the result triangulated (quads split in two)" };
-                }
+                if (deviation != null) o["deviation"] = deviation;
                 o["input_mesh"] = MeshReport.Metrics(input, args.Bool("self_intersections"));
                 o["warnings"] = Warnings(warnings);
                 return o;

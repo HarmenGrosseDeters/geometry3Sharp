@@ -184,6 +184,7 @@ namespace g3cli.Tests
             Assert.Equal(0, exit);
             Assert.Equal(reported, S(r["format"]));
             string head = File.ReadAllText(output);
+            if (reported == "obj") { Assert.NotEmpty(FaceLines(output)); Assert.True(FaceLines(output).Count(l => Sides(l) == 4) > FaceLines(output).Length / 2); }
             Assert.Equal(reported == "ply", head.StartsWith("ply") || File.ReadAllBytes(output).Take(3).SequenceEqual(new byte[] { (byte)'p', (byte)'l', (byte)'y' }));
         }
 
@@ -305,6 +306,23 @@ namespace g3cli.Tests
             Assert.InRange(D(r["deviation"]["hausdorff"]["distance"]), 0, 0.4);
             (exit, r) = Quad(m.Sphere, m.Path_("nodev.obj"), "--edge-length", Edge);
             Assert.Null(r["deviation"]);
+        }
+
+        [Fact]
+        public void WriteFailure_KeepsAnExistingFile_AndLeavesNoTemporaryFile()
+        {
+            // the output path is a directory: the final move fails after the temporary file was written completely
+            string dir = m.Path_("out_is_dir.obj");
+            Directory.CreateDirectory(dir);
+            var (exit, r) = Quad(m.Sphere, dir, "--edge-length", Edge);
+            AssertError(exit, r, "write_error");
+            Assert.Empty(Directory.GetFiles(m.Dir, ".g3cli-quad-*"));
+            // an existing file is replaced by a complete one on success
+            string existing = m.Path_("existing.obj");
+            File.WriteAllText(existing, "old");
+            Assert.Equal(0, Quad(m.Sphere, existing, "--edge-length", Edge).exit);
+            Assert.StartsWith("v ", File.ReadAllText(existing));
+            Assert.Empty(Directory.GetFiles(m.Dir, ".g3cli-quad-*"));
         }
 
         [Fact]
