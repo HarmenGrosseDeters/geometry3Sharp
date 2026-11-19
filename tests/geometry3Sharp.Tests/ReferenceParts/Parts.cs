@@ -57,9 +57,8 @@ namespace ReferenceParts
         public readonly List<Pin> Pins = new List<Pin>();
         /// <summary> the sampling lines of the rib thickness: (point on the mid plane minus 5 along the thickness direction, direction), canonical </summary>
         public readonly List<Ray3d> ThicknessLines = new List<Ray3d>();
-        /// <summary> the screw: the box extents (canonical) and the welding tolerance used to tell bodies apart </summary>
+        /// <summary> the screw: the box extents (canonical) </summary>
         public Vector3d ScrewExtent;
-        public double ScrewWeldTolerance;
 
         public double Scale { get { return Frame.Scale; } }
 
@@ -216,7 +215,6 @@ namespace ReferenceParts
             part.Area = soup.Area();
             part.Deviation = Math.Min(1e-5 * 2 * H, 0.1 * s);
             part.ScrewExtent = new Vector3d(2 * rh, 2 * rh, s);
-            part.ScrewWeldTolerance = 1e-7 * 2 * H;
             part.Targets["screwSize"] = s;
             part.Targets["screwVolume"] = screwVolume;
             part.Checks.Add(Checks.Volume());

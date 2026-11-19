@@ -24,7 +24,7 @@ mm so that the float32 STL loses visibly (spacing 6.1e-5 there).
 | `screw` | the same block and a separate screw (head r 0.3 s, shaft r 0.15 s, 16-gons) 0.1 s above it, size s = ratio x 100 | the same pocket, away from the screw | `screwSeparate` (exactly two bodies), `screwBox` (the smaller body's extents within 2 deviations + 1 % of s of the construction); `volume` |
 
 `clean` (`MeshRobustRepair.NotCleanReason` empty) is reported for every step, but is descriptive: only the functional checks decide the
-first failing step. `volume` is judged within `area x deviation + 1e-4 V` of the construction's (the cut-out's volume after the subtract).
+first failing step. `volume` is judged within `area x deviation + 1e-4 V` of the construction's (the cut-out's volume after the subtract); that tolerance is larger than the rib's or the screw's own volume, so `volume` cannot see a lost rib or screw: `ribConnected`, `ribThickness`, `screwSeparate` and `screwBox` do.
 
 Deliberate defects (`DefectSet`, applied after the construction): `welded` (the clean part), `soup` (unwelded: three vertices per
 triangle, an STL-like soup), `faulty` (soup, every 13th triangle flipped, every 17th duplicated), `faulty+gap1e-5` (and the top plate moved
@@ -66,7 +66,7 @@ Measured values behind the failures (canonical mm; `-` pass; the pin must clear 
 | flange, duplicated faces only (test), library and pipeline | repair / pipeline (ExactResolve) | `pinMain` 7.45 |
 | rib t=0.1, clean welded input, library | repair (path Repair, 28 to 26 triangles) | `ribThickness` 0.025 (0.1 built), `ribConnected` and `volume` pass |
 | rib t=0.1 faulty, library | repair (Solidify) | `ribConnected` fails (the rib is gone from the solid), thickness 0 |
-| screw ratio 1e-5, 1e-6 | repair (ExactResolve; degenerate triangles) and the pipeline's boolean | the screw is gone: one body; `volume` still passes (the screw is 1e-9 of it) |
+| screw ratio 1e-5, 1e-6 | repair (ExactResolve; degenerate triangles) and the pipeline's boolean | the screw is gone: one body; `volume` still passes (the screw is about 1e-15 of it) |
 | flange in UTM coordinates (test) | stl | float32 spacing 0.5 at y = 5.7e6: the bore no longer takes the pin |
 
 Diagnosis of the screw loss (`ReferencePartsTests.Screw_AtRatio1e5_PinnedFailure_TheBooleanDropsTheScrew`): `ExactMeshBoolean` itself
@@ -75,7 +75,7 @@ threshold (`Rounding.RemovedComponents` = 1; `RoundingMaxDisplacement = 1e-9` do
 The screw is a valid solid in the input and the result has no trace of it.
 
 Float32: the STL step changes the measured pin clearance by about 1e-5 mm at offset 1000 (visible, far below the pin's margin of 0.17 mm)
-and the `screwBox` error of the 0.01 mm screw (ratio 1e-4) by 1e-6 .. 3e-5 mm (library 2.26e-4 to 2.26e-4, pipeline 7.42e-4 to 7.75e-4; the
+and the `screwBox` error of the 0.01 mm screw (ratio 1e-4) by 1e-6 .. 3e-5 mm (library 2.263e-4 to 2.256e-4, pipeline 7.42e-4 to 7.75e-4; the
 tolerance is 2.1e-3): the screw still passes. The reductions and the pipeline's reduction never failed a check at these deviation bounds.
 
 ## What this means for priorities
@@ -95,8 +95,9 @@ tolerance is 2.1e-3): the screw still passes. The reductions and the pipeline's 
 4. **Export**: float32 STL is lossless enough at offset 1000 for features above about 1e-3 of the part, and breaks the part at UTM
    coordinates. A writer that recentres (or writes float64, or warns when the float32 spacing exceeds a stated fraction of the smallest
    feature) is cheap and removes a whole failure class; `g3cli convert` has the same behaviour.
-5. **Reduction needs no time from this suite**: with a two-sided certified bound no check failed in any chain, and the screw and the rib
-   survived it at deviations below their size.
+5. **Reduction needs no time from this suite**: in every chain whose repair step passed (the welded flange, the thick rib, the screw down to
+   ratio 1e-4, the thin rib in the pipeline) the reduce step passed all checks; in the chains that failed earlier the repair's damage is carried on,
+   so they say nothing about the reduction.
 
 Limits of the suite: one cut-out, one deviation bound per part, no intersecting cross bore (analytic construction of the intersection curve
 is out of scope), pins as straight segments with a Lipschitz-certified clearance. A part that is not in this list is not covered by it.

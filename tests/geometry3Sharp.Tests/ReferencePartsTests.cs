@@ -170,6 +170,9 @@ namespace geometry3Sharp.Tests
             Assert.True(Run(part, "volume", Scaled(part.Input, 1.001)).Pass);        // 0.3 % more volume is within the tolerance of a reduction's deviation bound
             Assert.False(Run(part, "volume", Scaled(part.Input, 1.01)).Pass);        // 3 % is not
             Assert.False(Run(part, "volume", part.Input, afterCut: true).Pass);       // the cut-out was not made
+            Assert.False(Run(part, "volume", new DMesh3()).Pass);                      // nothing left
+            Assert.False(Run(part, "pinMain", new DMesh3()).Pass);
+            Assert.False(Run(part, "pinCross", new DMesh3()).Pass);
         }
 
         [Fact]
@@ -372,12 +375,22 @@ namespace geometry3Sharp.Tests
             Assert.True(dropped.Compute());
             Assert.Equal(1, Checks.Components(dropped.Result, 1e-5).Count);
             Assert.Equal(1, dropped.Rounding.RemovedComponents);
+            var narrow = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { RoundingMaxDisplacement = 1e-9 };
+            Assert.True(narrow.Compute());
+            Assert.Equal(1, Checks.Components(narrow.Result, 1e-5).Count);       // the threshold is not RoundingMaxDisplacement
+            // the limit lies between the ratios 7e-5 (kept) and 5e-5 (dropped)
+            foreach (var pair in new[] { Tuple.Create(7e-5, 2), Tuple.Create(5e-5, 1) }) {
+                ReferencePart p = Parts.ScrewAssembly(pair.Item1, DefectSet.None(), PartFrame.Identity);
+                var b = new ExactMeshBoolean(p.Input, p.Cutter, ExactMeshBoolean.Operations.Difference);
+                Assert.True(b.Compute());
+                Assert.Equal(pair.Item2, Checks.Components(b.Result, 1e-5).Count);
+            }
 
             ChainResult lib = Chains.RunLibraryChain(part);
             Assert.Equal("repair", lib.FirstFailingName());
             Assert.Equal("repair", lib.FirstFailingName("screwSeparate"));
             Assert.Equal("repair", lib.FirstFailingName("screwBox"));
-            Assert.Equal("-", lib.FirstFailingName("volume"));        // the screw is 1e-9 of the volume: the volume check cannot see it
+            Assert.Equal("-", lib.FirstFailingName("volume"));        // the screw is about 1e-15 of the volume: the volume check cannot see it
             Assert.Equal(1, lib.FirstFailingStep("screwSeparate").Check("screwSeparate").Value);
             Assert.True(double.IsNaN(lib.FirstFailingStep("screwBox").Check("screwBox").Value));
             ChainResult pipe = Chains.RunPipelineChain(part);

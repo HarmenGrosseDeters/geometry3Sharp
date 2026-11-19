@@ -124,7 +124,6 @@ namespace ReferenceParts
                 foreach (Vector3d[] h in holes) { var l = new List<Vector3d>(h); if (area2(l, to2) > 0) l.Reverse(); hs.Add(l); }
                 hs.Sort((a, b) => maxU(b, u).CompareTo(maxU(a, u)));
                 foreach (List<Vector3d> h in hs) {
-                    int first = pts.Count;
                     var hid = new List<int>();
                     foreach (Vector3d p in h) { hid.Add(pts.Count); pts.Add(p); xy.Add(to2(p)); }
                     bridge(ring, hid, xy);
@@ -269,6 +268,8 @@ namespace ReferenceParts
         /// </summary>
         public DMesh3 ToMesh(DefectSet defects, PartFrame frame, double partSize)
         {
+            if (!defects.Unwelded && defects.FlipEvery > 0)
+                throw new ArgumentException("a welded soup cannot hold flipped triangles (they share directed edges with their neighbours): use Unwelded");
             var mesh = new DMesh3();
             var weld = new Dictionary<Vector3d, int>();
             Func<Vector3d, int> vertex = p => {

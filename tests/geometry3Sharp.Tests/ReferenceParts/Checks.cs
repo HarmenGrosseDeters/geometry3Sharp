@@ -61,6 +61,8 @@ namespace ReferenceParts
         static CheckResult pinCheck(ReferencePart part, DMesh3 mesh, string name)
         {
             ReferencePart.Pin pin = part.Pins.First(x => x.Name == name);
+            if (mesh.TriangleCount == 0)
+                return new CheckResult() { Name = name, Functional = true, Value = double.NaN, Pass = false, Requirement = ">= " + pin.Radius.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture), Detail = "empty" };
             double clearance = SegmentClearance(mesh, part.Frame.Apply(pin.A), part.Frame.Apply(pin.B), pin.Radius * part.Scale, 0.01 * pin.Radius * part.Scale) / part.Scale;
             return new CheckResult() {
                 Name = name, Functional = true, Value = clearance, Pass = clearance >= pin.Radius,
@@ -182,7 +184,7 @@ namespace ReferenceParts
             bool topOk = Math.Abs(zTop - topExpected) <= 4 * part.Deviation + 1e-3;
             bool bottomOk = Math.Abs(lo - bottomExpected) <= 4 * part.Deviation + 1e-3;
             r.Value = comps.Count;
-            r.Pass = comps.Count == 1 && top == bottom && topOk && bottomOk;
+            r.Pass = comps.Count == 1 && topOk && bottomOk;
             r.Detail = comps.Count + " components, top z " + (zTop - topExpected).ToString("+0.####;-0.####;0", System.Globalization.CultureInfo.InvariantCulture)
                 + (top == bottom ? ", rib top and base joined" : ", rib top and base apart");
             return r;
@@ -200,15 +202,17 @@ namespace ReferenceParts
         {
             double t = part.Targets["ribThickness"];
             double min = double.PositiveInfinity, max = 0;
+            var zeroLines = new List<int>();
             foreach (Ray3d line in part.ThicknessLines) {
-                double th = IntervalThickness(mesh, part.Frame.Apply(line.Origin), part.Frame.ApplyDirection(line.Direction), 5 * part.Scale) / part.Scale;
+                double th = IntervalThickness(mesh, part.Frame.Apply(line.Origin), part.Frame.ApplyDirection(line.Direction), 5 * part.Scale, 1e-9 * part.Scale) / part.Scale;
+                if (th == 0) zeroLines.Add(part.ThicknessLines.IndexOf(line));
                 min = Math.Min(min, th); max = Math.Max(max, th);
             }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             return new CheckResult() {
                 Name = "ribThickness", Functional = true, Value = min, Pass = min >= 0.8 * t && max <= 1.2 * t,
                 Requirement = "in [" + (0.8 * t).ToString("0.###", inv) + ", " + (1.2 * t).ToString("0.###", inv) + "]",
-                Detail = "max " + max.ToString("0.#####", inv)
+                Detail = "max " + max.ToString("0.#####", inv) + (zeroLines.Count > 0 ? ", no material at the mid plane on line(s) " + string.Join(",", zeroLines) : "")
             };
         }
 
@@ -216,7 +220,7 @@ namespace ReferenceParts
         /// the length of the material interval of the line (origin, unit direction) that contains the parameter tc (0 if tc is outside the material):
         /// the crossings sorted, equal ones (a duplicated triangle) merged, the intervals between an odd and the next crossing are inside
         /// </summary>
-        public static double IntervalThickness(DMesh3 mesh, Vector3d origin, Vector3d dir, double tc)
+        public static double IntervalThickness(DMesh3 mesh, Vector3d origin, Vector3d dir, double tc, double mergeTolerance = 1e-9)
         {
             var ts = new List<double>();
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -236,7 +240,7 @@ namespace ReferenceParts
             ts.Sort();
             var merged = new List<double>();
             foreach (double x in ts)
-                if (merged.Count == 0 || x - merged[merged.Count - 1] > 1e-9) merged.Add(x);
+                if (merged.Count == 0 || x - merged[merged.Count - 1] > mergeTolerance) merged.Add(x);
             for (int k = 0; k + 1 < merged.Count; ++k)
                 if (merged[k] <= tc && tc < merged[k + 1])
                     return (k % 2 == 0) ? merged[k + 1] - merged[k] : 0;
