@@ -1312,3 +1312,23 @@ Coordinator go 2026-11-19 (phase 1 plan, option 1 with a gate). Opt-in and addit
 Stage 2 can also work on the largest dihedral angle: `MaxDihedralDegrees` > 0 (default 0 = off, bit for bit as before) uses the quality
 min(smallest, F + G - largest) with a guard and a first phase on the smallest angle alone. The worst smallest angle never ends below min(F, the first phase's worst) (not a per-tet claim: the guard's floor is per operation). Off for 0, negative, NaN, below 70.6 (impossible: every tet would miss it, minutes of work) and from 180. Result on the 500-mesh sample and the numbers against the
 measurement: [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "MaxDihedralDegrees". No default change.
+
+### 17.16 A work cap over all improvement operations, `MaxImproveVisitsPerVertex` (opt-in, #1154, 2026-11-19)
+
+After #1184 the improver still takes minutes on a few meshes: at the floor 30 of the sample 96 of 493 meshes took more than 20 s and 7 timed out at 300 s, at the
+floor 20 3 meshes took more than 20 s (all at alpha / 40 with `RescuePasses` 150). The slow meshes run all 200 passes (50 main, 150 rescue) with little progress in the last
+ones, and the improver's time follows the number of visits of a bad tet (0.2 to 0.4 ms each).
+
+`MaxImproveVisitsPerVertex` (default 0 = off, bit for bit as before, pinned by golden digests) bounds the **visits**: one visit is one try of all operations
+(edge removal, face removal, contraction, split, smoothing, boundary moves) on one bad tet. The budget is the option times the vertex count of the stage-1 mesh, over
+main and rescue passes together (and both phases of `MaxDihedralDegrees`). When it is spent the improvement ends; the worst tets are visited first in each pass, so what
+is left is the tail. `Counts["improve_work_cap_reached"] = 1` says so (the key exists only then); the run never fails. It is a count, never wall-clock, so the result is
+deterministic and the same for every 2^k scale (invariance test). 0, negative, NaN and infinity are off. It is a **time/quality trade**: where it acts the mesh keeps more
+tets below `SliverDihedralDegrees` and a lower worst angle.
+
+Measurement (500 Thingi meshes, `refine <mesh> 40 600`, 6 shards, 300 s timeout, same-run baseline): [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md),
+section "Work cap". At the **floor 20** a budget of 8 visits per vertex brings the meshes above 20 s from 3 to 0, acts on 8 of 500 meshes, saves 19 % of the improver
+time, costs at most 1.94 degrees of worst angle (1 mesh above 0.5 degrees) and leaves 1935 more tets below the floor in total (4912 without). At the **floor 30**
+it is a plain trade: 10 visits per vertex saves 42 % and leaves 59 of 118 meshes above 20 s, 5 saves 59 % and 12 meshes above 20 s with up to 8.8 degrees lost on a mesh
+(82 meshes lose more than 0.5 degrees); only 2 brings it to 0, at the price of 293 meshes losing more than 0.5 degrees. A cap on the split attempts alone was measured and
+dropped (the slow meshes keep 50 to 60 % of their time in the other operations). No default change.

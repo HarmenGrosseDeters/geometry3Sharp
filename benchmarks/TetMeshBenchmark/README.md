@@ -261,3 +261,39 @@ clears the max side on 443 meshes (the other 57 keep a few tets above G). The im
 8 s). A 24-mesh subset with `G3_CHECK=1` (boundary self-intersection, input vertices outside): 0 and 0 in every configuration. Rows: data branch `runs/tet-maxdih`.
 
 Cost of a target the shape cannot meet (`Compute()` of the 4.4k-tet sphere of `TetMeshingStage2Tests.Input("sphere")`, alpha 40, offset 600, floor 10, one run each, shared container). Without a stall stop: G = 130: 2.0 s; 120: 12 s; 110: 147 s; 100, 90, 80: more than 200 s (stopped). With the stall stop (`maxdih_stall_stop`: 4 passes that neither lower the number of bad tets nor raise the worst quality by 0.1 degrees, while more than 1 % of the tets are bad): G = 150: 1.4 s (3 passes, no stop); 130: 1.5 s; 110: 10 s; 100: 9 s; 90: 13 s; 80: 13 s, ending at a largest dihedral of 125-128 degrees and a smallest of 10.0-10.6. Values below 70.6 are off (no tet can meet them). At G = 150 the stop is never taken on the 500-mesh sample (rows equal, see above).
+
+## Work cap (`MaxImproveVisitsPerVertex`, TET_MESHING.md 17.16, #1154; 2026-11-19)
+
+Opt-in bound on the visits of a bad tet in the improver (default 0 = off, bit for bit). Measured on the 500-mesh sample (`refine <mesh> 40 600`, `G3_TET_FLOOR`,
+`G3_TET_VISITS=<n>`, 6 GitHub shards, 300 s timeout, per-pass traces); every round has its own baseline in the same run, so times compare within a table only
+(timing on shared runners moves by a few meshes near the 20 s line between runs: the baseline had 3 to 4 meshes above 20 s at the floor 20 and 107 to 118 at the floor 30).
+Data and analyzer: branch `runs/tet-work-cap` (`work-cap/`, `benchmarks/TetMeshBenchmark/compare/analyze_work_cap.py`).
+
+Budget n = visits per vertex of the stage-1 mesh. Columns: meshes where the cap was reached, meshes with improver time above 20 s (timeouts), sum of the improver time and the
+share saved, worst angle lost against the baseline (max over meshes / meshes losing more than 0.5 degrees), tets below the floor (total, baseline in the first row of the floor; the largest increase on one mesh).
+
+| floor | n | reached | > 20 s (timeouts) | time sum | saved | angle lost max / > 0.5 | tets below floor (max added on a mesh) |
+|---|---|---|---|---|---|---|---|
+| 20 | 0 | - | 3 (0) | 447 s | - | - | 4912 |
+| 20 | 8 | 8 | 0 (0) | 364 s | 18.5 % | 1.94 / 1 | 6847 (+1148) |
+| 20 | 7 | 13 | 0 (0) | 354 s | 20.8 % | 1.94 / 2 | 7310 (+1338) |
+| 20 | 6 | 14 | 0 (0) | 342 s | 23.4 % | 1.94 / 3 | 7821 (+1571) |
+| 20 | 0 | - | 3 (0) | 549 s | - | - | 4912 |
+| 20 | 10 | 7 | 1 (0) | 458 s | 16.6 % | 1.94 / 1 | 6456 (+993) |
+| 20 | 5 | 17 | 0 (0) | 387 s | 29.5 % | 1.94 / 3 | 8822 (+1956) |
+| 20 | 2 | 36 | 0 (0) | 299 s | 45.6 % | 5.62 / 14 | 17184 (+5189) |
+| 30 | 0 | - | 118 (7) | 8516 s | - | - | 113131 |
+| 30 | 10 | 138 | 59 (0) | 5331 s | 41.6 % | 7.04 / 36 | 202356 (+997) |
+| 30 | 5 | 238 | 12 (0) | 3686 s | 58.7 % | 8.83 / 82 | 231911 (+2278) |
+| 30 | 2 | 427 | 0 (0) | 1655 s | 81.2 % | 10.4 / 293 | 527823 (+6452) |
+
+(The floor-20 rows are two runs: n = 6, 7, 8 with their baseline, then n = 10, 5, 2 with theirs.) The visits are the right unit because the improver's time follows them:
+0.2 to 0.4 ms per visit in the baseline traces (mesh 46017 at the floor 20: 223k visits, 91 s). **Recommendation for the floor 20: n = 8** (0 meshes above 20 s in the
+run, 1 mesh loses more than 0.5 degrees, at most 1.94 degrees; n = 10 left one mesh at the 20 s line in another run). **At the floor 30 it is a time/quality trade, not a fix**: the
+floor is a target the improver does not reach on most meshes (median 43 tets below it in the baseline), and every level that removes the long tail costs worst angle on
+tens to hundreds of meshes.
+
+Round 2 (a cap on the split attempts only, `MaxSplitAttemptsPerVertex`, not kept): 8 / 24 / 64 attempts per vertex left 2 / 3 / 4 meshes above 20 s at the floor 20
+(baseline 4) and 73 / 84 / 106 at the floor 30 (baseline 107), saving 13 / 11 / 4 % and 31 / 23 / 14 % of the time: the slow meshes spend 50 to 60 % of their time in the
+operations a split cap does not bound.
+
