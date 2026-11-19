@@ -303,6 +303,32 @@ namespace gs
         Delaunay3 dt;
         byte[] label = new byte[0];
         double alpha, offset, contact;
+        /// <summary>
+        /// A local alpha (default null = the uniform Alpha): the alpha at a point, absolute, in the input's units. The gate test of the carving
+        /// (an alpha ball passes a facet if Phi(f) is larger than alpha) uses the value at the centroid of the facet, clamped to
+        /// [AlphaFieldFloorOffsets * offset, alpha]: the field can only make the wrap finer than the (used) uniform alpha, never coarser, and
+        /// not finer than 3 offsets, which keeps the Steiner separation of the class doc (min(offset, alpha - offset), with the floor value
+        /// as alpha) and with it the termination. NaN counts as "no value here" (the uniform alpha). Nothing else of the wrap reads alpha, so
+        /// the guarantees that do not depend on it stay as they are: the input is strictly inside (rules 1 and 2 decide on every carving, whatever the
+        /// alpha), closed, consistently oriented, 2-manifold, no self-intersections. What changes is the detail: where the field is below the
+        /// uniform alpha, cavities and gaps wider than about 2 * the local alpha are entered; the circumradius and angle bounds of the class doc
+        /// hold with the local alpha (a facet whose radius is above the local alpha at its centroid is a gate). Where the field changes faster
+        /// than the facets are large (a slope above about 0.5) a facet can be a gate for one of its neighbours and not for itself: the result is
+        /// still a valid wrap, only less regular; MeshTetrahedralization grades its field with a slope of 0.25.
+        /// The function is called from several threads (MaxThreads) and must be pure and thread-safe; for a deterministic result it must be a
+        /// function of the point only. Not applied to the wrap's other passes (simplification, quality, feature pass): they take the uniform alpha.
+        /// </summary>
+        public Func<Vector3d, double> AlphaField;
+        /// <summary> the smallest local alpha, in offsets (see AlphaField) </summary>
+        public const double AlphaFieldFloorOffsets = 3.0;
+        double alpha_at(int c, int i)
+        {
+            if (AlphaField == null) return alpha;
+            Index3i f = dt.FacetVertices(c, i);
+            Vector3d p = (dt.GetVertex(f.a) + dt.GetVertex(f.b) + dt.GetVertex(f.c)) / 3.0;
+            double a = AlphaField(p);
+            return a < alpha ? Math.Min(alpha, Math.Max(a, AlphaFieldFloorOffsets * offset)) : alpha;
+        }
         double diag;
         // distance of each triangulation vertex to the input (NaN = not computed)
         List<double> vertexDistance = new List<double>();
@@ -689,7 +715,7 @@ namespace gs
                 // traversable is dropped, one whose radius changed goes back into the queue under its new key)
                 if (TraverseByEmptyBall) {
                     double r = facet_empty_ball(c, i);
-                    if (!(r > alpha)) { staleGates++; continue; }
+                    if (!(r > alpha_at(c, i))) { staleGates++; continue; }
                     if (r != key) { requeuedGates++; gates.Push(r, c, i, stampC); continue; }
                 }
                 Vector3d from, to;
@@ -1095,7 +1121,7 @@ namespace gs
             int c = g.C, i = g.I;
             if (TraverseByEmptyBall) {
                 double r = facet_empty_ball(c, i, g);
-                if (!(r > alpha)) { g.Kind = GateDrop; return; }
+                if (!(r > alpha_at(c, i))) { g.Kind = GateDrop; return; }
                 if (r != g.Key) { g.Kind = GateRequeue; g.NewKey = r; return; }
             }
             dual_edge(c, i, out Vector3d from, out Vector3d to, g);
@@ -1149,7 +1175,7 @@ namespace gs
         void add_push(RoundGate g, int c, int i)
         {
             double r = TraverseByEmptyBall ? facet_empty_ball(c, i, g) : facet_radius(c, i);
-            if (r > alpha)
+            if (r > alpha_at(c, i))
                 g.Pushes.Add((r, c, i));
         }
 
@@ -1194,7 +1220,7 @@ namespace gs
         void push_gate(int c, int i)
         {
             double r = TraverseByEmptyBall ? facet_empty_ball(c, i) : facet_radius(c, i);
-            if (r > alpha)
+            if (r > alpha_at(c, i))
                 gates.Push(r, c, i, dt.CellStamp(c));
         }
 

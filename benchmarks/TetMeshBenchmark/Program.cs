@@ -82,6 +82,9 @@ static class Program
                 if (Environment.GetEnvironmentVariable("G3_TET_CONTRACT") == "0") tm.ContractEdges = false;
                 if (Environment.GetEnvironmentVariable("G3_TET_PASSES") is string ps) tm.ImprovePasses = int.Parse(ps, Inv);
                 if (Environment.GetEnvironmentVariable("G3_TET_RESCUE") is string rp) tm.RescuePasses = int.Parse(rp, Inv);
+                // local alpha (TET_MESHING.md 17.13): G3_TET_DEV=<x> sets MaxSurfaceDeviation = diagonal / x, G3_TET_LOCALPASSES=<n> LocalAlphaPasses
+                if (Environment.GetEnvironmentVariable("G3_TET_DEV") is string dv) tm.MaxSurfaceDeviation = kv.Value.CachedBounds.DiagonalLength / double.Parse(dv, Inv);
+                if (Environment.GetEnvironmentVariable("G3_TET_LOCALPASSES") is string lp) tm.LocalAlphaPasses = int.Parse(lp, Inv);
                 tm.Compute();
                 if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);
                 double totalS = sw.Elapsed.TotalSeconds;

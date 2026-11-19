@@ -40,6 +40,25 @@ namespace gs
         /// Thingi10K sample: every tet >= 10 degrees on 494 instead of 461 meshes, the input-to-boundary distance 0.77x, 1.3x the time, 1.7x the
         /// tets). Larger values follow the input more closely at more tets (17.2). </summary>
         public double RelativeAlpha = 40, RelativeOffset = 600;
+        /// <summary>
+        /// Surface fidelity target, absolute, in the input's units (docs/design/TET_MESHING.md section 17.13); 0, a negative value, NaN or infinity = off
+        /// (the default: the uniform alpha, the output as before bit for bit). With a value above 0 the wrap is refined only where the input is farther
+        /// than this from the wrap's boundary: the wrap at RelativeAlpha measures the distance of area-weighted input samples to its boundary
+        /// (concave detail and thin gaps are bridged there, and that is where the distance is, 17.2), and the next wrap uses a local alpha
+        /// (MeshAlphaWrap.AlphaField) of alpha * MaxSurfaceDeviation / distance, between alpha / 4 and alpha, graded with a slope of 0.25. One
+        /// pass costs one more wrap, and the tets stay below those of a uniform alpha with the same deviation (on 39 Thingi10K meshes about 0.6x
+        /// the tets of the uniform alpha / 80 for its maximum distance, 17.13). The distance cannot go below about 2 offsets (the offset surface
+        /// is the least distance of the wrap): the tolerance is raised to that, and the alpha floor of alpha / 4 bounds what is reachable;
+        /// Counts["local_alpha_fine_samples"] says how many samples got a finer alpha. The wrap's surface angle refinement (SurfaceMinAngleDegrees) is not used
+        /// with it (the short edges it adds where alpha changes cost the dihedral floor, 17.13). Only for an input with triangles; without,
+        /// the option does nothing. Combines with every other option; the local alpha is for the wrap's boundary, the tets inside follow it.
+        /// </summary>
+        public double MaxSurfaceDeviation = 0;
+        /// <summary>
+        /// the passes of the local alpha (MaxSurfaceDeviation), 1 to 3 (other values count as 1): every pass measures the distance of the wrap before it and refines
+        /// its alpha where it is still above the tolerance, at one more wrap. Two passes reach about 0.87x the maximum distance of one at 1.1x the tets (17.13)
+        /// </summary>
+        public int LocalAlphaPasses = 1;
         /// <summary> radius-edge bound rho (> 2 for the termination argument without the floor) </summary>
         public double MaxRadiusEdgeRatio = 2;
         /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>
@@ -176,15 +195,67 @@ namespace gs
             Mesh = mesh;
         }
 
+        MeshAlphaWrap MakeWrap(Func<Vector3d, double> alphaField, double surfaceAngle)
+        {
+            return new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
+                RefineMinAngleDegrees = surfaceAngle, AlphaField = alphaField };
+        }
+
+        const int DeviationSamples = 20000;
+        const double LocalAlphaGradation = 0.25, LocalAlphaMaxRefinement = 4;
+
+        /// <summary>
+        /// The passes of MaxSurfaceDeviation: starting from the uniform wrap (wrap), measure the distance d_j of fixed area-weighted input samples
+        /// to the wrap's surface, give the samples farther than the tolerance T the alpha alpha_j = alpha * T / d_j (at least alpha / 4; with the
+        /// next pass the smaller of the old alpha_j and the rule on the new distance), and wrap again with the graded field. false: a wrap failed or
+        /// was cancelled (wrap is then that wrap).
+        /// </summary>
+        bool RefineAlpha(ref MeshAlphaWrap wrap, double surfaceAngle)
+        {
+            double a0 = wrap.UsedAlpha, tol = Math.Max(MaxSurfaceDeviation, 2 * wrap.UsedOffset), aMin = a0 / LocalAlphaMaxRefinement;
+            Vector3d[] pos = AlphaSizeField.Samples(Mesh, DeviationSamples);
+            int passes = LocalAlphaPasses >= 1 && LocalAlphaPasses <= 3 ? LocalAlphaPasses : 1;
+            if (pos.Length == 0 || !(aMin > 0))
+                return true;
+            var aj = new double[pos.Length];
+            for (int i = 0; i < aj.Length; ++i) aj[i] = a0;
+            AlphaSizeField field = null;
+            for (int pass = 0; pass < passes; ++pass) {
+                var tree = new DMeshAABBTree3(wrap.Result, true);
+                for (int i = 0; i < pos.Length; ++i) {
+                    if (CancelF()) { localCancelled = true; return false; }
+                    tree.FindNearestTriangle(pos[i], out double d2);
+                    double d = Math.Sqrt(d2);
+                    if (d > tol)
+                        aj[i] = Math.Min(aj[i], Math.Max(aMin, a0 * tol / d));
+                }
+                field = new AlphaSizeField(pos, aj, a0, aMin, LocalAlphaGradation);
+                if (field.FineSamples == 0)
+                    break;
+                MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
+                bool ok = next.Compute();
+                wrap = next;
+                if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success)
+                    return false;
+            }
+            localAlphaPasses = field == null ? 0 : passes; localFineSamples = field == null ? 0 : field.FineSamples;
+            return true;
+        }
+        long localAlphaPasses, localFineSamples;
+        bool localCancelled;
+
         public bool Compute()
         {
+            localAlphaPasses = 0; localFineSamples = 0; localCancelled = false;
             Result = null;
             Targets = null;
             InvalidSizeSamples = 0;
             DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
-            var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
-                RefineMinAngleDegrees = SurfaceMinAngleDegrees };
+            bool local = MaxSurfaceDeviation > 0 && !double.IsInfinity(MaxSurfaceDeviation) && Mesh != null && Mesh.TriangleCount > 0;
+            // (the surface angle refinement adds short edges where alpha changes: not with a local alpha, section 17.13)
+            double surfaceAngle = local ? 0 : SurfaceMinAngleDegrees;
+            MeshAlphaWrap wrap = MakeWrap(null, surfaceAngle);
             bool ok = wrap.Compute();
             Wrap = wrap;
             WrapStatus = wrap.Status;
@@ -192,6 +263,14 @@ namespace gs
                 Status = wrap.Status == MeshAlphaWrap.WrapStatus.Cancelled ? TetStatus.Cancelled : TetStatus.WrapFailed;
                 return false;
             }
+            if (local && !RefineAlpha(ref wrap, surfaceAngle)) {
+                Wrap = wrap;
+                WrapStatus = wrap.Status;
+                Status = wrap.Status == MeshAlphaWrap.WrapStatus.Cancelled || localCancelled ? TetStatus.Cancelled : TetStatus.WrapFailed;
+                return false;
+            }
+            Wrap = wrap;
+            WrapStatus = wrap.Status;
             UsedAlpha = wrap.UsedAlpha; UsedOffset = wrap.UsedOffset;
             UsedFloor = MinFeatureFactor * Math.Min(UsedOffset, UsedAlpha - UsedOffset);
             Delaunay3 dt = wrap.Triangulation.Clone();
@@ -215,6 +294,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
+            if (localAlphaPasses > 0) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; }   // only then: the default counts do not change
             if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
