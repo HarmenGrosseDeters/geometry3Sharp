@@ -45,7 +45,10 @@ namespace BoolCmp
             var res = new Split();
             int nt = tris.Count;
             // the edge slots: slot 3 t + k is the edge of t from corner k to corner k + 1
-            var slots = new Dictionary<long, List<int>>();
+            // (not the default hash of a long, lo ^ hi = a ^ b for an edge (a, b): neighbouring vertices have close indices, so very few
+            // distinct hashes: a result of 900k triangles took more than 25 minutes here, size pair p0003 of the thingi-pairs run
+            // of 2026-11-18; Program.EdgeKeyComparer)
+            var slots = new Dictionary<long, List<int>>(new Program.EdgeKeyComparer());
             for (int t = 0; t < nt; ++t)
                 for (int k = 0; k < 3; ++k) {
                     long key = Key(tris[t][k], tris[t][(k + 1) % 3]);

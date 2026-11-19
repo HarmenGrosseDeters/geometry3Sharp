@@ -344,7 +344,7 @@ static class Program
 
     // the default hash of a long is lo ^ hi = x ^ y for the key of an edge (x, y): neighbouring vertices have close
     // indices, so very few distinct hashes, and a result of 1M triangles took more than 30 minutes to evaluate
-    sealed class EdgeKeyComparer : IEqualityComparer<long>
+    internal sealed class EdgeKeyComparer : IEqualityComparer<long>
     {
         public bool Equals(long a, long b) => a == b;
         public int GetHashCode(long k) => (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 32);
