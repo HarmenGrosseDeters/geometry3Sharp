@@ -1,0 +1,21 @@
+4
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) 6973P-C
+CPU(s) scaling MHz:                      161%
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+4
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      135%
+4
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      134%
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
