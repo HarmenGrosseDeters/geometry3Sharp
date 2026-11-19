@@ -433,11 +433,79 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
 - **Option.** `ContourLoftStack.LoweredSaddle` (default false: every result is bit for bit the old one, tested on the 11 golden
   inputs, also with a `SaddleMesher` set) and `SaddleMesher` (a `QualityMesh2` for the roof, default `new QualityMesh2()`, 20 degrees).
   It applies to a branching or merging group whose pieces are the contours of one side (the existing "contained" shortcut: no
-  intermediate plane, the bridge in the plane of a slice), when the container contour has no holes, the contained contours have
-  none, and the contained contours lie strictly inside the container (exact: `Inside` and `Touch`).
+  intermediate plane, the bridge in the plane of a slice), when neither the container nor a contained contour has holes of its own and the contained contours lie strictly inside the container
+  (exact: `Inside` and `Touch`). A hole group (odd depth: the hole contours are container and contained) gets a roof too, with the
+  faces turned (the surface of an air pocket); the groups whose contours have children keep the bridged composite.
 - **Construction.** The contours inside the container K (of one slice) bound a region D (K minus the inner contours). The surface is the
-  graph of a height over D, meshed by `QualityMesh2` with the contour edges as locked segments (the same call as a cap, rings K and
-  its holes = the inner contours). The vertices of the contours keep their input positions and ids, so the boundary of the roof is the
+  graph of a height over D, meshed by `QualityMesh2` (option `SaddleMesher`, default 20 degrees; the cap mesher `CapMesher` is a separate option) with the
+  contour edges as locked segments (rings: K, and the inner contours as its holes, as for a cap). The vertices of the contours keep their input positions and ids, so the boundary of the roof is the
+  contours edge for edge and the stages around it stay stitched. A vertex of the mesher (inside D, never on a contour) gets the height
+  `h = h_lower + t (h_upper - h_lower)` with `t = d_lower / (d_lower + d_upper)`, the distances to the lower and the upper contours of
+  the group (the distance-ratio height of shape-based interpolation, Raya & Udupa 1990, restricted to D). `t` is in (0, 1) because
+  the vertex is inside D; a vertex with a zero distance or a height outside the slab makes the group fall back. The triangles face up
+  for a branch (the roof of the lower solid) and down for a merge (the underside of the upper solid); holes (odd depth) flip them.
+- **Why this is safe.** Within one slab the roof triangles are a graph over disjoint planar cells, so they cannot meet each other; the
+  whole mesh keeps the exact checks of section 10.4. Between slabs it is not so simple (found by the review): two roofs, or a roof and a
+  bridge, share the contours of the slice between them, and a chord of the mesher across a gap (an edge between two contours of that
+  slice, flat at the slice height) can be the same edge in both: four triangles at one edge, `BandFailed`; a chord can also cross a
+  bridge (`SelfIntersecting`, `BridgeNotFound`). So the whole stack is built again without roofs when the run with them ends in one of
+  `BandFailed`, `SelfIntersecting`, `BridgeNotFound` or `CapFailed`: `LoweredSaddle` never turns a stack that succeeds without it into a
+  failure (tested: a merge followed by a branch of close discs, and squares, both fall back; `WhenTheRoofsMakeTheStackFail_ItIsBuiltWithoutThem`).
+  A group that does not qualify, or whose mesher fails or merges a vertex, is bridged as without the option. The guards for touching
+  contours are defensive: the mesher refuses or merges the same inputs (mutating the strict containment test or the edge-touch test
+  keeps all tests green; the fallbacks they produce are pinned by `ContoursThatTouch_KeepTheBridgedComposite`).
+- **Measured** ([ContourLoftBenchmark](../../benchmarks/ContourLoftBenchmark/README.md), `-- stack`): 33 slices, one and two contours
+  alternating every 8 slices: 20 ms per slab at 100 vertices per contour, 190 ms at 400, 1.3 s at 1000 (the stage 1 band of a
+  composite of 2n against n vertices dominates); contained and cut pieces cost the same.
+
+### 10.10 Holes inside branching and merging groups (2026-11-19, owner: finish the topic)
+
+- **Construction.** The contours of a group of a slab are the contours of one depth parity. A group that branches, merges or is complex
+  (p + q > 2) may now have holes. Its pieces are taken from the *filled* labels of the overlay: a triangle's label is the innermost
+  contour of each slice, and `Fill` walks up to the nearest ancestor in the group (a hole counts as part of the contour around it). The
+  piece of a related pair is the connected set of triangles with that filled pair, a simply connected region (the intersection of two
+  simply connected planar regions), so the piece has one boundary loop as before. The intermediate solid is therefore the whole
+  intersection of the two filled contours; where a hole ends or begins, the solid there is closed by the cap of the hole in the slice
+  plane (the existing cap rule), and where a hole continues, the hole group has its own pieces (the overlap of the two holes).
+- **Hole groups pass the intermediate plane.** A hole group is a group of its own (depth parity odd). A 1:1 hole group whose parent
+  group has an intermediate plane is not lofted by a direct band any more: its pieces (the overlap of the two holes) are placed in the
+  same plane and tiled in two half-slabs like any group. Reason (measured, test
+  `AHoleWallThroughTheRegionOfTheBridge_PassesTheIntermediatePlane`): a direct band from a hole that reaches into the gap between
+  legs to the hole of a leg runs through the fins of the bridge, `SelfIntersecting` on 6 of 18 probed inputs; with the hole
+  pieces in the plane all 18 succeed. The bridges keep clear of the loops of every group of the slab (the obstacle list is the loops of
+  the slab, not only of the group). A hole group of a parent group without an intermediate plane keeps the direct band.
+- **Limits that stay.** A hole with an island inside it in a branching or merging *solid* group (`Unsupported`: "holes with islands";
+  the guard rejects a member of a general group whose child has children, so an island in a hole group that branches by itself is
+  built, and tested); a
+  contour that ends while its hole continues (existing); pieces of one hole in different solid pieces with air between (a slot across
+  both legs): there is no bridge between them (`BridgeNotFound`, tested).
+- **Unchanged.** Every result of a stack without holes in a branching group is bit for bit the same: the intermediate vertices and the
+  triangles are created in the same order (a test pins the digests of 11 results, taken before the change). Prepare, Assemble and the slab-wide obstacle list
+  run for every general group; the obstacles now hold the loops of all general groups of the slab, so a bridge that came close to the
+  loop of another group of the slab is now kept clear of it (the review compared four inputs with two general groups in one slab, all
+  digests equal; no test pins this).
+- **Tests** (`ContourLoftStackHolesTests`): the golden digests; 7 inputs (a hole that ends under a branch, through one leg
+  (contained and cut), through one leg of a merge, that appears in a leg, that splits in a leg (Y tunnel, genus 2), through the middle leg of
+  a 1 to 3): closed, manifold, no self-intersection, `NotCleanReason == ""`, the Euler characteristic of the expected topology, the
+  contour vertices and edges in the mesh as given; the volume of a hole that ends (exactly its prism); the risk inputs (wall through
+  the bridge region must succeed, a sweep and 24 random inputs never return an unclean mesh: 389 of 400 random inputs succeeded in the
+  probe, the others were my crossing inputs); the island and slot limits; `Similarity.All()`; reuse; determinism (repeated and
+  concurrent). Hand mutants killed: the fill (6 tests fail), the intermediate pass of hole groups (3), the island guard (1), the fill
+  of the upper side (20). Survivors, equivalent for valid inputs: the filter of unrelated pairs (removed as dead code: a contour of
+  the group that is inside a hole of another cannot be in the group); the bridge obstacles of other groups (the nearest visible pair is
+  always clear in the probed inputs); the second parent of a hole group (its two parents are in one group when the holes overlap).
+
+### 10.11 The lowered saddle (opt-in `LoweredSaddle`), the numbers for cut groups, and what stays (2026-11-19)
+
+- **Option.** `ContourLoftStack.LoweredSaddle` (default false: every result is bit for bit the old one, tested on the 11 golden
+  inputs, also with a `SaddleMesher` set) and `SaddleMesher` (a `QualityMesh2` for the roof, default `new QualityMesh2()`, 20 degrees).
+  It applies to a branching or merging group whose pieces are the contours of one side (the existing "contained" shortcut: no
+  intermediate plane, the bridge in the plane of a slice), when neither the container nor a contained contour has holes of its own and the contained contours lie strictly inside the container
+  (exact: `Inside` and `Touch`). A hole group (odd depth: the hole contours are container and contained) gets a roof too, with the
+  faces turned (the surface of an air pocket); the groups whose contours have children keep the bridged composite.
+- **Construction.** The contours inside the container K (of one slice) bound a region D (K minus the inner contours). The surface is the
+  graph of a height over D, meshed by `QualityMesh2` (option `SaddleMesher`, default 20 degrees; the cap mesher `CapMesher` is a separate option) with the
+  contour edges as locked segments (rings: K, and the inner contours as its holes, as for a cap). The vertices of the contours keep their input positions and ids, so the boundary of the roof is the
   contours edge for edge and the stages around it stay stitched. A vertex of the mesher (inside D, never on a contour) gets the height
   `h = h_lower + t (h_upper - h_lower)` with `t = d_lower / (d_lower + d_upper)`, the distances to the lower and the upper contours of
   the group (the distance-ratio height of shape-based interpolation, Raya & Udupa 1990, restricted to D). `t` is in (0, 1) because
@@ -468,7 +536,7 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
   over the symmetric difference would split the contour edges there (and the stages before and after the slab would not fit).
 - **Limits that stay (documented, not open items).**
   1. Cut groups (pieces that stick out of the contour: an intermediate plane) keep the ridge at `BranchFraction` (1c measured, above).
-  2. Groups with holes keep the bridged composite under `LoweredSaddle`; a hole with an island in a branching or merging solid group
+  2. Groups whose contours have holes keep the bridged composite under `LoweredSaddle` (the hole groups themselves get roofs); a hole with an island in a branching or merging solid group
      is `Unsupported` (10.10); a contour that ends while its hole continues is `Unsupported`.
   3. Pieces of one hole in different solid pieces (a slot across both legs): `BridgeNotFound`.
   4. The straight skeleton of the overlay (Barequet et al. 2004) is not built, by decision (owner 2026-11-19 after the study). Reasons:

@@ -26,7 +26,19 @@ namespace geometry3Sharp.Tests
             ["2 to 1"] = Slices(Sl(Disc(24, 1.6, 0, -2.2), Disc(24, 1.6, 0, 2.2)), Sl(Disc(48, 4, 1))),
             ["1 to 2, stacked"] = Pad(Slices(Sl(Disc(48, 4, 0)), Sl(Disc(24, 1.6, 1, -2.2), Disc(24, 1.6, 1, 2.2)))),
             ["2 to 1, stacked"] = Pad(Slices(Sl(Disc(24, 1.6, 0, -2.2), Disc(24, 1.6, 0, 2.2)), Sl(Disc(48, 4, 1)))),
+            // a merge followed by a branch: two roofs share the contour of the middle slice (found by the review)
+            ["2 to 1 to 2"] = Slices(Sl(Disc(24, 1.6, 0, -2.2), Disc(24, 1.6, 0, 2.2)), Sl(Disc(48, 4, 1)), Sl(Disc(24, 1.6, 2, -2.2), Disc(24, 1.6, 2, 2.2))),
         };
+        // inputs where a chord of the mesher across a gap can be the same edge in the roofs of two neighbouring slabs (found by the review):
+        // the stack is built again without the roofs when they make it fail, so it succeeds whenever it does without the option
+        static Dictionary<string, IList<IList<IList<Vector3d>>>> Chords() => new Dictionary<string, IList<IList<IList<Vector3d>>>> {
+            ["1 to 2 to 1"] = Slices(Sl(Disc(48, 4, 0)), Sl(Disc(24, 1.6, 1, -2.2), Disc(24, 1.6, 1, 2.2)), Sl(Disc(48, 4, 2))),
+            // close inner contours: the mesher would put a chord between them unless it refines the gap
+            ["1 to 2 to 1, close"] = Slices(Sl(Disc(12, 10, 0)), Sl(Disc(4, 0.5, 1, -2), Disc(4, 0.5, 1, 2)), Sl(Disc(12, 10, 2))),
+            ["squares"] = Slices(Sl(ContourLoftStackHolesTests.Rect(-6, 6, -3, 3, 0, 6)), Sl(ContourLoftStackHolesTests.Rect(-5, -1, -2, 2, 1, 4), ContourLoftStackHolesTests.Rect(1, 5, -2, 2, 1, 4)), Sl(ContourLoftStackHolesTests.Rect(-6, 6, -3, 3, 2, 6))),
+        };
+        public static IEnumerable<object[]> ChordNames() => Chords().Keys.Select(k => new object[] { k });
+
         public static IEnumerable<object[]> Names() => Contained().Keys.Select(k => new object[] { k });
 
         static double MaxDihedralAtNonContourEdges(DMesh3 m, IList<IList<IList<Vector3d>>> slices)
@@ -56,14 +68,49 @@ namespace geometry3Sharp.Tests
             ContourLoftStackHolesTests.AssertClean(r, 2);
             ContourLoftStackHolesTests.AssertBoundaryIsTheInput(slices, r.Mesh);
             Assert.Equal(old.Groups.Select(g => g.Kind), r.Groups.Select(g => g.Kind));
-            // the roof has vertices of its own, all strictly between the two slices, none at a slice height
-            int inputCount = slices.Sum(sl => sl.Sum(c => c.Count));
+            // the roof has vertices of its own (the mesher separates the inner contours), so the roof was built
             Assert.True(r.Mesh.VertexCount > old.Mesh.VertexCount);
-            double zLo = slices[0][0][0].z, zHi = slices[slices.Count - 1][0][0].z;
-            Assert.True(r.Mesh.VertexCount > inputCount);
-            // the crotch is lowered: the old surface reaches the full height at the bridge; the roof never leaves the slab
+            // the roof is not rougher than the bridged band
             Assert.True(MaxDihedralAtNonContourEdges(r.Mesh, slices) <= MaxDihedralAtNonContourEdges(old.Mesh, slices) + 1e-9,
                 name + ": the roof is not smoother than the bridged band");
+        }
+
+        static List<Vector3d> Rev(List<Vector3d> c) { var l = new List<Vector3d>(c); l.Reverse(); return l; }
+
+        [Theory]
+        [MemberData(nameof(ChordNames))]
+        public void WhenTheRoofsMakeTheStackFail_ItIsBuiltWithoutThem(string name)
+        {
+            var slices = Chords()[name];
+            foreach (bool caps in new[] { false, true }) {
+                var off = Loft(slices, ledge: false, caps: caps);
+                var on = Loft(slices, caps: caps);
+                Assert.Equal(ContourLoftStackStatus.Success, off.Status);
+                Assert.True(on.Status == ContourLoftStackStatus.Success, name + ": " + on.Status + " " + on.Reason);
+                Assert.False(MeshRepairMetrics.HasSelfIntersections(on.Mesh));
+                ContourLoftStackHolesTests.AssertBoundaryIsTheInput(slices, on.Mesh);
+                if (caps) Assert.Equal("", MeshRobustRepair.NotCleanReason(on.Mesh));
+            }
+        }
+
+        [Fact]
+        public void HoleGroups_GetARoofToo_WithTheOrientationOfAnAirPocket()
+        {
+            // a block whose hole splits into two and the reverse: the hole contours are the container and the inner contours (odd depth),
+            // the roof faces the other way. Compared with the bridged composite: same topology, clean, the hole volume close
+            foreach (bool merge in new[] { false, true }) {
+                var wide = new[] { Rev(Disc(48, 4, 0)) }; var two = new[] { Rev(Disc(24, 1.6, 0, -2.2)), Rev(Disc(24, 1.6, 0, 2.2)) };
+                IList<IList<IList<Vector3d>>> Lift(IEnumerable<List<Vector3d>> hs, double z) =>
+                    new List<IList<IList<Vector3d>>> { new List<IList<Vector3d>> { Disc(48, 10, z) }.Concat(hs.Select(h => (IList<Vector3d>)h.Select(p => new Vector3d(p.x, p.y, z)).ToList())).ToList() };
+                var s0 = Lift(merge ? two : wide, 0)[0]; var s1 = Lift(merge ? wide : two, 1)[0];
+                var slices = Pad(new List<IList<IList<Vector3d>>> { s0, s1 });
+                var old = Loft(slices, ledge: false); var r = Loft(slices);
+                Assert.Equal(ContourLoftStackStatus.Success, old.Status);
+                ContourLoftStackHolesTests.AssertClean(r, old.Mesh.VertexCount - old.Mesh.EdgeCount + old.Mesh.TriangleCount);
+                ContourLoftStackHolesTests.AssertBoundaryIsTheInput(slices, r.Mesh);
+                Assert.True(r.Mesh.VertexCount > old.Mesh.VertexCount);
+                Assert.InRange(ContourLoftStackHolesTests.Volume(r.Mesh), 0.97 * ContourLoftStackHolesTests.Volume(old.Mesh), 1.03 * ContourLoftStackHolesTests.Volume(old.Mesh));
+            }
         }
 
         [Fact]

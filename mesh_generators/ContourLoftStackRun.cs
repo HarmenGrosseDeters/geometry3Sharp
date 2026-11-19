@@ -51,9 +51,11 @@ namespace g3
         double[] sliceHeight;           // per slice: mean height along fn (working frame)
         bool anyCap;
 
-        public ContourLoftStackRun(ContourLoftStack options, IList<IList<IList<Vector3d>>> input, CancellationToken ct)
+        readonly bool roofs;            // LoweredSaddle for this run (the caller runs again without it when the roofs make a run fail)
+
+        public ContourLoftStackRun(ContourLoftStack options, IList<IList<IList<Vector3d>>> input, CancellationToken ct, bool roofs = false)
         {
-            o = options; this.input = input; this.ct = ct;
+            o = options; this.input = input; this.ct = ct; this.roofs = roofs;
         }
 
         ContourLoftStackResult Failed(ContourLoftStackStatus s, string why) =>
@@ -605,14 +607,14 @@ namespace g3
                 // the pieces are the contours of one side themselves: no intermediate plane
                 if (plan.BottomOnly) {
                     foreach (int d in plan.Upper) {
-                        if (o.LoweredSaddle && TryRoof(s, d, lobes.Where(l => l.Upper == d).Select(l => l.Lower).ToList(), false, plan.Depth)) continue;
+                        if (roofs && TryRoof(s, d, lobes.Where(l => l.Upper == d).Select(l => l.Lower).ToList(), false, plan.Depth)) continue;
                         var set = lobes.Where(l => l.Upper == d).Select(l => AsLoop(contours[l.Lower])).ToList();
                         Loop comp = Compose(set, contours[d].P2, SliceEdges(s), s, "merge");
                         Band(comp.P3, comp.Ids, contours[d].P3, contours[d].Ids, depth);
                     }
                 } else {
                     foreach (int c in plan.Lower) {
-                        if (o.LoweredSaddle && TryRoof(s, c, lobes.Where(l => l.Lower == c).Select(l => l.Upper).ToList(), true, plan.Depth)) continue;
+                        if (roofs && TryRoof(s, c, lobes.Where(l => l.Lower == c).Select(l => l.Upper).ToList(), true, plan.Depth)) continue;
                         var set = lobes.Where(l => l.Lower == c).Select(l => AsLoop(contours[l.Upper])).ToList();
                         Loop comp = Compose(set, contours[c].P2, SliceEdges(s + 1), s + 1, "branch");
                         Band(contours[c].P3, contours[c].Ids, comp.P3, comp.Ids, depth);

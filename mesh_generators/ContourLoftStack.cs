@@ -117,7 +117,7 @@ namespace g3
         /// Opt-in (default false, the results are then unchanged): a branching or merging group whose contours are contained in one contour of
         /// the other slice (no intermediate plane) is lofted as a roof over the region between them instead of a band through bridged composite
         /// contours: the crotch between the branches is lowered (docs/design/CONTOUR_LOFT.md section 10.11). Groups with holes, cut pieces
-        /// and contours that touch keep the bridged composite.
+        /// and contours that touch keep the bridged composite; when the roofs make the stack fail (status BandFailed, SelfIntersecting, BridgeNotFound or CapFailed) it is built again without them.
         /// </summary>
         public bool LoweredSaddle;
         /// <summary> Mesher of the roof of <see cref="LoweredSaddle"/> (contour edges are locked); null: <c>new QualityMesh2()</c> (minimum angle 20 degrees). Not changed by the loft. </summary>
@@ -137,7 +137,20 @@ namespace g3
                 if (s == null) throw new ArgumentNullException("a slice is null");
                 foreach (var c in s) if (c == null) throw new ArgumentNullException("a contour is null");
             }
-            return new ContourLoftStackRun(this, slices, cancellationToken).Execute();
+            if (!LoweredSaddle) return new ContourLoftStackRun(this, slices, cancellationToken).Execute();
+            // The roofs of two neighbouring slabs share the contours of the slice between them: a chord of the mesher across a gap can be the
+            // same edge in both. Whatever the roofs make fail (a non-manifold edge, a crossing, no bridge), the stack is built again without
+            // them: LoweredSaddle never turns a stack that succeeds without it into a failure.
+            var result = new ContourLoftStackRun(this, slices, cancellationToken, true).Execute();
+            switch (result.Status) {
+                case ContourLoftStackStatus.BandFailed:
+                case ContourLoftStackStatus.SelfIntersecting:
+                case ContourLoftStackStatus.BridgeNotFound:
+                case ContourLoftStackStatus.CapFailed:
+                    return new ContourLoftStackRun(this, slices, cancellationToken).Execute();
+                default:
+                    return result;
+            }
         }
     }
 }
