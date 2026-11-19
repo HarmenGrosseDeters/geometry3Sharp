@@ -300,6 +300,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NextAlpha_RefinesWhereTheDistanceIsAboveTheTolerance_AndNeverRelaxes()
+        {
+            // alpha0 = 1, floor 0.25, tolerance 0.1
+            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.05, 0.1, 1.0, 0.25));          // within: unchanged
+            Assert.Equal(1.0, MeshTetrahedralization.NextAlpha(1.0, 0.1, 0.1, 1.0, 0.25));           // at the tolerance: unchanged
+            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(1.0, 0.2, 0.1, 1.0, 0.25), 12);       // twice the tolerance: half
+            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(1.0, 10, 0.1, 1.0, 0.25));           // far: the floor
+            Assert.Equal(0.5, MeshTetrahedralization.NextAlpha(0.5, 0.05, 0.1, 1.0, 0.25));          // the pass before got it within the tolerance: stays fine
+            Assert.Equal(0.3, MeshTetrahedralization.NextAlpha(0.3, 0.2, 0.1, 1.0, 0.25));          // the rule gives 0.5, the old alpha is finer: stays
+            Assert.Equal(0.25, MeshTetrahedralization.NextAlpha(0.25, double.PositiveInfinity, 0.1, 1.0, 0.25));
+        }
+
+        [Fact]
+        public void Samples_AreWeightedByArea()
+        {
+            // two separate triangles of area 50 and 0.5: about 99 % of the samples on the large one
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(10, 0, 0)), c = m.AppendVertex(new Vector3d(0, 10, 0));
+            m.AppendTriangle(a, b, c);
+            int d = m.AppendVertex(new Vector3d(20, 0, 0)), e = m.AppendVertex(new Vector3d(21, 0, 0)), f = m.AppendVertex(new Vector3d(20, 1, 0));
+            m.AppendTriangle(d, e, f);
+            Vector3d[] s = AlphaSizeField.Samples(m, 4000);
+            int small = s.Count(p => p.x >= 20);
+            Assert.InRange(small, 15, 70);              // 1 % of 4000 is 40
+        }
+
+        [Fact]
         public void Samples_AreDeterministicAreaWeighted_AndScaleBitForBit()
         {
             DMesh3 input = Comb();

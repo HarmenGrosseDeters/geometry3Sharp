@@ -225,9 +225,7 @@ namespace gs
                 for (int i = 0; i < pos.Length; ++i) {
                     if (CancelF()) { localCancelled = true; return false; }
                     tree.FindNearestTriangle(pos[i], out double d2);
-                    double d = Math.Sqrt(d2);
-                    if (d > tol)
-                        aj[i] = Math.Min(aj[i], Math.Max(aMin, a0 * tol / d));
+                    aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, a0, aMin);
                 }
                 field = new AlphaSizeField(pos, aj, a0, aMin, LocalAlphaGradation);
                 if (field.FineSamples == 0)
@@ -240,6 +238,14 @@ namespace gs
             }
             localAlphaPasses = field == null ? 0 : passes; localFineSamples = field == null ? 0 : field.FineSamples;
             return true;
+        }
+        /// <summary>
+        /// the alpha of a sample after a pass (tests): unchanged if the wrap is within the tolerance of it, else the smaller of the old alpha and a0 * tol / d
+        /// (a0 / aMin at most), so a later pass never makes a sample coarser, also where the pass before got it within the tolerance
+        /// </summary>
+        internal static double NextAlpha(double alphaJ, double d, double tol, double a0, double aMin)
+        {
+            return d > tol ? Math.Min(alphaJ, Math.Max(aMin, a0 * tol / d)) : alphaJ;
         }
         long localAlphaPasses, localFineSamples;
         bool localCancelled;
