@@ -1616,6 +1616,27 @@ namespace g3
             return Orient(t, p, q, r, null);
         }
 
+        /// <summary>
+        /// The sign of Orient(t, p, q, r) if its floating-point filter decides it, else 0 (also 0 for repeated points and with
+        /// DisableFilters, so a 0 says nothing). The filter is the one of Orient, stage for stage: the same error e (the
+        /// larger approximation errors of the three points), the same orient2d_approx and its bound err; the sign is returned
+        /// only if |fdet| &gt; err (strictly), where the determinant of the exact points differs from fdet by at most err, so the
+        /// exact sign is the sign of fdet. A nonzero result therefore equals Orient's, never a different sign.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal int OrientFilterOnly(InputTriangle t, int p, int q, int r)
+        {
+            if (DisableFilters || p == q || q == r || r == p)
+                return 0;
+            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            double e = Math.Max(approxErr[p], Math.Max(approxErr[q], approxErr[r]));
+            double err;
+            double fdet = orient2d_approx(approx[p], approx[q], approx[r], i, j, e, out err);
+            if (fdet > err) return t.Sign;
+            if (-fdet > err) return -t.Sign;
+            return 0;
+        }
+
         /// <summary> Orient, with the local points of t as a second filter (null: none) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local)

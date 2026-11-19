@@ -73,7 +73,7 @@ namespace g3
 
         // the group of triangle i (computed when first needed: most triangles are far from removable points)
         [MethodImpl(JitHints.Optimize)]
-        int group_of(int i)
+        internal int group_of(int i)
         {
             int g = group[i];
             if (g >= 0)
@@ -136,7 +136,7 @@ namespace g3
         }
 
         // +1 if p, q, r are counter-clockwise in the oriented plane of group g
-        int orient(int g, int p, int q, int r)
+        internal int orient(int g, int p, int q, int r)
         {
             return groupSign[g] * arr.Orient(groupTri[g], p, q, r);
         }
@@ -374,9 +374,37 @@ namespace g3
             return false;
         }
 
+        /// <summary> orient() calls of ear_clip made because the floating-point filter left the sign open (for tests: the exact calls the filter saves) </summary>
+        public long EarExactOrients;
+        /// <summary> points x that ear_clip tested against a triangle </summary>
+        public long EarTests;
+
+        // x lies in the closed counter-clockwise triangle (a, b, c): orient(a, b, x), orient(b, c, x) and orient(c, a, x) are all
+        // >= 0. Any one of them that the floating-point filter shows to be negative decides the answer false (the exact sign has the
+        // sign of the filter's, see OrientFilterOnly), so the exact orient (which for x on a line of the triangle is 0 and always
+        // runs the exact stage) is called only for the signs the filter left open, and only if none is negative. The value is the
+        // AND of the same three exact signs as before.
+        [MethodImpl(JitHints.Optimize)]
+        internal bool in_closed_triangle(int g, int a, int b, int c, int x)
+        {
+            EarTests++;
+            ExactMeshArrangement.InputTriangle t = groupTri[g];
+            int sg = groupSign[g];
+            int s1 = sg * arr.OrientFilterOnly(t, a, b, x);
+            if (s1 < 0) return false;
+            int s2 = sg * arr.OrientFilterOnly(t, b, c, x);
+            if (s2 < 0) return false;
+            int s3 = sg * arr.OrientFilterOnly(t, c, a, x);
+            if (s3 < 0) return false;
+            if (s1 == 0) { EarExactOrients++; if (orient(g, a, b, x) < 0) return false; }
+            if (s2 == 0) { EarExactOrients++; if (orient(g, b, c, x) < 0) return false; }
+            if (s3 == 0) { EarExactOrients++; if (orient(g, c, a, x) < 0) return false; }
+            return true;
+        }
+
         // triangulates a simple counter-clockwise polygon (no repeated vertices) without new vertices
         [MethodImpl(JitHints.Optimize)]
-        bool ear_clip(int g, List<int> poly, List<Index3i> add)
+        internal bool ear_clip(int g, List<int> poly, List<Index3i> add)
         {
             var p = new List<int>(poly);
             while (p.Count > 3) {
@@ -391,7 +419,7 @@ namespace g3
                         int x = p[j];
                         if (x == a || x == b || x == c)
                             continue;
-                        if (orient(g, a, b, x) >= 0 && orient(g, b, c, x) >= 0 && orient(g, c, a, x) >= 0)
+                        if (in_closed_triangle(g, a, b, c, x))
                             empty = false;
                     }
                     if (empty == false)
