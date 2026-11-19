@@ -2437,10 +2437,26 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// for tests and the benchmark A/B (docs/perf/BOOLEAN_CHAINS_PROBE_2026-11.md): decide the coplanar pairs that meet only in
+        /// their shared corners or their shared edge before clipping them (meets_only_at_shared). Default true; false clips every pair
+        /// as before. The result is the same either way (the pairs add only corners and boundary edges of the triangles they are
+        /// added to, which prepare_touched and triangulate_touched treat as nothing).
+        /// </summary>
+        internal bool PreDecideCoplanar = true;
+
         [MethodImpl(JitHints.Optimize)]
         void intersect_coplanar(int ti, int ui)
         {
             InputTriangle T = Triangles[ti], U = Triangles[ui];
+            if (PreDecideCoplanar && meets_only_at_shared(T, U)) {
+                // the six clips would be corners of the triangle they are added to, or its boundary edge between two corners: nothing to add
+                // (R and A of a chained boolean share their surface, so this is most of the pairs of the last step: 57 % of its pair stage)
+                System.Threading.Interlocked.Increment(ref IntersectingPairs);
+                lock (T.Lock) T.AddCoplanar(ui);
+                lock (U.Lock) U.AddCoplanar(ti);
+                return;
+            }
             bool any = false;
             // the edges of each triangle, clipped to the other, become constraints of the other
             for (int k = 0; k < 3; ++k) {
@@ -2452,6 +2468,50 @@ namespace g3
                 lock (T.Lock) T.AddCoplanar(ui);
                 lock (U.Lock) U.AddCoplanar(ti);
             }
+        }
+
+        /// <summary>
+        /// Two coplanar triangles that share at least one corner (by point id: input points are welded by position, so equal ids are equal
+        /// positions) and whose intersection is exactly the shared corner, or the shared edge. Only exact in-plane orientations of input
+        /// corners (Orient) decide it, so no new predicate or error bound; every case it does not name returns false and takes the clips.
+        /// 3 shared corners: the same triangle. 2 shared corners a, b: the third corners c (of T) and d (of U) strictly on opposite
+        /// sides of the line a-b. 1 shared corner a, the wedges (b, c) of T and (d, e) of U at a, each below 180 degrees: neither
+        /// first ray of one lies in the closed wedge of the other (then the open wedges are disjoint and no ray is shared).
+        /// </summary>
+        internal bool meets_only_at_shared(InputTriangle T, InputTriangle U)
+        {
+            int t0 = T.Corners[0], t1 = T.Corners[1], t2 = T.Corners[2], u0 = U.Corners[0], u1 = U.Corners[1], u2 = U.Corners[2];
+            bool s0 = u0 == t0 || u0 == t1 || u0 == t2, s1 = u1 == t0 || u1 == t1 || u1 == t2, s2 = u2 == t0 || u2 == t1 || u2 == t2;
+            int shared = (s0 ? 1 : 0) + (s1 ? 1 : 0) + (s2 ? 1 : 0);
+            if (shared == 0)
+                return false;
+            if (shared == 3)
+                return true;
+            // T's corners that U has too (in T's order), and the others
+            bool r0 = t0 == u0 || t0 == u1 || t0 == u2, r1 = t1 == u0 || t1 == u1 || t1 == u2, r2 = t2 == u0 || t2 == u1 || t2 == u2;
+            if (shared == 2) {
+                // the shared edge a-b, the third corner c of T and d of U
+                int a, b, c = r0 == false ? t0 : r1 == false ? t1 : t2;
+                if (r0 && r1) { a = t0; b = t1; } else if (r0) { a = t0; b = t2; } else { a = t1; b = t2; }
+                int d = s0 == false ? u0 : s1 == false ? u1 : u2;
+                return Orient(T, a, b, c) * Orient(T, a, b, d) < 0;
+            }
+            // one shared corner: the apex of both wedges (apex, tb, tcc) of T and (apex, ud, ue) of U. Neither triangle is degenerate (the
+            // pair stage leaves those out), so both orientations are non-zero. Two angular intervals of less than 180 degrees each meet in
+            // more than the apex iff the first ray of one lies in the other (crossing, nested or sharing a ray).
+            int apex = r0 ? t0 : r1 ? t1 : t2;
+            int tb = r0 ? t1 : t0, tcc = r2 ? t1 : t2;
+            int ud = s0 ? u1 : u0, ue = s2 ? u1 : u2;
+            // (counter-clockwise wedges: from the first ray to the second)
+            if (Orient(T, apex, tb, tcc) < 0) { int w = tb; tb = tcc; tcc = w; }
+            if (Orient(T, apex, ud, ue) < 0) { int w = ud; ud = ue; ue = w; }
+            return in_wedge(T, apex, tb, tcc, ud) == false && in_wedge(T, apex, ud, ue, tb) == false;
+        }
+
+        // x in the closed wedge at apex from ray b counter-clockwise to ray c (an angle below 180 degrees)
+        bool in_wedge(InputTriangle T, int apex, int b, int c, int x)
+        {
+            return Orient(T, apex, b, x) >= 0 && Orient(T, apex, x, c) >= 0;
         }
 
         // clip segment p-q (an edge of a triangle in the plane of t, on the line t.P ∩ line) to the closed triangle t,
