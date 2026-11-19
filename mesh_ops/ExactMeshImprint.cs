@@ -178,7 +178,9 @@ namespace g3
 
             var mask = new bool[meshes.Count];
             mask[0] = true;
-            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = false, TriangulateMeshes = mask, MaxPieces = MaxPieces, Cancellation = Cancellation };
+            // (PreDecideCoplanar off: the imprint reads the contact of coplanar faces from the constraint edges and segments that the clips of such pairs
+            // leave, also where the faces meet only in corners or an edge; the pre-decision of the boolean skips exactly those clips)
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = false, TriangulateMeshes = mask, MaxPieces = MaxPieces, Cancellation = Cancellation, PreDecideCoplanar = false };
             arr.Compute();
             foreach (var kv in arr.PhaseMilliseconds) PhaseMilliseconds["arrangement." + kv.Key] = kv.Value;
             clock.Lap("setup");

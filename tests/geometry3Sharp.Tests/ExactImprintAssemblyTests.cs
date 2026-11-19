@@ -298,7 +298,7 @@ namespace geometry3Sharp.Tests
                 var meshes = new List<DMesh3> { asm.Parts[i].Mesh };
                 meshes.AddRange(Neighbours(asm, i).Select(j => asm.Parts[j].Mesh));
                 var mask = new bool[meshes.Count]; mask[0] = true;
-                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = false, TriangulateMeshes = mask };
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = false, TriangulateMeshes = mask, PreDecideCoplanar = false };
                 arr.Compute();
                 var fromArrangement = new HashSet<string>();
                 foreach (long k in arr.ConstraintEdges) {
