@@ -326,17 +326,6 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void IsFlatVertex_FlatFoldConvexSaddleBoundaryAndIsolated()
-        {
-            var plane = Grid(1, 5, (x, y) => 0); var o = new ExactMeshGeodesicDistance(plane);
-            Assert.True(o.IsFlatVertex(12));                                   // interior of a plane
-            Assert.False(o.IsFlatVertex(0)); Assert.False(o.IsFlatVertex(2)); // boundary
-            var dome = Grid(1, 5, (x, y) => -(x * x + y * y)); Assert.False(new ExactMeshGeodesicDistance(dome).IsFlatVertex(12));
-            var saddle = Grid(1, 5, (x, y) => 0.3 * (x * x - y * y)); Assert.False(new ExactMeshGeodesicDistance(saddle).IsFlatVertex(12));
-            var iso = new DMesh3(plane); int v = iso.AppendVertex(new Vector3d(9, 9, 9)); Assert.False(new ExactMeshGeodesicDistance(iso).IsFlatVertex(v));
-        }
-
-        [Fact]
         public void ThinStripWithFiveRows_UnreachedVertices_GiveTheStatusPartiallyReached_NeverOk()
         {
             // the documented limit (class remarks, limit 2; owner decision 2026-11-19): a vertex of the source's component without a distance

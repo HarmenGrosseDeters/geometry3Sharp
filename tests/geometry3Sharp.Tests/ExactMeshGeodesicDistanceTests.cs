@@ -95,6 +95,24 @@ namespace geometry3Sharp.Tests
         // ------------------------------------------------------------------ closed forms
 
         [Fact]
+        public void IsFlatVertex_InteriorFlatTrue_ConvexSaddleBoundaryAndIsolatedFalse_AndCountsTheFlatVertices()
+        {
+            int n = 7;
+            var plane = Grid(1, n, (x, y) => 0); var o = new ExactMeshGeodesicDistance(plane);
+            int flat = 0; foreach (int v in plane.VertexIndices()) {
+                bool inner = !plane.IsBoundaryVertex(v);
+                Assert.Equal(inner, o.IsFlatVertex(v));                        // every interior vertex of a plane, no boundary vertex
+                if (o.IsFlatVertex(v)) ++flat;
+            }
+            Assert.Equal((n - 2) * (n - 2), flat);
+            var slanted = Grid(0, 0, 6, 6, 7, 7, (x, y) => 2 * x + 3 * y); Assert.True(new ExactMeshGeodesicDistance(slanted).IsFlatVertex(3 * 7 + 3));   // not axis aligned
+            var dome = Grid(1, n, (x, y) => -(x * x + y * y)); Assert.False(new ExactMeshGeodesicDistance(dome).IsFlatVertex(3 * 7 + 3));
+            var saddle = Grid(1, n, (x, y) => 0.3 * (x * x - y * y)); Assert.False(new ExactMeshGeodesicDistance(saddle).IsFlatVertex(3 * 7 + 3));
+            var lifted = Grid(1, n, (x, y) => (x == 0 && y == 0) ? 1e-7 : 0); Assert.False(new ExactMeshGeodesicDistance(lifted).IsFlatVertex(3 * 7 + 3));   // a deficit of about 1e-14 is not flat
+            var iso = new DMesh3(plane); int iv = iso.AppendVertex(new Vector3d(9, 9, 9)); Assert.False(new ExactMeshGeodesicDistance(iso).IsFlatVertex(iv));
+        }
+
+        [Fact]
         public void Plane_EnclosesTheEuclideanDistance()
         {
             DMesh3 m = Grid(10, 21, (x, y) => 0);
