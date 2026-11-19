@@ -1314,7 +1314,7 @@ orient. The ears chosen, and so the result, are the same: the output `.off` of a
 are the 36 outputs of the normal stratum below. Second step: the three edges' filter inputs (approximations and errors of a, b, c) are read
 once per ear instead of once per tested point (same values, same decisions).
 
-| p0084, ms | master (`4dc12006`) total / simplify | step 1 (filter signs) total / simplify | + step 2 (read once per ear) total / simplify |
+| p0084, ms | master (`5b99848d`) total / simplify | step 1 (filter signs) total / simplify | + step 2 (read once per ear) total / simplify |
 |---|---|---|---|
 | union | 29 950 / 25 315 | 8 602 / 4 164 | 7 166, 7 001 / 2 908, 2 876 |
 | intersection | 34 758 / 32 400 | 7 915 / 5 601 | 6 186, 6 507 / 3 858, 4 192 |
