@@ -1,0 +1,2521 @@
+#pragma warning disable
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+
+namespace g3
+{
+
+    /// <summary>
+    /// Mesh Simplication - implementation of Garland &amp; Heckbert Quadric Error Metric (QEM) Simplification.
+    ///
+    /// Collapses edges in place, cheapest quadric error first, until a target is reached:
+    /// ReduceToTriangleCount(), ReduceToVertexCount(), ReduceToEdgeLength() or ReduceToMaxQuadricError().
+    /// The mesh passed to the constructor is modified; vertex and triangle ids are not compacted.
+    /// There is no return value: a target can be missed when no allowed collapse is left (collapses that
+    /// would flip a normal, break the link condition, violate constraints, move boundary vertices, exceed
+    /// MaxDeviation or create self-intersections are skipped), so check mesh.TriangleCount afterwards.
+    ///
+    /// Boundaries: with PreserveBoundaryShape (default) boundary vertices are never moved (a collapse keeps the
+    /// boundary vertex), so the boundary only loses vertices. For a guaranteed geometric tolerance set
+    /// MaxDeviation (certified one-sided bound to the input surface; MaxDeviationTwoSided adds the other direction). Use <see cref="MeshConstraints"/> via
+    /// SetExternalConstraints() to fix vertices or edges.
+    ///
+    /// Prefer Reducer to lower the triangle count while keeping the shape. Use <see cref="Remesher"/> instead
+    /// for uniform, well-shaped triangles of a given edge length (Reducer keeps long thin triangles in flat
+    /// regions).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200]. Measured (sphere, reduction to a quarter of the
+    /// triangles): works from 2^-250 to 2^500; below 2^-300 it reduces nothing, above 2^700 the mesh turns invalid.
+    /// </summary>
+	public class ReducerProbe : MeshRefinerBase
+	{
+        protected IProjectionTarget target = null;
+
+        // ---- probe additions (benchmark only; the rest of this file is a copy of mesh/Reducer.cs) ----
+        public enum Reason { Collapsed, Other, Flip, SampleFar, ForwardDev, Intersection, Reverse, MeshOp, DryAccepted }
+        public Reason LastReason;
+        public int ForceKeep = -1;     // collapse onto this end (its position), for the endpoint retry
+        public bool DryRun;            // run every check, then stop before the collapse
+        public int EndpointMode;       // 0: off, 1: dry-run endpoints of rejected midpoints (statistics), 2: really retry
+        public bool FeatureFirst = true;
+        public long[] MidRej = new long[9], HitAny = new long[9], HitFeat = new long[9], HitOther = new long[9], HitBoth = new long[9];
+        public long[] EndRejFeat = new long[9], EndRejOther = new long[9];
+        public long MidAttempts, MidCollapsed, EndRetryCollapsed;
+        internal ReverseProbe Reverse { get { return reverseCoverage; } }
+        public bool RecordReverse;
+        double vertex_defect(int v)
+        {
+            double sum = 0;
+            foreach (int t in mesh.VtxTrianglesItr(v)) {
+                Index3i tv = mesh.GetTriangle(t);
+                int k = tv.a == v ? 0 : (tv.b == v ? 1 : 2);
+                Vector3d p = mesh.GetVertex(tv[k]), q = mesh.GetVertex(tv[(k + 1) % 3]), r = mesh.GetVertex(tv[(k + 2) % 3]);
+                sum += Vector3d.AngleR(q - p, r - p);
+            }
+            return Math.Abs(2 * Math.PI - sum);
+        }
+
+		// other options
+
+		/// <summary>
+		/// if true (default), we try to find position for collapsed vertices that
+		/// minimizes quadric error. If false we just use midpoints.
+		/// Note: using midpoints is *significantly* slower, because it results
+		/// in may more points that would cause a triangle flip, which are then rejected.
+		/// (Also results in more invalid collapses, not sure why though...)
+		/// </summary>
+		public bool MinimizeQuadricPositionError = true;
+
+        /// <summary>
+        /// Weight each triangle's plane quadric by its area (default). If false, every plane counts once,
+        /// so errors are sums of squared distances to the original planes; small triangles at sharp
+        /// corners then keep their full influence (useful with ReduceToMaxQuadricError).
+        /// </summary>
+        public bool AreaWeightedQuadrics = true;
+
+        /// <summary>
+        /// If PreserveBoundaryShape is set, each boundary edge adds a plane through the edge, perpendicular
+        /// to its triangle, to the quadrics of its vertices (Garland-Heckbert boundary constraint), weighted
+        /// by this times the plane weight of a triangle. Removing a corner of the boundary ring then has a
+        /// cost, while vertices on straight boundary runs can still be collapsed.
+        /// </summary>
+        public double BoundaryQuadricWeight = 100;
+
+        /// <summary>
+        /// If > 0, edges whose triangle normals differ by more than this angle (degrees) are feature edges.
+        /// The planes of both their triangles are added to the quadrics of the edge vertices with weight
+        /// FeatureQuadricWeight, so sharp edges and corners are preserved even next to large triangles.
+        /// </summary>
+        public double FeatureAngle = 0;
+        /// <summary> weight of the feature edge planes, relative to a triangle plane (see FeatureAngle) </summary>
+        public double FeatureQuadricWeight = 100;
+
+        /// <summary>
+        /// The optimal collapse point minimizes the quadric plus QuadricRegularization * (trace(A)/3) *
+        /// |x - edge midpoint|^2. This keeps the solve well-conditioned and independent of the mesh scale
+        /// (directions the planes do not constrain, eg along a flat region, stay at the midpoint), as with
+        /// probabilistic quadrics (Trettner and Kobbelt 2020). Small enough not to move corners noticeably.
+        /// </summary>
+        public double QuadricRegularization = 1e-6;
+
+        /// <summary>
+        /// If > 0, a collapse is only done if every point of the new triangles stays within MaxDeviation
+        /// of the input surface (checked with the certified bounds of TriangleDeviationBounds, so the
+        /// reduced surface is guaranteed to lie within this distance of the input). One-sided: input
+        /// features thinner than the tolerance (eg a spike) can still be cut off (see MaxDeviationTwoSided).
+        /// The reference is the mesh at the first reduction with MaxDeviation (so repeated ReduceTo...
+        /// calls stay within MaxDeviation of the original), or the one given to SetDeviationReference.
+        /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
+        /// </summary>
+        public double MaxDeviation = 0;
+        /// <summary>
+        /// (internal, issue #747) with SampleReference: a collapse is skipped if a sample point of one of its new triangles (the
+        /// centroid and the edge midpoints) is farther than this from SampleReference (a built tree, only read, so slabs share
+        /// it). Not a certificate (MaxDeviation is one): a cheap filter that keeps the collapses near the reference
+        /// </summary>
+        internal double SampleDeviation = 0;
+        internal DMeshAABBTree3 SampleReference = null;
+        bool collapse_samples_far(int a, int b, Vector3d np)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            double d2max = SampleDeviation * SampleDeviation;
+            for (int k = 0; k < 2; ++k) {
+                int v = k == 0 ? a : b, o = k == 0 ? b : a;
+                foreach (int t in mesh.VtxTrianglesItr(v)) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    if (tv.a == o || tv.b == o || tv.c == o) continue;
+                    mesh.GetTriVertices(t, ref va, ref vb, ref vc);
+                    if (tv.a == v) va = np; else if (tv.b == v) vb = np; else vc = np;
+                    for (int s = 0; s < 4; ++s) {
+                        Vector3d p = s == 0 ? (va + vb + vc) / 3 : s == 1 ? 0.5 * (va + vb) : s == 2 ? 0.5 * (vb + vc) : 0.5 * (vc + va);
+                        double d2;
+                        if (SampleReference.FindNearestTriangle(p, out d2, SampleDeviation) < 0 || d2 > d2max) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// If true (and MaxDeviation &gt; 0), a collapse is also refused unless every point of the input surface stays within
+        /// MaxDeviation of the reduced mesh, so together with MaxDeviation the two-sided (Hausdorff) distance between input
+        /// and result is at most MaxDeviation; thin input features (eg a spike) are then kept. Every input triangle keeps
+        /// the few output triangles it is certified against, and a collapse re-certifies only the input triangles that
+        /// depend on its one-ring (bounds of TriangleDeviationBounds' kind, floating point; docs/design/BOUNDED_SIMPLIFICATION.md).
+        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"; up to
+        /// 1.7x there, up to 2.5x in FastCollapsePass). Off by default.
+        /// Applies to FastCollapsePass as well. Throws InvalidOperationException where the bound cannot be kept: with a ProjectionTarget
+        /// projected after the reduction (ProjectionMode AfterRefinement), with a reference from SetDeviationReference or
+        /// from an earlier reduction without this option, after MaxDeviation changed, or after the mesh was changed outside
+        /// the Reducer between two reductions (also by a subclass in OnEdgeCollapse, or by a reduction with the option off).
+        /// Repeated ReduceTo... calls on one Reducer keep the bound to the original.
+        /// </summary>
+        public bool MaxDeviationTwoSided = false;
+
+        /// <summary>
+        /// If set, a collapse is only done if its new triangles intersect no other triangle (exact test,
+        /// ExactTriangleIntersection.IntersectsBeyondShared, against a grid of the current triangles), so
+        /// the reduction cannot push the surface through nearby parts of itself (thin walls, narrow gaps).
+        /// Folds are prevented by the usual flip check. Costs about 2-3x the reduction time.
+        /// </summary>
+        public bool PreventSelfIntersections = false;
+
+        /// <summary>
+        /// Default false (the reduction is then bit for bit the one without this option). If true, vertices at one position are
+        /// treated as one vertex that is stored twice: the result of an exact boolean of touching solids holds the contact
+        /// (a line or a point) as sheets, each a manifold, with duplicated vertices at the same positions (ExactMeshBoolean.Contacts).
+        /// Without the option the two sheets are different vertices and the exact self-intersection check counts the other sheet as a
+        /// triangle the new ones must not touch, so no collapse that keeps the surface on the contact is possible and a contact
+        /// line of m positions keeps about 12 m triangles (benchmarks/SolidBooleanBenchmark/README.md, "limit"). With it:
+        /// <list type="bullet">
+        /// <item><description>an edge whose two ends each have exactly one twin vertex and whose twin edge exists is collapsed together with
+        /// its twin edge, both to the same new position: the sheets stay exactly coincident (no gap, no crossing). The quadrics of
+        /// both sheets are added for the position and the priority; every check (flip, fold-over, MinCollapseTriangleQuality,
+        /// MaxDeviation, the exact self-intersection check) is made for both sheets and both must pass, else neither collapses;</description></item>
+        /// <item><description>an edge with one end that has twins (and one that has none) collapses onto the end with twins, which stays where it is;</description></item>
+        /// <item><description>any other edge with an end that has twins (no twin edge, three or more vertices at the position, the ends adjacent to
+        /// the twin edge's) is not collapsed; so is one with a bowtie or boundary end in a pair;</description></item>
+        /// <item><description>with PreventSelfIntersections the sheets count as touching, not intersecting, where they share a position (the
+        /// triangles' vertices at one position are the same vertex for the check): the check still refuses a new triangle that crosses
+        /// the other sheet or touches it anywhere else.</description></item>
+        /// </list>
+        /// The positions are taken at the start of each reduction (exact equality of the coordinates). Throws InvalidOperationException
+        /// at the start of a reduction with MaxDeviationTwoSided, with edge constraints, or with the internal KeepClearOf. A mesh
+        /// with no two vertices at one position reduces as without it. A pair collapse removes up to four triangles at once, so a
+        /// triangle or vertex count target can be undershot by up to two triangles / one vertex.
+        /// </summary>
+        public bool PairCoincidentVertices = false;
+
+        /// <summary>
+        /// (internal) a mesh the reduced mesh must not touch: a collapse whose new triangles intersect a triangle of it
+        /// (exact tests, ExactTriangleIntersection.Intersects, shared points count) is skipped. Needs the tree to be
+        /// built and current; it is only read, so one tree can serve several Reducers (PartitionedReduction slabs).
+        /// The alpha wrap simplification uses it with the wrap's input, so the simplified wrap still encloses it.
+        /// </summary>
+        internal DMeshAABBTree3 KeepClearOf = null;
+        /// <summary>
+        /// (internal, with KeepClearOf) true (default): a collapse is also skipped if the region between the old and the new
+        /// surface meets KeepClearOf (TetrahedraMeet over the tetrahedra (old triangle, new position) of both one-rings), so
+        /// a collapse cannot jump over a part of it that its new triangles do not touch. False: the end state only (before
+        /// the fix of issue 743). The guarantee is an induction: it assumes the mesh starts clear of KeepClearOf (the raw
+        /// alpha wrap does: it never touches its input) and enclosing it; every accepted collapse then keeps both.
+        /// </summary>
+        internal bool KeepClearOfSwept = true;
+        /// <summary>
+        /// If true (default), a collapse is also rejected if one of its new triangles turns away from the input surface
+        /// it stands for: its unit normal must have a positive dot with the reference normal of its corners, the sum of
+        /// the area-weighted input normals each corner has absorbed (summed on every collapse). The usual flip check
+        /// compares with the current triangle only, so a chain of collapses, each turning a normal by less than 90
+        /// degrees, can fold the surface over (meshoptimizer issue 346). Where the absorbed normals nearly cancel (a
+        /// sharp crease, the rim of a thin plate: the reference shorter than ReferenceNormalMinLength of their summed
+        /// lengths) the reference says nothing, and only the usual flip check applies.
+        /// The references are taken from the mesh at the start of each reduction, like the quadrics. False gives the
+        /// reductions of upstream geometry3Sharp.
+        /// </summary>
+        public bool PreventFoldOver = true;
+        /// <summary>
+        /// (PreventFoldOver) a new triangle with two boundary edges, eg one on three consecutive vertices of a straight
+        /// border after an interior vertex was collapsed onto the border, must have a dot of more than this with its
+        /// reference normal (default 0.7, about 45 degrees), not just a positive one: such a triangle can stand at right
+        /// angles to the surface (a wall along the border) and still pass the sign test, as the reference of border
+        /// vertices tilts towards the border. (Triangles with one boundary edge, eg all of a band one cell wide, need only
+        /// the positive dot.)
+        /// </summary>
+        public double BoundaryTriangleMinNormalDot = 0.7;
+        /// <summary>
+        /// (PreventFoldOver) the reference normal of a triangle is used only if its length is at least this fraction of
+        /// the summed lengths of the normals it was summed from (default 0.25: they spread by less than about 150
+        /// degrees); otherwise they nearly cancel and the sign of a dot with it is noise
+        /// </summary>
+        public double ReferenceNormalMinLength = 0.25;
+
+        /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
+        public int MaxDeviationDepth = 10;
+        /// <summary> (internal) the MaxDeviation check of a collapse splits the triangles it certifies across threads (the answer is the same) </summary>
+        internal bool ParallelDeviationCheck = true;
+        /// <summary> (tests) the parallel walks of the check that went past the warm-up </summary>
+        internal long DeviationParallelHandoffs => deviationBounds == null ? 0 : deviationBounds.ParallelHandoffs;
+
+        /// <summary>
+        /// (tests, benchmarks) share the tree queries of one collapse's MaxDeviation check between its samples and
+        /// its triangles' IsWithin calls (they share corners and edge midpoints); the answers are the same either way
+        /// </summary>
+        internal bool ShareDeviationQueries = true;
+
+        /// <summary>
+        /// if true (default), boundary vertices are not moved: a collapse involving a boundary vertex keeps
+        /// it at its position (if both ends are boundary vertices, one of them is kept), and
+        /// boundary planes are added to the quadrics (BoundaryQuadricWeight). You probably want this.
+        /// </summary>
+        public bool PreserveBoundaryShape = true;
+
+		// [RMS] this is a debugging aid, will break to debugger if these edges are touched, in debug builds
+		public List<int> DebugEdges = new List<int>();
+
+		/// <summary> if a projection target is set, we can project onto it in different ways </summary>
+		public enum TargetProjectionMode
+		{
+			NoProjection,           // disable projection
+			AfterRefinement,        // do all projection after reducing
+			Inline                  // projection is computed before evaluating quadrics, so
+                                    // we are properly evaluating QEM error of result
+		}
+		/// <summary> when vertices are projected onto the projection target. Default AfterRefinement </summary>
+		public TargetProjectionMode ProjectionMode = TargetProjectionMode.AfterRefinement;
+
+		// this just lets us write more concise tests below
+		bool EnableInlineProjection { get { return ProjectionMode == TargetProjectionMode.Inline; } }
+
+		// set to true to print profiling info to console
+		public bool ENABLE_PROFILING = false;
+
+
+		/// <summary> simplify mesh m in place </summary>
+		public ReducerProbe(DMesh3 m) : base(m)
+		{
+		}
+		protected ReducerProbe()        // for subclasses that extend our behavior
+		{
+		}
+
+
+		/// <summary> optional surface the vertices are projected onto (see ProjectionMode); null by default </summary>
+		public void SetProjectionTarget(IProjectionTarget target)
+		{
+			this.target = target;
+		}
+
+
+
+
+        protected double MinEdgeLength = double.MaxValue;
+        protected int TargetCount = int.MaxValue;
+        protected double MaxQuadricError = double.MaxValue;
+        bool enforceQuadricBudget;
+        protected enum TargetModes
+        {
+            TriangleCount, VertexCount, MinEdgeLength, MaxQuadricError
+        }
+        protected TargetModes ReduceMode = TargetModes.TriangleCount;
+
+
+
+        /// <summary>
+        /// Run the reduction with the current target mode (normally called by the ReduceTo... functions).
+        /// Quadrics are recomputed from the current mesh on each call.
+        /// </summary>
+        public virtual void DoReduce()
+        {
+            if (mesh.TriangleCount == 0)    // badness if we don't catch this...
+                return;
+
+            ensure_vertex_pairs();      // (first: it may throw, before any state of the pass is begun)
+            begin_pass();
+
+            begin_setup();
+            ensure_deviation_reference();
+            ensure_triangle_grid();
+            Precompute();
+            ensure_reference_normals();
+            if (Cancelled())
+                return;
+            InitializeVertexQuadrics();
+            if (Cancelled())
+                return;
+            InitializeQueue();
+            if (Cancelled())
+                return;
+            end_setup();
+
+            begin_ops();
+
+            begin_collapse();
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
+            try {
+            while (EdgeQueue.Count > 0) {
+
+                // termination criteria
+                if ( ReduceMode == TargetModes.VertexCount ) {
+                    if (mesh.VertexCount <= TargetCount)
+                        break;
+                } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
+                    // Inspect the whole rounded bucket; the final position is checked in double below.
+                    if (EdgeQueue.FirstPriority > priority(frame_error_limit(MaxQuadricError)))
+                        break;
+                } else {
+                    if (mesh.TriangleCount <= TargetCount)
+                        break;
+                }
+
+                COUNT_ITERATIONS++;
+                int eid = EdgeQueue.Dequeue();
+                if (!mesh.IsEdge(eid))
+                    continue;
+                if (Cancelled())
+                    return;
+
+                int vKept;
+                ProcessResult result;
+                enforceQuadricBudget = ReduceMode == TargetModes.MaxQuadricError;
+                try {
+                    result = CollapseEdge(eid, EdgeQuadrics[eid].collapse_pt, out vKept);
+                } finally {
+                    enforceQuadricBudget = false;
+                }
+                if (result == ProcessResult.Ok_Collapsed) {
+                    if (pairKept2 >= 0) {
+                        // an edge and its twin edge: each kept vertex gets the quadrics of its own sheet
+                        vertQuadrics[vKept] = new QuadricError(ref vertQuadrics[vKept], ref vertQuadrics[pairRemoved1]);
+                        vertQuadrics[pairKept2] = new QuadricError(ref vertQuadrics[pairKept2], ref vertQuadrics[pairRemoved2]);
+                        int kept2 = pairKept2;
+                        pairKept2 = -1;
+                        UpdateNeighbours(vKept);
+                        UpdateNeighbours(kept2);
+                    } else {
+                        vertQuadrics[vKept] = EdgeQuadrics[eid].q;
+                        UpdateNeighbours(vKept);
+                        // (the quadric of an edge at the twin includes this vertex's: its edges are stale now)
+                        if (pairTwin != null && pairTwin[vKept] >= 0)
+                            UpdateNeighbours(pairTwin[vKept]);
+                    }
+                }
+            }
+            } finally {
+                bowtieState = null;
+            }
+            end_collapse();
+            end_ops();
+
+            if (Cancelled())
+                return;
+
+            Reproject();
+
+            end_pass();
+        }
+
+
+
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until mesh.TriangleCount &lt;= nCount (at least 1),
+        /// or no allowed collapse is left. Modifies the mesh in place.
+        /// </summary>
+        public virtual void ReduceToTriangleCount(int nCount)
+        {
+            ReduceMode = TargetModes.TriangleCount;
+            TargetCount = Math.Max(1,nCount);
+            MinEdgeLength = double.MaxValue;
+            DoReduce();
+        }
+
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until mesh.VertexCount &lt;= nCount (at least 3),
+        /// or no allowed collapse is left. Modifies the mesh in place.
+        /// </summary>
+        public virtual void ReduceToVertexCount(int nCount)
+        {
+            ReduceMode = TargetModes.VertexCount;
+            TargetCount = Math.Max(3,nCount);
+            MinEdgeLength = double.MaxValue;
+            DoReduce();
+        }
+
+        /// <summary>
+        /// Collapse edges in float-priority order, accepting only final collapse positions whose double
+        /// quadric error is at most maxError (including constraint and inline projection adjustments).
+        /// Errors are area-weighted squared distances (units length^4), or plain sums of squared distances
+        /// to the original triangle planes if AreaWeightedQuadrics is false. AfterRefinement projection
+        /// is a separate post-process and is not covered by this budget.
+        /// </summary>
+        public virtual void ReduceToMaxQuadricError(double maxError)
+        {
+            ReduceMode = TargetModes.MaxQuadricError;
+            TargetCount = 1;
+            MinEdgeLength = double.MaxValue;
+            MaxQuadricError = maxError;
+            DoReduce();
+        }
+
+
+        /// <summary>
+        /// Collapse edges shorter than minEdgeLen, in order of increasing quadric error (edges longer than
+        /// minEdgeLen are never collapsed), until no such edge is left in the queue. Modifies the mesh in place.
+        /// A NaN length accepts no collapses.
+        /// </summary>
+        public virtual void ReduceToEdgeLength(double minEdgeLen)
+        {
+            ReduceMode = TargetModes.MinEdgeLength;
+            TargetCount = 1;
+            MinEdgeLength = minEdgeLen;
+            DoReduce();
+        }
+
+
+
+
+
+
+
+
+
+
+
+        /// <summary>
+        /// Quick pass without quadrics: collapse interior (non-boundary) edges shorter than fMinEdgeLength to
+        /// their midpoint, iterating over all edges up to nRounds times (stops early when nothing collapses).
+        /// Constraints, flip checks, MaxDeviation (with MaxDeviationTwoSided) and PreventSelfIntersections still apply. Pass
+        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh. A NaN length accepts no collapses.
+        /// </summary>
+        public virtual void FastCollapsePass(double fMinEdgeLength, int nRounds = 1, bool MeshIsClosedHint = false)
+        {
+            if (mesh.TriangleCount == 0)    // badness if we don't catch this...
+                return;
+
+            ensure_vertex_pairs();
+            MinEdgeLength = fMinEdgeLength;
+            double min_sqr = MinEdgeLength * MinEdgeLength;
+            ensure_deviation_reference();
+            ensure_triangle_grid();
+
+            // we don't collapse on the boundary
+            HaveBoundary = false;
+
+            begin_pass();
+
+            begin_setup();
+            Precompute(MeshIsClosedHint);
+            ensure_reference_normals();
+            if (Cancelled())
+                return;
+            end_setup();
+
+            begin_ops();
+
+            begin_collapse();
+
+            int N = mesh.MaxEdgeID;
+            int num_last_pass = 0;
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
+            try {
+            for (int ri = 0; ri < nRounds; ++ri) {
+                num_last_pass = 0;
+
+                Vector3d va = Vector3d.Zero, vb = Vector3d.Zero;
+                for (int eid = 0; eid < N; ++eid) {
+                    if (!mesh.IsEdge(eid))
+                        continue;
+                    if (mesh.IsBoundaryEdge(eid))
+                        continue;
+                    if (Cancelled())
+                        return;
+
+                    mesh.GetEdgeV(eid, ref va, ref vb);
+                    if (va.DistanceSquared(ref vb) > min_sqr)
+                        continue;
+
+                    COUNT_ITERATIONS++;
+
+                    Vector3d midpoint = va * 0.5 + vb * 0.5;
+                    int vKept;
+                    ++MidAttempts;
+                    ProcessResult result = CollapseEdge(eid, midpoint, out vKept);
+                    if (result == ProcessResult.Ok_Collapsed) {
+                        ++num_last_pass; ++MidCollapsed;
+                    } else if (EndpointMode != 0 && (LastReason == Reason.Flip || LastReason == Reason.ForwardDev || LastReason == Reason.SampleFar
+                               || LastReason == Reason.Intersection || LastReason == Reason.Reverse)) {
+                        int why = (int)LastReason;
+                        ++MidRej[why];
+                        Index2i ev = mesh.GetEdgeV(eid);
+                        int feat = vertex_defect(ev.a) >= vertex_defect(ev.b) ? ev.a : ev.b, oth = feat == ev.a ? ev.b : ev.a;
+                        if (!FeatureFirst) { int tmp = feat; feat = oth; oth = tmp; }
+                        if (EndpointMode == 1) {
+                            DryRun = true;
+                            ForceKeep = feat; CollapseEdge(eid, midpoint, out vKept); Reason rf = LastReason;
+                            ForceKeep = oth; CollapseEdge(eid, midpoint, out vKept); Reason ro = LastReason;
+                            DryRun = false; ForceKeep = -1;
+                            bool hf = rf == Reason.DryAccepted, ho = ro == Reason.DryAccepted;
+                            if (hf) ++HitFeat[why]; else ++EndRejFeat[(int)rf];
+                            if (ho) ++HitOther[why]; else ++EndRejOther[(int)ro];
+                            if (hf || ho) ++HitAny[why];
+                            if (hf && ho) ++HitBoth[why];
+                        } else {
+                            bool hit = false;
+                            ForceKeep = feat; result = CollapseEdge(eid, midpoint, out vKept);
+                            if (result == ProcessResult.Ok_Collapsed) { hit = true; ++HitFeat[why]; }
+                            else {
+                                ++EndRejFeat[(int)LastReason];
+                                ForceKeep = oth; result = CollapseEdge(eid, midpoint, out vKept);
+                                if (result == ProcessResult.Ok_Collapsed) { hit = true; ++HitOther[why]; } else ++EndRejOther[(int)LastReason];
+                            }
+                            ForceKeep = -1;
+                            if (hit) { ++HitAny[why]; ++num_last_pass; ++EndRetryCollapsed; }
+                        }
+                    }
+                }
+
+                if (num_last_pass == 0)     // converged
+                    break;
+            }
+            } finally {
+                bowtieState = null;
+            }
+            end_collapse();
+            end_ops();
+
+            if (Cancelled())
+                return;
+
+            Reproject();
+
+            end_pass();
+        }
+
+
+
+
+
+
+
+
+
+
+
+        protected QuadricError[] vertQuadrics;
+
+        // copy of the input for MaxDeviation
+        protected DMeshAABBTree3 deviationTarget;
+        protected TriangleDeviationBounds deviationBounds;
+
+        /// <summary> the surface MaxDeviation is measured from (default: the mesh at the first reduction) </summary>
+        public void SetDeviationReference(DMesh3 reference)
+        {
+            deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
+            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+            reverseCoverage = null;     // (the reverse direction refers to the mesh at its start: MaxDeviationTwoSided then refuses)
+        }
+
+        /// <summary> (internal) has a MaxDeviation reference been set (SetDeviationReference)? </summary>
+        internal bool HasDeviationReference => deviationTarget != null;
+
+        /// <summary>
+        /// (internal) the MaxDeviation reference as a built tree, only read, so several Reducers share it (the slabs of a
+        /// PartitionedReduction and its last pass all measure from the same original mesh); the tree's mesh must not change
+        /// </summary>
+        internal void SetDeviationReference(DMeshAABBTree3 reference)
+        {
+            deviationTarget = reference;
+            deviationBounds = new TriangleDeviationBounds(reference.Mesh);
+        }
+
+        // current triangles by grid cell, for PreventSelfIntersections
+        protected TriangleHashGrid triangleGrid;
+        /// <summary>
+        /// (tests, benchmarks) the cell size of the self-intersection grid in mean edge lengths of the mesh at the
+        /// start. The check's answers do not depend on it (only which candidates a query visits), so the reduction
+        /// is the same bit for bit; larger cells mean fewer cells per query and per update (1.5 before 2026-11-08,
+        /// see the reducer profile in docs/roadmap/alpha-wrap-and-repair.md)
+        /// </summary>
+        internal double GridCellEdgeLengths = 3.0;
+        /// <summary> (tests) false: IsBowtieVertex on every collapse instead of the per-vertex states; the same answers </summary>
+        internal bool CacheBowtieStates = true;
+        protected HashSet<int> gridRingTris = new HashSet<int>();
+        AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
+
+        // PairCoincidentVertices, per vertex (null if off): the one other vertex at its position (-1 none; -2 three or more at the
+        // position, or two that are the ends of an edge); and the smallest vertex id at its position, which names the position in the
+        // self-intersection check (two triangles with a vertex of one position share it)
+        int[] pairTwin;
+        int[] pairCanon;
+        // after a collapse of an edge with its twin edge: the kept vertex of the twin edge and the removed vertices (DoReduce adds
+        // the quadrics); -1 if the last collapse was none
+        int pairKept2 = -1, pairRemoved1 = -1, pairRemoved2 = -1;
+        /// <summary> (tests, benchmarks) the edges collapsed together with their twin edge (PairCoincidentVertices), summed over all reductions of this instance </summary>
+        internal long PairedCollapses;
+
+        void ensure_vertex_pairs()
+        {
+            pairTwin = null; pairCanon = null;
+            if (PairCoincidentVertices == false)
+                return;
+            if (constraints != null)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support edge constraints");
+            if (two_sided_active)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support MaxDeviationTwoSided");
+            if (KeepClearOf != null)
+                throw new InvalidOperationException("Reducer.PairCoincidentVertices does not support KeepClearOf");
+            int n = mesh.MaxVertexID;
+            var twin = new int[n]; var canon = new int[n]; var count = new int[n]; var second = new int[n];
+            var first = new Dictionary<(double, double, double), int>();
+            foreach (int v in mesh.VertexIndices()) {
+                twin[v] = -1; canon[v] = v; count[v] = 1; second[v] = -1;
+                Vector3d p = mesh.GetVertex(v);
+                if (p.IsFinite == false)
+                    continue;
+                var key = (p.x == 0 ? 0 : p.x, p.y == 0 ? 0 : p.y, p.z == 0 ? 0 : p.z);
+                int f;
+                if (first.TryGetValue(key, out f) == false) {
+                    first[key] = v;
+                    continue;
+                }
+                canon[v] = f;
+                if (++count[f] == 2) second[f] = v;
+            }
+            foreach (int v in mesh.VertexIndices()) {
+                int c = canon[v];
+                if (count[c] == 1)
+                    continue;
+                // (two vertices of one position that are the ends of an edge: a zero-length edge, left alone)
+                bool pinned = count[c] > 2 || mesh.FindEdge(c, second[c]) != DMesh3.InvalidID;
+                twin[v] = pinned ? -2 : (v == c ? second[c] : c);
+            }
+            pairTwin = twin; pairCanon = canon;
+        }
+
+        // the ids of a triangle as the self-intersection check sees them (the vertices of one position are one)
+        Index3i pair_ids(Index3i t)
+        {
+            if (pairCanon == null)
+                return t;
+            return new Index3i(pairCanon[t.a], pairCanon[t.b], pairCanon[t.c]);
+        }
+
+        // the edge between the twins of the ends of edge (a, b), or -1 (only with pairTwin set: edge_quadric checks it)
+        int twin_edge(int a, int b)
+        {
+            int ta = pairTwin[a], tb = pairTwin[b];
+            if (ta < 0 || tb < 0)
+                return -1;
+            int e = mesh.FindEdge(ta, tb);
+            return e == DMesh3.InvalidID ? -1 : e;
+        }
+
+        // the quadric of an edge: its ends' quadrics, and with PairCoincidentVertices those of its twin edge
+        QuadricError edge_quadric(int a, int b)
+        {
+            QuadricError q = new QuadricError(ref vertQuadrics[a], ref vertQuadrics[b]);
+            if (pairTwin == null)
+                return q;
+            int e2 = twin_edge(a, b);
+            if (e2 < 0)
+                return q;
+            Index2i ev2 = mesh.GetEdgeV(e2);
+            QuadricError q2 = new QuadricError(ref vertQuadrics[ev2.a], ref vertQuadrics[ev2.b]);
+            return new QuadricError(ref q, ref q2);
+        }
+
+        /// <summary>
+        /// would DMesh3.CollapseEdge(vKeep, vRemove) succeed? Its tests of the neighbourhood, on the mesh as it is, without the edit
+        /// (the tests in the order of DMesh3.CollapseEdge; compared with it on every edge of several meshes in the tests)
+        /// </summary>
+        internal static bool MeshAcceptsCollapse(DMesh3 mesh, int vKeep, int vRemove)
+        {
+            if (mesh.IsVertex(vKeep) == false || mesh.IsVertex(vRemove) == false)
+                return false;
+            int b = vKeep, a = vRemove;
+            int eab = mesh.FindEdge(a, b);
+            if (eab == DMesh3.InvalidID)
+                return false;
+            Index2i et = mesh.GetEdgeT(eab);
+            if (et.a == DMesh3.InvalidID)
+                return false;
+            int c = IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(et.a));
+            int d = DMesh3.InvalidID;
+            bool boundaryEdge = et.b == DMesh3.InvalidID;
+            if (boundaryEdge == false) {
+                d = IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(et.b));
+                if (c == d)
+                    return false;
+            }
+            int edgesA = 0;
+            foreach (int eid in mesh.VtxEdgesItr(a)) {
+                edgesA++;
+                Index2i ev = mesh.GetEdgeV(eid);
+                int vax = ev.a == a ? ev.b : ev.a;
+                if (vax == c || vax == d || vax == b)
+                    continue;
+                foreach (int eidB in mesh.VtxEdgesItr(b)) {
+                    Index2i evb = mesh.GetEdgeV(eidB);
+                    if ((evb.a == b ? evb.b : evb.a) == vax)
+                        return false;
+                }
+            }
+            if (edgesA == 3 && boundaryEdge == false) {
+                int edc = mesh.FindEdge(d, c);
+                if (edc != DMesh3.InvalidID) {
+                    Index2i dt = mesh.GetEdgeT(edc);
+                    if (dt.b != DMesh3.InvalidID) {
+                        Index3i t0 = mesh.GetTriangle(dt.a), t1 = mesh.GetTriangle(dt.b);
+                        bool t0a = t0.a == a || t0.b == a || t0.c == a, t0b = t0.a == b || t0.b == b || t0.c == b;
+                        bool t1a = t1.a == a || t1.b == a || t1.c == a, t1b = t1.a == b || t1.b == b || t1.c == b;
+                        if ((t0a && t1b) || (t0b && t1a))
+                            return false;
+                    }
+                }
+            } else if (boundaryEdge && mesh.IsBoundaryEdge(mesh.FindEdge(a, c))) {
+                int ebc = mesh.FindEdgeFromTri(b, c, et.a);
+                if (mesh.IsBoundaryEdge(ebc))
+                    return false;
+            }
+            if (boundaryEdge == false && mesh.IsBoundaryVertex(a) && mesh.IsBoundaryVertex(b))
+                return false;
+            return true;
+        }
+
+        protected void ensure_triangle_grid()
+        {
+            if (PreventSelfIntersections == false) {
+                triangleGrid = null;
+                return;
+            }
+            double sum = 0; int n = 0;
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
+            }
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(GridCellEdgeLengths * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            foreach (int tid in mesh.TriangleIndices())
+                triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        AxisAlignedBox3d tri_box(int tid)
+        {
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref p0, ref p1, ref p2);
+            var box = new AxisAlignedBox3d(p0); box.Contain(p1); box.Contain(p2);
+            return box;
+        }
+
+        // does one of the triangles intersect a triangle of KeepClearOf? The tree's boxes prune: a triangle far from the
+        // obstacle (the wrap lies about one offset from its input) visits a few boxes and no triangle
+        bool new_triangles_touch_obstacle(List<Triangle3d> tris)
+        {
+            return TrianglesTouch(KeepClearOf, tris);
+        }
+
+        // closed overlap test: AxisAlignedBox3d.Intersects is open (boxes that only touch, and flat boxes of triangles in one axis plane, never overlap by it)
+        static bool BoxesTouch(AxisAlignedBox3d a, AxisAlignedBox3d b)
+        {
+            return a.Min.x <= b.Max.x && a.Max.x >= b.Min.x && a.Min.y <= b.Max.y && a.Max.y >= b.Min.y && a.Min.z <= b.Max.z && a.Max.z >= b.Min.z;
+        }
+
+        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh, degenerate ones included (exact predicates)? Only reads the tree. </summary>
+        internal static bool TrianglesTouch(DMeshAABBTree3 tree, IList<Triangle3d> tris)
+        {
+            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < tris.Count; ++i) {
+                Triangle3d A = tris[i];
+                var box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                if (i == 0) union = box; else union.Contain(box);
+            }
+            DMesh3 obstacle = tree.Mesh;
+            bool hit = false;
+            tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (bx, depth) => !hit && BoxesTouch(bx, union),
+                NextTriangleF = (tid) => {
+                    if (hit) return;
+                    Index3i ot = obstacle.GetTriangle(tid);
+                    Triangle3d O = new Triangle3d(obstacle.GetVertex(ot.a), obstacle.GetVertex(ot.b), obstacle.GetVertex(ot.c));
+                    var ob = new AxisAlignedBox3d(O.V0); ob.Contain(O.V1); ob.Contain(O.V2);
+                    // (degenerate obstacle triangles too: ExactTriangleIntersection takes a collinear one as its segment, a
+                    // point one as its point; the wrap's input may have them, and the wrap must keep them enclosed)
+                    if (BoxesTouch(ob, union) == false) return;
+                    for (int i = 0; i < tris.Count; ++i) {
+                        Triangle3d A = tris[i];
+                        if (ExactTriangleIntersection.Intersects(ref A, ref O)) { hit = true; return; }
+                    }
+                }
+            });
+            return hit;
+        }
+
+        /// <summary>
+        /// does a triangle of the tree's mesh meet the region of the tetrahedra (4 corners each in corners)? It meets a
+        /// tetrahedron if it touches one of its faces (TrianglesTouch, exact) or lies inside it (a corner or the centroid
+        /// strictly inside by exact orientations). Used for the region an operation sweeps: the union of the tetrahedra
+        /// (old triangle, new vertex). As a chain their boundary is the old surface minus the new one (the side faces
+        /// cancel), so the winding number of a point changes only inside them, and a triangle that touches neither surface
+        /// changes sides as a whole: one of its corners or its centroid is then strictly inside a tetrahedron, or it lies
+        /// in a face, which the face test finds. Only reads the tree.
+        /// </summary>
+        internal static bool TetrahedraMeet(DMeshAABBTree3 tree, IList<Vector3d> corners)
+        {
+            int nt = corners.Count / 4;
+            if (nt == 0) return false;
+            var faces = new List<Triangle3d>(4 * nt);
+            for (int i = 0; i < nt; ++i) {
+                Vector3d a = corners[4 * i], b = corners[4 * i + 1], c = corners[4 * i + 2], d = corners[4 * i + 3];
+                faces.Add(new Triangle3d(a, b, c)); faces.Add(new Triangle3d(a, b, d));
+                faces.Add(new Triangle3d(b, c, d)); faces.Add(new Triangle3d(c, a, d));
+            }
+            return TetrahedraMeet(tree, corners, faces);
+        }
+
+        /// <summary>
+        /// TetrahedraMeet with the faces to test given: the caller may leave out faces it knows to be clear of the tree's
+        /// mesh (the old surface, kept clear of it; the new triangles, tested on their own) and list a face shared by two
+        /// tetrahedra once
+        /// </summary>
+        internal static bool TetrahedraMeet(DMeshAABBTree3 tree, IList<Vector3d> corners, List<Triangle3d> faces)
+        {
+            int nt = corners.Count / 4;
+            if (nt == 0) return false;
+            AxisAlignedBox3d union = new AxisAlignedBox3d(corners[0]);
+            for (int i = 1; i < corners.Count; ++i) union.Contain(corners[i]);
+            if (faces.Count > 0 && TrianglesTouch(tree, faces)) return true;
+            DMesh3 obstacle = tree.Mesh;
+            bool inside = false;
+            tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (bx, depth) => !inside && BoxesTouch(bx, union),
+                NextTriangleF = (tid) => {
+                    if (inside) return;
+                    Index3i it = obstacle.GetTriangle(tid);
+                    Vector3d p0 = obstacle.GetVertex(it.a), p1 = obstacle.GetVertex(it.b), p2 = obstacle.GetVertex(it.c);
+                    for (int k = 0; k < 4 && !inside; ++k) {
+                        Vector3d p = k == 0 ? p0 : k == 1 ? p1 : k == 2 ? p2 : (p0 + p1 + p2) / 3;
+                        if (!union.Contains(p)) continue;
+                        for (int i = 0; i < nt; ++i)
+                            if (strictly_inside(corners[4 * i], corners[4 * i + 1], corners[4 * i + 2], corners[4 * i + 3], p)) { inside = true; break; }
+                    }
+                }
+            });
+            return inside;
+        }
+
+        static bool strictly_inside(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d p)
+        {
+            int s = ExactPredicates.Orient3d(a, b, c, d);
+            if (s == 0) return false;
+            return ExactPredicates.Orient3d(p, b, c, d) == s && ExactPredicates.Orient3d(a, p, c, d) == s
+                && ExactPredicates.Orient3d(a, b, p, d) == s && ExactPredicates.Orient3d(a, b, c, p) == s;
+        }
+
+        // the swept region of a collapse to newPos: the tetrahedra (old triangle, newPos) of every triangle around a or b
+        // (gridRingTris, the two removed ones included; their chain boundary is the old patch minus the new fan)
+        // Faces: the old triangles are clear of KeepClearOf (every collapse keeps them so) and the new ones are tested by the
+        // caller, so only the side faces (p, q, newPos) of the edges at a or b remain, each once
+        readonly List<Vector3d> sweptCorners = new List<Vector3d>();
+        readonly List<Triangle3d> sweptFaces = new List<Triangle3d>();
+        readonly HashSet<int> sweptEdges = new HashSet<int>();
+        bool collapse_sweeps_obstacle(int a, int b, Vector3d newPos)
+        {
+            sweptCorners.Clear(); sweptFaces.Clear(); sweptEdges.Clear();
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            foreach (int tid in gridRingTris) {
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                sweptCorners.Add(va); sweptCorners.Add(vb); sweptCorners.Add(vc); sweptCorners.Add(newPos);
+            }
+            for (int k = 0; k < 2; ++k)
+                foreach (int eid in mesh.VtxEdgesItr(k == 0 ? a : b)) {
+                    if (!sweptEdges.Add(eid)) continue;
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    sweptFaces.Add(new Triangle3d(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), newPos));
+                }
+            return TetrahedraMeet(KeepClearOf, sweptCorners, sweptFaces);
+        }
+
+        // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
+        // triangle outside the two one-rings (or another new triangle beyond their shared vertex)?
+        /// <summary>
+        /// (tests) false: PreventSelfIntersections queries the grid once per new triangle (the reference) instead of
+        /// once per collapse with the union of their boxes; the same answers
+        /// </summary>
+        internal bool SelfIntersectionUnionQuery = true;
+
+        protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
+        {
+            return collapse_creates_intersection(a, b, vKeep, newPos, -1, -1, -1);
+        }
+
+        // (a2, b2, vKeep2 >= 0, PairCoincidentVertices: the twin edge collapses at the same time, to the same position; its new
+        // triangles are checked as well, and a triangle's vertices of one position are one vertex)
+        bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos, int a2, int b2, int vKeep2)
+        {
+            if (SelfIntersectionUnionQuery == false && a2 < 0)
+                return collapse_creates_intersection_per_triangle(a, b, vKeep, newPos);
+            gridRingTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            if (a2 >= 0) {
+                foreach (int tid in mesh.VtxTrianglesItr(a2)) gridRingTris.Add(tid);
+                foreach (int tid in mesh.VtxTrianglesItr(b2)) gridRingTris.Add(tid);
+            }
+            // (the lists and the query's callback are kept between collapses: this runs for every collapse)
+            List<Index3i> newIds = siNewIds;
+            List<Triangle3d> newTris = siNewTris;
+            newIds.Clear(); newTris.Clear();
+            foreach (int tid in gridRingTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB) continue;     // removed by the collapse
+                if (a2 >= 0 && (t.a == a2 || t.b == a2 || t.c == a2) && (t.a == b2 || t.b == b2 || t.c == b2)) continue;
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                    else if (a2 >= 0 && (nt[k] == a2 || nt[k] == b2)) nt[k] = vKeep2;
+                Triangle3d tri = new Triangle3d(
+                    nt.a == vKeep || nt.a == vKeep2 ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep || nt.b == vKeep2 ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep || nt.c == vKeep2 ? newPos : mesh.GetVertex(nt.c));
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                newIds.Add(pair_ids(nt)); newTris.Add(tri);
+            }
+            if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
+                return true;
+            // the new triangles among themselves
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                Index3i ia = newIds[i];
+                for (int j = i + 1; j < newTris.Count; ++j) {
+                    Triangle3d B = newTris[j];
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                        return true;
+                }
+            }
+            if (newTris.Count == 0)
+                return false;
+            // against the rest: one grid query with the union of the new triangles' boxes, then for each candidate
+            // the new triangles whose query would have returned it (TriangleHashGrid.QueryMatches, the grid's own
+            // test against the stored box). These are exactly the pairs
+            // that a query per new triangle would test (each box lies in the union), so the answer is the same; the
+            // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
+            // of about ten times
+            if (gridNewBoxes.Length < newTris.Count) gridNewBoxes = new AxisAlignedBox3d[2 * newTris.Count];
+            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                gridNewBoxes[i] = box;
+                if (i == 0) union = box; else union.Contain(box);
+            }
+            siHit = false;
+            if (siCandidate == null) siCandidate = si_candidate;
+            triangleGrid.Query(union, siCandidate);
+            return siHit;
+        }
+
+        List<Index3i> siNewIds = new List<Index3i>();
+        List<Triangle3d> siNewTris = new List<Triangle3d>();
+        bool siHit;
+        Action<int> siCandidate;
+
+        // a candidate of the grid query of collapse_creates_intersection: the new triangles (siNewIds, siNewTris,
+        // their boxes in gridNewBoxes) against triangle tc
+        void si_candidate(int tc)
+        {
+            // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+            // be used here: flat boxes of triangles in one axis plane never overlap by it)
+            if (siHit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+            Index3i ic = mesh.GetTriangle(tc);
+            Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+            // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+            if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+            ic = pair_ids(ic);
+            for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
+                if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
+                    continue;
+                Triangle3d A = siNewTris[i];
+                if (TriangleTriangleFilter.IntersectsBeyondShared(siNewIds[i], ref A, ic, ref C))
+                    siHit = true;
+            }
+        }
+
+        // (tests) the check with one grid query per new triangle, as before the union query: the same answer
+        bool collapse_creates_intersection_per_triangle(int a, int b, int vKeep, Vector3d newPos)
+        {
+            gridRingTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            var newIds = new List<Index3i>();
+            var newTris = new List<Triangle3d>();
+            foreach (int tid in gridRingTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB) continue;     // removed by the collapse
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                Triangle3d tri = new Triangle3d(
+                    nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                newIds.Add(nt); newTris.Add(tri);
+            }
+            if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
+                return true;
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                Index3i ia = newIds[i];
+                for (int j = i + 1; j < newTris.Count; ++j) {
+                    Triangle3d B = newTris[j];
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                        return true;
+                }
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                bool hit = false;
+                triangleGrid.Query(box, (tc) => {
+                    // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+                    // be used here: flat boxes of triangles in one axis plane never overlap by it)
+                    if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+                    Index3i ic = mesh.GetTriangle(tc);
+                    Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+                    // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+                    if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                        hit = true;
+                });
+                if (hit)
+                    return true;
+            }
+            return false;
+        }
+
+        static bool is_finite(ref Triangle3d t)
+        {
+            return t.V0.IsFinite && t.V1.IsFinite && t.V2.IsFinite;
+        }
+
+        // after a collapse: the triangles of the old one-rings (in gridRingTris) are gone or changed
+        protected void update_triangle_grid(int vKeep)
+        {
+            foreach (int tid in gridRingTris)
+                triangleGrid.Remove(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep))
+                triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        // PreventFoldOver: per vertex, the sum of the area-weighted input normals (cross products) it has absorbed, and
+        // the sum of their lengths; taken at the start of each reduction, summed on every collapse (serial, so
+        // deterministic)
+        Vector3d[] refNormals;
+        double[] refLengths;
+
+        void ensure_reference_normals()
+        {
+            if (PreventFoldOver == false) {
+                refNormals = null; refLengths = null;
+                return;
+            }
+            if (SeedReferenceNormals != null) {
+                refNormals = new Vector3d[mesh.MaxVertexID];
+                refLengths = new double[mesh.MaxVertexID];
+                Array.Copy(SeedReferenceNormals, refNormals, Math.Min(refNormals.Length, SeedReferenceNormals.Length));
+                Array.Copy(SeedReferenceLengths, refLengths, Math.Min(refLengths.Length, SeedReferenceLengths.Length));
+                return;
+            }
+            ComputeReferenceNormals(mesh, out refNormals, out refLengths);
+        }
+
+        /// <summary>
+        /// (PartitionedReduction) PreventFoldOver: these reference normals and lengths per vertex instead of the mesh's own
+        /// (a reduction that continues one done in pieces keeps what the vertices absorbed); null: from the mesh
+        /// </summary>
+        internal Vector3d[] SeedReferenceNormals;
+        internal double[] SeedReferenceLengths;
+        internal Vector3d[] ReferenceNormals { get { return refNormals; } }
+        internal double[] ReferenceLengths { get { return refLengths; } }
+
+        // the reference of PreventFoldOver: per vertex, the sum of the cross products of its triangles and of their lengths
+        internal static void ComputeReferenceNormals(DMesh3 mesh, out Vector3d[] normals, out double[] lengths)
+        {
+            normals = new Vector3d[mesh.MaxVertexID];
+            lengths = new double[mesh.MaxVertexID];
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d n = (b - a).Cross(c - a);
+                double l = length(n);
+                Index3i tv = mesh.GetTriangle(t);
+                normals[tv.a] += n; normals[tv.b] += n; normals[tv.c] += n;
+                lengths[tv.a] += l; lengths[tv.b] += l; lengths[tv.c] += l;
+            }
+        }
+
+        // |v| without overflow or underflow (scaled by its largest coordinate first: exact for power-of-2 scalings)
+        static double length(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return m > 0 ? double.PositiveInfinity : 0;
+            v /= m;
+            return m * v.Length;
+        }
+
+        // v / (its largest |coordinate|) (exact for power-of-2 scalings of v); v if that is 0 or not finite
+        static Vector3d scaled(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            return (m > 0 && !double.IsInfinity(m)) ? v / m : v;
+        }
+
+        // v / |v| without overflow or underflow; 0 for v = 0 or not finite
+        static Vector3d unit(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return Vector3d.Zero;
+            v /= m;
+            return v / v.Length;
+        }
+
+        // the boundary edges of triangle t (around vid) after vid is merged with vother: an edge vid-w becomes the
+        // merge of vid-w and vother-w (if that exists, w is a corner of a removed triangle), a boundary edge if either is
+        int boundary_edges_after(Index3i t, int vid, int vother)
+        {
+            int n = 0;
+            for (int k = 0; k < 3; ++k) {
+                int p = t[k], q = t[(k + 1) % 3];
+                if (p != vid && q != vid) {
+                    if (is_boundary_edge(p, q)) ++n;
+                } else {
+                    int w = (p == vid) ? q : p;
+                    if (is_boundary_edge(vid, w) || is_boundary_edge(vother, w)) ++n;
+                }
+            }
+            return n;
+        }
+
+        bool is_boundary_edge(int p, int q)
+        {
+            int eid = mesh.FindEdge(p, q);
+            return eid != DMesh3.InvalidID && mesh.IsBoundaryEdge(eid);
+        }
+
+        // PreventFoldOver: would a triangle around vid (other than tc, td), with vid moved to newv and merged with
+        // vother, turn away from its reference normal?
+        bool collapse_turns_from_reference(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i t = mesh.GetTriangle(tid);
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                if (t.a == vid) va = newv; else if (t.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(t, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
+        }
+
+        // PreventFoldOver for one new triangle t (vid at its new position, so va, vb, vc are the new corners)
+        bool turns_from_reference(Index3i t, ref Vector3d va, ref Vector3d vb, ref Vector3d vc, int vid, int vother,
+            ref Vector3d merged, double mergedLength)
+        {
+            Vector3d r = Vector3d.Zero;
+            double rl = 0;
+            for (int k = 0; k < 3; ++k) {
+                int v = t[k];
+                if (v == vid) {
+                    r += merged; rl += mergedLength;
+                } else {
+                    r += refNormals[v]; rl += refLengths[v];
+                }
+            }
+            // no reference here (the usual flip check still applies): the absorbed normals nearly cancel, or they
+            // have no length (zero-area input) or overflowed
+            double lr = length(r);
+            if (!(rl > 0) || double.IsInfinity(rl) || double.IsInfinity(lr) || !(lr >= ReferenceNormalMinLength * rl))
+                return false;
+            // (a new normal that overflowed, at coordinates beyond about 1e154, is left to the usual check too)
+            Vector3d n = (vb - va).Cross(vc - va);
+            if (!n.IsFinite)
+                return false;
+            // the sign needs no unit vectors (r scaled by its largest coordinate: no overflow, exact under 2^k
+            // scalings); the boundary rule, rarely reached, does
+            double sign = n.Dot(scaled(r));
+            if (double.IsNaN(sign))
+                return false;
+            if (!(sign > 0))
+                return true;
+            return HaveBoundary && BoundaryTriangleMinNormalDot > 0 && !(unit(n).Dot(unit(r)) > BoundaryTriangleMinNormalDot)
+                && boundary_edges_after(t, vid, vother) >= 2;
+        }
+
+        /// <summary> (tests) one pass over each one-ring for the flip and the PreventFoldOver checks; false: two </summary>
+        internal bool FusedFoldCheck = true;
+
+        // collapse_creates_flip_or_invalid and collapse_turns_from_reference in one pass over the one-ring of vid (the
+        // same decision: the collapse is refused if either refuses it, and both visit the same triangles)
+        bool collapse_creates_flip_invalid_or_fold(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i curt = mesh.GetTriangle(tid);
+                if (curt.a == vother || curt.b == vother || curt.c == vother)
+                    return true;        // invalid nbrhood for collapse
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                // (as collapse_creates_flip_or_invalid)
+                double f = flip_edge_scale(ref va, ref vb, ref vc);
+                Vector3d ncur = ((vb - va) * f).Cross((vc - va) * f);
+                Vector3d nnew;
+                if (curt.a == vid) nnew = ((vb - newv) * f).Cross((vc - newv) * f);
+                else if (curt.b == vid) nnew = ((newv - va) * f).Cross((vc - va) * f);
+                else if (curt.c == vid) nnew = ((vb - va) * f).Cross((newv - va) * f);
+                else throw new Exception("should never be here!");
+                if (edge_flip_metric(ref ncur, ref nnew) <= edge_flip_tol)
+                    return true;
+                if (MinCollapseTriangleQuality > 0) {
+                    Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
+                    double qNew = TriangleQuality(ref na, ref nb, ref nc);
+                    if (collapse_quality_rejects(qNew, ref va, ref vb, ref vc))
+                        return true;
+                }
+                if (curt.a == vid) va = newv; else if (curt.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(curt, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
+        }
+
+        protected void ensure_deviation_reference()
+        {
+            if (MaxDeviation > 0 && deviationTarget == null) {
+                SetDeviationReference(mesh);
+                if (MaxDeviationTwoSided)
+                    ReverseProbe.TryCreate(deviationTarget.Mesh, mesh, MaxDeviation, out reverseCoverage);
+                if (reverseCoverage != null) reverseCoverage.Record = RecordReverse;
+            }
+            ensure_two_sided_coverage();
+        }
+
+        // the reverse direction of MaxDeviationTwoSided (null if off, or until the first reduction with it)
+        internal ReverseProbe reverseCoverage;
+        bool two_sided_active { get { return MaxDeviationTwoSided && MaxDeviation > 0; } }
+
+        // refuse the cases where the two-sided bound could not be kept (see MaxDeviationTwoSided)
+        void ensure_two_sided_coverage()
+        {
+            if (two_sided_active == false)
+                return;
+            if (target != null && ProjectionMode == TargetProjectionMode.AfterRefinement)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a ProjectionTarget projected after the reduction (ProjectionMode AfterRefinement) moves vertices without the check");
+            if (reverseCoverage == null)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided needs the deviation reference taken from the mesh at the first reduction with the option set (not one from SetDeviationReference or from a reduction without it)");
+            if (reverseCoverage.Eps != MaxDeviation)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: MaxDeviation changed since the first two-sided reduction");
+            if (reverseCoverage.Stamp != mesh.ShapeTimestamp)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed since the last two-sided reduction (outside the Reducer, or by a reduction with the option off)");
+        }
+
+        int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
+        {
+            double d;
+            if (cache == null) return deviationTarget.FindNearestTriangle(p, MaxDeviation);
+            System.Threading.Interlocked.Increment(ref DeviationCacheSampleLookups);
+            return deviationBounds.NearestWithin(deviationTarget, p, cache, out d);
+        }
+
+        /// <summary> (tests) the shared queries' lookups and hits, summed over the collapses that reached them </summary>
+        internal long DeviationCacheLookups, DeviationCacheHits, DeviationCacheIsWithinHits, DeviationCacheSampleLookups;
+
+        // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
+        protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
+        {
+            // the new vertex first: one query, rejects most collapses that go too far
+            double newPosSqr;
+            int newPosTri = deviationTarget.FindNearestTriangle(newPos, out newPosSqr, MaxDeviation);
+            if (newPosTri < 0)
+                return false;
+            // the tree queries of this collapse, shared: the new vertex is a corner of every new triangle, the
+            // other corners and the edge midpoints are shared by two (the samples below are the same points)
+            TriangleDeviationBounds.QueryCache cache = null;
+            if (ShareDeviationQueries) {
+                cache = new TriangleDeviationBounds.QueryCache(deviationTarget, MaxDeviation);
+                cache.Put(newPos, newPosTri, newPosSqr);
+            }
+            List<Triangle3d> tris = new List<Triangle3d>();
+            foreach (int v in new int[] { a, b }) {
+                int other = (v == a) ? b : a;
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (t.a == other || t.b == other || t.c == other)
+                        continue;      // removed by the collapse
+                    tris.Add(new Triangle3d((t.a == v) ? newPos : mesh.GetVertex(t.a),
+                        (t.b == v) ? newPos : mesh.GetVertex(t.b), (t.c == v) ? newPos : mesh.GetVertex(t.c)));
+                }
+            }
+            // cheap samples next: most collapses that exceed the tolerance are rejected here, before the
+            // (much more expensive) certification of the whole triangles
+            foreach (Triangle3d t in tris) {
+                Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
+                foreach (Vector3d p in samples) {
+                    if (nearest_within_deviation(p, cache) < 0)
+                        return false;
+                }
+            }
+            bool ok = true;
+            gParallel.ForRange(tris.Count, (k) => {
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache, ParallelDeviationCheck) == false)
+                    ok = false;
+            });
+            if (cache != null) {
+                DeviationCacheLookups += cache.Lookups; DeviationCacheHits += cache.Hits; DeviationCacheIsWithinHits += cache.IsWithinHits;
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Quadrics are relative to this point (the mesh bounds center, set by InitializeVertexQuadrics): in
+        /// absolute coordinates far from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown
+        /// in rounding. Subclasses that build or evaluate quadrics (vertQuadrics, OnEdgeCollapse) must use
+        /// plane_quadric / evaluate or subtract quadricOrigin (unlike 1.0.324, where they were absolute).
+        /// </summary>
+        protected Vector3d quadricOrigin = Vector3d.Zero;
+
+        /// <summary>
+        /// A power of two (1 for a mesh of extent in [2^-32, 2^32], which is the unchanged arithmetic): the quadrics are built and
+        /// evaluated on (p - quadricOrigin) * quadricScale, so that a mesh of any extent has a frame extent of about 1. An area weighted
+        /// quadric error is of the size of the extent to the 4th, which overflows a double above an extent of about 1e77 and underflows
+        /// below about 2^-268 (every priority was then the same and the order was that of the ids; the result for a 2^k scaled copy was not the
+        /// scaled result); the errors, weights and positions in the frame are the old ones times exact powers of two. Subclasses that seed
+        /// quadrics (PartitionedReduction) must give the sub-reducers the origin and the scale of the quadrics they seed.
+        /// </summary>
+        protected double quadricScale = 1;
+
+        // the scale of the frame for a mesh of this bounding box: 1 within [2^-32, 2^32], else the power of two that gives an extent in [1, 2)
+        internal static double frame_scale_for(AxisAlignedBox3d bounds)
+        {
+            double ext = Math.Max(bounds.Width, Math.Max(bounds.Height, bounds.Depth));
+            if (!(ext > 0 && ext <= double.MaxValue) || (ext >= 2.3283064365386963e-10 && ext <= 4294967296.0))
+                return 1;
+            int e = exponent_of(ext);
+            if (e < -1000 || e > 1000)
+                return 1;           // (the scale and its reciprocal must be normal doubles: a subnormal extent or one near the top of the range stays unscaled)
+            return pow2(-e);
+        }
+
+        // a limit on an error in the units of the mesh as a limit on the frame error (area weighted: length^4, else length^2)
+        double frame_error_limit(double limit)
+        {
+            // (no limit stays no limit: MaxValue multiplied by a small scale four times would become 0)
+            if (quadricScale == 1 || !(limit < double.MaxValue))
+                return limit;
+            int powers = AreaWeightedQuadrics ? 4 : 2;
+            for (int i = 0; i < powers; i++)
+                limit *= quadricScale;
+            return limit;
+        }
+
+        protected QuadricError plane_quadric(Vector3d n, Vector3d p)
+        {
+            Vector3d local = (p - quadricOrigin) * quadricScale;
+            return new QuadricError(ref n, ref local);
+        }
+        protected double evaluate(ref QuadricError q, Vector3d p)
+        {
+            Vector3d local = (p - quadricOrigin) * quadricScale;
+            return q.Evaluate(ref local);
+        }
+
+        // The unit normal and the area of a triangle, without the absolute thresholds of DMesh3.GetTriInfo / GetTriNormal / Vector3d.Normalize
+        // (a length of 2.2e-16 or less counts as zero there): those give a zero normal and a zero area for a triangle of edge length below
+        // about 1.5e-8, so the quadrics of a small mesh were empty (R14). The threshold is relative: a cross product of at most 2.2e-16 times the
+        // squared longest edge is rounding noise (a collinear triangle), and has no normal and no area, as before at a unit size.
+        void tri_info(int tid, out Vector3d normal, out double area, out Vector3d centroid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            centroid = (1.0 / 3.0) * (a + b + c);
+            // (in the frame of the quadrics: the cross product and the squares of an edge of length below 1e-154 underflow in the mesh's units)
+            Vector3d e1 = (b - a) * quadricScale, e2 = (c - a) * quadricScale;
+            normal = e1.Cross(e2);
+            double longest = Math.Max(e1.LengthSquared, Math.Max(e2.LengthSquared, ((c - b) * quadricScale).LengthSquared));
+            double len = unit_direction(ref normal, MathUtil.Epsilon * longest);
+            area = 0.5 * len;
+        }
+
+        // as MathUtil.Normal (DMesh3.GetTriNormal), the same arithmetic where it is defined, without its absolute thresholds
+        // (the edges are normalized first, so the threshold on the cross product of two unit vectors is relative)
+        Vector3d tri_normal(int tid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            Vector3d edge1 = b - a;
+            Vector3d edge2 = c - b;
+            unit_direction(ref edge1, 0);
+            unit_direction(ref edge2, 0);
+            Vector3d cross = edge1.Cross(edge2);
+            unit_direction(ref cross, MathUtil.Epsilon);
+            return cross;
+        }
+
+        // Normalizes v in place and returns its length; (0, v zero) for a vector of length 0 or at most minLength, or one that is not finite.
+        // The same arithmetic as Vector3d.Normalize for lengths in [1e-150, 1e150]; beyond, the vector is scaled by a power of two first
+        // (the squares of its components under- or overflow in Length, and 1/length is infinite for a subnormal length).
+        static double unit_direction(ref Vector3d v, double minLength)
+        {
+            double len = v.Length;
+            if (len >= 1e-150 && len <= 1e150) {
+                if (!(len > minLength)) {
+                    v = Vector3d.Zero;
+                    return 0;
+                }
+                v *= 1.0 / len;
+                return len;
+            }
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0 && m <= double.MaxValue)) {
+                v = Vector3d.Zero;
+                return 0;
+            }
+            int e = exponent_of(m);
+            Vector3d w = v * pow2(-e);          // (exact, unless a subnormal component is shifted: then it is only more exact)
+            double l = w.Length;
+            double result = l * pow2(e);        // (may underflow to 0 or overflow, for a vector at the bottom or top of the double range)
+            if (!(result > minLength) || !(result <= double.MaxValue)) {
+                v = Vector3d.Zero;
+                return 0;
+            }
+            v = w * (1.0 / l);
+            return result;
+        }
+
+        // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
+        internal static int exponent_of(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0)
+                return e - 1023;
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);      // 2^64 (exact)
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        // 2^e exactly for e in [-1022, 1023], else 0 or infinity
+        internal static double pow2(int e)
+        {
+            if (e < -1022) return 0;
+            if (e > 1023) return double.PositiveInfinity;
+            return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+        }
+
+		protected virtual void InitializeVertexQuadrics()
+		{
+            quadricOrigin = mesh.CachedBounds.Center;
+            quadricScale = frame_scale_for(mesh.CachedBounds);
+
+			int NT = mesh.MaxTriangleID;
+			QuadricError[] triQuadrics = new QuadricError[NT];
+			double[] triAreas = new double[NT];
+            gParallel.BlockStartEnd(0, mesh.MaxTriangleID-1, (start_tid, end_tid) => {
+                Vector3d c, n;
+                for (int tid = start_tid; tid <= end_tid; tid++) {
+                    if (mesh.IsTriangle(tid)) {
+                        tri_info(tid, out n, out triAreas[tid], out c);
+                        triQuadrics[tid] = plane_quadric(n, c);
+                    }
+                }
+			});
+
+
+			int NV = mesh.MaxVertexID;
+			vertQuadrics = new QuadricError[NV];
+            gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (start_vid, end_vid) => {
+                for (int vid = start_vid; vid <= end_vid; vid++) {
+                    vertQuadrics[vid] = QuadricError.Zero;
+                    if (mesh.IsVertex(vid)) {
+                        foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                            vertQuadrics[vid].Add(AreaWeightedQuadrics ? triAreas[tid] : 1.0, ref triQuadrics[tid]);
+                        }
+                        //Util.gDevAssert(MathUtil.EpsilonEqual(0, vertQuadrics[i].Evaluate(mesh.GetVertex(i)), MathUtil.Epsilon * 10));
+                    }
+                }
+			});
+
+            add_boundary_and_feature_quadrics(triAreas);
+		}
+
+
+        // see BoundaryQuadricWeight and FeatureAngle
+        protected virtual void add_boundary_and_feature_quadrics(double[] triAreas)
+        {
+            bool doBoundary = PreserveBoundaryShape && BoundaryQuadricWeight > 0;
+            bool doFeatures = FeatureAngle > 0 && FeatureQuadricWeight > 0;
+            if (doBoundary == false && doFeatures == false)
+                return;
+            double featureDot = Math.Cos(FeatureAngle * MathUtil.Deg2Rad);
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                Index2i ev = mesh.GetEdgeV(eid);
+                Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+                // weight comparable to a triangle plane: area-like (edge length^2) or 1
+                double w = AreaWeightedQuadrics ? ((b - a) * quadricScale).LengthSquared : 1.0;
+
+                if (et.b == DMesh3.InvalidID) {
+                    if (doBoundary == false)
+                        continue;
+                    Vector3d n = tri_normal(et.a);
+                    Vector3d fe = (b - a) * quadricScale;       // (in the frame: an edge length above 1e154 or below 1e-154 over- or underflows in Length)
+                    Vector3d m = fe.Cross(n);
+                    if (unit_direction(ref m, MathUtil.Epsilon * fe.Length) == 0)
+                        continue;
+                    QuadricError q = plane_quadric(m, a);
+                    vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
+                    vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
+                } else if (doFeatures) {
+                    Vector3d n0 = tri_normal(et.a), n1 = tri_normal(et.b);
+                    if (n0.Dot(n1) >= featureDot)
+                        continue;
+                    QuadricError q0 = plane_quadric(n0, a);
+                    QuadricError q1 = plane_quadric(n1, a);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q1);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q1);
+                }
+            }
+        }
+
+
+        // internal class for priority queue
+        protected struct QEdge { 
+			public int eid;
+			public QuadricError q;
+			public Vector3d collapse_pt;
+
+			public QEdge(int edge_id, ref QuadricError qin, ref Vector3d pt) {
+				eid = edge_id;
+				q = qin;
+				collapse_pt = pt;
+			}
+		}
+
+        protected QEdge[] EdgeQuadrics;
+        protected IndexPriorityQueue EdgeQueue;
+
+        // The queue's priorities are floats, and a quadric error is a squared length (times an area with AreaWeightedQuadrics): it overflows to
+        // +infinity above a mesh extent of about 2^32 (area weighted; 2^64 otherwise), where every edge then has the same priority and the
+        // order is that of the ids, and it underflows below about 2^-32 (R14, F5). The errors are multiplied by a power of two for the queue, chosen
+        // from the median of the initial errors (so that a 2^k scale of the mesh gives the same priorities bit for bit); the cast of a float moves
+        // exactly by a power of two, so the order is the old one wherever the floats did not overflow or underflow. Set by InitializeQueue, fixed for a run.
+        protected double PriorityScale = 1;
+
+        float priority(double err)
+        {
+            return (float)(err * PriorityScale);
+        }
+
+        // 2^-e for the median of the positive finite errors in [2^e, 2^(e+1)); 1 if there is none
+        static double priority_scale_for(double[] errors)
+        {
+            var positive = new List<double>(errors.Length);
+            foreach (double e in errors)
+                if (e > 0 && e <= double.MaxValue)
+                    positive.Add(e);
+            if (positive.Count == 0)
+                return 1;
+            positive.Sort();
+            double median = positive[positive.Count / 2];
+            if (median < 1e-290 || median > 1e290)
+                return 1;
+            return pow2(-exponent_of(median));
+        }
+
+		protected virtual void InitializeQueue()
+		{
+			int NE = mesh.EdgeCount;
+            int MaxEID = mesh.MaxEdgeID;
+
+            EdgeQuadrics = new QEdge[MaxEID];
+            EdgeQueue = new IndexPriorityQueue(MaxEID);
+            double[] errors = new double[MaxEID];
+
+            // vertex quadrics can be computed in parallel
+            gParallel.BlockStartEnd(0, MaxEID-1, (start_eid, end_eid) => {
+                for (int eid = start_eid; eid <= end_eid; eid++) {
+                    if (mesh.IsEdge(eid)) {
+                        Index2i ev = mesh.GetEdgeV(eid);
+                        QuadricError Q = edge_quadric(ev.a, ev.b);
+                        Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
+                        errors[eid] = evaluate(ref Q, opt);
+                        EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
+                    }
+                }
+            });
+
+            PriorityScale = priority_scale_for(errors);
+            float[] edgeErrors = new float[MaxEID];
+            for (int i = 0; i < MaxEID; ++i)
+                edgeErrors[i] = priority(errors[i]);
+
+            // sorted pq insert is faster, so sort edge errors array and index map
+            int[] indices = new int[MaxEID];
+            for (int i = 0; i < MaxEID; ++i)
+                indices[i] = i;
+            Array.Sort(edgeErrors, indices);
+
+            // now do inserts
+            for ( int i = 0; i < edgeErrors.Length; ++i ) {
+                int eid = indices[i];
+                if ( mesh.IsEdge(eid) ) {
+                    QEdge edge = EdgeQuadrics[eid];
+                    EdgeQueue.Insert(edge.eid, edgeErrors[i]);
+                }
+            }
+
+            /* 
+            // previous code that does unsorted insert. This is marginally slower, but
+            // might get even slower on larger meshes? have only tried up to about 350k.
+            // (still, this function is not the bottleneck...)
+            int cur_eid = start_edges();
+            bool done = false;
+            do {
+                if (mesh.IsEdge(cur_eid)) {
+                    QEdge edge = EdgeQuadrics[cur_eid];
+                    double err = errList[cur_eid];
+                    EdgeQueue.Enqueue(cur_eid, (float)err);
+                }
+                cur_eid = next_edge(cur_eid, out done);
+            } while (done == false);
+            */
+        }
+
+
+        // return point that minimizes quadric error for edge [ea,eb]
+        protected Vector3d OptimalPoint(int eid, ref QuadricError q, int ea, int eb) {
+
+            // if we would like to preserve boundary, we need to know that here
+            // so that we properly score these edges
+            // Boundary vertices must stay where they are, so the collapse keeps one of them. If both are
+            // boundary vertices, use the one with lower error; CollapseEdge() keeps the same one.
+            if (HaveBoundary && PreserveBoundaryShape) {
+                bool ba = IsBoundaryV(ea), bb = IsBoundaryV(eb);
+                if (ba && bb) {
+                    Vector3d pa = mesh.GetVertex(ea), pb = mesh.GetVertex(eb);
+                    return (evaluate(ref q, pa) <= evaluate(ref q, pb)) ? pa : pb;
+                } else if (ba) {
+                    return mesh.GetVertex(ea);
+                } else if (bb) {
+                    return mesh.GetVertex(eb);
+                }
+            }
+
+            // [TODO] if we have constraints, we should apply them here, for same reason as bdry above...
+
+			if (MinimizeQuadricPositionError == false) {
+				return project(mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5);
+			} else {
+                Vector3d result = Vector3d.Zero;
+                Vector3d mid = (mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5 - quadricOrigin) * quadricScale;
+                if (q.OptimalPoint(ref result, mid, QuadricRegularization))
+                    return project(result * (1.0 / quadricScale) + quadricOrigin);
+
+                // degenerate matrix, evaluate quadric at edge end and midpoints
+				// (could do line search here...)
+				Vector3d va = mesh.GetVertex(ea);
+				Vector3d vb = mesh.GetVertex(eb);
+				Vector3d c = project(va * 0.5 + vb * 0.5);
+				double fa = evaluate(ref q, va);
+				double fb = evaluate(ref q, vb);
+				double fc = evaluate(ref q, c);
+				double m = MathUtil.Min(fa, fb, fc);
+				if (m == fa) return va;
+				else if (m == fb) return vb;
+				return c;
+			}
+		}
+        Vector3d project(Vector3d pos) {
+            if (EnableInlineProjection && target != null) {
+                return target.Project(pos);
+            }
+            return pos;
+        }
+
+
+
+
+
+		// update queue weight for each edge in vertex one-ring
+		protected virtual void UpdateNeighbours(int vid) 
+		{
+			foreach (int eid in mesh.VtxEdgesItr(vid)) {
+				Index2i nev = mesh.GetEdgeV(eid);
+				QuadricError Q = edge_quadric(nev.a, nev.b);
+				Vector3d opt = OptimalPoint(eid, ref Q, nev.a, nev.b);
+				double err = evaluate(ref Q, opt);
+                EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
+				if ( EdgeQueue.Contains(eid) ) {
+					EdgeQueue.Update(eid, priority(err));
+				} else {
+					EdgeQueue.Insert(eid, priority(err));
+				}
+			}			
+		}
+
+
+		protected virtual void Reproject() {
+			begin_project();
+			if (target != null && ProjectionMode == TargetProjectionMode.AfterRefinement) {
+				FullProjectionPass();
+				DoDebugChecks();
+			}
+			end_project();			
+		}
+
+
+
+        protected bool HaveBoundary;
+        protected bool[] IsBoundaryVtxCache;
+        protected virtual void Precompute(bool bMeshIsClosed = false)
+        {
+            HaveBoundary = false;
+            IsBoundaryVtxCache = new bool[mesh.MaxVertexID];
+            if (bMeshIsClosed == false) {
+                foreach (int eid in mesh.BoundaryEdgeIndices()) {
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    IsBoundaryVtxCache[ev.a] = true;
+                    IsBoundaryVtxCache[ev.b] = true;
+                    HaveBoundary = true;
+                }
+            }
+        }
+        protected bool IsBoundaryV(int vid)
+        {
+            return IsBoundaryVtxCache[vid];
+        }
+
+
+
+
+
+        // subclasses can override these to implement custom behavior...
+
+        protected virtual void OnEdgeCollapse(int edgeID, int va, int vb, DMesh3.EdgeCollapseInfo collapseInfo)
+        {
+            // this is for subclasses...
+        }
+
+
+
+
+        // start_edges() and next_edge() control the iteration over edges that will be refined.
+        // Default here is to iterate over entire mesh.
+        // Subclasses can override these two functions to restrict the affected edges (eg EdgeLoopRemesher)
+
+
+        // We are using a modulo-index loop to break symmetry/pathological conditions. 
+        int nPrime = 31337;     // any prime coprime to MaxEdgeID will do...
+        int nMaxEdgeID;
+        protected virtual int start_edges() {
+            nMaxEdgeID = mesh.MaxEdgeID;
+            nPrime = MathUtil.ModuloIterationStep(nMaxEdgeID);
+            return 0;
+        }
+
+        protected virtual int next_edge(int cur_eid, out bool bDone) {
+            int new_eid = (cur_eid + nPrime) % nMaxEdgeID;
+            bDone = (new_eid == 0);
+            return new_eid;
+        }
+
+
+
+        protected virtual IEnumerable<int> project_vertices()
+        {
+            return mesh.VertexIndices();
+        }
+
+
+
+
+        // during a reduction: per vertex, whether it is a bowtie vertex (0 not known yet, 1 no, 2 yes). That depends
+        // only on the triangles at the vertex, and a collapse changes only those at the kept vertex and its
+        // neighbours (the triangles that had a or b, whose other corners are now all neighbours of the kept
+        // vertex), so forget_bowtie_states resets exactly those; the answers are those of IsBowtieVertex. (In
+        // practice DMesh3.CollapseEdge's neighbourhood test refuses the collapses that would change a state; the
+        // resets do not rely on it.) null outside DoReduce and FastCollapsePass: the mesh can change in between.
+        // bowtieStamp is the mesh's ShapeTimestamp after the last reset: any other edit while the states are live (eg a
+        // subclass that changes the mesh in OnEdgeCollapse) differs from it, and then all states are forgotten
+        sbyte[] bowtieState;
+        int bowtieStamp;
+
+        bool is_bowtie(int vid)
+        {
+            if (bowtieState == null || CacheBowtieStates == false || vid < 0 || vid >= bowtieState.Length)
+                return mesh.IsBowtieVertex(vid);
+            // (CollapseEdge asks this before every collapse, with no edit in between, so an edit by someone else is seen
+            // before forget_bowtie_states records the stamp after the collapse)
+            if (mesh.ShapeTimestamp != bowtieStamp) {
+                Array.Clear(bowtieState, 0, bowtieState.Length);
+                bowtieStamp = mesh.ShapeTimestamp;
+            }
+            sbyte state = bowtieState[vid];
+            if (state == 0) {
+                state = mesh.IsBowtieVertex(vid) ? (sbyte)2 : (sbyte)1;
+                bowtieState[vid] = state;
+            }
+            return state == 2;
+        }
+
+        void forget_bowtie_states(int vKeep, int vRemoved)
+        {
+            if (bowtieState == null)
+                return;
+            forget_bowtie_state(vKeep);
+            forget_bowtie_state(vRemoved);
+            foreach (int v in mesh.VtxVerticesItr(vKeep))
+                forget_bowtie_state(v);
+            bowtieStamp = mesh.ShapeTimestamp;
+        }
+
+        void forget_bowtie_state(int vid)
+        {
+            if (vid >= 0 && vid < bowtieState.Length)
+                bowtieState[vid] = 0;
+        }
+
+		protected enum ProcessResult {
+			Ok_Collapsed = 0,
+			Ignored_CannotCollapse = 1,
+            Ignored_EdgeIsFullyConstrained = 2,
+			Ignored_EdgeTooLong = 3,
+			Ignored_Constrained = 4,
+			Ignored_CreatesFlip = 5,
+			Failed_OpNotSuccessful = 6,
+			Failed_NotAnEdge = 7,
+			Ignored_ExceedsDeviation = 8,
+			Ignored_CreatesIntersection = 9,
+            Ignored_ExceedsQuadricError = 10
+		};
+
+		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
+		{
+			collapseToV = DMesh3.InvalidID;
+            pairKept2 = -1;
+            LastReason = Reason.Other;
+            // (fail closed: a pass of a subclass that skipped ensure_deviation_reference would collapse without the check)
+            if (two_sided_active && reverseCoverage == null)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a collapse without the reverse coverage (a pass that skipped ensure_deviation_reference)");
+            RuntimeDebugCheck(edgeID);
+
+            EdgeConstraint constraint =
+                (constraints == null) ? EdgeConstraint.Unconstrained : constraints.GetEdgeConstraint(edgeID);
+            if (constraint.NoModifications)
+                return ProcessResult.Ignored_EdgeIsFullyConstrained;
+			if (constraint.CanCollapse == false)
+				return ProcessResult.Ignored_EdgeIsFullyConstrained;
+			
+
+			// look up verts and tris for this edge
+			int a = 0, b = 0, t0 = 0, t1 = 0;
+			if ( mesh.GetEdge(edgeID, ref a, ref b, ref t0, ref t1) == false )
+				return ProcessResult.Failed_NotAnEdge;
+			bool bIsBoundaryEdge = (t1 == DMesh3.InvalidID);
+
+			// look up 'other' verts c (from t0) and d (from t1, if it exists)
+			Index3i T0tv = mesh.GetTriangle(t0);
+			int c = IndexUtil.find_tri_other_vtx(a, b, T0tv);
+			Index3i T1tv = (bIsBoundaryEdge) ? DMesh3.InvalidTriangle : mesh.GetTriangle(t1);
+			int d = (bIsBoundaryEdge) ? DMesh3.InvalidID : IndexUtil.find_tri_other_vtx( a, b, T1tv );
+
+			Vector3d vA = mesh.GetVertex(a);
+			Vector3d vB = mesh.GetVertex(b);
+			double edge_len_sqr = (vA-vB).LengthSquared;
+			// (a NaN limit compares false with everything: without the test it would accept every collapse)
+			if (edge_len_sqr > MinEdgeLength * MinEdgeLength || double.IsNaN(MinEdgeLength))
+				return ProcessResult.Ignored_EdgeTooLong;
+
+            begin_collapse();
+
+            // check if we should collapse, and also find which vertex we should collapse to,
+            // in cases where we have constraints/etc
+            int collapse_to = -1;
+            bool bCanCollapse = can_collapse_constraints(edgeID, a, b, c, d, t0, t1, out collapse_to);
+			if (bCanCollapse == false)
+				return ProcessResult.Ignored_Constrained;
+
+            // if we have a boundary, we want to collapse to boundary
+            if (PreserveBoundaryShape && HaveBoundary) {
+                if (collapse_to != -1) {
+                    if (( IsBoundaryV(b) && collapse_to != b) ||
+                         ( IsBoundaryV(a) && collapse_to != a))
+                        return ProcessResult.Ignored_Constrained;
+                }
+                bool ba = IsBoundaryV(a), bb = IsBoundaryV(b);
+                if (ba && bb)
+                    collapse_to = (vNewPos.DistanceSquared(vA) < vNewPos.DistanceSquared(vB)) ? a : b;  // as chosen in OptimalPoint()
+                else if (bb)
+                    collapse_to = b;
+                else if (ba)
+                    collapse_to = a;
+            }
+
+            // a bowtie vertex (fans of triangles that meet only there) is kept in place and never removed: moving it
+            // drags the other fans along, and removing it attaches them to a vertex of this fan (the fans merge, and
+            // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
+            // triangles through). The queue priority of such an edge is still that of the free optimum: the forced
+            // position is only checked here (flip test), not costed
+            bool bowA = is_bowtie(a), bowB = is_bowtie(b);
+            if (bowA || bowB) {
+                if (bowA && bowB)
+                    return ProcessResult.Ignored_Constrained;
+                int bowtie = bowA ? a : b;
+                if (collapse_to != -1 && collapse_to != bowtie)
+                    return ProcessResult.Ignored_Constrained;
+                collapse_to = bowtie;
+            }
+
+            // optimization: if edge cd exists, we cannot collapse or flip. look that up here?
+            //  funcs will do it internally...
+            //  (or maybe we can collapse if cd exists? edge-collapse doesn't check for it explicitly...)
+            ProcessResult retVal = ProcessResult.Failed_OpNotSuccessful;
+
+            // PairCoincidentVertices: an edge with an end that has twin vertices (at its position) is collapsed with its twin edge,
+            // or onto that end, or not at all (see the option)
+            int twinEdge = -1, ta = -1, tb = -1, tT0 = -1, tT1 = -1;
+            if (pairTwin != null && (pairTwin[a] != -1 || pairTwin[b] != -1)) {
+                if (pairTwin[a] == -1 || pairTwin[b] == -1) {
+                    int fixedEnd = pairTwin[a] == -1 ? b : a;
+                    if (collapse_to != -1 && collapse_to != fixedEnd)
+                        return ProcessResult.Ignored_Constrained;
+                    collapse_to = fixedEnd;
+                } else {
+                    if (pair_edge_collapsible(edgeID, a, b, collapse_to, bIsBoundaryEdge, out twinEdge) == false)
+                        return ProcessResult.Ignored_CannotCollapse;
+                    ta = pairTwin[a]; tb = pairTwin[b];
+                    Index2i tt = mesh.GetEdgeT(twinEdge);
+                    tT0 = tt.a; tT1 = tt.b;
+                }
+            }
+
+            if (ForceKeep == a) collapse_to = a; else if (ForceKeep == b) collapse_to = b;
+            int iKeep = b, iCollapse = a;
+
+            // if either vtx is fixed, collapse to that position
+            if ( collapse_to == b ) {
+                vNewPos = vB;
+            } else if ( collapse_to == a ) {
+                iKeep = a; iCollapse = b;
+                vNewPos = vA;
+            } else
+                vNewPos = get_projected_collapse_position(iKeep, vNewPos);
+
+            // Constraints can change the queued optimum, so certify the point that will actually be kept.
+            if (enforceQuadricBudget && !(evaluate(ref EdgeQuadrics[edgeID].q, vNewPos) <= frame_error_limit(MaxQuadricError))) {
+                retVal = ProcessResult.Ignored_ExceedsQuadricError;
+                goto skip_to_end;
+            }
+
+            // check if this collapse will create a normal flip. Also checks
+            // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
+            // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
+            // (with PreventFoldOver in one pass with its check; without it, as before)
+            // (the twin edge, if there is one, is checked like the edge, for the same new position: the two one-rings do not meet)
+            for (int side = 0; side < (twinEdge >= 0 ? 2 : 1); ++side) {
+                int sa = side == 0 ? a : ta, sb = side == 0 ? b : tb, s0 = side == 0 ? t0 : tT0, s1 = side == 0 ? t1 : tT1;
+                begin_quality_check(sa, sb, s0, s1);
+                if (refNormals != null && FusedFoldCheck) {
+                    if (collapse_creates_flip_invalid_or_fold(sa, sb, ref vNewPos, s0, s1) || collapse_creates_flip_invalid_or_fold(sb, sa, ref vNewPos, s0, s1)) {
+                        { retVal = ProcessResult.Ignored_CreatesFlip; LastReason = Reason.Flip; }
+                        goto skip_to_end;
+                    }
+                } else {
+                    if (collapse_creates_flip_or_invalid(sa, sb, ref vNewPos, s0, s1) || collapse_creates_flip_or_invalid(sb, sa, ref vNewPos, s0, s1)) {
+                        { retVal = ProcessResult.Ignored_CreatesFlip; LastReason = Reason.Flip; }
+                        goto skip_to_end;
+                    }
+                    if (refNormals != null && (collapse_turns_from_reference(sa, sb, ref vNewPos, s0, s1) || collapse_turns_from_reference(sb, sa, ref vNewPos, s0, s1))) {
+                        { retVal = ProcessResult.Ignored_CreatesFlip; LastReason = Reason.Flip; }
+                        goto skip_to_end;
+                    }
+                }
+                if (SampleDeviation > 0 && SampleReference != null && collapse_samples_far(sa, sb, vNewPos)) {
+                    retVal = ProcessResult.Ignored_ExceedsDeviation; LastReason = Reason.SampleFar;
+                    goto skip_to_end;
+                }
+                if (MaxDeviation > 0 && collapse_within_deviation(sa, sb, vNewPos) == false) {
+                    retVal = ProcessResult.Ignored_ExceedsDeviation; LastReason = Reason.ForwardDev;
+                    goto skip_to_end;
+                }
+            }
+            if (PreventSelfIntersections && (twinEdge >= 0 ? collapse_creates_intersection(a, b, iKeep, vNewPos, ta, tb, iKeep == b ? tb : ta) : collapse_creates_intersection(a, b, iKeep, vNewPos))) {
+                retVal = ProcessResult.Ignored_CreatesIntersection; LastReason = Reason.Intersection;
+                goto skip_to_end;
+            }
+            // (last: the most expensive check)
+            bool twoSided = two_sided_active;
+            if (twoSided && reverseCoverage.Check(mesh, a, b, t0, t1, vNewPos, MaxDeviationDepth) == false) {
+                retVal = ProcessResult.Ignored_ExceedsDeviation; LastReason = Reason.Reverse;
+                goto skip_to_end;
+            }
+            if (DryRun) { retVal = ProcessResult.Ignored_CannotCollapse; LastReason = Reason.DryAccepted; goto skip_to_end; }
+
+            // lots of cases where we cannot collapse, but we should just let
+            // mesh sort that out, right?
+            COUNT_COLLAPSES++;
+			DMesh3.EdgeCollapseInfo collapseInfo;
+			MeshResult result = mesh.CollapseEdge(iKeep, iCollapse, out collapseInfo);
+            LastReason = Reason.MeshOp;
+			if ( result == MeshResult.Ok ) {
+                LastReason = Reason.Collapsed;
+				collapseToV = iKeep;
+				mesh.SetVertex(iKeep, vNewPos);
+                if (twoSided)
+                    reverseCoverage.Commit(mesh, a, b);
+                forget_bowtie_states(iKeep, iCollapse);
+                if (refNormals != null) {
+                    refNormals[iKeep] += refNormals[iCollapse];
+                    refLengths[iKeep] += refLengths[iCollapse];
+                }
+                DMesh3.EdgeCollapseInfo info2 = new DMesh3.EdgeCollapseInfo();
+                int pairKeep2 = -1, pairCollapse2 = -1;
+                if (twinEdge >= 0) {
+                    // (checked before: the twin edge's neighbourhood is that of the edge's twins, which the edit above did not touch)
+                    int iKeep2 = iKeep == b ? tb : ta, iCollapse2 = iKeep == b ? ta : tb;
+                    pairKeep2 = iKeep2; pairCollapse2 = iCollapse2;
+                    if (mesh.CollapseEdge(iKeep2, iCollapse2, out info2) != MeshResult.Ok)
+                        throw new InvalidOperationException("Reducer.PairCoincidentVertices: the twin edge could not be collapsed after the edge (internal error)");
+                    mesh.SetVertex(iKeep2, vNewPos);
+                    forget_bowtie_states(iKeep2, iCollapse2);
+                    if (refNormals != null) {
+                        refNormals[iKeep2] += refNormals[iCollapse2];
+                        refLengths[iKeep2] += refLengths[iCollapse2];
+                    }
+                    pairKept2 = iKeep2; pairRemoved1 = iCollapse; pairRemoved2 = iCollapse2;
+                    PairedCollapses++;
+                    if (triangleGrid != null)
+                        update_triangle_grid_pair(iKeep, iKeep2);
+                } else if (triangleGrid != null)
+                    update_triangle_grid(iKeep);
+                if (constraints != null) {
+                    constraints.ClearEdgeConstraint(edgeID);
+                    constraints.ClearEdgeConstraint(collapseInfo.eRemoved0);
+                    if ( collapseInfo.eRemoved1 != DMesh3.InvalidID )
+                        constraints.ClearEdgeConstraint(collapseInfo.eRemoved1);
+                    constraints.ClearVertexConstraint(iCollapse);
+                }
+                OnEdgeCollapse(edgeID, iKeep, iCollapse, collapseInfo);
+                if (twinEdge >= 0)
+                    OnEdgeCollapse(twinEdge, pairKeep2, pairCollapse2, info2);
+                DoDebugChecks();
+
+				retVal = ProcessResult.Ok_Collapsed;
+			}
+
+skip_to_end:
+            end_collapse();
+			return retVal;
+		}
+
+
+
+
+
+        // PairCoincidentVertices: may edge (a, b), both ends with one twin vertex, be collapsed with its twin edge? Its twin edge exists, no
+        // end is a bowtie or boundary vertex or has a position forced (collapseTo), the two one-rings are independent (no end next to
+        // an end of the twin edge), and the mesh accepts both collapses. With these, the twin edge's collapse is the same after the
+        // edge's: its neighbourhood does not change
+        bool pair_edge_collapsible(int edgeID, int a, int b, int collapseTo, bool boundaryEdge, out int twinEdge)
+        {
+            twinEdge = -1;
+            int ta = pairTwin[a], tb = pairTwin[b];
+            if (ta < 0 || tb < 0 || collapseTo != -1 || boundaryEdge)
+                return false;
+            int e2 = mesh.FindEdge(ta, tb);
+            if (e2 == DMesh3.InvalidID || e2 == edgeID || mesh.IsBoundaryEdge(e2))
+                return false;
+            if (HaveBoundary && (IsBoundaryV(a) || IsBoundaryV(b) || IsBoundaryV(ta) || IsBoundaryV(tb)))
+                return false;
+            if (mesh.FindEdge(a, ta) != DMesh3.InvalidID || mesh.FindEdge(a, tb) != DMesh3.InvalidID
+                || mesh.FindEdge(b, ta) != DMesh3.InvalidID || mesh.FindEdge(b, tb) != DMesh3.InvalidID)
+                return false;
+            if (is_bowtie(ta) || is_bowtie(tb))
+                return false;
+            // (the edge goes to b, the twin edge to tb, as in CollapseEdge: ids only, the geometry is the same either way)
+            if (MeshAcceptsCollapse(mesh, b, a) == false || MeshAcceptsCollapse(mesh, tb, ta) == false)
+                return false;
+            twinEdge = e2;
+            return true;
+        }
+
+        /// <summary>
+        /// (tests) PairCoincidentVertices: would edge eid be collapsed together with its twin edge as far as the structure goes (both ends have
+        /// one twin, the twin edge exists, the one-rings are independent, no bowtie or boundary end, the mesh accepts both collapses)?
+        /// Takes the positions as they are now
+        /// </summary>
+        internal bool PairStructureAllows(int eid)
+        {
+            ensure_vertex_pairs();
+            Index2i ev = mesh.GetEdgeV(eid);
+            int e2;
+            if (pairTwin == null || pairTwin[ev.a] < 0 || pairTwin[ev.b] < 0)
+                return false;
+            return pair_edge_collapsible(eid, ev.a, ev.b, -1, mesh.IsBoundaryEdge(eid), out e2);
+        }
+
+        /// <summary> (tests) "" if every edge in the queue has the quadric a fresh computation gives (PairCoincidentVertices: with its twin edge's), else the first difference </summary>
+        internal string QueueQuadricDifference()
+        {
+            foreach (int eid in mesh.EdgeIndices()) {
+                if (EdgeQueue == null || EdgeQueue.Contains(eid) == false)
+                    continue;
+                Index2i ev = mesh.GetEdgeV(eid);
+                QuadricError q = edge_quadric(ev.a, ev.b), have = EdgeQuadrics[eid].q;
+                if (q.Axx != have.Axx || q.Axy != have.Axy || q.Axz != have.Axz || q.Ayy != have.Ayy || q.Ayz != have.Ayz || q.Azz != have.Azz
+                    || q.bx != have.bx || q.by != have.by || q.bz != have.bz || q.c != have.c)
+                    return "edge " + eid + " has a stale quadric";
+            }
+            return "";
+        }
+
+        /// <summary> (tests) "" if the self-intersection grid holds exactly the mesh's triangles, each with its current box, else the first difference </summary>
+        internal string TriangleGridDifference()
+        {
+            if (triangleGrid == null)
+                return "no grid";
+            if (triangleGrid.Count != mesh.TriangleCount)
+                return "the grid holds " + triangleGrid.Count + " triangles, the mesh " + mesh.TriangleCount;
+            foreach (int tid in mesh.TriangleIndices()) {
+                AxisAlignedBox3d box;
+                if (triangleGrid.TryGetBox(tid, out box) == false)
+                    return "triangle " + tid + " is not in the grid";
+                AxisAlignedBox3d now = tri_box(tid);
+                if (box.Min != now.Min || box.Max != now.Max)
+                    return "triangle " + tid + " has a stale box";
+            }
+            return "";
+        }
+
+        // after two collapses (an edge and its twin edge): the grid without the triangles of both one-rings, with those around both kept vertices
+        void update_triangle_grid_pair(int vKeep, int vKeep2)
+        {
+            foreach (int tid in gridRingTris)
+                triangleGrid.Remove(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep))
+                triangleGrid.Insert(tid, tri_box(tid));
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep2))
+                triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        protected void project_vertex(int vID, IProjectionTarget targetIn)
+        {
+            Vector3d curpos = mesh.GetVertex(vID);
+            Vector3d projected = targetIn.Project(curpos, vID);
+            mesh.SetVertex(vID, projected);
+        }
+
+        // used by collapse-edge to get projected position for new vertex
+        protected Vector3d get_projected_collapse_position(int vid, Vector3d vNewPos)
+        {
+            if (constraints != null) {
+                VertexConstraint vc = constraints.GetVertexConstraint(vid);
+                if (vc.Target != null) 
+                    return vc.Target.Project(vNewPos, vid);
+                if (vc.Fixed)
+                    return vNewPos;
+            }
+
+            // we don't need to do inline projection to target surface here because we 
+            // already did it in OptimalPoint()
+
+            return vNewPos;
+        }
+
+
+
+
+        // we can do projection in parallel if we have .net 
+        protected virtual void FullProjectionPass()
+        {
+            Action<int> project = (vID) => {
+                if (vertex_is_constrained(vID))
+                    return;
+                Vector3d curpos = mesh.GetVertex(vID);
+                Vector3d projected = target.Project(curpos, vID);
+                mesh.SetVertex(vID, projected);
+            };
+
+            gParallel.ForEach<int>(project_vertices(), project);
+        }
+
+
+
+
+        [Conditional("DEBUG")]
+        protected virtual void RuntimeDebugCheck(int eid)
+        {
+            if (DebugEdges.Contains(eid))
+                System.Diagnostics.Debugger.Break();
+        }
+
+
+        public bool ENABLE_DEBUG_CHECKS = false;
+        protected virtual void DoDebugChecks()
+        {
+            if (ENABLE_DEBUG_CHECKS == false)
+                return;
+
+            DebugCheckVertexConstraints();
+
+            // [RMS] keeping this for now, is useful in testing that we are preserving group boundaries
+            //foreach ( int eid in mesh.EdgeIndices() ) {
+            //    if (mesh.IsGroupBoundaryEdge(eid))
+            //        if (constraints.GetEdgeConstraint(eid).CanFlip) {
+            //            Util.gBreakToDebugger();
+            //            throw new Exception("fuck");
+            //        }
+            //}
+            //foreach ( int vid in mesh.VertexIndices() ) {
+            //    if (mesh.IsGroupBoundaryVertex(vid))
+            //        if (constraints.GetVertexConstraint(vid).Target == null)
+            //            Util.gBreakToDebugger();
+            //}
+        }
+
+        protected virtual void DebugCheckVertexConstraints()
+        {
+            if (constraints == null)
+                return;
+
+            foreach ( KeyValuePair<int,VertexConstraint> vc in constraints.VertexConstraintsItr() ) {
+                int vid = vc.Key;
+                if (vc.Value.Target != null) {
+                    Vector3d curpos = mesh.GetVertex(vid);
+                    Vector3d projected = vc.Value.Target.Project(curpos, vid);
+                    if (curpos.DistanceSquared(projected) > 0.0001f)
+                        Util.gBreakToDebugger();
+                }
+            }
+        }
+
+
+
+
+        //
+        // profiling functions, turn on ENABLE_PROFILING to see output in console
+        // 
+        int COUNT_COLLAPSES;
+		int COUNT_ITERATIONS;
+        Stopwatch AllOpsW, SetupW, ProjectW, CollapseW;
+
+        protected virtual void begin_pass() {
+            if ( ENABLE_PROFILING ) {
+                COUNT_COLLAPSES = 0;
+				COUNT_ITERATIONS = 0;
+                AllOpsW = new Stopwatch();
+				SetupW = new Stopwatch();
+                ProjectW = new Stopwatch();
+                CollapseW = new Stopwatch();
+            }
+        }
+
+        protected virtual void end_pass() {
+            if ( ENABLE_PROFILING ) {
+                System.Console.WriteLine(string.Format(
+					"ReducePass: T {0} V {1} collapses {2}  iterations {3}", mesh.TriangleCount, mesh.VertexCount, COUNT_COLLAPSES, COUNT_ITERATIONS
+                    ));
+                System.Console.WriteLine(string.Format(
+					"           Timing1: setup {0} ops {1} project {2}", Util.ToSecMilli(SetupW.Elapsed), Util.ToSecMilli(AllOpsW.Elapsed), Util.ToSecMilli(ProjectW.Elapsed)
+                    ));
+            }
+        }
+
+        protected virtual void begin_ops() {
+            if ( ENABLE_PROFILING ) AllOpsW.Start();
+        }
+        protected virtual void end_ops() {
+            if ( ENABLE_PROFILING ) AllOpsW.Stop();
+        }
+		protected virtual void begin_setup() {
+			if (ENABLE_PROFILING) SetupW.Start();
+		}
+		protected virtual void end_setup() {
+			if (ENABLE_PROFILING) SetupW.Stop();
+		}
+
+        protected virtual void begin_project() {
+            if ( ENABLE_PROFILING ) ProjectW.Start();
+        }
+        protected virtual void end_project() {
+            if ( ENABLE_PROFILING ) ProjectW.Stop();
+        }
+
+        protected virtual void begin_collapse() {
+            if ( ENABLE_PROFILING ) CollapseW.Start();
+        }
+        protected virtual void end_collapse() {
+            if ( ENABLE_PROFILING ) CollapseW.Stop();
+        }
+
+
+	}
+
+
+
+
+
+	/// <summary>
+	/// Stores quadratic function that evaluates distance to plane,
+	/// in minimal 10-coefficient form, following http://mgarland.org/files/papers/qtheory.pdf
+	/// - symmetric matrix A
+	/// - vector b
+	/// - constant c
+	/// </summary>
+	public struct QuadricError {
+		public double Axx, Axy, Axz, Ayy, Ayz, Azz;
+		public double bx, by, bz;
+		public double c;
+
+		public static readonly QuadricError Zero = new QuadricError() {
+			Axx = 0, Axy = 0, Axz = 0, Ayy = 0, Ayz = 0, Azz = 0, bx = 0, by = 0, bz = 0, c = 0
+		};
+
+		public QuadricError(ref Vector3d n, ref Vector3d p) {
+			Axx = n.x * n.x;
+			Axy = n.x * n.y;
+			Axz = n.x * n.z;
+			Ayy = n.y * n.y;
+			Ayz = n.y * n.z;
+			Azz = n.z * n.z;
+			bx = by = bz = c = 0;
+			Vector3d v = multiplyA(ref p);
+			bx = -v.x; by = -v.y; bz = -v.z;
+			c = p.Dot(ref v);
+		}
+		public QuadricError(ref QuadricError a, ref QuadricError b) {
+			Axx = a.Axx + b.Axx;
+			Axy = a.Axy + b.Axy;
+			Axz = a.Axz + b.Axz;
+			Ayy = a.Ayy + b.Ayy;
+			Ayz = a.Ayz + b.Ayz;
+			Azz = a.Azz + b.Azz;
+			bx = a.bx + b.bx;
+			by = a.by + b.by;
+			bz = a.bz + b.bz;
+			c = a.c + b.c;
+		}
+
+
+		public void Add(double w, ref QuadricError b) {
+			Axx += w * b.Axx;
+			Axy += w * b.Axy;
+			Axz += w * b.Axz;
+			Ayy += w * b.Ayy;
+			Ayz += w * b.Ayz;
+			Azz += w * b.Azz;
+			bx += w * b.bx;
+			by += w * b.by;
+			bz += w * b.bz;
+			c += w * b.c;
+		}
+
+
+		/// <summary>
+		/// returns pAp + 2*dot(p,b) + c
+		/// </summary>
+		public double Evaluate(ref Vector3d pt) {
+			double x = Axx * pt.x + Axy * pt.y + Axz * pt.z;
+			double y = Axy * pt.x + Ayy * pt.y + Ayz * pt.z;
+			double z = Axz * pt.x + Ayz * pt.y + Azz * pt.z;
+			return (pt.x * x + pt.y * y + pt.z * z) +
+					 2.0 * (pt.x * bx + pt.y * by + pt.z * bz) + c;
+		}
+
+
+		Vector3d multiplyA(ref Vector3d pt) {
+			double x = Axx * pt.x + Axy * pt.y + Axz * pt.z;
+			double y = Axy * pt.x + Ayy * pt.y + Ayz * pt.z;
+			double z = Axz * pt.x + Ayz * pt.y + Azz * pt.z;
+			return new Vector3d(x, y, z);
+		}
+
+
+
+		/// <summary>
+		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
+		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
+		/// at center. Returns false, with result untouched, for an empty quadric, a nearly singular one, and where the
+		/// solution leaves the double range: 1/det is 0 or infinity, or the products below overflow (from about L = 1e45 for
+		/// area-weighted planes). The Reducer then takes an endpoint or the midpoint of the edge.
+		/// </summary>
+		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
+			double scale = (Axx + Ayy + Azz) / 3;
+			if (!(scale > 0 && scale <= double.MaxValue))
+				return false;
+			// The solution x = -(A + lambda I)^-1 (b - lambda c) does not change if A, b and lambda are multiplied by the same factor: by a power
+			// of two (exact) that brings trace(A)/3 into [1, 2), so that the products and the determinant below stay in the double range
+			// whatever the size of the mesh (with area weights A is the squared extent, det its sixth power: they overflowed from an extent of 2^150
+			// and underflowed below 2^-150, where the old code returned the origin of the quadric or refused)
+			double norm = Reducer.pow2(-Reducer.exponent_of(scale));
+			QuadricError r = this;
+			if (norm != 1) {
+				r.Axx *= norm; r.Axy *= norm; r.Axz *= norm; r.Ayy *= norm; r.Ayz *= norm; r.Azz *= norm;
+				r.bx *= norm; r.by *= norm; r.bz *= norm;
+				scale *= norm;
+			}
+			double lambda = lambdaRel * scale;
+			r.Axx += lambda; r.Ayy += lambda; r.Azz += lambda;
+			double a11 = r.Azz * r.Ayy - r.Ayz * r.Ayz;
+			double a12 = r.Axz * r.Ayz - r.Azz * r.Axy;
+			double a13 = r.Axy * r.Ayz - r.Axz * r.Ayy;
+			double a22 = r.Azz * r.Axx - r.Axz * r.Axz;
+			double a23 = r.Axy * r.Axz - r.Axx * r.Ayz;
+			double a33 = r.Axx * r.Ayy - r.Axy * r.Axy;
+			double det = (r.Axx * a11) + (r.Axy * a12) + (r.Axz * a13);
+			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
+				return false;
+			det = 1.0 / det;
+			// 0 would give a point of zeros; an infinite 1/det ends in the check of the solution below
+			if (det == 0)
+				return false;
+			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
+			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
+			// and keep the others at center
+			Vector3d cur = center;
+			for (int k = 0; k < 3; ++k) {
+				double rx = r.bx - lambda * cur.x, ry = r.by - lambda * cur.y, rz = r.bz - lambda * cur.z;
+				cur = new Vector3d(
+					-(a11 * rx + a12 * ry + a13 * rz) * det,
+					-(a12 * rx + a22 * ry + a23 * rz) * det,
+					-(a13 * rx + a23 * ry + a33 * rz) * det);
+			}
+			if (MathUtil.IsFinite(cur.x) == false || MathUtil.IsFinite(cur.y) == false || MathUtil.IsFinite(cur.z) == false)
+				return false;
+			result = cur;
+			return true;
+		}
+
+		public bool OptimalPoint(ref Vector3d result) {
+			double a11 = Azz * Ayy - Ayz * Ayz;
+			double a12 = Axz * Ayz - Azz * Axy;
+			double a13 = Axy * Ayz - Axz * Ayy;
+			double a22 = Azz * Axx - Axz * Axz;
+			double a23 = Axy * Axz - Axx * Ayz;
+			double a33 = Axx * Ayy - Axy * Axy;
+			double det = (Axx * a11) + (Axy * a12) + (Axz * a13);
+			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
+			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. A factor on A
+			// does not change the decision while det and 1/det are in the double range; beyond that (size above about
+			// 6e102 or below about 2e-103) it refuses, as the inverse would be 0 or infinity, which is no solution. It also
+			// refuses if the solution itself is not finite, with b out of range or too large for this A.
+			// Against the old absolute threshold: the same for trace 3, otherwise (trace/3)^3 times it, so 1000 unit
+			// planes of tilt 1e-7 are refused now, which the old code solved.
+			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
+			double inverse = 1.0 / det;
+			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon * size * size * size && MathUtil.IsFinite(inverse) && inverse != 0) {
+				a11 *= inverse; a12 *= inverse; a13 *= inverse;
+				a22 *= inverse; a23 *= inverse; a33 *= inverse;				
+				double x = a11 * bx + a12 * by + a13 * bz;
+				double y = a12 * bx + a22 * by + a23 * bz;
+				double z = a13 * bx + a23 * by + a33 * bz;
+                if (MathUtil.IsFinite(x) == false || MathUtil.IsFinite(y) == false || MathUtil.IsFinite(z) == false)
+                    return false;
+                result = new Vector3d(-x, -y, -z);
+                return true;
+			} else {
+                return false;
+			}
+
+		}
+
+	}
+
+
+
+
+}

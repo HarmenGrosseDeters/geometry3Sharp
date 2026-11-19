@@ -8,6 +8,7 @@
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries     (envelope vs bounds per query)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- share [rounds]  (shared deviation queries A/B)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- twosided [rounds] [files]  (MaxDeviationTwoSided, TwoSided.cs)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- collapsepoint [rounds] [files]  (endpoint fallback, certificate lifetime; CollapsePoint.cs)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- hashes      (SHA-256 of every reduced mesh: unchanged results)
 using System;
 using System.Diagnostics;
@@ -169,6 +170,7 @@ static class Program
     static void Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "twosided") { TwoSided.Run(BumpySphere, Terrain, args); return; }
+        if (args.Length > 0 && args[0] == "collapsepoint") { CollapsePoint.Run(BumpySphere, Terrain, args); return; }
         if (args.Length > 0 && args[0] == "hashes") { ReducerHashes.Run(BumpySphere, Terrain); return; }
         if (args.Length > 0 && args[0] == "share") { Share(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0 && args[0] == "queries") { Queries(); return; }
