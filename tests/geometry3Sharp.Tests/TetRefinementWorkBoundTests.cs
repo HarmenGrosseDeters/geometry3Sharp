@@ -29,7 +29,8 @@ namespace geometry3Sharp.Tests
 
         internal static MeshTetrahedralization Make(string shape, double alpha, double rho)
         {
-            return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho };
+            // the work-bound tests target the refinement; the rescue phase of stage 2 (#1072) would add seconds to a run that does not converge
+            return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho, RescuePasses = 0 };
         }
 
         // Compute with a stopwatch of its own (15 s per call: the new code needs 1 to 2 s, also under the load of parallel test classes; the old code runs into it)
@@ -163,7 +164,7 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(simName);
             MeshTetrahedralization a = fixture.Tm;
-            var b = new MeshTetrahedralization(Invariance.Transformed(TetMeshingStage2Tests.Input("sphere"), s)) { RelativeAlpha = 12, MaxRadiusEdgeRatio = 1.0 };
+            var b = new MeshTetrahedralization(Invariance.Transformed(TetMeshingStage2Tests.Input("sphere"), s)) { RelativeAlpha = 12, MaxRadiusEdgeRatio = 1.0, RescuePasses = 0 };
             Go(b);
             Assert.Equal(MeshTetrahedralization.TetStatus.PointLimitReached, b.Status);
             Assert.Null(TetMeshQuality.NotValidReason(b.Result));

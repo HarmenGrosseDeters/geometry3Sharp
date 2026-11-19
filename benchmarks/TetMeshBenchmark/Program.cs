@@ -76,11 +76,12 @@ static class Program
                 if (args.Length > 4) tm.MaxSteinerPoints = int.Parse(args[4], Inv);
                 if (args.Length > 5) tm.SurfaceMinAngleDegrees = double.Parse(args[5], Inv);
                 // A/B switches of stage 2 (TET_MESHING.md section 16), from the environment: G3_TET_DIAG=1 (diagnosis lines on stderr),
-                // G3_TET_SPLIT=0, G3_TET_CONTRACT=0, G3_TET_PASSES=<n>
+                // G3_TET_SPLIT=0, G3_TET_CONTRACT=0, G3_TET_PASSES=<n>, G3_TET_RESCUE=<n>
                 tm.DiagnoseImprovement = Environment.GetEnvironmentVariable("G3_TET_DIAG") == "1";
                 if (Environment.GetEnvironmentVariable("G3_TET_SPLIT") == "0") tm.SplitEdges = false;
                 if (Environment.GetEnvironmentVariable("G3_TET_CONTRACT") == "0") tm.ContractEdges = false;
                 if (Environment.GetEnvironmentVariable("G3_TET_PASSES") is string ps) tm.ImprovePasses = int.Parse(ps, Inv);
+                if (Environment.GetEnvironmentVariable("G3_TET_RESCUE") is string rp) tm.RescuePasses = int.Parse(rp, Inv);
                 tm.Compute();
                 if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);
                 double totalS = sw.Elapsed.TotalSeconds;

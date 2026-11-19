@@ -84,6 +84,12 @@ namespace gs
         public bool ContractEdges = true;
         /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
         public int ImprovePasses = 50;
+        /// <summary>
+        /// stage 2 (TET_MESHING.md section 17): if tets below SliverDihedralDegrees are left after ImprovePasses, up to this many more
+        /// passes with smoothing also along the active-set direction (Freitag, Jones, Plassmann 1995); a mesh that reached the target
+        /// is not changed by it. 0: none
+        /// </summary>
+        public int RescuePasses = 150;
         /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
         internal bool DiagnoseImprovement = false;
         internal List<string> DiagnosticLines;
@@ -189,6 +195,7 @@ namespace gs
                     imp.TangentOnly = BoundaryMovesTangentOnly;
                 }
                 imp.MaxPasses = ImprovePasses;
+                imp.RescuePasses = RescuePasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
                 imp.Run();
