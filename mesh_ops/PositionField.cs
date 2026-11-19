@@ -320,7 +320,7 @@ namespace gs
                     double dq = L.Q[i].Dot(d), dt = L.T[i].Dot(d);
                     Vector3d dperp = L.Nrm[i].Cross(d);
                     if (Math.Abs(dq) >= Math.Abs(dt)) { L.Q[i] = dq >= 0 ? d : -d; L.Cb[i] = dperp; }
-                    else { L.Q[i] = dt >= 0 ? dperp : -dperp; L.Cb[i] = d; }
+                    else { L.Q[i] = dt >= 0 ? dperp : -dperp; L.Cb[i] = dperp; }     // the boundary line is along t here: still the perpendicular is removed (#1179)
                     L.T[i] = L.Nrm[i].Cross(L.Q[i]);
                 }
             }
