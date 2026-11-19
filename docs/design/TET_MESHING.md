@@ -3,7 +3,7 @@
 **Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500).
 Stage 1 prerequisites (owner go 2026-11-13): the fTetWild black-box comparison (section 12), the sharp-feature check of #736
 (section 13) and the stage-1 plan with its owner decisions (section 14). Stages 1 and 2 are built since (sections 14.8-16);
-the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8.
+the production-quality gap study and plan (owner 2026-11-17) is section 17; stage P1 (default alpha diagonal / 40) is 17.8; stage P2 (output and API) with P5(a) is 17.9.
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
@@ -1060,7 +1060,82 @@ tet >= 10 degrees with the invariants on the procedural set); the mechanism test
 the bad tets they act on are gone. The procedural inputs already reach 10 degrees at / 20, so the unit test that fails on the old
 code is the pinned default; the behaviour change is evidenced by the sample.
 
-### 17.9 The rescue lever for the meshes left at alpha / 40 (#1072, 2026-11-18)
+### 17.9 Stage P2 (output and API) with P5(a): built (2026-11-18)
+
+Scope as decided (owner 2026-11-18): additive, no change to `MeshTetrahedralization`'s result (`ExistingResult_IsBitForBitTheSameAsBeforeP2` pins a
+fingerprint of the vertices, tets, boundary triangles and counts of the box input, computed on master before the change).
+
+- **Writers** (`TetMeshWriter`, `mesh_ops/TetMeshExport.cs`; text, ASCII, vertices in the "R" round-trip form, `\n` line ends, culture independent):
+  Medit `.mesh` (version 2: Vertices, Triangles, Tetrahedra, End), Gmsh `.msh` 4.1 and 2.2, VTK legacy `.vtk` (unstructured grid, cell types 10 and 5).
+  Our tets are exactly positive in the sense of all four formats (the normal of (v0, v1, v2) by the right-hand rule points to v3), so vertex
+  order is written unchanged; boundary triangles are outward. Indices are 1-based in Medit and Gmsh, 0-based in VTK. **Readers are not provided**
+  (so no `ReaderFuzzTests` entry); the benchmark's readers in `TetFiles.cs` stay a tool.
+- **Refs** (Medit reference, Gmsh physical and elementary tag, VTK cell data `ref`): tet = region id + 1, boundary triangle = marker + 1, so
+  refs start at 1 and 0 means "unmarked" (no markers given, or a marker of -1). Gmsh 4.1 gets one volume entity per region and one surface
+  entity per distinct boundary ref, physical tag = the ref; the entities have no bounding topology (empty lists); all nodes are in one block.
+- **Marker semantics** (`TetMeshMarkers.Compute(tetMesh, input)`): per boundary triangle the nearest input triangle to its **centroid**
+  (`MeshBatchQueries.NearestPointBatch`, the same result serial and parallel); the marker is that triangle's **group id if the input has
+  triangle groups, else its triangle id**; the distance of the centroid is kept. The boundary is the offset wrap (distance about offset ..
+  alpha from the input, 17.2), so a marker is a label for loads and supports, not a claim that the boundary triangle lies on the input
+  triangle; at a crease or a thin part a boundary triangle can take the label of the nearer of two input patches. Per tet a **region id**: the
+  connected component by shared facets, numbered by the lowest tet index. An input without triangles gives -1 and an infinite distance.
+- **P5(a)** (`TetMeshQuality.CheckTargets`, `MeshTetrahedralization.Targets`, `TetTargetReport`): the two targets are the run's own parameters,
+  `SliverDihedralDegrees` (default 10; 0 = off) as the minimum dihedral angle and `MaxRadiusEdgeRatio` (default 2) as the radius-edge bound; no new
+  input parameter was added (the refinement and the report must not disagree about the target). The report counts the tets below / above, the worst
+  values and the flags `MinDihedralMet`, `RadiusEdgeMet`, `Met`, measured on `Result` after stage 2. An off target is met; a tet that is not
+  exactly positive misses both. The flag is a statement about this mesh, not a proof. Example, cube `[-1,1]^3`, defaults: 10820 tets, worst
+  smallest dihedral 10.01 (`MinDihedralMet`), 135 tets above radius-edge 2 (worst 4.38; the tets that the fixed surface leaves, 14.8):
+  `RadiusEdgeMet` is false, which is the honest result, as 17.1 row 3 says (7.3 % at alpha / 20, 2.5 % at / 40 on the subset).
+- **g3cli** `tetmesh` and its MCP tool (`tools/g3cli/TetMeshCommand.cs`): `--format auto|medit|msh41|msh22|vtk`, `--relative-alpha`,
+  `--relative-offset`, `--min-dihedral`, `--max-radius-edge`, `--max-circumradius`, `--max-steiner-points`, `--improve`, `--markers`,
+  `--deviation`, `--self-intersections`; the JSON report has `tet_status`, `wrap_status`, `valid` (exact, `TetMeshQuality.NotValidReason`),
+  `counts` (vertices, tets, boundary triangles, regions), `steps` (the library's counters), `quality`, `targets`, `markers` (kind, distinct count),
+  `deviation` (centroid distances to the input, relative to the diagonal; `hausdorff` with `--deviation`) and the metrics of the input and of the
+  boundary. `point_limit_reached` is a valid result with a warning; other statuses write nothing.
+- **Observation for the owner** (not changed here): `MaxRadiusEdgeRatio` near 1 does not terminate in practical time (cube, alpha / 10: ratio 1.2 and
+  1.5 run in 0.5 s, 1.0 had not finished after 120 s); the floor bounds the points only by `MaxSteinerPoints`. The CLI therefore accepts
+  `--max-radius-edge` in [1.5, 1000]; the library parameter itself is unchanged. If such a value should be refused or capped in the library, that is a
+  separate change (it alters `MeshTetrahedralization`'s behaviour); see 17.10 (issue #1138).
+- Tests: `TetMeshExportTests` (parsers of the four formats written for the test, golden text of a two-tet mesh in each format, round trip of a real
+  result: counts, 1-based indices, orientation of every tet, refs; markers against brute force and against the serial single queries; groups vs ids;
+  regions; `Similarity.All()` on markers of the same mesh and 2^k scales on the whole pipeline bit for bit; targets against brute force and against
+  `TetMeshQuality.Measure`; reuse) and `TetMeshCliTests` / `McpTests.TetMeshTool_*` (report, formats, errors, limits, help).
+
+### 17.10 The refinement's work bound (issue #1138, 2026-11-19)
+
+**Measurement** (`MeshTetrahedralization`, serial, one process, local; 25 s stopwatch as `CancelF`, `MaxSteinerPoints` 300000; inputs box, sphere,
+thin torus, cylinder of `TetMeshingStage2Tests.Input`, `RelativeAlpha` 12 and 40; v0 = vertices of the wrap's triangulation). Per wrap vertex v0, the **default path (ratio 2)
+needs at most 2.5 trial insertions** (0.5 splits), ratio 1.5 at most 5, and the slowest runs that do end (ratios 1.1 to 1.3) 7.2; **runs that do not end
+reach 370 to 1400 trial insertions per v0 within 25 s and keep rising** (35 to 250 splits per v0), with `refused_surface` growing along (50k to 130k) and
+`refused_floor` staying small (under 350): the cascade is new bad tets next to the fixed surface that each insertion creates. Where it ends (the box is `TetMeshingStage2Tests.Input("box")`, not the g3cli cube of 17.9, whose ratio-1.2 run at alpha / 10 ended in 0.5 s):
+
+| ratio | box 12 | box 40 | sphere 12 / 40 | thin torus 12 / 40 | cylinder 12 | cylinder 40 |
+|---|---|---|---|---|---|---|
+| 2, 1.5 | ends | ends | ends | ends | ends | ends |
+| 1.3 | **no** | ends | ends | ends | **no** | ends |
+| 1.2 | no | no | ends | ends | no | no |
+| 1.1 | no | no | ends | no | no | no |
+| 1.0 | no | no | no | no | no | no |
+
+So the limit is not a number: it depends on the shape and on alpha (the same cube ends at 1.3 for alpha / 40 and not for alpha / 12), and shapes with
+flat faces and right angles (box, cylinder) fail first. This is the 1998 condition at work: radius-edge bounds below 2 need input angles that are not acute
+or right (Shewchuk 1998; 17.6), and the floor (`MinFeatureFactor`) only bounds the count by the packing (millions), not in practical time.
+
+**Option (a), built**: `MaxTrialInsertionsPerWrapVertex` (default 48): the refinement stops after 48 * v0 + 2000 trial insertions, with status
+`PointLimitReached`, a valid result, `Counts["work_limit_reached"] = 1` (the key exists only then, so every other `Counts` stays as it was) and
+`Targets` saying which target was missed. 48 is 19 times the default path's maximum (2.5) and 6 times the slowest run that ends (7.2); it costs 1.7 s
+on the cylinder / 12 runaway (measured) and, at the measured trial rate of about 20 000 per second, 3 to 5 s on a 2000-vertex wrap. It is not used with a size bound (`MaxCircumradius` > 0, where the point count follows the
+volume), 0, a negative value or NaN turn it off; a run with more candidate points per split (a larger `SliverDihedralDegrees`, up to 30 trials per split instead of about 5) reaches it sooner, which was not measured; `MaxSteinerPoints` still applies (reported as before, without the work key). **Default outputs unchanged, bit for bit**: the
+vertices, tets, boundary triangles and counts of 16 runs (4 inputs x alpha 12 and 40 x ratio 2 and 1.5) hash to the same values on master and on the
+branch (`DefaultPathAndRadiusEdge15_AreBitForBitTheSameAsBeforeTheBound` pins them). Tests: `TetRefinementWorkBoundTests` (stopwatch as `CancelF`, so the
+old code fails them as `Cancelled`; runaways stop valid with the target missed, terminating runs are not cut, the default path stays 16 times below
+the bound, the parameter, the size bound, reuse and `MaxThreads`, `Similarity.All()` with 2^k bit for bit).
+
+**Option (b), not built (an input change, owner's decision)**: a documented lower limit on `MaxRadiusEdgeRatio`. The table gives the numbers: 1.5 ends on
+all 8 runs here (4 inputs x alpha 12 and 40), 1.3 on 6 of 8, 1.2 on 4 of 8, 1.1 on 2 of 8, 1.0 on none; the g3cli `tetmesh` already refuses below 1.5. With (a) in place a library
+limit is no longer needed for the hang, only for the quality of the answer (a run cut at the bound has many bad tets); the owner can choose 1.5 (all
+measured runs end), 1.3 or none.
+### 17.11 The rescue lever for the meshes left at alpha / 40 (#1072, 2026-11-18)
 
 The 6 meshes of 17.8 below 10 degrees at the new default go to the parked lever of the backup branch `claude/tet-floor-last4`: a **rescue
 phase** in `TetMeshImprover`, run only if tets below the target are left after the main passes. Up to `RescuePasses` (150) more passes,

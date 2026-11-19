@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset", "hull2d", "tpms" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset", "hull2d", "tpms", "tetmesh" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -341,6 +341,28 @@ namespace g3cli.Tests
                 ["input"] = m.Cube, ["method"] = "ray", ["ray_count"] = 10, ["min_thickness"] = 3.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal(12, I(r["result"]["structuredContent"]["thin_triangles"]));
+        }
+
+        [Fact]
+        public void TetMeshTool_WritesTheFileAndReportsTargets()
+        {
+            var server = Server();
+            string output = m.Path_("mcp_tet.vtk");
+            JsonObject r = Handle(server, Call(1, "tetmesh", new JsonObject() {
+                ["input"] = m.Cube, ["output"] = output, ["relative_alpha"] = 10, ["min_dihedral"] = 10.0, ["max_radius_edge"] = 100.0, ["markers"] = true, ["improve"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            JsonNode sc = r["result"]["structuredContent"];
+            Assert.Equal("success", S(sc["tet_status"]));
+            Assert.Equal("vtk", S(sc["format"]));
+            Assert.True(B(sc["valid"]));
+            Assert.True(B(sc["targets"]["radius_edge_met"]));
+            Assert.True(File.Exists(output));
+            r = Handle(server, Call(2, "tetmesh", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_tet.stl") }));
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("unknown_format", S(r["result"]["structuredContent"]["code"]));
+            r = Handle(server, Call(3, "tetmesh", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_tet2.mesh"), ["format"] = "obj" }));
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
         }
 
         [Fact]

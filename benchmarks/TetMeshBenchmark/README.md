@@ -124,7 +124,7 @@ and `refine_s` the whole `Compute`). `compare/summarize_sample.py <dir> 20 40 80
 | time median / max (s) | 0.64 / 8.6 | 0.83 / 9.8 | 1.41 / 11.7 |
 | tets, median | 4.1k | 7.3k | 19.5k |
 
-### Rescue phase (TET_MESHING.md sections 17.9, 2026-11-17 / 18)
+### Rescue phase (TET_MESHING.md sections 17.11, 2026-11-17 / 18)
 
 `G3_TET_RESCUE=<n>` sets `RescuePasses` (default 150 since owner decision 2026-11-18, 0 = off). Subset, five variants interleaved per mesh, one
 process at a time (`results/thingi10k-subset-stage2-ab-{a20_off,a20_on,a20_p200,a40_off,a40_on}-2026-11-17.csv`; `a40` = `refine <mesh> 40 600`):

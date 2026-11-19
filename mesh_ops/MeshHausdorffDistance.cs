@@ -63,10 +63,10 @@ namespace gs
         /// distance by a few ulps of the coordinates, more for slivers (eg where a point of one mesh lies very near the other, at UTM
         /// coordinates).
         /// Takes about twice the time (+16 to +115%, typically +90%, benchmarks/HausdorffBenchmark); on those inputs the subdivisions
-        /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound is not used. Every
+        /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound, if set, is the certified one (#848). Every
         /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
         /// meshes that touch.
-        /// Off by default (the results are then as before, bit for bit). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
+        /// Off by default (the results are then as before, bit for bit; with the internal PatchBound option too, the certified patch bound gives tighter values, #848). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
         /// </summary>
         public bool CertifiedUpper = false;
 
@@ -320,8 +320,8 @@ namespace gs
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
                 certified = owner.CertifiedUpper;
-                // (the patch bound's rounding slack is estimated, not derived: not used for a certified bound)
-                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound && !certified, Certified = certified, PointDistance = true };
+                // (with CertifiedUpper the patch bound is the certified one, TriangleDeviationBounds.certified_patch_bound, #848)
+                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound, Certified = certified, PointDistance = true };
                 this.tol = tol; this.prune = prune; this.pruneCertified = pruneCertified; this.owner = owner; this.limit = limit;
             }
 
