@@ -230,8 +230,8 @@ namespace geometry3Sharp.Tests
                     serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate",
                     // (KeepWhenEmptied in remove_tiny_components, #985)
                     "FullyQualifiedName~SafeRoundingLastComponentTests",
-                    // (the numerically-zero-volume removal in remove_tiny_components, #1067, and its exact decision, #1191)
-                    "FullyQualifiedName~SafeRoundingZeroVolumeSheetTests", "FullyQualifiedName~SafeRoundingExactZeroVolumeTests" },
+                    // (the numerically-zero-volume removal in remove_tiny_components, #1067, and its margin)
+                    "FullyQualifiedName~SafeRoundingZeroVolumeSheetTests", "FullyQualifiedName~SafeRoundingZeroVolumeMarginTests" },
             };
             for (int i = 1; i <= 13; ++i) {
                 string part = "stryker-mesh-rounding-" + i;

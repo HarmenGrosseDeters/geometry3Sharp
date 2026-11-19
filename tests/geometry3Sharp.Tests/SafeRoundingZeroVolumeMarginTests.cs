@@ -10,42 +10,18 @@ using Xunit.Abstractions;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// #1191: the numerically-zero-volume rule (#1067, 2 |V| below ulp(largest coordinate) * area) decided exactly where the
+    /// #1191 (the class of the margin tests of #1178, now the decision itself): the numerically-zero-volume rule (#1067, 2 |V| below ulp(largest coordinate) * area) decided exactly where the
     /// floating-point margin could not. The rule is exact for the computed area: |S| &lt; 3 t, S = 6 V exact, t = ulp(L) * A_fp.
     /// </summary>
-    public class SafeRoundingExactZeroVolumeTests
+    public class SafeRoundingZeroVolumeMarginTests
     {
         readonly ITestOutputHelper output;
-        public SafeRoundingExactZeroVolumeTests(ITestOutputHelper output) { this.output = output; }
+        public SafeRoundingZeroVolumeMarginTests(ITestOutputHelper output) { this.output = output; }
 
         static double Ulp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x;
 
-        // value * 2^1074 as an integer (exact for every finite double)
-        static BigInteger Scaled(double v)
-        {
-            long bits = BitConverter.DoubleToInt64Bits(v);
-            int e = (int)((bits >> 52) & 0x7FF);
-            long frac = bits & 0xFFFFFFFFFFFFFL;
-            if (e != 0) frac |= 1L << 52;
-            int exp = e == 0 ? -1074 : e - 1075;
-            BigInteger m = new BigInteger(bits < 0 ? -frac : frac);
-            return m << (exp + 1074);
-        }
-
-        // the test's own oracle: S * 2^(3 * 1074), independent of ExactPredicates
-        static BigInteger ExactS(DMesh3 mesh, List<int> comp)
-        {
-            Vector3d o3 = mesh.GetVertex(mesh.GetTriangle(comp[0]).a);
-            BigInteger[] o = { Scaled(o3.x), Scaled(o3.y), Scaled(o3.z) };
-            BigInteger[] P(int v) { Vector3d p = mesh.GetVertex(v); return new[] { Scaled(p.x) - o[0], Scaled(p.y) - o[1], Scaled(p.z) - o[2] }; }
-            BigInteger total = 0;
-            foreach (int t in comp) {
-                Index3i tv = mesh.GetTriangle(t);
-                BigInteger[] a = P(tv.a), b = P(tv.b), c = P(tv.c);
-                total += c[0] * (a[1] * b[2] - a[2] * b[1]) + c[1] * (a[2] * b[0] - a[0] * b[2]) + c[2] * (a[0] * b[1] - a[1] * b[0]);
-            }
-            return total;
-        }
+        static BigInteger Scaled(double v) => ExactVolumeSignTests.Scaled(v);
+        static BigInteger ExactS(DMesh3 mesh, List<int> comp) => ExactVolumeSignTests.ExactS(mesh, comp);
 
         // |S| / (3 t) of the only component, with the library's A_fp and L (< 1: removed)
         static double Ratio(DMesh3 mesh, out double t)
@@ -197,108 +173,8 @@ namespace geometry3Sharp.Tests
             Assert.False(MeshRoundingRepair.numerically_zero_volume(m, comp, 0, Next(9, -1), L, 0));
         }
 
-        // a closed tetrahedron with legs 3 (S = 27, area-free: the test passes t directly), at an offset
-        static (double[] xyz, int[] corners) Tetra(double ox, double oy, double oz)
-        {
-            double[] xyz = { ox, oy, oz, ox + 3, oy, oz, ox, oy + 3, oz, ox, oy, oz + 3 };
-            int[] corners = { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 };
-            return (xyz, corners);
-        }
-
-        static double Next(double x, int k) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + k);
-
-        /// <summary> |S| = 27 against 3 t: equal at t = 9, below at the next double up, above at the next down; the filter cannot decide the equal case </summary>
-        [Fact]
-        public void Compare_EqualAndNeighbours()
-        {
-            var (xyz, c) = Tetra(0, 0, 0);
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 9, out int s));
-            Assert.Equal(0, s);
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, Next(9, 1), out s));
-            Assert.Equal(-1, s);
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, Next(9, -1), out s));
-            Assert.Equal(1, s);
-            // the filter decides far from the threshold, on both sides
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 1, out s));
-            Assert.Equal(1, s);
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 100, out s));
-            Assert.Equal(-1, s);
-            // the orientation does not matter
-            int[] flipped = { 0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2 };
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, flipped, 9, out s));
-            Assert.Equal(0, s);
-        }
-
-        /// <summary> nothing is decided for a coordinate that is not finite, t that is not a positive normal number, a sum that overflows, or no triangles </summary>
-        [Fact]
-        public void Compare_DecidesNothing_ForUnusableInput()
-        {
-            var (xyz, c) = Tetra(0, 0, 0);
-            int s;
-            foreach (double t in new[] { 0, -9, double.NaN, double.PositiveInfinity, double.Epsilon, ExactPredicates.MinNormal / 2, -double.MaxValue })
-                Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, c, t, out s), "t = " + t);
-            // the smallest normal t is usable
-            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, ExactPredicates.MinNormal, out s));
-            Assert.Equal(1, s);
-            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
-                double[] x2 = (double[])xyz.Clone();
-                x2[4] = bad;
-                Assert.False(ExactPredicates.TryCompareAbsVolume6(x2, c, 9, out s));
-            }
-            // S_fp overflows: coordinates of 1e200 (the determinants of about 1e600)
-            var (huge, hc) = Tetra(0, 0, 0);
-            for (int i = 0; i < huge.Length; ++i) huge[i] *= 1e200 / 3;
-            Assert.False(ExactPredicates.TryCompareAbsVolume6(huge, hc, 9, out s));
-            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, new int[0], 9, out s));
-            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, null, 9, out s));
-            // (and numerically_zero_volume keeps: a sheet with area 0 has t = 0)
-            Assert.False(MeshRoundingRepair.numerically_zero_volume(new DMesh3(), new List<int>(), 0, 0, 1, 0));
-        }
-
-        /// <summary>
-        /// randomised against the oracle: closed cones with jittered rim at offsets where the differences round, t within a few ulps
-        /// of |S| / 3 (the exact path) and far from it (the filter); the sign is that of the BigInteger comparison, 200 cases
-        /// </summary>
-        [Fact]
-        public void Compare_AgreesWithTheOracle()
-        {
-            var rnd = new Random(1191);
-            int equal = 0, below = 0, above = 0;
-            for (int k = 0; k < 200; ++k) {
-                Vector3d at = new Vector3d(rnd.NextDouble() * 8 - 4, rnd.NextDouble(), rnd.NextDouble());
-                double r = 0.001 + rnd.NextDouble();
-                DMesh3 m = Sheet(at, r, r * Math.Pow(2, -rnd.Next(1, 60)) * (0.5 + rnd.NextDouble()), rnd.Next(2) == 0);
-                for (int v = 0; v < m.MaxVertexID; ++v) {
-                    Vector3d p = m.GetVertex(v);
-                    m.SetVertex(v, new Vector3d(p.x * (1 + 1e-9 * rnd.NextDouble()), p.y, p.z));
-                }
-                List<int> comp = MeshRoundingRepair.connected_components(m).First().ToList();
-                BigInteger absS = BigInteger.Abs(ExactS(m, comp));
-                // (the centre of the window: t0 = |S| / 3 as a double, S at the scale 2^(3 * 1074); then neighbours in ulps, and far values)
-                double t0 = (double)(absS >> (3 * 1074 - 60)) / 3 / 1152921504606846976.0;
-                if (t0 < ExactPredicates.MinNormal)
-                    continue;
-                var xyz = new List<double>();
-                var corners = new List<int>();
-                var index = new Dictionary<int, int>();
-                foreach (int id in comp) {
-                    Index3i tv = m.GetTriangle(id);
-                    for (int q = 0; q < 3; ++q) {
-                        if (!index.TryGetValue(tv[q], out int ix)) { index[tv[q]] = ix = xyz.Count / 3; Vector3d p = m.GetVertex(tv[q]); xyz.Add(p.x); xyz.Add(p.y); xyz.Add(p.z); }
-                        corners.Add(ix);
-                    }
-                }
-                foreach (double t in new[] { t0, Next(t0, 1), Next(t0, -1), Next(t0, 7), Next(t0, -7), t0 * 1.001, t0 * 0.999, t0 * 2, t0 / 2 }) {
-                    // (3 t exactly against |S| 2^(3 * 1074); |S| here is at the scale 2^(3 * 1074))
-                    BigInteger rhs = 3 * Scaled(t) << (2 * 1074);
-                    int expected = absS.CompareTo(rhs);
-                    Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz.ToArray(), corners.ToArray(), t, out int got), $"case {k} t={t:R} t0={t0:R}");
-                    Assert.Equal(expected, got);
-                    if (expected == 0) ++equal; else if (expected < 0) ++below; else ++above;
-                }
-            }
-            Assert.True(below > 100 && above > 100, $"{below} below, {above} above, {equal} equal");
-        }
+        static (double[] xyz, int[] corners) Tetra(double ox, double oy, double oz) => ExactVolumeSignTests.Tetra(ox, oy, oz);
+        static double Next(double x, int k) => ExactVolumeSignTests.Next(x, k);
 
         /// <summary>
         /// invariance over Similarity.All(): at the 2^k scales (S scales by 2^3k, ulp(L) * A_fp exactly the same) the decision is the
