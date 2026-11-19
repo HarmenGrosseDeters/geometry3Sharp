@@ -406,7 +406,7 @@ the grazing rule (Appendix A.5) are reviewed; A8 is withdrawn.
 
 `mesh_ops/ExactMeshGeodesicDistance.cs`, **internal**, serial, under the exact-code rules (the `mesh_ops/ExactMesh*`
 pattern of `.editorconfig`: a deliberate `Math.FusedMultiplyAdd` fails the build with RS0030 and G3E0003). It implements
-A1-A6, subsumption and the terminal windows (M1); flat vertices are pseudo-sources (S1 / A5); **A7 is not shipped**.
+A1-A6, subsumption and the terminal windows (M1); flat vertices are pseudo-sources (S1 / A5); **A7 itself (continuation windows) is not shipped; its duplicate-free form A7' is (2026-11-19, section 6d): an exactly flat interior vertex is of kind 0 and emits nothing**.
 `ExactInterval` got division and square root (correctly rounded in IEEE 754 on every target; tests at the subnormal and
 overflow edges). Corner angles for the pseudo-source test use `CoreMath.Atan2`, widened by two spacings. Its correct
 rounding (at most half a spacing) is an assumption: an empirical claim of the port, backed by bit-exact tests against a
@@ -437,7 +437,7 @@ is reset before each run; a vertex with a finite `Upper` but no lower bound ends
 instead of a silent NaN; a fan walk that stopped early never classifies a vertex as convex; the correct rounding of
 `CoreMath.Atan2` is stated as the assumption it is (empirical, backed by bit-exact tests, not a proof).
 
-**Why A7 is not shipped (an open item: A7 with duplicate control).** The constructive continuation windows of A7 are
+**Why A7 is not shipped as continuation windows (the open item was closed by A7', section 6d).** The constructive continuation windows of A7 are
 sound (reviewed), but on exactly flat regions they duplicate the ordinary windows: the ordinary windows already carry
 the rays through flat vertices, and the continuation windows carry the same origin with the same true position, so their
 distance functions are equal. Neither A6 (it needs a pending partner) nor certified dominance (equal functions) removes
@@ -595,19 +595,19 @@ unfolding): 0 violations on either side in every row, and the new and the old en
 | plane 101 x 101, centre / corner | 10201 | window limit | 3.7 s, 260k / 13.8 s, 532k | 8.6 / 17.8 |
 | roof, slope 4, 101 x 101 | 10201 | window limit | 5.5 s, 481k | 16.0 |
 | plane 201 x 201, centre / corner | 40401 | | 23 s, 2.0M / 110 s, 4.2M | |
-| roof 75 degrees, exact test (i) only, 41 x 41 | 1681 | 6.0 s, 97650 | 2.6 s, 65076 | |
+| roof 75 degrees, 41 x 41 (implementation, exact test) | 1681 | 5.6 s, 97650 | 0.45 s, 32110 | 16.5 -> 6.6 |
 
 Three limits of the bound:
 
-1. **The exact test accepts less than the tolerance.** The benchmark's ridge has z = tan(75 degrees) * c in doubles, so its
-   slope vertices are not exactly coplanar (114 of 361 interior fans at 21 x 21, 936 of 1521 at 41 x 41 pass `Orient3d` = 0);
-   the rest are intrinsically flat only up to 1e-16 and keep emitting, because a true sum of 2 pi + 1e-16 allows a bend
-   (a skip of those would need cone-limited emission, the duplicate-prone A7 of A.5). With the exact test alone (i, no
-   fold test) the 75 degree ridge goes from 6.0 s to 2.6 s at 41 x 41 (0.65 s to 0.37 s at 21 x 21): **that is the shippable
-   number for that ridge; runs with a tolerance in place of the exact test are not evidence for it.** The 4-5 times above
-   need an exactly representable slope (z = 4 c: all slope vertices are coplanar, the crest and the two hinges at
-   |x| = 2.5 are straight folds, A.5 (ii)). **Proposal: the reach benchmark and the tests get the slope-4 ridge as the
-   exactly aligned member; the 75 degree ridge stays as the nearly flat member.**
+1. **What the exact test accepts.** (Corrected at the implementation, 2026-11-19: the first version of this note counted only
+   the coplanar fans of A.5 (i) and concluded that the 75 degree ridge gains little.) The benchmark's ridge has z = tan(75
+   degrees) * c in doubles, so its slope fans are not exactly coplanar (114 of 361 interior fans at 21 x 21 pass `Orient3d` = 0),
+   but z depends on x only: every vertex has two neighbours on a line along y and each half is coplanar with that line, so
+   every vertex is an exactly flat **straight fold** (A.5 (ii)) and the exact test accepts all of them. Measured with the
+   implementation: the 75 degree ridge 41 x 41 takes 0.45 s and 32110 windows (5.6 s and 97650 with the flat vertices emitting),
+   the slope-4 ridge (the exactly aligned test member of the review) 0.43 s. What the exact test still rejects are
+   vertices flat only up to rounding, eg a rotated or UTM-shifted copy of a plane: they stay pseudo-sources (a true sum of
+   2 pi + 1e-16 allows a bend; skipping them would need cone-limited emission, the duplicate-prone A7 of A.5).
 2. **Reach.** The windows per edge side still grow linearly with the grid width (3.6, 8.6 and 17 live windows per side at
    41, 101 and 201 for the plane from the centre). The cause is fragmentation, not duplicates of distinct functions: the
    live windows of a side hold **1.0 distinct (origin, position) per side** on the plane and the roof from one
@@ -636,7 +636,14 @@ saddle (the descendants of a dominated window are dominated too, so the fraction
 above, up to the rule's own cost). Each of the eight observations needs its own reviewed interval form (A.5) and the
 dominating side must be restricted to inner intervals, which the probe did not do, so the real gain is lower.
 
-**Leaning.** Build A7' (a small change: `VertexKind`, the benchmark input; the argument A.6 to review first);
+**Implemented (2026-11-19, the code PR after this note).** `VertexKind` returns 0 for exactly flat interior vertices; measured with
+`GeodesicOracleBenchmark reach` (net10 Release, this container; flat vertices emitting, then A7'): plane 41 x 41 3.2 s, 59229 windows ->
+0.6 s, 17655; plane 101 x 101 71 s, 988852 windows -> 3.4 s, 260274 (it reached the window limit of 300000 before); aligned ridge
+41 x 41 5.6 s, 97650 -> 0.45 s, 32110; slope-4 ridge 101 x 101 (window limit at 2M windows, 194 s) -> 5.6 s, 480529; terrain and
+saddle unchanged (no flat vertices); (Upper - Lower) / Lower 1e-12 instead of 1e-8 on those inputs. The A.6 review's
+conditions are met (invariant form, no guard G).
+
+**Leaning (before the implementation).** Build A7' (a small change: `VertexKind`, the benchmark input; the argument A.6 to review first);
 it gives the factor 10 to 20 on the flat and aligned inputs at 2 x 10^3 vertices, takes the plane and the ridge to 10^4
 vertices, and makes the oracle's flat members cheap enough for the tests (the 5 s rule). Do **not** build A9 now: 0 on
 the inputs of the task, at most 1.2-1.8 elsewhere, eight claims to review. Treat the fragmentation lever as the next

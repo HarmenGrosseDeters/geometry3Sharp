@@ -17,17 +17,18 @@ namespace g3
     ///    another window subsumes it (its disk, sigma interval and outer interval contain it), or by merging two pending
     ///    windows of the same origin and nearly the same position, at most one of them with a nonempty inner interval (A6);
     ///  - windows on boundary edges are terminal: they record the bounds of their edge ends (M1);
-    ///  - boundary vertices and vertices that are not certainly convex, flat vertices included, are pseudo-sources (A5,
-    ///    review S1); the continuation windows of A7 are not used (they duplicate the ordinary windows on flat regions, an
-    ///    open item of the design note).
-    /// Reach (measured, net10 Release, benchmarks/GeodesicOracleBenchmark): terrains of 41 x 41 vertices in half a second
-    /// and of 101 x 101 in about 3 s, a plane or a saddle of 41 x 41 in 2-3 s, the exactly aligned ridge of gate 3 of
-    /// 41 x 41 in about 5 s; a plane of 101 x 101 reaches the window limit. Width (measured, #1058): (Upper - Lower) / Lower
-    /// is at most about 2e-8 on planes, on domes and saddles from exactly flat to curved (k (x^2 +- y^2), k from 1e-8 to
-    /// 0.3), on terrains and on the aligned ridge, from a centre, edge or corner source; it comes from Lower's re-emission
-    /// margins (1e-9 per emission, A5), and Upper is as tight. A measured figure on procedural grids, not an a-priori
-    /// bound: Upper may fall back to edge paths where windows keep no inner interval (eg the degenerate projections of
-    /// S2). A limit ends with WindowLimit and NaN arrays.
+    ///  - boundary vertices and vertices that are neither certainly convex nor exactly flat are pseudo-sources (A5, review
+    ///    S1); an exactly flat interior vertex (angle sum exactly 2 pi, an exact test without tolerance) emits nothing: a
+    ///    shortest path through it is straight and the ordinary windows carry the straight continuation (A7', Appendix A.6;
+    ///    the continuation windows of A7 would duplicate them).
+    /// Reach (measured, net10 Release, benchmarks/GeodesicOracleBenchmark, docs/design/GEODESICS.md 6d): terrains of 41 x 41
+    /// vertices in half a second and of 101 x 101 in about 3 s; exactly flat input (planes, developable ridges) of 101 x 101 in
+    /// 3-6 s since A7' (it reached the window limit before); a saddle of 101 x 101 (no flat vertices) still needs about 75 s.
+    /// Width (measured, #1058): (Upper - Lower) / Lower is at most about 2e-8 on planes, on domes and saddles from exactly
+    /// flat to curved (k (x^2 +- y^2), k from 1e-8 to 0.3), on terrains and on the aligned ridge, from a centre, edge or corner
+    /// source; it comes from Lower's re-emission margins (1e-9 per emission, A5; 1e-12 where no vertex emits), and Upper is as
+    /// tight. A measured figure on procedural grids, not an a-priori bound: Upper may fall back to edge paths where windows
+    /// keep no inner interval (eg the degenerate projections of S2). A limit ends with WindowLimit and NaN arrays.
     /// The result is deterministic (serial, every operation IEEE-rounded and widened) and scales exactly with 2^k scalings
     /// of the input (away from overflow and the subnormal range).
     /// </summary>
@@ -105,7 +106,7 @@ namespace g3
         internal long Emissions, Merges, Iterations;
         Heap queue;
         double[] lo, up, emitted;
-        byte[] kind;                // 0 convex (geodesics do not pass), 1 pseudo-source
+        byte[] kind;                // 0 needs no emission (certainly convex, or exactly flat: A7'), 1 pseudo-source
         bool failed;
         double scale;               // a length scale of the mesh (its largest coordinate extent): scales exactly with 2^k
         Result failure;
@@ -201,12 +202,26 @@ namespace g3
         void Classify()
         {
             // a vertex without triangles carries no surface: no path passes through it (it stays unreachable, NaN)
+            FlatVertices = 0;
             foreach (int v in Mesh.VertexIndices()) kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)VertexKind(v);
+            if (!FlatVerticesEmit) foreach (int v in Mesh.VertexIndices()) if (kind[v] == 0 && Mesh.GetVtxTriangleCount(v) > 0 && IsFlatNotConvex(v)) ++FlatVertices;
         }
 
-        /// <summary> 0: certainly convex, so no shortest path passes through it (Fact F, and the local argument of A.5 for a
-        /// flat vertex), 1: a pseudo-source (a boundary vertex, or not certainly convex, flat vertices included: review S1).
-        /// For tests. </summary>
+        bool IsFlatNotConvex(int v)
+        {
+            if (Mesh.IsBoundaryVertex(v)) return false;
+            var fan = Fan(v);
+            if (fan.Count != Mesh.GetVtxTriangleCount(v)) return false;
+            ExactInterval sum = I(0);
+            for (int i = 0; i < fan.Count; ++i) sum = sum + CornerAngle(v, fan[i], fan[(i + 1) % fan.Count]);
+            return !(sum.Hi < 2 * Math.PI);
+        }
+
+        /// <summary> 0: the vertex needs no emission: certainly convex (no shortest path passes through it, Fact F), or exactly
+        /// flat (an interior vertex of angle sum exactly 2 pi, decided by exact predicates without a tolerance: a shortest path
+        /// through it is straight, and the ordinary windows already carry the straight continuation, A7' of the design note,
+        /// Appendix A.6). 1: a pseudo-source (a boundary vertex, or neither certainly convex nor exactly flat: a saddle, a
+        /// nearly flat vertex whose sum may exceed 2 pi by rounding noise). For tests. </summary>
         internal int VertexKind(int v)
         {
             if (Mesh.IsBoundaryVertex(v)) return 1;
@@ -217,7 +232,102 @@ namespace g3
             for (int i = 0; i < fan.Count; ++i) sum = sum + CornerAngle(v, fan[i], fan[(i + 1) % fan.Count]);
             // Math.PI is the double below pi, so 2 * Math.PI (an exact doubling) is below 2 pi
             if (sum.Hi < 2 * Math.PI) return 0;
+            if (!FlatVerticesEmit && IsExactlyFlat(v, fan)) return 0;
             return 1;
+        }
+
+        /// <summary> the pre-A7' behaviour (S1): every vertex that is not certainly convex is a pseudo-source, flat ones included.
+        /// For tests, which compare the two. </summary>
+        internal bool FlatVerticesEmit;
+        /// <summary> the number of vertices of the last run that are exactly flat and so of kind 0 without being certainly
+        /// convex. For tests </summary>
+        internal int FlatVertices;
+        /// <summary> whether the vertex has emitted in the last run. For tests </summary>
+        internal bool Emitted(int v) => emitted != null && emitted[v] < double.PositiveInfinity;
+        internal int Kind(int v) => kind[v];
+
+        // ---- the exact flatness test of A.5 (all predicates exact, on the double coordinates)
+
+        static Vector2d Project(int axis, Vector3d q) => axis == 0 ? new Vector2d(q.y, q.z) : axis == 1 ? new Vector2d(q.z, q.x) : new Vector2d(q.x, q.y);
+        static int Orient2(int axis, Vector3d p, Vector3d a, Vector3d b) => ExactPredicates.Orient2d(Project(axis, p), Project(axis, a), Project(axis, b));
+        // a coordinate plane on which the triangle (p, a, b) does not project to a segment; -1 if it is degenerate
+        static int RegularAxis(Vector3d p, Vector3d a, Vector3d b)
+        {
+            for (int ax = 0; ax < 3; ++ax) if (Orient2(ax, p, a, b) != 0) return ax;
+            return -1;
+        }
+        // a - p and b - p point the same way, given that p, a, b are collinear in the projection and a is not p there
+        static bool SameWay(int axis, Vector3d p, Vector3d a, Vector3d b)
+        {
+            Vector2d P = Project(axis, p), A = Project(axis, a), B = Project(axis, b);
+            if (A.x != P.x) return (A.x > P.x) == (B.x > P.x);
+            return (A.y > P.y) == (B.y > P.y);
+        }
+
+        /// <summary> the angle sum at the interior vertex v (neighbours in fan order) is exactly 2 pi: (i) a coplanar fan of
+        /// sectors that all turn the same way and wind once, or (ii) a straight fold: two opposite neighbours on a line
+        /// through v and each half a coplanar fan on one side of that line (Appendix A.5) </summary>
+        internal bool IsExactlyFlat(int v, List<int> fan)
+        {
+            int k = fan.Count; if (k < 3) return false;
+            Vector3d P = Mesh.GetVertex(v); var N = new Vector3d[k];
+            for (int i = 0; i < k; ++i) N[i] = Mesh.GetVertex(fan[i]);
+            return CoplanarFan(P, N) || StraightFold(P, N);
+        }
+
+        static bool CoplanarFan(Vector3d P, Vector3d[] N)
+        {
+            int k = N.Length, ax = RegularAxis(P, N[0], N[1]);
+            if (ax < 0) return false;
+            for (int i = 2; i < k; ++i) if (ExactPredicates.Orient3d(P, N[0], N[1], N[i]) != 0) return false;
+            int s = Orient2(ax, P, N[0], N[1]), winding = 0;
+            for (int i = 0; i < k; ++i) {
+                int j = (i + 1) % k;
+                if (s * Orient2(ax, P, N[i], N[j]) <= 0) return false;          // every sector turns the same way, by less than pi
+                if (s * Orient2(ax, P, N[i], N[0]) > 0) {                        // the sector starts on the far side of the reference ray: it reaches or passes it?
+                    int o = s * Orient2(ax, P, N[0], N[j]);
+                    if (o > 0 || (o == 0 && SameWay(ax, P, N[0], N[j]))) ++winding;
+                }
+            }
+            return winding == 1;                                                 // 2 pi times the winding number
+        }
+
+        static bool StraightFold(Vector3d P, Vector3d[] N)
+        {
+            int k = N.Length;
+            for (int i = 0; i < k; ++i)
+                for (int j = i + 1; j < k; ++j) {
+                    Vector3d a = N[i], b = N[j];
+                    if (Orient2(0, P, a, b) != 0 || Orient2(1, P, a, b) != 0 || Orient2(2, P, a, b) != 0) continue;     // collinear
+                    // opposite sides of P: no coordinate has both ends strictly on the same side
+                    if ((a.x > P.x && b.x > P.x) || (a.x < P.x && b.x < P.x) || (a.y > P.y && b.y > P.y) || (a.y < P.y && b.y < P.y)
+                        || (a.z > P.z && b.z > P.z) || (a.z < P.z && b.z < P.z)) continue;
+                    if (FoldHalf(P, N, i, j) && FoldHalf(P, N, j, i)) return true;
+                }
+            return false;
+        }
+
+        // the neighbours from index `from` forward to `to` (cyclic): coplanar, all strictly on one side of the fold line, and
+        // consecutive sectors turning the same way, so the half spans exactly pi
+        static bool FoldHalf(Vector3d P, Vector3d[] N, int from, int to)
+        {
+            int k = N.Length, count = ((to - from + k) % k) - 1;     // intermediate neighbours
+            if (count < 1) return false;
+            Vector3d a = N[from], m1 = N[(from + 1) % k];
+            int ax = RegularAxis(P, a, m1);
+            if (ax < 0) return false;
+            int sg = Orient2(ax, P, a, m1);
+            Vector3d prev = a;
+            for (int t = 1; t <= count + 1; ++t) {
+                Vector3d cur = N[(from + t) % k];
+                if (sg * Orient2(ax, P, prev, cur) <= 0) return false;                                  // turns the same way, by less than pi
+                if (t <= count) {
+                    if (ExactPredicates.Orient3d(P, a, m1, cur) != 0) return false;                    // in the half's plane
+                    if (Orient2(ax, P, a, cur) != sg) return false;                                     // strictly on one side of the fold line
+                }
+                prev = cur;
+            }
+            return true;
         }
 
         // ------------------------------------------------------------------ compute
@@ -453,7 +563,7 @@ namespace g3
             }
         }
 
-        // the bounds a window gives its edge ends; the ray through a flat edge end continues (A7)
+        // the bounds a window gives its edge ends
         void Record(Window c, ExactInterval L, int a, int b)
         {
             P2 s = Box(c);
