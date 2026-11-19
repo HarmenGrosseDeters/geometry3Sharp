@@ -629,8 +629,22 @@ namespace gs
 
         // the IoU of the solids given by both inside tests, from samples points of region (Random(seed)); serial: no
         // parallel loop (the same result)
+        /// <summary>
+        /// The sample points and the answers of a result's inside test of the last volume_iou that was given it: the next call
+        /// with the same inside test takes the answer for every point it shares with it (a point is the same if its
+        /// coordinates are, eg for two reference solids with the same sample region and seed), so the test, a winding
+        /// number query, is not repeated
+        /// </summary>
+        internal sealed class InsideCache
+        {
+            internal Vector3d[] Points;
+            internal bool[] Inside;
+        }
+
+        static bool same_bits(double a, double b) { return BitConverter.DoubleToInt64Bits(a) == BitConverter.DoubleToInt64Bits(b); }
+
         internal static double volume_iou(Func<Vector3d, bool> referenceInside, SampleRegion region, Func<Vector3d, bool> resultInside,
-            out double missing, out double extra, int samples, int seed, bool serial)
+            out double missing, out double extra, int samples, int seed, bool serial, InsideCache resultCache = null)
         {
             missing = extra = 0;
             var rnd = new Random(seed);
@@ -638,12 +652,21 @@ namespace gs
             for (int k = 0; k < samples; ++k)
                 pts[k] = region.Next(rnd);
             int[] cls = new int[samples];
+            Vector3d[] known = resultCache != null && resultCache.Points != null && resultCache.Points.Length == samples ? resultCache.Points : null;
+            bool[] knownInside = known != null ? resultCache.Inside : null;
+            bool[] inside = resultCache != null ? new bool[samples] : null;
             gParallel.BlockStartEnd(0, samples - 1, (start, end) => {
                 for (int k = start; k <= end; ++k) {
-                    bool a = referenceInside(pts[k]), b = resultInside(pts[k]);
+                    bool a = referenceInside(pts[k]);
+                    bool b = (known != null && same_bits(known[k].x, pts[k].x) && same_bits(known[k].y, pts[k].y) && same_bits(known[k].z, pts[k].z)) ? knownInside[k] : resultInside(pts[k]);
+                    if (inside != null) inside[k] = b;
                     cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
                 }
             }, 256, serial);
+            if (resultCache != null) {
+                resultCache.Points = pts;
+                resultCache.Inside = inside;
+            }
             int both = 0, onlyIn = 0, onlyOut = 0;
             foreach (int c in cls) {
                 if (c == 3) both++; else if (c == 1) onlyIn++; else if (c == 2) onlyOut++;

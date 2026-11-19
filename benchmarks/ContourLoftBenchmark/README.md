@@ -70,3 +70,29 @@ self-intersection check of the whole mesh, no refinement. Results (cloud contain
 
 Reading: the time is the stage 1 search of each slab (a composite contour of 2n vertices against n: about 1.3 s at n = 1000, as
 the stage 1 table above for 2048 x 1024); the overlay, the bridges and the exact check of the whole mesh are small against it.
+
+## Lowered saddle (`ContourLoftStack.LoweredSaddle`, docs/design/CONTOUR_LOFT.md section 10.11)
+
+```
+dotnet run --project benchmarks/ContourLoftBenchmark -c Release -- saddle
+```
+
+Contained branches and merges (a contour that holds the contours of the other slice), `CapEnds`, with and without the roof; the
+dihedral angle is the angle between the normals of the two triangles of every edge that is not an input contour edge (the cap
+edges are among them, as in the numbers of the PR). Cloud container, one run after a warm-up:
+
+| case | roof | vertices | triangles | max dihedral at non-contour edges | ms |
+|---|---|---:|---:|---:|---:|
+| 1 to 2, r4 -> 2 x r1.6 | bridged composite | 96 | 188 | 41.9 deg | 11.9 |
+| 1 to 2, r4 -> 2 x r1.6 | LoweredSaddle | 116 | 228 | 33.3 deg | 14.1 |
+| 1 to 3, ellipse 7 x 3 -> 3 x r1.5 | bridged composite | 120 | 236 | 55.2 deg | 23.4 |
+| 1 to 3, ellipse 7 x 3 -> 3 x r1.5 | LoweredSaddle | 150 | 296 | 35.2 deg | 75.5 |
+| 1 to 2, dissimilar r10 -> r2, r5 | bridged composite | 96 | 188 | 20.6 deg | 13.8 |
+| 1 to 2, dissimilar r10 -> r2, r5 | LoweredSaddle | 123 | 242 | 13.2 deg | 10.3 |
+| 2 to 1, 2 x r1.6 -> r4 | bridged composite | 96 | 188 | 41.9 deg | 8.0 |
+| 2 to 1, 2 x r1.6 -> r4 | LoweredSaddle | 116 | 228 | 33.3 deg | 14.2 |
+
+Reading: the roof adds 20-30 vertices (the Steiner points of the 20 degree mesher, inside the region between the contours) and
+lowers the largest dihedral angle by 8-20 degrees; the crotch between the two branches of the first case is at 0.85 of the slab
+(0.15 for the merge) instead of at the plane of the bridge. Times are single runs (JIT and one-off costs show in the 75 ms).
+

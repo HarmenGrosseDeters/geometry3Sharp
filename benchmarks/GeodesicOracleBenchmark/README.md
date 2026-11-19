@@ -68,7 +68,50 @@ dominance test that recursed to depth 6 into every piece). After: the log is gon
 | ridge75 317 x 317 | 100489 | Ok | 592678 (5.9) | 24.10, 5515, 963 | 5.73, 228, 568 | yes |
 | saddle 317 x 317 | 100489 | WindowLimit | 6431297 (64.0) | 37.55, 579, 963 | 41.56, 579, 656 | yes |
 
+**Exact trim (issue #1186).** The dominance test of the pruning now finds the dominated part of an overlap exactly (GEODESICS.md A.7 note 11) instead of
+bisecting to depth 6. Same machine, one process alone, default budget except the 141 row (`G3_MAXW=60000000`, so that it finishes). Before: master at
+`1c52b293`; after: this change. Distances differ by at most 8.9e-16 absolute (4.3e-16 relative) over 39 runs, and the plane rows are digest-equal.
+
+| mesh | status | before: seconds, windows (per vertex) | after: seconds, windows (per vertex) |
+|---|---|---|---|
+| terrain 101 x 101 | Ok | 0.66, 123453 (12.1) | 0.50, 112758 (11.1) |
+| plane 101 x 101 | Ok | 0.69, 77422 (7.6) | 0.78, 77422 (7.6) |
+| ridge75 101 x 101 | Ok | 0.54, 57993 (5.7) | 0.57, 57969 (5.7) |
+| saddle 101 x 101 | WindowLimit | 2.61, 652865 (64.0) | 0.92, 652865 (64.0) |
+| terrain 201 x 201 | Ok | 1.27, 506347 (12.5) | 1.06, 461974 (11.4) |
+| plane 201 x 201 | Ok | 2.36, 314820 (7.8) | 2.30, 314820 (7.8) |
+| ridge75 201 x 201 | Ok | 2.36, 235926 (5.8) | 2.31, 235852 (5.8) |
+| saddle 201 x 201 | WindowLimit | 14.00, 2585665 (64.0) | 4.30, 2585665 (64.0) |
+| terrain 317 x 317 | Ok | 3.23, 1273983 (12.7) | 2.65, 1162603 (11.6) |
+| plane 317 x 317 | Ok | 6.30, 790653 (7.9) | 6.12, 790653 (7.9) |
+| ridge75 317 x 317 | Ok | 6.19, 592678 (5.9) | 6.16, 592546 (5.9) |
+| saddle 317 x 317 | WindowLimit | 42.07, 6431297 (64.0) | 13.37, 6431297 (64.0) |
+| saddle 141 x 141, budget 60M | Ok | 20.06, 3718007 (187.0) | 3.94, 2394554 (120.4) |
+
+The saddle still ends in `WindowLimit` at the default budget, by design: at the end of a run on the saddle 99 % to 100 % of the live windows are the
+minimum of their edge somewhere (31, 48 and 82 essential windows per vertex at 41, 61 and 101 vertices a side), so no filter that drops only dominated
+windows can bring the count below about 0.8 to 0.9 per vertex and grid width (64 per vertex at about 78 x 78 vertices instead of about 62 x 62). The run to the limit
+at 317 x 317 takes 13 s instead of 42 s, under the 20 s rule. A saddle mesh beyond about 78 x 78 vertices needs an explicit `MaxWindows`.
+
 The saddle ends in `WindowLimit` at the default of 64 windows per vertex at all three sizes (its windows per vertex grow with the grid width:
 62, 91 and 119 at 61, 81 and 101 vertices a side with a budget of 30 million windows, 5.3 s at 101 x 101): a documented v1 limit
 (A.7, no ICH or VTP pruning). The `WindowLimit` run at 317 x 317 takes 41 s before it gives up; the check of the prune costs it about
 10 % (37.6 s to 41.6 s).
+
+**Exact paths (`TracePath`, GEODESICS.md A.8).** `dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- path 101,201,317` (`G3_MAXW` for the budget): one Compute from the centre, then
+`TracePath` to about 2000 vertices spread over the mesh. The record that makes it possible costs 32 bytes per vertex during Compute and two stores per improvement of a vertex:
+Compute at 317 x 317, three runs each, before / after: plane 6.37, 6.48, 6.51 s / 6.42, 6.61, 6.44 s (digest equal), terrain 2.82, 2.84, 2.95 s / 2.79, 3.04, 2.99 s (digest equal),
+saddle (default budget, WindowLimit) 14.2 s / 13.8 s; peak working set plane 261 to 262 MB / 264 to 265 MB, terrain 289 MB / 292 MB, saddle 631 MB / 634 MB (32 bytes x 100489 vertices = 3 MB).
+
+| mesh | vertices | Compute seconds | traces | trace seconds (total) | microseconds per trace | longest path (points) | largest abs(Length - Distance) / Distance |
+|---|---|---|---|---|---|---|---|
+| terrain 101 x 101 | 10201 | 0.57 | 2041 | 0.044 | 22 | 120 | 1.1e-15 |
+| plane 101 x 101 | 10201 | 0.72 | 2041 | 0.035 | 17 | 143 | 3.9e-15 |
+| saddle 101 x 101 (budget 30M) | 10201 | 1.21 | 2041 | 0.021 | 10 | 144 | 2.5e-15 |
+| terrain 201 x 201 | 40401 | 1.07 | 2021 | 0.030 | 15 | 235 | 1.6e-15 |
+| plane 201 x 201 | 40401 | 2.53 | 2021 | 0.051 | 25 | 275 | 5.9e-15 |
+| saddle 201 x 201 (budget 30M) | 40401 | 14.87 | 2021 | 0.044 | 22 | 278 | 3.4e-15 |
+| terrain 317 x 317 | 100489 | 2.84 | 2010 | 0.113 | 56 | 359 | 1.9e-15 |
+| plane 317 x 317 | 100489 | 6.16 | 2010 | 0.115 | 57 | 469 | 6.0e-15 |
+
+A trace costs 10 to 60 microseconds, a thousandth of the Compute. The deviation grows with the number of triangles crossed (plane: about 1e-17 per crossing).

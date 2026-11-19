@@ -59,6 +59,20 @@ namespace gs
         /// its alpha where it is still above the tolerance, at one more wrap. Two passes reach about 0.87x the maximum distance of one at 1.1x the tets (17.13)
         /// </summary>
         public int LocalAlphaPasses = 1;
+        /// <summary>
+        /// Sharp creases in the boundary (docs/design/TET_MESHING.md 17.14, P4(b), S1-F); 0, a negative value, NaN or infinity = off (the default: the
+        /// boundary is the alpha wrap's rounded surface, S1-R, the output as before bit for bit). With a value above 0 (30 is suggested) the wrap's
+        /// surface gets the sharp-feature pass (vertices onto the offset surface's planes and creases, edges split and flipped along input edges whose
+        /// faces turn by more than this many degrees), is made Delaunay conforming (surface edge flips, then Steiner points on missing edges and
+        /// triangles) and is meshed as the boundary. Concave creases, which the wrap bridges at the scale of alpha, come out 3 to 6 times closer on CAD-like solids (much less on scanned meshes); convex
+        /// creases are within one offset either way. If the recovery does not finish (budget, floor, acute creases) the rounded wrap is meshed instead and
+        /// Counts["crease_recovery_failed"] = 1 (Status is not changed). Counts: crease_recovered, crease_flips, crease_steiner, crease_missing_triangles /
+        /// _edges (before the recovery). An input without creases above the angle gives the S1-R output. Targets says whether a crease below about 20 degrees
+        /// kept every tet above the minimum dihedral angle (it cannot: tets at a crease are bounded by its angle).
+        /// </summary>
+        public double CreaseAngleDegrees = 0;
+        /// <summary> (tests) the Steiner points the crease recovery may insert; negative = the default budget </summary>
+        internal int CreaseSteinerLimit = -1;
         /// <summary> radius-edge bound rho (> 2 for the termination argument without the floor) </summary>
         public double MaxRadiusEdgeRatio = 2;
         /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>
@@ -125,6 +139,22 @@ namespace gs
         /// the link condition and only if the smallest dihedral angle of the changed tets strictly increases
         /// </summary>
         public bool ContractEdges = true;
+        /// <summary>
+        /// stage 2, opt-in objective on both ends (B. M. Klingner's thesis, ch. 3-5): with a value from 70.6 to below 180, the improver also
+        /// works on tets with a largest dihedral angle above it (degrees). The quality of a tet becomes min(smallest dihedral,
+        /// SliverDihedralDegrees + MaxDihedralDegrees - largest dihedral), so a tet meets the target exactly when its smallest dihedral
+        /// is at least SliverDihedralDegrees and its largest at most MaxDihedralDegrees. The improver first runs on the smallest dihedral
+        /// alone (as without the option), then with the objective; there no operation may leave a tet with a smallest dihedral below
+        /// min(SliverDihedralDegrees, that of the tets it replaces). So the worst smallest dihedral never ends below
+        /// min(SliverDihedralDegrees, the first phase's worst) (measured: no mesh of 500 lost on the min side); single tets can trade
+        /// places within that. A target, not a guarantee: tets can be left above it (Targets does not report the largest dihedral;
+        /// TetMeshQuality.Measure does). Off (the stage is as without the option): 0 (the default), a negative value, NaN, a value
+        /// below 70.6 (no tet has a largest dihedral below 70.53 degrees, so every tet would miss it) and 180 or more (none can).
+        /// A target that the shape cannot meet keeps many tets bad and costs time: the second phase stops when passes stall (4 passes that neither lower the number of bad tets nor raise the worst quality by 0.1 degrees, while more than 1 % of the tets are bad; deterministic, Counts["improve_maxdih_stall_stop"] = 1, the result is still a valid mesh with the guard's min-side bound). 4.4k-tet sphere, alpha 40: G = 130 takes 1.5 s, 110 10 s, 100 9 s, 90 and 80 13 s. Needs Improve and a positive SliverDihedralDegrees; the refinement
+        /// of stage 1 is unchanged
+        /// </summary>
+        public double MaxDihedralDegrees = 0;
+        internal bool MaxDihedralGuard = true, MaxDihedralStaged = true;
         /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
         public int ImprovePasses = 50;
         /// <summary>
@@ -303,6 +333,7 @@ namespace gs
 
         bool ComputeOnce()
         {
+            creaseCounts = new Dictionary<string, long>();
             localAlphaPasses = 0; localFineSamples = 0; localCancelled = false; localRan = false; localWrapFailedStatus = 0;
             Result = null;
             Targets = null;
@@ -331,10 +362,18 @@ namespace gs
             WrapStatus = wrap.Status;
             UsedAlpha = wrap.UsedAlpha; UsedOffset = wrap.UsedOffset;
             UsedFloor = MinFeatureFactor * Math.Min(UsedOffset, UsedAlpha - UsedOffset);
-            Delaunay3 dt = wrap.Triangulation.Clone();
-            dt.RefinementSupport = true;
-            foreach (int c in dt.CellIndices())
-                dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
+            Delaunay3 dt = null;
+            bool creaseOn = CreaseAngleDegrees > 0 && !double.IsInfinity(CreaseAngleDegrees) && Mesh != null && Mesh.TriangleCount > 0;
+            if (creaseOn) {
+                dt = FeaturedTriangulation(wrap);
+                if (CancelF()) { Status = TetStatus.Cancelled; return false; }
+            }
+            if (dt == null) {
+                dt = wrap.Triangulation.Clone();
+                dt.RefinementSupport = true;
+                foreach (int c in dt.CellIndices())
+                    dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
+            }
             double workLimit = MaxTrialInsertionsPerWrapVertex > 0 && MaxCircumradius <= 0 ? MaxTrialInsertionsPerWrapVertex * dt.VertexCount + 2000 : double.PositiveInfinity;
             var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
                 TrialLimit = workLimit,
@@ -355,9 +394,11 @@ namespace gs
             if (localRan) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; if (localWrapFailedStatus != 0) { Counts["local_alpha_wrap_failed"] = 1; Counts["local_alpha_wrap_failed_status"] = localWrapFailedStatus; } }   // only then: the default counts do not change
             if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
+            foreach (var kv in creaseCounts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
+                if (TetMeshImprover.ObjectiveActive(MaxDihedralDegrees)) { imp.MaxDihedralDegrees = MaxDihedralDegrees; imp.MaxDihedralGuard = MaxDihedralGuard; imp.MaxDihedralStaged = MaxDihedralStaged; }
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
                     imp.InputTree = new DMeshAABBTree3(Mesh, true);
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
@@ -375,6 +416,26 @@ namespace gs
             }
             Targets = TetMeshQuality.CheckTargets(Result, SliverDihedralDegrees, MaxRadiusEdgeRatio);
             return st == TetStatus.Success;
+        }
+
+        // counts of the crease option, merged into Counts after the reset of the run
+        Dictionary<string, long> creaseCounts = new Dictionary<string, long>();
+        const double CreaseSteinerPerVertex = 0.25;
+
+        // S1-F: the feature pass on a copy of the wrap's surface, recovered into a labelled Delaunay3; null (S1-R) if the pass changes nothing or the recovery fails
+        Delaunay3 FeaturedTriangulation(MeshAlphaWrap wrap)
+        {
+            creaseCounts = new Dictionary<string, long>();
+            var fp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), Mesh, wrap.UsedAlpha, wrap.UsedOffset) { CancelF = CancelF, CreaseAngleDegrees = CreaseAngleDegrees };
+            if (!fp.Compute() || CancelF()) return null;
+            if (fp.PlaneMoves + fp.CreaseSnaps + fp.Splits + fp.Flips == 0) return null;
+            double floor = MinFeatureFactor * Math.Min(wrap.UsedOffset, wrap.UsedAlpha - wrap.UsedOffset);
+            TetFeatureSurface r = TetFeatureSurface.Recover(fp.Mesh, floor, CreaseSteinerLimit >= 0 ? CreaseSteinerLimit : 100 + (int)(CreaseSteinerPerVertex * fp.Mesh.VertexCount), CancelF, Mesh);
+            if (r == null) { creaseCounts["crease_recovery_failed"] = 1; return null; }
+            creaseCounts["crease_recovered"] = 1;
+            creaseCounts["crease_flips"] = r.Flips; creaseCounts["crease_steiner"] = r.Steiner;
+            creaseCounts["crease_missing_triangles"] = r.MissingTrianglesBefore; creaseCounts["crease_missing_edges"] = r.MissingEdgesBefore;
+            return r.Dt;
         }
 
         internal delegate double SizeField(Vector3d p, out bool invalid);

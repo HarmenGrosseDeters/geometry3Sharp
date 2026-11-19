@@ -6,6 +6,7 @@
 //   ... -- export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]     (the wrap's inside cells as a tet file)
 //   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
 //   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
+//   ... -- maxdih <mesh|proc> <relativeAlpha> <floor> <G> [nohdr]   (stage 2 with and without MaxDihedralDegrees, MaxDihedral.cs)
 //   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]   (stage 1; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
@@ -22,6 +23,8 @@ static class Program
     static int Main(string[] args)
     {
         string mode = args.Length > 0 ? args[0] : "wrap";
+        if (mode == "feature") { FeatureProbe.Run(args.Length > 1 ? double.Parse(args[1], Inv) : 40, args.Length > 2 ? double.Parse(args[2], Inv) : 600); return 0; }
+        if (mode == "featurefiles") { FeatureProbe.RunFiles(System.IO.Directory.GetFiles(args[1], "*.stl").OrderBy(x => x), 40, 600); return 0; }
         if (mode == "insert") {
             foreach (int n in args.Length > 1 ? args.Skip(1).Select(int.Parse) : new[] { 20000, 100000, 400000 })
                 Insert(n);
@@ -55,6 +58,8 @@ static class Program
             Console.WriteLine(TetFiles.Header);
             // the wrap is serial (one thread); the evaluation is not timed
             Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
+        } else if (mode == "maxdih") {          // maxdih <file|proc> <alpha> <floor> <G> [nohdr]: stage 2 with and without MaxDihedralDegrees (MaxDihedral.cs)
+            return MaxDihedralSample.Run(args, Procedural());
         } else if (mode == "refine") {          // refine [file|proc] [relativeAlpha] [relativeOffset]: stage 1 (MeshTetrahedralization), same row as eval
             string src = args.Length > 1 ? args[1] : "proc";
             double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;

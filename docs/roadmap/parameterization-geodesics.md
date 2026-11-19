@@ -20,6 +20,7 @@ Part of the [roadmap](../ROADMAP.md).
   field up to 0.9 pi) does not win clearly (G1 3 of 21 cells, G2/G3 fail near the cut locus); no API. AffineLocal is
   clearly better only in the mid field (12-24 edge lengths); reopen only with a brief naming such a workload and its own
   pre-registered gate. Details in [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md).
+- **Exact geodesic paths (#1, `PolyhedralGeodesicDistance.TracePath`, 2026-11-19):** the globally shortest path from the nearest source to a vertex or to a point in a triangle, as a polyline on the surface, by backtracing through the unfolded window origins; its length equals the distance of the run (measured up to 6e-15 relative on 317 x 317, tolerance stated 1e-14). Unlike `MeshGeodesicPath` (FlipOut, locally shortest) it is the global minimum. Design and measurements: [design/GEODESICS.md](../design/GEODESICS.md) A.8.
 - **Exact geodesic distance (option A of [design/GEODESICS.md](../design/GEODESICS.md))**: a certified [Lower, Upper]
   enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
   **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Study and gates
@@ -98,7 +99,7 @@ Part of the [roadmap](../ROADMAP.md).
 List as of 2026-11-17.
 
 1. `ExactMeshGeodesicDistance` as a certified test oracle (#869 merged 2026-11-15, #1062 2026-11-17): reach on flat / aligned inputs below 10^4 vertices (the ridge 41² completes in 5.7 s since #1058); the heat-method tests against the oracle.
-2. A7' (exactly flat vertices emit nothing; GEODESICS.md 6d, A.6; reviewed, PR open 2026-11-19) is done in the oracle: flat and aligned inputs of 10^4 vertices in 3-6 s. A9 is not built (0 gain on flat input, at most 1.2-1.8 times elsewhere, 6d). Next: the fragmentation lever (merging with a propagated window, 6d limit 2), then a public class for 10^5 vertices (API sketch to the coordinator first; no issue).
+2. A7' (exactly flat vertices emit nothing; GEODESICS.md 6d, A.6; reviewed, merged #1147 2026-11-19) is done in the oracle: flat and aligned inputs of 10^4 vertices in 3-6 s. A9 is not built (0 gain on flat input, at most 1.2-1.8 times elsewhere, 6d). Next: the fragmentation lever (merging with a propagated window, 6d limit 2), then a public class for 10^5 vertices (done: `PolyhedralGeodesicDistance`, #1185, 2026-11-19; its saddle tail is #1186).
 3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
 4. P1 collapse: virtual fan vertices (research; documented limitation). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts; built in #1057 (2026-11-17) with the per-chart A/B against LSCM on the atlas corpus in `benchmarks/UVAtlasBenchmark/README.md`, default unchanged ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

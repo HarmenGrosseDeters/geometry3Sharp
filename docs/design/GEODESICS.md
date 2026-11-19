@@ -694,8 +694,8 @@ platform and 2^k scalings give the same bits away from overflow and the subnorma
   the queue is bounded by the windows); the heap's array may double (24-byte entries, up to twice the entries). The windows live
   in chunks of min(65536, `MaxWindows` + 2 x the largest valence) structs, so nothing is copied when the store grows and a
   small `MaxWindows` allocates a small chunk. The bound stated in the class docs: at most **120 bytes** x (`MaxWindows` + 2 x the
-  largest valence) (64 + 4 + 2 x 24) plus about **57 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
-  U and the error xi_u of the vertex test, the kind, the root; and 24 for the heads of the edge side lists, an array by edge
+  largest valence) (64 + 4 + 2 x 24) plus about **89 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
+  U and the error xi_u of the vertex test, the kind, the root; 32 for the record of `TracePath` (A.8); and 24 for the heads of the edge side lists, an array by edge
   id, no `Dictionary`). A window's state (pending, propagated, dead) is the sign bit of its side index. The test runs
   single-threaded: it allocates a mesh with a small `MaxWindows`, checks `WindowLimit` and NaN arrays,
   `Windows <= MaxWindows + 2 x max valence` (one step creates at most two children or one emission), and the allocated bytes
@@ -739,7 +739,7 @@ plane and the slope-4 ridge 10 s. **Methods and sources:** MMP 1987 and Surazhsk
 pseudo-sources, the accumulated error of a window), the exact flatness test of A.5 for A7' (flat vertices emit nothing),
 merging of pending windows of one origin (A.7) and the plain pruning of A.7; **no ICH (Xin and Wang) and no VTP filters**, no code
 ported (if a filter of Xin and Wang is added later it is listed in `docs/SOURCES.md` then). The sources go into `docs/SOURCES.md`
-with the code PR. **Not in v1:** surface-point sources, `TracePath`, parallel runs, a `g3cli` option, a certified mode.
+with the code PR. **Not in v1:** surface-point sources, parallel runs, a `g3cli` option, a certified mode.
 
 ## 7. Test plan (repo style)
 
@@ -1295,7 +1295,7 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
 5. *delta = 1e-12 extent, measured.* On the plane, the ridges and the terrain, every touching pair of one origin was either within delta (merged) or
    at least 3.9e-5 extent apart (the largest distance below 1e-6 extent was 0 on the planes and the ridges, 3.9e-5 on the 41 x 41 terrain: the
    windows of one origin at a different image).
-6. *The vertex test is in; ICH and VTP are not.* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
+6. *The vertex test is in; ICH and VTP are not (see 11 for what was measured later).* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
    `WindowLimit`: a mesh whose pseudo-sources are dense needs the stronger pruning of the lemma-based filters, which v1 leaves out (the oracle
    needs 120 windows per vertex there too). The target families (terrain, plane, the ridges) stay below 40 per vertex (the benchmark numbers in
    `benchmarks/GeodesicOracleBenchmark/README.md`).
@@ -1329,9 +1329,90 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
     API addition) with the reached values kept and `UnreachedVertices` counting the rest; `Ok` guarantees a distance for every vertex of the sources'
     components. The test forces `Ok` as a mutant (it fails). The class docs state it.
 
+11. *Exact trimming (issue #1186, 2026-11-19).* The dominance test of the pruning no longer bisects to depth 6; it computes the set where a
+    window is certainly worse than another on the part of the edge they share. Claim: for two windows with origins sa = (ax, ay) and
+    sb = (bx, by) (both with y <= 0, the edge on the x axis) the function g(x) = |x - sa| - |x - sb| has at most one critical point. Proof: g'(x) =
+    cos(alpha_a) - cos(alpha_b), the cosines of the angles between the edge and the rays from the origins to x; they are equal only if the two rays are
+    parallel, that is if x, sa and sb are collinear, and the line through sa and sb meets the line of the edge once (if ay = by it is parallel to
+    the edge and there is no critical point: g is monotone). There g takes the extreme value +-|sa - sb| (the triangle inequality, both origins on one
+    side of the edge). The set {x: sigma_a + |x - sa| > sigma_b + |x - sb| + m} (m = xi_a + xi_b + the margin of the pruning, as before) is therefore, on each of the
+    two monotone pieces [l, xs] and [xs, r], a prefix or a suffix of the piece; its end is found by bisection from the end at which the test
+    was **verified** in floating point (48 steps), so the reported set lies inside the true set up to the rounding of the two evaluations, which the
+    margin of 4 cEps covers (the same reliance as the old test, which compared the same two evaluations). The old depth-6 recursion found only whole
+    dyadic pieces of 1/64 of the overlap: at every crossing of two windows both stayed alive over up to 1/64 of the edge, and at hundreds of crossings per
+    edge on the saddle that is most of the windows. The new set contains the old one, so coverage C and realisability R of this note hold unchanged: a
+    dropped piece is one on which another window is certainly better, by the margin that C already charges. (If the window that justified a cut is then merged into a
+    third window of its origin, C holds through the merge's charge: the merged window has xi at least xi_w + |c_w - c| + |sigma_w - sigma|, as for every merge; the order of the scan
+    is the one of the old end cut.) "The new set contains the old one" holds up to the rounding of the two evaluations (the old test compared FMin and FMax bounds). The same function trims the end of an existing
+    window b where the new window w is certainly better (the old test cut only an end if the whole overlap qualified); a piece that lies **inside** b is left:
+    splitting b into two windows was measured to create more windows than it saves (with the split: plane corner +1 % to +2 %, ridge +2 %, the cone with k = 1e-6 +2 %,
+    against the run before the change; without it no family has more windows than before, and terrain and saddle have 1 % to 3 % fewer), so b keeps the hull of what remains.
+    The early exit `FMax(a) <= FMin(b) + m` of note 7 stays (it makes the common case cost two
+    evaluations).
+    *Measured, same machine and runs as the benchmark README.* Distances: 39 runs (plane, terrain, saddle 21 to 141, dome, a rotated saddle, ridge, three sources each)
+    against the run before the change: the largest difference is 8.9e-16 absolute and 4.3e-16 relative (the tolerance of the class is 5e-15); 37 of the 39 runs are
+    bit for bit equal. Windows: saddle 101 x 101 centre 1.216M to 0.855M, 141 x 141 3.72M to 2.39M; terrain 101 -9 %; plane 101 and 317 unchanged (same digest). Seconds:
+    `benchmarks/GeodesicOracleBenchmark/README.md`.
+    *Why this is not enough for the 317 x 317 saddle.* At the end of a run on the saddle, 99 % to 100 % of the windows alive on an edge side are *essential*:
+    each is the minimum of all live windows of its side, to 1e-12 extent, at some point of its own interval (31, 48 and 82 per vertex at 41, 61 and 101 vertices a side, growing
+    linearly with the width). The geodesics follow the lattice lines through chains of saddle vertices, every vertex of a chain adds a piece of the distance function of about
+    1e-4 of the edge's length, and any exact window method has to create these windows: a filter that only drops dominated windows (ICH, VTP) cannot reduce the final count,
+    and the budget of 64 per vertex is passed at about 78 x 78 (it was passed at about 62 x 62). The 317 x 317 saddle needs about 250 to 275 windows per vertex (27M windows, 1.8 GB)
+    and still ends in `WindowLimit`, now after 14 s instead of 41 s; that is by design, the budget is the owner's, and a saddle mesh beyond about 78 x 78 needs an explicit `MaxWindows`.
+
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
 through, a flat vertex, which A.6 does not need but the tolerance does? (2) R for the exceptions of rule 4: the along-the-edge window and
 the emission are realised; is the case "origin on the line of the edge, beyond the end" covered by sy >= -xi and the realisability of
 the path to the end vertex? (3) The cap on xi at a merge, set against the tested tolerance, and the dependence of delta on the
 measured distribution.
+
+### A.8 Exact paths: `TracePath` (2026-11-19, issue #1; for review)
+
+**Claim.** From the run of A.7 the shortest path from the nearest source to a vertex, or to a point in a triangle, is a polyline on the surface whose
+length equals the distance of the run up to the rounding of the unfolding. It is found by backtracing (Mitchell, Mount and Papadimitriou 1987; Surazhsky et al. 2005),
+without a parent link between windows.
+
+**Record.** `SetDist` keeps, with every improvement of a vertex's distance (32 bytes per vertex): the kind (1 a source; 2 an edge from the pseudo-source u, the
+distance being dist[u] + the edge length; 3 a window), and for a window the edge, the edge side entered (-1 for a terminal window of a boundary edge), the origin
+and the unfolded origin image S = (Sx, Sy) in the frame of the edge (a at 0, b on +x, the entered triangle on y >= 0, so Sy <= 0). The record is the one of the
+window that gave the final value (an exact tie keeps the lower root, as the distance does). The cost: two stores per improvement; Compute on the 317 x 317 plane and terrain is
+within noise of the version without it (plane 6.37 to 6.51 s before, 6.42 to 6.61 s after; terrain 2.82 to 2.95 s before, 2.79 to 3.04 s after).
+
+**Backtracing a vertex v with a window record.** The point Q of v in the frame is a corner of the edge (when v is an end of the window's edge) or the third corner of the
+entered triangle (Propagate). The path is the straight segment from Q to S. A *leg* walks it back across the triangles: (1) if Q is not on the edge, the segment crosses the
+edge at x = qx + (sx - qx) qy / (qy - sy): a point of the path (or the end vertex, below); (2) in the previous triangle pf (the other side of the edge, the side of S) with
+corners A = (0, 0), B = (L, 0), C = (cx, -cy) (the placement of the third vertex): if S is within 1e-9 extent of a corner, the leg ends at that vertex; if C lies within that distance of the segment Q-S
+(the path runs along an edge of pf or through a flat vertex) it ends at C; otherwise the segment leaves pf through (a, c) when cross(C - Q, S - Q) < 0, else through (b, c);
+(3) Q and S are mapped by the rigid map that puts the exit edge on the x axis in the canonical orientation of that edge with pf on y >= 0, and the leg continues in the
+triangle on the other side. A crossing within 1e-9 extent of an end vertex ends the leg at that vertex too. **A leg ends at a vertex u, and the walk continues with u's own
+record** (a pseudo-source, a source, or a vertex the path passes through): a subpath of a shortest path is a shortest path, so this is valid wherever the segment passes a vertex, and
+it is what makes the walk independent of how the segment meets a vertex (exactly through it, or along an edge). A record of kind 2 adds the edge u-v. The walk ends at a source.
+A step budget (2 x triangles + 16 over the whole trace) guards against a failed unfolding (status `TraceFailed`; the points are then not a path).
+
+*Why the segments are real.* The window's realisability R (A.7) says f_w(x) >= d(x) - xi_w, and the ray from S to the vertex runs in the unfolding of the triangle strip the window
+came through; the trace unfolds the same strip back from its end. The segment between two consecutive crossings lies in one triangle by construction (both ends are on its edges,
+a convex set): the test checks it for every vertex of every tested mesh. A path through a convex vertex (angle sum < 2 pi) cannot occur, because no window continues through one
+(A.6): the tests check the angle sum at every interior vertex of every traced path.
+
+**Point in a triangle t** (barycentric b): p = sum b_i P_i. Candidates: each corner with a distance, dist + |p - corner| (the straight segment is inside t); and every live window w on the three edge
+sides that enter t whose ray from p to S crosses the edge inside [B0 - 64 cEps, B1 + 64 cEps], value sigma + |p - S|. The smallest wins (the first in list order at a tie, deterministic);
+by the coverage argument of A.7 every shortest path to p enters t through one of these sides or comes from a corner. A corner point (one coordinate 1) is the vertex query.
+The distance of a point is therefore `min` of enclosure-free values: it carries the tolerance of the run, like `Distance`.
+
+**Tolerance, measured.** |Length - Distance| / Distance, with Length the sum of the 3D lengths of the segments of the points: at most 1.7e-15 on 17 families of 15 to 31 vertices a side (plane, rotated and
+jittered plane, pyramid, dome, ridge, saddle, terrain, cube, sphere, tube, L-shape, sliver, two sources; every vertex and about 1/3 of the triangles with random points), and
+at the 101, 201 and 317 vertices a side of the benchmark (terrain, plane, saddle; about 2000 vertices each) 1.1e-15 to 2.5e-15 on terrain and saddle, 3.9e-15, 5.9e-15 and 6.0e-15 on the plane (paths of 143 to 469
+points: the error grows with the number of crossings, about 1e-17 per crossing). The class docs state 1e-14 relative as a measurement, not a bound (windows merge within 1e-12 extent, A.7; the leg keeps the stored image); the tests at 15 to 31 vertices enforce the tolerance of the distances (5e-15 relative + 5e-16 extent), one test at 101 enforces 1e-14.
+**Limits, measured (review 2026-11-19).** All of it assumes that no edge of the mesh is much shorter than 1e-7 of the extent. A grid of 9 x 9 with two columns a gap g apart (plane and a terrain): g = 1e-6, 1e-7, 1e-8: every vertex traced, deviation <= 4.7e-16
+(one of 99 plane vertices TraceFailed at 1e-8); g = 1e-9 and 1e-10: deviations of 4e-10 to 1e-9 relative (the distance itself is that wide: merges at 1e-12 extent, the margins), no TraceFailed. A strip of aspect 1e8 leaves unreached vertices (the class remarks) and some reached ones
+give TraceFailed, never a wrong Ok in the test. The tolerance for 'at a vertex' in the leg is the smaller of 1e-9 extent and a millionth of the smallest edge of the triangle being crossed; the point where the ray crosses back over the edge of the vertex it starts at is not snapped by a distance
+(in a sliver a point far along an edge can be close to the line of the next edge: the first version did, and put a segment into the wrong triangle at g = 1e-6).
+`TracePath` only reads the instance: calls may run concurrently with each other, not with `Compute`.
+
+**Tests and hand mutants.** Killed: the exit side flipped, the map orientation flipped, the corner test dropped (S at a corner), the crossing at an end vertex dropped, the third corner on the ray dropped, the
+snapping of Q at the shared vertex dropped, the hop without a face, the window tolerance with the wrong sign, windows ignored for face points, the corner candidate dropped, the corner delegation dropped, faces not reversed,
+`CanTrace` without the status, a record kept on a longer distance, a window record with the wrong side, a hop record with the wrong origin, Length copied from Distance. **Survivors (checked by hand; the script is not committed, as in A.7)**: the detection of S at
+the edge's own end vertices A and B (needed only for an along-the-edge window whose record wins a vertex: not reached by the tested families, which get such vertices from hops or from windows with S at the third corner), the clamp
+Sy <= 0 of the stored image (rounding of Propagate; unreached), and the budget check inside `Walk` (a chain of hops alone: each leg has its own check); the local vertex tolerance (a global 1e-9 extent passes the tests at g = 1e-8: no input found that needs the local one, kept because the global one is wrong by construction for small triangles);
+the `Source` taken from the walk instead of the root (equal on every tested mesh; they can differ at a near tie); and the use of `Distance` instead of `dist` for the corner candidates of a face point (equivalent after the `MaxDistance` check of the best value).

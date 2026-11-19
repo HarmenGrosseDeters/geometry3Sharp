@@ -51,9 +51,11 @@ namespace g3
         double[] sliceHeight;           // per slice: mean height along fn (working frame)
         bool anyCap;
 
-        public ContourLoftStackRun(ContourLoftStack options, IList<IList<IList<Vector3d>>> input, CancellationToken ct)
+        readonly bool roofs;            // LoweredSaddle for this run (the caller runs again without it when the roofs make a run fail)
+
+        public ContourLoftStackRun(ContourLoftStack options, IList<IList<IList<Vector3d>>> input, CancellationToken ct, bool roofs = false)
         {
-            o = options; this.input = input; this.ct = ct;
+            o = options; this.input = input; this.ct = ct; this.roofs = roofs;
         }
 
         ContourLoftStackResult Failed(ContourLoftStackStatus s, string why) =>
@@ -392,7 +394,14 @@ namespace g3
                 if (!members.TryGetValue(root, out var l)) members.Add(root, l = new List<int>());
                 l.Add(g);
             }
+            // the contours of branching, merging and complex groups; their holes (groups of their own) pass the intermediate plane too
+            var generalMember = new HashSet<int>();
+            foreach (var kv in members) {
+                int lowCount = kv.Value.Count(c => contours[c].Slice == s);
+                if (lowCount != 1 || kv.Value.Count - lowCount != 1) foreach (int c in kv.Value) generalMember.Add(c);
+            }
             var general = new List<(List<int> lower, List<int> upper)>();
+            var deferred = new List<(List<int> lower, List<int> upper)>();
             foreach (var kv in members) {
                 var lower = kv.Value.Where(c => contours[c].Slice == s).ToList();
                 var upper = kv.Value.Where(c => contours[c].Slice == s + 1).ToList();
@@ -400,18 +409,23 @@ namespace g3
                     : lower.Count == 1 ? ContourLoftGroupKind.Branch : upper.Count == 1 ? ContourLoftGroupKind.Merge : ContourLoftGroupKind.Complex;
                 AddGroup(s, kind, lower.Select(c => contours[c].Index).ToArray(), upper.Select(c => contours[c].Index).ToArray());
                 if (kind == ContourLoftGroupKind.Band) {
-                    Band(contours[lower[0]].P3, contours[lower[0]].Ids, contours[upper[0]].P3, contours[upper[0]].Ids, contours[lower[0]].Depth);
+                    int pa = contours[lower[0]].Parent, pb = contours[upper[0]].Parent;
+                    if ((pa >= 0 && generalMember.Contains(pa)) || (pb >= 0 && generalMember.Contains(pb)))
+                        deferred.Add((lower, upper));        // a hole of a branching group: the band may have to pass its intermediate plane
+                    else
+                        Band(contours[lower[0]].P3, contours[lower[0]].Ids, contours[upper[0]].P3, contours[upper[0]].Ids, contours[lower[0]].Depth);
                 } else {
                     foreach (int c in lower.Concat(upper))
-                        if (contours[c].Children.Count > 0)
-                            throw Fail(ContourLoftStackStatus.Unsupported, "a contour of a branching or merging group has holes (contour " + contours[c].Index + " of slice " + contours[c].Slice + ")");
+                        foreach (int ch in contours[c].Children)
+                            if (contours[ch].Children.Count > 0)
+                                throw Fail(ContourLoftStackStatus.Unsupported, "a branching or merging group has holes with islands (contour " + contours[c].Index + " of slice " + contours[c].Slice + ")");
                     general.Add((lower, upper));
                 }
             }
             if (general.Count == 0) return;
             Overlay ov = new Overlay(mesh, innerLo, innerHi, constrained);
             for (int i = 0; i < list.Count; ++i) ov.Base[globalOf(i)] = baseIdx[i];
-            foreach (var (lower, upper) in general) GeneralGroup(s, ov, lower, upper);
+            GeneralGroups(s, ov, general, deferred);
         }
 
         void AddGroup(int slab, ContourLoftGroupKind kind, int[] lower, int[] upper) =>
@@ -482,15 +496,64 @@ namespace g3
         // the bridges placed so far in a plane (a slice, or the intermediate plane of a slab as -1 - slab): later bridges keep clear of them
         readonly Dictionary<int, List<(Vector2d, Vector2d)>> planeBridges = new Dictionary<int, List<(Vector2d, Vector2d)>>();
 
-        void GeneralGroup(int s, Overlay ov, List<int> lower, List<int> upper)
+        sealed class Plan
+        {
+            public List<int> Lower, Upper;
+            public List<Lobe> Lobes;
+            public bool BottomOnly, TopOnly;
+            public int Depth;
+            public bool UsesInter => !(BottomOnly || TopOnly);
+        }
+
+        // the nearest ancestor-or-self of a contour that belongs to the set (holes and islands count as part of the contour around them), or -1
+        int Fill(int x, HashSet<int> set)
+        {
+            while (x >= 0 && !set.Contains(x)) x = contours[x].Parent;
+            return x;
+        }
+
+        void GeneralGroups(int s, Overlay ov, List<(List<int> lower, List<int> upper)> general, List<(List<int> lower, List<int> upper)> deferred)
+        {
+            var plans = new List<Plan>();
+            var planOf = new Dictionary<int, Plan>();
+            foreach (var (lower, upper) in general) {
+                var plan = Prepare(s, ov, lower, upper);
+                plans.Add(plan);
+                foreach (int c in lower.Concat(upper)) planOf[c] = plan;
+            }
+            // a hole group whose parent group has an intermediate plane passes it too (its wall must not run through the pieces)
+            foreach (var (lower, upper) in deferred) {
+                int pa = contours[lower[0]].Parent, pb = contours[upper[0]].Parent;
+                bool inter = (pa >= 0 && planOf.TryGetValue(pa, out var qa) && qa.UsesInter) || (pb >= 0 && planOf.TryGetValue(pb, out var qb) && qb.UsesInter);
+                if (!inter) {
+                    Band(contours[lower[0]].P3, contours[lower[0]].Ids, contours[upper[0]].P3, contours[upper[0]].Ids, contours[lower[0]].Depth);
+                    continue;
+                }
+                plans.Add(Prepare(s, ov, lower, upper));
+            }
+            // the intermediate contours of all groups of the slab: the bridges keep clear of every one of them
+            var interEdges = new List<Loop>();
+            foreach (var plan in plans) if (plan.UsesInter) interEdges.AddRange(plan.Lobes.Select(l => l.Inter));
+            foreach (var plan in plans) Assemble(s, plan, interEdges);
+        }
+
+        Plan Prepare(int s, Overlay ov, List<int> lower, List<int> upper)
         {
             var mesh = ov.Mesh;
             var lowerSet = new HashSet<int>(lower); var upperSet = new HashSet<int>(upper);
-            // the triangles of every (lower, upper) label, split into connected pieces
+            int T = mesh.TriangleCount;
+            // the filled labels: the contours of the group that surround each triangle (a hole counts as part of its parent)
+            var fillLo = new int[T]; var fillHi = new int[T];
+            for (int t = 0; t < T; ++t) {
+                int a0 = ov.InnerLo[t], b0 = ov.InnerHi[t];
+                fillLo[t] = a0 < 0 || b0 < 0 ? -1 : Fill(a0, lowerSet);
+                fillHi[t] = a0 < 0 || b0 < 0 ? -1 : Fill(b0, upperSet);
+            }
+            // the triangles of every related (lower, upper) pair, split into connected pieces
             var labelled = new SortedDictionary<long, List<int>>();
-            for (int t = 0; t < mesh.TriangleCount; ++t) {
-                int a = ov.InnerLo[t], b = ov.InnerHi[t];
-                if (a < 0 || b < 0 || !lowerSet.Contains(a) || !upperSet.Contains(b)) continue;
+            for (int t = 0; t < T; ++t) {
+                int a = fillLo[t], b = fillHi[t];
+                if (a < 0 || b < 0) continue;
                 long key = ((long)a << 32) | (uint)b;
                 if (!labelled.TryGetValue(key, out var l)) labelled.Add(key, l = new List<int>());
                 l.Add(t);
@@ -507,7 +570,7 @@ namespace g3
                         int t = q.Dequeue(); comp.Add(t);
                         for (int k = 0; k < 3; ++k) {
                             int nb = mesh.Neighbours[t][k];
-                            if (nb >= 0 && ov.InnerLo[nb] == a && ov.InnerHi[nb] == b && visited.Add(nb)) q.Enqueue(nb);
+                            if (nb >= 0 && fillLo[nb] == a && fillHi[nb] == b && visited.Add(nb)) q.Enqueue(nb);
                         }
                     }
                     lobes.Add(TraceLobe(ov, comp, a, b));
@@ -516,20 +579,42 @@ namespace g3
             lobes.Sort((x, y) => x.Lower != y.Lower ? x.Lower.CompareTo(y.Lower) : x.Upper != y.Upper ? x.Upper.CompareTo(y.Upper) : CompareKeys(x.StartKey, y.StartKey));
 
             // does every piece equal its lower contour (merge of contained contours) or its upper contour (branch into contained ones)?
-            bool bottomOnly = lobes.All(l => SameLoop(ov, l, contours[l.Lower])), topOnly = lobes.All(l => SameLoop(ov, l, contours[l.Upper]));
-            int nlo = sliceContours[s].Count;
-            int depth = contours[lower[0]].Depth;
-            double hLo = sliceHeight[s], hHi = sliceHeight[s + 1];
-            if (bottomOnly || topOnly) {
+            var plan = new Plan {
+                Lower = lower, Upper = upper, Lobes = lobes, Depth = contours[lower[0]].Depth,
+                BottomOnly = lobes.All(l => SameLoop(ov, l, contours[l.Lower])), TopOnly = lobes.All(l => SameLoop(ov, l, contours[l.Upper]))
+            };
+            if (plan.UsesInter) {
+                // general: intermediate contours at the fraction of the slab
+                double hs = sliceHeight[s] + o.BranchFraction * (sliceHeight[s + 1] - sliceHeight[s]);
+                foreach (var l in lobes) {
+                    int n = l.Loop.Length;
+                    var p2 = new Vector2d[n]; var p3 = new Vector3d[n]; var ids = new int[n];
+                    for (int i = 0; i < n; ++i) {
+                        p2[i] = mesh.Vertices[l.Loop[i]];
+                        p3[i] = Lift(p2[i], hs);
+                        ids[i] = vertexPos.Count; vertexPos.Add(p3[i]);
+                    }
+                    l.Inter = new Loop { P2 = p2, P3 = p3, Ids = ids };
+                }
+            }
+            return plan;
+        }
+
+        void Assemble(int s, Plan plan, List<Loop> interEdges)
+        {
+            var lobes = plan.Lobes; int depth = plan.Depth;
+            if (!plan.UsesInter) {
                 // the pieces are the contours of one side themselves: no intermediate plane
-                if (bottomOnly) {
-                    foreach (int d in upper) {
+                if (plan.BottomOnly) {
+                    foreach (int d in plan.Upper) {
+                        if (roofs && TryRoof(s, d, lobes.Where(l => l.Upper == d).Select(l => l.Lower).ToList(), false, plan.Depth)) continue;
                         var set = lobes.Where(l => l.Upper == d).Select(l => AsLoop(contours[l.Lower])).ToList();
                         Loop comp = Compose(set, contours[d].P2, SliceEdges(s), s, "merge");
                         Band(comp.P3, comp.Ids, contours[d].P3, contours[d].Ids, depth);
                     }
                 } else {
-                    foreach (int c in lower) {
+                    foreach (int c in plan.Lower) {
+                        if (roofs && TryRoof(s, c, lobes.Where(l => l.Lower == c).Select(l => l.Upper).ToList(), true, plan.Depth)) continue;
                         var set = lobes.Where(l => l.Lower == c).Select(l => AsLoop(contours[l.Upper])).ToList();
                         Loop comp = Compose(set, contours[c].P2, SliceEdges(s + 1), s + 1, "branch");
                         Band(contours[c].P3, contours[c].Ids, comp.P3, comp.Ids, depth);
@@ -537,25 +622,12 @@ namespace g3
                 }
                 return;
             }
-            // general: intermediate contours at the fraction of the slab
-            double hs = hLo + o.BranchFraction * (hHi - hLo);
-            foreach (var l in lobes) {
-                int n = l.Loop.Length;
-                var p2 = new Vector2d[n]; var p3 = new Vector3d[n]; var ids = new int[n];
-                for (int i = 0; i < n; ++i) {
-                    p2[i] = mesh.Vertices[l.Loop[i]];
-                    p3[i] = Lift(p2[i], hs);
-                    ids[i] = vertexPos.Count; vertexPos.Add(p3[i]);
-                }
-                l.Inter = new Loop { P2 = p2, P3 = p3, Ids = ids };
-            }
-            var interEdges = new List<Loop>(lobes.Select(l => l.Inter));
-            foreach (int c in lower) {
+            foreach (int c in plan.Lower) {
                 var set = lobes.Where(l => l.Lower == c).Select(l => l.Inter).ToList();
                 Loop comp = Compose(set, contours[c].P2, interEdges, -1 - s, "branch");
                 Band(contours[c].P3, contours[c].Ids, comp.P3, comp.Ids, depth);
             }
-            foreach (int d in upper) {
+            foreach (int d in plan.Upper) {
                 var set = lobes.Where(l => l.Upper == d).Select(l => l.Inter).ToList();
                 Loop comp = Compose(set, contours[d].P2, interEdges, -1 - s, "merge");
                 Band(comp.P3, comp.Ids, contours[d].P3, contours[d].Ids, depth);
@@ -637,6 +709,92 @@ namespace g3
             } while (cur != startV && loop.Count <= next.Count);
             if (loop.Count != next.Count) throw Fail(ContourLoftStackStatus.Unsupported, "the overlap of two contours has several boundary curves");
             return new Lobe { Lower = a, Upper = b, Loop = loop.ToArray(), StartKey = startKey };
+        }
+
+        // ---------------------------------------------------------------- the roof of a contained group (LoweredSaddle)
+
+        // The contours 'inner' (of one slice) lie strictly inside the contour 'outer' (of the other): the surface between them is the graph of a
+        // height over the region between, meshed with the contour edges locked, with the height of a vertex that is not a contour vertex taken
+        // from its distances to the lower and the upper contours (t = d_lower / (d_lower + d_upper)). False, with nothing added, when the case
+        // does not qualify (holes, contours that touch) or the mesher fails: the caller then bridges as without the option.
+        bool TryRoof(int s, int outer, List<int> inner, bool outerIsLower, int depth)
+        {
+            if (contours[outer].Children.Count > 0 || inner.Any(c => contours[c].Children.Count > 0)) return false;
+            Contour K = contours[outer];
+            foreach (int c in inner)
+                foreach (var p in contours[c].P2) if (!Inside(K.P2, p)) return false;
+            foreach (int c in inner) {
+                var I = contours[c].P2;
+                for (int i = 0; i < I.Length; ++i)
+                    for (int j = 0; j < K.P2.Length; ++j)
+                        if (Touch(I[i], I[(i + 1) % I.Length], K.P2[j], K.P2[(j + 1) % K.P2.Length])) return false;
+            }
+            var rings = new List<Contour> { K };
+            foreach (int c in inner) rings.Add(contours[c]);
+            var inp = new ConstrainedMesh2Input();
+            var baseIdx = new int[rings.Count];
+            var pos = new List<int>();     // mesh vertex of each input point
+            for (int r = 0; r < rings.Count; ++r) {
+                baseIdx[r] = inp.Points.Count;
+                for (int i = 0; i < rings[r].P2.Length; ++i) { inp.Points.Add(rings[r].P2[i]); pos.Add(rings[r].Ids[i]); }
+            }
+            for (int r = 0; r < rings.Count; ++r) {
+                int m = rings[r].P2.Length;
+                var ring = new int[m];
+                for (int i = 0; i < m; ++i) { ring[i] = baseIdx[r] + i; inp.Segments.Add(new Mesh2Segment(baseIdx[r] + i, baseIdx[r] + (i + 1) % m, 0, true)); }
+                inp.Rings.Add(new Mesh2Ring(ring, r > 0));
+            }
+            ConstrainedTriangulation2Result res;
+            try {
+                res = (o.SaddleMesher ?? new QualityMesh2()).Compute(inp, ct);
+            } catch (ArgumentException) {
+                return false;
+            }
+            if (res.Status != Triangulation2Status.Success) return false;
+            ConstrainedMesh2 cm = res.Mesh;
+            var map = new int[cm.Vertices.Count];
+            for (int v = 0; v < map.Length; ++v) map[v] = -1;
+            for (int v = 0; v < inp.Points.Count; ++v) {
+                int q = cm.InputToVertex[v];
+                if (q < 0 || map[q] >= 0 || cm.Vertices[q] != inp.Points[v]) return false;
+                map[q] = pos[v];
+            }
+            // the lower and the upper contours of the region
+            var lowerRings = outerIsLower ? new List<Contour> { K } : rings.Skip(1).ToList();
+            var upperRings = outerIsLower ? rings.Skip(1).ToList() : new List<Contour> { K };
+            double hLo = sliceHeight[s], hHi = sliceHeight[s + 1];
+            var extra = new List<Vector3d>();
+            for (int q = 0; q < map.Length; ++q) {
+                if (map[q] >= 0) continue;
+                double dl = DistanceTo(cm.Vertices[q], lowerRings), du = DistanceTo(cm.Vertices[q], upperRings);
+                if (!(dl > 0 && du > 0) || double.IsInfinity(dl + du)) return false;
+                double h = hLo + dl / (dl + du) * (hHi - hLo);
+                if (!(h > hLo && h < hHi)) return false;
+                map[q] = vertexPos.Count + extra.Count;
+                extra.Add(Lift(cm.Vertices[q], h));
+            }
+            vertexPos.AddRange(extra);
+            // the roof of the lower contour's solid faces up (a branch); the underside of the upper contour's solid faces down (a merge); holes flip
+            bool faceUp = outerIsLower == ((depth & 1) == 0);
+            foreach (var t in cm.Triangles) {
+                int a = map[t.a], b = map[t.b], c = map[t.c];
+                tris.Add(faceUp ? new Index3i(a, b, c) : new Index3i(a, c, b));
+            }
+            return true;
+        }
+
+        static double DistanceTo(Vector2d p, List<Contour> rings)
+        {
+            double best = double.PositiveInfinity;
+            foreach (var k in rings)
+                for (int i = 0; i < k.P2.Length; ++i) {
+                    Vector2d a = k.P2[i], b = k.P2[(i + 1) % k.P2.Length], ab = b - a, ap = p - a;
+                    double len2 = ab.x * ab.x + ab.y * ab.y;
+                    double u = len2 > 0 ? Math.Max(0, Math.Min(1, (ap.x * ab.x + ap.y * ab.y) / len2)) : 0;
+                    double dx = ap.x - u * ab.x, dy = ap.y - u * ab.y;
+                    best = Math.Min(best, Math.Sqrt(dx * dx + dy * dy));
+                }
+            return best;
         }
 
         // ---------------------------------------------------------------- bridges

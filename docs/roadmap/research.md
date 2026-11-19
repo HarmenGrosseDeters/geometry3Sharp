@@ -107,7 +107,7 @@ Part of the [roadmap](../ROADMAP.md).
      first; at alpha = diagonal / 40 or / 80 every tet >= 10° on 40 of 40; stage P1 = finer default alpha + a runner sample,
      go / no-go fixed in 17.5; owner decisions 17.7).
      P1 done (17.8): 500-mesh runner sample; default alpha diagonal / 40 as a documented exception to the 17.5 rule (every tet
-     >= 10° on 494 of 500, 461 at / 20; 1.3x the time); the 6 meshes left go to the parked lever #1072. Next: P2 (scope to the owner).
+     >= 10° on 494 of 500, 461 at / 20; 1.3x the time); the 6 meshes left went to the lever #1072 (closed, rescue phase 17.11). P2, P3 (#1155) and P4(a) (#1180) are merged since.
   4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: the next
      Phase 5 item, ahead of items 1-3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
@@ -211,7 +211,7 @@ Part of the [roadmap](../ROADMAP.md).
      #741 (2026-11-13, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
      `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
      oracle). Stage 2 (several contours per slice, branching, merging, caps, holes; `ContourLoftStack`) in
-     the PR of branch `claude/contour-loft-stage2` (2026-11-19).
+     the PR of branch `claude/contour-loft-stage2` (merged #1159, 2026-11-19).
   Then: quad remeshing (L; feasibility study and staged plan 2026-11-17: [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
@@ -638,7 +638,7 @@ Ordered by expected value for the library.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner
-      2026-11-18: unparked, implemented in the PR of 2026-11-18, in review; design note [CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)); #873
+      2026-11-18: unparked, implemented, merged; #848 closed 2026-11-19; design note [CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)); #873
       (coplanar meshes stall at Upper, closed 2026-11-15, fixed in 5e7577c2).
 11. **Bit-for-bit determinism across runtimes and CPUs** (net48 / net10, x64 / ARM, parallel paths).
     - Needed: a systematic method to prove which paths are reproducible (not only test them), as a basis for
@@ -687,9 +687,9 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
    rule (upper bound one run). Options B and C only after a reviewed proof.
-5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (`certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (merged, #848 closed 2026-11-19; `certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
 6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
 7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now)
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
-8. `ContourLoft` stage 2 (several contours per slice, branching, merging, caps, holes): `ContourLoftStack`, design approved 2026-11-19 ([CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) section 10), built on `claude/contour-loft-stage2`; medial-axis / skeleton saddles (Barequet et al. 2004) and holes inside branching groups are later work.
+8. `ContourLoft` stage 2 (several contours per slice, branching, merging, caps, holes): `ContourLoftStack`, design approved 2026-11-19 ([CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) section 10), merged (#1159, 2026-11-19); holes inside branching groups built in #1197 (owner 2026-11-19, section 10.10); the opt-in `LoweredSaddle` for contained groups built (section 10.11, owner 2026-11-19); cut-group saddles at `BranchFraction` (1c probed, no gain), terminal-with-child, islands in branching holes and the straight skeleton (Barequet et al. 2004, not built: no building block, algebraic events) are documented limits (section 10.11). ContourLoft has no open items.
