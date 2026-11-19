@@ -397,14 +397,18 @@ namespace geometry3Sharp.Tests
 
         [Trait("Category", "Slow")]
         [Theory]
-        [InlineData(-560)]
-        [InlineData(-1000)]
-        [InlineData(500)]
-        public void ExtremeScales_GiveTheSameMesh(int exponent)
+        [InlineData(-560, 0)]
+        [InlineData(-560, 1)]
+        [InlineData(-1000, 0)]
+        [InlineData(-1000, 1)]
+        [InlineData(500, 0)]
+        [InlineData(500, 1)]
+        public void ExtremeScales_GiveTheSameMesh(int exponent, int half)
         {
             // tolerance tests in doubles underflowed: a failure at 2^-560, other meshes and markers below
+            // (two halves of the seeds, #698: the -1000 row took 5.7-7.3 s alone and up to 17.7 s in a full run)
             double s = Math.Pow(2, exponent);
-            for (int seed = 0; seed < 60; ++seed) {
+            for (int seed = 30 * half; seed < 30 * half + 30; ++seed) {
                 var input = Fuzz(seed);
                 if (input.X.Max(Math.Abs) * s > 1e70) continue;
                 var scaled = Fuzz(seed);
