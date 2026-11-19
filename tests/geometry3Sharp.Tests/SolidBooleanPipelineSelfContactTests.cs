@@ -516,6 +516,71 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ADistanceBelowTheCoordinateResolution_IsSkipped()
+        {
+            // at 5.6e6 a unit in the last place is 9.3e-10: a move of 1e-10 is below 16 of them, so no vertex moves and the
+            // result is the one without the option
+            var at = new Vector3d(2527500, 5634200, 100);
+            var without = new SolidBooleanPipeline(EdgePinch(at), D);
+            Assert.True(without.Compute(), without.Error);
+            var p = new SolidBooleanPipeline(EdgePinch(at), D) { SeparateSelfContacts = 1e-10 };
+            Assert.True(p.Compute(), p.Error);
+            Assert.True(p.Report.SelfContactsFound > 0);
+            Assert.Equal(p.Report.SelfContactsFound, p.Report.SelfContactsLeft);
+            Assert.True(p.Report.SelfContactVerticesSkipped >= 2 * p.Report.SelfContactsFound, p.Report.SelfContactVerticesSkipped.ToString());
+            Assert.Equal(0, p.Report.SelfContactVerticesMoved);
+            Assert.Equal(0.0, p.Report.SelfContactMaxMove);
+            Assert.Equal("", Invariance.Difference(without.Result, p.Result));
+        }
+
+        [Fact]
+        public void CrossingTriangles_CountsADegenerateTriangle_AndATriangleThatSharesAVertexWithOne()
+        {
+            // vertex 0 has only a degenerate triangle (0, 3, 4) on a line, next to a proper one (1, 2, 10) it does not touch;
+            // vertex 5 has a proper triangle (5, 6, 7) that shares vertex 6 with the degenerate (6, 8, 9); vertex 11 has a
+            // proper triangle (11, 12, 13) alone. Nothing crosses anything.
+            var m = new DMesh3();
+            foreach (var p in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(-2, 0, 0),
+                                      new Vector3d(10, 0, 0), new Vector3d(11, 0, 0), new Vector3d(10, 1, 0), new Vector3d(12, 0, 0), new Vector3d(13, 0, 0),
+                                      new Vector3d(1, 1, 0), new Vector3d(20, 0, 0), new Vector3d(21, 0, 0), new Vector3d(20, 1, 0) })
+                m.AppendVertex(p);
+            int degenerate = m.AppendTriangle(0, 3, 4);
+            m.AppendTriangle(1, 2, 10);
+            int nextToDegenerate = m.AppendTriangle(5, 6, 7);
+            m.AppendTriangle(6, 8, 9);
+            m.AppendTriangle(11, 12, 13);
+            Assert.Equal(new[] { degenerate }, SolidBooleanPipeline.CrossingTriangles(m, new[] { 0 }).ToArray());
+            Assert.Equal(new[] { nextToDegenerate }, SolidBooleanPipeline.CrossingTriangles(m, new[] { 5 }).ToArray());
+            Assert.Empty(SolidBooleanPipeline.CrossingTriangles(m, new[] { 11 }));
+        }
+
+        [Fact]
+        public void CrossingTriangles_GrowsTheQueryBoxesByThePad()
+        {
+            // the tree was built while triangle U was 30 further along x; it now crosses T. A query box grown by 2 * 30 finds
+            // it, one not grown does not (the boxes of the tree are those of the old positions; small triangles at x = 10 to 15
+            // and 40 to 45 keep T alone in its leaf, so no box of the tree around U contains T)
+            var m = new DMesh3();
+            foreach (var p in new[] { new Vector3d(0, 0, 0), new Vector3d(2, 0, 0), new Vector3d(0, 2, 0),
+                                      new Vector3d(0.5, 0.5, -1), new Vector3d(1, 0.5, 1), new Vector3d(0.5, 1, 1) })
+                m.AppendVertex(p);
+            int T = m.AppendTriangle(0, 1, 2);
+            m.AppendTriangle(3, 4, 5);
+            for (int k = 0; k < 12; ++k) {
+                double x = k < 6 ? 10 + k : 34 + k;
+                int a = m.AppendVertex(new Vector3d(x, 0, 0)), b = m.AppendVertex(new Vector3d(x + 0.1, 0, 0)), c = m.AppendVertex(new Vector3d(x, 0.1, 0));
+                m.AppendTriangle(a, b, c);
+            }
+            var before = new DMesh3(m, false, MeshComponents.None);
+            for (int v = 3; v < 6; ++v)
+                before.SetVertex(v, before.GetVertex(v) + new Vector3d(30, 0, 0));
+            var tree = new DMeshAABBTree3(before, true);
+            Assert.Empty(SolidBooleanPipeline.CrossingTriangles(m, new[] { 0 }, tree, 0));
+            Assert.Equal(new[] { T }, SolidBooleanPipeline.CrossingTriangles(m, new[] { 0 }, tree, 60).ToArray());
+            Assert.Equal(new[] { T }, SolidBooleanPipeline.CrossingTriangles(m, new[] { 0 }).ToArray());
+        }
+
+        [Fact]
         public void APointContactOfFacetedSolids_IsSeparated()
         {
             var without = new SolidBooleanPipeline(PointPinch(), D) { InputGrid = 1.0 / (1 << 20) };
@@ -607,14 +672,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void AMoveThatWouldCross_IsUndone()
+        public void ADistanceLargerThanTheEdges_IsBoundedByAQuarterOfTheShortestEdge()
         {
-            // a distance larger than the plate's thickness: the cluster's move is bounded by a quarter of its shortest edge
-            // that leaves it, so no move crosses; and the moves stay within the bound
+            // a distance larger than the plate's thickness: every move is bounded by a quarter of the shortest edge at its
+            // vertex, so the contacts are still separated, without a crossing, and no move goes beyond the bound
             var p = new SolidBooleanPipeline(EdgePinch(Vector3d.Zero), D) { SeparateSelfContacts = 10 };
             Assert.True(p.Compute(), p.Error);
             AssertSolid(p);
-            Assert.True(p.Report.SelfContactMaxMove <= 0.25 + 1e-12, p.Report.SelfContactMaxMove.ToString("R"));
+            Assert.True(p.Report.SelfContactVerticesMoved > 0);
+            Assert.Equal(0, p.Report.SelfContactsLeft);
+            Assert.True(p.Report.SelfContactMaxMove > 0.1 && p.Report.SelfContactMaxMove <= 0.25 + 1e-12, p.Report.SelfContactMaxMove.ToString("R"));
+            Assert.Empty(SolidBooleanPipeline.CrossingTriangles(p.Result, p.Result.VertexIndices()));
             Assert.True(p.Report.Clean, p.Report.NotCleanReason);
         }
 
@@ -638,5 +706,32 @@ namespace geometry3Sharp.Tests
         }
 
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
+
+        // ---- synthetic CAD assemblies (ContactAssemblyFixtures: stacked plates with holes, stepped shafts, mortise and tenon,
+        // plates on plates; parts that touch exactly along faces, with different triangulations of the contact faces) ----
+
+        [Theory]
+        [MemberData(nameof(AssemblyNames))]
+        public void ContactAssemblies_WithoutSelfContacts_StayBitForBit(string name)
+        {
+            // the union of all parts and the first part minus the others: their parts touch along faces, so no result touches
+            // itself at an edge or a point, and the option changes nothing (contacts along faces are not self-contacts)
+            List<DMesh3> parts = ContactAssemblyFixtures.ByName(name).Parts.Select(q => q.Mesh).ToList();
+            foreach (var op in new[] { ExactMeshBoolean.Operations.Union, D }) {
+                var plain = new SolidBooleanPipeline(parts, op);
+                plain.Compute();
+                var p = new SolidBooleanPipeline(parts, op) { SeparateSelfContacts = 1.0 / 1024 };
+                p.Compute();
+                string at = name + " " + op;
+                Assert.True(plain.Status == p.Status, at + ": " + p.Status + " with the option, " + plain.Status + " without");
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, p.Status);
+                Assert.Equal(0, p.Report.SelfContactsFound);
+                Assert.Equal(0, p.Report.SelfContactVerticesMoved);
+                Assert.Equal("", Invariance.Difference(plain.Result, p.Result));
+                Assert.Equal(plain.Report.NotCleanReason, p.Report.NotCleanReason);
+            }
+        }
+
+        public static IEnumerable<object[]> AssemblyNames() { return ContactAssemblyFixtures.Names(); }
     }
 }

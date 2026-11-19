@@ -139,7 +139,7 @@ namespace gs
         /// connected component at one position), before and after the separation; 0 without the option
         /// </summary>
         public int SelfContactsFound, SelfContactsLeft;
-        /// <summary> with SeparateSelfContacts: the vertices moved, and the largest move </summary>
+        /// <summary> with SeparateSelfContacts: the vertices moved </summary>
         public int SelfContactVerticesMoved;
         /// <summary>
         /// with SeparateSelfContacts: the contact vertices not moved because the move would have been below 16 units in the
@@ -147,6 +147,7 @@ namespace gs
         /// degenerate (UndoneCrossing) or turned over (UndoneFlipped)
         /// </summary>
         public int SelfContactVerticesSkipped, SelfContactMovesUndoneCrossing, SelfContactMovesUndoneFlipped;
+        /// <summary> with SeparateSelfContacts: the largest move of a vertex (up to the distance, plus the rounding of the coordinates) </summary>
         public double SelfContactMaxMove;
         /// <summary>
         /// PairContactsMode Auto: the second reduction (pairing on) ran because the first result was not clean with contacts left; it
@@ -687,8 +688,9 @@ namespace gs
         /// area-weighted direction to the centroids of its triangles), by delta, at most a quarter of its shortest edge; a vertex
         /// whose move would be below 16 units in the last place of its largest coordinate stays. A move is put back if a
         /// triangle of the vertex then crosses another triangle beyond what they share (vertices at one position count as one,
-        /// so a touch at another contact is allowed; CrossingTriangles, exact), is degenerate, or turned over; putting back
-        /// repeats until no such triangle is left.
+        /// so a touch at another contact is allowed; CrossingTriangles, exact), is degenerate, or turned over. Putting back
+        /// repeats until a check finds nothing left to put back: every round puts back at least one move, so this ends, and
+        /// the state returned is the one the last round checked.
         /// </summary>
         internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, out int found, out int left, out int moved, out double maxMove)
         {
@@ -697,9 +699,9 @@ namespace gs
         }
 
         internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, out int found, out int left, out int moved, out double maxMove,
-            out int skipped, out int undoneIntersecting, out int undoneFlipped)
+            out int skipped, out int undoneCrossing, out int undoneFlipped)
         {
-            skipped = undoneIntersecting = undoneFlipped = 0;
+            skipped = undoneCrossing = undoneFlipped = 0;
             List<List<int>> contacts = SelfContacts(mesh);
             found = contacts.Count;
             moved = 0;
@@ -708,85 +710,70 @@ namespace gs
             if (found == 0)
                 return;
             var old = new Dictionary<int, Vector3d>();          // moved vertex -> its position before
-            var clusterOf = new Dictionary<int, int>();         // moved vertex -> its cluster
-            var clusters = new List<List<int>>();
-            var oldNormal = new Dictionary<int, Vector3d>();
+            var oldNormal = new Dictionary<int, Vector3d>();    // triangle at a moved vertex -> its normal before
+            double largestStep = 0;
             foreach (List<int> vs in contacts)
-                foreach (int v0 in vs) {
-                    if (old.ContainsKey(v0))
-                        continue;
-                    var cluster = new List<int> { v0 };
-                    var inCluster = new HashSet<int> { v0 };
-                    // the direction: back into the vertex's own fan, along the area-weighted direction to the centroids of its
-                    // triangles (along its own surface, away from the other sheet; a normal would be unreliable where thin layers
-                    // fold back on themselves, and a measurement on faceted CAD data separated 271 of 274 self-contacts this way)
+                foreach (int v in vs) {
+                    // the direction: back into the own fan of the vertex, along the area-weighted direction to the centroids of
+                    // its triangles (along its own surface, away from the other sheet; a normal would be unreliable where thin
+                    // layers fold back on themselves, and a measurement on faceted CAD data separated 271 of 274 self-contacts
+                    // this way)
+                    Vector3d p = mesh.GetVertex(v);
                     Vector3d n = Vector3d.Zero;
-                    var tris = new HashSet<int>();
-                    Vector3d p0 = mesh.GetVertex(v0);
-                    foreach (int v in cluster)
-                        foreach (int t in mesh.VtxTrianglesItr(v))
-                            if (tris.Add(t)) {
-                                Index3i tv = mesh.GetTriangle(t);
-                                Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
-                                double area = 0.5 * (b - a).Cross(c - a).Length;
-                                n -= ((a + b + c) / 3 - p0) * area;      // (the move is -n below)
-                            }
-                    double shortest = double.MaxValue, largest = 0;
-                    foreach (int v in cluster) {
-                        Vector3d p = mesh.GetVertex(v);
-                        largest = Math.Max(largest, Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
-                        foreach (int w in mesh.VtxVerticesItr(v))
-                            if (!inCluster.Contains(w))
-                                shortest = Math.Min(shortest, p.Distance(mesh.GetVertex(w)));
+                    foreach (int t in mesh.VtxTrianglesItr(v)) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                        n += ((a + b + c) / 3 - p) * (0.5 * (b - a).Cross(c - a).Length);
                     }
+                    double shortest = double.MaxValue;
+                    foreach (int w in mesh.VtxVerticesItr(v))
+                        shortest = Math.Min(shortest, p.Distance(mesh.GetVertex(w)));
+                    double largest = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
                     double len = n.Length;
                     double step = Math.Min(delta, 0.25 * shortest);
                     if (!(len > 0) || !(step > 16 * largest * 2.220446049250313e-16)) {
                         skipped++;
                         continue;
                     }
-                    Vector3d move = n * (-step / len);
-                    foreach (int t in tris)
+                    foreach (int t in mesh.VtxTrianglesItr(v))
                         if (!oldNormal.ContainsKey(t))
                             oldNormal[t] = mesh.GetTriNormal(t);
-                    int id = clusters.Count;
-                    clusters.Add(cluster);
-                    foreach (int v in cluster) {
-                        old[v] = mesh.GetVertex(v);
-                        clusterOf[v] = id;
-                        mesh.SetVertex(v, old[v] + move);
+                    old[v] = p;
+                    mesh.SetVertex(v, p + n * (step / len));
+                    largestStep = Math.Max(largestStep, step);
+                }
+            if (old.Count > 0) {
+                // one tree over a copy of the moved mesh (same ids; a tree over the mesh itself refuses queries once a move is
+                // put back): a triangle stays within largestStep of its box there whatever is put back, so the queries grow
+                // their boxes by twice that and read the current coordinates from the mesh
+                var tree = new DMeshAABBTree3(new DMesh3(mesh, false, MeshComponents.None), true);
+                double pad = 2 * largestStep;
+                while (old.Count > 0) {
+                    var undoX = new HashSet<int>();
+                    var undoF = new HashSet<int>();
+                    foreach (int t in CrossingTriangles(mesh, old.Keys, tree, pad)) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        for (int j = 0; j < 3; ++j)
+                            if (old.ContainsKey(tv[j]))
+                                undoX.Add(tv[j]);
+                    }
+                    foreach (var kv in oldNormal)
+                        if (mesh.GetTriNormal(kv.Key).Dot(kv.Value) <= 0) {
+                            Index3i tv = mesh.GetTriangle(kv.Key);
+                            for (int j = 0; j < 3; ++j)
+                                if (old.ContainsKey(tv[j]) && !undoX.Contains(tv[j]))
+                                    undoF.Add(tv[j]);
+                        }
+                    if (undoX.Count == 0 && undoF.Count == 0)
+                        break;
+                    undoneCrossing += undoX.Count;
+                    undoneFlipped += undoF.Count;
+                    undoX.UnionWith(undoF);
+                    foreach (int v in undoX) {
+                        mesh.SetVertex(v, old[v]);
+                        old.Remove(v);
                     }
                 }
-            // put back the moves whose triangles cross another triangle, are degenerate or turned over, until none is left
-            for (int round = 0; round < 64 && old.Count > 0; ++round) {
-                var undo = new HashSet<int>();
-                var undoF = new HashSet<int>();
-                bool flipping = false;
-                Action<int> flag = (t) => {
-                    Index3i tv = mesh.GetTriangle(t);
-                    for (int j = 0; j < 3; ++j) {
-                        int c;
-                        if (clusterOf.TryGetValue(tv[j], out c) && old.ContainsKey(tv[j]))
-                            (flipping ? undoF : undo).Add(c);
-                    }
-                };
-                foreach (int t in CrossingTriangles(mesh, old.Keys)) flag(t);
-                flipping = true;
-                foreach (var kv in oldNormal)
-                    if (mesh.GetTriNormal(kv.Key).Dot(kv.Value) <= 0)
-                        flag(kv.Key);
-                undoF.ExceptWith(undo);
-                undoneIntersecting += undo.Count;
-                undoneFlipped += undoF.Count;
-                undo.UnionWith(undoF);
-                if (undo.Count == 0)
-                    break;
-                foreach (int c in undo)
-                    foreach (int v in clusters[c])
-                        if (old.ContainsKey(v)) {
-                            mesh.SetVertex(v, old[v]);
-                            old.Remove(v);
-                        }
             }
             moved = old.Count;
             foreach (var kv in old)
@@ -798,9 +785,11 @@ namespace gs
         /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
         /// at one position count as one (so a touch at a contact, a position with several vertices, is not a crossing, but a
         /// triangle that passes through another one is; ExactTriangleIntersection.IntersectsBeyondShared, exact), or that are
-        /// degenerate
+        /// degenerate, or that share a position with a degenerate triangle (conservative: IntersectsBeyondShared needs
+        /// non-degenerate triangles there). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
+        /// built (null: one is built)
         /// </summary>
-        internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices)
+        internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices, DMeshAABBTree3 tree = null, double pad = 0)
         {
             var canon = new Dictionary<Vector3d, int>();
             Func<int, int> id = (v) => {
@@ -811,7 +800,8 @@ namespace gs
                     canon[key] = c = v;
                 return c;
             };
-            var tree = new DMeshAABBTree3(mesh, true);
+            if (tree == null)
+                tree = new DMeshAABBTree3(mesh, true);
             var mine = new HashSet<int>();
             foreach (int v in vertices)
                 foreach (int t in mesh.VtxTrianglesItr(v))
@@ -828,6 +818,7 @@ namespace gs
                 var ia = new Index3i(id(ta.a), id(ta.b), id(ta.c));
                 var box = new AxisAlignedBox3d(A.V0);
                 box.Contain(A.V1); box.Contain(A.V2);
+                box.Expand(pad);
                 bool hit = false;
                 var trav = new DMeshAABBTree3.TreeTraversal() {
                     NextBoxDF = (b, depth) => !hit && b.Intersects(box),
@@ -840,8 +831,8 @@ namespace gs
                         var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
                         bool shares = ia.a == ib.a || ia.a == ib.b || ia.a == ib.c || ia.b == ib.a || ia.b == ib.b || ia.b == ib.c || ia.c == ib.a || ia.c == ib.b || ia.c == ib.c;
                         if (shares && ExactTriangleIntersection.IsDegenerate(ref B))
-                            return;     // (a degenerate neighbour is judged as its own triangle, if it moved)
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
+                            hit = true;     // (conservative: a degenerate neighbour cannot be judged by IntersectsBeyondShared)
+                        else if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
                             hit = true;
                     }
                 };
@@ -851,8 +842,6 @@ namespace gs
             }
             return crossing;
         }
-
-        static long PairKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
 
         // a normal positive power of two: its stored significand bits are all zero (a subnormal power of two has one of them
         // set, and the only positive value with a zero exponent field and no significand bit is 0, excluded)

@@ -418,11 +418,19 @@ namespace geometry3Sharp.Tests
                 double tol = grid * Area(plain.Result) + 1e-12 * Math.Abs(Volume(plain.Result));
                 if (Math.Abs(Volume(p.Result) - Volume(plain.Result)) > tol)
                     return $"volume {Volume(p.Result):R} against {Volume(plain.Result):R} (tolerance {tol:G3})";
+                // no new crossing: a move that would cross is put back (vertices at one position count as one)
+                int crossingBefore = SolidBooleanPipeline.CrossingTriangles(plain.Result, plain.Result.VertexIndices()).Count;
+                int crossingAfter = SolidBooleanPipeline.CrossingTriangles(p.Result, p.Result.VertexIndices()).Count;
+                if (crossingAfter > crossingBefore)
+                    return $"{crossingAfter} crossing triangles after the separation, {crossingBefore} before";
                 return "";
             }, 40, 9106);
             log.WriteLine($"  results with self-contacts: {withSelfContacts}, all separated: {separated}");
             if (Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") == null)
+            {
                 Assert.True(withSelfContacts > 0, "no case of the campaign had a self-contact (the property would be vacuous)");
+                Assert.True(separated > 0, "no self-contact of the campaign was separated (the property would not check a move)");
+            }
         }
 
         [Fact]
