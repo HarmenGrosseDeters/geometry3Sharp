@@ -64,7 +64,7 @@ namespace gs
         /// boundary is the alpha wrap's rounded surface, S1-R, the output as before bit for bit). With a value above 0 (30 is suggested) the wrap's
         /// surface gets the sharp-feature pass (vertices onto the offset surface's planes and creases, edges split and flipped along input edges whose
         /// faces turn by more than this many degrees), is made Delaunay conforming (surface edge flips, then Steiner points on missing edges and
-        /// triangles) and is meshed as the boundary. Concave creases, which the wrap bridges at the scale of alpha, come out 4 to 6 times closer; convex
+        /// triangles) and is meshed as the boundary. Concave creases, which the wrap bridges at the scale of alpha, come out 3 to 6 times closer on CAD-like solids (much less on scanned meshes); convex
         /// creases are within one offset either way. If the recovery does not finish (budget, floor, acute creases) the rounded wrap is meshed instead and
         /// Counts["crease_recovery_failed"] = 1 (Status is not changed). Counts: crease_recovered, crease_flips, crease_steiner, crease_missing_triangles /
         /// _edges (before the recovery). An input without creases above the angle gives the S1-R output. Targets says whether a crease below about 20 degrees
@@ -413,7 +413,7 @@ namespace gs
             if (!fp.Compute() || CancelF()) return null;
             if (fp.PlaneMoves + fp.CreaseSnaps + fp.Splits + fp.Flips == 0) return null;
             double floor = MinFeatureFactor * Math.Min(wrap.UsedOffset, wrap.UsedAlpha - wrap.UsedOffset);
-            TetFeatureSurface r = TetFeatureSurface.Recover(fp.Mesh, floor, CreaseSteinerLimit >= 0 ? CreaseSteinerLimit : 100 + (int)(CreaseSteinerPerVertex * fp.Mesh.VertexCount), CancelF);
+            TetFeatureSurface r = TetFeatureSurface.Recover(fp.Mesh, floor, CreaseSteinerLimit >= 0 ? CreaseSteinerLimit : 100 + (int)(CreaseSteinerPerVertex * fp.Mesh.VertexCount), CancelF, Mesh);
             if (r == null) { creaseCounts["crease_recovery_failed"] = 1; return null; }
             creaseCounts["crease_recovered"] = 1;
             creaseCounts["crease_flips"] = r.Flips; creaseCounts["crease_steiner"] = r.Steiner;

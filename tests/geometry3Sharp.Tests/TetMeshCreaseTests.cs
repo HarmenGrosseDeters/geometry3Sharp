@@ -266,6 +266,29 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WithALocalAlpha_StaysValid()
+        {
+            DMesh3 input = LShape();
+            var tm = new MeshTetrahedralization(input) { RelativeAlpha = 20, CreaseAngleDegrees = 30, MaxSurfaceDeviation = input.CachedBounds.DiagonalLength / 150 };
+            Run(tm);
+            TetMeshingStage2Tests.Invariants(tm);
+            Assert.True(tm.Counts.ContainsKey("local_alpha_passes"));
+            Assert.True(tm.Counts.ContainsKey("crease_recovered") || tm.Counts.ContainsKey("crease_recovery_failed"));
+        }
+
+        [Fact]
+        public void Recover_RefusesASurfaceThatTouchesTheInput()
+        {
+            DMesh3 s = FeaturedSurface(out MeshAlphaWrap wrap);
+            double floor = 0.125 * Math.Min(wrap.UsedOffset, wrap.UsedAlpha - wrap.UsedOffset);
+            Assert.NotNull(TetFeatureSurface.Recover(new DMesh3(s, true), floor, 1000, null, LShape()));
+            // an input that crosses the surface (the L-shape grown 10 %) is touched
+            var big = new DMesh3(LShape(), true);
+            foreach (int v in big.VertexIndices()) big.SetVertex(v, big.GetVertex(v) * 1.1);
+            Assert.Null(TetFeatureSurface.Recover(new DMesh3(s, true), floor, 1000, null, big));
+        }
+
+        [Fact]
         public void Recover_OfARecoveredSurface_NeedsNothing()
         {
             DMesh3 s = FeaturedSurface(out MeshAlphaWrap wrap);

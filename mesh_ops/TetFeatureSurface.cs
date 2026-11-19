@@ -9,8 +9,8 @@ namespace gs
     /// A closed surface (the wrap after the feature pass) and a Delaunay3 of its vertices in which every surface triangle is a facet, so that
     /// the cells inside it (label 1) are a tet mesh of exactly that surface (docs/design/TET_MESHING.md 14.2, 17.14). The raw featured surface
     /// is not Delaunay conforming (1.3 to 3.7 % of its triangles are missing facets, section 13). They are recovered in two steps:
-    /// (1) flips of surface edges that are missing in the Delaunay3 whose flipped edge is present, only across (nearly) flat quads, so the
-    /// surface does not change; (2) Steiner points: the midpoint of a missing edge, else the circumcentre of a missing triangle in its plane
+    /// (1) flips of surface edges that are missing in the Delaunay3 whose flipped edge is present, only across convex, (nearly, within
+    /// 20 degrees) flat quads, so the surface changes by at most a small fold, which the final check against the input covers; (2) Steiner points: the midpoint of a missing edge, else the circumcentre of a missing triangle in its plane
     /// (the midpoint of its longest edge if the circumcentre is outside), then flips again. A point never moves a surface vertex and lies on
     /// the surface up to the rounding of a midpoint. The recovery has a budget (maxSteiner, rounds) and a floor (no edge shorter than
     /// 2 minEdge is split); if it does not finish, Recover returns null and the caller meshes the rounded wrap (S1-R) instead:
@@ -34,7 +34,7 @@ namespace gs
         /// Recovers the surface (changed in place: flips and splits only) in a fresh Delaunay3; null if the budget or the floor stops it,
         /// the surface is not closed and manifold without self-intersection afterwards, or cancel is set.
         /// </summary>
-        internal static TetFeatureSurface Recover(DMesh3 surface, double minEdge, int maxSteiner, Func<bool> cancel)
+        internal static TetFeatureSurface Recover(DMesh3 surface, double minEdge, int maxSteiner, Func<bool> cancel, DMesh3 input = null)
         {
             var r = new TetFeatureSurface { Surface = surface };
             if (surface.TriangleCount == 0) return null;
@@ -50,7 +50,7 @@ namespace gs
             double minEdgeSqr4 = 4 * minEdge * minEdge;
             for (; ; ) {
                 if (cancel != null && cancel()) return null;
-                r.flip_to_delaunay();
+                r.flip_to_delaunay(cancel);
                 r.collect(missT, missE);
                 if (missT.Count == 0 && missE.Count == 0) break;
                 if (r.Rounds >= MaxRounds || r.Steiner > maxSteiner) return fail(r, "budget rounds=" + r.Rounds + " steiner=" + r.Steiner + " missT=" + missT.Count + " missE=" + missE.Count);
@@ -67,12 +67,25 @@ namespace gs
                 }
             }
             string nc = MeshRobustRepair.NotCleanReason(surface); if (nc != "") return fail(r, "not clean: " + nc);
+            if (input != null && touches_input(surface, input)) return fail(r, "touches the input");
             r.label();
             return r;
         }
 
         internal static string LastFailure;
         static TetFeatureSurface fail(TetFeatureSurface r, string why) { LastFailure = why; return null; }
+
+        // the recovered surface (flips and splits change it by at most a flat quad's fold) must not touch the input (exact)
+        static bool touches_input(DMesh3 surface, DMesh3 input)
+        {
+            var tree = new DMeshAABBTree3(input, true);
+            var tris = new List<Triangle3d>();
+            foreach (int t in surface.TriangleIndices()) {
+                Index3i tv = surface.GetTriangle(t);
+                tris.Add(new Triangle3d(surface.GetVertex(tv.a), surface.GetVertex(tv.b), surface.GetVertex(tv.c)));
+            }
+            return Reducer.TrianglesTouch(tree, tris);
+        }
 
         bool add_vertex(int v)
         {
@@ -110,10 +123,11 @@ namespace gs
         }
 
         // flips of missing edges whose flipped edge is a Delaunay edge, across flat quads, keeping the angles; until a pass flips nothing
-        void flip_to_delaunay()
+        void flip_to_delaunay(Func<bool> cancel)
         {
             var missT = new List<int>(); var missE = new List<int>();
             for (int pass = 0; pass < 30; ++pass) {
+                if (cancel != null && cancel()) return;
                 collect(missT, missE);
                 int done = 0;
                 foreach (int e in missE) {
@@ -124,8 +138,13 @@ namespace gs
                     if (!Dt.IsEdge(Ids[op.a], Ids[op.b], out _)) continue;
                     if (Surface.GetTriNormal(et.a).Dot(Surface.GetTriNormal(et.b)) < FlatCos) continue;
                     double before = Math.Min(min_angle(et.a), min_angle(et.b));
+                    Vector3d n0 = Surface.GetTriNormal(et.a), n1 = Surface.GetTriNormal(et.b);
                     if (Surface.FlipEdge(e, out _) != MeshResult.Ok) continue;
-                    if (Math.Min(min_angle(et.a), min_angle(et.b)) < Math.Min(MinAngle, before)) { Surface.FlipEdge(e, out _); continue; }
+                    // kept only if the quad was convex (the new triangles agree with both old normals: no fold) and the angles hold
+                    Vector3d m0 = Surface.GetTriNormal(et.a), m1 = Surface.GetTriNormal(et.b);
+                    bool ok = m0.Dot(n0) >= FlatCos && m0.Dot(n1) >= FlatCos && m1.Dot(n0) >= FlatCos && m1.Dot(n1) >= FlatCos
+                        && Math.Min(min_angle(et.a), min_angle(et.b)) >= Math.Min(MinAngle, before);
+                    if (!ok) { Surface.FlipEdge(e, out _); continue; }
                     done++;
                 }
                 Flips += done;
