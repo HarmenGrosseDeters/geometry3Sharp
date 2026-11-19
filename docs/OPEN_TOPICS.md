@@ -13,10 +13,9 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Tet: deterministic work cap for `TetMeshImprover` | Being measured; part 1 merged (#1184) | Cap at SliverDihedralDegrees 20 / 30, within the time rule | #1154 |
 | Tet: opt-in `MaxDihedralDegrees` (Stellar op 4) | PR open | Review and merge; default output unchanged | #1189 |
 | Tet: P4(b) creases via S1-F | Phase 1 study | Study report, then a go / no-go | [tet](design/TET_MESHING.md) |
-| Quad: degenerate star on open strips | Root cause found (boundary snap in `PositionField`); default-output change approved, owner 2026-11-19 | PR with tests and re-pinned hashes | #1179 |
 | Other: `ContourLoft` skeleton saddles, holes inside branching groups | Phase 1 study started 2026-11-19 (owner: finish the topic) | Study report, then the build | [loft](design/CONTOUR_LOFT.md) |
 | Repair: `fm_ms` above 20 s on Thingi10K 318843 (20.5 s) and 498456 (46.7 s) | Study started 2026-11-19 (owner), #1009 reopened | Measured plan on #1009, then a bit-identical PR | [#1009](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1009) |
-| Geodesics/param: saddle window trim of `PolyhedralGeodesicDistance` | Session running; saddle 317x317 takes 41 s | Below the 20 s rule | #1186 |
+| Geodesics/param: exact geodesic paths from `PolyhedralGeodesicDistance` (`TracePath`) | API approved 2026-11-19, being built (the #1186 trim is merged, #1193) | PR | #1 |
 
 ## 2. Waiting for an owner decision (options are on the table)
 
@@ -36,7 +35,6 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 |---|---|---|---|
 | Alpha wrap: feature pass K follow-ups (corners, split retries) | Scoped follow-ups, not scheduled | A PR when a caller needs sharper corners | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
 | Tet: P3 follow-ups | Open: boundary sizing, curvature size field, target element count | Scope with P4; one PR each | [tet](design/TET_MESHING.md) |
-| Geodesics/param: exact geodesic paths from `PolyhedralGeodesicDistance` | Queued | Start after #1186 | #1186 |
 | Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15) |
 | Platform/QA/CI: coverage gate red on master | `coverage.yml` failed in every run 2026-11-18/19 | Diagnose the uncovered lines, add tests | [platform](roadmap/platform.md#open-for-the-future-2026-11-15) |
 | Platform/QA/CI: tests above 20 s in some full runs | Open; thread-pool starvation suspected | Diagnose per test, split or fix | #698 |
