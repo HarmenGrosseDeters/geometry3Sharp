@@ -280,6 +280,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WithInputGrid_NoRoundingFailure()
+        {
+            // InputGrid 2^-20 (scaled with the case): the noise of nearly coincident faces is snapped away, so the strict
+            // rounding never refuses, and the result keeps the contract of Valid
+            Campaign("Grid", GenCase, c => {
+                List<DMesh3> inputs = c.Build();
+                var before = inputs.Select(Fingerprint).ToList();
+                var p = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = Math.Pow(2, -20 + c.ScaleK) };
+                p.Compute();
+                if (p.Status != SolidBooleanPipeline.PipelineStatus.Success)
+                    return "status " + p.Status + " / " + p.BooleanStatus + " with InputGrid: " + p.Error;
+                return Contract(p, inputs, before);
+            }, 40, 9105);
+        }
+
+        [Fact]
         public void Volumes_AddUpAcrossTheOperations()
         {
             // V(A u B) + V(A n B) = V(A) + V(B), V(A - B) = V(A) - V(A n B), within the rounding of the results: every new vertex
