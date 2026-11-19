@@ -1,0 +1,5 @@
+# allocation cost on this machine: object dropped at once, collections included
+56-byte object	405.8 ns/KB	22.2 ns/object
+long[64] (512 B)	137.7 ns/KB	72.1 ns/object
+long[1024] (8 KB)	132.4 ns/KB	1062.4 ns/object
+long[8192] (64 KB)	110.1 ns/KB	7052.2 ns/object

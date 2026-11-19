@@ -1,0 +1,100 @@
+op	config	ms	allocKB	pauseMs	gen2/call	vsBase	identical
+Union grid 30x30 (900 polys)	base	10.875	8429	1.259	0.000	+0.0%	yes
+Union grid 30x30 (900 polys)	regions	10.316	4862	1.431	0.000	-5.1%	yes
+Union grid 30x30 (900 polys)	regions+actives	8.492	4113	0.000	0.000	-21.9%	yes
+Union grid 30x30 (900 polys)	engine	8.711	6816	0.040	0.000	-19.9%	yes
+Union grid 30x30 (900 polys)	engine+actives	9.563	6785	0.038	0.000	-12.1%	yes
+Union grid 30x30 (900 polys)	bridge	10.062	8181	1.233	0.000	-7.5%	yes
+Union grid 30x30 (900 polys)	all	8.547	2215	0.000	0.000	-21.4%	yes
+Difference grid 30x30 (900 polys)	base	17.725	10691	4.760	0.019	+0.0%	yes
+Difference grid 30x30 (900 polys)	regions	14.708	7124	2.831	0.019	-17.0%	yes
+Difference grid 30x30 (900 polys)	regions+actives	13.155	6375	2.640	0.019	-25.8%	yes
+Difference grid 30x30 (900 polys)	engine	16.154	8354	3.164	0.000	-8.9%	yes
+Difference grid 30x30 (900 polys)	engine+actives	16.455	8323	3.621	0.019	-7.2%	yes
+Difference grid 30x30 (900 polys)	bridge	18.213	10329	5.164	0.038	+2.8%	yes
+Difference grid 30x30 (900 polys)	all	14.110	3639	2.063	0.000	-20.4%	yes
+Offset round grid 30x30 (900 polys)	base	57.725	22731	11.914	0.091	+0.0%	yes
+Offset round grid 30x30 (900 polys)	regions	55.190	20947	4.402	0.091	-4.4%	yes
+Offset round grid 30x30 (900 polys)	regions+actives	55.831	20573	4.220	0.091	-3.3%	yes
+Offset round grid 30x30 (900 polys)	engine	61.561	18267	11.547	0.091	+6.6%	yes
+Offset round grid 30x30 (900 polys)	engine+actives	56.320	18257	5.983	0.091	-2.4%	yes
+Offset round grid 30x30 (900 polys)	bridge	63.760	22168	12.711	0.091	+10.5%	yes
+Offset round grid 30x30 (900 polys)	all	52.266	15534	4.989	0.091	-9.5%	yes
+Offset miter grid 30x30 (900 polys)	base	7.439	7449	0.060	0.000	+0.0%	yes
+Offset miter grid 30x30 (900 polys)	regions	6.862	5666	0.051	0.000	-7.8%	yes
+Offset miter grid 30x30 (900 polys)	regions+actives	7.239	5291	0.034	0.000	-2.7%	yes
+Offset miter grid 30x30 (900 polys)	engine	7.156	6261	0.053	0.000	-3.8%	yes
+Offset miter grid 30x30 (900 polys)	engine+actives	7.224	6252	0.057	0.000	-2.9%	yes
+Offset miter grid 30x30 (900 polys)	bridge	7.191	7247	0.045	0.000	-3.3%	yes
+Offset miter grid 30x30 (900 polys)	all	6.199	3888	0.036	0.000	-16.7%	yes
+Union grid 100x100 (10000 polys)	base	240.001	92268	0.000	0.000	+0.0%	yes
+Union grid 100x100 (10000 polys)	regions	222.973	52584	0.000	0.000	-7.1%	yes
+Union grid 100x100 (10000 polys)	regions+actives	228.560	44252	0.000	0.000	-4.8%	yes
+Union grid 100x100 (10000 polys)	engine	242.288	74788	0.000	0.000	+1.0%	yes
+Union grid 100x100 (10000 polys)	engine+actives	236.528	74684	0.000	0.000	-1.4%	yes
+Union grid 100x100 (10000 polys)	bridge	276.106	89545	37.291	0.000	+15.0%	yes
+Union grid 100x100 (10000 polys)	all	234.385	23939	0.000	0.000	-2.3%	yes
+Difference grid 100x100 (10000 polys)	base	452.180	116484	0.000	0.000	+0.0%	yes
+Difference grid 100x100 (10000 polys)	regions	437.167	76801	0.000	0.000	-3.3%	yes
+Difference grid 100x100 (10000 polys)	regions+actives	435.449	68468	0.000	0.000	-3.7%	yes
+Difference grid 100x100 (10000 polys)	engine	427.347	91251	0.000	0.000	-5.5%	yes
+Difference grid 100x100 (10000 polys)	engine+actives	443.577	91146	0.000	0.000	-1.9%	yes
+Difference grid 100x100 (10000 polys)	bridge	433.202	112434	0.000	0.000	-4.2%	yes
+Difference grid 100x100 (10000 polys)	all	420.914	39073	0.000	0.000	-6.9%	yes
+Offset round grid 100x100 (10000 polys)	base	2734.215	251610	118.264	0.000	+0.0%	yes
+Offset round grid 100x100 (10000 polys)	regions	2575.947	231768	102.364	0.000	-5.8%	yes
+Offset round grid 100x100 (10000 polys)	regions+actives	2552.430	227602	117.383	0.000	-6.6%	yes
+Offset round grid 100x100 (10000 polys)	engine	2336.071	199887	134.604	0.000	-14.6%	yes
+Offset round grid 100x100 (10000 polys)	engine+actives	2569.482	199856	154.905	0.000	-6.0%	yes
+Offset round grid 100x100 (10000 polys)	bridge	2673.011	245524	113.725	0.000	-2.2%	yes
+Offset round grid 100x100 (10000 polys)	all	2300.599	169758	76.944	0.000	-15.9%	yes
+Offset miter grid 100x100 (10000 polys)	base	273.484	83738	0.000	0.000	+0.0%	yes
+Offset miter grid 100x100 (10000 polys)	regions	240.651	63896	0.000	0.000	-12.0%	yes
+Offset miter grid 100x100 (10000 polys)	regions+actives	260.397	59730	0.000	0.000	-4.8%	yes
+Offset miter grid 100x100 (10000 polys)	engine	249.103	69918	0.000	0.000	-8.9%	yes
+Offset miter grid 100x100 (10000 polys)	engine+actives	218.706	69887	0.000	0.000	-20.0%	yes
+Offset miter grid 100x100 (10000 polys)	bridge	260.225	81477	0.000	0.000	-4.8%	yes
+Offset miter grid 100x100 (10000 polys)	all	220.674	43615	0.000	0.000	-19.3%	yes
+Bridge ToPaths grid 30x30	base	0.134	285	0.000	0.000	+0.0%	yes
+Bridge ToPaths grid 30x30	regions	0.118	285	0.000	0.000	-11.6%	yes
+Bridge ToPaths grid 30x30	regions+actives	0.112	285	0.000	0.000	-16.6%	yes
+Bridge ToPaths grid 30x30	engine	0.114	285	0.001	0.000	-14.5%	yes
+Bridge ToPaths grid 30x30	engine+actives	0.117	285	0.002	0.000	-12.6%	yes
+Bridge ToPaths grid 30x30	bridge	0.099	229	0.000	0.000	-26.1%	yes
+Bridge ToPaths grid 30x30	all	0.103	229	0.000	0.000	-22.7%	yes
+Bridge ToGeneralPolygons grid 30x30	base	0.214	652	0.002	0.000	+0.0%	yes
+Bridge ToGeneralPolygons grid 30x30	regions	0.217	652	0.003	0.000	+1.0%	yes
+Bridge ToGeneralPolygons grid 30x30	regions+actives	0.216	652	0.002	0.000	+0.9%	yes
+Bridge ToGeneralPolygons grid 30x30	engine	0.214	652	0.002	0.000	-0.2%	yes
+Bridge ToGeneralPolygons grid 30x30	engine+actives	0.209	652	0.002	0.000	-2.6%	yes
+Bridge ToGeneralPolygons grid 30x30	bridge	0.190	526	0.001	0.000	-11.5%	yes
+Bridge ToGeneralPolygons grid 30x30	all	0.190	526	0.001	0.000	-11.3%	yes
+Bridge ToPaths grid 100x100	base	5.825	3069	4.174	0.003	+0.0%	yes
+Bridge ToPaths grid 100x100	regions	4.208	3069	2.683	0.003	-27.8%	yes
+Bridge ToPaths grid 100x100	regions+actives	6.001	3069	4.577	0.003	+3.0%	yes
+Bridge ToPaths grid 100x100	engine	4.066	3069	2.557	0.003	-30.2%	yes
+Bridge ToPaths grid 100x100	engine+actives	5.633	3069	4.179	0.003	-3.3%	yes
+Bridge ToPaths grid 100x100	bridge	3.105	2444	1.802	0.003	-46.7%	yes
+Bridge ToPaths grid 100x100	all	3.121	2444	1.789	0.003	-46.4%	yes
+Bridge ToGeneralPolygons grid 100x100	base	7.101	6923	4.135	0.014	+0.0%	yes
+Bridge ToGeneralPolygons grid 100x100	regions	6.730	6923	3.824	0.014	-5.2%	yes
+Bridge ToGeneralPolygons grid 100x100	regions+actives	6.921	6923	4.025	0.014	-2.5%	yes
+Bridge ToGeneralPolygons grid 100x100	engine	6.916	6923	4.016	0.014	-2.6%	yes
+Bridge ToGeneralPolygons grid 100x100	engine+actives	6.563	6923	3.791	0.014	-7.6%	yes
+Bridge ToGeneralPolygons grid 100x100	bridge	6.869	5522	4.511	0.014	-3.3%	yes
+Bridge ToGeneralPolygons grid 100x100	all	7.153	5522	4.779	0.014	+0.7%	yes
+op	config	ms	allocKB	pauseMs	gen2/call	vsBase	identical
+Bridge ToGeneralPolygons grid 30x30	base	0.211	652	0.002	0.000	+0.0%	yes
+Bridge ToGeneralPolygons grid 30x30	regions	0.211	652	0.003	0.000	+0.2%	yes
+Bridge ToGeneralPolygons grid 30x30	regions+actives	0.209	652	0.002	0.000	-1.0%	yes
+Bridge ToGeneralPolygons grid 30x30	engine	0.205	652	0.002	0.000	-2.9%	yes
+Bridge ToGeneralPolygons grid 30x30	engine+actives	0.204	652	0.002	0.000	-3.2%	yes
+Bridge ToGeneralPolygons grid 30x30	bridge	0.194	526	0.001	0.000	-8.0%	yes
+Bridge ToGeneralPolygons grid 30x30	all	0.187	526	0.001	0.000	-11.4%	yes
+Bridge ToGeneralPolygons grid 100x100	base	3.714	6923	1.237	0.064	+0.0%	yes
+Bridge ToGeneralPolygons grid 100x100	regions	3.491	6923	1.226	0.064	-6.0%	yes
+Bridge ToGeneralPolygons grid 100x100	regions+actives	3.828	6923	1.380	0.064	+3.1%	yes
+Bridge ToGeneralPolygons grid 100x100	engine	3.802	6923	1.164	0.064	+2.4%	yes
+Bridge ToGeneralPolygons grid 100x100	engine+actives	3.811	6923	1.358	0.064	+2.6%	yes
+Bridge ToGeneralPolygons grid 100x100	bridge	3.364	5522	1.090	0.064	-9.4%	yes
+Bridge ToGeneralPolygons grid 100x100	all	3.050	5522	0.928	0.064	-17.9%	yes
