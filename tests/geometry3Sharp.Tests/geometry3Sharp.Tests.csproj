@@ -69,10 +69,12 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <Compile Include="..\..\benchmarks\BooleanComparison\ContactTransforms.cs" Link="ThingiContact\ContactTransforms.cs" />
     <Compile Include="..\..\benchmarks\BooleanComparison\Pinches.cs" Link="ThingiContact\Pinches.cs" />
+    <Compile Include="..\..\benchmarks\BooleanComparison\InsideOutDiagnostics.cs" Link="ThingiContact\InsideOutDiagnostics.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <Compile Remove="ThingiContactTransformTests.cs" />
     <Compile Remove="BooleanComparisonPinchesTests.cs" />
+    <Compile Remove="BooleanComparisonInsideOutDiagnosticsTests.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <Compile Remove="BaselineHarnessTests.cs" />

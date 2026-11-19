@@ -1236,3 +1236,9 @@ checks that no `size_*` count exists; `OffValuesOfEveryOption_GiveTheDefaultResu
 - **g3cli**: `tetmesh --target-edge-length <h>` (0 or at least diagonal / 200) and `--grading-factor <g>` (0..100); `steps.size_clamped_tets` (only if above 0) is the clamp count. Test
   `TargetEdgeLengthAndGrading_AreAcceptedAndRefine`, bad values in the limits test.
 - **Open**: boundary sizing (P4); a size field from the input's curvature or feature size (the automatic function is distance to the boundary only); a bound on tets per input (a target element count).
+- **Hang guard of the tet tests (2026-11-19, master run 44485576442)**: the tests that run a refinement to a bound used a wall-clock `CancelF` (15 s). On the loaded net48 / Windows runner five of them
+  (`TetRefinementWorkBoundTests`: four `LimitedRun_Similarity_*` and one `DefaultPathAndRadiusEdge15_*` case) hit it and reported `Cancelled`, with no tet code changed between the green master and the red one (the red one
+  added quad and CsCheck tests that run in parallel with them). They now use `CallBudget` (`tests/.../Harness/CallBudget.cs`): `CancelF` cancels after 1.5 million calls (the largest legitimate run
+  here makes 466k, the runaway runs 30k to 300k), so the verdict depends on the work, not on the load; the old code that does not stop is still cancelled (mutant "work bound off": all
+  `LimitedRun_*` fail, about 4 s each). The two wall-clock assertions of `TetMeshSizeControlTests` became call counts. No library change.
+

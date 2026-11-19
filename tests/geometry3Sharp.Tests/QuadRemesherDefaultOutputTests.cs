@@ -9,7 +9,8 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// The default output of QuadRemesher (stage 2) is pinned bit for bit: options added later (SizeAdaptation, QUAD_REMESHING.md 4.5)
-    /// default to off and must not change a bit of it. The hashes were taken on the code before the size field existed, on Linux with .NET 10; the trigonometry of the cross field differs
+    /// default to off and must not change a bit of it. The hashes were taken on the code before the size field existed, on Linux with .NET 10, and taken again on 2026-11-19 for the new default
+    /// CollapseLength 0.6 (owner approved; the size field and the other options did not change a bit, checked before that); the trigonometry of the cross field differs
     /// in the last bits on .NET Framework and on Windows (the CI job of net48 gave other hashes for all five shapes), so there the test only checks that two
     /// runs agree and that the result is valid.
     /// </summary>
@@ -31,11 +32,11 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Cases()
         {
-            yield return new object[] { "sphere", 4184115117813768095UL };
-            yield return new object[] { "torus", 14896042570600773347UL };
-            yield return new object[] { "box", 8526138822425114026UL };
-            yield return new object[] { "cap", 9916113883805785370UL };
-            yield return new object[] { "patch", 8713441857817250252UL };
+            yield return new object[] { "sphere", 16793278504409630334UL };
+            yield return new object[] { "torus", 14929649530336056095UL };
+            yield return new object[] { "box", 7670787724669005053UL };
+            yield return new object[] { "cap", 16341831395098939481UL };
+            yield return new object[] { "patch", 14984373977973927655UL };
         }
 
         [Theory, MemberData(nameof(Cases))]

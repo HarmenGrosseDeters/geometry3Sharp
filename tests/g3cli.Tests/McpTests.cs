@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset", "hull2d", "tpms", "tetmesh" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset", "hull2d", "tpms", "tetmesh", "quad" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -363,6 +363,32 @@ namespace g3cli.Tests
             r = Handle(server, Call(3, "tetmesh", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_tet2.mesh"), ["format"] = "obj" }));
             Assert.True(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void QuadTool_WritesQuads_AndReportsTheFallbackStatus()
+        {
+            var server = Server();
+            string output = m.Path_("mcp_quad.obj");
+            JsonObject r = Handle(server, Call(1, "quad", new JsonObject() {
+                ["input"] = m.Sphere, ["output"] = output, ["edge_length"] = 0.4, ["pure_quads"] = true, ["parallel"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            JsonNode sc = r["result"]["structuredContent"];
+            Assert.Equal("success", S(sc["pure_quad_status"]));
+            Assert.Equal(I(sc["faces"]["total"]), I(sc["faces"]["quads"]));
+            Assert.All(File.ReadAllLines(output).Where(l => l.StartsWith("f ")), l => Assert.Equal(5, l.Split(' ').Length));
+            r = Handle(server, Call(2, "quad", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_quad.stl") }));
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("unknown_format", S(r["result"]["structuredContent"]["code"]));
+            r = Handle(server, Call(3, "quad", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_quad2.obj") }));
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("operation_failed", S(r["result"]["structuredContent"]["code"]));
+            Assert.Equal("no_faces", S(r["result"]["structuredContent"]["quad_status"]));
+            r = Handle(server, Request(4, "tools/list"));
+            JsonNode quad = r["result"]["tools"].AsArray().First(t => S(t["name"]) == "quad");
+            Assert.Equal(new[] { "input", "output" }, quad["inputSchema"]["required"].AsArray().Select(S).OrderBy(x => x == "input" ? 0 : 1).ToArray());
+            Assert.Equal("boolean", S(quad["inputSchema"]["properties"]["pure_quads"]["type"]));
+            Assert.Equal("number", S(quad["inputSchema"]["properties"]["edge_length"]["type"]));
         }
 
         [Fact]

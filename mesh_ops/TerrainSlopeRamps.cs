@@ -88,7 +88,7 @@ namespace gs
         Statuses ramp_problem(Statuses st, int ramp, int seg, string message)
         {
             RampProblems.Add(new Index2i(ramp, seg));
-            return fail(st, $"ramp {ramp}" + (seg >= 0 ? $" at {seg}" : "") + ": " + message);
+            return fail(st, FormattableString.Invariant($"ramp {ramp}") + (seg >= 0 ? FormattableString.Invariant($" at {seg}") : "") + ": " + message);
         }
 
         // the left normal of u, on the road's side for sigma = +1
@@ -305,12 +305,12 @@ namespace gs
                 double gb = ri.G - RoadMargin(delta, sMin);
                 // (checked by ramp_share already, before the budget; kept for the build itself)
                 if (!(gb > 0.5 * ri.G))
-                    return ramp_problem(Statuses.InvalidInput, r, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
+                    return ramp_problem(Statuses.InvalidInput, r, -1, FormattableString.Invariant($"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})"));
                 if (ri.R.Width < minFeatureMax)
-                    return ramp_problem(Statuses.InvalidInput, r, -1, $"Width is below the smallest feature that can be realized ({minFeatureMax:G3})");
+                    return ramp_problem(Statuses.InvalidInput, r, -1, FormattableString.Invariant($"Width is below the smallest feature that can be realized ({minFeatureMax:G3})"));
                 for (int i = 0; i + 1 < n; ++i)
                     if (ri.L[i] < minFeatureMax)
-                        return ramp_problem(Statuses.InvalidInput, r, i, $"the path segment is shorter than the smallest feature that can be realized ({minFeatureMax:G3})");
+                        return ramp_problem(Statuses.InvalidInput, r, i, FormattableString.Invariant($"the path segment is shorter than the smallest feature that can be realized ({minFeatureMax:G3})"));
                 // (the nominal polygons lie strictly inside the road's: from the path at Width delta / 2 to Width
                 // (1 + 3 delta / 2), their ends Width delta inside the segment's, so that no rounding of a boundary the
                 // road shares with them decides the oracle)
@@ -352,7 +352,7 @@ namespace gs
                         Vector2d v = P[i];
                         c2 = new[] { v, v + Wb * n0, v + miter(n0, n1, Wb), v + Wb * n1 };
                         if (c2[1].Distance(c2[2]) < minFeatureMax || c2[2].Distance(c2[3]) < minFeatureMax)
-                            return ramp_problem(Statuses.InvalidInput, r, i, $"the bend is too slight for its kite (an edge below the smallest feature that can be realized, {minFeatureMax:G3}): remove the nearly collinear path point");
+                            return ramp_problem(Statuses.InvalidInput, r, i, FormattableString.Invariant($"the bend is too slight for its kite (an edge below the smallest feature that can be realized, {minFeatureMax:G3}): remove the nearly collinear path point"));
                         unit.RoadPlane = kernel.AddHorizontalPlane(z[i]);
                         c3 = c2.Select(c => new Vector3d(c.x, c.y, z[i])).ToArray();
                         roadPts = new[] { c3[0], c3[1], c3[2] };
@@ -523,15 +523,15 @@ namespace gs
                 }
                 if (intruded || covered < area * (1 - 1e-7)) {
                     if (problems.Count == 0)
-                        firstProblem = $" (first: ramp {nm.Ramp} {(nm.Bend ? "bend" : "segment")} {nm.Seg}: " +
-                                       (intruded ? $"a triangle at ({where.x:G6}, {where.y:G6}) enters the road)" : $"{covered / area:P3} of the road is built)");
+                        firstProblem = FormattableString.Invariant($" (first: ramp {nm.Ramp} {(nm.Bend ? "bend" : "segment")} {nm.Seg}: ") +
+                                       (intruded ? FormattableString.Invariant($"a triangle at ({where.x:G6}, {where.y:G6}) enters the road)") : FormattableString.Invariant($"{covered / area:P3} of the road is built)"));
                     problems.Add(new Index2i(nm.Ramp, nm.Seg));
                 }
             }
             if (problems.Count == 0)
                 return Statuses.Success;
             RampProblems.AddRange(problems);
-            return fail(Statuses.RampNotOnWall, $"{problems.Count} road segments are not on the wall: the road needs fill, or the crest comes closer than Width to the outer edge" + firstProblem);
+            return fail(Statuses.RampNotOnWall, FormattableString.Invariant($"{problems.Count} road segments are not on the wall: the road needs fill, or the crest comes closer than Width to the outer edge") + firstProblem);
         }
 
         // the nominal polygon's outer side is at least Width from the path (exact): a segment's quad (its outer corners
