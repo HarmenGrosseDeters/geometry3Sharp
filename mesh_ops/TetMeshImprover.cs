@@ -415,7 +415,7 @@ namespace gs
         {
             var sb = new System.Text.StringBuilder();
             for (int v = 0; v < vtets.Count; ++v) { sb.Append(string.Join(",", vtets[v])).Append('|').Append(string.Join(",", vfaces[v])).Append(';'); }
-            sb.Append('#').Append(string.Join(",", free)).Append('#').Append(tets.Count);
+            sb.Append('#').Append(string.Join(",", free)).Append('#').Append(tets.Count).Append('#').Append(pos.Count);
             return sb.ToString();
         }
         /// <summary> (tests) the neighbours of v </summary>
@@ -630,6 +630,36 @@ namespace gs
             return false;
         }
 
+        /// <summary> (tests) off: every split attempt runs to its end, as before the early rejection of #1154 </summary>
+        internal bool SplitEarlyReject = true;
+        /// <summary> (tests) split attempts the early rejection skipped </summary>
+        internal long SplitEarlyRejects;
+
+        // the refusal try_split would record for a boundary split at m, without changing anything: the halves of the ring tets must
+        // be positive (else the attempt is not refused by the input, the old code's ok is false before the faces), then the first
+        // boundary triangle on (a, b) whose flat tet with m touches the input
+        bool split_refused_input(List<int> ringT, int a, int b, Vector3d m)
+        {
+            foreach (int id in ringT) {
+                Index4i t = tets[id];
+                Vector3d p1a = t.a == a ? m : pos[t.a], p1b = t.b == a ? m : pos[t.b], p1c = t.c == a ? m : pos[t.c], p1d = t.d == a ? m : pos[t.d];
+                Vector3d p2a = t.a == b ? m : pos[t.a], p2b = t.b == b ? m : pos[t.b], p2c = t.c == b ? m : pos[t.c], p2d = t.d == b ? m : pos[t.d];
+                if (Quality(p1a, p1b, p1c, p1d) < 0 || Quality(p2a, p2b, p2c, p2d) < 0) return false;
+            }
+            foreach (int f in vfaces[a]) {
+                Index3i t = bfaces[f];
+                if (!(t.a == b || t.b == b || t.c == b)) continue;
+                int c = t.a != a && t.a != b ? t.a : t.b != a && t.b != b ? t.b : t.c;
+                if (TetTouchesInput(pos[a], pos[b], pos[c], m)) return true;
+            }
+            return false;
+        }
+
+        // stamps instead of sets for the split's pre-work (it runs for every edge of every bad tet): the tets of the ring, the tets seen
+        // by the neighbourhood's minimum, the neighbourhood's vertices
+        int[] ringMark = new int[0], seenMark = new int[0], nbMark = new int[0];
+        int markStamp;
+
         bool try_split(int a, int b)
         {
             bool be = is_bedge(a, b);
@@ -637,15 +667,22 @@ namespace gs
             var ringT = new List<int>();
             foreach (int id in vtets[a]) if (idx2(tets[id], b)) ringT.Add(id);
             if (ringT.Count == 0) return false;
+            if (ringMark.Length < tets.Count) { int n = Math.Max(tets.Count, 2 * ringMark.Length); Array.Resize(ref ringMark, n); Array.Resize(ref seenMark, n); }
+            if (nbMark.Length < pos.Count) Array.Resize(ref nbMark, Math.Max(pos.Count, 2 * nbMark.Length));
+            if (++markStamp == int.MaxValue) { Array.Clear(ringMark, 0, ringMark.Length); Array.Clear(seenMark, 0, seenMark.Length); Array.Clear(nbMark, 0, nbMark.Length); markStamp = 1; }
             // the neighbourhood: tets at a, b and the ring vertices
-            var nbSet = new HashSet<int> { a, b };
             var nb = new List<int> { a, b };
-            foreach (int id in ringT) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (nbSet.Add(t[i])) nb.Add(t[i]); }
-            double old = nbmin(nb);
-            // what the undo restores besides the journal: the order of the tet lists at the neighbourhood (later sums run over
-            // them), and the vertices' versions (a refused split must not look like a change to the memo)
-            var vtetsSnap = new List<(int, List<int>, int)>();
-            foreach (int x in nb) vtetsSnap.Add((x, new List<int>(vtets[x]), ver_of(x)));
+            nbMark[a] = markStamp; nbMark[b] = markStamp;
+            foreach (int id in ringT) { ringMark[id] = markStamp; Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (nbMark[t[i]] != markStamp) { nbMark[t[i]] = markStamp; nb.Add(t[i]); } }
+            // old: the smallest quality over the stars of nb; untouched: the same over the tets that are not in the ring
+            double old = 180, untouched = 180;
+            foreach (int x in nb) foreach (int id in vtets[x])
+                if (seenMark[id] != markStamp) {
+                    seenMark[id] = markStamp;
+                    double qi = quality(id);
+                    old = Math.Min(old, qi);
+                    if (ringMark[id] != markStamp) untouched = Math.Min(untouched, qi);
+                }
             Vector3d m = SplitPointForTest != null ? SplitPointForTest(pos[a], pos[b]) : 0.5 * (pos[a] + pos[b]);
             // the new vertex. Its slide cap is measured from the midpoint of the edge's first positions, which lies on the wrap surface
             // (up to rounding): boundary edges only ever get split, so each lies in one wrap triangle; and the vertex starts within the
@@ -657,6 +694,24 @@ namespace gs
             // stays within BoundarySlideLimit; a vertex that starts beyond its cap is not inserted
             double margin = Math.Max(slide_margin(a), slide_margin(b)) + 4 * MathUtil.Epsilon * (orig[a].MaxAbs + orig[b].MaxAbs);
             if (be && !(m.Distance(om) <= BoundarySlideLimit - margin)) return false;
+            // Early rejection (#1154), exact: the split is kept only if now > old (below), where now is the smallest quality over the stars
+            // of nb and v after the split, the smoothing of v and the edge removals around v. Those three only replace tets that contain
+            // v: the split replaces the ring tets (those at a and b) by tets at v; smoothing moves v only (try_smooth,
+            // try_smooth_boundary); try_edge_removal(v, x) removes the tets around the edge (v, x), all at v, and adds tets of its own.
+            // So every tet of the stars of nb that is not in the ring survives unchanged (its vertices do not move, and it is still in
+            // the star of the same nb vertex), and now <= untouched, the smallest quality of those. If untouched <= old (it is never
+            // below: old is the minimum over a superset) the strict test must fail, and the attempt is undone with the same tets, ids,
+            // free list, lists' order and counts (not the dead entries it leaves in ver and slideMargin, which only change hash values of the memo), except for Counts["split_refused_input"], which the refusal of a boundary split by the
+            // input keeps: reproduced below by the same pure checks (inverted halves, then TetTouchesInput of the boundary triangles).
+            if (SplitEarlyReject && !IgnoreQualityForTest && untouched <= old) {
+                SplitEarlyRejects++;
+                if (be && split_refused_input(ringT, a, b, m)) Counts["split_refused_input"]++;
+                return false;
+            }
+            // what the undo restores besides the journal: the order of the tet lists at the neighbourhood (later sums run over
+            // them), and the vertices' versions (a refused split must not look like a change to the memo)
+            var vtetsSnap = new List<(int, List<int>, int)>();
+            foreach (int x in nb) vtetsSnap.Add((x, new List<int>(vtets[x]), ver_of(x)));
             pos.Add(m); orig.Add(om); vtets.Add(new List<int>()); vfaces.Add(new List<int>());
             while (slideMargin.Count < v) slideMargin.Add(0);
             slideMargin.Add(margin);
