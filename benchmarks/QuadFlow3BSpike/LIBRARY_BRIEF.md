@@ -93,3 +93,38 @@ So the time gate stays open, and the fallback rate makes the option useful only 
 MCF (collapse of d* = 0 edges, section 3.3) and one arc per variable with convex cost instead of one per capacity unit; the SAT
 needs a deterministic decision budget so fallbacks stay cheap (the spike spent 18-29 s on capsule / noisy sphere). The library PR
 should add the speed work only as far as the 5 s test rule needs it; the 2x gate is an owner decision (keep, relax, or defer).
+
+## 7. Speed levers (round 5, 54 runs, same set as round 4)
+
+Time ratio = (position field + 3B) / stage 2 (position + extract), clean rows. Stage 2 takes 0.09 s median, 0.31 s max, so the denominator is small.
+
+| config | clean / fallback / undetected bad | clean ratio median / max | rows <= 2x | fallback total s median / max |
+|---|---|---|---|---|
+| baseline (round 4) | 23 / 31 / 0 | 11.6 / 45.2 | 0/23 | 7.4 / 50.1 |
+| L1 early-stopping SSP, merged arcs | 24 / 30 / 0 | 6.8 / 22.2 | 2/24 | 5.3 / 39.5 |
+| L2 L1 + per-source excess SSP | 24 / 30 / 0 | 6.1 / 16.9 | 2/24 | 4.6 / 35.0 |
+| L3 priority-queue subdivision (same order) | 23 / 31 / 0 | 8.5 / 43.6 | 0/23 | 6.6 / 41.6 |
+| L4 contracted position solve | 23 / 31 / 0 | 9.8 / 49.8 | 0/23 | 6.5 / 42.3 |
+| L5 implication SAT encoding | 24 / 30 / 0 | 9.3 / 40.1 | 0/24 | 5.0 / 29.7 |
+| L6 SAT budget 300k decisions (total) | 23 / 31 / 0 | 11.9 / 41.2 | 0/23 | 1.9 / 17.1 |
+| L2+L3+L4+L5 | 25 / 29 / 0 | 2.9 / 7.3 | 3/25 | 2.5 / 17.0 |
+| **L2+L3+L4+L5+L6 (chosen)** | **25 / 29 / 0** | **2.8 / 9.2** | **3/25** | **0.69 / 2.2** |
+| chosen + stop at first failed seed (rejected) | 22 / 32 / 0 | 3.0 / 7.6 | 4/22 | 0.59 / 2.1 |
+
+Not tried as a lever: the paper's multi-resolution flow (b). After L2 the flow is 0.05 s median (max 0.31 s), 20 % of the 3B extra time; the ball of
+one Dijkstra is 5-10 % of the nodes; it would help the largest rows only. The upper bound (above) shows the 2x gate is out of reach by flow work alone.
+Rejected: start capacity H = 4 (one flow instead of two on 11 rows) changes the results, one undetected bad row; stop at the first failed seed
+(clean rows lose 3 where a later seed repairs an earlier failure).
+
+Chosen for the library PR: (1) the flow of section 4 item 3 as L2: the network without super source / sink, per-source SSP with early termination
+(Dijkstra heap ties by node index), equal-cost unit steps merged into one arc; (2) subdivision by a priority queue with lazy invalidation, key
+(|d|inf desc, triangle, slot) so the order equals the scan of the spike; (3) the SAT with the implication encoding and a **total decision budget**
+(300k, counted over the whole repair; exhausted = `BudgetExceeded`, fallback); (4) the position solve contracted to the d = 0 clusters (L4).
+Cost of L4: corner p95 <= 15 on 17/25 clean rows (baseline 18/23), Hausdorff <= 0.5 s on 24/25 (filleted box 1.25: 0.52 s), irregular gate 25/25.
+If the owner wants the baseline quality, keep the full tangent solve (0.13 s median; the ratio median then stays near 4x).
+
+Result: clean-row ratio median 2.8x (min 1.0, max 9.2), 3/25 rows <= 2x; total 0.29 s median, 0.91 s max on clean rows; fallbacks at most 2.2 s
+(baseline 50 s). **The 2x gate is not met** (median 2.8x). Remaining 3B extra (median s): flow 0.055, position field 0.067 (given), extract 0.028, setup
+0.016, position solve 0.017, SAT 0.002. Reaching a median 2x would need the flow at about a third of its time (multi-resolution or a coarser cost
+quantisation that gives equal-length paths) and a faster extract; the owner decision stays: relax the gate to about 3x of stage 2 or an absolute
+bound (clean rows <= 1 s here), or defer.
