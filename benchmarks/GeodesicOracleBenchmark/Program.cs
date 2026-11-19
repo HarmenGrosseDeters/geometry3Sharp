@@ -4,6 +4,7 @@
 // (flat vertices emit) to compare with A7'.
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- reach      the reach meshes of GEODESICS.md 6b
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- sweep      domes and saddles over a curvature sweep
+//   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- path 101,201   TracePath of the public class: the exact paths to about 2000 vertices (time, points, length against distance)
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- poly 101,201,317   the public PolyhedralGeodesicDistance (docs/design/GEODESICS.md 6e): time, windows, memory; no oracle
 using System;
 using System.Linq;
@@ -105,7 +106,27 @@ static class Program
                     Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {st} | {secs:F2} | {g.Windows} | {(double)g.Windows / m.VertexCount:F1} | {alloc / 1048576} | {peak / 1048576} | digest {Digest(g):X16} |");
                 }
             }
-        } else { Console.Error.WriteLine("modes: reach, sweep, poly"); return 1; }
+        } else if (mode == "path") {
+            Console.WriteLine("| mesh | vertices | Compute seconds | traces | trace seconds (total) | microseconds per trace | longest path (points) | largest |Length - Distance| / Distance |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|");
+            foreach (int n in (args.Length > 1 ? args[1] : "101,201").Split(',').Select(int.Parse)) {
+                foreach (string fam in (Environment.GetEnvironmentVariable("G3_FAMS") ?? "terrain,plane,saddle").Split(',')) {
+                    double half = (n - 1) * 0.25 / 2;
+                    DMesh3 m = fam == "terrain" ? Grid(n / 2, n, Terrain) : fam == "plane" ? Grid(1, n, (x, y) => 0) : Grid(1, n, (x, y) => 0.3 * (x * x - y * y));
+                    int src = (n / 2) * n + n / 2;
+                    var g = new PolyhedralGeodesicDistance(m) { MaxWindows = long.Parse(Environment.GetEnvironmentVariable("G3_MAXW") ?? "0") };
+                    var sw = Stopwatch.StartNew(); var st = g.Compute(new[] { src }); double cs = sw.Elapsed.TotalSeconds;
+                    if (st != PolyhedralGeodesicStatus.Ok) { Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {cs:F2} ({st}) | | | | | |"); continue; }
+                    int step = Math.Max(1, m.VertexCount / 2000), traces = 0, maxPts = 0; double worst = 0; sw.Restart();
+                    for (int v = 0; v < m.MaxVertexID; v += step) {
+                        var r = g.TracePath(v); if (r.Status != PolyhedralGeodesicPathStatus.Ok) { Console.WriteLine($"trace {v}: {r.Status}"); continue; }
+                        ++traces; maxPts = Math.Max(maxPts, r.Points.Count); if (r.Distance > 0) worst = Math.Max(worst, Math.Abs(r.Length - r.Distance) / r.Distance);
+                    }
+                    double ts = sw.Elapsed.TotalSeconds;
+                    Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {cs:F2} | {traces} | {ts:F3} | {ts / traces * 1e6:F0} | {maxPts} | {worst:E1} |");
+                }
+            }
+        } else { Console.Error.WriteLine("modes: reach, sweep, poly, path"); return 1; }
         return 0;
     }
 }
