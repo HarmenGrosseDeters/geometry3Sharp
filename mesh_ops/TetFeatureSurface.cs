@@ -42,6 +42,11 @@ namespace gs
             double pad = Math.Max(box.DiagonalLength, double.Epsilon);
             r.Dt = new Delaunay3(new AxisAlignedBox3d(box.Min - new Vector3d(pad, pad, pad), box.Max + new Vector3d(pad, pad, pad))) { RefinementSupport = true };
             r.Ids = new Dictionary<int, int>();
+            HashSet<(int, int, int)> original = null;
+            if (input != null) {
+                original = new HashSet<(int, int, int)>();
+                foreach (int t in surface.TriangleIndices()) { Index3i tv = surface.GetTriangle(t); original.Add(key(tv.a, tv.b, tv.c)); }
+            }
             foreach (int v in surface.VertexIndices())
                 if (!r.add_vertex(v)) return fail(r, "insert vertex");
             var missT = new List<int>(); var missE = new List<int>();
@@ -67,7 +72,7 @@ namespace gs
                 }
             }
             string nc = MeshRobustRepair.NotCleanReason(surface); if (nc != "") return fail(r, "not clean: " + nc);
-            if (input != null && touches_input(surface, input)) return fail(r, "touches the input");
+            if (input != null && touches_input(surface, input, original)) return fail(r, "touches the input");
             r.label();
             return r;
         }
@@ -76,12 +81,14 @@ namespace gs
         static TetFeatureSurface fail(TetFeatureSurface r, string why) { LastFailure = why; return null; }
 
         // the recovered surface (flips and splits change it by at most a flat quad's fold) must not touch the input (exact)
-        static bool touches_input(DMesh3 surface, DMesh3 input)
+        // only the triangles the recovery created or changed (not among the original vertex triples) can newly touch it: the pass guaranteed the rest
+        static bool touches_input(DMesh3 surface, DMesh3 input, HashSet<(int, int, int)> original)
         {
             var tree = new DMeshAABBTree3(input, true);
             var tris = new List<Triangle3d>();
             foreach (int t in surface.TriangleIndices()) {
                 Index3i tv = surface.GetTriangle(t);
+                if (original.Contains(key(tv.a, tv.b, tv.c))) continue;
                 tris.Add(new Triangle3d(surface.GetVertex(tv.a), surface.GetVertex(tv.b), surface.GetVertex(tv.c)));
             }
             return Reducer.TrianglesTouch(tree, tris);
