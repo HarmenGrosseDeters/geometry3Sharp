@@ -381,20 +381,26 @@ namespace g3
 
         // x lies in the closed counter-clockwise triangle (a, b, c): orient(a, b, x), orient(b, c, x) and orient(c, a, x) are all
         // >= 0. Any one of them that the floating-point filter shows to be negative decides the answer false (the exact sign has the
-        // sign of the filter's, see OrientFilterOnly), so the exact orient (which for x on a line of the triangle is 0 and always
+        // sign of the filter's, see ExactMeshArrangement.EdgeSign), so the exact orient (which for x on a line of the triangle is 0 and always
         // runs the exact stage) is called only for the signs the filter left open, and only if none is negative. The value is the
         // AND of the same three exact signs as before.
         [MethodImpl(JitHints.Optimize)]
         internal bool in_closed_triangle(int g, int a, int b, int c, int x)
         {
+            var f = arr.BeginTriangleFilter(groupTri[g], a, b, c);
+            return in_closed_triangle(g, a, b, c, x, ref f);
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        bool in_closed_triangle(int g, int a, int b, int c, int x, ref ExactMeshArrangement.TriangleFilter f)
+        {
             EarTests++;
-            ExactMeshArrangement.InputTriangle t = groupTri[g];
             int sg = groupSign[g];
-            int s1 = sg * arr.OrientFilterOnly(t, a, b, x);
+            int s1 = sg * arr.EdgeSign(ref f, 0, x);
             if (s1 < 0) return false;
-            int s2 = sg * arr.OrientFilterOnly(t, b, c, x);
+            int s2 = sg * arr.EdgeSign(ref f, 1, x);
             if (s2 < 0) return false;
-            int s3 = sg * arr.OrientFilterOnly(t, c, a, x);
+            int s3 = sg * arr.EdgeSign(ref f, 2, x);
             if (s3 < 0) return false;
             if (s1 == 0) { EarExactOrients++; if (orient(g, a, b, x) < 0) return false; }
             if (s2 == 0) { EarExactOrients++; if (orient(g, b, c, x) < 0) return false; }
@@ -415,11 +421,12 @@ namespace g3
                     if (orient(g, a, b, c) <= 0)
                         continue;
                     bool empty = true;
+                    var filter = arr.BeginTriangleFilter(groupTri[g], a, b, c);
                     for (int j = 0; j < n && empty; ++j) {
                         int x = p[j];
                         if (x == a || x == b || x == c)
                             continue;
-                        if (in_closed_triangle(g, a, b, c, x))
+                        if (in_closed_triangle(g, a, b, c, x, ref filter))
                             empty = false;
                     }
                     if (empty == false)

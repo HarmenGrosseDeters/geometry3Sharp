@@ -283,7 +283,7 @@ namespace geometry3Sharp.Tests
             var s = new ExactPlanarSimplify(arr, new List<Index3i> { new Index3i(arr.Canonical(arr.VertexPoints[0][0]), arr.Canonical(arr.VertexPoints[0][1]), arr.Canonical(arr.VertexPoints[0][2])) },
                 new List<int> { arr.MeshTriangles[0][0] }, new List<bool> { false });
             int g = s.group_of(0);
-            int inside = 0, outside = 0, tested = 0;
+            int inside = 0, outside = 0, tested = 0, filtered = 0, open = 0;
             for (int a = 0; a < count; ++a)
                 for (int b = 0; b < count; ++b)
                     for (int c = 0; c < count; ++c) {
@@ -295,11 +295,71 @@ namespace geometry3Sharp.Tests
                                 continue;
                             bool plain = s.orient(g, ids[a], ids[b], ids[x]) >= 0 && s.orient(g, ids[b], ids[c], ids[x]) >= 0 && s.orient(g, ids[c], ids[a], ids[x]) >= 0;
                             Assert.Equal(plain, s.in_closed_triangle(g, ids[a], ids[b], ids[c], ids[x]));
+                            // the filter's sign, where it has one, is the exact sign (so a negative one decides the AND)
+                            var filter = arr.BeginTriangleFilter(arr.Triangles[arr.MeshTriangles[0][0]], ids[a], ids[b], ids[c]);
+                            int[][] edges = { new[] { a, b }, new[] { b, c }, new[] { c, a } };
+                            for (int k = 0; k < 3; ++k) {
+                                int fs = arr.EdgeSign(ref filter, k, ids[x]);
+                                int exact = s.orient(g, ids[edges[k][0]], ids[edges[k][1]], ids[x]);
+                                if (fs != 0) { filtered++; Assert.Equal(arr.Orient(arr.Triangles[arr.MeshTriangles[0][0]], ids[edges[k][0]], ids[edges[k][1]], ids[x]), fs); }
+                                else open++;
+                            }
                             tested++;
                             if (plain) inside++; else outside++;
                         }
                     }
             Assert.True(tested > 1000 && inside > 20 && outside > 20, $"{tested} tests, {inside} inside, {outside} outside");
+            if (disableFilters)
+                Assert.Equal(0, filtered);
+            else
+                Assert.True(filtered > 100 && open > 100, $"{filtered} filter signs, {open} open");
+        }
+
+
+        [Fact]
+        public void InClosedTriangle_EqualsThePlainAnd_OnTheIntersectionPointsOfAnArrangement()
+        {
+            // implicit points (an edge of B crossing the plane z = 0 of A) have larger approximation errors than the input points; with
+            // collinear input points and crossing points the filter must use the largest error of the three points, or it decides a zero
+            var a = new DMesh3();
+            double[][] corner = { new[] { 0.0, 0, 0 }, new[] { 16.0, 0, 0 }, new[] { 16.0, 16, 0 }, new[] { 0.0, 16, 0 } };
+            foreach (double[] c in corner) a.AppendVertex(new Vector3d(c[0], c[1], c[2]));
+            a.AppendTriangle(0, 1, 2); a.AppendTriangle(0, 2, 3);
+            // B: a fan of triangles from a point above the plane to points below it, the crossings of the edges at rational points
+            var b = new DMesh3();
+            b.AppendVertex(new Vector3d(7, 5, 3));
+            int[][] below = { new[] { 1, 9, -7 }, new[] { 13, 3, -5 }, new[] { 15, 11, -3 }, new[] { 4, 14, -11 }, new[] { 2, 6, -2 }, new[] { 9, 1, -13 } };
+            foreach (int[] q in below) b.AppendVertex(new Vector3d(q[0], q[1], q[2]));
+            for (int i = 1; i <= below.Length; ++i)
+                b.AppendTriangle(0, i, i % below.Length + 1);
+            var arr = new ExactMeshArrangement(new List<DMesh3> { a, b }) { SelfIntersections = true };
+            arr.Compute();
+            var pts = new SortedSet<int>();
+            var sources = new List<int>(arr.MeshTriangles[0]);
+            int tri0 = sources[0];
+            foreach (var ot in arr.Output)
+                if (sources.Contains(ot.Source)) { pts.Add(ot.A); pts.Add(ot.B); pts.Add(ot.C); }
+            int[] ids = pts.ToArray();
+            Assert.True(ids.Length > 10, $"{ids.Length} points in the plane");
+            var s = new ExactPlanarSimplify(arr, new List<Index3i> { new Index3i(ids[0], ids[1], ids[2]) }, new List<int> { tri0 }, new List<bool> { false });
+            int g = s.group_of(0);
+            ulong state = 99;
+            int tested = 0, open = 0;
+            for (int n = 0; n < 40000; ++n) {
+                int[] q = new int[4];
+                for (int k = 0; k < 4; ++k) {
+                    state += 0x9E3779B97F4A7C15UL;
+                    ulong z = state; z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL; z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+                    q[k] = ids[(int)((z ^ (z >> 31)) % (ulong)ids.Length)];
+                }
+                if (q.Distinct().Count() < 4)
+                    continue;
+                bool plain = s.orient(g, q[0], q[1], q[3]) >= 0 && s.orient(g, q[1], q[2], q[3]) >= 0 && s.orient(g, q[2], q[0], q[3]) >= 0;
+                Assert.Equal(plain, s.in_closed_triangle(g, q[0], q[1], q[2], q[3]));
+                tested++;
+                if (s.orient(g, q[0], q[1], q[3]) == 0) open++;
+            }
+            Assert.True(tested > 10000 && open > 0, $"{tested} tests, {open} with x on a line of the triangle");
         }
 
         [Fact]
