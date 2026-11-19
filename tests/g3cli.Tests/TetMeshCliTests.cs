@@ -186,7 +186,7 @@ namespace g3cli.Tests
             foreach (string[] bad in new[] {
                 new[] { "--relative-alpha", "0" }, new[] { "--relative-alpha", "1001" }, new[] { "--relative-offset", "100001" },
                 new[] { "--min-dihedral", "-1" }, new[] { "--min-dihedral", "71" }, new[] { "--max-radius-edge", "1.4" }, new[] { "--max-radius-edge", "1001" },
-                new[] { "--max-circumradius", "-1" }, new[] { "--max-circumradius", "0.001" }, new[] { "--max-steiner-points", "0" }, new[] { "--max-steiner-points", "2000001" } }) {
+                new[] { "--max-circumradius", "-1" }, new[] { "--max-circumradius", "0.001" }, new[] { "--target-edge-length", "-1" }, new[] { "--target-edge-length", "1e-9" }, new[] { "--grading-factor", "-1" }, new[] { "--grading-factor", "101" }, new[] { "--max-steiner-points", "0" }, new[] { "--max-steiner-points", "2000001" } }) {
                 (e, r) = Run(new[] { "tetmesh", m.Cube, m.Path_("lim.mesh"), "--compact" }.Concat(bad).ToArray());
                 AssertError(e, r, "invalid_arguments");
                 Assert.False(File.Exists(m.Path_("lim.mesh")), string.Join(" ", bad));
@@ -204,6 +204,21 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void TargetEdgeLengthAndGrading_AreAcceptedAndRefine()
+        {
+            var (e0, plain) = Run(new[] { "tetmesh", m.Cube, m.Path_("s0.mesh") }.Concat(Fast).ToArray());
+            double alpha = D(plain["used_alpha"]);
+            string h = (0.5 * alpha).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            var (e1, sized) = Run(new[] { "tetmesh", m.Cube, m.Path_("s1.mesh"), "--target-edge-length", h }.Concat(Fast).ToArray());
+            var (e2, graded) = Run(new[] { "tetmesh", m.Cube, m.Path_("s2.mesh"), "--grading-factor", "0.25" }.Concat(Fast).ToArray());
+            Assert.Equal(0, e0); Assert.Equal(0, e1); Assert.Equal(0, e2);
+            Assert.True(I(sized["counts"]["tets"]) > 2 * I(plain["counts"]["tets"]));
+            Assert.True(I(graded["counts"]["tets"]) > I(plain["counts"]["tets"]));
+            Assert.True(B(sized["valid"]) && B(graded["valid"]));
+            Assert.NotNull(sized["steps"]["size_clamped_tets"]);
+        }
+
+        [Fact]
         public void Help_ListsTheCommandAndItsArguments()
         {
             var (exit, r) = Run("help", "tetmesh");
@@ -212,7 +227,7 @@ namespace g3cli.Tests
             JsonNode a = r["arguments"];
             Assert.True(B(a["input"]["required"]) && B(a["output"]["required"]));
             Assert.Equal(new[] { "auto", "medit", "msh41", "msh22", "vtk" }, a["format"]["enum"].AsArray().Select(x => S(x)).ToArray());
-            foreach (string name in new[] { "relative_alpha", "relative_offset", "min_dihedral", "max_radius_edge", "max_circumradius", "max_steiner_points", "improve", "markers", "deviation", "self_intersections" })
+            foreach (string name in new[] { "relative_alpha", "relative_offset", "min_dihedral", "max_radius_edge", "max_circumradius", "target_edge_length", "grading_factor", "max_steiner_points", "improve", "markers", "deviation", "self_intersections" })
                 Assert.NotNull(a[name]);
             Assert.Equal("boolean", S(a["markers"]["type"]));
             Assert.Contains("Medit", S(r["description"]));

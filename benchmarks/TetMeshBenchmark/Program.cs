@@ -91,9 +91,38 @@ static class Program
                 Console.WriteLine(TetFiles.Evaluate(kv.Key, tm.Result, kv.Value, totalS.ToString("G4", Inv), "1") + "," + tm.Status + "," +
                     wrapS.ToString("G4", Inv) + "," + refineS.ToString("G4", Inv) + "," + (refineS * 1e6 / Math.Max(1, tm.Result.Tets.Count)).ToString("G4", Inv) + "," + counts);
             }
+        } else if (mode == "size") {            // size [relativeAlpha] [relativeOffset]: tet count and time against the target edge length h and the grading factor (TET_MESHING.md 17.12)
+            double ra = args.Length > 1 ? double.Parse(args[1], Inv) : 12, ro = args.Length > 2 ? double.Parse(args[2], Inv) : 600;
+            Console.WriteLine("shape,option,value,tets,uniform_estimate,tets_over_estimate,seconds,status,min_dihedral,radius_edge_met,unrefined_bad_tets,size_clamped_tets");
+            foreach (var kv in Procedural().Where(k => k.Key == "sphere n=16" || k.Key == "box 1x0.5x0.25" || k.Key == "cylinder" || k.Key == "torus")) {
+                double volume = 0;
+                foreach (int t in kv.Value.TriangleIndices()) {
+                    kv.Value.GetTriVertices(t, ref v0g, ref v1g, ref v2g);
+                    volume += v0g.Dot(v1g.Cross(v2g)) / 6;
+                }
+                volume = Math.Abs(volume);
+                double alpha = kv.Value.GetBounds().DiagonalLength / ra;
+                foreach (var (option, value) in new[] { ("none", 0.0), ("h_over_alpha", 1.0), ("h_over_alpha", 0.7), ("h_over_alpha", 0.5), ("h_over_alpha", 0.35), ("h_over_alpha", 0.25),
+                                                       ("grading", 2.0), ("grading", 1.0), ("grading", 0.5), ("grading", 0.25) }) {
+                    var tm = new MeshTetrahedralization(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                    double h = 0;
+                    if (option == "h_over_alpha") { h = value * alpha; tm.TargetEdgeLength = h; }
+                    if (option == "grading") tm.GradingFactor = value;
+                    var sw = Stopwatch.StartNew();
+                    tm.Compute();
+                    double secs = sw.Elapsed.TotalSeconds;
+                    if (tm.Result == null) { Console.WriteLine(kv.Key + "," + option + "," + value.ToString(Inv) + ",," + tm.Status); continue; }
+                    double est = h > 0 ? volume / (0.12 * h * h * h) : 0;
+                    int n = tm.Result.Tets.Count;
+                    Console.WriteLine(string.Join(",", kv.Key, option, value.ToString("G4", Inv), n, est.ToString("F0", Inv), est > 0 ? (n / est).ToString("F2", Inv) : "", secs.ToString("G4", Inv), tm.Status,
+                        tm.Targets.WorstMinDihedral.ToString("F2", Inv), tm.Targets.RadiusEdgeMet, tm.Counts["unrefined_bad_tets"], tm.Counts.TryGetValue("size_clamped_tets", out long cl) ? cl : 0));
+                }
+            }
         } else return 1;
         return 0;
     }
+
+    static Vector3d v0g, v1g, v2g;
 
     static void Insert(int n)
     {

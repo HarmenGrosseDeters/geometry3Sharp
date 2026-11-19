@@ -50,6 +50,8 @@ namespace g3cli
             c.Params.Add(new Param("min_dihedral", ParamType.Number, "target for the smallest dihedral angle in degrees (0 = off; library default 10): tets below it are worked on by the refinement and improvement, and counted in targets"));
             c.Params.Add(new Param("max_radius_edge", ParamType.Number, "target for the radius-edge ratio (library default 2): tets above it are refined where the fixed surface allows, and counted in targets"));
             c.Params.Add(new Param("max_circumradius", ParamType.Number, "size bound in mesh units: tets with a larger circumradius are refined (0 = none, the library default; at least 1/100 of the bounding box diagonal)"));
+            c.Params.Add(new Param("target_edge_length", ParamType.Number, "interior size control, uniform target edge length in mesh units (0 = none, the library default; at least 1/200 of the bounding box diagonal). The boundary keeps the wrap's spacing (relative_alpha), so it takes effect for sizes below it; sizes below a quarter of alpha are clamped (counts.size_clamped_tets)"));
+            c.Params.Add(new Param("grading_factor", ParamType.Number, "interior size control, automatic: the edge length grows with the distance d to the boundary as (mean boundary edge length) + grading_factor * d (0 = none, the library default; at most 100)"));
             c.Params.Add(new Param("max_steiner_points", ParamType.Integer, "stop refining after this many inserted points (status point_limit_reached; library default 2000000; the library's work bound of the refinement gives the same status)"));
             c.Params.Add(new Param("improve", ParamType.Boolean, "flips, smoothing, splits and contractions after the refinement (library default true)"));
             c.Params.Add(new Param("markers", ParamType.Boolean, "compute the boundary markers and region ids and write them as refs (false: every ref is 0)") { Default = true });
@@ -89,6 +91,18 @@ namespace g3cli
                     if (!(r >= 0) || (r > 0 && diagonal / r > 100))
                         throw new CommandException(ResultCodes.InvalidArguments, "'max_circumradius' must be 0 (none) or at least 1/100 of the bounding box diagonal (" + diagonal / 100 + ")");
                     tm.MaxCircumradius = r;
+                }
+                if (args.Has("target_edge_length")) {
+                    double h = args.Number("target_edge_length");
+                    if (!(h >= 0) || (h > 0 && diagonal / h > 200))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'target_edge_length' must be 0 (none) or at least 1/200 of the bounding box diagonal (" + diagonal / 200 + ")");
+                    tm.TargetEdgeLength = h;
+                }
+                if (args.Has("grading_factor")) {
+                    double g = args.Number("grading_factor");
+                    if (!(g >= 0 && g <= 100))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'grading_factor' must be in [0, 100] (0 = none)");
+                    tm.GradingFactor = g;
                 }
                 tm.Compute();
                 string tetStatus = ToSnake(tm.Status.ToString()), wrapStatus = ToSnake(tm.WrapStatus.ToString());

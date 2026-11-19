@@ -45,6 +45,27 @@ namespace gs
         /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>
         public double MaxCircumradius = 0;
         /// <summary>
+        /// size control, interior only (docs/design/TET_MESHING.md 17.12): a uniform target edge length h (absolute, in the input's units);
+        /// 0, a negative value, NaN or infinity = off. A tet is refined while its circumradius exceeds 0.75 h (h at the
+        /// tet's centroid), so the mean edge is about h and the mesh has about volume / (0.12 h^3) tets. Combines with SizeFunction and GradingFactor (the smallest size at a point wins).
+        /// The boundary keeps the wrap's spacing (RelativeAlpha): tets at the fixed surface are not refined below its triangles
+        /// (counted in unrefined_bad_tets), and a size below MinSizeFactor * alpha is clamped.
+        /// </summary>
+        public double TargetEdgeLength = 0;
+        /// <summary>
+        /// size control: the wanted edge length at a point (absolute), evaluated at the centroid of each tet, serially, so it need not be thread-safe;
+        /// null = off. A result that is NaN, not positive or infinite is clamped (to MinSizeFactor * alpha, or to the input's diagonal for +infinity)
+        /// and counted in Counts["size_clamped_tets"] (final tets that had a clamped size), as is a finite size below MinSizeFactor * alpha. It must be deterministic for a deterministic result.
+        /// </summary>
+        public Func<Vector3d, double> SizeFunction = null;
+        /// <summary>
+        /// size control, automatic: the wanted edge length grows with the distance d to the wrap's boundary, h(p) = (mean edge length of the
+        /// wrap's surface) + GradingFactor * d (a scale-free rule: 0.5 roughly doubles the size every 2 boundary spacings away from the surface); 0, a negative value or NaN = off
+        /// </summary>
+        public double GradingFactor = 0;
+        /// <summary> size control: sizes below this many alpha (UsedAlpha) are clamped and counted (the boundary spacing is about 1 to 2 alpha, 17.12); 0, a negative value or NaN = 0.25 </summary>
+        public double MinSizeFactor = 0.25;
+        /// <summary>
         /// sliver step (Li and Teng 2001): tets with a smallest dihedral angle below this (degrees) are refined too, and a new point
         /// is chosen among candidates near the circumcentre so that its new tets have no dihedral angle below it; 0 = off
         /// (plain circumcentres)
@@ -177,6 +198,13 @@ namespace gs
             var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
                 TrialLimit = workLimit,
                 Input = PeelBoundarySlivers ? Mesh : null };
+            if (BuildSizeField(wrap, out Func<Vector3d, double> field)) {
+                r.SizeAt = field;
+                r.MinSize = (MinSizeFactor > 0 ? MinSizeFactor : 0.25) * UsedAlpha;
+                r.MaxSize = Mesh.GetBounds().DiagonalLength;
+                if (!(r.MaxSize > r.MinSize)) r.MaxSize = 2 * r.MinSize;
+                if (workLimit < double.PositiveInfinity) r.TrialsPerSizeSplit = MaxTrialInsertionsPerWrapVertex;   // a point inserted for the size counts like a wrap vertex
+            }
             TetStatus st = r.Run();
             Status = st;
             if (st == TetStatus.Cancelled) {
@@ -185,6 +213,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
+            if (r.SizeAt != null) r.CountClamped();
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
@@ -208,6 +237,43 @@ namespace gs
             return st == TetStatus.Success;
         }
 
+        // the size field of the options set (the smallest size at a point), or false if none is; sizes are not clamped here (the refiner does)
+        bool BuildSizeField(MeshAlphaWrap wrap, out Func<Vector3d, double> field)
+        {
+            field = null;
+            double h = TargetEdgeLength;
+            bool uniform = h > 0 && !double.IsInfinity(h);
+            bool user = SizeFunction != null;
+            bool graded = GradingFactor > 0 && !double.IsInfinity(GradingFactor);
+            if (!uniform && !user && !graded) return false;
+            DMesh3 surface = wrap.Result;
+            DMeshAABBTree3 tree = null;
+            double h0 = 0, g = GradingFactor;
+            if (graded) {
+                double sum = 0; int n = 0;
+                foreach (int e in surface.EdgeIndices()) { Index2i v = surface.GetEdgeV(e); sum += surface.GetVertex(v.a).Distance(surface.GetVertex(v.b)); n++; }
+                h0 = n > 0 ? sum / n : wrap.UsedAlpha;
+                tree = new DMeshAABBTree3(surface, true);
+            }
+            Func<Vector3d, double> f = SizeFunction;
+            field = (p) => {
+                double s = double.PositiveInfinity;
+                if (uniform) s = h;
+                if (graded) {
+                    int tid = tree.FindNearestTriangle(p);
+                    double d = tid < 0 ? 0 : Math.Sqrt(MeshQueries.TriDistanceSqr(surface, tid, p));
+                    s = Math.Min(s, h0 + g * d);
+                }
+                if (user) {
+                    double u = f(p);
+                    // an invalid value (NaN, not positive) stays the minimum (Math.Min passes a NaN on) and is clamped by the refiner
+                    s = Math.Min(s, u);
+                }
+                return s;
+            };
+            return true;
+        }
+
         /// <summary>
         /// The refinement of the inside cells (label 1) of a Delaunay3 whose inside / outside facets are the surface. The surface is
         /// never changed: a point is kept only if every cell its insertion removes is inside (then no surface facet is in the
@@ -228,6 +294,18 @@ namespace gs
             /// <summary> stop after this many trial insertions (the work bound); infinity = none </summary>
             internal double TrialLimit = double.PositiveInfinity;
             internal bool WorkLimitHit;
+            /// <summary> size control: the wanted edge length at a point (null = none), its clamp (MinSize .. MaxSize); see MeshTetrahedralization.SizeFunction </summary>
+            internal Func<Vector3d, double> SizeAt;
+            internal double MinSize, MaxSize;
+            /// <summary> trial insertions a point inserted for the size alone adds to the work bound (like a wrap vertex); 0 = none </summary>
+            internal double TrialsPerSizeSplit;
+            // the trials of points inserted for the size alone follow the volume (bounded by the packing, the floor, and MaxSteinerPoints); each such point
+            // raises the work bound by TrialsPerSizeSplit, as a wrap vertex does (measured: at most 10 trials per such point)
+            long sizeSplits;
+            bool sizeCause;
+            // a tet is too large if its circumradius exceeds 0.75 h. The regular tet of edge h has circumradius 0.612 h, but the refined tets are not regular:
+            // measured (17.12) the mean edge of the result is 0.81 h with 0.612 and about h with 0.75, which gives the count volume / (0.12 h^3) within a factor 1.5
+            const double RegularCircumradius = 0.75;
 
             internal Refiner(Delaunay3 dt, double floor, double rho, double size, double sliver, int maxPoints, Func<bool> cancel)
             {
@@ -247,7 +325,7 @@ namespace gs
                 while (tetQueue.Count > 0) {
                     if (cancel()) return TetStatus.Cancelled;
                     if (inserted >= maxPoints) return TetStatus.PointLimitReached;
-                    if (Counts["trial_insertions"] >= TrialLimit) { WorkLimitHit = true; return TetStatus.PointLimitReached; }
+                    if (Counts["trial_insertions"] >= TrialLimit + TrialsPerSizeSplit * sizeSplits) { WorkLimitHit = true; return TetStatus.PointLimitReached; }
                     var (c, st) = tetQueue.Dequeue();
                     if (!dt.IsCell(c) || dt.CellStamp(c) != st || dt.CellLabel(c) != 1 || !is_bad(c)) continue;
                     split_tet(c);
@@ -256,7 +334,45 @@ namespace gs
                 return cancel() ? TetStatus.Cancelled : TetStatus.Success;
             }
 
-            internal bool is_bad(int c)
+            internal bool is_bad(int c) { return shape_bad(c) || field_bad(c); }
+
+            // the wanted size at point p after the clamp; clamped = the function's value was invalid, infinite or below MinSize
+            double wanted_size(Vector3d p, out bool clamped)
+            {
+                double h = SizeAt(p);
+                clamped = false;
+                if (double.IsNaN(h) || h <= 0) { clamped = true; return MinSize; }
+                if (double.IsPositiveInfinity(h)) { clamped = true; return MaxSize; }
+                if (h < MinSize) { clamped = true; return MinSize; }
+                return Math.Min(h, MaxSize);
+            }
+
+            // the circumradius of the tet exceeds that of the regular tet of the wanted edge length at its centroid
+            bool field_bad(int c)
+            {
+                if (SizeAt == null) return false;
+                Index4i t = dt.GetCell(c);
+                Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
+                double h = wanted_size((a + b + d + e) * 0.25, out _);
+                double R2 = Delaunay3.Circumcenter(a, b, d, e).DistanceSquared(a);
+                double lim = RegularCircumradius * h;
+                return !(R2 <= lim * lim);
+            }
+
+            internal void CountClamped()
+            {
+                long n = 0;
+                foreach (int c in dt.CellIndices()) {
+                    if (dt.CellLabel(c) != 1) continue;
+                    Index4i t = dt.GetCell(c);
+                    wanted_size((dt.GetVertex(t.a) + dt.GetVertex(t.b) + dt.GetVertex(t.c) + dt.GetVertex(t.d)) * 0.25, out bool clamped);
+                    if (clamped) n++;
+                }
+                Counts["size_clamped_tets"] = n;
+            }
+
+            // the shape criteria (radius-edge, dihedral, degenerate) and the fixed circumradius bound
+            internal bool shape_bad(int c)
             {
                 Index4i t = dt.GetCell(c);
                 Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
@@ -311,6 +427,7 @@ namespace gs
 
             void split_tet(int c)
             {
+                sizeCause = SizeAt != null && !shape_bad(c);
                 Index4i t = dt.GetCell(c);
                 Vector3d cc = dt.Circumcenter(c);
                 double R = cc.Distance(dt.GetVertex(t.a));
@@ -333,7 +450,7 @@ namespace gs
                     dt.UndoLastInsert();
                 }
                 if (best >= 0 && try_insert(candidates[best], c, out _)) { accept(best > 0); return; }
-                if (Input != null && try_peel(c)) return;
+                if (Input != null && !sizeCause && try_peel(c)) return;   // a tet too large is not peeled away
                 inc(anySurface ? "refused_surface" : "refused_floor");
             }
 
@@ -352,7 +469,7 @@ namespace gs
                 while (changed && !cancel()) {
                     changed = false;
                     foreach (int c in dt.CellIndices())
-                        if (dt.CellLabel(c) == 1 && is_bad(c) && try_peel(c)) { changed = true; inc("peeled_in_sweep"); }
+                        if (dt.CellLabel(c) == 1 && shape_bad(c) && try_peel(c)) { changed = true; inc("peeled_in_sweep"); }
                 }
             }
 
@@ -424,6 +541,7 @@ namespace gs
             void accept(bool moved)
             {
                 inserted++;
+                if (sizeCause) sizeSplits++;
                 inc("tet_splits");
                 if (moved) inc("sliver_free_choice");
                 foreach (int nc in added) tetQueue.Enqueue((nc, dt.CellStamp(nc)));
