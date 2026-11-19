@@ -116,6 +116,13 @@ namespace gs
         /// is not changed by it. 0: none
         /// </summary>
         public int RescuePasses = 150;
+        /// <summary>
+        /// stage 2: an opt-in work cap of the improvement, in the style of MaxTrialInsertionsPerWrapVertex: at most this many split attempts
+        /// (edges tried for a split) per vertex of the stage-1 mesh over the whole improvement, counted and never wall-clock, so the result is
+        /// deterministic. Once spent, splits are skipped and the other operations go on; Counts["improve_work_cap_reached"] = 1 says so (only
+        /// then the key exists) and the run does not fail. 0, a negative value or NaN: no cap (the default; the result is then bit for bit as before the option).
+        /// </summary>
+        public double MaxSplitAttemptsPerVertex = 0;
         /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
         internal bool DiagnoseImprovement = false;
         internal List<string> DiagnosticLines;
@@ -232,6 +239,8 @@ namespace gs
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
                 imp.Trace = ImproveTrace;
+                if (MaxSplitAttemptsPerVertex > 0 && !double.IsInfinity(MaxSplitAttemptsPerVertex))
+                    imp.MaxSplitAttempts = (long)Math.Min(Math.Ceiling(MaxSplitAttemptsPerVertex * Result.Vertices.Count), long.MaxValue / 2);
                 imp.Run();
                 if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();

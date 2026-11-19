@@ -1,6 +1,6 @@
 name: Tet meshing runner sample
 
-# (DATA BRANCH runs/tet-rescue-stop ONLY, never merged: the measurement of #1154, the rescue-loop stop; floors instead of alphas, per-pass traces.)
+# (DATA BRANCH runs/tet-work-cap ONLY, never merged: the measurement of #1154, the rescue-loop stop; floors instead of alphas, per-pass traces.)
 # The runner sample of docs/design/TET_MESHING.md section 17.5 (stage P1, owner 2026-11-17): MeshTetrahedralization on 500 Thingi10K meshes
 # (benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt, every 20th id of metadata/file_ids.txt from index 7, disjoint from the
 # 40-mesh subset) at each alpha of `alphas`, all alphas of a mesh on the same runner, one process at a time. Meshes are fetched at run
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       alphas:
-        description: SliverDihedralDegrees floors (the input name is kept from the sample workflow)
+        description: configs <floor> or <floor>x<cap> (MaxSplitAttemptsPerVertex), space separated; the first config of a floor is the baseline
         default: '10 20 30'
       shards:
         description: number of shard jobs (runners), 1-6
@@ -46,7 +46,7 @@ jobs:
   shard:
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -85,14 +85,14 @@ jobs:
           path: src
       - uses: actions/checkout@v4
         with:
-          ref: runs/tet-rescue-stop
+          ref: runs/tet-work-cap
           path: data
       - uses: actions/download-artifact@v4
         with:
           path: art
       - name: Merge, summarize, push to runs/tet-meshing
         run: |
-          dir=data/rescue-stop/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
+          dir=data/work-cap/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
           mkdir -p "$dir"
           for a in $ALPHAS; do cat art/shard-*/f$a-*.csv 2>/dev/null | sort > "$dir/f$a.csv" || true; cat art/shard-*/trace-$a-*.csv 2>/dev/null | sort -t, -k1,1 -s > "$dir/trace-$a.csv" || true; done
           cat art/shard-*/machine-*.txt > "$dir/machines.txt" 2>/dev/null || true
@@ -101,13 +101,13 @@ jobs:
             echo
             echo "- commit ${{ github.sha }}; \`TetMeshBenchmark refine <id>.stl 40 600\` with G3_TET_FLOOR in {$ALPHAS}, G3_TET_WRAP_TIME=0, per-pass traces; $SHARDS shards; timeout $TIMEOUT_S s per mesh and floor"
             echo
-            python3 -I src/benchmarks/TetMeshBenchmark/compare/analyze_rescue_stop.py "$dir" $ALPHAS
+            python3 -I src/benchmarks/TetMeshBenchmark/compare/analyze_work_cap.py "$dir" $ALPHAS
           } > "$dir/SUMMARY.md"
           cat "$dir/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
           cd data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rescue-stop
+          git add work-cap
           git commit -q -m "Rescue-stop measurement, run ${{ github.run_id }}"
-          for i in 1 2 3 4; do git push origin HEAD:runs/tet-rescue-stop && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-rescue-stop; done
-          echo "push to runs/tet-rescue-stop failed"; exit 1
+          for i in 1 2 3 4; do git push origin HEAD:runs/tet-work-cap && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-work-cap; done
+          echo "push to runs/tet-work-cap failed"; exit 1

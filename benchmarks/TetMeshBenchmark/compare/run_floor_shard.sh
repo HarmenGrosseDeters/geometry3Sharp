@@ -22,7 +22,8 @@ for id in $(cat "$IDS"); do
     grep -q "^$id.stl," "$csv" && continue
     if [ ! -s "$f" ]; then echo "$id.stl,,1,MISSING_MESH" >> "$csv"; continue; fi
     rm -f "$MESH/trace.tmp"
-    G3_TET_FLOOR=$fl G3_TET_TRACE_FILE="$MESH/trace.tmp" timeout "$TO" dotnet "$DLL" refine "$f" 40 600 > "$MESH/run.out" 2> /dev/null; rc=$?
+    floor=${fl%%x*}; cap=0; case "$fl" in *x*) cap=${fl#*x};; esac     # a config is <floor> or <floor>x<cap> (MaxSplitAttemptsPerVertex; 0 = off)
+    G3_TET_FLOOR=$floor G3_TET_CAP=$cap G3_TET_TRACE_FILE="$MESH/trace.tmp" timeout "$TO" dotnet "$DLL" refine "$f" 40 600 > "$MESH/run.out" 2> /dev/null; rc=$?
     line=$(tail -n 1 "$MESH/run.out")
     if [ "$rc" -eq 124 ]; then echo "$id.stl,$TO,1,TIMEOUT" >> "$csv"
     elif [ "$rc" -ne 0 ] || [ -z "$line" ] || [ "${line#name,}" != "$line" ]; then echo "$id.stl,,1,ERROR_rc$rc" >> "$csv"

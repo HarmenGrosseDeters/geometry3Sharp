@@ -59,6 +59,7 @@ namespace gs
             foreach (string k in new[] { "edge_removals", "face_removals", "smooth_moves", "boundary_moves", "boundary_refused_input", "boundary_refused_self", "passes", "contractions", "insertions", "split_refused_input" })
                 Counts[k] = 0;
             orig = new List<Vector3d>(pos);
+            startVertices = pos.Count;
             bfaces = new List<Index3i>(m.BoundaryTriangles);
             vfaces = new List<List<int>>(pos.Count);
             for (int i = 0; i < pos.Count; ++i) vfaces.Add(new List<int>());
@@ -187,6 +188,7 @@ namespace gs
                 Counts["rescue_passes"] = Counts["passes"] - p;
             }
             if (Trace != null) {
+                Trace("attempts," + splitAttempts + "," + startVertices + ",0,0," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
                 int nbad = 0; double w = 180;
                 for (int id = 0; id < tets.Count; ++id) if (alive[id]) { double q = quality(id); if (q < TargetDegrees) nbad++; w = Math.Min(w, q); }
                 Trace("end," + Counts["passes"] + "," + nbad + "," + w.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
@@ -637,9 +639,25 @@ namespace gs
             var e = new List<(double, int, int)>();
             for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) e.Add((-pos[t[i]].DistanceSquared(pos[t[j]]), t[i], t[j]));
             e.Sort();                                       // longest first
-            foreach (var (_, a, b) in e) if (try_split(a, b)) return true;
+            foreach (var (_, a, b) in e) {
+                // work cap (opt-in, deterministic: a count of attempts, never time): once the budget is spent no further split is tried
+                if (MaxSplitAttempts > 0 && splitAttempts >= MaxSplitAttempts) { Counts["work_cap_reached"] = 1; return false; }
+                splitAttempts++;
+                if (try_split(a, b)) return true;
+            }
             return false;
         }
+
+        /// <summary>
+        /// work cap of the split attempts: at most this many edges are tried for a split over the whole run (counted, never wall-clock); 0 = no cap (the
+        /// default: the run is bit for bit as without the option). Once spent, the other operations go on and splits are skipped; Counts["work_cap_reached"]
+        /// = 1 says so (only then the key exists). The mesher sets it as MaxSplitAttemptsPerVertex times the vertex count of its input.
+        /// </summary>
+        internal long MaxSplitAttempts = 0;
+        long splitAttempts;
+        /// <summary> the split attempts made so far (edges tried for a split), with or without the cap </summary>
+        internal long SplitAttempts { get { return splitAttempts; } }
+        int startVertices;
 
         /// <summary> (tests) off: every split attempt runs to its end, as before the early rejection of #1154 </summary>
         internal bool SplitEarlyReject = true;
