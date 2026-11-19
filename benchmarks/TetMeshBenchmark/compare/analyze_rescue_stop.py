@@ -19,7 +19,7 @@ RULES = [(5, 0.05, 0.02), (10, 0.05, 0.02), (10, 0.05, 0.05), (10, 0.01, 0.01), 
 
 def load_traces(d, floor):
     tr = defaultdict(list)
-    for f in sorted(glob.glob(os.path.join(d, f"trace-{floor}-*.csv"))):
+    for f in sorted(glob.glob(os.path.join(d, f"trace-{floor}.csv")) + glob.glob(os.path.join(d, f"trace-{floor}-*.csv"))):
         for line in open(f, encoding="utf-8"):
             p = line.rstrip("\n").split(",")
             if len(p) == 6:
@@ -29,7 +29,7 @@ def load_traces(d, floor):
 
 def load_tets(d, floor):
     tets = {}
-    for f in glob.glob(os.path.join(d, f"f{floor}-*.csv")):
+    for f in glob.glob(os.path.join(d, f"f{floor}.csv")) + glob.glob(os.path.join(d, f"f{floor}-*.csv")):
         for line in open(f, encoding="utf-8"):
             p = line.split(",")
             if len(p) > 25 and p[0] != "name":
