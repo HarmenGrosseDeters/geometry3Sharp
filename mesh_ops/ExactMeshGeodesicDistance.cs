@@ -246,18 +246,12 @@ namespace g3
 
         static Vector2d Project(int axis, Vector3d q) => axis == 0 ? new Vector2d(q.y, q.z) : axis == 1 ? new Vector2d(q.z, q.x) : new Vector2d(q.x, q.y);
         static int Orient2(int axis, Vector3d p, Vector3d a, Vector3d b) => ExactPredicates.Orient2d(Project(axis, p), Project(axis, a), Project(axis, b));
-        // a coordinate plane on which the triangle (p, a, b) does not project to a segment; -1 if it is degenerate
+        // a coordinate plane on which the triangle (p, a, b) does not project to a segment; 2 if it is degenerate (all three
+        // projections are segments), and then every Orient2 of the callers is 0, so their sign tests reject
         static int RegularAxis(Vector3d p, Vector3d a, Vector3d b)
         {
-            for (int ax = 0; ax < 3; ++ax) if (Orient2(ax, p, a, b) != 0) return ax;
-            return -1;
-        }
-        // a - p and b - p point the same way, given that p, a, b are collinear in the projection and a is not p there
-        static bool SameWay(int axis, Vector3d p, Vector3d a, Vector3d b)
-        {
-            Vector2d P = Project(axis, p), A = Project(axis, a), B = Project(axis, b);
-            if (A.x != P.x) return (A.x > P.x) == (B.x > P.x);
-            return (A.y > P.y) == (B.y > P.y);
+            for (int ax = 0; ax < 2; ++ax) if (Orient2(ax, p, a, b) != 0) return ax;
+            return 2;
         }
 
         /// <summary> the angle sum at the interior vertex v (neighbours in fan order) is exactly 2 pi: (i) a coplanar fan of
@@ -265,16 +259,15 @@ namespace g3
         /// through v and each half a coplanar fan on one side of that line (Appendix A.5) </summary>
         internal bool IsExactlyFlat(int v, List<int> fan)
         {
-            int k = fan.Count; if (k < 3) return false;
+            int k = fan.Count;
             Vector3d P = Mesh.GetVertex(v); var N = new Vector3d[k];
             for (int i = 0; i < k; ++i) N[i] = Mesh.GetVertex(fan[i]);
             return CoplanarFan(P, N) || StraightFold(P, N);
         }
 
-        static bool CoplanarFan(Vector3d P, Vector3d[] N)
+        internal static bool CoplanarFan(Vector3d P, Vector3d[] N)
         {
             int k = N.Length, ax = RegularAxis(P, N[0], N[1]);
-            if (ax < 0) return false;
             for (int i = 2; i < k; ++i) if (ExactPredicates.Orient3d(P, N[0], N[1], N[i]) != 0) return false;
             int s = Orient2(ax, P, N[0], N[1]), winding = 0;
             for (int i = 0; i < k; ++i) {
@@ -282,22 +275,24 @@ namespace g3
                 if (s * Orient2(ax, P, N[i], N[j]) <= 0) return false;          // every sector turns the same way, by less than pi
                 if (s * Orient2(ax, P, N[i], N[0]) > 0) {                        // the sector starts on the far side of the reference ray: it reaches or passes it?
                     int o = s * Orient2(ax, P, N[0], N[j]);
-                    if (o > 0 || (o == 0 && SameWay(ax, P, N[0], N[j]))) ++winding;
+                    // o == 0: n_j lies on the reference line, and in the same direction as n_0 (the sector starts strictly behind n_0 and
+                    // turns by less than pi, so it cannot end opposite to it): it ends exactly on the ray
+                    if (o >= 0) ++winding;
                 }
             }
             return winding == 1;                                                 // 2 pi times the winding number
         }
 
-        static bool StraightFold(Vector3d P, Vector3d[] N)
+        internal static bool StraightFold(Vector3d P, Vector3d[] N)
         {
             int k = N.Length;
             for (int i = 0; i < k; ++i)
                 for (int j = i + 1; j < k; ++j) {
                     Vector3d a = N[i], b = N[j];
                     if (Orient2(0, P, a, b) != 0 || Orient2(1, P, a, b) != 0 || Orient2(2, P, a, b) != 0) continue;     // collinear
-                    // opposite sides of P: no coordinate has both ends strictly on the same side
-                    if ((a.x > P.x && b.x > P.x) || (a.x < P.x && b.x < P.x) || (a.y > P.y && b.y > P.y) || (a.y < P.y && b.y < P.y)
-                        || (a.z > P.z && b.z > P.z) || (a.z < P.z && b.z < P.z)) continue;
+                    // that a and b are on opposite sides of P needs no test of its own: a half whose last sector (from its last
+                    // intermediate neighbour, strictly on one side of the line, to b) turns the same way as its first one ends on the
+                    // ray opposite to a
                     if (FoldHalf(P, N, i, j) && FoldHalf(P, N, j, i)) return true;
                 }
             return false;
@@ -305,13 +300,11 @@ namespace g3
 
         // the neighbours from index `from` forward to `to` (cyclic): coplanar, all strictly on one side of the fold line, and
         // consecutive sectors turning the same way, so the half spans exactly pi
-        static bool FoldHalf(Vector3d P, Vector3d[] N, int from, int to)
+        internal static bool FoldHalf(Vector3d P, Vector3d[] N, int from, int to)
         {
-            int k = N.Length, count = ((to - from + k) % k) - 1;     // intermediate neighbours
-            if (count < 1) return false;
+            int k = N.Length, count = ((to - from + k) % k) - 1;     // intermediate neighbours; none: a and b adjacent, sg = 0 below rejects
             Vector3d a = N[from], m1 = N[(from + 1) % k];
             int ax = RegularAxis(P, a, m1);
-            if (ax < 0) return false;
             int sg = Orient2(ax, P, a, m1);
             Vector3d prev = a;
             for (int t = 1; t <= count + 1; ++t) {

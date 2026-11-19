@@ -329,6 +329,52 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, Kind(m, p));
         }
 
+        static Vector3d V(double x, double y) => new Vector3d(x, y, 0);
+        static Vector3d[] Pts(params double[] xy) { var r = new Vector3d[xy.Length / 2]; for (int i = 0; i < r.Length; ++i) r[i] = V(xy[2 * i], xy[2 * i + 1]); return r; }
+        static Vector3d[] Polar(params double[] deg) => deg.Select(a => V(Math.Round(100 * Math.Cos(a * Math.PI / 180)), Math.Round(100 * Math.Sin(a * Math.PI / 180)))).ToArray();
+
+        [Fact]
+        public void FlatnessPredicates_EveryRejectionReason_AndTheAcceptedCases()
+        {
+            Vector3d P = Vector3d.Zero;
+            // CoplanarFan: accepted: a lattice fan whose last sector ends exactly on the reference ray; a fan starting at any neighbour
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 1, 1, 0, 1, -1, 1, -1, 0, -1, -1, 0, -1, 1, -1)));
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(0, 1, -1, 0, 0, -1, 1, 0)));
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(0, 1, 1, 0, 0, -1, -1, 0)));              // clockwise order: the same
+            // rejected: the first two neighbours collinear with P (a degenerate triangle: no regular projection)
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 2, 0, 0, 1, -1, 0, 0, -1)));
+            // a degenerate sector later on (two neighbours in the same direction), the total turn still 2 pi
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0, 0, -1, 0, -2)));
+            // a sector that turns the other way
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, 1, 1, -1, 0, 0, -1)));
+            // winding twice (eight 90 degree sectors), and a fan that does not close a turn (three sectors of 90 degrees)
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0, 0, -1, 2, 0, 0, 2, -2, 0, 0, -2)));
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0)));                    // sectors 90, 90, then 180 back: degenerate
+            // not coplanar
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, new[] { new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0.5), new Vector3d(0, -1, 0) }));
+
+            // FoldHalf (the half from index 0 to the last): the fold line is the y axis, a = (0, 1), b = (0, -1), the half on x < 0
+            Vector3d b = V(0, -1), a = V(0, 1);
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(-1, -1), b }, 0, 3));
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, b }, 0, 1));                           // no intermediate: the sector is pi
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 0.5), V(-1, 1), b }, 0, 3));     // turns back
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(1, -1), b }, 0, 3));       // crosses the fold line, turns back
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(-1, -1), V(-1, -1), b }, 0, 4));   // a zero sector
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, new Vector3d(-1, 1, 0), new Vector3d(-1, -1, 1), b }, 0, 3));   // not coplanar
+            // a half that winds 3 pi: every sector turns the same way by less than pi, b is reached, but the half crosses the line
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { V(0, 100) }.Concat(Polar(190, 280, 370, 460, 550)).Concat(new[] { V(0, -100) }).ToArray(), 0, 6));
+            // the b side of a fold along a coordinate axis other than y, in the planes x = c and z = c (the axis choice)
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(1, 0, -1), new Vector3d(0, 0, -1) }, 0, 3));
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(-1, 1, 0), new Vector3d(-1, 0, 0) }, 0, 3));
+
+            // StraightFold: accepted: the valley of the classification test; rejected: collinear neighbours on the same side only
+            Assert.True(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(0, 1), V(-1, 1), V(-1, -1), V(0, -1), V(1, -1), V(1, 1) }));
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(0, 1), V(2, 0), V(0, 2) }));
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(-1, 1), V(-1, -1), V(2, 0), V(3, 1) }));
+            // two opposite neighbours that are adjacent in the fan: each side would be a sector of pi or a half with no intermediate
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(-1, 0), V(0, 1) }));
+        }
+
         static readonly Vector3d[] Lattice8 = { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 1, 0),
             new Vector3d(-1, 0, 0), new Vector3d(-1, -1, 0), new Vector3d(0, -1, 0), new Vector3d(1, -1, 0) };
 
