@@ -142,6 +142,20 @@ def tab(rows, expr):
         per = [100.0 * (r["triv"]["median_ms"] / r["p1"]["median_ms"] - 1) for r in rs if r["p1"]["median_ms"] > 0]
         eq = sum(1 for r in rs if r["triv"]["same_hash_as_off"])
         out.append("| %d | %d | %.1f | %.1f | %+.1f | %+.1f | %d of %d |" % (s, len(rs), a / 1000, b / 1000, 100.0 * (b / a - 1), med(per), eq, len(rs)))
+    out.append("")
+    out.append("Pre-decision of trivial coplanar pairs (`fast` against `p1`, parallel; `fasts` against `p1s`, serial; sum of the median times over chains, s; `fastchk`: the decision against the clips' outcome)")
+    out.append("")
+    out.append("| step | chains | p1 s | fast s | change % | median per-chain % | p1s s | fasts s | change % | hash equal (fast, fastchk) | agree / mismatch / missed pairs |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for s in steps:
+        rs = [r for r in by[s] if all(c in r and r[c].get("ok") for c in ("fast", "p1", "fasts", "p1s", "fastchk"))]
+        if not rs: continue
+        a = sum(r["p1"]["median_ms"] for r in rs); b = sum(r["fast"]["median_ms"] for r in rs)
+        a2 = sum(r["p1s"]["median_ms"] for r in rs); b2 = sum(r["fasts"]["median_ms"] for r in rs)
+        per = [100.0 * (r["fast"]["median_ms"] / r["p1"]["median_ms"] - 1) for r in rs if r["p1"]["median_ms"] > 0]
+        eq = sum(1 for r in rs if r["fast"]["same_hash_as_off"]); eq2 = sum(1 for r in rs if r["fastchk"]["same_hash_as_off"])
+        g = lambda k: sum(r["fastchk"]["phases"].get("probe." + k, 0) for r in rs)
+        out.append("| %d | %d | %.1f | %.1f | %+.1f | %+.1f | %.1f | %.1f | %+.1f | %d, %d of %d | %d / %d / %d |" % (s, len(rs), a / 1000, b / 1000, 100.0 * (b / a - 1), med(per), a2 / 1000, b2 / 1000, 100.0 * (b2 / a2 - 1), eq, eq2, len(rs), g("fast_agree"), g("fast_mismatch"), g("fast_missed")))
     # hash agreement of probe-off against probe-on
     bad = [(key(r), r["step"], c) for r in rows for c in ("p1", "p2s", "skip", "triv") if c in r and isinstance(r[c], dict) and r[c].get("ok") and r.get("expr", False) == expr and c in ("p1", "p2s") and not r[c]["same_hash_as_off"]]
     out.append("")

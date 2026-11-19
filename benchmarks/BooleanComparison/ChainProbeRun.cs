@@ -11,6 +11,9 @@
 //   p2s      G3_CP_MODE=2 and G3_PROBE_SERIAL=1: per-class CPU times (timestamps per pair, so slower than off)
 //   skip     p1 and the self-join of the certified operands skipped (chain: the left operand of steps >= 2 when the previous result is clean;
 //            expression: every source, the bound if all were certified); hash must equal off's where the operands are clean
+//   fast     p1 and G3_CP_FASTTRIVIAL=1: trivial coplanar pairs decided by exact orientation tests before the clips (hash must equal off's)
+//   fastchk  p1 and G3_CP_FASTCHECK=1: the decision is compared with the clips' outcome (probe.fast_mismatch must be 0)
+//   fasts, p1s  fast and p1, serial (CPU time)
 //   triv     p1 and G3_CP_SKIPTRIVIAL=1 (the coplanar pairs that add only corners and boundary edges add nothing); hash must equal off's
 // Benchmark code only; nothing here is part of the library.
 using System;
@@ -25,7 +28,7 @@ static class ChainProbeRun
 {
     sealed class Config
     {
-        public string Name; public int Mode; public bool Serial; public bool SkipSelf, SkipTrivial;
+        public string Name; public int Mode; public bool Serial; public bool SkipSelf, SkipTrivial, Fast, FastCheck;
         public List<double> Ms = new List<double>();
         public Dictionary<string, long> Phases; public double PhasesMs = -1;
         public string Hash = "-"; public bool Ok = true; public string Error;
@@ -62,6 +65,10 @@ static class ChainProbeRun
                 new Config { Name = "p2s", Mode = 2, Serial = true },
                 new Config { Name = "skip", Mode = 1, SkipSelf = true },
                 new Config { Name = "triv", Mode = 1, SkipTrivial = true },
+                new Config { Name = "fast", Mode = 1, Fast = true },
+                new Config { Name = "fastchk", Mode = 1, FastCheck = true },
+                new Config { Name = "fasts", Mode = 1, Fast = true, Serial = true },
+                new Config { Name = "p1s", Mode = 1, Serial = true },
             };
             // (the skip configurations run only where there is something certified to skip: the chain's left operand of steps >= 2)
             if (!expr && !leftCert)
@@ -80,6 +87,8 @@ static class ChainProbeRun
                     Env("G3_PROBE_SERIAL", c.Serial ? "1" : "0");
                     Env("G3_CP_SKIPSELF", c.SkipSelf ? skipMask.ToString() : "0");
                     Env("G3_CP_SKIPTRIVIAL", c.SkipTrivial ? "1" : "0");
+                    Env("G3_CP_FASTTRIVIAL", c.Fast ? "1" : "0");
+                    Env("G3_CP_FASTCHECK", c.FastCheck ? "1" : "0");
                     ExactMeshBoolean b = make();
                     var sw = Stopwatch.StartNew();
                     bool ok;
@@ -98,7 +107,7 @@ static class ChainProbeRun
                     }
                 }
             }
-            Env("G3_CP_MODE", "0"); Env("G3_PROBE_SERIAL", "0"); Env("G3_CP_SKIPSELF", "0"); Env("G3_CP_SKIPTRIVIAL", "0");
+            Env("G3_CP_MODE", "0"); Env("G3_PROBE_SERIAL", "0"); Env("G3_CP_SKIPSELF", "0"); Env("G3_CP_SKIPTRIVIAL", "0"); Env("G3_CP_FASTTRIVIAL", "0"); Env("G3_CP_FASTCHECK", "0");
             gParallel.SerialOnThisThread = false;
             if (chainResult != null)
                 chainReason = MeshRobustRepair.NotCleanReason(chainResult, true);

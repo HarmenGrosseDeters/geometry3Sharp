@@ -1,9 +1,9 @@
 diff --git a/core/ChainProbe.cs b/core/ChainProbe.cs
 new file mode 100644
-index 00000000..0d41e39f
+index 00000000..8496e680
 --- /dev/null
 +++ b/core/ChainProbe.cs
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,128 @@
 +// PROBE (benchmarks/BooleanComparison/perf/chain_probe.patch, never part of the library): counters and times of the
 +// boolean's pair stage and triangulation for chained booleans (task of 2026-11-19: step 3 of the ABC chains, and the
 +// self-join of the operands, EMBER lever 2). Environment, read at the start of every ExactMeshArrangement.Compute:
@@ -26,7 +26,7 @@ index 00000000..0d41e39f
 +    {
 +        public static int Mode;
 +        public static long SkipSelf;
-+        public static bool SkipTrivial;
++        public static bool SkipTrivial, FastTrivial, FastCheck;
 +        public static bool Serial;
 +        public static bool On { get { return Mode > 0; } }
 +        public static bool Timed { get { return Mode > 1; } }
@@ -36,6 +36,8 @@ index 00000000..0d41e39f
 +            Mode = int.TryParse(Environment.GetEnvironmentVariable("G3_CP_MODE"), out int m) ? m : 0;
 +            SkipSelf = long.TryParse(Environment.GetEnvironmentVariable("G3_CP_SKIPSELF"), out long s) ? s : 0;
 +            SkipTrivial = Environment.GetEnvironmentVariable("G3_CP_SKIPTRIVIAL") == "1";
++            FastTrivial = Environment.GetEnvironmentVariable("G3_CP_FASTTRIVIAL") == "1";
++            FastCheck = Environment.GetEnvironmentVariable("G3_CP_FASTCHECK") == "1";
 +            Serial = Environment.GetEnvironmentVariable("G3_PROBE_SERIAL") == "1";
 +            if (Serial) {
 +                gParallel.SerialOnThisThread = true;
@@ -65,14 +67,14 @@ index 00000000..0d41e39f
 +            public long[,] co_n = new long[4, 3], co_ticks = new long[4, 3];       // [shared corners][tri]
 +            public long prepN, prepTrivialN, prepTicks, prepTrivialTicks;
 +            public long triN, triTrivialN, triTicks, triTrivialTicks;
-+            public long skippedTrivial;
++            public long skippedTrivial, fastDecided, fastAgree, fastMismatch, fastMissed;
 +            public void Clear()
 +            {
 +                Array.Clear(n, 0, n.Length); Array.Clear(ticks, 0, ticks.Length);
 +                Array.Clear(co_n, 0, co_n.Length); Array.Clear(co_ticks, 0, co_ticks.Length);
 +                prepN = prepTrivialN = prepTicks = prepTrivialTicks = 0;
 +                triN = triTrivialN = triTicks = triTrivialTicks = 0;
-+                skippedTrivial = 0;
++                skippedTrivial = 0; fastDecided = fastAgree = fastMismatch = fastMissed = 0;
 +            }
 +        }
 +        static readonly List<Acc> all = new List<Acc>();
@@ -101,14 +103,14 @@ index 00000000..0d41e39f
 +        {
 +            var n = new long[NCls]; var t = new long[NCls];
 +            var cn = new long[4, 3]; var ct = new long[4, 3];
-+            long prepN = 0, prepTN = 0, prepT = 0, prepTT = 0, triN = 0, triTN = 0, triT = 0, triTT = 0, skipped = 0;
++            long prepN = 0, prepTN = 0, prepT = 0, prepTT = 0, triN = 0, triTN = 0, triT = 0, triTT = 0, skipped = 0, fd = 0, fa = 0, fm = 0, fx = 0;
 +            lock (all)
 +                foreach (Acc a in all) {
 +                    for (int k = 0; k < NCls; ++k) { n[k] += a.n[k]; t[k] += a.ticks[k]; }
 +                    for (int i = 0; i < 4; ++i) for (int j = 0; j < 3; ++j) { cn[i, j] += a.co_n[i, j]; ct[i, j] += a.co_ticks[i, j]; }
 +                    prepN += a.prepN; prepTN += a.prepTrivialN; prepT += a.prepTicks; prepTT += a.prepTrivialTicks;
 +                    triN += a.triN; triTN += a.triTrivialN; triT += a.triTicks; triTT += a.triTrivialTicks;
-+                    skipped += a.skippedTrivial;
++                    skipped += a.skippedTrivial; fd += a.fastDecided; fa += a.fastAgree; fm += a.fastMismatch; fx += a.fastMissed;
 +                }
 +            for (int k = 0; k < NCls; ++k) {
 +                into["probe.i_" + ClsNames[k]] = n[k];
@@ -122,6 +124,7 @@ index 00000000..0d41e39f
 +            into["probe.prep"] = prepN; into["probe.prep_trivial"] = prepTN;
 +            into["probe.tri"] = triN; into["probe.tri_trivial"] = triTN;
 +            into["probe.skipped_trivial"] = skipped;
++            into["probe.fast_decided"] = fd; into["probe.fast_agree"] = fa; into["probe.fast_mismatch"] = fm; into["probe.fast_missed"] = fx;
 +            if (Timed) {
 +                into["probe.prep_us"] = Us(prepT); into["probe.prep_trivial_us"] = Us(prepTT);
 +                into["probe.tri_us"] = Us(triT); into["probe.tri_trivial_us"] = Us(triTT);
@@ -130,7 +133,7 @@ index 00000000..0d41e39f
 +    }
 +}
 diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
-index 554b07fc..2c854488 100644
+index 554b07fc..071e827b 100644
 --- a/mesh_ops/ExactMeshArrangement.cs
 +++ b/mesh_ops/ExactMeshArrangement.cs
 @@ -1167,6 +1167,8 @@ namespace g3
@@ -258,7 +261,7 @@ index 554b07fc..2c854488 100644
              System.Threading.Interlocked.Increment(ref IntersectingPairs);
              if (c == 0) {
                  lock (T.Lock) T.AddPoint(lo);
-@@ -2442,6 +2484,56 @@ namespace g3
+@@ -2442,6 +2484,73 @@ namespace g3
          {
              InputTriangle T = Triangles[ti], U = Triangles[ui];
              bool any = false;
@@ -270,6 +273,19 @@ index 554b07fc..2c854488 100644
 +                        shared++;
 +                }
 +                ChainProbe.CoShare = shared;
++                // PROBE: the pre-decision of trivial pairs (G3_CP_FASTTRIVIAL=1: the pair adds nothing and the six clips are not made;
++                // G3_CP_FASTCHECK=1: the clips are made as always and the decision is compared with their outcome)
++                bool fast = false;
++                if (ChainProbe.FastTrivial || ChainProbe.FastCheck)
++                    fast = probe_fast_trivial(T, U, shared);
++                if (fast && ChainProbe.FastTrivial) {
++                    ChainProbe.CoTri = 1;
++                    System.Threading.Interlocked.Increment(ref IntersectingPairs);
++                    lock (T.Lock) T.AddCoplanar(ui);
++                    lock (U.Lock) U.AddCoplanar(ti);
++                    ChainProbe.A.fastDecided++;
++                    return;
++                }
 +                // the six clip results (not added yet): trivial = every result is a corner of the triangle it is added to, or a
 +                // segment between two of its corners
 +                var res = new (InputTriangle t, int lo, int hi, int line, Direction d)[6];
@@ -291,6 +307,10 @@ index 554b07fc..2c854488 100644
 +                    }
 +                }
 +                ChainProbe.CoTri = nres == 0 ? 0 : nontrivial ? 2 : 1;
++                if (ChainProbe.FastCheck && fast) {
++                    if (nres > 0 && !nontrivial) ChainProbe.A.fastAgree++; else ChainProbe.A.fastMismatch++;
++                } else if (ChainProbe.FastCheck && nres > 0 && !nontrivial && shared >= 1)
++                    ChainProbe.A.fastMissed++;
 +                bool skip = ChainProbe.SkipTrivial && nres > 0 && !nontrivial;
 +                for (int i = 0; i < nres; ++i) {
 +                    if (skip)
@@ -315,7 +335,60 @@ index 554b07fc..2c854488 100644
              // the edges of each triangle, clipped to the other, become constraints of the other
              for (int k = 0; k < 3; ++k) {
                  any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
-@@ -2459,10 +2551,26 @@ namespace g3
+@@ -2454,15 +2563,79 @@ namespace g3
+             }
+         }
+ 
++        // PROBE: coplanar T and U that share corners (by point id) and meet exactly in the shared corners / the shared edge: all six clips are
++        // then corners of the triangle they are added to, or the shared edge between two of them
++        bool probe_fast_trivial(InputTriangle T, InputTriangle U, int shared)
++        {
++            if (shared == 0)
++                return false;
++            if (shared == 3)
++                return true;
++            int[] tc = { T.Corners[0], T.Corners[1], T.Corners[2] }, uc = { U.Corners[0], U.Corners[1], U.Corners[2] };
++            if (shared == 2) {
++                int a = -1, b = -1, c = -1, d = -1;
++                for (int k = 0; k < 3; ++k) {
++                    bool inU = tc[k] == uc[0] || tc[k] == uc[1] || tc[k] == uc[2];
++                    if (inU) { if (a < 0) a = tc[k]; else b = tc[k]; } else c = tc[k];
++                }
++                for (int k = 0; k < 3; ++k)
++                    if (uc[k] != a && uc[k] != b) d = uc[k];
++                if (a < 0 || b < 0 || c < 0 || d < 0)
++                    return false;
++                // c and d strictly on opposite sides of the line a-b
++                return Orient(T, a, b, c) * Orient(T, a, b, d) < 0;
++            }
++            // shared == 1: the shared corner a is the apex of both wedges; the triangles meet only in a iff no boundary ray of one lies in the
++            // (closed) wedge of the other
++            int ap = -1, bT = -1, cT = -1, dU = -1, eU = -1;
++            for (int k = 0; k < 3; ++k)
++                if (tc[k] == uc[0] || tc[k] == uc[1] || tc[k] == uc[2]) ap = tc[k];
++            for (int k = 0; k < 3; ++k) {
++                if (tc[k] != ap) { if (bT < 0) bT = tc[k]; else cT = tc[k]; }
++                if (uc[k] != ap) { if (dU < 0) dU = uc[k]; else eU = uc[k]; }
++            }
++            if (ap < 0 || bT < 0 || cT < 0 || dU < 0 || eU < 0)
++                return false;
++            int oT = Orient(T, ap, bT, cT), oU = Orient(T, ap, dU, eU);
++            if (oT == 0 || oU == 0)
++                return false;
++            if (oT < 0) { int w = bT; bT = cT; cT = w; }
++            if (oU < 0) { int w = dU; dU = eU; eU = w; }
++            return !probe_in_wedge(T, ap, bT, cT, dU) && !probe_in_wedge(T, ap, bT, cT, eU)
++                && !probe_in_wedge(T, ap, dU, eU, bT) && !probe_in_wedge(T, ap, dU, eU, cT);
++        }
++
++        // x in the closed wedge at ap from b counter-clockwise to c (angle below 180)
++        bool probe_in_wedge(InputTriangle T, int ap, int b, int c, int x)
++        {
++            return Orient(T, ap, b, x) >= 0 && Orient(T, ap, x, c) >= 0;
++        }
++
+         // clip segment p-q (an edge of a triangle in the plane of t, on the line t.P ∩ line) to the closed triangle t,
+         // add the result to t
          [MethodImpl(JitHints.Optimize)]
          bool clip_into(InputTriangle t, int p, int q, int line)
          {
@@ -343,7 +416,7 @@ index 554b07fc..2c854488 100644
              for (int k = 0; k < 3; ++k) {
                  int ci = t.Corners[k], cj = t.Corners[(k + 1) % 3];
                  int o1 = Orient(t, p, q, ci), o2 = Orient(t, p, q, cj);
-@@ -2476,14 +2584,7 @@ namespace g3
+@@ -2476,14 +2649,7 @@ namespace g3
              }
              if (cands.Count == 0)
                  return false;
@@ -358,7 +431,7 @@ index 554b07fc..2c854488 100644
              return true;
          }
  
-@@ -2504,9 +2605,34 @@ namespace g3
+@@ -2504,9 +2670,34 @@ namespace g3
              InputTriangle t = Triangles[ti];
              if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
                  return;
@@ -393,7 +466,7 @@ index 554b07fc..2c854488 100644
          // (a method of its own: the lambdas' closure is created when the method is entered, here only for the
          // triangles that need it)
          [MethodImpl(JitHints.Optimize)]
-@@ -2575,6 +2701,16 @@ namespace g3
+@@ -2575,6 +2766,16 @@ namespace g3
              // (untouched triangles are output as they are, by the caller)
              if (t.Degenerate || (t.Points.Count == 0 && t.Segments.Count == 0))
                  return;
