@@ -203,7 +203,12 @@ namespace g3
                     segmentOwner.Add(c);
                 }
             }
-            var r = new ConstrainedDelaunayMesh2 { ResolveCrossings = resolveCrossings }.Compute(inp, ct);
+            ConstrainedTriangulation2Result r;
+            try {
+                r = new ConstrainedDelaunayMesh2 { ResolveCrossings = resolveCrossings }.Compute(inp, ct);
+            } catch (ArgumentException ex) {
+                throw Fail(ContourLoftStackStatus.InvalidInput, "the triangulation rejected the contours: " + ex.Message);
+            }
             if (r.Status != Triangulation2Status.Success) {
                 if (r.FailureKind == Triangulation2FailureKind.CrossingConstraints)
                     throw Fail(ContourLoftStackStatus.CrossingContours, "two contours of a slice cross");

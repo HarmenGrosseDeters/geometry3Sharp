@@ -357,6 +357,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EmptySlices_EndTheSolidsAround_AndAnAllEmptyStackIsInvalid()
+        {
+            var s = Slices(Sl(Disc(10, 1, 0)), Sl(), Sl(Disc(10, 1, 2)), Sl(Disc(10, 1, 3)));
+            var r = Loft(s);
+            AssertClosedSolid(r, 4);
+            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Vanishing && g.Slab == 0);
+            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Appearing && g.Slab == 1);
+            AssertFails(Loft(Slices(Sl(), Sl(), Sl())), ContourLoftStackStatus.InvalidInput);
+            AssertClosedSolid(Loft(Slices(Sl(), Sl(Disc(10, 1, 1)), Sl(Disc(10, 1, 2)))), 2);
+        }
+
+        [Fact]
         public void CrossingAndTouchingContours_AreReported()
         {
             AssertFails(Loft(Slices(Sl(Rect(0, 2, 0, 2, 0), Rect(1, 3, 1, 3, 0)), Sl(Rect(0, 2, 0, 2, 1)))), ContourLoftStackStatus.CrossingContours);
