@@ -1265,14 +1265,14 @@ no `AlphaField` the output is bit for bit the same (`ExistingResult_IsBitForBitT
 
 | 39 meshes | tets / u80 | max distance / u80 | time / u80 | tets, max distance (median, diagonal) | valid, no self-intersection, every tet >= 10 degrees |
 |---|---:|---:|---:|---|---|
-| uniform /40 | 0.37 | 1.54 | 0.65 | 7.0k, 0.0223 | 39 / 39 / 39 |
+| uniform /40 | 0.37 | 1.54 | 0.61 | 7.0k, 0.0223 | 39 / 39 / 39 |
 | uniform /80 | 1 | 1 | 1 | 18.7k, 0.0137 | 39 / 39 / 39 |
-| uniform /160 | 3.75 | 0.70 | 2.34 | 68k, 0.0087 | 39 / 39 / 39 |
-| local, `MaxSurfaceDeviation` = diagonal / 150 | 0.52 | 1.00 | 1.09 | 9.8k, 0.0150 | 39 / 39 / 39 |
-| local, diagonal / 250 | 0.68 | 0.92 | 1.34 | 13.2k, 0.0118 | 39 / 39 / 39 |
-| local, diagonal / 250, 2 passes | 0.82 | 0.91 | 1.71 | 15.5k, 0.0106 | 39 / 39 / 39 |
+| uniform /160 | 3.75 | 0.70 | 2.39 | 68k, 0.0087 | 39 / 39 / 39 |
+| local, `MaxSurfaceDeviation` = diagonal / 150 | 0.52 | 1.00 | 1.17 | 9.8k, 0.0150 | 39 / 39 / 39 |
+| local, diagonal / 250 | 0.68 | 0.92 | 1.31 | 13.2k, 0.0118 | 39 / 39 / 39 |
+| local, diagonal / 250, 2 passes | 0.81 | 0.92 | 1.69 | 15.4k, 0.0104 | 39 / 39 / 39 |
 
-  So: the fidelity of uniform /80 at about half the tets and the same time (diagonal / 150), or 0.92x its distance at 0.68x the tets (diagonal / 250); uniform /160's 0.0087 is not reached (the alpha / 4 floor: the finest local alpha is /160, only where needed). Better than uniform /80 on both counts on 17 to 23 of 39 meshes. The second pass (which refines in proportion to the alpha the sample was wrapped with, so it can go on where a sample is still above the tolerance) lowers the median max distance from 0.0118 to 0.0106 for 1.17x the tets and 1.3x the time: default 1.
+  So: the fidelity of uniform /80 at about half the tets and the same time (diagonal / 150), or 0.92x its distance at 0.68x the tets (diagonal / 250); uniform /160's 0.0087 is not reached (the alpha / 4 floor: the finest local alpha is /160, only where needed). Better than uniform /80 on both counts on 17 to 23 of 39 meshes. The second pass (which refines in proportion to the alpha the sample was wrapped with, so it can go on where a sample is still above the tolerance) lowers the median max distance from 0.0118 to 0.0104 for 1.17x the tets and 1.3x the time: default 1.
   (A first version of the second pass took a0 * tol / d instead and gained nothing; the independent review found it, `NextAlpha_...` pins the rule.)
   The retry ran on 4 of the 3 x 39 local runs of the first version of the benchmark (75915 at / 250 and / 150, 46460 at / 150, 75915 at / 250 with 2 passes) and was kept every time; the rows in the table are from that version's successor and all 39 meet 10 degrees in every configuration. Dense detail (a comb of gaps) and buried input (distance that no boundary can reach) gain nothing; the spike measured both.
   Spike numbers (an earlier version with the tet boundary as pass 1 and the sample metric): 0.65x tets at 0.99x max distance (tolerance = the p95 of uniform /80).
