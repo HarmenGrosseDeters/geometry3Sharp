@@ -42,6 +42,7 @@ static class Program
         bool cleanup = !(A.ContainsKey("cleanup") && A["cleanup"] == "0");
         double mm = A.ContainsKey("mm") ? double.Parse(A["mm"], CultureInfo.InvariantCulture) : 0.5;
         double align = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : 0;
+        double collapse = A.ContainsKey("collapse") ? double.Parse(A["collapse"], CultureInfo.InvariantCulture) : -1;
         int adapt = A.ContainsKey("adapt") ? int.Parse(A["adapt"]) : 0;
         double eps = A.ContainsKey("eps") ? double.Parse(A["eps"], CultureInfo.InvariantCulture) : 0.05;
 
@@ -95,6 +96,7 @@ static class Program
             if (!cf.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | cross field " + cf.Status + " |"); continue; }
 
             var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps, SizeAdaptation = (SizeAdaptationMode)adapt };
+            if (collapse >= 0) qr.CollapseLength = collapse;
             if (adapt != 0 && (A.ContainsKey("iters") || A.ContainsKey("tol") || A.ContainsKey("maxratio") || A.ContainsKey("damp"))) {
                 var frames = new IntegrableFrames(null, null);
                 if (A.ContainsKey("iters")) frames.Iterations = int.Parse(A["iters"]);
