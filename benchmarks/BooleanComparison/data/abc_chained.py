@@ -30,6 +30,8 @@ import thingi_contact as tc   # noqa: E402
 
 CLASS = "abc-chained"
 EXACT_CLASS = "abc-chained-exact"     # rows of the method ours_exact (run_exact)
+PROBE_CLASS = "abc-chained-probe"     # rows of the methods ours_probe / ours_probe_expr (run_probe; perf/chain_probe.patch on the library)
+PROBE_REPS = 3
 SEED_SELECT, SEED_CHAINS = 20261116, 20261117
 OPS = ["union", "intersection", "difference"]
 # a chain: (operation, left, right); "A", "B", "C" are the placed inputs, "R" the result of the previous step of the same method
@@ -394,6 +396,30 @@ def run_exact(case, files, rows, info, timeout, method="ours_exact"):
     if got < len(PLANS[case["variant"]]) and err:
         rows.append({"class": EXACT_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
 
+def run_probe(case, files, rows, info, timeout, method="ours_probe"):
+    """methods ours_probe / ours_probe_expr (task of 2026-11-19, docs/perf/BOOLEAN_CHAINS_PROBE_2026-11.md): `chain-probe` /
+    `chain-probe-expr` on the chain's A, B, C: per step the phase times and the probe counters of the boolean on the previous rounded result
+    (ours_probe) or as an ExactMesh expression over the operands (ours_probe_expr), in several configurations, each repetition in one
+    process; one row per step, class abc-chained-probe (read by chain_probe.py)"""
+    import compare
+    cmd = "chain-probe" if method == "ours_probe" else "chain-probe-expr"
+    try:
+        s = subprocess.run(compare.tool + [cmd, files["A"], files["B"], files["C"], case["variant"], str(PROBE_REPS)], capture_output=True, text=True,
+                           timeout=6 * PROBE_REPS * len(PLANS[case["variant"]]) * timeout)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
+    got = 0
+    for l in out.splitlines():
+        if l.startswith("{"):
+            r = json.loads(l)
+            r.update({"class": PROBE_CLASS, "file": case["name"], "method": method, "chain_inputs": info})
+            rows.append(r)
+            got += 1
+    if got < len(PLANS[case["variant"]]) and err:
+        rows.append({"class": PROBE_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
+
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
     results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's operations
@@ -418,9 +444,12 @@ def run_chain(case, methods, timeout):
                 if m in ("ours_exact", "ours_exact_time"):
                     run_exact(case, files, rows, info, timeout, m)
                     continue
+                if m in ("ours_probe", "ours_probe_expr"):
+                    run_probe(case, files, rows, info, timeout, m)
+                    continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else PROBE_CLASS if m.startswith("ours_probe") else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)
@@ -438,7 +467,7 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
-                if r.get("class") == EXACT_CLASS and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
+                if r.get("class") in (EXACT_CLASS, PROBE_CLASS) and "runner_error" in r:    # ours_exact: a timed-out or failed chain runs again
                     retry.add(r["file"])
             except ValueError:
                 pass

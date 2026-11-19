@@ -1,0 +1,216 @@
+name: Boolean chains probe
+
+# Task of 2026-11-19 (owner), data branch runs/boolean-chains: the probe methods ours_probe / ours_probe_expr on the ABC chains (step 3 diagnosis,
+# self-join of certified operands; docs/perf/BOOLEAN_CHAINS_PROBE_2026-11.md). A copy of abc-chained.yml (same data rules: the chunk is fetched
+# on the runner, no mesh leaves the job), with perf/chain_probe.patch applied to the library before the build and the results pushed to
+# runs/boolean-chains/results/run-<id>.
+# The abc-chained class of benchmarks/BooleanComparison (README.md, "Chained booleans on ABC models"): chains of booleans (union,
+# difference, intersection) on triplets of ABC models (Koch et al., CVPR 2019, CAD models from public Onshape documents) placed
+# with the exact contact transforms of thingi-contact. Manual only (workflow_dispatch, no schedule). Owner decision 2026-11-16: the ABC
+# dataset may be used for tests and benchmarks with run-time fetching only: the chunk is downloaded here, on a GitHub-hosted runner,
+# one file of it is extracted for a seeded sample of models, and neither a model nor a derived mesh is committed, uploaded as an
+# artifact or pushed anywhere: only result rows and model ids leave the job. No fetch happens in a PR-tier test.
+# Methods here: ours_probe and ours_probe_expr only (no CGAL, Manifold or Geogram is built or run by this workflow).
+# One job: the chunk (about 8 GB) is downloaded once, to /mnt (the runner's second disk).
+# threads=1 pins the chains to core 0 (DOTNET_PROCESSOR_COUNT=1); the default uses all cores.
+on:
+  workflow_dispatch:
+    inputs:
+      library_ref:
+        description: 'Ref of the library and benchmark tool to measure (must contain the abc-chain-inputs command; the scripts come from the ref the workflow is run on)'
+        default: 'runs/boolean-chains'
+      chunk:
+        description: 'ABC chunk number (4 digits) of the obj format, 10000 models per chunk'
+        default: '0000'
+      candidates:
+        description: 'Obj files extracted from the chunk (seeded sample, then filtered with NotCleanReason)'
+        default: '400'
+      chains_per_variant:
+        description: 'Chains per variant (a prefix of the generated list)'
+        default: '30'
+      timeout_s:
+        description: 'Timeout per boolean in seconds'
+        default: '300'
+      budget_min:
+        description: 'Minutes after which no new chain is started (the job limit is 345 minutes; finished chains are kept and reported)'
+        default: '240'
+      chains:
+        description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
+        default: ''
+      methods:
+        description: 'Methods to run, comma-separated (ours_probe: the chain as today, with the probe counters and the skip experiments; ours_probe_expr: the same operands as one ExactMesh expression per step; other methods of abc-chained.yml need tools this workflow does not install)'
+        default: 'ours_probe'
+      threads:
+        description: 'Threads of the booleans: all (all cores) or 1 (pinned to core 0)'
+        default: 'all'
+        type: choice
+        options: ['all', '1']
+      rounding_budgets:
+        description: 'SafeRounding effort budgets of ours, comma-separated (ExactMeshBoolean.RoundingMaxPairTests; one run of the chains per budget, budget_min split across them, rows in one results.jsonl, each with rounding.max_pair_tests; the report shows the last row per step only; use with methods=ours; empty: the library default)'
+        default: ''
+      listing_only:
+        description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boolean-chains-data-branch
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 345
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install 7-Zip
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q p7zip-full
+      - name: Apply the probe patch to the library (perf/chain_probe.patch, never part of the library)
+        run: git -C lib apply --verbose "$GITHUB_WORKSPACE/scripts/benchmarks/BooleanComparison/perf/chain_probe.patch"
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          git -C scripts rev-parse HEAD >> lib_sha.txt
+          nproc >> lib_sha.txt
+          echo "threads ${{ inputs.threads }}" >> lib_sha.txt
+      - name: Download the chunk
+        env:
+          CHUNK: ${{ inputs.chunk }}
+        run: |
+          [[ "$CHUNK" =~ ^[0-9]{4}$ ]] || { echo "chunk must be 4 digits"; exit 1; }
+          curl -fsSL https://deep-geometry.github.io/abc-dataset/data/obj_v00.txt -o obj_list.txt
+          URL=$(tr -d '\r' < obj_list.txt | awk -v f="abc_${CHUNK}_obj_v00.7z" '$2==f {print $1}')
+          [ -n "$URL" ] || { echo "chunk $CHUNK not in the list of the dataset page"; exit 1; }
+          echo "chunk URL host: $(echo "$URL" | cut -d/ -f3)"
+          sudo mkdir -p /mnt/abc && sudo chown "$USER" /mnt/abc
+          df -h /mnt | tail -n 1
+          curl -fL --retry 6 --retry-delay 30 --retry-all-errors -C - -o /mnt/abc/chunk.7z "$URL"
+          ls -l /mnt/abc/chunk.7z
+      - name: List the archive
+        run: |
+          7z l -slt /mnt/abc/chunk.7z > listing.txt
+          grep -c '^Path = ' listing.txt
+          grep '^Path = ' listing.txt | sed -n '1,12p'
+      - name: Select, extract and filter the models
+        if: ${{ !inputs.listing_only }}
+        env:
+          CANDIDATES: ${{ inputs.candidates }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/abc_chained.py select listing.txt selected.txt --count "$CANDIDATES"
+          7z x -y /mnt/abc/chunk.7z -o/mnt/abc/x @selected.txt > extract.log || { tail -n 20 extract.log; exit 1; }
+          rm -f /mnt/abc/chunk.7z
+          mkdir -p data/meshes
+          while read -r p; do cp "/mnt/abc/x/$p" "data/meshes/$(basename "$p" .obj).obj"; done < selected.txt
+          ls data/meshes | wc -l
+          BOOLCMP_TOOL="$GITHUB_WORKSPACE/frozen/BooleanComparison.dll" python3 $S/data/abc_chained.py prepare data clean_raw.csv
+          wc -l clean_raw.csv.clean
+          cp data/weld_tol.txt weld_tol.txt
+      - name: Chains
+        if: ${{ !inputs.listing_only }}
+        env:
+          CHAINS: ${{ inputs.chains_per_variant }}
+          ONLY: ${{ inputs.chains }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/data/abc_chained.py generate clean_raw.csv.clean chains.csv
+          python3 $S/data/abc_chained.py manifest data chains.csv cases.jsonl --limit "$CHAINS" ${ONLY:+--only "$ONLY"}
+      - name: Run the methods on the chains
+        if: ${{ !inputs.listing_only }}
+        env:
+          BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
+          TIMEOUT: ${{ inputs.timeout_s }}
+          BUDGET_MIN: ${{ inputs.budget_min }}
+          METHODS: ${{ inputs.methods }}
+          THREADS: ${{ inputs.threads }}
+          BUDGETS: ${{ inputs.rounding_budgets }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          if [ "$THREADS" = 1 ]; then export DOTNET_PROCESSOR_COUNT=1 GEOGRAM_THREADS=1; PIN="taskset -c 0"; else PIN=""; fi
+          if [ -z "$BUDGETS" ]; then
+            $PIN python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
+          else
+            # (the time budget split across the budgets; the rows of each run appended as it ends, so a run that fails or
+            # times out keeps the others; every row has rounding.max_pair_tests)
+            # (every budget runs, also after a failed one; the step fails if any run failed)
+            rc=0
+            n=$(echo "$BUDGETS" | tr ',' '\n' | grep -c .)
+            : > results.jsonl
+            for b in ${BUDGETS//,/ }; do
+              case "$b" in (*[!0-9]*) echo "::error::rounding_budgets: '$b' is not a whole number"; rc=1; continue;; esac
+              BOOLCMP_ROUNDING_MAX_PAIR_TESTS="$b" $PIN python3 $S/data/abc_chained.py run cases.jsonl "results-$b.jsonl" --methods "$METHODS" --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60 / n))" || rc=1
+              cat "results-$b.jsonl" >> results.jsonl 2> /dev/null || true
+            done
+            exit $rc
+          fi
+      - name: Report
+        if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
+        run: |
+          set -o pipefail
+          python3 scripts/benchmarks/BooleanComparison/data/chain_probe.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boolean-chains
+          # result rows, the report, the sampled model ids and the chain list: no mesh, no derived mesh
+          path: |
+            results.jsonl
+            report.md
+            lib_sha.txt
+            clean_raw.csv
+            weld_tol.txt
+            chains.csv
+            listing.txt
+
+  publish:
+    needs: measure
+    if: ${{ !cancelled() && needs.measure.result != 'skipped' && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the data branch runs/boolean-chains
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true      # the measure job may have failed before it uploaded anything
+        with:
+          path: art
+      - name: Result rows to runs/boolean-chains
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin runs/boolean-chains > /dev/null; then
+            git fetch -q --depth=1 origin runs/boolean-chains:refs/remotes/origin/runs/boolean-chains
+            git checkout -q -B runs/boolean-chains origin/runs/boolean-chains
+          else
+            echo "data branch missing"; exit 1
+          fi
+          mkdir -p "results/run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "results/run-$GITHUB_RUN_ID"/ 2>/dev/null || true
+          git add results
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Boolean chains probe run $GITHUB_RUN_ID"
+          for i in 1 2 3 4; do git push origin runs/boolean-chains && exit 0; git pull -q --rebase origin runs/boolean-chains; done
+          exit 1

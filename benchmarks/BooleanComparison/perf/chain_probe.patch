@@ -1,0 +1,412 @@
+diff --git a/core/ChainProbe.cs b/core/ChainProbe.cs
+new file mode 100644
+index 00000000..0d41e39f
+--- /dev/null
++++ b/core/ChainProbe.cs
+@@ -0,0 +1,125 @@
++// PROBE (benchmarks/BooleanComparison/perf/chain_probe.patch, never part of the library): counters and times of the
++// boolean's pair stage and triangulation for chained booleans (task of 2026-11-19: step 3 of the ABC chains, and the
++// self-join of the operands, EMBER lever 2). Environment, read at the start of every ExactMeshArrangement.Compute:
++//   G3_CP_MODE=1      counters, and the wall time of each operand's self-join (a few timestamps per boolean)
++//   G3_CP_MODE=2      also a timestamp pair per intersect() call, per prepare_touched and per triangulate_touched call
++//   G3_CP_SKIPSELF=m  bit mask of the arrangement's mesh indices whose self-join is skipped (the experiment of lever 2: only
++//                     valid where the operand has no self-intersections, then the result is the same)
++//   G3_CP_SKIPTRIVIAL=1  experiment: a coplanar pair whose clipped segments and points are all corners of the triangle they
++//                     are added to (identical or edge-sharing coplanar triangles) adds nothing (the pair is still recorded
++//                     as coplanar partners)
++//   G3_PROBE_SERIAL=1 every parallel loop runs serially on the calling thread (per-thread intervals are CPU time)
++// Values go into PhaseMilliseconds as "probe.<name>" (counts) and "probe.<name>_us" (microseconds, summed over threads).
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++
++namespace g3
++{
++    internal static class ChainProbe
++    {
++        public static int Mode;
++        public static long SkipSelf;
++        public static bool SkipTrivial;
++        public static bool Serial;
++        public static bool On { get { return Mode > 0; } }
++        public static bool Timed { get { return Mode > 1; } }
++
++        public static void Refresh()
++        {
++            Mode = int.TryParse(Environment.GetEnvironmentVariable("G3_CP_MODE"), out int m) ? m : 0;
++            SkipSelf = long.TryParse(Environment.GetEnvironmentVariable("G3_CP_SKIPSELF"), out long s) ? s : 0;
++            SkipTrivial = Environment.GetEnvironmentVariable("G3_CP_SKIPTRIVIAL") == "1";
++            Serial = Environment.GetEnvironmentVariable("G3_PROBE_SERIAL") == "1";
++            if (Serial) {
++                gParallel.SerialOnThisThread = true;
++                setSerial = true;
++            } else if (setSerial) {
++                gParallel.SerialOnThisThread = false;
++                setSerial = false;
++            }
++        }
++        static bool setSerial;
++
++        // classes of intersect(): where each candidate pair ends
++        public const int SepT = 0, SepU = 1, Coplanar = 2, PrefilterApart = 3, ConstructApart = 4, MeetPoint = 5, MeetSegment = 6, NCls = 7;
++        public static readonly string[] ClsNames = { "sep_t", "sep_u", "coplanar", "prefilter_apart", "construct_apart", "meet_point", "meet_segment" };
++        // coplanar pairs by the corners they share (by point id; input points are welded by position) and by what they add
++        public const int ShareNone = 0, ShareVertex = 1, ShareEdge = 2, ShareAll = 3;
++        public static readonly string[] ShareNames = { "share0", "share1", "share2", "share3" };
++        // tri[0] = no clip result, tri[1] = all clip results trivial (corners / edges between two corners), tri[2] = other
++        public static readonly string[] TriNames = { "empty", "trivial", "adds" };
++
++        [ThreadStatic] public static int Cls, CoShare, CoTri;
++        [ThreadStatic] public static bool ClipNontrivial;
++
++        public sealed class Acc
++        {
++            public long[] n = new long[NCls], ticks = new long[NCls];
++            public long[,] co_n = new long[4, 3], co_ticks = new long[4, 3];       // [shared corners][tri]
++            public long prepN, prepTrivialN, prepTicks, prepTrivialTicks;
++            public long triN, triTrivialN, triTicks, triTrivialTicks;
++            public long skippedTrivial;
++            public void Clear()
++            {
++                Array.Clear(n, 0, n.Length); Array.Clear(ticks, 0, ticks.Length);
++                Array.Clear(co_n, 0, co_n.Length); Array.Clear(co_ticks, 0, co_ticks.Length);
++                prepN = prepTrivialN = prepTicks = prepTrivialTicks = 0;
++                triN = triTrivialN = triTicks = triTrivialTicks = 0;
++                skippedTrivial = 0;
++            }
++        }
++        static readonly List<Acc> all = new List<Acc>();
++        [ThreadStatic] static Acc tl;
++        public static Acc A
++        {
++            get {
++                Acc a = tl;
++                if (a == null) {
++                    a = new Acc();
++                    lock (all) all.Add(a);
++                    tl = a;
++                }
++                return a;
++            }
++        }
++        public static long T() { return Stopwatch.GetTimestamp(); }
++        static long Us(long ticks) { return ticks * 1000000 / Stopwatch.Frequency; }
++
++        public static void Reset()
++        {
++            lock (all) foreach (Acc a in all) a.Clear();
++        }
++
++        public static void Snapshot(Dictionary<string, long> into)
++        {
++            var n = new long[NCls]; var t = new long[NCls];
++            var cn = new long[4, 3]; var ct = new long[4, 3];
++            long prepN = 0, prepTN = 0, prepT = 0, prepTT = 0, triN = 0, triTN = 0, triT = 0, triTT = 0, skipped = 0;
++            lock (all)
++                foreach (Acc a in all) {
++                    for (int k = 0; k < NCls; ++k) { n[k] += a.n[k]; t[k] += a.ticks[k]; }
++                    for (int i = 0; i < 4; ++i) for (int j = 0; j < 3; ++j) { cn[i, j] += a.co_n[i, j]; ct[i, j] += a.co_ticks[i, j]; }
++                    prepN += a.prepN; prepTN += a.prepTrivialN; prepT += a.prepTicks; prepTT += a.prepTrivialTicks;
++                    triN += a.triN; triTN += a.triTrivialN; triT += a.triTicks; triTT += a.triTrivialTicks;
++                    skipped += a.skippedTrivial;
++                }
++            for (int k = 0; k < NCls; ++k) {
++                into["probe.i_" + ClsNames[k]] = n[k];
++                if (Timed) into["probe.i_" + ClsNames[k] + "_us"] = Us(t[k]);
++            }
++            for (int i = 0; i < 4; ++i)
++                for (int j = 0; j < 3; ++j) {
++                    into["probe.co_" + ShareNames[i] + "_" + TriNames[j]] = cn[i, j];
++                    if (Timed) into["probe.co_" + ShareNames[i] + "_" + TriNames[j] + "_us"] = Us(ct[i, j]);
++                }
++            into["probe.prep"] = prepN; into["probe.prep_trivial"] = prepTN;
++            into["probe.tri"] = triN; into["probe.tri_trivial"] = triTN;
++            into["probe.skipped_trivial"] = skipped;
++            if (Timed) {
++                into["probe.prep_us"] = Us(prepT); into["probe.prep_trivial_us"] = Us(prepTT);
++                into["probe.tri_us"] = Us(triT); into["probe.tri_trivial_us"] = Us(triTT);
++            }
++        }
++    }
++}
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 554b07fc..2c854488 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1167,6 +1167,8 @@ namespace g3
+         [MethodImpl(JitHints.Optimize)]
+         public void Compute()
+         {
++            ChainProbe.Refresh();
++            ChainProbe.Reset();
+             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+             Stopped = StopReason.None;
+@@ -1174,6 +1176,7 @@ namespace g3
+             if (cancelled())
+                 return;
+             build_points();
++            ProbeInputPoints = PointCount;
+             clock.Lap("setup.points");
+             build_triangles();
+             clock.Lap("setup.triangles");
+@@ -1242,7 +1245,10 @@ namespace g3
+                         ConstraintEdges.Add(key);
+             }
+             total.Lap("triangulation");
++            if (ChainProbe.On)
++                ChainProbe.Snapshot(PhaseMilliseconds);
+         }
++        internal int ProbeInputPoints;
+ 
+ 
+ 
+@@ -1987,8 +1993,25 @@ namespace g3
+             clock.Lap("intersections.planes");
+             // (cancelled: the pairs left are skipped; Compute stops after this phase)
+             gParallel.ForRange(pairs.Count, (k) => {
+-                if (Cancellation.IsCancellationRequested == false)
+-                    intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                if (Cancellation.IsCancellationRequested == false) {
++                    if (ChainProbe.On) {
++                        ChainProbe.Cls = -1;
++                        long t0 = ChainProbe.Timed ? ChainProbe.T() : 0;
++                        intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                        var acc = ChainProbe.A;
++                        int cls = ChainProbe.Cls;
++                        if (cls >= 0) {
++                            acc.n[cls]++;
++                            long dt = ChainProbe.Timed ? ChainProbe.T() - t0 : 0;
++                            acc.ticks[cls] += dt;
++                            if (cls == ChainProbe.Coplanar) {
++                                acc.co_n[ChainProbe.CoShare, ChainProbe.CoTri]++;
++                                acc.co_ticks[ChainProbe.CoShare, ChainProbe.CoTri] += dt;
++                            }
++                        }
++                    } else
++                        intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
++                }
+             });
+             clock.Lap("intersections.intersect");
+             CandidatePairs = pairs.Count;
+@@ -2193,6 +2216,10 @@ namespace g3
+                 List<int> tris = MeshTriangles[m];
+                 if (tris.Count < 2)
+                     continue;
++                if (((ChainProbe.SkipSelf >> m) & 1) != 0)
++                    continue;
++                long probeT0 = ChainProbe.On ? ChainProbe.T() : 0;
++                int probeSelf0 = self;
+                 TriangleBoxTree tree = trees[m];
+                 // (map: the indices into tris of the kept triangles, increasing; null if none of the mesh is culled)
+                 int[] map = null;
+@@ -2233,6 +2260,11 @@ namespace g3
+                         pairs.AddRange(list);
+                         self += list.Count;
+                     }
++                if (ChainProbe.On) {
++                    PhaseMilliseconds["probe.self_us.m" + m] = (ChainProbe.T() - probeT0) * 1000000 / System.Diagnostics.Stopwatch.Frequency;
++                    PhaseMilliseconds["probe.self_tris.m" + m] = tris.Count;
++                    PhaseMilliseconds["probe.self_kept.m" + m] = self - probeSelf0;
++                }
+             }
+             return self;
+         }
+@@ -2340,13 +2372,18 @@ namespace g3
+             Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
+             // sides with the exact double predicates (same sign as N . (v - a) on the integer grid)
+             int[] sT = { ExactPredicates.Orient3d(u0, u1, u2, t0), ExactPredicates.Orient3d(u0, u1, u2, t1), ExactPredicates.Orient3d(u0, u1, u2, t2) };
+-            if ((sT[0] > 0 && sT[1] > 0 && sT[2] > 0) || (sT[0] < 0 && sT[1] < 0 && sT[2] < 0))
++            if ((sT[0] > 0 && sT[1] > 0 && sT[2] > 0) || (sT[0] < 0 && sT[1] < 0 && sT[2] < 0)) {
++                ChainProbe.Cls = ChainProbe.SepT;
+                 return;
++            }
+             int[] sU = { ExactPredicates.Orient3d(t0, t1, t2, u0), ExactPredicates.Orient3d(t0, t1, t2, u1), ExactPredicates.Orient3d(t0, t1, t2, u2) };
+-            if ((sU[0] > 0 && sU[1] > 0 && sU[2] > 0) || (sU[0] < 0 && sU[1] < 0 && sU[2] < 0))
++            if ((sU[0] > 0 && sU[1] > 0 && sU[2] > 0) || (sU[0] < 0 && sU[1] < 0 && sU[2] < 0)) {
++                ChainProbe.Cls = ChainProbe.SepU;
+                 return;
++            }
+ 
+             if (sT[0] == 0 && sT[1] == 0 && sT[2] == 0) {
++                ChainProbe.Cls = ChainProbe.Coplanar;
+                 intersect_coplanar(ti, ui);
+                 return;
+             }
+@@ -2356,8 +2393,10 @@ namespace g3
+             bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
+             if (apart) {
+                 // Stryker disable once all: without the early return the construction below decides the same (slower)
+-                if (checkPrefilter == false)
++                if (checkPrefilter == false) {
++                    ChainProbe.Cls = ChainProbe.PrefilterApart;
+                     return;
++                }
+                 // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
+                 System.Threading.Interlocked.Increment(ref PrefilterRejected);
+             }
+@@ -2374,8 +2413,11 @@ namespace g3
+                 System.Threading.Interlocked.Increment(ref PrefilterChecked);
+             if (checkPrefilter && proper && apart != (c > 0))
+                 throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
+-            if (c > 0)
++            if (c > 0) {
++                ChainProbe.Cls = ChainProbe.ConstructApart;
+                 return;
++            }
++            ChainProbe.Cls = c == 0 ? ChainProbe.MeetPoint : ChainProbe.MeetSegment;
+             System.Threading.Interlocked.Increment(ref IntersectingPairs);
+             if (c == 0) {
+                 lock (T.Lock) T.AddPoint(lo);
+@@ -2442,6 +2484,56 @@ namespace g3
+         {
+             InputTriangle T = Triangles[ti], U = Triangles[ui];
+             bool any = false;
++            if (ChainProbe.On) {
++                int shared = 0;
++                for (int k = 0; k < 3; ++k) {
++                    int c = U.Corners[k];
++                    if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
++                        shared++;
++                }
++                ChainProbe.CoShare = shared;
++                // the six clip results (not added yet): trivial = every result is a corner of the triangle it is added to, or a
++                // segment between two of its corners
++                var res = new (InputTriangle t, int lo, int hi, int line, Direction d)[6];
++                int nres = 0;
++                bool nontrivial = false;
++                for (int k = 0; k < 3; ++k) {
++                    for (int side = 0; side < 2; ++side) {
++                        InputTriangle t = side == 0 ? T : U;
++                        InputTriangle o = side == 0 ? U : T;
++                        int line = 4 * (side == 0 ? ui : ti) + 1 + k;
++                        int lo, hi; Direction d;
++                        if (clip_find(t, o.Corners[k], o.Corners[(k + 1) % 3], line, out lo, out hi, out d)) {
++                            res[nres++] = (t, lo, hi, line, d);
++                            bool c0 = lo == t.Corners[0] || lo == t.Corners[1] || lo == t.Corners[2];
++                            bool c1 = hi == t.Corners[0] || hi == t.Corners[1] || hi == t.Corners[2];
++                            if (!(c0 && c1))
++                                nontrivial = true;
++                        }
++                    }
++                }
++                ChainProbe.CoTri = nres == 0 ? 0 : nontrivial ? 2 : 1;
++                bool skip = ChainProbe.SkipTrivial && nres > 0 && !nontrivial;
++                for (int i = 0; i < nres; ++i) {
++                    if (skip)
++                        break;
++                    var r = res[i];
++                    lock (r.t.Lock) {
++                        if (compare_along(r.d, r.lo, r.hi) == 0)
++                            r.t.AddPoint(r.lo);
++                        else
++                            r.t.AddSegment(new Segment(r.lo, r.hi, r.line));
++                    }
++                }
++                if (skip)
++                    ChainProbe.A.skippedTrivial++;
++                if (nres > 0) {
++                    System.Threading.Interlocked.Increment(ref IntersectingPairs);
++                    lock (T.Lock) T.AddCoplanar(ui);
++                    lock (U.Lock) U.AddCoplanar(ti);
++                }
++                return;
++            }
+             // the edges of each triangle, clipped to the other, become constraints of the other
+             for (int k = 0; k < 3; ++k) {
+                 any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
+@@ -2459,10 +2551,26 @@ namespace g3
+         [MethodImpl(JitHints.Optimize)]
+         bool clip_into(InputTriangle t, int p, int q, int line)
+         {
++            int lo, hi; Direction d;
++            if (clip_find(t, p, q, line, out lo, out hi, out d) == false)
++                return false;
++            lock (t.Lock) {
++                if (compare_along(d, lo, hi) == 0)
++                    t.AddPoint(lo);
++                else
++                    t.AddSegment(new Segment(lo, hi, line));
++            }
++            return true;
++        }
++
++        [MethodImpl(JitHints.Optimize)]
++        bool clip_find(InputTriangle t, int p, int q, int line, out int lo, out int hi, out Direction d)
++        {
++            lo = hi = -1;
+             var cands = new List<int>();
+             if (inside(t, p)) cands.Add(p);
+             if (inside(t, q)) cands.Add(q);
+-            Direction d = line_direction(t, PlaneOf(line));
++            d = line_direction(t, PlaneOf(line));
+             for (int k = 0; k < 3; ++k) {
+                 int ci = t.Corners[k], cj = t.Corners[(k + 1) % 3];
+                 int o1 = Orient(t, p, q, ci), o2 = Orient(t, p, q, cj);
+@@ -2476,14 +2584,7 @@ namespace g3
+             }
+             if (cands.Count == 0)
+                 return false;
+-            int lo, hi;
+             min_max(cands, d, out lo, out hi);
+-            lock (t.Lock) {
+-                if (compare_along(d, lo, hi) == 0)
+-                    t.AddPoint(lo);
+-                else
+-                    t.AddSegment(new Segment(lo, hi, line));
+-            }
+             return true;
+         }
+ 
+@@ -2504,9 +2605,34 @@ namespace g3
+             InputTriangle t = Triangles[ti];
+             if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
+                 return;
++            if (ChainProbe.On) {
++                long t0 = ChainProbe.Timed ? ChainProbe.T() : 0;
++                prepare_touched(ti, t);
++                long dt = ChainProbe.Timed ? ChainProbe.T() - t0 : 0;
++                var acc = ChainProbe.A;
++                acc.prepN++; acc.prepTicks += dt;
++                if (probe_trivial(t)) { acc.prepTrivialN++; acc.prepTrivialTicks += dt; }
++                return;
++            }
+             prepare_touched(ti, t);
+         }
+ 
++        // PROBE: the touched triangle's points are corners (after the merge of coincident points) and its segments run between two corners
++        bool probe_trivial(InputTriangle t)
++        {
++            foreach (int p in t.Points)
++                if (p != t.Corners[0] && p != t.Corners[1] && p != t.Corners[2])
++                    return false;
++            foreach (Segment s in t.Segments) {
++                int sp = Canonical(s.P), sq = Canonical(s.Q);
++                bool a = sp == t.Corners[0] || sp == t.Corners[1] || sp == t.Corners[2];
++                bool b = sq == t.Corners[0] || sq == t.Corners[1] || sq == t.Corners[2];
++                if (!(a && b))
++                    return false;
++            }
++            return true;
++        }
++
+         // (a method of its own: the lambdas' closure is created when the method is entered, here only for the
+         // triangles that need it)
+         [MethodImpl(JitHints.Optimize)]
+@@ -2575,6 +2701,16 @@ namespace g3
+             // (untouched triangles are output as they are, by the caller)
+             if (t.Degenerate || (t.Points.Count == 0 && t.Segments.Count == 0))
+                 return;
++            if (ChainProbe.On) {
++                long t0 = ChainProbe.Timed ? ChainProbe.T() : 0;
++                bool trivial = probe_trivial(t);
++                triangulate_touched(ti, t, out output, out constraints);
++                long dt = ChainProbe.Timed ? ChainProbe.T() - t0 : 0;
++                var acc = ChainProbe.A;
++                acc.triN++; acc.triTicks += dt;
++                if (trivial) { acc.triTrivialN++; acc.triTrivialTicks += dt; }
++                return;
++            }
+             triangulate_touched(ti, t, out output, out constraints);
+         }
+ 

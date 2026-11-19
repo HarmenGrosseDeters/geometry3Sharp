@@ -26,21 +26,21 @@ using BoolCmp;
 using g3;
 using gs;
 
-static class ChainExact
+static partial class ChainExact
 {
     // a step: op, left (-1 = the previous result), right (an operand index)
-    readonly struct Step
+    internal readonly struct Step
     {
         public readonly ExactMeshBoolean.Operations Op;
         public readonly int Left, Right;
         public Step(ExactMeshBoolean.Operations op, int left, int right) { Op = op; Left = left; Right = right; }
     }
 
-    static readonly Dictionary<string, ExactMeshBoolean.Operations> opOf = new Dictionary<string, ExactMeshBoolean.Operations> {
+    internal static readonly Dictionary<string, ExactMeshBoolean.Operations> opOf = new Dictionary<string, ExactMeshBoolean.Operations> {
         ["union"] = ExactMeshBoolean.Operations.Union, ["difference"] = ExactMeshBoolean.Operations.Difference,
         ["intersection"] = ExactMeshBoolean.Operations.Intersection,
     };
-    static string Name(ExactMeshBoolean.Operations op) { return opOf.First(kv => kv.Value == op).Key; }
+    internal static string Name(ExactMeshBoolean.Operations op) { return opOf.First(kv => kv.Value == op).Key; }
 
     // the plans of data/abc_chained.py (A = 0, B = 1, C = 2, R = -1)
     static List<Step> AbcPlan(string variant)
@@ -78,6 +78,8 @@ static class ChainExact
     {
         switch (m) {
             case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(x => double.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray());
+            case "probe": return ChainProbeRun.Chain(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture), false);
+            case "probe-expr": return ChainProbeRun.Chain(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture), true);
             case "time": return RunTime(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             default: return RunChain(ops, plan, info);
         }
@@ -88,10 +90,14 @@ static class ChainExact
     static DMesh3 Shape(int k, Random r)
     {
         DMesh3 m;
-        switch (k % 3) {
-            case 0: m = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh(); break;
-            case 1: m = new CappedCylinderGenerator { BaseRadius = 1, TopRadius = 0.7f, Height = 2, Slices = 24 }.Generate().MakeDMesh(); break;
-            default: m = new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.4)), EdgeVertices = 4 }.Generate().MakeDMesh(); break;
+        // G3_PROC_N (probe): the tessellation of the shapes (default: the small ones of the stage-0 chains)
+        int n = int.TryParse(Environment.GetEnvironmentVariable("G3_PROC_N"), out int nn) && nn > 0 ? nn : 0;
+        // G3_PROC_SHAPE (probe): use this shape (0 sphere, 1 cylinder, 2 grid box) for every operand
+        int shape = int.TryParse(Environment.GetEnvironmentVariable("G3_PROC_SHAPE"), out int ss) ? ss : k % 3;
+        switch (shape) {
+            case 0: m = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = n > 0 ? n : 10 }.Generate().MakeDMesh(); break;
+            case 1: m = new CappedCylinderGenerator { BaseRadius = 1, TopRadius = 0.7f, Height = 2, Slices = n > 0 ? 4 * n : 24 }.Generate().MakeDMesh(); break;
+            default: m = new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.4)), EdgeVertices = n > 0 ? n : 4 }.Generate().MakeDMesh(); break;
         }
         Vector3d axis = new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5).Normalized;
         MeshTransforms.Rotate(m, Vector3d.Zero, new Quaterniond(axis, 360 * r.NextDouble()));
@@ -110,8 +116,10 @@ static class ChainExact
     {
         string family = args[0];
         int seed = int.Parse(args[1]), steps = int.Parse(args[2]);
-        if ((family != "mixed" && family != "generic") || steps < 1 || steps > 8 || (mode != "measure" && args.Length < 4))
-            throw new ArgumentException("chain-exact-proc <mixed|generic> <seed> <steps 1..8>");
+        bool abc = family.StartsWith("abc-");        // abc-<ucd|dui|iud>: the plan of the abc-chained class on procedural A, B, C (steps ignored: 2 placements)
+        if ((family != "mixed" && family != "generic" && !abc) || steps < 1 || steps > 8 || (mode != "measure" && args.Length < 4))
+            throw new ArgumentException("chain-exact-proc <mixed|generic|abc-ucd|abc-dui|abc-iud> <seed> <steps 1..8>");
+        if (abc) steps = 2;
         var r = new Random(seed);
         var ops = new List<DMesh3>();
         var plan = new List<Step>();
@@ -125,9 +133,10 @@ static class ChainExact
         for (int i = 1; i <= steps; ++i) {
             DMesh3 xi;
             ExactMeshBoolean.Operations op;
-            if (family == "mixed") {
+            if (family == "mixed" || abc) {
                 var variants = new[] { ContactVariant.PartialOverlap, ContactVariant.UlpShift, ContactVariant.FaceContact, ContactVariant.Mirror };
-                ContactVariant v = variants[(i - 1) % 4];
+                // (abc: B partial overlap or face contact, C by the seed: the four placements of the abc-chained class in turn)
+                ContactVariant v = abc ? (i == 1 ? (seed % 2 == 0 ? ContactVariant.PartialOverlap : ContactVariant.FaceContact) : variants[(seed / 2) % 4]) : variants[(i - 1) % 4];
                 ContactResult c = ContactTransforms.Build(x0, Shape(seed + i, r), v, r.Next(3), r.Next(2) == 0 ? 1 : -1, 1);
                 if (c.Error != null)
                     throw new Exception($"placement {i}: {c.Error}");
@@ -147,13 +156,14 @@ static class ChainExact
             plan.Add(new Step(op, i == 1 ? 0 : -1, i));
         }
         info["placements"] = placements;
+        if (abc) { plan = AbcPlan(family.Substring(4)); info["variant"] = family.Substring(4); }
         return Dispatch(mode, ops, plan, info, args.Skip(3).ToArray());
     }
 
     // ------------------------------------------------------------------ stage 1: the lazy ExactMesh
 
     // step k of the plan as an ExactMesh expression over the operands (one source per operand: A used twice is one source)
-    static ExactMesh Lazy(List<Step> plan, int k, ExactMesh[] leaf)
+    internal static ExactMesh Lazy(List<Step> plan, int k, ExactMesh[] leaf)
     {
         ExactMesh e = null;
         for (int i = 0; i <= k; ++i) {
@@ -163,7 +173,7 @@ static class ChainExact
         return e;
     }
 
-    static ExactMesh[] Leaves(List<DMesh3> ops) { return ops.Select(ExactMesh.FromDMesh).ToArray(); }
+    internal static ExactMesh[] Leaves(List<DMesh3> ops) { return ops.Select(ExactMesh.FromDMesh).ToArray(); }
 
     // per step: today's chain and ExactMesh.Round() with the rounding's pair-test budget times each factor
     static int RunDiag(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, double[] factors)
@@ -339,7 +349,7 @@ static class ChainExact
         return 0;
     }
 
-    static void Warm()
+    internal static void Warm()
     {
         DMesh3 a = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
         DMesh3 b = new TrivialBox3Generator { Box = new Box3d(new Vector3d(0.5, 0.25, 0.125), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
