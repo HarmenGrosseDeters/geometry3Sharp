@@ -11,7 +11,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Boolean: lever 1, coplanar pre-decision of corner / edge pairs | PR open, re-measured against the 10 % speed bar | Merge only if the bar is met | #1190 |
 | Rounding/repair: exact zero-volume check for undecided sheets | Session running | PR with the exact check (p0029, dui p0019/21/22) | #1191 |
 | Tet: deterministic work cap for `TetMeshImprover` | Being measured; part 1 merged (#1184) | Cap at SliverDihedralDegrees 20 / 30, within the time rule | #1154 |
-| Tet: opt-in `MaxDihedralDegrees` (Stellar op 4) | PR open | Review and merge; default output unchanged | #1189 |
+| Tet: opt-in `MaxDihedralDegrees` (Stellar op 4; guard, staged first phase, stall stop for unattainable maxima; TET_MESHING.md 17.15) | PR open, review fixes in | Merge; default output unchanged | #1189 |
 | Tet: P4(b) creases via S1-F | Phase 1 study | Study report, then a go / no-go | [tet](design/TET_MESHING.md) |
 | Other: `ContourLoft` skeleton saddles, holes inside branching groups | Phase 1 study started 2026-11-19 (owner: finish the topic) | Study report, then the build | [loft](design/CONTOUR_LOFT.md) |
 | Repair: `fm_ms` above 20 s on Thingi10K 318843 (20.5 s) and 498456 (46.7 s) | Study started 2026-11-19 (owner), #1009 reopened | Measured plan on #1009, then a bit-identical PR | [#1009](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1009) |
