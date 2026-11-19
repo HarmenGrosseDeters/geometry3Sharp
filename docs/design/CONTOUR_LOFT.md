@@ -350,7 +350,7 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
 - **Statuses**: `UnsupportedNesting` became `Unsupported` (nesting, and an overlap piece that touches itself); `NoAdmissibleBand` is
   its own status (the bands' exact minimum is not summed over bands). Extra checks on every Success: all contour edges are mesh
   edges, no bowtie vertex, consistent orientation, positive volume with `CapEnds`.
-- **Scope kept narrower than 10.4**: a group that branches, merges or is complex (p + q > 2) must have contours without holes
+- **Scope kept narrower than 10.4** (holes of branching groups: section 10.10): a group that branches, merges or is complex (p + q > 2) had to have contours without holes
   (`Unsupported` otherwise); holes of 1:1 groups, tunnels through many slices and holes that appear or vanish are supported. A
   terminal contour whose child continues is `Unsupported`.
 - **Nesting and overlay**: the nesting tree of a slice and the labels of the overlay triangles come from one flood fill each over a
@@ -390,3 +390,39 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
 - **Measured** ([ContourLoftBenchmark](../../benchmarks/ContourLoftBenchmark/README.md), `-- stack`): 33 slices, one and two contours
   alternating every 8 slices: 20 ms per slab at 100 vertices per contour, 190 ms at 400, 1.3 s at 1000 (the stage 1 band of a
   composite of 2n against n vertices dominates); contained and cut pieces cost the same.
+
+### 10.10 Holes inside branching and merging groups (2026-11-19, owner: finish the topic)
+
+- **Construction.** The contours of a group of a slab are the contours of one depth parity. A group that branches, merges or is complex
+  (p + q > 2) may now have holes. Its pieces are taken from the *filled* labels of the overlay: a triangle's label is the innermost
+  contour of each slice, and `Fill` walks up to the nearest ancestor in the group (a hole counts as part of the contour around it). The
+  piece of a related pair is the connected set of triangles with that filled pair, a simply connected region (the intersection of two
+  simply connected planar regions), so the piece has one boundary loop as before. The intermediate solid is therefore the whole
+  intersection of the two filled contours; where a hole ends or begins, the solid there is closed by the cap of the hole in the slice
+  plane (the existing cap rule), and where a hole continues, the hole group has its own pieces (the overlap of the two holes).
+- **Hole groups pass the intermediate plane.** A hole group is a group of its own (depth parity odd). A 1:1 hole group whose parent
+  group has an intermediate plane is not lofted by a direct band any more: its pieces (the overlap of the two holes) are placed in the
+  same plane and tiled in two half-slabs like any group. Reason (measured, test
+  `AHoleWallThroughTheRegionOfTheBridge_PassesTheIntermediatePlane`): a direct band from a hole that reaches into the gap between
+  legs to the hole of a leg runs through the fins of the bridge, `SelfIntersecting` on 6 of 18 probed inputs; with the hole
+  pieces in the plane all 18 succeed. The bridges keep clear of the loops of every group of the slab (the obstacle list is the loops of
+  the slab, not only of the group). A hole group of a parent group without an intermediate plane keeps the direct band.
+- **Limits that stay.** A hole with an island inside it in a branching or merging group (`Unsupported`: "holes with islands"); a
+  contour that ends while its hole continues (existing); pieces of one hole in different solid pieces with air between (a slot across
+  both legs): there is no bridge between them (`BridgeNotFound`, tested). The two-slice stack whose capped end has a branching hole
+  (`1:1 solid, hole branches`, found while probing) fails with `BandFailed` as before: the bridge of the hole's pieces lies in the
+  plane of the end cap; a stack with one more slice works.
+- **Unchanged.** Every result of a stack without holes in a branching group is bit for bit the same: the intermediate vertices and the
+  triangles are created in the same order (a test pins the digests of 11 results, taken before the change). The scan of the groups
+  runs in the same order; the new code runs only for groups with holes below a general group.
+- **Tests** (`ContourLoftStackHolesTests`): the golden digests; 7 inputs (a hole that ends under a branch, through one leg
+  (contained and cut), through one leg of a merge, that appears in a leg, that splits in a leg (Y tunnel, genus 2), through the middle leg of
+  a 1 to 3): closed, manifold, no self-intersection, `NotCleanReason == ""`, the Euler characteristic of the expected topology, the
+  contour vertices and edges in the mesh as given; the volume of a hole that ends (exactly its prism); the risk inputs (wall through
+  the bridge region must succeed, a sweep and 24 random inputs never return an unclean mesh: 389 of 400 random inputs succeeded in the
+  probe, the others were my crossing inputs); the island and slot limits; `Similarity.All()`; reuse; determinism (repeated and
+  concurrent). Hand mutants killed: the fill (6 tests fail), the intermediate pass of hole groups (3), the island guard (1), the fill
+  of the upper side (20). Survivors, equivalent for valid inputs: the filter of unrelated pairs (removed as dead code: a contour of
+  the group that is inside a hole of another cannot be in the group); the bridge obstacles of other groups (the nearest visible pair is
+  always clear in the probed inputs); the second parent of a hole group (its two parents are in one group when the holes overlap).
+

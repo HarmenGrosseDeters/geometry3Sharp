@@ -428,9 +428,9 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Unsupported_BranchWithHoles_AndEndingContourWithContinuingHole()
+        public void Unsupported_HoleWithoutThickness_AndEndingContourWithContinuingHole()
         {
-            // one contour with a hole splitting into two
+            // a hole with no counterpart on either side of a two-slice stack (zero thickness); holes in branching groups are built (ContourLoftStackHolesTests)
             var s = Slices(Sl(Rect(-3, 3, -1, 1, 0, 6), Disc(8, 0.3, 0)), Sl(Disc(12, 1.2, 1, -2), Disc(12, 1.2, 1, 2)));
             AssertFails(Loft(s), ContourLoftStackStatus.Unsupported);
             // a ring ends, but its hole continues inside a small disc with a hole of its own
