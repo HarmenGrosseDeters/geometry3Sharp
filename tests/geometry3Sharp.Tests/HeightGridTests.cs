@@ -129,7 +129,7 @@ namespace geometry3Sharp.Tests
             var rand = new Random(3);
             var sb = new System.Text.StringBuilder();
             for (int k = 0; k < 50; ++k)
-                sb.Append(rand.NextDouble() * 100 + " " + rand.NextDouble() * 100 + " " + rand.NextDouble() + "\n");
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0} {1} {2}\n", rand.NextDouble() * 100, rand.NextDouble() * 100, rand.NextDouble()));      // (invariant: "12,5" in the current culture is a decimal comma, BadLine)
             Assert.Equal(HeightGridStatus.NotOnGrid, ReadXyz(sb.ToString()).Status);
         }
 

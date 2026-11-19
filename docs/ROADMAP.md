@@ -89,13 +89,15 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
   parked).
-- **Quad remeshing** (study #1078, owner 2026-11-17): stage 5 (`DPolyMesh` with OBJ / PLY writers and readers, #1097, no `g3cli`
-  command yet) and stage 1 (`CrossField`, `MeshPrincipalCurvature`, #1098, merged with the speed gate open) are merged; the speed
+- **Quad remeshing** (study #1078, owner 2026-11-17): stage 5 (`DPolyMesh` with OBJ / PLY writers and readers, #1097) and stage 1 (`CrossField`, `MeshPrincipalCurvature`, #1098, merged with the speed gate open) are merged; the speed
   gate is then met on the sphere and torus by the Hermitian n x n form (#1099, done) and the parallel loops; the owner's next lever is a
   parallel `SparseCholesky` with an upper-bound check first, bit for bit, existing callers unchanged (#1103, bit-identical vector
   kernels, merged; more in progress). Stage 2 (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`, #1100) merged as quad-dominant with the
-  missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; stage 3B (the
-  QuadriFlow min-cost flow, from the paper only) is on hold (owner 2026-11-18; the papers are unreachable).
+  missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; the irregular gate is restated
+  relative to the curl of the field (owner 2026-11-19, [QUAD_REMESHING.md 4.5](design/QUAD_REMESHING.md)) and an opt-in size field (`SizeAdaptation`) halves
+  the irregular vertices of closed smooth shapes; stage 3B (opt-in `QuadRemesher.PureQuads`, the
+  integer-map repair; fallback to the stage 2 mesh with a `PureQuadStatus`, #1153) is merged. `g3cli quad` and its MCP tool `quad` (OBJ / PLY output, `--pure-quads`,
+  fallback reported in the result, library defaults kept; the edge length has no library default, the CLI takes the larger of 1/30 of the diagonal and twice the mean edge) are done.
   [QUAD_REMESHING.md](design/QUAD_REMESHING.md)
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9, #1095) is merged: no-go for a larger effort. Owner 2026-11-17: F1 go, done (#1101,
@@ -147,7 +149,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 In order:
 - Tet P2 (output / API); #1073 is merged.
-- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs (owner 2026-11-12); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification): a measured diagnosis first.
+- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs are done (2026-11-19; no outcome regression, p0988 intersection +54 % (3961 -> 6097 ms), the final run built four master commits, [results](../benchmarks/BooleanComparison/README.md#results-of-the-two-full-runs-2026-11-18--2026-11-19)); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification) and #1158 (one Thingi10K size pair at 21-35 s per operation, in `assembly.simplify`): a measured diagnosis first.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 

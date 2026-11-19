@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `curvature`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the tetrahedral mesh `tetmesh`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, the slope design `slope`, the cut and fill per cell `cell_volumes`, `geodesic`, the batch queries `query3d` (also as depth images from a camera, `--camera`), the polygon booleans, offsets and Minkowski sums `polygon2d`, the solid regions of loops `polygon_solids`, the offset surface `offset`, the 2D convex hull `hull2d`, the TPMS lattices `tpms`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `curvature`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the tetrahedral mesh `tetmesh`, the quad remeshing `quad`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, the slope design `slope`, the cut and fill per cell `cell_volumes`, `geodesic`, the batch queries `query3d` (also as depth images from a camera, `--camera`), the polygon booleans, offsets and Minkowski sums `polygon2d`, the solid regions of loops `polygon_solids`, the offset surface `offset`, the 2D convex hull `hull2d`, the TPMS lattices `tpms`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -1004,6 +1004,12 @@ P5(a) statement of the run: the minimum dihedral angle (`--min-dihedral`, defaul
 g3cli tetmesh part.stl part.msh --relative-alpha 80 --deviation
 ```
 Interior size control (TET_MESHING.md 17.12, opt-in, the default output is unchanged): `--target-edge-length h`, `--grading-factor g` (library: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`); the boundary keeps the wrap's spacing (`--relative-alpha`), so a size takes effect below about alpha / 2 and sizes below alpha / 4 are clamped (`steps.size_clamped_tets`).
+
+**Quad remeshing** (`quad`, `QuadRemesher`, [QUAD_REMESHING.md](design/QUAD_REMESHING.md)): a quad-dominant polygon mesh of a manifold triangle mesh, written with whole faces as OBJ or PLY (the polygon writers; other formats cannot hold quads and fail with `unknown_format`). `--edge-length` is the quad size (the library has no default; the CLI default is the larger of 1/30 of the bounding box diagonal and twice the mean input edge, reported as `used_edge_length`). `--pure-quads` is the opt-in stage 3B repair for closed meshes: `pure_quad_status` is `success` (the file has quads only) or names the first failed check, and then the file is the quad-dominant mesh with `pure_quads_fell_back` true and a warning (an open mesh gives `flow_infeasible`); it is not an error. The result reports the face mix, irregular vertices, closed / manifold flags, quad corner angles and aspects, and the timings.
+
+```
+g3cli quad part.stl part.obj --edge-length 2.5 --pure-quads
+```
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
 solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally

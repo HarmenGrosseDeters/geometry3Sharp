@@ -19,6 +19,17 @@ namespace gs
         NoFaces = 4
     }
 
+    /// <summary> QuadRemesher.SizeAdaptation: what the position field may vary to close up the lattice on a curved surface (IntegrableFrames). </summary>
+    public enum SizeAdaptationMode
+    {
+        /// <summary> uniform spacing along the cross field (the default; the output of the stage 2 method) </summary>
+        Off = 0,
+        /// <summary> a smooth size field: the spacing varies by a factor of about 2 across a sphere </summary>
+        Scale = 1,
+        /// <summary> the size field and a rotation of the field of up to some 10 degrees (fewest irregular vertices on closed smooth shapes) </summary>
+        ScaleAndRotation = 2
+    }
+
     /// <summary> Result of the pure-quad attempt of QuadRemesher (PureQuads): the first check that failed, see PureQuads </summary>
     public enum PureQuadStatus
     {
@@ -79,6 +90,26 @@ namespace gs
         /// <summary> see PositionField.MiddleRegularization </summary>
         public double MiddleRegularization = 0.05;
 
+        /// <summary>
+        /// Off (default): the quads have the edge length TargetEdgeLength everywhere. Scale or ScaleAndRotation: a size field (and a rotation
+        /// of the cross field) from IntegrableFrames lets the lattice close up on curved surfaces, which halves the irregular vertices of
+        /// closed smooth shapes (sphere, torus) at the price of edge lengths that vary by a factor of about 2 (docs/design/QUAD_REMESHING.md
+        /// 4.5). It is used only if it lowers the curl by SizeAdaptationMinGain (otherwise the result is the uniform one); on shapes with sharp
+        /// features (a filleted box) and with boundaries it may not help or may worsen the counts. Default Off: the output is then bit for bit the
+        /// one without the option.
+        /// </summary>
+        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;       // not together with PureQuads (InvalidInput)
+        /// <summary>
+        /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, ...); the remesher sets its Mesh, Field, TargetEdgeLength and
+        /// UseRotation (from SizeAdaptation) and computes it, so after Compute() it holds the spacing, the rotation and the curl
+        /// </summary>
+        public IntegrableFrames Frames;
+        /// <summary> the size field is applied only if the curl (IntegrableFrames.CurlAfter) is at most (1 - this) times CurlBefore </summary>
+        public double SizeAdaptationMinGain = 0.2;
+        /// <summary> of the last Compute(): the size field was applied, the curl before and after, the solver time in seconds, the smallest and largest spacing factor </summary>
+        public bool SizeAdaptationApplied;
+        public double CurlBefore, CurlAfter, SizeSeconds, MinSpacing = 1, MaxSpacing = 1;
+
         internal int ChunkSize = 512;
 
         /// <summary>
@@ -119,6 +150,7 @@ namespace gs
         public QuadRemeshStatus Compute()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+            SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
             PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
@@ -129,6 +161,19 @@ namespace gs
             sw.Restart();
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
+            if (SizeAdaptation != SizeAdaptationMode.Off) {
+                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
+                if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
+                IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
+                fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
+                if (fr.Compute() == IntegrableFramesStatus.InvalidInput) return Fail(QuadRemeshStatus.InvalidInput, fr.Error);
+                SizeSeconds = fr.Seconds;
+                CurlBefore = fr.CurlBefore; CurlAfter = fr.CurlAfter;
+                if (fr.Success && fr.CurlBefore > 0 && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore) {
+                    pf.SpacingFactors = fr.Spacing; pf.RotationAngles = fr.Rotation;
+                    SizeAdaptationApplied = true; MinSpacing = fr.MinSpacing; MaxSpacing = fr.MaxSpacing;
+                }
+            }
             Positions = pf;
             if (pf.Compute() != PositionFieldStatus.Success) return Fail(QuadRemeshStatus.PositionFieldFailed, pf.Error);
             PositionSeconds = sw.Elapsed.TotalSeconds; sw.Restart();

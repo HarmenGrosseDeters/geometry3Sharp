@@ -58,6 +58,18 @@ namespace gs
         /// </summary>
         public double MiddleRegularization = 0.05;
 
+        /// <summary>
+        /// optional (default null: the lattice spacing is TargetEdgeLength everywhere): a factor per vertex id, at least MaxVertexID long, finite and
+        /// positive, for the spacing at that vertex (TargetEdgeLength times the factor; a size field, see IntegrableFrames). Coarser levels
+        /// of the hierarchy take the area weighted mean. Without it the result is bit for bit the one of a uniform spacing.
+        /// </summary>
+        public double[] SpacingFactors;
+        /// <summary>
+        /// optional (default null): a rotation in radians per vertex id (at least MaxVertexID long, finite) of the lattice orientation about the vertex normal,
+        /// on top of the cross field's direction 0 (see IntegrableFrames). Boundary vertices should have 0: their orientation is snapped to the boundary.
+        /// </summary>
+        public double[] RotationAngles;
+
         /// <summary> vertices per parallel work item (the result does not depend on it; tests make it small) </summary>
         internal int ChunkSize = 512;
 
@@ -96,6 +108,7 @@ namespace gs
             public Vector3d[] X, Bq;             // per slot: the middle point and the representative of the neighbour's orientation
             public int[] ColorStart, ColorOrder;
             public int[] ToCoarse;
+            public double[] Sc;                  // spacing factor per vertex (null: 1)
         }
 
         public PositionFieldStatus Compute()
@@ -117,6 +130,14 @@ namespace gs
             ToVertex = list.ToArray();
             int n = ToVertex.Length;
             if (n == 0) return Fail("no vertex has a field");
+            if (SpacingFactors != null) {
+                if (SpacingFactors.Length < maxId) return Fail("SpacingFactors is shorter than the vertex ids of the mesh");
+                foreach (int v in ToVertex) if (!(SpacingFactors[v] > 0) || double.IsInfinity(SpacingFactors[v])) return Fail("SpacingFactors must be positive and finite");
+            }
+            if (RotationAngles != null) {
+                if (RotationAngles.Length < maxId) return Fail("RotationAngles is shorter than the vertex ids of the mesh");
+                foreach (int v in ToVertex) if (double.IsNaN(RotationAngles[v]) || double.IsInfinity(RotationAngles[v])) return Fail("RotationAngles must be finite");
+            }
 
             Level f = BuildFinest(n);
             var levels = new List<Level> { f };
@@ -162,6 +183,11 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 int v = ToVertex[i];
                 L.V[i] = Mesh.GetVertex(v); L.Nrm[i] = Field.VertexNormal(v); L.Q[i] = Field.VertexDirection(v, 0);
+                if (RotationAngles != null && RotationAngles[v] != 0) L.Q[i] = Math.Cos(RotationAngles[v]) * L.Q[i] + Math.Sin(RotationAngles[v]) * L.Nrm[i].Cross(L.Q[i]);
+            }
+            if (SpacingFactors != null) {
+                L.Sc = new double[n];
+                for (int i = 0; i < n; ++i) L.Sc[i] = SpacingFactors[ToVertex[i]];
             }
             foreach (int t in Mesh.TriangleIndices()) {
                 Index3i tv = Mesh.GetTriangle(t);
@@ -230,14 +256,16 @@ namespace gs
             for (int i = 0; i < n; ++i) if (map[i] < 0) { map[i] = pi.Count; pi.Add(i); pj.Add(-1); }
             int nc = pi.Count;
             var c2 = new Level { N = nc };
+            if (f.Sc != null) c2.Sc = new double[nc];
             c2.V = new Vector3d[nc]; c2.Nrm = new Vector3d[nc]; c2.Q = new Vector3d[nc]; c2.Area = new double[nc]; c2.D = new Vector3d[nc]; c2.Kind = new byte[nc];
             for (int k = 0; k < nc; ++k) {
                 int i = pi[k], j = pj[k];
-                if (j < 0) { c2.V[k] = f.V[i]; c2.Nrm[k] = f.Nrm[i]; c2.Q[k] = f.Q[i]; c2.Area[k] = f.Area[i]; c2.D[k] = f.D[i]; c2.Kind[k] = f.Kind[i]; continue; }
+                if (j < 0) { if (f.Sc != null) c2.Sc[k] = f.Sc[i]; c2.V[k] = f.V[i]; c2.Nrm[k] = f.Nrm[i]; c2.Q[k] = f.Q[i]; c2.Area[k] = f.Area[i]; c2.D[k] = f.D[i]; c2.Kind[k] = f.Kind[i]; continue; }
                 double a = f.Area[i] + f.Area[j];
                 if (!(a > 0)) { a = 2; }   // degenerate area: plain averages
                 double wi = f.Area[i] > 0 || f.Area[j] > 0 ? f.Area[i] : 1, wj = f.Area[i] > 0 || f.Area[j] > 0 ? f.Area[j] : 1;
                 c2.Area[k] = f.Area[i] + f.Area[j];
+                if (f.Sc != null) c2.Sc[k] = (wi * f.Sc[i] + wj * f.Sc[j]) / a;
                 c2.V[k] = (wi * f.V[i] + wj * f.V[j]) / a;
                 Vector3d nn = wi * f.Nrm[i] + wj * f.Nrm[j];
                 double nl = nn.Length;
@@ -356,8 +384,12 @@ namespace gs
         }
 
         // the lattice point of (o, q, t) nearest to the vertex position v (both coordinates rounded)
+        // the lattice spacing at vertex i of a level
+        static double Spacing(Level L, int i, double s) { return L.Sc == null ? s : s * L.Sc[i]; }
+
         static Vector3d Round(Vector3d o, Level L, int i, double s)
         {
+            s = Spacing(L, i, s);
             Vector3d d = L.V[i] - o;
             return o + s * (Math.Round(L.Q[i].Dot(d) / s) * L.Q[i] + Math.Round(L.T[i].Dot(d) / s) * L.T[i]);
         }
@@ -368,15 +400,17 @@ namespace gs
             int k0 = L.AS[i], k1 = L.AS[i + 1];
             if (k0 == k1 || L.Kind[i] == 2) return O[i];
             Vector3d oi = O[i], qi = L.Q[i], ti = L.T[i];
+            double si = Spacing(L, i, s);
             Vector3d delta = Vector3d.Zero;
             for (int k = k0; k < k1; ++k) {
                 int j = L.AJ[k];
                 Vector3d x = L.X[k], b = L.Bq[k];
                 Vector3d tb = L.Nrm[j].Cross(b);
                 Vector3d d = x - oi;
-                Vector3d a = oi + s * (Math.Round(qi.Dot(d) / s) * qi + Math.Round(ti.Dot(d) / s) * ti);
+                double sj = Spacing(L, j, s);
+                Vector3d a = oi + si * (Math.Round(qi.Dot(d) / si) * qi + Math.Round(ti.Dot(d) / si) * ti);
                 Vector3d d2 = a - O[j];
-                Vector3d bb = O[j] + s * (Math.Round(b.Dot(d2) / s) * b + Math.Round(tb.Dot(d2) / s) * tb);
+                Vector3d bb = O[j] + sj * (Math.Round(b.Dot(d2) / sj) * b + Math.Round(tb.Dot(d2) / sj) * tb);
                 delta += bb - a;
             }
             Vector3d o = oi + delta / (k1 - k0);
@@ -425,8 +459,9 @@ namespace gs
         /// </summary>
         internal void SlotOffset(int i, int k, out int dq, out int dt, out double mismatch)
         {
-            Level L = L0; double s = TargetEdgeLength;
+            Level L = L0; double s0 = TargetEdgeLength;
             int j = L.AJ[k];
+            double s = Spacing(L, i, s0), sj = Spacing(L, j, s0);
             Vector3d x = L.X[k], b = L.Bq[k], tb = L.Nrm[j].Cross(b);
             Vector3d qi = L.Q[i], ti = L.T[i], oi = Origins[i], oj = Origins[j];
             Vector3d d = x - oi;
@@ -437,10 +472,10 @@ namespace gs
             int kq0 = (int)cq0, kt0 = (int)ct0;
             Vector3d a = oi + s * (kq0 * qi + kt0 * ti);
             Vector3d d2 = a - oj;
-            double cq1 = Math.Round(b.Dot(d2) / s), ct1 = Math.Round(tb.Dot(d2) / s);
+            double cq1 = Math.Round(b.Dot(d2) / sj), ct1 = Math.Round(tb.Dot(d2) / sj);
             if (!(Math.Abs(cq1) < 1e9) || !(Math.Abs(ct1) < 1e9)) return;
             int kq1 = (int)cq1, kt1 = (int)ct1;
-            Vector3d bb = oj + s * (kq1 * b + kt1 * tb);
+            Vector3d bb = oj + sj * (kq1 * b + kt1 * tb);
             dq = kq0 - kq1; dt = kt0 - kt1;
             mismatch = (a - bb).Length / s;
         }

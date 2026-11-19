@@ -108,7 +108,7 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
   [Clipper2](https://github.com/AngusJohnson/Clipper2) (Boost-1.0). Results come with a status; the integer grid
   is fitted to the input, so UTM coordinates and any units work. The core package stays free of dependencies.
   See [OPERATIONS.md](docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).
-- `tools/g3cli`: the main operations (measure, repair, boolean, resolve, remesh, simplify, uv, convert, wrap, tetmesh, the evaluation
+- `tools/g3cli`: the main operations (measure, repair, boolean, resolve, remesh, simplify, uv, convert, wrap, tetmesh, quad, the evaluation
   metrics, geodesics and batch queries, the 2D mesher, polygon booleans, terrain tools; worked examples in
   [OPERATIONS.md](docs/OPERATIONS.md#command-line-and-mcp-g3cli)) as a CLI with JSON output and result codes, and as an MCP
   server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
