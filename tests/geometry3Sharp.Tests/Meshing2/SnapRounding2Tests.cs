@@ -152,9 +152,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4, snap.Result.Segments.Count(s => s.A == extra || s.B == extra));
         }
 
+        // 4 parts (#698: 5.3-9.5 s alone in one test, up to 20 s in a full run): every part draws the same random sequence and
+        // checks the iterations iter % 4 == part, so the parts together check exactly the 400 inputs of the one test
         [Trait("Category", "Slow")]
-        [Fact]
-        public void Fuzz_SeparationAndSimilarity_WithRestore()
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void Fuzz_SeparationAndSimilarity_WithRestore(int part)
         {
             // random segments on a grid of 1/64 in [0, 16]^2 (so many end on pixel sides), pixels 1, 2 and 4, some segments repeated
             // or overlapping: the restore step must run on many of them
@@ -165,12 +171,13 @@ namespace geometry3Sharp.Tests
                 int m = 6 + random.Next(20);
                 for (int i = 0; i < 4 * m; ++i) xy.Add(Math.Round(random.NextDouble() * 16 * 64) / 64);
                 if (iter % 5 == 0) { xy.AddRange(xy.Take(4).ToList()); xy.Add(xy[0]); xy.Add(xy[1]); xy.Add((xy[0] + xy[2]) / 2); xy.Add((xy[1] + xy[3]) / 2); }   // (Take copied first: net48 enumerates the list while it grows)
+                if (iter % 4 != part) continue;
                 // pixels that are powers of two, and some that are not (their centres and corners are no exact doubles)
                 var snap = Check(Segments(xy.ToArray()), new[] { 1.0, 2, 4, 0.3, 1.0 / 3, 2.3 }[iter % 6]);
                 restored += snap.Spread + snap.Widened + snap.ForcedSpread;
                 if (snap.Spread + snap.Widened + snap.ForcedSpread > 0) ++runs;
             }
-            Assert.True(runs >= 20, "the restore step ran on only " + runs + " inputs");
+            Assert.True(runs >= 5, "the restore step ran on only " + runs + " inputs (at least 20 in the 4 parts together)");
         }
 
         [Theory]

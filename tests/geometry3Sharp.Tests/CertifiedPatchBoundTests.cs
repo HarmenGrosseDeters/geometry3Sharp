@@ -380,6 +380,38 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> the patch gives up (+infinity) when it would take more target triangles than MaxPatchTriangles; with exactly the
+        /// number it needs the bound is the finite one, which does not depend on the limit </summary>
+        [Fact]
+        public void PatchBound_MoreTrianglesThanTheLimit_IsInfinite()
+        {
+            DMesh3 field = Heightfield(6, new Random(8482), 0.5);
+            Vector3d p0 = new Vector3d(-0.75, -0.5, 0.75), p1 = new Vector3d(0.5, -0.625, 0.75), p2 = new Vector3d(0.125, 0.75, 0.75);
+            var tree = new DMeshAABBTree3(field, true);
+            int n0 = Nearest(tree, p0), n1 = Nearest(tree, p1), n2 = Nearest(tree, p2);
+            double unlimited = new TriangleDeviationBounds(field).certified_patch_bound(p0, p1, p2, n0, n1, n2);
+            Assert.True(MathUtil.IsFinite(unlimited));
+            int needed = -1;
+            for (int limit = 1; limit <= 256 && needed < 0; ++limit)
+                if (MathUtil.IsFinite(new TriangleDeviationBounds(field) { MaxPatchTriangles = limit }.certified_patch_bound(p0, p1, p2, n0, n1, n2)))
+                    needed = limit;
+            Assert.True(needed > 1, "the triangle lies over several target triangles");
+            // the patch is the target triangles whose xy box meets the xy box of Q (the field is all positively oriented and connected)
+            double xlo = Math.Min(p0.x, Math.Min(p1.x, p2.x)), xhi = Math.Max(p0.x, Math.Max(p1.x, p2.x));
+            double ylo = Math.Min(p0.y, Math.Min(p1.y, p2.y)), yhi = Math.Max(p0.y, Math.Max(p1.y, p2.y));
+            int inBox = 0;
+            foreach (int tid in field.TriangleIndices()) {
+                Index3i tv = field.GetTriangle(tid);
+                Vector3d a = field.GetVertex(tv.a), b = field.GetVertex(tv.b), c = field.GetVertex(tv.c);
+                if (Math.Max(a.x, Math.Max(b.x, c.x)) >= xlo && Math.Min(a.x, Math.Min(b.x, c.x)) <= xhi
+                    && Math.Max(a.y, Math.Max(b.y, c.y)) >= ylo && Math.Min(a.y, Math.Min(b.y, c.y)) <= yhi)
+                    ++inBox;
+            }
+            Assert.Equal(inBox, needed);
+            Assert.True(double.IsPositiveInfinity(new TriangleDeviationBounds(field) { MaxPatchTriangles = needed - 1 }.certified_patch_bound(p0, p1, p2, n0, n1, n2)));
+            Assert.Equal(unlimited, new TriangleDeviationBounds(field) { MaxPatchTriangles = needed }.certified_patch_bound(p0, p1, p2, n0, n1, n2));
+        }
+
         /// <summary> where the coverage fails the bound is +infinity: a hole under the triangle, a triangle that sticks out of the
         /// mesh, a flipped (folded) triangle, a triangle soup (no shared edges), a triangle that is edge-on or degenerate. Never a
         /// finite value; and the same triangle over the closed field is finite </summary>

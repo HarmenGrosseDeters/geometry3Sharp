@@ -1172,3 +1172,67 @@ reached the target skip the phase (the check of the bad tets costs one scan), so
 of 40 on the subset for +2 % time (rows `results/thingi10k-subset-stage2-ab-*-2026-11-17.csv`; at / 40 every subset mesh reaches the target
 in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap, which stays an
 owner decision.
+
+### 17.12 Stage P3: interior size control (2026-11-19)
+
+Scope as decided (owner 2026-11-19): opt-in and additive; interior only (the boundary's size stays the wrap's, alpha; boundary sizing is P4's local alpha).
+With no size set the result is bit for bit the same (`TetRefinementWorkBoundTests.DefaultPathAndRadiusEdge15_...` pins 16 fingerprints, and now also
+checks that no `size_*` count exists; `OffValuesOfEveryOption_GiveTheDefaultResultBitForBit` runs every "off" value of the new options).
+
+- **API** (`MeshTetrahedralization`, absolute lengths in the input's units unless noted): `TargetEdgeLength` (uniform h; 0, negative, NaN or infinity = off),
+  `SizeFunction` (`Func<Vector3d, double>`, evaluated serially at each tet's centroid), `GradingFactor` g (automatic: h(p) = (mean edge length of the wrap's
+  surface) + g * d(p), d = distance to the wrap's surface by an AABB tree; relative, so it scales with the input without a length; 0 / negative / NaN = off),
+  `MinSizeFactor` (default 0.25: the clamp, in units of `UsedAlpha`). Several set: the smallest size at a point wins (an invalid function value does not take part, see the next point). Combines with the existing `MaxCircumradius`, which is unchanged.
+- **Criterion**: a new bad-tet cause next to radius-edge and dihedral: circumradius R > 0.75 h(centroid). The constant is measured, not derived: the regular tet of
+  edge h has R = 0.612 h, but the refined tets are not regular and the mean edge came out 0.81 h; with 0.75 the mean edge is about h and the count is
+  1.41 to 1.45 times volume / (0.12 h^3) for h at most half of alpha on the four procedural shapes (benchmark, below), inside T7's factor 2.
+  Splits use the same circumcentre / ring candidates and the same fixed-surface refusal as before; a tet that is only too large is **not peeled** (peeling is
+  for slivers; `TetsThatAreOnlyTooLarge_AreNotPeeled`).
+- **Invalid and clamped sizes** (coordinator decision 2026-11-19, replacing the first version that clamped invalid values): a `SizeFunction` value that is NaN, not positive or
+  infinite means **no size here**: the function applies nothing at that point (the other size options still do), so a buggy function gives the default mesh, not a run of minutes.
+  The samples are counted in the public `MeshTetrahedralization.InvalidSizeSamples` (tets of the refinement, before stage 2, at whose centroid the function was invalid; reset by `Compute()`),
+  so it is not silent. A valid size below `MinSizeFactor * alpha` is raised to that minimum and counted in `Counts["size_clamped_tets"]` (tets of the refinement; the key exists only if
+  that count is above 0, so a size that never applies leaves `Counts` as they are, and an all-NaN function gives the default result bit for bit, counts included). Why 0.25
+  alpha (a cost guard, not a measured spacing): the output boundary's edges (box, sphere, cylinder) have a median of 0.5 to 0.6 alpha at alpha = diagonal / 12 and 1.2 to 1.3 alpha at
+  the default diagonal / 40, a 10th percentile of 0.13 to 1.05 alpha and shortest edges down to 0.04 alpha (the refined surface is finer where it bends), and no tet at the surface
+  is smaller than its surface triangle; so a size far below alpha cannot be met next to the surface, and the clamp keeps a user function from asking for a count that the
+  packing bound alone would allow (millions of tets). It is a parameter (`MinSizeFactor`). Tets at the surface that are too large for h stay (`unrefined_bad_tets`, e.g. 2 281
+  of 13 923 on the box at h = alpha / 2); that is the wrap's resolution, as in 14.8. **Coarser sizes than the boundary's give the wrap's own tets** (h = alpha
+  gives 2.3 to 2.7 times the estimate, h = 2 alpha the unsized mesh): a size never coarsens.
+- **Termination and work bound** (any size function, also an adversarial one). (1) Every accepted point keeps the floor distance to all vertices (`MinFeatureFactor`), so the
+  accepted points are a packing of the bounded wrap region and their number is finite whatever the function returns; each tet leaves the queue after at most 30
+  trial insertions and new tets are queued only by accepted points, so the trial insertions are finite. (2) The clamp makes the demanded size at least
+  `MinSizeFactor * alpha`, so the count is at most about volume / (0.12 (0.25 alpha)^3) times the 1.4 above, not the packing bound of (1), which is far larger (the floor is
+  alpha / 300 at the default offset). A valid but tiny size (1e-9, denormal) is the costly case: it asks for `MinSizeFactor * alpha` everywhere, at the default alpha (diagonal / 40) about diagonal / 160 and millions of tets, so such a run ends at `MaxSteinerPoints` after minutes (the tests use alpha = diagonal / 4); that is the user's request, not a bug. (3) `MaxSteinerPoints` still stops a run that asks for more (status `PointLimitReached`, valid). (4) The work bound of 17.10 (48 trials per
+  wrap vertex + 2000, shape runaways below radius-edge 1.3) stays on with a size function: it was off for `MaxCircumradius` because the trials then follow the volume; here each
+  point inserted for the size alone raises the bound by 48 (as a wrap vertex does; measured: at most 10 trials per such point, also with a size that is tiny only near the
+  surface, where almost all tets are refused: trials / limit 0.01 to 0.3), so a legitimate sized run is never cut (`SizeBelowTheClamp_...AndTheWorkBoundDoesNotCutIt`: 130k tets, 30
+  times the bound without the credit) and a radius-edge runaway with a size on top still is (`SizeAndAShapeRunaway_TheWorkBoundStillStopsIt`). Not proven: that a size
+  function cannot start a shape cascade of its own; the bound and the test are the guard. With `MaxCircumradius` > 0 the bound is off as before.
+- **Benchmark** (`TetMeshBenchmark size 12 600`, alpha = diagonal / 12, one thread, local; rows `results/tet-size-control-alpha12-2026-11-19.csv`): tets against h / alpha
+  (sphere n=16 / box / cylinder / torus), the estimate is volume / (0.12 h^3):
+
+  | h / alpha | 1.0 | 0.7 | 0.5 | 0.35 | 0.25 (the clamp) |
+  |---|---:|---:|---:|---:|---:|
+  | tets / estimate, sphere | 2.66 | 1.70 | 1.45 | 1.42 | 1.41 |
+  | tets / estimate, box | 2.26 | 1.67 | 1.45 | 1.41 | 1.42 |
+  | tets / estimate, cylinder | 2.70 | 1.75 | 1.49 | 1.43 | 1.42 |
+  | tets / estimate, torus | 8.68 | 3.19 | 1.80 | 1.51 | 1.46 |
+  | tets, sphere (unsized 3 122) | 3.9k | 7.2k | 16.9k | 48.1k | 131k |
+  | time, sphere / box (s) | 0.39 / 0.04 | 0.46 / 0.08 | 0.29 / 0.24 | 0.57 / 1.04 | 1.26 / 4.41 |
+
+  The time is about 10 to 40 us per tet (wrap and stage 2 included); the box at 0.25 (109k tets) takes 4.4 s because of its many unrefined surface tets. Graded runs (g = 2, 1, 0.5, 0.25):
+  sphere 3.6k, 4.9k, 6.7k, 8.9k tets; box 1.9k, 2.6k, 3.3k, 4.1k; cylinder 4.5k, 5.8k, 7.6k, 9.8k; torus 5.1k, 5.5k, 6.3k, 7.6k: monotone in g on every shape. Every run is
+  valid, status `Success`, and the smallest dihedral stays 10 degrees (the torus at alpha / 12 starts at 8.93 without a size and keeps that at h = alpha; that is the unsized result). Radius-edge
+  stays above 2 on the surface tets as in 17.9.
+- **Tests** (`TetMeshSizeControlTests`, 36 cases, each under 4 s): off values bit for bit; T7 (box and sphere, h = 0.5 and 0.35 alpha, count within a factor 2 of the estimate, 10-degree
+  floor and `Targets.MinDihedralMet`, exact validity); finer h gives more tets and a mean core edge of 0.6 to 1.3 h; grading monotone in g and the core's tets larger than the shell's
+  by 1.4; a constant `SizeFunction` equals `TargetEdgeLength` bit for bit and a left / right gradient is followed; the smallest of several sizes wins; invalid functions
+  (0, negative, NaN, -inf, +inf: default result bit for bit incl. counts, `InvalidSizeSamples` > 0 and reset by the next run; an invalid function next to a valid `TargetEdgeLength` leaves that in force) and tiny valid ones (denormal, 1e-9, oscillating with NaN) end under 5 s, valid, clamped and counted, equal to asking for the clamp itself;
+  `MinSizeFactor`; `MaxSteinerPoints` with an impossible size; no peeling of large tets; the work bound with a size; reuse (also switching the size off on the instance);
+  every `MaxThreads` and repeated runs; `Similarity.All()` (sizes scaled with the input: exact for the 2^k scales, valid and within 20 % in the count for the rest).
+  Mutations checked (each killed): size ignored, grading ignored, no clamp, invalid clamped again, invalid not counted, an invalid function forcing size 0, circumradius constant 1.5 and 0.4, the peel gates (two), the work-bound credit (two). One mutant
+  found equivalent and removed: counting the trials of size splits separately from the shape trials (the credit covers them 3 to 100 times in every measured case, 24 runs of a size that is tiny only near the surface).
+- **g3cli**: `tetmesh --target-edge-length <h>` (0 or at least diagonal / 200) and `--grading-factor <g>` (0..100); `steps.size_clamped_tets` (only if above 0) is the clamp count. Test
+  `TargetEdgeLengthAndGrading_AreAcceptedAndRefine`, bad values in the limits test.
+- **Open**: boundary sizing (P4); a size field from the input's curvature or feature size (the automatic function is distance to the boundary only); a bound on tets per input (a target element count).

@@ -84,6 +84,7 @@ namespace g3cli.Tests
         [InlineData("tet22.msh", "msh22", "msh22", "$MeshFormat\n2.2 0 8\n")]
         [InlineData("tet41.out", "msh41", "msh41", "$MeshFormat\n4.1 0 8\n")]
         [InlineData("tet.vtk", "auto", "vtk", "# vtk DataFile Version 3.0\n")]
+        [InlineData("tet_v.out", "vtk", "vtk", "# vtk DataFile Version 3.0\n")]
         [InlineData("tet_m.out", "medit", "medit", "MeshVersionFormatted 2\n")]
         public void Format_FollowsTheExtensionOrTheOption(string file, string format, string reported, string header)
         {
@@ -159,6 +160,22 @@ namespace g3cli.Tests
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("max_steiner_points"));
         }
 
+        /// <summary> an input the wrap refuses (coordinates outside the supported range, not invalid parameters) fails with operation_failed
+        /// and both statuses, and writes nothing </summary>
+        [Fact]
+        public void InvalidInput_FailsWithOperationFailed_AndWritesNothing()
+        {
+            string huge = m.Path_("tet_huge.obj");
+            File.WriteAllText(huge, "v 0 0 0\nv 1e300 0 0\nv 0 1e300 0\nf 1 2 3\n");
+            string output = m.Path_("tet_huge.mesh");
+            var (exit, r) = Run("tetmesh", huge, output, "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("wrap_failed", S(r["tet_status"]));
+            Assert.Equal("invalid_input", S(r["wrap_status"]));
+            Assert.Contains("tet mesh failed: wrap_failed (invalid_input)", S(r["message"]));
+            Assert.False(File.Exists(output));
+        }
+
         [Fact]
         public void WrapFailure_FailsWithStatus_AndWritesNothing()
         {
@@ -183,10 +200,16 @@ namespace g3cli.Tests
             (e, r) = Run("tetmesh", m.Empty, m.Path_("x.mesh"), "--compact"); AssertError(e, r, "empty_mesh");
             (e, r) = Run("tetmesh", m.Cube, Path.Combine(m.Dir, "no_such_dir", "x.mesh"), "--compact"); AssertError(e, r, "write_error");
             (e, r) = Run("tetmesh", m.Cube, "--compact"); AssertError(e, r, "invalid_arguments");
+            // an output path that is an existing directory: the writer's exception becomes write_error, nothing else is written
+            string asDir = m.Path_("is_a_dir.mesh");
+            Directory.CreateDirectory(asDir);
+            (e, r) = Run("tetmesh", m.Cube, asDir, "--compact", "--relative-alpha", "10"); AssertError(e, r, "write_error");
+            Assert.Contains("cannot write", S(r["message"]));
+            Assert.True(Directory.Exists(asDir) && Directory.GetFileSystemEntries(asDir).Length == 0);
             foreach (string[] bad in new[] {
                 new[] { "--relative-alpha", "0" }, new[] { "--relative-alpha", "1001" }, new[] { "--relative-offset", "100001" },
                 new[] { "--min-dihedral", "-1" }, new[] { "--min-dihedral", "71" }, new[] { "--max-radius-edge", "1.4" }, new[] { "--max-radius-edge", "1001" },
-                new[] { "--max-circumradius", "-1" }, new[] { "--max-circumradius", "0.001" }, new[] { "--max-steiner-points", "0" }, new[] { "--max-steiner-points", "2000001" } }) {
+                new[] { "--max-circumradius", "-1" }, new[] { "--max-circumradius", "0.001" }, new[] { "--target-edge-length", "-1" }, new[] { "--target-edge-length", "1e-9" }, new[] { "--grading-factor", "-1" }, new[] { "--grading-factor", "101" }, new[] { "--max-steiner-points", "0" }, new[] { "--max-steiner-points", "2000001" } }) {
                 (e, r) = Run(new[] { "tetmesh", m.Cube, m.Path_("lim.mesh"), "--compact" }.Concat(bad).ToArray());
                 AssertError(e, r, "invalid_arguments");
                 Assert.False(File.Exists(m.Path_("lim.mesh")), string.Join(" ", bad));
@@ -204,6 +227,20 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void TargetEdgeLengthAndGrading_AreAcceptedAndRefine()
+        {
+            var (e0, plain) = Run(new[] { "tetmesh", m.Cube, m.Path_("s0.mesh") }.Concat(Fast).ToArray());
+            double alpha = D(plain["used_alpha"]);
+            string h = (0.5 * alpha).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            var (e1, sized) = Run(new[] { "tetmesh", m.Cube, m.Path_("s1.mesh"), "--target-edge-length", h }.Concat(Fast).ToArray());
+            var (e2, graded) = Run(new[] { "tetmesh", m.Cube, m.Path_("s2.mesh"), "--grading-factor", "0.25" }.Concat(Fast).ToArray());
+            Assert.Equal(0, e0); Assert.Equal(0, e1); Assert.Equal(0, e2);
+            Assert.True(I(sized["counts"]["tets"]) > 2 * I(plain["counts"]["tets"]));
+            Assert.True(I(graded["counts"]["tets"]) > I(plain["counts"]["tets"]));
+            Assert.True(B(sized["valid"]) && B(graded["valid"]));
+        }
+
+        [Fact]
         public void Help_ListsTheCommandAndItsArguments()
         {
             var (exit, r) = Run("help", "tetmesh");
@@ -212,7 +249,7 @@ namespace g3cli.Tests
             JsonNode a = r["arguments"];
             Assert.True(B(a["input"]["required"]) && B(a["output"]["required"]));
             Assert.Equal(new[] { "auto", "medit", "msh41", "msh22", "vtk" }, a["format"]["enum"].AsArray().Select(x => S(x)).ToArray());
-            foreach (string name in new[] { "relative_alpha", "relative_offset", "min_dihedral", "max_radius_edge", "max_circumradius", "max_steiner_points", "improve", "markers", "deviation", "self_intersections" })
+            foreach (string name in new[] { "relative_alpha", "relative_offset", "min_dihedral", "max_radius_edge", "max_circumradius", "target_edge_length", "grading_factor", "max_steiner_points", "improve", "markers", "deviation", "self_intersections" })
                 Assert.NotNull(a[name]);
             Assert.Equal("boolean", S(a["markers"]["type"]));
             Assert.Contains("Medit", S(r["description"]));

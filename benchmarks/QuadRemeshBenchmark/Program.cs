@@ -42,6 +42,7 @@ static class Program
         bool cleanup = !(A.ContainsKey("cleanup") && A["cleanup"] == "0");
         double mm = A.ContainsKey("mm") ? double.Parse(A["mm"], CultureInfo.InvariantCulture) : 0.5;
         double align = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : 0;
+        int adapt = A.ContainsKey("adapt") ? int.Parse(A["adapt"]) : 0;
         double eps = A.ContainsKey("eps") ? double.Parse(A["eps"], CultureInfo.InvariantCulture) : 0.05;
 
         Func<Vector3d, double> sphere = p => p.Length - 1;
@@ -93,9 +94,18 @@ static class Program
             double tField = sw.Elapsed.TotalSeconds;
             if (!cf.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | cross field " + cf.Status + " |"); continue; }
 
-            var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps };
+            var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps, SizeAdaptation = (SizeAdaptationMode)adapt };
+            if (adapt != 0 && (A.ContainsKey("iters") || A.ContainsKey("tol") || A.ContainsKey("maxratio") || A.ContainsKey("damp"))) {
+                var frames = new IntegrableFrames(null, null);
+                if (A.ContainsKey("iters")) frames.Iterations = int.Parse(A["iters"]);
+                if (A.ContainsKey("tol")) frames.StopTolerance = double.Parse(A["tol"], CultureInfo.InvariantCulture);
+                if (A.ContainsKey("maxratio")) frames.MaxSpacingRatio = double.Parse(A["maxratio"], CultureInfo.InvariantCulture);
+                if (A.ContainsKey("damp")) frames.Damping = double.Parse(A["damp"], CultureInfo.InvariantCulture);
+                qr.Frames = frames;
+            }
             qr.Compute();
             double tPos = qr.PositionSeconds, tExt = qr.ExtractSeconds;
+            if (adapt != 0) Console.Error.WriteLine($"  {sh.Name}: size adaptation {(qr.SizeAdaptationApplied ? "applied" : "NOT applied")}, curl {qr.CurlBefore:F1} -> {qr.CurlAfter:F1}, spacing {qr.MinSpacing:F2}..{qr.MaxSpacing:F2}, solve {qr.SizeSeconds:F2} s");
             if (!qr.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | quad remesh " + qr.Status + " " + qr.Error + " |"); continue; }
             PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
             int[] map; var skipped = new List<int>();

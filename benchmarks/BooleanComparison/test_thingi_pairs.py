@@ -146,6 +146,50 @@ def write_off(path, v, f):
         o.writelines(f"{x!r} {y!r} {z!r}\n" for x, y, z in v)
         o.writelines(f"3 {a} {b} {c}\n" for a, b, c in f)
 
+def cube_grid(n):
+    """a closed, consistently oriented cube surface of 12 n^2 triangles, welded by exact position (i / n) and numbered face by face,
+    so that neighbouring vertices have close indices (the vertex numbering of a real result)"""
+    verts, tris, ids = [], [], {}
+    def vid(p):
+        if p not in ids:
+            ids[p] = len(verts)
+            verts.append(p)
+        return ids[p]
+    for axis in range(3):
+        a1, a2 = (axis + 1) % 3, (axis + 2) % 3
+        for side in (0, 1):
+            for i in range(n):
+                for j in range(n):
+                    def P(ii, jj):
+                        c = [0.0] * 3
+                        c[axis], c[a1], c[a2] = float(side), ii / n, jj / n
+                        return vid(tuple(c))
+                    p00, p10, p11, p01 = P(i, j), P(i + 1, j), P(i + 1, j + 1), P(i, j + 1)
+                    q = [(p00, p10, p11), (p00, p11, p01)]
+                    tris.extend(q if side == 1 else [(a, c, b) for a, b, c in q])
+    return verts, tris
+
+@unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
+class EvalSpeedTests(unittest.TestCase):
+    def test_eval_of_a_large_result_is_not_quadratic(self):
+        """the edge table of the pinch split used the default hash of a long (a ^ b for an edge): a result of 900k triangles took
+        more than 25 minutes to evaluate (thingi-pairs run of 2026-11-18, 5 of the 100 size pairs, eval timed out at 3600 s). The time
+        grows with the square of the size: 120k triangles took 12.5 s with it, 235k about 48 s (extrapolated); without it 235k take
+        2.4 s. The bound is 20 s"""
+        with tempfile.TemporaryDirectory(prefix="thingi_pairs_eval_") as d:
+            v, f = cube_grid(140)
+            self.assertEqual(len(f), 235200)
+            write_off(os.path.join(d, "ours_union.off"), v, f)
+            with open(os.path.join(d, "info.json"), "w") as o:
+                json.dump({"file": "grid", "tris": len(f), "vA": 1.0, "vB": 0.0, "center": [0, 0, 0], "ops": ["union"], "notclean": True}, o)
+            e = subprocess.run(["dotnet", DLL, "eval", d], capture_output=True, text=True, timeout=20)
+            row = json.loads(e.stdout.strip().splitlines()[-1])
+            self.assertEqual(row["union_tris"], 235200)
+            self.assertTrue(row["union_manifold_closed"])
+            self.assertEqual(row["union_selfint"], 0)
+            self.assertEqual(row["union_clean_reason"], "")
+            self.assertAlmostEqual(row["union_volume"], 1.0, places=9)
+
 @unittest.skipUnless(os.path.exists(DLL), "build benchmarks/BooleanComparison first")
 class PairOracleTests(unittest.TestCase):
     """the pair preparation and the oracle of eval, end to end on procedural pairs with known volumes"""

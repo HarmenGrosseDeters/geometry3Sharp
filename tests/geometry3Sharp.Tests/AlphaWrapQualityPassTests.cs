@@ -97,9 +97,15 @@ namespace geometry3Sharp.Tests
         // ImproveWrapQuality returns its result without a second Hausdorff check: certified by construction (every new
         // triangle by IsWithin, the others by the simplification's certificate). Checked here with the bounds without the
         // patch bound, over inputs and every kind of operation (default, collapses, splits of more caps, moves only)
+        // one row per input (#698: 5.2-6.9 s alone in one test, up to 17 s in a full run); a row checks the 4 variants on its input
         [Trait("Category", "Slow")]
-        [Fact]
-        public void ImproveWrapQuality_CertifiedByConstruction()
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        public void ImproveWrapQuality_CertifiedByConstruction(int inputIndex)
         {
             var inputs = new List<DMesh3> {
                 new TrivialBox3Generator() { Box = DefaultBox, NoSharedVertices = false }.Generate().MakeDMesh(),
@@ -113,7 +119,8 @@ namespace geometry3Sharp.Tests
                 p => { p.EnableFlips = false; },
             };
             int checkedResults = 0;
-            foreach (DMesh3 input in inputs) {
+            {
+                DMesh3 input = inputs[inputIndex];
                 var w = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
                 Assert.True(w.Compute(), w.Error);
                 double tol = 0.5 * w.UsedOffset;
@@ -128,7 +135,7 @@ namespace geometry3Sharp.Tests
                     Assert.True(HausdorffUpper(q, w.Result, tol) <= tol, $"{checkedResults}: not within {tol}");
                 }
             }
-            Assert.True(checkedResults >= 15, $"{checkedResults} results");
+            Assert.True(checkedResults >= 4, $"{checkedResults} results");
         }
 
         [Fact]

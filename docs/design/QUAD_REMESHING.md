@@ -238,7 +238,7 @@ before it.
 |---|---|---|---|---|
 | **0. Decisions** | The owner decisions below. | - | - | Decided 2026-11-17. |
 | **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 3.7 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
-| **2. Position field and extraction (quad-dominant)** (built; merged with the irregular-vertex and 95 % quad gates open, owner 2026-11-17: [4.2](#42-stage-2-status-2026-11-17-built-the-irregular-vertex-gate-is-the-no-go)) | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4; corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
+| **2. Position field and extraction (quad-dominant)** (built; merged with the irregular-vertex and 95 % quad gates open, owner 2026-11-17: [4.2](#42-stage-2-status-2026-11-17-built-the-irregular-vertex-gate-is-the-no-go)) | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4 (restated 2026-11-19 relative to the curl mass, [4.5](#45-the-irregular-vertex-gate-restated-and-the-size-field-owner-2026-11-19)); corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
 | **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within max(3 x stage 2, 1 s) on clean runs (owner 2026-11-19, replacing 2 x stage 2; [4.4](#44-stage-3b-built-2026-11-19)). |
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |
 | **5. API and writers** | Additive and compatible with 1.0.324: a new polygon container (`DPolyMesh`: compact face offsets plus vertex lists, face groups, `ToDMesh3()` that triangulates and records the triangle-pair map), OBJ polygon faces and PLY `vertex_indices` lists for n-gons, and `SimpleQuadMesh` from a pure-quad result. A `g3cli quadremesh` command. No change to `DMesh3`. | **S-M** | low; `dotnet pack` API validation catches breaks | The API validation passes; a round trip of OBJ and PLY through the readers keeps the faces (the polygon reader paths are added to `ReaderFuzzTests` if a reader is added). |
@@ -444,6 +444,73 @@ bad**. On the clean rows: irregular vertices within singularities + 10 % of stag
 box at scale 1.25: 0.52 s), corner deviation p95 <= 15 degrees on 17 / 25 (stage 2 on the same rows: 18 / 25). The fallback rate (54 %) stays: the
 option is useful as an opt-in only. Largest stage on clean rows and on fallbacks: the min-cost flow (50 % / 54 % of the attempt), then the
 SAT (20 % / 40 %); the numbers are in the benchmark README.
+
+### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
+
+**Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
+opt-in (`QuadRemesher.SizeAdaptation`, default off, the default output unchanged bit for bit), and the data is the measurement of 2026-11-19 (data branch `runs/quad-stage2`, `benchmarks/QuadRemeshDiagnosis`).
+
+**Where the irregular vertices come from.** Per input triangle the holonomy of the position field (the integer lattice offsets of its edges, composed around the triangle) tells a cone of the
+lattice (net rotation, a singularity of the cross field), a dislocation (no rotation, a translation: a triangle paired with a valence 5 vertex) and an edge the extraction ignores. Each irregular
+vertex and each non-quad face of the 7 shapes got the class of the nearest cause within 0.75, 1.5 and 2.5 x s. The dislocations are 75-85 % of both on the closed shapes at every radius (sphere at 0.75 s: 64 of 77
+irregular vertices; the 8 cones account for 8; 5 have no cause nearby). The extraction itself (collapsed or split edges, resolution) accounts for none at 1.5 s and more and for 0-14 % at 0.75 s. On the open shapes the boundary adds its own
+(open patch: 37 of its 42 dislocation triangles lie within 1.5 s of the boundary; the field has no curl there).
+
+**The measure: the curl mass.** For every triangle without a singular face of the field, `w` is the sum over its three edges of the edge vector in the averaged, aligned cross frame of the edge, in units of the target edge length s
+(zero where the frames close up into a lattice; the sum of `w` over a loop is the Burgers vector of the loop). `C` is the sum of `|w|` over those triangles, `IntegrableFrames.CurlBefore` (with the uniform spacing), in lattice units. It tracks
+the dislocation count:
+
+| shape | irregular V | singular faces S | curl mass C | dislocation clusters | (irregular - S) / C |
+|---|---|---|---|---|---|
+| sphere | 77 | 8 | 64.9 | 67 | 1.06 |
+| torus | 76 | 12 | 72.2 | 68 | 0.89 |
+| bumpy sphere | 176 | 16 | 138.6 | 150 | 1.15 |
+| filleted box | 16 | 8 | 29.0 | 14 | 0.28 |
+| noisy sphere | 92 | 8 | 99.3 | 84 | 0.85 |
+| sphere cap (open) | 96 | 16 | 79.6 | 89 | 1.00 |
+| open patch | 32 | 0 | 2.1 | 41 | boundary: 37 of 42 near it |
+
+**Why a uniform spacing cannot do better.** A coframe of unit spacing (two closed 1-forms of unit length, orthogonal) has a vanishing connection form, so it exists only where the Gauss curvature is 0
+(d theta_1 = -omega ^ theta_2, d theta_2 = omega ^ theta_1; both zero means omega = 0, and d omega = K dA). On a curved surface the curvature has to be moved to the cones of the field, and the smoothest field that does it has a curl whose mass
+is about the transport cost of the curvature to the cones (earth mover distance, in units of s). The position field cannot rotate or rescale its lattice, so it pays that mass with dislocations, one per lattice unit. The mass, and so the count,
+grows with 1 / s: the sphere at s x 2, x 1, x 0.5 (input resolution fixed) gives 31, 77, 179 irregular vertices (measured 1 / s^1.2). It does not depend on the sweeps, the hierarchy, the rounding, or the extraction: the rounding of the origins only
+changes the representative of o_i and so not the lattice (the result is bit for bit the same), 5 and 100 sweeps move the count of the closed shapes by -14..+7, the neighbour weights (1 / edge length, edge length) by -16..+8 with the box worse, the extraction's
+collapse length 0.6 / 0.7 by -2 / -9 on the sphere and 0 on the box (open patch 32 -> 17, the one place it matters), the mismatch limit 0.3 is worse everywhere, a local (damped least squares) coupling of orientation or scale per vertex by at most 7; the dislocations
+sit in the integer structure of the lattice and a local update cannot move them. (This is also the floor of any later stage that keeps the unit spacing and the field; I did not test the flow of 3B on it.)
+
+**The restated gate (closed meshes; owner 2026-11-19).** `irregular vertices <= 2 S + 4 + 1.25 C`, S the singular faces of the field, C the curl mass of the uniform spacing (`IntegrableFrames.CurlBefore`; `QuadRemesher.CurlBefore` is set only when `SizeAdaptation` is not Off, so it takes one run with `Scale` to evaluate the gate). The constant 1.25 is fitted to the six shapes with curl (the tests check the formula on the sphere and torus only): the measured maximum of (irregular - 2 S - 4) / C is 1.01 on the six shapes with curl (0.88 sphere, 0.61 torus, 1.01 bumpy, 0.73 noisy sphere,
+0.70 cap), so it is a gate with a 25 % margin, not a bound. The 95 % quads gate is unchanged (4 of the 7 shapes below it at the default; the opt-in size field below reaches it on all closed shapes). Open meshes: the boundary adds dislocations
+that C does not see (open patch 32 with C = 2.1, cap within the formula); the ragged boundary stays an open item, no gate. Test: `QuadSizeAdaptationTests` pin the curl mass against the irregular count on the sphere and torus.
+
+**The size field (`IntegrableFrames`, `QuadRemesher.SizeAdaptation`).** A per-vertex log spacing sigma and optionally a rotation phi of the cross field are solved so that the scaled and rotated frames close up better: damped Gauss-Newton on the sum of
+|w|^2 with edge terms exp(-sigma_e) Rot(phi_e) a_e (sparse Cholesky, mean of sigma 0 as the gauge, backtracking), and the position field then runs with the spacing `s exp(sigma_i)` and the rotated orientation (`PositionField.SpacingFactors`,
+`RotationAngles`; the coarse levels average). The idea is the scale and rotation freedom of mixed-integer quadrangulation (Bommes et al. 2009), the formulation is ours (SOURCES.md). It is used only if it lowers the curl by 20 %
+(`SizeAdaptationMinGain`). The first solver of the study (conjugate gradients, no gauge) only seemed to reach a curl of 22 of 65 on the sphere: part of that was a constant spacing drifting to infinity; fixed with the gauge, the minimum
+the damped Gauss-Newton reaches is 28 of 65 (sphere), 29 of 72 (torus), 104 of 139 (bumpy), 59 of 99 (noisy sphere), 44 of 80 (cap); the box (29 -> 25) and the open patch (2.1 -> 1.9) do not gain 20 %, so they stay uniform.
+
+Benchmark (`benchmarks/QuadRemeshBenchmark`, `adapt=0|1|2`: Off, Scale, ScaleAndRotation; 4 cores; the time is the solver plus the position field plus the extraction, the field is the same for all):
+
+| shape | Off: irregular V / quads % / corner p95 | Scale | ScaleAndRotation | spacing range (ScaleAndRotation) | solver (s), Scale / both | solver + position field + extraction (s), Off / Scale / both |
+|---|---|---|---|---|---|---|
+| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.37 / 0.44 | 0.33 / 0.65 / 0.74 |
+| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.18 / 0.24 | 0.23 / 0.32 / 0.41 |
+| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 126 / 96.9 / 9.7 | 0.53-1.24 | 0.38 / 0.72 | 0.17 / 0.52 / 0.86 |
+| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.25 | 0.09 / 0.32 / 0.33 |
+| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.26 | 0.07 / 0.19 / 0.34 |
+| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.13 / 0.09 | 0.04 / 0.18 / 0.13 |
+| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.03 | 0.02 / 0.11 / 0.04 |
+| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 12.60 / 15.63 | 0.91 / 13.42 / 16.58 |
+
+Reading: on the sphere, torus and noisy sphere the size field cuts the irregular vertices (sphere 77 -> 34-40, torus 76 -> 35-46, noisy sphere 92 -> 46-67, the 110k sphere 354 -> 234-245) and lifts the quads to 96-98 % (the 110k sphere 98.6 -> 99.0 %),
+with a corner p95 of 9.0-12.5 degrees (Off 12.7-15.7). The rotation helps on the sphere, the noisy sphere and the bumpy sphere (not applied with Scale alone, 176 -> 126 with ScaleAndRotation) and not on the torus (35 with Scale, 46 with both): Scale is the safer default
+choice. None of the closed shapes reaches the old gate (sphere 34 against 20), all are inside the restated one. It does nothing on the filleted box (not applied: the curl does not drop by 20 %, the result is the uniform one bit for bit). On the open shapes it is mixed: the cap goes
+96 -> 83 irregular with Scale (94.7 % quads) but its one-sided Hausdorff grows to 1.39 s (above the 0.5 s gate; the spacing reaches 2.5 near the boundary), with ScaleAndRotation 81 irregular, 94.3 % quads and the Hausdorff inside the gate; the open patch gets 32 -> 25 irregular and
+95.8 -> 95.0 % quads with Scale. **Use it on closed smooth shapes only.** The edge length varies by a factor of 2 to 3 across a shape (spacing 0.54-1.13 of the target on the sphere, 0.59-1.69 on the torus), so the target edge length is the mean, not the size of every quad. The extraction's collapse
+length (0.4 s) is not scaled with the local spacing, so edges of the smallest cells (0.5 s) are close to it; it may be part of the cap's behaviour (not tested). Cost: 0.1-1.6 s for 5-18k input vertices, 16 s for the 110k sphere (the Cholesky factorization of
+220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s. (A review found that the first version of the solver turned the lattice by the opposite angle of the one the position
+field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds` checks it against an independent evaluation, and the table is from the corrected code.)
+
+Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
 
 ## 5. Limits and recommendation
 

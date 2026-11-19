@@ -210,7 +210,8 @@ Part of the [roadmap](../ROADMAP.md).
      ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 merged in
      #741 (2026-11-13, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
      `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
-     oracle).
+     oracle). Stage 2 (several contours per slice, branching, merging, caps, holes; `ContourLoftStack`) in
+     the PR of branch `claude/contour-loft-stage2` (2026-11-19).
   Then: quad remeshing (L; feasibility study and staged plan 2026-11-17: [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
@@ -691,4 +692,4 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now)
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
    speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
-8. `ContourLoft` stage 2 (several contours, branching); Later list (no issues).
+8. `ContourLoft` stage 2 (several contours per slice, branching, merging, caps, holes): `ContourLoftStack`, design approved 2026-11-19 ([CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) section 10), built on `claude/contour-loft-stage2`; medial-axis / skeleton saddles (Barequet et al. 2004) and holes inside branching groups are later work.

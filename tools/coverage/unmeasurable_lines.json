@@ -515,5 +515,15 @@
     ],
     "reason": "invariant guard (its message says internal error): the twin's collapse was accepted by MeshAcceptsCollapse before the pair was started, and the first collapse does not touch the twin's one-ring (independence check), so the second collapse cannot fail; a test cannot create the case. Not proven unreachable beyond that argument: a test that finds such an input replaces the entry",
     "approved_in": "#1124"
+  },
+  {
+    "file": "queries/CertifiedDet3.cs",
+    "text": "return undecided;",
+    "after": [
+      "if (!MathUtil.IsFinite(e))",
+      "}"
+    ],
+    "reason": "unreachable fail-closed guard: once det and perm are finite, t = Up(10 u perm) < 2.0e-15 perm and A = Up(2^-1070 Up(M + 1)) < 1e-13, so e = Up(t (1 + 2^-39)) or Up(t + A) is finite (at most about 2e293 for perm = double max) and no input reaches this line",
+    "approved_in": "#1144"
   }
 ]
