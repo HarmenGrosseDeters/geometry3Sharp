@@ -163,6 +163,15 @@ namespace gs
         /// is not changed by it. 0: none
         /// </summary>
         public int RescuePasses = 150;
+        /// <summary>
+        /// stage 2: an opt-in work cap over all improvement operations (TET_MESHING.md 17.16): at most this many visits of a bad tet (each tries edge
+        /// and face removal, contraction, split, smoothing and boundary moves on it) per vertex of the stage-1 mesh, main and rescue passes together.
+        /// Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale. When spent the improvement ends (the worst tets are
+        /// visited first in each pass) and Counts["improve_work_cap_reached"] = 1 says so (only then the key exists); the run does not fail.
+        /// 0, a negative value, NaN or infinity: no cap (the default; the result is bit for bit as before the option). A time/quality trade: it saves time
+        /// where the improvement does not converge and leaves more tets below SliverDihedralDegrees there; see TET_MESHING.md 17.16 for the measured effect of 5 and the other levels.
+        /// </summary>
+        public double MaxImproveVisitsPerVertex = 0;
         /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
         internal bool DiagnoseImprovement = false;
         internal List<string> DiagnosticLines;
@@ -408,6 +417,8 @@ namespace gs
                 imp.RescuePasses = RescuePasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
+                if (MaxImproveVisitsPerVertex > 0 && !double.IsInfinity(MaxImproveVisitsPerVertex))
+                    imp.MaxVisits = (long)Math.Min(Math.Ceiling(MaxImproveVisitsPerVertex * Result.Vertices.Count), long.MaxValue / 2);
                 imp.Run();
                 if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();

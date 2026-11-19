@@ -91,6 +91,7 @@ static class Program
                 if (Environment.GetEnvironmentVariable("G3_TET_DEV") is string dv) tm.MaxSurfaceDeviation = kv.Value.CachedBounds.DiagonalLength / double.Parse(dv, Inv);
                 if (Environment.GetEnvironmentVariable("G3_TET_LOCALPASSES") is string lp) tm.LocalAlphaPasses = int.Parse(lp, Inv);
                 if (Environment.GetEnvironmentVariable("G3_TET_FLOOR") is string fl) tm.SliverDihedralDegrees = double.Parse(fl, Inv);
+                if (Environment.GetEnvironmentVariable("G3_TET_VISITS") is string vc) tm.MaxImproveVisitsPerVertex = double.Parse(vc, Inv);
                 tm.Compute();
                 if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);
                 double totalS = sw.Elapsed.TotalSeconds;
