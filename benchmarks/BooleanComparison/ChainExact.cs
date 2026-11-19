@@ -29,7 +29,7 @@ using gs;
 static class ChainExact
 {
     // a step: op, left (-1 = the previous result), right (an operand index)
-    readonly struct Step
+    internal readonly struct Step
     {
         public readonly ExactMeshBoolean.Operations Op;
         public readonly int Left, Right;
@@ -78,6 +78,7 @@ static class ChainExact
     {
         switch (m) {
             case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(x => double.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray());
+            case "probe": return RoundingProbe.Run(ops, plan, info);
             case "ab": return RunAb(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             case "time": return RunTime(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             default: return RunChain(ops, plan, info);
@@ -315,7 +316,7 @@ static class ChainExact
 
     // ------------------------------------------------------------------ the two chains
 
-    static Func<int[], bool> Predicate(List<Step> plan, int k, Dictionary<int, int> slot)
+    internal static Func<int[], bool> Predicate(List<Step> plan, int k, Dictionary<int, int> slot)
     {
         // the indicator of R_k over the winding numbers of the operands (slot: operand -> entry of the winding vector)
         Func<int[], bool> leaf(int x) { int s = slot[x]; return w => w[s] > 0; }

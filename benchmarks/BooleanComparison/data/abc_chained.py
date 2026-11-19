@@ -394,6 +394,30 @@ def run_exact(case, files, rows, info, timeout, method="ours_exact"):
     if got < len(PLANS[case["variant"]]) and err:
         rows.append({"class": EXACT_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
 
+PROBE_CLASS = "abc-rounding-probe"     # rows of the method ours_probe (run_probe; branch runs/rounding-probes, measurement only)
+
+def run_probe(case, files, rows, info, timeout):
+    """method ours_probe (measurement-only study of the final rounding, RoundingProbe.cs): `rounding-probe` on the chain's A, B, C: the
+    step-3 result of the plan, exact and rounded, with the probes of components, quad flips and local origins; the rows printed before
+    a timeout are kept (partial rows first, the full row last); class abc-chained-probe (read by rounding_probe.py summary)"""
+    import compare
+    try:
+        s = subprocess.run(compare.tool + ["rounding-probe", files["A"], files["B"], files["C"], case["variant"], "x"], capture_output=True, text=True,
+                           timeout=3600)
+        out, err = s.stdout, s.stderr
+    except subprocess.TimeoutExpired as ex:
+        out = ex.stdout.decode() if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+        err = "timeout"
+    got = 0
+    for l in out.splitlines():
+        if l.startswith("{"):
+            r = json.loads(l)
+            r.update({"class": PROBE_CLASS, "file": case["name"], "method": "ours_probe", "chain_inputs": info})
+            rows.append(r)
+            got += 1
+    if (got == 0 or err) and err:
+        rows.append({"class": PROBE_CLASS, "file": case["name"], "method": "ours_probe", "runner_error": err[-300:]})
+
 AB_CLASS = "abc-chained-ab"     # rows of the method ours_ab (run_ab)
 AB_REPS = 4
 
@@ -447,9 +471,12 @@ def run_chain(case, methods, timeout):
                 if m == "ours_ab":
                     run_ab(case, files, rows, info, timeout)
                     continue
+                if m == "ours_probe":
+                    run_probe(case, files, rows, info, timeout)
+                    continue
                 run_method(m, case, d0, plan, files, timeout, rows, info)
             except Exception as ex:
-                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else AB_CLASS if m == "ours_ab" else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
+                rows.append({"class": EXACT_CLASS if m.startswith("ours_exact") else AB_CLASS if m == "ours_ab" else PROBE_CLASS if m == "ours_probe" else CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
     finally:
         shutil.rmtree(d0, ignore_errors=True)
@@ -467,7 +494,7 @@ def cmd_run(manifest, out, methods, timeout, budget_s=None):
             try:
                 r = json.loads(l)
                 done.add(r["file"])
-                if r.get("class") in (EXACT_CLASS, AB_CLASS) and "runner_error" in r:    # ours_exact / ours_ab: a timed-out or failed chain runs again
+                if r.get("class") in (EXACT_CLASS, AB_CLASS, PROBE_CLASS) and "runner_error" in r:    # ours_exact / ours_ab: a timed-out or failed chain runs again
                     retry.add(r["file"])
             except ValueError:
                 pass
@@ -508,7 +535,7 @@ def cmd_summary(files):
         with open(f) as fh:
             rows += [json.loads(l) for l in fh if l.strip()]
     steps, refused, runner = {}, {}, {}
-    rows = [r for r in rows if r.get("class") not in (EXACT_CLASS, AB_CLASS)]    # ours_exact: chain_exact.py summary; ours_ab: coplanar_ab.py summary
+    rows = [r for r in rows if r.get("class") not in (EXACT_CLASS, AB_CLASS, PROBE_CLASS)]    # ours_exact: chain_exact.py summary; ours_ab: coplanar_ab.py summary
     for r in rows:
         if r.get("method") == "export":
             refused[r["file"]] = r.get("error", "")

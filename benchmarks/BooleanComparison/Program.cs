@@ -81,6 +81,8 @@ static class Program
             case "chain-exact-diag": return ChainExact.Abc(args.Skip(1).ToArray(), "diag");
             case "chain-exact-diag-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "diag");
             case "chain-exact-time": return ChainExact.Abc(args.Skip(1).ToArray(), "time");
+            case "rounding-probe": return ChainExact.Abc(args.Skip(1).ToArray(), "probe");
+            case "rounding-probe-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "probe");
             case "chain-exact-time-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "time");
             case "chain-ab": return ChainExact.Abc(args.Skip(1).ToArray(), "ab");
             case "chain-ab-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "ab");
