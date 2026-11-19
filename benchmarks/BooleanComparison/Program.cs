@@ -430,6 +430,23 @@ static class Program
                     // itself is unchanged and calls the split mesh self-intersecting there)
                     if (reason == "" && (split.PinchVertices > 0 || split.PinchEdges > 0)) reason = "pinches";
                     r[op + "_clean_reason"] = reason;
+                    // inside-out components (#1067): what the component removal sees of them, on the evaluated (pinch-split) mesh
+                    // and on the result as the method wrote it (unwelded: the library's own mesh; absent if it is not a mesh)
+                    if (reason.Contains("inside-out")) {
+                        // (cost: the nesting test and the exact volume signs on the whole mesh, twice; not for results above 400k triangles;
+                        // an exception of the diagnostic must not lose the row)
+                        try {
+                            if (mesh.TriangleCount > 400000)
+                                r[op + "_inside_out"] = "skipped: more than 400000 triangles";
+                            else {
+                                r[op + "_inside_out"] = BoolCmp.InsideOutDiagnostics.Describe(mesh);
+                                DMesh3 raw = BoolCmp.InsideOutDiagnostics.FromSoup(v, t);
+                                r[op + "_inside_out_raw"] = raw != null ? BoolCmp.InsideOutDiagnostics.Describe(raw) : (object)"not a mesh as written";
+                            }
+                        } catch (Exception e) {
+                            r[op + "_inside_out"] = "error: " + e.GetType().Name + " " + e.Message;
+                        }
+                    }
                 }
                 r[op + "_volume"] = volume;
             }

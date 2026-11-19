@@ -33,6 +33,7 @@ SHARED = (
     "benchmarks/ReducerRemesherBaseline/Harness.cs",
     "benchmarks/BooleanComparison/ContactTransforms.cs",       # ThingiContactTransformTests
     "benchmarks/BooleanComparison/Pinches.cs",                 # BooleanComparisonPinchesTests
+    "benchmarks/BooleanComparison/InsideOutDiagnostics.cs",    # BooleanComparisonInsideOutDiagnosticsTests
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",

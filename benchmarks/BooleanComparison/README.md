@@ -114,6 +114,17 @@ with round-trip precision, so all tools read the same doubles.
   manifold, no degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
   self-intersections beyond the pinches, on any size; `eval` otherwise stops at 400k triangles);
   `""` is clean, `"empty"` is an empty result, `"pinches"` is clean except where the solid touches itself;
+- `<op>_inside_out` and `<op>_inside_out_raw` (only where `clean_reason` names inside-out components, results up to 400k triangles;
+  `InsideOutDiagnostics.cs`, issue #1067): one row per closed inside-out component of the evaluated (pinch-split) mesh, and of the
+  result as the method wrote it (unwelded; a string if it is not a mesh). Fields: `tris`, `is_whole_result` (the removal would
+  empty the result: the KeepWhenEmptied veto), `volume_sign` (exact), `flagged` (`FindInvertedComponents`, the nesting), `area`,
+  `min_tri_area`, `abs_volume`, `box_diagonal` (of the vertex-connected component, as SafeRounding's), `size` (the largest
+  component's diagonal), and the numbers of SafeRounding's component removal with its defaults: `tiny_bound`
+  (1e4 · 1e-12 · size²) and `tiny` (area below it), `max_length` (max(1e-5 · size, 256 · ulp of the largest coordinate)) and `thin`
+  (2 |V| below `max_length` · area), `volume_ratio` (|V| / area^1.5; the removal keeps a not tiny component at 1e-3 or more),
+  `thickness` (2 |V| / area). Whether an edit touched the component cannot be told afterwards, so both outcomes are given:
+  `would_remove_if_untouched` (tiny, inverted and flagged: the rule of #1152) and `would_remove_if_touched` (tiny, or thin
+  without real volume for its area). Open components are not described. Non-finite numbers are strings;
 - the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` (relative to V(A) + V(B)) and `V(A−B) = V(A) − V(A∩B)`
   (relative to V(A)) on the doubles of the written results, volumes relative to the centre of A. An empty result is
   not an error by itself (A∩B of two apart models, A−B of A inside B), and an empty union, or an empty difference with
