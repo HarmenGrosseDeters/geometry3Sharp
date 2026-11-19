@@ -166,12 +166,11 @@ namespace g3
         }
 
         public Vector3i ToGrid(Vector3d point) {
-            Vector3f pointf = (Vector3f)point;
-            pointf = GridFrame.ToFrameP(ref pointf);
+            Vector3d cell = ToGridf(point);
             return new Vector3i(
-                MathUtil.FloorToIntSaturating(pointf.x / CellSize.x),
-                MathUtil.FloorToIntSaturating(pointf.y / CellSize.y),
-                MathUtil.FloorToIntSaturating(pointf.z / CellSize.z));
+                MathUtil.FloorToIntSaturating(cell.x),
+                MathUtil.FloorToIntSaturating(cell.y),
+                MathUtil.FloorToIntSaturating(cell.z));
         }
 
         public Vector3d ToGridf(Vector3d point) {
