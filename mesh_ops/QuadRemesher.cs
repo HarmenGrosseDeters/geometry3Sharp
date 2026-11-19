@@ -389,18 +389,62 @@ namespace gs
             bool flip = agree < 0;
             var mesh = new DPolyMesh();
             dropped = 0;
-            int[] remap = new int[nv];
-            for (int k = 0; k < nv; ++k) remap[k] = -1;
-            var buf = new List<int>();
+            // the faces that stay, their loops turned to agree with the normals
+            var kept = new List<int>(); var loops = new int[faces.Count][];
             for (int f = 0; f < faces.Count; ++f) {
                 int[] fv = faces[f];
                 double a = flip ? -area[f] : area[f];
                 if (!(a > 0) || fv.Length < 3 || fv.Length > maxSides) { dropped++; continue; }     // the outer loop of an open mesh, a folded face, a hole
+                if (flip) { fv = (int[])fv.Clone(); Array.Reverse(fv); }
+                loops[f] = fv; kept.Add(f);
+            }
+            // A vertex whose kept faces form more than one fan (the faces touch only at the vertex: a degenerate star of the extraction, a hole or the outer
+            // loop between them) is split into one copy per fan, numbered by the smallest face index of the fan: the polygon mesh is then manifold
+            // at every vertex. A mesh without such a vertex is built exactly as before.
+            var inc = new List<int>[nv];
+            foreach (int f in kept) foreach (int v in loops[f]) { if (inc[v] == null) inc[v] = new List<int>(); inc[v].Add(f); }
+            Dictionary<long, int> fanOf = null;      // (face, vertex) -> fan number above 0
+            for (int v = 0; v < nv; ++v) {
+                List<int> fs = inc[v];
+                if (fs == null || fs.Count < 2) continue;
+                var parent = new int[fs.Count];
+                for (int i = 0; i < parent.Length; ++i) parent[i] = i;
+                var byNb = new Dictionary<int, int>();
+                for (int i = 0; i < fs.Count; ++i) {
+                    int[] lv = loops[fs[i]]; int c = Array.IndexOf(lv, v);
+                    foreach (int w in new[] { lv[(c + 1) % lv.Length], lv[(c + lv.Length - 1) % lv.Length] }) {
+                        int o;
+                        if (byNb.TryGetValue(w, out o)) { int ra = Find(parent, i), rb = Find(parent, o); if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb); }
+                        else byNb[w] = i;
+                    }
+                }
+                int fans = 0;
+                for (int i = 0; i < fs.Count; ++i) if (Find(parent, i) == i) fans++;
+                if (fans < 2) continue;
+                var number = new Dictionary<int, int>();     // root -> fan number, in the order of the faces
+                for (int i = 0; i < fs.Count; ++i) {
+                    int r = Find(parent, i), n;
+                    if (!number.TryGetValue(r, out n)) { n = number.Count; number[r] = n; }
+                    if (n > 0) { if (fanOf == null) fanOf = new Dictionary<long, int>(); fanOf[(long)fs[i] * nv + v] = n; }
+                }
+            }
+            int[] remap = new int[nv];
+            for (int k = 0; k < nv; ++k) remap[k] = -1;
+            var copies = fanOf == null ? null : new Dictionary<long, int>();      // (vertex, fan) -> mesh vertex
+            var buf = new List<int>();
+            foreach (int f in kept) {
+                int[] fv = loops[f];
                 buf.Clear();
                 for (int k = 0; k < fv.Length; ++k) {
-                    int v = fv[flip ? fv.Length - 1 - k : k];
-                    if (remap[v] < 0) { remap[v] = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); }
-                    buf.Add(remap[v]);
+                    int v = fv[k], fan;
+                    if (fanOf != null && fanOf.TryGetValue((long)f * nv + v, out fan)) {
+                        long key = (long)v * (nv + 1) + fan; int id;
+                        if (!copies.TryGetValue(key, out id)) { id = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); copies[key] = id; }
+                        buf.Add(id);
+                    } else {
+                        if (remap[v] < 0) { remap[v] = mesh.AppendVertex(g.Pos[v].x, g.Pos[v].y, g.Pos[v].z); }
+                        buf.Add(remap[v]);
+                    }
                 }
                 mesh.AppendFace(buf, 0);
             }
