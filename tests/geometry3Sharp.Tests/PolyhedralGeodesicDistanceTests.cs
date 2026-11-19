@@ -443,12 +443,12 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> Pins()
         {
             yield return new object[] { "sliver 1e-6", 1661L, 57L };
-            yield return new object[] { "sliver 1e-4 rotated", 2133L, 146L };
-            yield return new object[] { "pyramid rotated", 3446L, 270L };
-            yield return new object[] { "plane corner", 2940L, 637L };
-            yield return new object[] { "plane two sources rotated", 1605L, 212L };
-            yield return new object[] { "valley rotated", 2924L, 354L };
-            yield return new object[] { "jittered plane rotated", 5429L, 85L };
+            yield return new object[] { "sliver 1e-4 rotated", 1591L, 110L };
+            yield return new object[] { "pyramid rotated", 3387L, 265L };
+            yield return new object[] { "plane corner", 2927L, 637L };
+            yield return new object[] { "plane two sources rotated", 1588L, 212L };
+            yield return new object[] { "valley rotated", 2895L, 354L };
+            yield return new object[] { "jittered plane rotated", 4922L, 85L };
         }
 
         [Theory]
@@ -468,6 +468,152 @@ namespace geometry3Sharp.Tests
         {
             var (m, src) = PinMesh(name);
             AssertAgreesWithOracle(m, Run(m, src), src);
+        }
+
+        // ------------------------------------------------------------------ the exact trim (GEODESICS.md A.7, "Exact trimming")
+
+        // The saddle 0.3 (x^2 - y^2) has a pseudo-source at every vertex: windows per vertex grow with the grid width. Before the exact trim the
+        // default budget of 64 per vertex ended the 71 x 71 grid in WindowLimit (75.5 per vertex, 380603 windows on master); the trim needs 57.7.
+        [Fact]
+        public void Saddle71_FinishesUnderTheDefaultBudget_WhereTheDepthSixBisectionRanOutOfIt()
+        {
+            int n = 71; var (m, src) = Family("saddle", n);
+            var g = new PolyhedralGeodesicDistance(m);
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(src));
+            Assert.True(g.Windows < 64L * m.VertexCount, $"{g.Windows} windows");
+            Assert.True(g.Windows < 380603 * 0.8, $"{g.Windows} windows against 380603 before the trim");
+            AssertAboveStraight(m, g, src);
+            Assert.Equal(0, g.Distance[src[0]]);
+            AssertNotAboveEdgePath(m, g, src[0]);
+            // the mesh is symmetric about the source up to the diagonals: the distances to the four corners agree to the diagonals' effect
+            double ext = Extent(m); int c0 = 0, c1 = n - 1, c2 = (n - 1) * n, c3 = n * n - 1;
+            Assert.True(Math.Abs(g.Distance[c0] - g.Distance[c3]) <= 1e-9 * g.Distance[c0] && Math.Abs(g.Distance[c1] - g.Distance[c2]) <= 1e-9 * g.Distance[c1] + ext * 1e-12);
+        }
+
+        static void AssertNotAboveEdgePath(DMesh3 m, PolyhedralGeodesicDistance g, int a)
+        {
+            var dj = new double[m.MaxVertexID]; for (int i = 0; i < dj.Length; ++i) dj[i] = double.PositiveInfinity; dj[a] = 0;
+            var q = new SortedSet<(double, int)> { (0, a) };
+            while (q.Count > 0) { var (k, v) = q.Min; q.Remove(q.Min); if (k > dj[v]) continue; foreach (int u in m.VtxVerticesItr(v)) { double nd = dj[v] + m.GetVertex(v).Distance(m.GetVertex(u)); if (nd < dj[u]) { dj[u] = nd; q.Add((nd, u)); } } }
+            foreach (int v in m.VertexIndices()) Assert.True(g.Distance[v] <= dj[v] * (1 + 1e-12) + 1e-12, $"vertex {v}");
+        }
+
+        [Fact]
+        public void Saddle41_TrimmedWindowCount_IsPinned_AndBelowTheBisectionRun()
+        {
+            var (m, src) = Family("saddle", 41); var g = Run(m, src);
+            Assert.Equal(53887L, g.Windows);
+            Assert.True(g.Windows < 63310L, "63310 windows before the trim");
+            AssertAgreesWithOracle(m, g, src);
+        }
+
+        [Theory]
+        [InlineData("saddle", 21)]
+        [InlineData("saddle", 31)]
+        public void Saddle_AgreesWithTheCertifiedOracle_AndReuseGivesTheSameBits(string f, int n)
+        {
+            var (m, src) = Family(f, n); var g = new PolyhedralGeodesicDistance(m);
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(src));
+            AssertAgreesWithOracle(m, g, src);
+            var d1 = (double[])g.Distance.Clone(); long w1 = g.Windows;
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(new[] { 0 }));
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(src));
+            Assert.Equal(d1, g.Distance); Assert.Equal(w1, g.Windows);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Saddle_UnderSimilarities_ExactScalesGiveTheSameBits(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            var (m0, src) = Family("saddle", 21);
+            var g0 = Run(m0, src); var g = Run(Invariance.Transformed(m0, sim), src);
+            foreach (int v in m0.VertexIndices()) {
+                if (sim.IsExact) Assert.Equal(g0.Distance[v] * sim.Scale, g.Distance[v]);
+                else Assert.True(Math.Abs(g.Distance[v] / sim.Scale - g0.Distance[v]) <= 1e-8 * (1 + g0.Distance[v]) + sim.Resolution(2) * 1e3, $"{name}: vertex {v}");
+            }
+            if (sim.IsExact) Assert.Equal(g0.Windows, g.Windows);
+        }
+
+        static bool InPieces(List<(double l, double r)> p, double x) => p.Any(t => x >= t.l && x <= t.r);
+
+        // The trimmed set against a dense sampling of the defining inequality: every point of a piece satisfies it (soundness: the piece is never
+        // larger than the truth), and a sample that satisfies it by more than the resolution of the bisection lies in a piece (completeness).
+        // The cases: the two functions cross once (a prefix or a suffix), the difference has its maximum inside (the set is a middle piece: the
+        // critical point splits the interval), its minimum inside (two outer pieces), the origins at one height (no critical point), a margin.
+        public static IEnumerable<object[]> TrimCases()
+        {
+            yield return new object[] { 0.3, -1.0, 0.0, 2.0, -1.5, 0.0, 0.0, 4.0, 0.0 };       // crossing once
+            yield return new object[] { 1.0, -0.2, 0.0, 3.0, -2.0, 0.0, -3.0, 6.0, 0.05 };     // difference peaks inside (a is close, b far: a is not worse in the middle)
+            yield return new object[] { 1.0, -2.0, 1.0, 1.4, -0.1, 0.0, -2.0, 4.0, 0.0 };      // a far and high sigma, b near: a worse in the middle, maybe not at the ends
+            yield return new object[] { 0.0, -1.0, 0.5, 1.0, -1.0, 0.0, -2.0, 3.0, 0.0 };      // equal heights
+            yield return new object[] { 0.0, -1.0, 0.2, 0.1, -1.1, 0.0, -2.0, 3.0, 1e-3 };     // nearly equal, with a margin
+            yield return new object[] { 0.5, -0.5, 0.0, 1.5, -3.0, 2.0, -1.0, 3.0, 0.0 };      // b with a large sigma
+            yield return new object[] { 0.5, 0.0, 0.0, 1.5, -1.0, 0.0, -1.0, 3.0, 0.0 };       // a on the line of the edge (the kink of |x - sa| is at its origin)
+            yield return new object[] { 0.5, -1.0, 0.0, 1.5, 0.0, 0.3, -1.0, 3.0, 0.01 };      // b on the line of the edge
+            yield return new object[] { 0.0, -1.0, 0.4, 2.0, -1.0, 0.0, -1.0, 4.0, 0.01 };     // equal heights, a margin (no critical point)
+            yield return new object[] { 0.0, -0.5, 0.0, 0.0, -0.5, 0.0, -1.0, 1.0, 0.0 };      // the same function twice: nothing is worse
+        }
+
+        [Theory]
+        [MemberData(nameof(TrimCases))]
+        public void ExactTrim_MatchesTheDefiningInequality_OnASampling(double ax, double ay, double sa, double bx, double by, double sb, double l, double r, double m)
+        {
+            var p = PolyhedralGeodesicDistance.DominatedPieces(ax, ay, sa, bx, by, sb, l, r, m);
+            double Fa(double x) => sa + Math.Sqrt((x - ax) * (x - ax) + ay * ay);
+            double Fb(double x) => sb + Math.Sqrt((x - bx) * (x - bx) + by * by);
+            foreach (var t in p) Assert.True(t.r > t.l && t.l >= l && t.r <= r);
+            for (int i = 1; i < p.Count; ++i) Assert.True(p[i].l > p[i - 1].r);
+            int inside = 0;
+            for (int k = 0; k <= 20000; ++k) {
+                double x = l + (r - l) * k / 20000; double gap = Fa(x) - Fb(x) - m;
+                if (InPieces(p, x)) { ++inside; Assert.True(gap > -1e-12, $"x = {x}: inside a piece, gap {gap}"); }
+                else Assert.True(gap < 1e-9, $"x = {x}: outside every piece, gap {gap}");
+            }
+            if (p.Count == 0) Assert.True(inside == 0);
+        }
+
+        [Fact]
+        public void ExactTrim_EmptyOrReversedInterval_GivesNothing()
+        {
+            Assert.Empty(PolyhedralGeodesicDistance.DominatedPieces(0, -1, 100, 0, -1, 0, 2, 2, 0));
+            Assert.Empty(PolyhedralGeodesicDistance.DominatedPieces(0, -1, 100, 0, -1, 0, 3, 2, 0));
+        }
+
+        [Fact]
+        public void CutEnds_RemovesThePiecesAtTheEnds_ALeftPieceInTheMiddleStays()
+        {
+            void Check(double[] rem, double b0, double b1, double elo, double ehi)
+            {
+                var l = new List<(double l, double r)>(); for (int i = 0; i < rem.Length; i += 2) l.Add((rem[i], rem[i + 1]));
+                PolyhedralGeodesicDistance.CutEnds(l, b0, b1, out double lo, out double hi);
+                Assert.Equal((elo, ehi), (lo, hi));
+            }
+            Check(new[] { 0.0, 0.4 }, 0, 1, 0.4, 1);                        // the low end
+            Check(new[] { 0.7, 1.0 }, 0, 1, 0, 0.7);                        // the high end
+            Check(new[] { 0.0, 0.2, 0.9, 1.0 }, 0, 1, 0.2, 0.9);            // both
+            Check(new[] { 0.3, 0.5 }, 0, 1, 0, 1);                          // the middle: b stays whole (a split makes more windows)
+            Check(new[] { -1.0, 0.5, 0.6, 2.0 }, 0, 1, 0.5, 0.6);           // pieces reaching beyond the window's own interval
+            var all = new List<(double l, double r)> { (0, 1) };
+            PolyhedralGeodesicDistance.CutEnds(all, 0, 1, out double l0, out double h0);
+            Assert.True(!(h0 > l0), "a window covered completely is dead");
+            Check(new[] { 0.0, 0.3, 0.3, 1.0 }, 0, 1, 1, 0);                // two touching pieces cover it: dead (hi <= lo)
+        }
+
+        [Fact]
+        public void ExactTrim_TheCriticalPointSplitsTheInterval_AMiddlePieceAndTwoOuterPieces()
+        {
+            // g = |x - sa| - |x - sb| has its extremum where x, sa and sb are collinear, of size |sa - sb| (the triangle inequality), and tends to
+            // the difference of the x coordinates at both ends. a above b on one vertical line: g is largest at x = 0 and 0 at both ends
+            var peak = PolyhedralGeodesicDistance.DominatedPieces(0.0, -3.0, 0.0, 0.0, -0.1, 0.0, -10, 10, 0.5);
+            Assert.True(peak.Count == 1 && peak[0].l > -10 && peak[0].r < 10 && peak[0].l < 0 && peak[0].r > 0, $"a middle piece: {string.Join(",", peak)}");
+            Assert.True(Math.Abs(peak[0].l + peak[0].r) < 1e-9, "symmetric about the critical point");
+            // a near, b far, sigma_a larger: g is smallest at x = 0, and the set {g > c} with c below that minimum misses a middle piece only
+            var two = PolyhedralGeodesicDistance.DominatedPieces(0.0, -0.1, 3.0, 0.0, -3.0, 0.0, -10, 10, 0.5);
+            Assert.True(two.Count == 2 && two[0].l == -10 && two[1].r == 10 && two[0].r < 0 && two[1].l > 0, $"two outer pieces: {string.Join(",", two)}");
+            // the whole interval and nothing
+            Assert.Single(PolyhedralGeodesicDistance.DominatedPieces(0.0, -0.1, 100.0, 0.0, -0.1, 0.0, -1, 1, 0.0));
+            Assert.Empty(PolyhedralGeodesicDistance.DominatedPieces(0.0, -0.1, 0.0, 0.0, -0.1, 0.0, -1, 1, 0.0));
         }
 
         // ------------------------------------------------------------------ the 10^4-vertex comparisons (the oracle's run is the check)

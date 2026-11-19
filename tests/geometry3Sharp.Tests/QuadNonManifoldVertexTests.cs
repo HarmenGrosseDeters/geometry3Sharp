@@ -9,7 +9,9 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// QuadRemesher.BuildFaces splits a vertex whose kept faces form more than one fan into one copy per fan, so that the polygon mesh is manifold at every
-    /// vertex (docs/design/QUAD_REMESHING.md 4.2, "narrow strip"). The cause, a degenerate star of the extraction on strips (not traced, see the issue), is not fixed by it: the repair keeps the faces and the positions.
+    /// vertex (docs/design/QUAD_REMESHING.md 4.2, "narrow strip"). The degenerate star on strips (#1179) had its cause in the position field: a boundary vertex whose cross
+    /// representative was nearer the perpendicular of the boundary kept no lattice line along the boundary (PositionField.Prepare, Cb), so the origins of a whole boundary
+    /// row slid freely, all rounded to one lattice point, and the extraction merged the row into one cluster (130 vertices over 25 s for the first case).
     /// </summary>
     public class QuadNonManifoldVertexTests
     {
@@ -46,6 +48,22 @@ namespace geometry3Sharp.Tests
             return qr;
         }
 
+        // quad share after the fix of #1179 (measured: 88.9 / 79.3 / 95.4 / 89.4 / 93.4 / 93.4 %, before it 68.7 / 40.9 / 76.2 / 62.5 / 80.3 / 77.1 %); a bound with a margin of 2 points
+        static double MinQuadShare(double w, double s)
+        {
+            if (w == 0.1) return s == 0.04 ? 0.869 : 0.773;
+            if (w == 0.2) return s == 0.04 ? 0.934 : 0.874;
+            return 0.914;
+        }
+
+        static double HausdorffToInput(DPolyMesh r, DMesh3 input)
+        {
+            int[] map; DMesh3 tri = r.ToDMesh3(out map);
+            var hd = new MeshHausdorffDistance(tri, input) { Symmetric = false, RelativeTolerance = 1e-3 };
+            hd.Compute();
+            return hd.UpperBound;
+        }
+
         [Theory, MemberData(nameof(Cases))]
         public void Strip_ResultIsManifold_AndFaithful(double w, double s)
         {
@@ -55,12 +73,31 @@ namespace geometry3Sharp.Tests
             PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
             Assert.True(m.IsManifold, "non-manifold: edges " + m.NonManifoldEdges + ", inconsistent " + m.InconsistentEdges + ", vertices " + m.NonManifoldVertices);
             Assert.True(m.Faces > 10 && m.MaxSides <= 6);
-            // the copies sit on the vertex: the mesh stays near the input
-            int[] map; DMesh3 tri = qr.Result.ToDMesh3(out map);
-            var hd = new MeshHausdorffDistance(tri, Strip(100, (int)Math.Round(w / 0.0125), w)) { Symmetric = false, RelativeTolerance = 1e-3 };
-            hd.Compute();
-            // the ragged lattice of a strip is up to about 2.3 s off the input (0.09 for s = 0.04), with or without the split: only a sanity bound
-            Assert.True(hd.UpperBound <= 3 * s, "Hausdorff " + hd.UpperBound);
+            // no star off the surface (it was 0.093 = 2.3 s before the fix of #1179)
+            double hd = HausdorffToInput(qr.Result, Strip(100, (int)Math.Round(w / 0.0125), w));
+            Assert.True(hd <= 0.5 * s, "Hausdorff " + hd);
+            Assert.True(m.QuadFraction >= MinQuadShare(w, s), "quad share " + m.QuadFraction);
+        }
+
+        [Theory, MemberData(nameof(Cases))]
+        public void Strip_BoundaryOriginsStayOnTheirLatticeLine(double w, double s)
+        {
+            // the lattice line constraint of a boundary vertex: its origin is on the boundary line, whichever of the cross directions the field gives (the strip's boundaries are y = 0 and y = w)
+            DMesh3 m = Strip(100, (int)Math.Round(w / 0.0125), w);
+            var cf = new CrossField(m); Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var pf = new PositionField(m, cf) { TargetEdgeLength = s };
+            Assert.Equal(PositionFieldStatus.Success, pf.Compute());
+            int boundary = 0, alongQ = 0, alongT = 0;
+            for (int i = 0; i < pf.L0.N; ++i) {
+                if (pf.L0.Kind[i] != 1) continue;
+                double vy = pf.L0.V[i].y;
+                if (Math.Abs(vy) > 1e-12 && Math.Abs(vy - w) > 1e-12) continue;      // the two short ends are boundaries too
+                boundary++;
+                if (Math.Abs(pf.L0.Q[i].y) > 0.5) alongT++; else alongQ++;      // the boundary line is along q (the first branch of Prepare) or along t (the second)
+                Assert.True(Math.Abs(pf.Origins[i].y - pf.L0.V[i].y) < 1e-9, "vertex " + i + " origin " + pf.Origins[i].y + " vertex " + pf.L0.V[i].y);
+            }
+            Assert.True(boundary > 100);
+            Assert.True(alongQ > 0 && alongT > 0, "both branches of the boundary snap are exercised: " + alongQ + " / " + alongT);
         }
 
         [Fact]
@@ -91,6 +128,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(nv, qr.Result.VertexCount);
             Assert.Equal(idx, qr.Result.FaceIndices.ToArray());
             Assert.True(PolyMeshMetrics.Compute(qr.Result).IsManifold);
+            Assert.True(HausdorffToInput(qr.Result, m) <= 0.5 * 0.04);
         }
 
         public static IEnumerable<object[]> Frames() => Similarity.Names();
@@ -108,6 +146,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
             PolyMeshMetrics pm = PolyMeshMetrics.Compute(qr.Result);
             Assert.True(pm.IsManifold, name);
+            Assert.True(HausdorffToInput(qr.Result, t) <= 0.5 * sim.Scale * 0.04, name + ": Hausdorff");
             if (sim.IsExact) {
                 Assert.Equal(baseResult.VertexCount, qr.Result.VertexCount);
                 Assert.Equal(baseResult.FaceIndices.ToArray(), qr.Result.FaceIndices.ToArray());

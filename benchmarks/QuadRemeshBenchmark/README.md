@@ -45,6 +45,34 @@ The cleanup of the paper (collapse of near-coincident points, valence 2 vertices
 10 valence 3 vertices, nothing else; they stay when the number of sweeps (100), the regularization (0.3), the mismatch limit
 (0.25 or 1.5), the input resolution (`ratio=0.33`) or a curvature aligned field (`align=1`, `align=10`) change.
 
+## Lattice line of boundary vertices (#1179, 2026-11-19)
+
+`PositionField.Prepare` removed the wrong component of the origin of a boundary vertex whose cross representative was nearer the perpendicular of the
+boundary (`Cb = d` instead of the perpendicular): its origin stayed at its own place along the boundary, the origins of a whole boundary row
+slid, all rounded to one lattice point, and the extraction merged the row into one cluster (130 vertices over 25 s on the first strip below), whose mean is
+the degenerate star. Default options (`CollapseLength` 0.6), net10.0 Release, same cloud container; `before` is master at 77698bc5. Sphere, torus, bumpy, filleted-box and noisy-sphere (the last two shapes have boundary vertices only at their small cut, which are not on a branch that changed): the rows above are the same
+before and after, apart from timings; the pinned hashes of sphere, torus and box are bit for bit the same. The pure-quad attempt (stage 3B) is for closed meshes only, so it and its gate (at most max(3 x stage 2, 1 s)) are unchanged.
+
+| shape | | faces | quads % | tris | irreg. V | corner p95 (deg) | Hausdorff out->in / s | t position (s) | t extract (s) | collapsed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| sphere-cap | before | 950 | 91.4 | 81 | 96 | 19.9 | 0.27 | 0.05 | 0.00 | 0 |
+| sphere-cap | after | 946 | 91.9 | 73 | 95 | 19.2 | 0.37 | 0.04 | 0.00 | 0 |
+| open-patch | before | 642 | 98.3 | 10 | 17 | 6.2 | 0.15 | 0.02 | 0.00 | 17 |
+| open-patch | after | 642 | 99.2 | 3 | 9 | 4.9 | 0.05 | 0.02 | 0.00 | 0 |
+
+The cap's Hausdorff rises by 0.10 s (still within the 0.5 s gate). The ragged boundary of the patch, which the longer `CollapseLength` removed, is gone with the fix (nothing is left to collapse).
+
+Open strips of 1 x w (`z = 0.1 sin(3 x)`, 100 x w / 0.0125 cells, `QuadNonManifoldVertexTests`), quad % / one-sided Hausdorff in units of s / irregular vertices, position field plus extraction time 0.06-0.15 s before and after:
+
+| w | s | before | after |
+|---|---|---|---|
+| 0.1 | 0.04 | 68.7 / 2.33 / 17 | 88.9 / 0.03 / 12 |
+| 0.1 | 0.06 | 40.9 / 1.56 / 14 | 79.3 / 0.03 / 9 |
+| 0.2 | 0.04 | 76.2 / 2.34 / 16 | 95.4 / 0.03 / 10 |
+| 0.2 | 0.06 | 62.5 / 0.30 / 11 | 89.4 / 0.03 / 12 |
+| 0.3 | 0.04 | 80.3 / 2.34 / 23 | 93.4 / 0.03 / 16 |
+| 0.3 | 0.06 | 77.1 / 1.56 / 22 | 93.4 / 0.02 / 10 |
+
 ## Size field (`adapt`, 2026-11-19, docs/design/QUAD_REMESHING.md 4.5)
 
 Irregular vertices / quads % / corner p95 (degrees), same input and field as above, default settings of `IntegrableFrames`, all with `CollapseLength` 0.6 (the default since 2026-11-19; the closed shapes are the same with 0.4); `adapt=0` is the table above with the new default.
