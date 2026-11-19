@@ -182,7 +182,8 @@ namespace geometry3Sharp.Tests
         };
 
         // ---- folds: a difference of two faceted thin-layer solids whose result touches itself at five points, where some moves
-        // would cross another triangle or turn one over (they are put back and the other copy moves instead). Derived
+        // would cross another triangle or turn one over (those are put back; the moves of the other vertices of the contact
+        // still separate it). Derived
         // from a real case, translated by integers as above ----
 
         static readonly double[] Fold0Vertices = {
@@ -616,6 +617,47 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Report.Clean, p.Report.NotCleanReason);
             double v0 = Volume(without.Result);
             Assert.True(Math.Abs(Volume(p.Result) - v0) <= 1e-9 * Math.Abs(v0), Volume(p.Result) + " vs " + v0);
+        }
+
+        [Fact]
+        public void TwoCavitiesTouchingAtACorner_AreOneSolid_AndAreSeparated()
+        {
+            // a block minus two cubes inside it that touch at the corner (2, 2, 2): two cavity shells of one solid, each a
+            // component of its own; the B-rep of the solid would merge their vertices there
+            var parts = new List<DMesh3> { Box(0, 0, 0, 4, 4, 4), Box(1, 1, 1, 2, 2, 2), Box(2, 2, 2, 3, 3, 3) };
+            var without = new SolidBooleanPipeline(parts, D);
+            Assert.True(without.Compute(), without.Error);
+            Assert.Single(SolidBooleanPipeline.SelfContacts(without.Result));
+            var p = new SolidBooleanPipeline(parts, D) { SeparateSelfContacts = 1e-3 };
+            Assert.True(p.Compute(), p.Error);
+            AssertSolid(p);
+            Assert.Equal(1, p.Report.SelfContactsFound);
+            Assert.Equal(0, p.Report.SelfContactsLeft);
+            Assert.Equal(0, p.Report.ContactsResult);
+            Assert.True(p.Report.Clean, p.Report.NotCleanReason);
+            Assert.True(Math.Abs(Volume(p.Result) - 62) <= 1e-3 * 12, Volume(p.Result).ToString("R"));
+        }
+
+        [Fact]
+        public void ACavityTouchingItsOuterShellAtAPoint_IsSeparated()
+        {
+            // a block minus a tetrahedron inside it whose apex touches the top face at (2, 2, 4): a cavity that touches the
+            // outer shell of its own solid at one vertex
+            var tet = new DMesh3();
+            tet.AppendVertex(new Vector3d(2, 2, 4)); tet.AppendVertex(new Vector3d(1, 1, 2));
+            tet.AppendVertex(new Vector3d(3, 1, 2)); tet.AppendVertex(new Vector3d(2, 3, 2));
+            tet.AppendTriangle(1, 3, 2); tet.AppendTriangle(0, 1, 2); tet.AppendTriangle(0, 2, 3); tet.AppendTriangle(0, 3, 1);
+            Assert.True(Volume(tet) > 0);
+            var parts = new List<DMesh3> { Box(0, 0, 0, 4, 4, 4), tet };
+            var without = new SolidBooleanPipeline(parts, D);
+            Assert.True(without.Compute(), without.Error);
+            Assert.Single(SolidBooleanPipeline.SelfContacts(without.Result));
+            var p = new SolidBooleanPipeline(parts, D) { SeparateSelfContacts = 1e-3 };
+            Assert.True(p.Compute(), p.Error);
+            AssertSolid(p);
+            Assert.Equal(1, p.Report.SelfContactsFound);
+            Assert.Equal(0, p.Report.SelfContactsLeft);
+            Assert.True(p.Report.Clean, p.Report.NotCleanReason);
         }
 
         // ---- what stays ----

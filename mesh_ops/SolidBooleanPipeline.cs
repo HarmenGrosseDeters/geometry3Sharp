@@ -372,16 +372,23 @@ namespace gs
         public PairContactsModes PairContactsMode = PairContactsModes.Off;
         /// <summary>
         /// Default 0 (off: the result is the one without this option, bit for bit). Otherwise a length: where a solid of the
-        /// result touches itself (two vertices of one connected component at one position, eg a difference whose tools touch
-        /// each other at an edge or a corner inside the body), every vertex there moves into its own part of the solid by up to
-        /// this distance (back into its own fan of triangles; at most a quarter of its shortest edge; plus the rounding of the
-        /// new coordinates, a few units in their last place), so the solid no
-        /// longer touches itself. Such a result is a valid closed, manifold mesh, but a boundary representation that merges
-        /// coincident vertices (a mesh-to-solid conversion of a CAD system) sees a non-manifold vertex there and refuses it.
-        /// Every move is checked exactly: a vertex whose move would make a triangle intersect another one (that did not touch it
-        /// before) or flip a triangle stays where it was. Touching between different solids (contacts) is not changed. The
+        /// result touches itself at a vertex (two or more vertices of one solid at one position; a solid is an outer shell with
+        /// the cavities inside it, so a cavity that touches its outer shell or another of its cavities counts; eg a difference
+        /// whose tools touch each other at an edge or a corner inside the body), every vertex there moves into its own part of
+        /// the solid by up to this distance (back into its own fan of triangles, along the area-weighted direction to their
+        /// centroids; at most a quarter of its shortest edge; plus the rounding of the new coordinates, a few units in their last
+        /// place; a move below 16 units in the last place of the largest coordinate is skipped), so the solid no longer touches
+        /// itself there. Such a result is a valid closed, manifold mesh, but a boundary representation that merges coincident
+        /// vertices (a mesh-to-solid conversion of a CAD system) sees a non-manifold vertex there and refuses it. Only contacts at
+        /// coincident vertices are found: a vertex that lies on an edge or a face of the same solid without a vertex there is not
+        /// (NotCleanReason still reports it). A move is put back if a triangle of the vertex then crosses another triangle beyond
+        /// what they share (an exact test; vertices at one position count as one), is degenerate (exact), or turns over (its
+        /// normal against the one before, in floating point); putting back repeats until a check finds nothing, so the result
+        /// is the state that was checked. A vertex put back stays put back, so a contact can be left although another choice of
+        /// moves would separate it (Report.SelfContactsLeft). Touching between different solids (contacts) is not changed. The
         /// volume changes by about the moved distance times the area of the triangles around the moved vertices.
-        /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove say what was done.
+        /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove /
+        /// SelfContactVerticesSkipped / SelfContactMovesUndoneCrossing / SelfContactMovesUndoneFlipped say what was done.
         /// Negative or not finite: InvalidInput
         /// </summary>
         public double SeparateSelfContacts = 0;
@@ -641,21 +648,15 @@ namespace gs
             return true;
         }
 
-        // the positions where two or more vertices of one connected component lie: per position the vertices of the
-        // components that occur there more than once
+        // the positions where two or more vertices of one solid lie (a solid: an outer shell with the cavities inside it,
+        // ComponentSolids; so a cavity that touches its outer shell or another cavity of it counts): per position the vertices
+        // of the solids that occur there more than once
         internal static List<List<int>> SelfContacts(DMesh3 mesh)
         {
-            var cc = new MeshConnectedComponents(mesh);
-            cc.FindConnectedT();
-            var compOf = new Dictionary<int, int>();
-            for (int c = 0; c < cc.Count; ++c)
-                foreach (int t in cc.Components[c].Indices) {
-                    Index3i tv = mesh.GetTriangle(t);
-                    compOf[tv.a] = c; compOf[tv.b] = c; compOf[tv.c] = c;
-                }
+            ComponentSolids cs = ComponentSolids.Of(mesh);
             var byPos = new Dictionary<Vector3d, List<int>>();
             foreach (int v in mesh.VertexIndices()) {
-                if (!compOf.ContainsKey(v))
+                if (cs.SolidOfVertex(v) < 0)
                     continue;
                 Vector3d p = mesh.GetVertex(v);
                 var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);      // (+0.0: -0 and 0 are one position)
@@ -672,7 +673,7 @@ namespace gs
                 foreach (int v in vs) {
                     int n = 0;
                     foreach (int w in vs)
-                        if (compOf[w] == compOf[v])
+                        if (cs.SolidOfVertex(w) == cs.SolidOfVertex(v))
                             n++;
                     if (n > 1)
                         self.Add(v);
@@ -940,58 +941,13 @@ namespace gs
             var removed = new List<SolidBooleanThinSolid>();
             if (mesh.TriangleCount == 0)
                 return removed;
-            var cc = new MeshConnectedComponents(mesh);
-            cc.FindConnectedT();
-            int n = cc.Count;
-            var vol = new double[n];
-            var area = new double[n];
-            var open = new bool[n];
-            var boxes = new AxisAlignedBox3d[n];
-            var tris = new int[n][];
-            for (int c = 0; c < n; ++c) {
-                tris[c] = cc.Components[c].Indices;
-                // (the volume relative to a vertex of the component: far from the origin the terms of absolute coordinates
-                // cancel, and the sign of a thin shell could be noise)
-                Vector3d o = mesh.GetVertex(mesh.GetTriangle(tris[c][0]).a);
-                double v6 = 0, a2 = 0;
-                boxes[c] = AxisAlignedBox3d.Empty;
-                foreach (int t in tris[c]) {
-                    Index3i tv = mesh.GetTriangle(t);
-                    Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
-                    boxes[c].Contain(p); boxes[c].Contain(q); boxes[c].Contain(r);
-                    Vector3d pa = p - o, qa = q - o, ra = r - o;
-                    v6 += pa.Dot(qa.Cross(ra));
-                    a2 += (q - p).Cross(r - p).Length;
-                    for (int j = 0; j < 3 && !open[c]; ++j)
-                        open[c] = mesh.IsBoundaryEdge(mesh.GetTriEdge(t, j));
-                }
-                vol[c] = v6 / 6;
-                area[c] = a2 / 2;
-            }
-            // the solid of each component: an outer shell is its own; a cavity goes to the smallest outer shell around it
-            var owner = new int[n];
-            var trees = new Dictionary<int, DMeshAABBTree3>();
-            for (int c = 0; c < n; ++c) {
-                owner[c] = vol[c] > 0 ? c : -1;
-                if (vol[c] > 0)
-                    continue;
-                int big = tris[c][0];
-                foreach (int t in tris[c])
-                    if (mesh.GetTriArea(t) > mesh.GetTriArea(big))
-                        big = t;
-                Vector3d probe = mesh.GetTriCentroid(big);
-                for (int o = 0; o < n; ++o) {
-                    if (!(vol[o] > 0) || (owner[c] >= 0 && vol[o] >= vol[owner[c]]) || !boxes[o].Contains(probe))
-                        continue;
-                    DMeshAABBTree3 tree;
-                    if (!trees.TryGetValue(o, out tree)) {
-                        tree = new DMeshAABBTree3(new DSubmesh3(mesh, tris[o]).SubMesh, true);
-                        trees[o] = tree;
-                    }
-                    if (tree.FastWindingNumber(probe) > 0.5)
-                        owner[c] = o;
-                }
-            }
+            ComponentSolids cs = ComponentSolids.Of(mesh);
+            int n = cs.Count;
+            double[] vol = cs.Volume, area = cs.Area;
+            bool[] open = cs.Open;
+            AxisAlignedBox3d[] boxes = cs.Box;
+            int[][] tris = cs.Triangles;
+            int[] owner = cs.Owner;
             var remove = new HashSet<int>();
             for (int o = 0; o < n; ++o) {
                 if (!(vol[o] > 0))
@@ -1020,6 +976,89 @@ namespace gs
                 foreach (int t in tris[c])
                     mesh.RemoveTriangle(t, true, false);
             return removed;
+        }
+
+        /// <summary>
+        /// The connected components of a mesh (by edges) with their triangles, volume, area, box, whether they have a boundary
+        /// edge, and the solid they belong to: an outer shell (positive volume) is its own solid; a cavity belongs to the smallest
+        /// outer shell whose box contains the centroid of the largest triangle of the cavity and whose winding number there is
+        /// above 1/2 (Owner -1: in no outer shell). Volumes are taken relative to a vertex of each component (exact enough far
+        /// from the origin).
+        /// </summary>
+        internal sealed class ComponentSolids
+        {
+            public int Count;
+            public int[][] Triangles;
+            public double[] Volume, Area;
+            public bool[] Open;
+            public AxisAlignedBox3d[] Box;
+            public int[] Owner;
+            /// <summary> the component of each vertex (-1 for a vertex of no triangle) </summary>
+            public int[] ComponentOfVertex;
+
+            public static ComponentSolids Of(DMesh3 mesh)
+            {
+                var cc = new MeshConnectedComponents(mesh);
+                cc.FindConnectedT();
+                int n = cc.Count;
+                var r = new ComponentSolids() {
+                    Count = n, Triangles = new int[n][], Volume = new double[n], Area = new double[n], Open = new bool[n],
+                    Box = new AxisAlignedBox3d[n], Owner = new int[n], ComponentOfVertex = new int[mesh.MaxVertexID] };
+                for (int v = 0; v < r.ComponentOfVertex.Length; ++v)
+                    r.ComponentOfVertex[v] = -1;
+                for (int c = 0; c < n; ++c) {
+                    int[] tris = r.Triangles[c] = cc.Components[c].Indices;
+                    // (the volume relative to a vertex of the component: far from the origin the terms of absolute coordinates
+                    // cancel, and the sign of a thin shell could be noise)
+                    Vector3d o = mesh.GetVertex(mesh.GetTriangle(tris[0]).a);
+                    double v6 = 0, a2 = 0;
+                    r.Box[c] = AxisAlignedBox3d.Empty;
+                    foreach (int t in tris) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        r.ComponentOfVertex[tv.a] = r.ComponentOfVertex[tv.b] = r.ComponentOfVertex[tv.c] = c;
+                        Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), w = mesh.GetVertex(tv.c);
+                        r.Box[c].Contain(p); r.Box[c].Contain(q); r.Box[c].Contain(w);
+                        Vector3d pa = p - o, qa = q - o, wa = w - o;
+                        v6 += pa.Dot(qa.Cross(wa));
+                        a2 += (q - p).Cross(w - p).Length;
+                        for (int j = 0; j < 3 && !r.Open[c]; ++j)
+                            r.Open[c] = mesh.IsBoundaryEdge(mesh.GetTriEdge(t, j));
+                    }
+                    r.Volume[c] = v6 / 6;
+                    r.Area[c] = a2 / 2;
+                }
+                // the solid of each component: an outer shell is its own; a cavity goes to the smallest outer shell around it
+                var trees = new Dictionary<int, DMeshAABBTree3>();
+                for (int c = 0; c < n; ++c) {
+                    r.Owner[c] = r.Volume[c] > 0 ? c : -1;
+                    if (r.Volume[c] > 0)
+                        continue;
+                    int big = r.Triangles[c][0];
+                    foreach (int t in r.Triangles[c])
+                        if (mesh.GetTriArea(t) > mesh.GetTriArea(big))
+                            big = t;
+                    Vector3d probe = mesh.GetTriCentroid(big);
+                    for (int o = 0; o < n; ++o) {
+                        if (!(r.Volume[o] > 0) || (r.Owner[c] >= 0 && r.Volume[o] >= r.Volume[r.Owner[c]]) || !r.Box[o].Contains(probe))
+                            continue;
+                        DMeshAABBTree3 tree;
+                        if (!trees.TryGetValue(o, out tree)) {
+                            tree = new DMeshAABBTree3(new DSubmesh3(mesh, r.Triangles[o]).SubMesh, true);
+                            trees[o] = tree;
+                        }
+                        if (tree.FastWindingNumber(probe) > 0.5)
+                            r.Owner[c] = o;
+                    }
+                }
+                return r;
+            }
+
+            /// <summary> the solid of the component of vertex v: its owner, or the component itself if it has none (-1: no triangle) </summary>
+            public int SolidOfVertex(int v)
+            {
+                int c = ComponentOfVertex[v];
+                return c < 0 ? -1 : Owner[c] >= 0 ? Owner[c] : c;
+            }
         }
 
         ExactMeshBoolean runBoolean(List<DMesh3> meshes)

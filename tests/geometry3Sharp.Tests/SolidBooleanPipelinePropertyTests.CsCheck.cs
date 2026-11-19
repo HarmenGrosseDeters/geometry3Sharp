@@ -383,8 +383,9 @@ namespace geometry3Sharp.Tests
         public void SeparateSelfContacts_KeepsTheContract_AndTheVolume()
         {
             // with InputGrid (which makes nearly touching faces touch) and SeparateSelfContacts 2^-20 of the case's unit: the
-            // contract of Valid holds, no self-contact is left that could be separated without a crossing (the count only goes
-            // down), the moves stay within the distance, and the volume moves at most the distance times the area
+            // contract of Valid holds, the counts of the report agree with the results (the self-contacts only go down), the
+            // moves stay within the distance, the triangle count stays, the volume moves at most the distance times the area,
+            // no triangle crosses that did not before, and the cleanliness is no worse (MeshRobustRepair, independent)
             int withSelfContacts = 0, separated = 0;
             Campaign("SeparateSelfContacts", GenCase, c => {
                 List<DMesh3> inputs = c.Build();
@@ -418,11 +419,19 @@ namespace geometry3Sharp.Tests
                 double tol = grid * Area(plain.Result) + 1e-12 * Math.Abs(Volume(plain.Result));
                 if (Math.Abs(Volume(p.Result) - Volume(plain.Result)) > tol)
                     return $"volume {Volume(p.Result):R} against {Volume(plain.Result):R} (tolerance {tol:G3})";
-                // no new crossing: a move that would cross is put back (vertices at one position count as one)
-                int crossingBefore = SolidBooleanPipeline.CrossingTriangles(plain.Result, plain.Result.VertexIndices()).Count;
-                int crossingAfter = SolidBooleanPipeline.CrossingTriangles(p.Result, p.Result.VertexIndices()).Count;
-                if (crossingAfter > crossingBefore)
-                    return $"{crossingAfter} crossing triangles after the separation, {crossingBefore} before";
+                // no new crossing: a move that would cross is put back (vertices at one position count as one; the moves keep
+                // the triangle ids, so the sets compare triangle by triangle)
+                var crossingBefore = SolidBooleanPipeline.CrossingTriangles(plain.Result, plain.Result.VertexIndices());
+                var crossingAfter = SolidBooleanPipeline.CrossingTriangles(p.Result, p.Result.VertexIndices());
+                if (!crossingAfter.IsSubsetOf(crossingBefore))
+                    return $"{crossingAfter.Count(t => !crossingBefore.Contains(t))} triangles cross after the separation that did not before";
+                // an oracle independent of the code under test: the report says what MeshRobustRepair.NotCleanReason says of
+                // the result, and a clean result stays clean
+                string reasonAfter = MeshRobustRepair.NotCleanReason(p.Result);
+                if (reasonAfter != p.Report.NotCleanReason)
+                    return $"Report.NotCleanReason '{p.Report.NotCleanReason}', the result's '{reasonAfter}'";
+                if (plain.Report.Clean && reasonAfter != "")
+                    return $"clean without the option, '{reasonAfter}' with it";
                 return "";
             }, 40, 9106);
             log.WriteLine($"  results with self-contacts: {withSelfContacts}, all separated: {separated}");
