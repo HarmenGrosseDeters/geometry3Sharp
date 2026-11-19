@@ -15,23 +15,23 @@ namespace geometry3Sharp.Tests
         public ContourLoftStackHolesTests(ITestOutputHelper log) { this.log = log; }
 
         // coordinates on a 2^-20 grid: the inputs (and so the golden digests) do not depend on the platform's cos / sin
-        static double Q(double v) => Math.Round(v * 1048576.0) / 1048576.0;
+        internal static double Q(double v) => Math.Round(v * 1048576.0) / 1048576.0;
 
-        static List<Vector3d> Disc(int n, double r, double z, double cx = 0, double cy = 0)
+        internal static List<Vector3d> Disc(int n, double r, double z, double cx = 0, double cy = 0)
         {
             var c = new List<Vector3d>();
             for (int i = 0; i < n; ++i) { double a = 2 * Math.PI * i / n; c.Add(new Vector3d(Q(cx + r * Math.Cos(a)), Q(cy + r * Math.Sin(a)), z)); }
             return c;
         }
 
-        static List<Vector3d> Ellipse(int n, double rx, double ry, double z, double cx = 0, double cy = 0)
+        internal static List<Vector3d> Ellipse(int n, double rx, double ry, double z, double cx = 0, double cy = 0)
         {
             var c = new List<Vector3d>();
             for (int i = 0; i < n; ++i) { double a = 2 * Math.PI * i / n; c.Add(new Vector3d(Q(cx + rx * Math.Cos(a)), Q(cy + ry * Math.Sin(a)), z)); }
             return c;
         }
 
-        static List<Vector3d> Rect(double x0, double x1, double y0, double y1, double z, int k = 3)
+        internal static List<Vector3d> Rect(double x0, double x1, double y0, double y1, double z, int k = 3)
         {
             var c = new List<Vector3d>();
             for (int i = 0; i < k; ++i) c.Add(new Vector3d(x0 + (x1 - x0) * i / k, y0, z));
@@ -41,12 +41,12 @@ namespace geometry3Sharp.Tests
             return c;
         }
 
-        static IList<IList<IList<Vector3d>>> Slices(params IList<Vector3d>[][] s) =>
+        internal static IList<IList<IList<Vector3d>>> Slices(params IList<Vector3d>[][] s) =>
             s.Select(sl => (IList<IList<Vector3d>>)sl.Select(c => (IList<Vector3d>)c).ToList()).ToList();
-        static IList<Vector3d>[] Sl(params IList<Vector3d>[] contours) => contours;
+        internal static IList<Vector3d>[] Sl(params IList<Vector3d>[] contours) => contours;
 
         // a digest of a mesh: the exact bits of all vertices and the triangles in order
-        static string Digest(DMesh3 m)
+        internal static string Digest(DMesh3 m)
         {
             unchecked {
                 ulong h = 1469598103934665603UL;
@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the inputs of the stage 2 success cases that existed before holes in branching groups
-        static Dictionary<string, IList<IList<IList<Vector3d>>>> Existing() => new Dictionary<string, IList<IList<IList<Vector3d>>>> {
+        internal static Dictionary<string, IList<IList<IList<Vector3d>>>> Existing() => new Dictionary<string, IList<IList<IList<Vector3d>>>> {
             ["merge"] = Slices(Sl(Disc(16, 1, 0, -2), Disc(16, 1, 0, 2)), Sl(Disc(16, 1, 1, -2), Disc(16, 1, 1, 2)), Sl(Rect(-3.5, 3.5, -1.2, 1.2, 2, 6))),
             ["branch3"] = Slices(Sl(Rect(-5, 5, -1.5, 1.5, 0, 8)), Sl(Disc(12, 1, 1, -3.5), Disc(12, 1, 1, 0), Disc(12, 1, 1, 3.5)), Sl(Disc(12, 1, 2, -3.5), Disc(12, 1, 2, 0), Disc(12, 1, 2, 3.5))),
             ["branchCut"] = Slices(Sl(Rect(-3, 3, -1, 1, 0, 6)), Sl(Disc(24, 1.5, 1, -3), Disc(24, 1.5, 1, 3))),
@@ -76,10 +76,8 @@ namespace geometry3Sharp.Tests
             ["holeIn1to1"] = Slices(Sl(Disc(24, 4, 0), Disc(12, 1, 0)), Sl(Disc(24, 4.2, 1), Disc(12, 1.1, 1))),
         };
 
-        [Fact]
-        public void ExistingResults_AreBitForBitUnchanged()
-        {
-            var expected = new Dictionary<string, string> {
+        // digests taken on master before holes in branching groups
+        internal static Dictionary<string, string> Golden() => new Dictionary<string, string> {
                 ["merge"] = "c10640d5f4d9cbb1",
                 ["branch3"] = "342952bf9b7f9dba",
                 ["branchCut"] = "36b87a1a77ff484d",
@@ -92,6 +90,11 @@ namespace geometry3Sharp.Tests
                 ["dissimilar"] = "3b69340fefa85301",
                 ["holeIn1to1"] = "8782888705827f5b",
             };
+
+        [Fact]
+        public void ExistingResults_AreBitForBitUnchanged()
+        {
+            var expected = Golden();
             foreach (var kv in Existing()) {
                 var r = new ContourLoftStack { CapEnds = true }.Compute(kv.Value);
                 string d = r.Status == ContourLoftStackStatus.Success ? Digest(r.Mesh) : r.Status.ToString();
@@ -103,7 +106,7 @@ namespace geometry3Sharp.Tests
         // ---- inputs with holes in branching and merging groups. Three slices at least: a hole that ends needs a slice below it ----
 
         // the stack with a copy of its first slice one unit below and a copy of its last slice one unit above
-        static IList<IList<IList<Vector3d>>> Pad(IList<IList<IList<Vector3d>>> s)
+        internal static IList<IList<IList<Vector3d>>> Pad(IList<IList<IList<Vector3d>>> s)
         {
             IList<IList<Vector3d>> Shift(IList<IList<Vector3d>> sl, double dz) =>
                 sl.Select(c => (IList<Vector3d>)c.Select(p => new Vector3d(p.x, p.y, p.z + dz)).ToList()).ToList();
@@ -117,7 +120,7 @@ namespace geometry3Sharp.Tests
             s.Select(sl => (IList<IList<Vector3d>>)sl.Select(c => (IList<Vector3d>)c.Select(p => new Vector3d(p.x, p.y, p.z + dz)).ToList()).ToList()).ToList();
 
         // name -> (stack, Euler characteristic of the closed solid)
-        static Dictionary<string, (IList<IList<IList<Vector3d>>> slices, int euler)> HoleCases() => new Dictionary<string, (IList<IList<IList<Vector3d>>>, int)> {
+        internal static Dictionary<string, (IList<IList<IList<Vector3d>>> slices, int euler)> HoleCases() => new Dictionary<string, (IList<IList<IList<Vector3d>>>, int)> {
             // a hole ends under the saddle of a branch (contained pieces: bridge at the upper plane)
             ["hole ends under a branch"] = (Pad(Slices(Sl(Disc(48, 6, 0), Disc(24, 1, 0)), Sl(Disc(24, 2.5, 1, -3), Disc(24, 2.5, 1, 3)))), 2),
             // a hole continues through one of the branches: a tunnel through one leg (genus 1)
@@ -135,19 +138,19 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> HoleCaseNames() => HoleCases().Keys.Select(k => new object[] { k });
 
-        static ContourLoftStackResult Loft(IList<IList<IList<Vector3d>>> slices, bool caps = true) => new ContourLoftStack { CapEnds = caps }.Compute(slices);
+        internal static ContourLoftStackResult Loft(IList<IList<IList<Vector3d>>> slices, bool caps = true) => new ContourLoftStack { CapEnds = caps }.Compute(slices);
 
-        static double Volume(DMesh3 mesh)
+        internal static double Volume(DMesh3 mesh)
         {
             double vol = 0;
             foreach (int t in mesh.TriangleIndices()) { var tr = mesh.GetTriangle(t); vol += mesh.GetVertex(tr.a).Dot(mesh.GetVertex(tr.b).Cross(mesh.GetVertex(tr.c))) / 6; }
             return vol;
         }
 
-        static int Euler(DMesh3 m) => m.VertexCount - m.EdgeCount + m.TriangleCount;
+        internal static int Euler(DMesh3 m) => m.VertexCount - m.EdgeCount + m.TriangleCount;
 
         // the contours are in the mesh as given: vertex i is input vertex i and every contour edge is a mesh edge
-        static void AssertBoundaryIsTheInput(IList<IList<IList<Vector3d>>> slices, DMesh3 m)
+        internal static void AssertBoundaryIsTheInput(IList<IList<IList<Vector3d>>> slices, DMesh3 m)
         {
             int id = 0;
             foreach (var sl in slices)
@@ -158,7 +161,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        static void AssertClean(ContourLoftStackResult r, int euler)
+        internal static void AssertClean(ContourLoftStackResult r, int euler)
         {
             Assert.True(r.Status == ContourLoftStackStatus.Success, r.Status + ": " + r.Reason);
             DMesh3 m = r.Mesh;
@@ -309,7 +312,7 @@ namespace geometry3Sharp.Tests
 
         // ---- invariance, reuse, determinism ----
 
-        static IList<IList<IList<Vector3d>>> Jitter(IList<IList<IList<Vector3d>>> s, int seed, double amount)
+        internal static IList<IList<IList<Vector3d>>> Jitter(IList<IList<IList<Vector3d>>> s, int seed, double amount)
         {
             var rand = new Random(seed);
             return s.Select(sl => (IList<IList<Vector3d>>)sl.Select(c => (IList<Vector3d>)c.Select(p =>
@@ -352,7 +355,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static string Fingerprint(ContourLoftStackResult r) =>
+        internal static string Fingerprint(ContourLoftStackResult r) =>
             r.Status + "|" + string.Join(";", r.Groups.Select(g => g.Slab + ":" + g.Kind + ":" + string.Join(",", g.Lower) + ">" + string.Join(",", g.Upper))) + "|" +
             (r.Mesh == null ? "" : string.Join(";", r.Mesh.VertexIndices().Select(v => r.Mesh.GetVertex(v).ToString())) + "|" +
              string.Join(";", r.Mesh.TriangleIndices().Select(t => r.Mesh.GetTriangle(t).ToString())));
