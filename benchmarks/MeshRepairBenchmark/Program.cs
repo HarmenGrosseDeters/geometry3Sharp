@@ -59,6 +59,19 @@ class Program
                 Emit(r);
                 return 0;
             }
+            if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "candidates") {
+                // rejected candidates of MeshRobustRepair vs its final result (CandidateBench.cs)
+                stage = "candidates";
+                r["repair_mode"] = "candidates";
+                string tf = args.Length > 3 && args[3] != "rel" ? args[3] : null;
+                double tfv = tf == null ? double.NaN : double.Parse(tf, System.Globalization.CultureInfo.InvariantCulture);
+                sw.Restart();
+                CandidateBench.Run(mesh, r, tf != null, tfv, MathUtil.ZeroTolerancef, 1e-4);
+                r["candidates_ms"] = sw.ElapsedMilliseconds;
+                r["status"] = "ok";
+                Emit(r);
+                return 0;
+            }
             // AutoRepair modifies the mesh in place; keep the input for solidify and deviation
             DMesh3 original = new DMesh3(mesh);
 
@@ -162,92 +175,7 @@ class Program
                 r["stages"] = stages;
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
-                var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
-                    if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
-                int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
-                robust.SolidifyResolution = res;
-                // BENCH_PASSTHROUGH=0: without stage 0 of the part handling (A/B)
-                robust.PassThroughCleanParts = Environment.GetEnvironmentVariable("BENCH_PASSTHROUGH") != "0";
-                robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
-                robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
-                robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
-                // BENCH_WRAP_QUALITY=1: with the quality pass (off by default in the library since Alpha Wrap 2.0)
-                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
-                // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
-                string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
-                // (the input as given: the repair may change mesh in place)
-                DMesh3 wqInput = string.IsNullOrEmpty(wq) ? null : new DMesh3(mesh);
-                if (string.IsNullOrEmpty(wq) == false) {
-                    r["wq_variant"] = wq;
-                    robust.ConfigureWrapQuality = (pass) => {
-                        foreach (string kv in wq.Split(',')) {
-                            string[] p = kv.Split('=');
-                            double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
-                            switch (p[0]) {
-                                // (the switches apply on top of the library's default settings, MeshRobustRepair.DefaultWrapQuality;
-                                // "default=0" first resets them to the pass's own, as for the variants measured before the default)
-                                case "default":
-                                    if (v == 0) {
-                                        pass.KeepNormalDeviation = false; pass.NormalDeviationSlackDegrees = 0;
-                                        pass.CapAngleDegrees = 180; pass.SplitCapsAboveDegrees = 180;
-                                    }
-                                    break;
-                                case "turn": pass.MaxNormalTurnDegrees = v; break;
-                                case "follow": pass.FollowReference = v != 0; break;
-                                case "crease": pass.MaxFlipDihedralDegrees = v; break;
-                                case "worst": pass.WorstFirst = v != 0; break;
-                                case "normals": pass.KeepNormalDeviation = v != 0; break;
-                                case "nslack": pass.NormalDeviationSlackDegrees = v; break;
-                                case "split": pass.SplitCapsAboveDegrees = v; break;
-                                case "capflip": pass.CapAngleDegrees = v; break;
-                                case "nsamples": pass.NormalSamples = (int)v; break;
-                                case "pin": pass.PinCreaseVerticesDegrees = v; break;
-                                case "protect":
-                                    // the input's sharp edges (dihedral above 20 degrees), kept v wrap offsets away from
-                                    // (the pass's Tolerance is 0.95 of half the offset)
-                                    foreach (int e in wqInput.EdgeIndices()) {
-                                        Index2i et = wqInput.GetEdgeT(e);
-                                        if (et.b < 0) continue;
-                                        if (wqInput.GetTriNormal(et.a).Dot(wqInput.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad)) {
-                                            Index2i ev = wqInput.GetEdgeV(e);
-                                            pass.ProtectedEdges.Add(new Segment3d(wqInput.GetVertex(ev.a), wqInput.GetVertex(ev.b)));
-                                        }
-                                    }
-                                    pass.ProtectedDistance = v * pass.Tolerance / 0.475;
-                                    break;
-                                case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
-                                case "flips": pass.EnableFlips = v != 0; break;
-                                case "moves": pass.EnableMoves = v != 0; break;
-                                case "collapse": pass.EnableCollapses = v != 0; break;
-                                case "growth": pass.MaxTriangleGrowth = v; break;
-                                default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
-                            }
-                        }
-                    };
-                }
-                // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
-                string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
-                if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
-                if (wo != null) robust.WrapRelativeOffset = double.Parse(wo, System.Globalization.CultureInfo.InvariantCulture);
-                // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
-                string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
-                if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
-                // BENCH_WRAP_TARGET / BENCH_WRAP_TARGET_FACTOR / BENCH_WRAP_TARGET_DIST: WrapTargetTriangles, WrapTargetFactor (of the
-                // input's triangle count), WrapTargetMaxDistance (offsets); off by default
-                string wt = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET"), wtf = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_FACTOR"),
-                    wtd = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_DIST");
-                if (wt != null) robust.WrapTargetTriangles = int.Parse(wt, System.Globalization.CultureInfo.InvariantCulture);
-                if (wtf != null) robust.WrapTargetFactor = double.Parse(wtf, System.Globalization.CultureInfo.InvariantCulture);
-                if (wtd != null) robust.WrapTargetMaxDistance = double.Parse(wtd, System.Globalization.CultureInfo.InvariantCulture);
-                string wcap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
-                if (wcap != null) robust.WrapMaxAlphaCoarsening = double.Parse(wcap, System.Globalization.CultureInfo.InvariantCulture);
-                robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
-                robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
-                robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
-                // BENCH_IOU_CELLS=0: the volume check samples in the region of sample_region always (A/B of the cells)
-                robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
-                string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
-                if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
+                var robust = MakeRobust(mesh, absTol, tolFactor, absRepairTol, absMinEdge, r);
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -879,6 +807,98 @@ class Program
     }
 
     // topological and geometric quality checks
+    // the MeshRobustRepair of the robust mode (the BENCH_* switches), shared with CandidateBench
+    internal static MeshRobustRepair MakeRobust(DMesh3 mesh, bool absTol, double tolFactor, double absRepairTol, double absMinEdge, System.Collections.Generic.Dictionary<string, object> r)
+    {
+            var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
+                if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
+            int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
+            robust.SolidifyResolution = res;
+            // BENCH_PASSTHROUGH=0: without stage 0 of the part handling (A/B)
+            robust.PassThroughCleanParts = Environment.GetEnvironmentVariable("BENCH_PASSTHROUGH") != "0";
+            robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
+            robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
+            robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+            // BENCH_WRAP_QUALITY=1: with the quality pass (off by default in the library since Alpha Wrap 2.0)
+            robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
+            // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
+            string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
+            // (the input as given: the repair may change mesh in place)
+            DMesh3 wqInput = string.IsNullOrEmpty(wq) ? null : new DMesh3(mesh);
+            if (string.IsNullOrEmpty(wq) == false) {
+                r["wq_variant"] = wq;
+                robust.ConfigureWrapQuality = (pass) => {
+                    foreach (string kv in wq.Split(',')) {
+                        string[] p = kv.Split('=');
+                        double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
+                        switch (p[0]) {
+                            // (the switches apply on top of the library's default settings, MeshRobustRepair.DefaultWrapQuality;
+                            // "default=0" first resets them to the pass's own, as for the variants measured before the default)
+                            case "default":
+                                if (v == 0) {
+                                    pass.KeepNormalDeviation = false; pass.NormalDeviationSlackDegrees = 0;
+                                    pass.CapAngleDegrees = 180; pass.SplitCapsAboveDegrees = 180;
+                                }
+                                break;
+                            case "turn": pass.MaxNormalTurnDegrees = v; break;
+                            case "follow": pass.FollowReference = v != 0; break;
+                            case "crease": pass.MaxFlipDihedralDegrees = v; break;
+                            case "worst": pass.WorstFirst = v != 0; break;
+                            case "normals": pass.KeepNormalDeviation = v != 0; break;
+                            case "nslack": pass.NormalDeviationSlackDegrees = v; break;
+                            case "split": pass.SplitCapsAboveDegrees = v; break;
+                            case "capflip": pass.CapAngleDegrees = v; break;
+                            case "nsamples": pass.NormalSamples = (int)v; break;
+                            case "pin": pass.PinCreaseVerticesDegrees = v; break;
+                            case "protect":
+                                // the input's sharp edges (dihedral above 20 degrees), kept v wrap offsets away from
+                                // (the pass's Tolerance is 0.95 of half the offset)
+                                foreach (int e in wqInput.EdgeIndices()) {
+                                    Index2i et = wqInput.GetEdgeT(e);
+                                    if (et.b < 0) continue;
+                                    if (wqInput.GetTriNormal(et.a).Dot(wqInput.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad)) {
+                                        Index2i ev = wqInput.GetEdgeV(e);
+                                        pass.ProtectedEdges.Add(new Segment3d(wqInput.GetVertex(ev.a), wqInput.GetVertex(ev.b)));
+                                    }
+                                }
+                                pass.ProtectedDistance = v * pass.Tolerance / 0.475;
+                                break;
+                            case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
+                            case "flips": pass.EnableFlips = v != 0; break;
+                            case "moves": pass.EnableMoves = v != 0; break;
+                            case "collapse": pass.EnableCollapses = v != 0; break;
+                            case "growth": pass.MaxTriangleGrowth = v; break;
+                            default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
+                        }
+                    }
+                };
+            }
+            // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
+            string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
+            if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
+            if (wo != null) robust.WrapRelativeOffset = double.Parse(wo, System.Globalization.CultureInfo.InvariantCulture);
+            // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
+            string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
+            if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
+            // BENCH_WRAP_TARGET / BENCH_WRAP_TARGET_FACTOR / BENCH_WRAP_TARGET_DIST: WrapTargetTriangles, WrapTargetFactor (of the
+            // input's triangle count), WrapTargetMaxDistance (offsets); off by default
+            string wt = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET"), wtf = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_FACTOR"),
+                wtd = Environment.GetEnvironmentVariable("BENCH_WRAP_TARGET_DIST");
+            if (wt != null) robust.WrapTargetTriangles = int.Parse(wt, System.Globalization.CultureInfo.InvariantCulture);
+            if (wtf != null) robust.WrapTargetFactor = double.Parse(wtf, System.Globalization.CultureInfo.InvariantCulture);
+            if (wtd != null) robust.WrapTargetMaxDistance = double.Parse(wtd, System.Globalization.CultureInfo.InvariantCulture);
+            string wcap = Environment.GetEnvironmentVariable("BENCH_WRAP_COARSEN_CAP");
+            if (wcap != null) robust.WrapMaxAlphaCoarsening = double.Parse(wcap, System.Globalization.CultureInfo.InvariantCulture);
+            robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
+            robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
+            robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
+            // BENCH_IOU_CELLS=0: the volume check samples in the region of sample_region always (A/B of the cells)
+            robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
+            string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
+            if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
+        return robust;
+    }
+
     static void Quality(DMesh3 m, System.Collections.Generic.Dictionary<string, object> r, string p, bool bExpensive = true)
     {
         double diag = Math.Max(m.CachedBounds.DiagonalLength, MathUtil.Epsilon);
