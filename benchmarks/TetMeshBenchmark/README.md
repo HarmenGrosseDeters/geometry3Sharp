@@ -193,3 +193,32 @@ local alpha (`refine` with `G3_TET_DEV=<x>`: `MaxSurfaceDeviation` = diagonal / 
 `results/tet-local-alpha-subset39-2026-11-19.csv`. Medians over 39 meshes (ratios per mesh against uniform /80): diagonal / 150 gives 0.52x the tets at 1.00x the input-to-boundary max distance and 1.17x the time;
 diagonal / 250 gives 0.68x the tets at 0.92x the distance and 1.31x the time (two passes: 0.81x the tets, 0.92x, 1.69x); uniform /160 is 3.75x the tets at 0.70x the distance and 2.39x the time. All 39 valid, no self-intersection, every tet >= 10 degrees in every configuration.
 
+
+### MaxDihedralDegrees: the objective on both ends (opt-in, 2026-11-19)
+
+`MeshTetrahedralization.MaxDihedralDegrees` (0 = off, the default; bit for bit the stage as before) adds the "op 4" of Klingner's thesis (ch. 3-5, paper only) to
+stage 2: the quality of a tet is min(smallest dihedral, F + G - largest dihedral), F = `SliverDihedralDegrees`, G = the option, so a tet meets the target
+exactly when its smallest dihedral is >= F and its largest <= G. The measurement on the throwaway branch `runs/tet-stellar` (objective alone, "p4") lost
+meshes on the min side (498 -> 458 of 500 reach min >= F at 10 / 150). Two additions, both inside the option:
+
+- **guard**: no operation may leave a tet with a smallest dihedral below min(F, that of the tets it replaces) (smoothing, boundary moves, contraction, edge
+  and face removal, split). It does not repair the loss: the stage-1 result has about 100 tets below F that master fixes, and with the objective a max-side
+  tet next to such a tet masks it (the neighbourhood's worst quality is the max-side one), so the repair is not accepted.
+- **staged**: the improver first runs on the smallest dihedral alone (master's behaviour), then with the objective and the guard. The guard then keeps what
+  the first phase reached.
+
+500-mesh sample (`compare/thingi-sample-ids.txt`, alpha / 40, relative offset 600, floor 10, G = 150; `MaxDihedral.cs`, `compare/run_maxdih_shard.sh`,
+`compare/maxdih_summary.py`; stage 1 once per mesh, then each configuration's improver from that result; meshes fetched at run time, not kept; 4-core cloud container,
+3 shards in parallel, so the improver times are indicative only). master = option off; p4 = objective alone; p4g = with the guard; p4s = guard and staged (the option as built):
+
+| config | min>=F | max<=G | both | valid | median p01 / p99 | worst min / max | tets vs master | improver us/tet (median) | improver s (sum / max) | violating tets (sum) |
+|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|
+| master | 498 | 0 | 0 | 500 | 11.4 / 157.8 | 9.43 / 179.0 | 1.000 | 18 | 89 / 1 | 164860 |
+| p4 | 454 | 466 | 449 | 500 | 14.0 / 148.2 | 2.58 / 158.8 | 0.981 | 26 | 166 / 10 | 443 |
+| p4g | 462 | 467 | 447 | 500 | 14.0 / 148.2 | 3.87 / 168.5 | 0.982 | 19 | 122 / 5 | 322 |
+| p4s | 499 | 443 | 443 | 500 | 14.0 / 148.2 | 9.53 / 170.4 | 0.983 | 22 | 161 / 8 | 748 |
+
+The measurement's numbers for p4 were 458 / 472 / 456 (before #1180 and #1184). The guard alone gives back 8 meshes on the min side (44 -> 36 meshes lost
+against master) and costs 2 on the max side; p4s loses no mesh on the min side (0 meshes below min(F, master's worst min); 499 against master's 498) and
+clears the max side on 443 meshes (the other 57 keep a few tets above G). The improver costs 1.8x master's time (161 s against 89 s over 500 meshes, max
+8 s). A 24-mesh subset with `G3_CHECK=1` (boundary self-intersection, input vertices outside): 0 and 0 in every configuration. Rows: data branch `runs/tet-maxdih`.

@@ -1282,3 +1282,9 @@ no `AlphaField` the output is bit for bit the same (`ExistingResult_IsBitForBitT
 - **A failed refined wrap** (eg its point limit) no longer fails the run: the last successful wrap (the uniform one if the first pass fails) is used and `Counts["local_alpha_wrap_failed"]` / `local_alpha_wrap_failed_status` say so (`FailedLocalWrap_...`); the same call without the option would have succeeded.
 - **Limits**: only an input with triangles; not applied to the wrap's other passes (simplification, quality pass, feature pass); the tolerance cannot go below 2 offsets (raised); the field is built from 20000 samples, so a detail smaller than the sample spacing (about sqrt(area / 20000)) can be missed; the cost of the field is about 2 us per gate test (0.24 s of CPU per run in the spike, 37 % of the local run's wall time as an upper bound).
 - **Not built**: the a-priori estimator (free distance along the outward normal, one pass, no second wrap: 0.64x tets at 1.0x max distance, 1.18x the p95, better than uniform /80 on only 14 of 39 meshes), the oracle, a lattice field.
+
+### 17.14 MaxDihedralDegrees (opt-in, 2026-11-19)
+
+Stage 2 can also work on the largest dihedral angle: `MaxDihedralDegrees` > 0 (default 0 = off, bit for bit as before) uses the quality
+min(smallest, F + G - largest) with a guard and a first phase on the smallest angle alone. Result on the 500-mesh sample and the numbers against the
+measurement: [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "MaxDihedralDegrees". No default change.

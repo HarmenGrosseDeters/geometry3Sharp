@@ -31,9 +31,9 @@ namespace geometry3Sharp.Tests
             return !ok || mn < f;
         });
 
-        static MeshTetrahedralization Run(DMesh3 input, double maxDihedral, bool guard = true, double alpha = 40, double offset = 600, bool improve = true)
+        static MeshTetrahedralization Run(DMesh3 input, double maxDihedral, bool guard = true, bool staged = true, double alpha = 40, double offset = 600, bool improve = true)
         {
-            var tm = new MeshTetrahedralization(input) { RelativeAlpha = alpha, RelativeOffset = offset, MaxDihedralDegrees = maxDihedral, MaxDihedralGuard = guard, Improve = improve };
+            var tm = new MeshTetrahedralization(input) { RelativeAlpha = alpha, RelativeOffset = offset, MaxDihedralDegrees = maxDihedral, MaxDihedralGuard = guard, MaxDihedralStaged = staged, Improve = improve };
             Assert.True(tm.Compute(), tm.Status.ToString());
             return tm;
         }
@@ -148,8 +148,8 @@ namespace geometry3Sharp.Tests
             // master pipeline reaches
             DMesh3 input = TetMeshingStage2Tests.Input("torus thin");
             var plain = Run(input, 0);
-            var guarded = Run(input, G);
-            var unguarded = Run(input, G, guard: false);
+            var guarded = Run(input, G, staged: false);
+            var unguarded = Run(input, G, guard: false, staged: false);
             double floor = Math.Min(10, WorstMin(plain.Result));
             Assert.True(WorstMin(guarded.Result) >= floor - 1e-9, WorstMin(guarded.Result) + " vs " + floor);
             Assert.True(WorstMin(unguarded.Result) < floor - 1e-9, "the unguarded objective keeps the floor here: " + WorstMin(unguarded.Result));
@@ -159,6 +159,18 @@ namespace geometry3Sharp.Tests
                 Assert.False(unguarded.Counts.ContainsKey("improve_guard_trips_" + op), op);
                 Assert.False(plain.Counts.ContainsKey("improve_guard_trips_" + op), op);
             }
+        }
+
+        [Theory]
+        [MemberData(nameof(TetMeshingStage2Tests.Inputs), MemberType = typeof(TetMeshingStage2Tests))]
+        public void Staged_RunsThePlainPhaseFirst_SoTheMinSideIsAsWithoutTheOption(string name)
+        {
+            DMesh3 input = TetMeshingStage2Tests.Input(name);
+            var plain = Run(input, 0);
+            var staged = Run(input, G);
+            var direct = Run(input, G, staged: false);
+            Assert.True(staged.Counts["improve_passes"] > direct.Counts["improve_passes"] || staged.Counts["improve_edge_removals"] != direct.Counts["improve_edge_removals"], name);
+            Assert.True(WorstMin(staged.Result) >= Math.Min(10, WorstMin(plain.Result)) - 1e-9, name);
         }
 
         [Fact]
