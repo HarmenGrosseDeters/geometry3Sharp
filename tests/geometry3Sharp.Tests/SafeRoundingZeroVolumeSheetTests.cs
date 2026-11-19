@@ -81,11 +81,11 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// a large sheet (the error of its triple products is as large as the bound there: unit sheet at x = 5, coordinates up to 6): even
-        /// 0.5 ulp stays, as 3 ulps (the noise margin keeps the doubtful ones, never removes a real one)
+        /// a large sheet (the error of its triple products is as large as the bound there: unit sheet at x = 5, coordinates up to 6):
+        /// 0.5 ulp is removed since #1191 (the floating-point margin kept it; the exact volume decides), 3 ulps stay
         /// </summary>
         [Theory]
-        [InlineData(0.5, 0)]
+        [InlineData(0.5, 1)]
         [InlineData(3, 0)]
         public void LargeSheet_NoiseDoesNotDecide(double f, int removed)
         {

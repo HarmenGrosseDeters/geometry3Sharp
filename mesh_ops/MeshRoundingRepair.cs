@@ -3124,14 +3124,15 @@ namespace g3
                 int v0 = Mesh.GetTriangle(comp[0]).a;
                 bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
                 // numerically zero volume (#1067): see numerically_zero_volume
-                bool zeroVolume = numerically_zero_volume(volume, sum, largest, comp.Count, tripleNorms);
-                if (tiny == false && thin == false && zeroVolume == false)
-                    continue;
+                // (closed first: the exact test is for closed components only, and costs a pass over the component)
                 bool closed = true;
                 foreach (int t in comp) {
                     Index3i te = Mesh.GetTriEdges(t);
                     closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
                 }
+                bool zeroVolume = closed && numerically_zero_volume(Mesh, comp, volume, sum, largest, tripleNorms);
+                if (tiny == false && thin == false && zeroVolume == false)
+                    continue;
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
                 if (closed == false)
@@ -3216,16 +3217,43 @@ namespace g3
         }
 
         /// <summary>
-        /// Whether a closed sheet has a numerically zero volume (#1067): its thickness 2 |V| / area is below the unit in the last
-        /// place of its largest coordinate, with the error of the computed volume counted against it, so that a sheet whose
-        /// volume the sum cannot tell from zero stays. volume = the sum of the triple products (relative to a point of the
-        /// component) over 6; tripleNorms = the sum of |pa-o| |pb-o| |pc-o| over the triangles. Each triple product has an error
-        /// of about u times that product of lengths (on a flat sheet the terms cancel to far below it, so u |term| would
-        /// understate it), the sum adds n half ulps of the terms: (n + 16) u tripleNorms covers both. Not finite: false.
+        /// Whether a closed sheet has a numerically zero volume (#1067, #1191): its thickness 2 |V| / area is below the unit in the
+        /// last place of its largest coordinate, decided exactly for the computed area. The rule is 2 |V| &lt; t with
+        /// t = ulp(largest) * area, area the floating-point sum of the triangle areas (an exact area is a sum of square roots; the
+        /// rule is defined with the computed one, so the same input gives the same answer, and the 2^k scales give it bit for bit),
+        /// and |V| exact: 6 |V| = |S|, S the sum of the determinants relative to the first vertex of the component, exact
+        /// (ExactPredicates.TryCompareAbsVolume6, whose filter is the proven bound of VolumeSign and which evaluates in integers
+        /// where the filter cannot decide; |S| &lt; 3 t is compared exactly). The unproven floating-point margin
+        /// (n + 16) u sum |pa-o||pb-o||pc-o| no longer decides a removal; it serves a keep shortcut only: a component whose
+        /// computed volume exceeds the threshold by 8 times that margin is kept without the exact test (a speed measure for the
+        /// many thick components; where it were wrong the sheet is kept, as before #1191). volume = the sum of the triple
+        /// products (relative to a point of the component) over 6; tripleNorms = the sum of |pa-o| |pb-o| |pc-o| over the
+        /// triangles. Not decided (a coordinate or t not finite, t zero or subnormal): false, the sheet stays. (The floor on t breaks the
+        /// 2^k invariance only below t of 2^-1022, coordinates of about 1e-100 and smaller; such components are tiny and go as such.)
         /// </summary>
-        internal static bool numerically_zero_volume(double volume, double area, double largest, int count, double tripleNorms)
+        internal static bool numerically_zero_volume(DMesh3 mesh, List<int> comp, double volume, double area, double largest, double tripleNorms)
         {
-            return 2 * (Math.Abs(volume) + (count + 16) * 1.1102230246251565e-16 * tripleNorms) < ulp(largest) * area;
+            double t = ulp(largest) * area;
+            if (!(t >= ExactPredicates.MinNormal) || double.IsInfinity(t) || double.IsNaN(volume))
+                return false;
+            double margin = (comp.Count + 16) * 1.1102230246251565e-16 * tripleNorms;
+            if (2 * (Math.Abs(volume) - 8 * margin) >= t)
+                return false;
+            var index = new Dictionary<int, int>();
+            var xyz = new List<double>();
+            var corners = new int[3 * comp.Count];
+            for (int i = 0; i < comp.Count; ++i) {
+                Index3i tv = mesh.GetTriangle(comp[i]);
+                for (int k = 0; k < 3; ++k) {
+                    if (index.TryGetValue(tv[k], out int id) == false) {
+                        index[tv[k]] = id = xyz.Count / 3;
+                        Vector3d p = mesh.GetVertex(tv[k]);
+                        xyz.Add(p.x); xyz.Add(p.y); xyz.Add(p.z);
+                    }
+                    corners[3 * i + k] = id;
+                }
+            }
+            return ExactPredicates.TryCompareAbsVolume6(xyz.ToArray(), corners, t, out int sign) && sign < 0;
         }
     }
 }
