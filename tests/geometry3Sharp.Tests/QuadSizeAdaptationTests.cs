@@ -209,7 +209,10 @@ namespace geometry3Sharp.Tests
         public void Frames_ScaleOnlyUsesOneUnknownPerVertex_AndRotationTwo()
         {
             Assert.Equal(1, Frames("sphere", f => f.UseRotation = false).UnknownsPerVertex);
-            Assert.Equal(1, Frames("sphere", f => f.MaxRotationDegrees = 0).UnknownsPerVertex);       // no rotation allowed: the same problem
+            IntegrableFrames noRot = Frames("sphere", f => f.MaxRotationDegrees = 0);                  // no rotation allowed: the same problem as UseRotation = false
+            Assert.Equal(1, noRot.UnknownsPerVertex);
+            Assert.All(noRot.Rotation, r => Assert.Equal(0.0, r));
+            AssertSameBits(Frames("sphere", f => f.UseRotation = false).Spacing, noRot.Spacing);
             Assert.Equal(2, Frames("sphere").UnknownsPerVertex);                                      // ScaleAndRotation: sigma and phi
             Assert.Equal(2, Frames("sphere", f => { f.UseRotation = false; f.ForceTwoUnknowns = true; }).UnknownsPerVertex);
         }
@@ -275,9 +278,7 @@ namespace geometry3Sharp.Tests
             AssertSameBits(sp, Frames("torus", f => f.UseRotation = false).Spacing);
         }
 
-        public static IEnumerable<object[]> Names2() => Similarity.Names();
-
-        [Theory, MemberData(nameof(Names2))]
+        [Theory, MemberData(nameof(Names))]
         public void Frames_ScaleOnlyIsInvariantUnderSimilarities(string name)
         {
             Similarity sim = Similarity.ByName(name);

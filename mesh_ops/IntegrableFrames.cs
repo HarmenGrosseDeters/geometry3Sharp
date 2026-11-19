@@ -186,7 +186,7 @@ namespace gs
                 for (int tries = 0; tries < 8; ++tries) {
                     for (int i = 0; i < n; ++i) {
                         sig2[i] = Math.Max(-maxSig, Math.Min(maxSig, sig[i] + alpha * d[u * i]));
-                        phi2[i] = (bnd[i] || !useRot) ? 0 : Math.Max(-maxPhi, Math.Min(maxPhi, phi[i] + alpha * d[2 * i + 1]));
+                        phi2[i] = (bnd[i] || !useRot || u != 2) ? 0 : Math.Max(-maxPhi, Math.Min(maxPhi, phi[i] + alpha * d[2 * i + 1]));
                     }
                     newCost = Cost(tri, edgeVec, sig2, phi2, useRot, out newCurl);
                     if (newCost < cost) { accepted = true; break; }
