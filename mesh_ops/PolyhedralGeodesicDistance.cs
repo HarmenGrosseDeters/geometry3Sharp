@@ -26,7 +26,7 @@ namespace g3
     /// (a strip of height 1e-6 against a length of 1 with several rows) a vertex can stay unreached: the status is Ok and its Distance is NaN.
     /// Check the array for NaN when the input can be that thin.</para>
     /// <para>Memory: a window is a 64-byte struct; a run holds at most about 120 bytes x (MaxWindows + 2 x the largest vertex
-    /// valence) plus about 57 bytes per vertex (see the design note). Serial and deterministic: every operation is IEEE
+    /// valence) plus about 57 bytes per vertex (see the design note). Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
     /// double without FMA, and 2^k scalings of the input give the same bits (away from overflow and the subnormal range).</para>
     /// </summary>
     public sealed class PolyhedralGeodesicDistance
@@ -38,8 +38,7 @@ namespace g3
         public DMesh3 Mesh { get; private set; }
         /// <summary> no window is created beyond this distance; vertices farther away stay NaN. NaN or negative throws in Compute; 0 computes the sources only </summary>
         public double MaxDistance = double.PositiveInfinity;
-        /// <summary> the limit on the windows created; 0 means 64 x the vertex count. Checked between steps, so Windows can end up to
-        /// 2 x the largest valence above it. Passing it ends Compute with WindowLimit and NaN arrays </summary>
+        /// <summary> the limit on the windows created; 0 means 64 x the vertex count. Checked between steps, so Windows can end up above it by the windows of one step. Passing it ends Compute with WindowLimit and NaN arrays </summary>
         public long MaxWindows = 0;
         /// <summary> optional, polled between steps; returning true ends Compute with Cancelled and NaN arrays </summary>
         public Func<bool> CancelRequested;
@@ -75,7 +74,7 @@ namespace g3
         Window[][] wchunks;
         int[][] nchunks;                // next window of the same side list
         int[][] pchunks;                // heap position of a window, -1 if not queued
-        int wcount, chunkLimit;
+        int wcount;
         ref Window W(int i) => ref wchunks[i >> ChunkBits][i & (ChunkSize - 1)];
 
         int[] head;                     // per edge side: first window
@@ -124,7 +123,7 @@ namespace g3
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
             extent = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
             cEps = 16 * Eps * extent; delta = 1e-12 * extent; xiCap = 1e-6 * extent;
-            maxWindows = MaxWindows > 0 ? MaxWindows : 64L * Mesh.VertexCount;
+            maxWindows = Math.Min(MaxWindows > 0 ? MaxWindows : 64L * Mesh.VertexCount, 1L << 30);   // window ids and the heap are int
             maxValence = 0;
             vx = new double[n]; vy = new double[n]; vz = new double[n];
             foreach (int v in Mesh.VertexIndices()) { Vector3d p = Mesh.GetVertex(v); vx[v] = p.x; vy[v] = p.y; vz[v] = p.z; maxValence = Math.Max(maxValence, Mesh.GetVtxEdgeCount(v)); }
@@ -138,7 +137,6 @@ namespace g3
             foreach (int v in Mesh.VertexIndices()) { kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)oracle.VertexKind(v); flat[v] = kind[v] == 0 && oracle.IsFlatVertex(v); }
             head = new int[2 * me]; for (int i = 0; i < head.Length; ++i) head[i] = -1;
             int firstChunk = (int)Math.Min(ChunkSize, maxWindows + 2L * maxValence + 2);
-            chunkLimit = firstChunk;
             wchunks = new Window[1][] { new Window[firstChunk] }; nchunks = new int[1][] { new int[firstChunk] }; pchunks = new int[1][] { new int[firstChunk] };
             wcount = 0; hn = 0;
 
@@ -258,6 +256,11 @@ namespace g3
                 Array.Resize(ref wchunks, ci + 1); Array.Resize(ref nchunks, ci + 1); Array.Resize(ref pchunks, ci + 1);
                 wchunks[ci] = new Window[ChunkSize]; nchunks[ci] = new int[ChunkSize]; pchunks[ci] = new int[ChunkSize];
             }
+            // the first chunk is sized for MaxWindows; a step can overshoot the limit by more than its estimate (each Add splits into pieces)
+            if (ci == 0 && (wcount & (ChunkSize - 1)) >= wchunks[0].Length) {
+                int nl = (int)Math.Min(ChunkSize, 2L * wchunks[0].Length);
+                Array.Resize(ref wchunks[0], nl); Array.Resize(ref nchunks[0], nl); Array.Resize(ref pchunks[0], nl);
+            }
             int id = wcount++;
             W(id) = w; pchunks[ci][id & (ChunkSize - 1)] = -1;
             Windows = wcount;
@@ -293,7 +296,7 @@ namespace g3
                 ref Window b = ref W(cur);
                 if (!(b.B1 > b.B0)) { if (prev < 0) head[side] = nx; else SetNext(prev, nx); cur = nx; continue; }   // unlink the dead
                 double segL = segs[0].l, segR = segs[segs.Count - 1].r;
-                if (b.B1 < segL - 0 || b.B0 > segR + 0) { prev = cur; cur = nx; continue; }
+                if (b.B1 < segL || b.B0 > segR) { prev = cur; cur = nx; continue; }
                 // merging (A.7): one origin, nearly the same position and sigma, pending partner, touching intervals
                 if (b.Origin == win.Origin && b.Side >= 0) {
                     double dp = Hyp(b.Sx - win.Sx, b.Sy - win.Sy), ds = Math.Abs(b.Sigma - win.Sigma);
@@ -320,7 +323,7 @@ namespace g3
                     if (rem.Count > 0) { var res = segB; Minus(segs, rem, res); segB = segs; segA = res; segs = res; if (segs.Count == 0) return; }
                 }
                 // b certainly worse than w over its end: cut b's end
-                if (b.Side >= 0 || true) {
+                {
                     foreach (var sg in segs) {
                         double l = Math.Max(b.B0, sg.l), r = Math.Min(b.B1, sg.r);
                         if (r > l && FMin(b, l, r) - b.Xi > FMax(win, l, r) + xiM + margin) {
@@ -368,7 +371,7 @@ namespace g3
         static void Dominated(in Window a, in Window b, double l, double r, int depth, List<(double l, double r)> rem, double m)
         {
             if (!(r > l)) return;
-            if (FMin(a, l, r) - 0 > FMax(b, l, r) + m) { rem.Add((l, r)); return; }
+            if (FMin(a, l, r) > FMax(b, l, r) + m) { rem.Add((l, r)); return; }
             if (depth == 0) return;
             // no piece inside [l, r] can pass the test unless FMax(a) > FMin(b) + m: the two functions are monotone in |x - Sx| (also
             // in floating point: every step of Hyp is monotone), so FMin(a, piece) <= FMax(a, l, r) and FMax(b, piece) >= FMin(b, l, r);
@@ -460,7 +463,7 @@ namespace g3
                 var cw = new Window { Side = f2 < 0 ? 0 : SideOf(e2, f2), Origin = w.Origin, Sx = qIsA ? 0 : len, Sy = 0, Sigma = w.Sigma + Hyp(sx - qxp, sy - qyp), Xi = w.Xi + 8 * cEps, E = w.E + 16 * Eps };
                 double ww = Math.Min(len, Math.Max(8 * cEps, Math.Min(tolS, 1e-9 * extent)));
                 if (qIsA) { cw.B0 = len - ww; cw.B1 = len; } else { cw.B0 = 0; cw.B1 = ww; }
-                Finish(ref cw, e2, f2, len);
+                Finish(ref cw, e2, f2);
                 return;
             }
             // hull of the crossing parameters of the two clip ends with the line of (P, Q): raw values (not clamped to the edge: a ray
@@ -502,10 +505,10 @@ namespace g3
             double o0, o1;
             if (aIsP) { o0 = u0; o1 = u1; } else { o0 = len - u1; o1 = len - u0; }
             var cw2 = new Window { Side = f2 < 0 ? 0 : SideOf(e2, f2), Origin = w.Origin, B0 = o0, B1 = o1, Sx = csx, Sy = csy, Sigma = w.Sigma, Xi = w.Xi + 2 * errU + cEps, E = Ec };
-            Finish(ref cw2, e2, f2, len);
+            Finish(ref cw2, e2, f2);
         }
 
-        void Finish(ref Window cw, int e2, int f2, double len)
+        void Finish(ref Window cw, int e2, int f2)
         {
             if (f2 < 0) {                                   // a boundary edge: terminal, only the end vertices get a distance
                 if (cw.B1 > cw.B0) RecordEnds(ref cw, e2);

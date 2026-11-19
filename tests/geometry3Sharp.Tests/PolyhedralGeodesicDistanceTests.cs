@@ -307,6 +307,48 @@ namespace geometry3Sharp.Tests
         // ------------------------------------------------------------------ reuse, determinism, invariance
 
         [Fact]
+        public void TinyWindowLimits_EndWithWindowLimitOrOk_NeverThrow()
+        {
+            var plane = Grid(1, 9, (x, y) => 0); var terrain = Grid(4, 9, Terrain);
+            foreach (var m in new[] { plane, terrain })
+                for (long limit = 1; limit <= 80; ++limit) {
+                    var g = new PolyhedralGeodesicDistance(m) { MaxWindows = limit };
+                    var st = g.Compute(new[] { 40 });
+                    Assert.True(st == PolyhedralGeodesicStatus.Ok || st == PolyhedralGeodesicStatus.WindowLimit, $"limit {limit}: {st}");
+                }
+        }
+
+        [Fact]
+        public void SlantedIntegerPlane_ExactlyFlatNotAxisAligned_MatchesTheStraightDistance()
+        {
+            var m = Grid(0, 0, 20, 20, 21, 21, (x, y) => 2 * x + 3 * y); int c = 10 * 21 + 10;
+            AssertClosedForm(m, Run(m, c), v => m.GetVertex(v).Distance(m.GetVertex(c)));
+        }
+
+        [Fact]
+        public void IsFlatVertex_FlatFoldConvexSaddleBoundaryAndIsolated()
+        {
+            var plane = Grid(1, 5, (x, y) => 0); var o = new ExactMeshGeodesicDistance(plane);
+            Assert.True(o.IsFlatVertex(12));                                   // interior of a plane
+            Assert.False(o.IsFlatVertex(0)); Assert.False(o.IsFlatVertex(2)); // boundary
+            var dome = Grid(1, 5, (x, y) => -(x * x + y * y)); Assert.False(new ExactMeshGeodesicDistance(dome).IsFlatVertex(12));
+            var saddle = Grid(1, 5, (x, y) => 0.3 * (x * x - y * y)); Assert.False(new ExactMeshGeodesicDistance(saddle).IsFlatVertex(12));
+            var iso = new DMesh3(plane); int v = iso.AppendVertex(new Vector3d(9, 9, 9)); Assert.False(new ExactMeshGeodesicDistance(iso).IsFlatVertex(v));
+        }
+
+        [Fact]
+        public void ThinStripWithFiveRows_KnownLimit_NeverTooSmall_AtMostSevenUnreached()
+        {
+            // the documented limit (class remarks, limit 2): vertices can stay unreached with status Ok; what is reached is never below the straight line
+            var m = Grid(-1, -1e-8, 1, 1e-8, 21, 5, (x, y) => 0);
+            foreach (int src in new[] { 10, 0 }) {
+                var g = Run(m, src);
+                Assert.True(g.Distance.Count(double.IsNaN) <= 7);
+                foreach (int v in m.VertexIndices()) if (!double.IsNaN(g.Distance[v])) Assert.True(g.Distance[v] >= m.GetVertex(v).Distance(m.GetVertex(src)) * (1 - 1e-9));
+            }
+        }
+
+        [Fact]
         public void Reuse_OneInstance_SameBits_AndAnotherSource()
         {
             int n = 31; var m = Grid(n / 2, n, Terrain); var g = new PolyhedralGeodesicDistance(m);
