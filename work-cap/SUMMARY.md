@@ -49,3 +49,11 @@ timing noise near the 20 s line. Timeouts are counted as missing results in the 
   variant would need its own measurement.
 - Not done (outside this task): a cap on all improvement attempts or a pass budget; a value below 8 at floor 20.
 - No PR (data branch). Gate files: none touched on master; on this branch only `.github/workflows/tet-sample.yml` and the benchmark files differ, as in `runs/tet-rescue-stop`.
+
+## Review (independent, REVIEW_CHECKLIST classes 0, 1, 2, 5, 6, 7, 9, 11)
+
+No blocking defect. Fixes after the review (commit after the measurement; the measured run used the code before them, results unchanged by them except as noted):
+tests `TheBudget_IsExact` (exactly k attempts, budget above the use changes nothing; kills `>=` -> `>`) and `TheOption_OverflowAndTinyValues` replaced the monotonicity test (not a
+real property); `try_split_tet` returns early once the budget is spent (saves the memo and ring-signature work in the remaining passes; the results are the same, "cap reached"
+now also means "a split would have been tried after the budget was spent", so the measured counts of meshes where it was reached can differ marginally); doc wording.
+Not for merge: `ImproveTrace`/`Trace` (data branch only, would add public API). If the option goes to master it needs a docs line (TET_MESHING.md, ROADMAP) and the net48/pack/full-test steps of CLAUDE.md.

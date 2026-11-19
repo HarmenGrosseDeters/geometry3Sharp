@@ -41,16 +41,51 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual(off.Result.Tets, capped.Result.Tets);
         }
 
-        [Fact]
-        public void TheCap_IsMonotone_InTheSplitsItAllows()
+        // an improver on the stage-1 mesh, as the mesher sets it up (splits on, no contraction), with the given cap in attempts
+        static TetMeshImprover Improver(long cap)
         {
-            long prev = -1;
-            foreach (double c in new[] { 0.005, Tight, 0.1, 0.5 }) {
-                var tm = Make(Thin(), c); Assert.True(tm.Compute());
-                long ins = tm.Counts["improve_insertions"];
-                Assert.True(ins >= prev, c + ": " + ins + " < " + prev);
-                prev = ins;
+            var tm = new MeshTetrahedralization(Thin()) { Improve = false, RelativeAlpha = TetMeshingStage2SplitTests.MechanismAlpha };
+            Assert.True(tm.Compute());
+            var imp = new TetMeshImprover(tm.Result) { TargetDegrees = 10, MaxPasses = 50, RescuePasses = 150, Insertion = true, Contraction = true, MaxSplitAttempts = cap,
+                InputTree = new DMeshAABBTree3(Thin(), true), BoundarySlideLimit = tm.BoundarySlideFactor * tm.UsedOffset };
+            imp.Run();
+            return imp;
+        }
+
+        [Fact]
+        public void TheBudget_IsExact()
+        {
+            TetMeshImprover free = Improver(0);
+            long used = free.SplitAttempts;
+            Assert.True(used > 10, used.ToString());
+            Assert.False(free.Counts.ContainsKey("work_cap_reached"));
+            // exactly k attempts are made, then the cap is reported (the runs are identical up to the k-th attempt)
+            foreach (long k in new[] { 1L, 5L, used / 2 }) {
+                TetMeshImprover c = Improver(k);
+                Assert.Equal(k, c.SplitAttempts);
+                Assert.Equal(1, c.Counts["work_cap_reached"]);
             }
+            // a budget above what the run uses changes nothing
+            TetMeshImprover roomy = Improver(used + 1);
+            Assert.False(roomy.Counts.ContainsKey("work_cap_reached"));
+            Assert.Equal(used, roomy.SplitAttempts);
+            Assert.Equal(free.Result().Tets, roomy.Result().Tets);
+            Assert.Equal(free.Result().Vertices, roomy.Result().Vertices);
+        }
+
+        [Fact]
+        public void TheOption_OverflowAndTinyValues()
+        {
+            var off = Make(Thin(), 0); Assert.True(off.Compute());
+            foreach (double huge in new[] { 1e308, double.MaxValue }) {                   // the product overflows: no cap in effect
+                var tm = Make(Thin(), huge); Assert.True(tm.Compute());
+                Assert.Equal(off.Result.Tets, tm.Result.Tets);
+                Assert.False(tm.Counts.ContainsKey("improve_work_cap_reached"));
+            }
+            var tiny = Make(Thin(), 1e-300); Assert.True(tiny.Compute());                  // ceil gives one attempt: the cap is on
+            Assert.Equal(1, tiny.Counts["improve_work_cap_reached"]);
+            var neg = Make(Thin(), double.NegativeInfinity); Assert.True(neg.Compute());
+            Assert.Equal(off.Result.Tets, neg.Result.Tets);
         }
 
         [Fact]

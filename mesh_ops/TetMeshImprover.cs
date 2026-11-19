@@ -626,6 +626,8 @@ namespace gs
 
         bool try_split_tet(int id)
         {
+            // the work cap is spent: no split is tried any more (and the memo and ring signatures are not paid for in the passes that remain)
+            if (MaxSplitAttempts > 0 && splitAttempts >= MaxSplitAttempts) { Counts["work_cap_reached"] = 1; return false; }
             Index4i t = tets[id];
             long sig = ring_signature(t);
             if (splitFailed.TryGetValue(t, out long s0) && s0 == sig) return false;
@@ -651,7 +653,7 @@ namespace gs
         /// <summary>
         /// work cap of the split attempts: at most this many edges are tried for a split over the whole run (counted, never wall-clock); 0 = no cap (the
         /// default: the run is bit for bit as without the option). Once spent, the other operations go on and splits are skipped; Counts["work_cap_reached"]
-        /// = 1 says so (only then the key exists). The mesher sets it as MaxSplitAttemptsPerVertex times the vertex count of its input.
+        /// = 1 says so (only then the key exists). The mesher sets it as MaxSplitAttemptsPerVertex times the vertex count of the stage-1 mesh. The key is set when a split would be tried after the budget is spent.
         /// </summary>
         internal long MaxSplitAttempts = 0;
         long splitAttempts;
