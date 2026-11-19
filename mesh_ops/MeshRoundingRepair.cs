@@ -3107,7 +3107,7 @@ namespace g3
             int removeTriangles = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
-                double sum = 0, volume = 0, largest = 0, absTerms = 0;
+                double sum = 0, volume = 0, largest = 0, tripleNorms = 0;
                 // (the volume relative to a point of the component, against cancellation far from the origin)
                 Vector3d o = pos(Mesh.GetTriangle(comp[0]).a);
                 foreach (int t in comp) {
@@ -3117,16 +3117,14 @@ namespace g3
                     Vector3d pa = pos(tv.a), pb = pos(tv.b), pc = pos(tv.c);
                     double term = (pa - o).Dot((pb - o).Cross(pc - o)) / 6;
                     volume += term;
-                    absTerms += Math.Abs(term);
+                    tripleNorms += (pa - o).Length * (pb - o).Length * (pc - o).Length;
                     largest = Math.Max(largest, Math.Max(pa.MaxAbs, Math.Max(pb.MaxAbs, pc.MaxAbs)));
                 }
                 // tiny, or (closed) thinner than maxLength: a slab of thickness h has about volume = h area / 2
                 int v0 = Mesh.GetTriangle(comp[0]).a;
                 bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
-                // numerically zero volume (#1067): thickness 2 |V| / area below the ulp of the largest coordinate, with the rounding
-                // of the sum of the volume terms (n + 8 half ulps of their absolute sum) counted against it, so that a sheet whose
-                // volume the sum cannot tell from zero stays; not finite (NaN scale or coordinates): false
-                bool zeroVolume = 2 * (Math.Abs(volume) + (comp.Count + 8) * 1.1102230246251565e-16 * absTerms) < ulp(largest) * sum;
+                // numerically zero volume (#1067): see numerically_zero_volume
+                bool zeroVolume = numerically_zero_volume(volume, sum, largest, comp.Count, tripleNorms);
                 if (tiny == false && thin == false && zeroVolume == false)
                     continue;
                 bool closed = true;
@@ -3215,6 +3213,19 @@ namespace g3
                 rebuild_tree();
             }
             return count;
+        }
+
+        /// <summary>
+        /// Whether a closed sheet has a numerically zero volume (#1067): its thickness 2 |V| / area is below the unit in the last
+        /// place of its largest coordinate, with the error of the computed volume counted against it, so that a sheet whose
+        /// volume the sum cannot tell from zero stays. volume = the sum of the triple products (relative to a point of the
+        /// component) over 6; tripleNorms = the sum of |pa-o| |pb-o| |pc-o| over the triangles. Each triple product has an error
+        /// of about u times that product of lengths (on a flat sheet the terms cancel to far below it, so u |term| would
+        /// understate it), the sum adds n half ulps of the terms: (n + 16) u tripleNorms covers both. Not finite: false.
+        /// </summary>
+        internal static bool numerically_zero_volume(double volume, double area, double largest, int count, double tripleNorms)
+        {
+            return 2 * (Math.Abs(volume) + (count + 16) * 1.1102230246251565e-16 * tripleNorms) < ulp(largest) * area;
         }
     }
 }

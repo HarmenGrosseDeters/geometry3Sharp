@@ -59,7 +59,7 @@ namespace geometry3Sharp.Tests
         [InlineData(false)]
         public void SheetBelowTheUlp_IsRemoved_InEitherOrientation(bool inverted)
         {
-            var (m, r) = Repaired(Input(Sheet(Right, 0.05, 0.75, inverted)));
+            var (m, r) = Repaired(Input(Sheet(Right, 0.0005, 0.75, inverted)));
             Assert.Equal(1, r.RemovedComponents);
             Assert.Equal(34, r.RemovedTriangles);
             Assert.True(r.IsClean);
@@ -76,16 +76,16 @@ namespace geometry3Sharp.Tests
         [InlineData(1.05, 0, false)]
         public void TheBoundIsTheUlpItself(double f, int removed, bool inverted)
         {
-            var (m, r) = Repaired(Input(Sheet(Right, 0.05, f, inverted)));
+            var (m, r) = Repaired(Input(Sheet(Right, 0.0001, f, inverted)));
             Assert.Equal(removed, r.RemovedComponents);
         }
 
         /// <summary>
-        /// a large sheet near the origin (the rounding of the volume sum is as large as the bound there: unit sheet at x = 5, coordinates
-        /// up to 6): 0.5 ulp is removed, 3 ulps stay (the noise margin keeps the doubtful ones, never removes a real one)
+        /// a large sheet (the error of its triple products is as large as the bound there: unit sheet at x = 5, coordinates up to 6): even
+        /// 0.5 ulp stays, as 3 ulps (the noise margin keeps the doubtful ones, never removes a real one)
         /// </summary>
         [Theory]
-        [InlineData(0.5, 1)]
+        [InlineData(0.5, 0)]
         [InlineData(3, 0)]
         public void LargeSheet_NoiseDoesNotDecide(double f, int removed)
         {
@@ -100,7 +100,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void IndependentOfTheThinBound()
         {
-            DMesh3 m = Input(Sheet(Right, 0.05, 0.75, true));
+            DMesh3 m = Input(Sheet(Right, 0.0005, 0.75, true));
             var r = new MeshRoundingRepair(m) { UlpFactor = 0, MaxDisplacement = 1e-30 };
             r.Apply();
             Assert.DoesNotContain(34, MeshRoundingRepair.connected_components(m).Select(c => c.Count).ToList());
@@ -115,7 +115,7 @@ namespace geometry3Sharp.Tests
         [InlineData(4, false)]
         public void SheetAboveTheUlp_Stays(double f, bool inverted)
         {
-            var (m, r) = Repaired(Input(Sheet(Right, 0.05, f, inverted)));
+            var (m, r) = Repaired(Input(Sheet(Right, 0.0005, f, inverted)));
             Assert.Equal(0, r.RemovedComponents);
             Assert.Equal(inverted ? "inside-out components" : "", MeshRobustRepair.NotCleanReason(m));
             Assert.Contains(34, MeshRoundingRepair.connected_components(m).Select(c => c.Count).ToList());
@@ -125,7 +125,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EnclosedZeroVolumeCavity_IsRemoved()
         {
-            var (m, r) = Repaired(Input(Sheet(new Vector3d(0.1, 0.05, 0), 0.05, 0.75, true)));
+            var (m, r) = Repaired(Input(Sheet(new Vector3d(0.1, 0.05, 0), 0.000003, 0.75, true)));
             Assert.Equal(1, r.RemovedComponents);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
         }
@@ -137,7 +137,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TheBoundIsTheUlpOfTheLargestCoordinate()
         {
-            var (m, r) = Repaired(Input(Sheet(new Vector3d(-1.9, 0, 0), 0.2, 0.75, false)));
+            var (m, r) = Repaired(Input(Sheet(new Vector3d(-1.9, 0, 0), 0.0001, 0.75, false)));
             Assert.Equal(1, r.RemovedComponents);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
         }
@@ -146,7 +146,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TwoSheetsGo_TheResolvableOneStays()
         {
-            var (m, r) = Repaired(Input(Sheet(Right, 0.05, 0.75, true), Sheet(Left, 0.05, 0.75, false), Sheet(new Vector3d(0, 3, 0), 0.05, 4, false)));
+            var (m, r) = Repaired(Input(Sheet(Right, 0.0005, 0.75, true), Sheet(Left, 0.0005, 0.75, false), Sheet(new Vector3d(0, 3, 0), 0.0005, 4, false)));
             Assert.Equal(2, r.RemovedComponents);
             Assert.Equal(68, r.RemovedTriangles);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
@@ -166,7 +166,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Removal_Invariance()
         {
-            DMesh3 input = Input(Sheet(Right, 0.05, 0.75, true), Sheet(Left, 0.05, 0.75, false));
+            DMesh3 input = Input(Sheet(Right, 0.0005, 0.75, true), Sheet(Left, 0.0005, 0.75, false));
             var (m0, r0) = Repaired(input);
             Assert.Equal(2, r0.RemovedComponents);
             string expected = Positions(m0, Similarity.Identity);
@@ -187,7 +187,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Reuse_AndDeterminism()
         {
-            DMesh3 input = Input(Sheet(Right, 0.05, 0.75, true));
+            DMesh3 input = Input(Sheet(Right, 0.0005, 0.75, true));
             DMesh3 m = new DMesh3(input);
             var r = new MeshRoundingRepair(m);
             r.Apply();
@@ -195,6 +195,27 @@ namespace geometry3Sharp.Tests
             r.Apply();
             Assert.Equal(once, Positions(m, Similarity.Identity));
             Assert.Equal(once, Positions(Repaired(input).Mesh, Similarity.Identity));
+        }
+
+        /// <summary>
+        /// the margin covers the error of each triple product, not only the rounding of the sum: a flat sheet of about 1.2 ulp near the
+        /// origin from many triangles has terms that cancel to far below their size, so a margin from the terms' absolute sum (the old
+        /// one, (n + 8) u sum |term|) is nearly zero and would remove it; the bound from the lengths (n + 16) u sum |pa-o||pb-o||pc-o|
+        /// keeps it. The numbers are those of a unit sheet of 2000 triangles at coordinates of 0.5
+        /// </summary>
+        [Fact]
+        public void FlatSheetNearTheOrigin_WithManyTriangles_Stays()
+        {
+            const double u = 1.1102230246251565e-16;
+            double largest = 0.5, area = 1, count = 2000;
+            // (the true thickness is 1.2 ulp; the computed sum of the cancelling terms came out at 0.5 ulp, within the error of
+            // the triple products: terms of about 0.1 each, errors of u * 0.1 each, 2000 of them)
+            double computed = 0.5 * Ulp(largest) * area / 2, absTerms = 1e-16, tripleNorms = count * 0.125;
+            Assert.True(2 * (computed + (count + 8) * u * absTerms) < Ulp(largest) * area, "the old margin removes it");
+            Assert.False(MeshRoundingRepair.numerically_zero_volume(computed, area, largest, (int)count, tripleNorms));
+            // a vanishing volume of a small sheet is still removed
+            Assert.True(MeshRoundingRepair.numerically_zero_volume(0, 6.5e-6, 0.3, 8, 5e-8));
+            Assert.False(MeshRoundingRepair.numerically_zero_volume(double.NaN, 1, 0.5, 8, 1));
         }
     }
 }
