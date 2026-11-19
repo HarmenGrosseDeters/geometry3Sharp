@@ -88,7 +88,7 @@ namespace geometry3Sharp.Tests
             var s1 = new MeshTetrahedralization(tm.Mesh) { RelativeAlpha = tm.RelativeAlpha, RelativeOffset = tm.RelativeOffset,
                 MaxRadiusEdgeRatio = tm.MaxRadiusEdgeRatio, MaxCircumradius = tm.MaxCircumradius, SliverDihedralDegrees = tm.SliverDihedralDegrees,
                 SurfaceMinAngleDegrees = tm.SurfaceMinAngleDegrees, PeelBoundarySlivers = tm.PeelBoundarySlivers, MinFeatureFactor = tm.MinFeatureFactor,
-                MaxSteinerPoints = tm.MaxSteinerPoints, MaxSurfaceDeviation = tm.MaxSurfaceDeviation, LocalAlphaPasses = tm.LocalAlphaPasses, Improve = false };
+                MaxSteinerPoints = tm.MaxSteinerPoints, MaxSurfaceDeviation = tm.MaxSurfaceDeviation, LocalAlphaPasses = tm.LocalAlphaPasses, CreaseAngleDegrees = tm.CreaseAngleDegrees, Improve = false };
             Assert.True(s1.Compute());
             Assert.Equal(tm.UsedOffset, s1.UsedOffset);
             return s1.Result.ToSurfaceMesh();

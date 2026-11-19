@@ -1831,3 +1831,53 @@ full rounds; from margin 0.15 on none did (5, 20, 40 layers), so the default is 
 Still above 20 s with the new default: 318843 (20.5 s), 498456 (46.7 s, 55 rounds); 1514905 (16.1 s) is below. The rest is the
 cost of the winding queries themselves (and of the IoUs on 1514905); the remaining options (query budget, coarser `FWNBeta`,
 neighbour verdicts) change the output and are owner decisions (#1009 stays open).
+
+#### Faster winding queries, same bits (#1009 tail)
+
+Where the time of a query went (498456, 845 exact triangle terms, 1,527 child tests and 382 far-field expansions per query, one
+thread): the exact terms about a third (25.5 ns each, `Math.Atan2` 12 ns of that), the child tests with their `DVector` lookups
+and the construction of a box per test about a third, the expansions the rest. Two changes that keep every value bit for bit
+(the tree's `FastWindingNumber` returns the same double as before; the outputs of the benchmark, every field except the times, are identical on all
+12 meshes below):
+
+- the traversal of `DMeshAABBTree3.FastWindingNumber` runs on flat arrays (bounds, expansion centre and radius per box in one
+  entry; copies of `box_to_index` and `index_list`), with the same tests in the same order (+88 bytes per box, and 144 bytes per leaf triangle for the vector lanes);
+- the exact terms of a leaf (2 or 3 triangles on these meshes) are computed four at a time in a `Vector256`
+  (`FastWindingLeafKernel`: square roots, dot products and the triple product in the lanes, `Math.Atan2` per triangle, no fused
+  multiply-add, the terms added in the order of the triangles); a leaf with a coordinate outside the range where `TriSolidAngle`
+  rescales (2^-100 .. 2^100) takes the scalar path. Without 256-bit vectors, or on netstandard2.0, only the scalar path exists.
+  `FastWindingForceScalar` (internal) selects the reference path for the tests.
+
+And the two IoUs of `MeshFidelityMetrics` share the answers of the mesh's inside test where their sample points coincide
+(same region and seed; most often not, the saving is then nil).
+
+Upper bound (measured before building): kernel share of a query 25 to 30 % (an ideal vector kernel with 4 lanes: -14 % per term in a spike, atan2 stays
+scalar), traversal share about a third; the sum of the two was the bound for a change that keeps the bits (the other levers change the output:
+`FWNBeta` 1.5 gives 34 s on 498456 but 51 rounds, outer IoU 0.9518 instead of 0.9431).
+
+`fm_ms`, same job, master (77698bc5) and this change alternately, net10.0 Release, 4 cores, one mesh per process, cold JIT in both:
+
+| mesh | rounds | before | after | saved | all other fields |
+|---|---:|---:|---:|---:|---|
+| 318843 | 4 | 17.7 s | 13.1 s | 26 % | identical |
+| 498456 | 55 | 41.6 s | 29.6 s | 29 % | identical |
+| 1514905 | 3 | 14.7 s | 9.8 s | 34 % | identical |
+| 55928 | 5 | 5.7 s | 4.5 s | 21 % | identical |
+| 37111 | 4 | 4.1 s | 3.5 s | 14 % | identical |
+| 37275 | 1 | 6.4 s | 4.4 s | 32 % | identical |
+| 37329 | 2 | 1.5 s | 1.2 s | 16 % | identical |
+| 37331 | 2 | 1.1 s | 1.0 s | 8 % | identical |
+| 37731 | 2 | 2.5 s | 1.6 s | 33 % | identical |
+| 37788 | 2 | 6.0 s | 4.1 s | 32 % | identical |
+| 37215 | 1 | 2.2 s | 1.5 s | 31 % | identical |
+| 36075 | 1 | 1.0 s | 0.8 s | 23 % | identical |
+
+**Documented exception of the 20 s rule (owner 2026-11-19, option C): Thingi10K 498456, `fm_ms` 29.6 s after this change (41.6 s before).** Measured
+cause: 55 incremental rounds with 731,646 faces judged again (about 14k of about 20k per round), about 670 to 890 exact triangle terms per query, and in the
+late rounds 77 % of the stored points lie within the 0.2 margin of a decision boundary (values near w = 1 / 0.5). The default result stays bit for bit; no
+option was added. Changes that would be faster alter the output on this mesh: `FWNBeta` 1.5 (34 s) gives 51 rounds and outer IoU 0.9518 instead of 0.9431,
+leaf size 2 or 16 and a smaller margin or other stall rule change the rounds too.
+
+318843 is now below 20 s on this machine with room (13.1 s; 20.5 s in the table above, which was measured on another machine). 498456 stays above (29.6 s): its 54
+rounds each judge about 14k faces again, 77 % of whose stored points lie within the 0.2 margin of a decision boundary, and its
+outputs change under any perturbation of the winding values (the options that do are owner decisions on #1009).

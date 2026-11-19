@@ -193,3 +193,71 @@ local alpha (`refine` with `G3_TET_DEV=<x>`: `MaxSurfaceDeviation` = diagonal / 
 `results/tet-local-alpha-subset39-2026-11-19.csv`. Medians over 39 meshes (ratios per mesh against uniform /80): diagonal / 150 gives 0.52x the tets at 1.00x the input-to-boundary max distance and 1.17x the time;
 diagonal / 250 gives 0.68x the tets at 0.92x the distance and 1.31x the time (two passes: 0.81x the tets, 0.92x, 1.69x); uniform /160 is 3.75x the tets at 0.70x the distance and 2.39x the time. All 39 valid, no self-intersection, every tet >= 10 degrees in every configuration.
 
+
+
+## Sharp creases in the tet boundary (P4(b), `CreaseAngleDegrees`, TET_MESHING.md 17.14; 2026-11-19)
+
+```
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- feature [relativeAlpha] [relativeOffset]      (15 procedural sharp solids; G3_PROBE_RECOVER=1 adds the midpoint-split proxy)
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- featurefiles <dir with .stl>                  (S1-R and S1-F per mesh; Thingi10K ids fetched with benchmarks/LevyClassification/fetch_thingi.py, not committed)
+```
+Rows: `results/tet-creases-solids-2026-11-19.csv`, `results/tet-creases-thingi24-2026-11-19.csv`. RelativeAlpha 40, RelativeOffset 600 (the defaults), one run per row, cloud container (time is an order of magnitude).
+S1-R = the default boundary (the wrap's rounded surface), S1-F = `CreaseAngleDegrees` 30. Crease deviation = distance of 17 points per input edge turning by more than 30 degrees to the boundary, in offsets
+(diagonal / 600), maximum / mean, separately for convex and concave (re-entrant) creases. Concave creases are where the wrap bridges at the scale of alpha (15 offsets here).
+
+| solid | tets R / F | time s R / F | convex max/mean R | F | concave max/mean R | F | min dihedral R / F | Steiner |
+|---|---|---|---|---|---|---|---|---|
+| cube | 10814 / 11021 | 1.14 / 0.72 (JIT) | 0.81/0.53 | 1/0.91 | | | 10.01 / 10.02 | 0 |
+| box 3x2x1 | 8264 / 8243 | 0.28 / 0.44 | 0.78/0.43 | 1/0.85 | | | 10.02 / 10.01 | 0 |
+| wedge 60 / 30 / 20 / 12 deg | 7109 / 5877 / 6002 / 4610 vs 7187 / 5863 / 5965 / 4692 | 0.19 / 0.11 / 0.09 / 0.12 vs 0.26 / 0.22 / 0.14 / 0.20 | 0.71 to 0.79 / 0.38 to 0.46 | 1/0.79 to 0.87 | | | 10.0 to 10.09 / 10.0 to 10.06 | 3 / 10 / 0 / 14 |
+| box rotated, offset, x2^-10, x2^10 | 4485, 8164, 8264, 8264 vs 4713, 8119, 8243, 8243 | 0.07 to 0.25 vs 0.15 to 0.43 | 0.72 to 0.78 / 0.41 to 0.43 | 1/0.85 to 0.88 | | | 10.02 to 10.06 / 10.01 to 10.03 | 1, 0, 0, 0 |
+| L-shape | 7866 / 8367 | 0.23 / 0.42 | 1.0/0.47 | 1/0.95 | 11.6/6.7 | **6.1/1.6** | 10.0 / 10.04 | 3 |
+| octant | 11106 / 11712 | 0.30 / 0.50 | 1.0/0.53 | 1/0.95 | 14.3/6.3 | **10.8/2.2** | 10.0 / 10.02 | 0 |
+| slot | 9380 / 10675 | 0.26 / 0.58 | 1.0/0.46 | 1/0.94 | 13.7/7.5 | **5.6/1.5** | 10.02 / 10.0 | 22 |
+| V-notch | 9481 / 9538 | 0.25 / 0.47 | 1.0/0.49 | 1/0.90 | 31.1/22.4 | **8.4/4.0** | 10.0 / 10.02 | 20 |
+| chamfer | 7935 / 8286 | 0.29 / 0.35 | 0.92/0.51 | 1/0.96 | | | 10.01 / 10.01 | 1 |
+
+- **Recovered on 15 of 15 solids** (no fallback), at most 22 Steiner points; the featured surface has 33 to 152 missing triangles / 17 to 80 missing edges before the recovery (1.3 to 3.7 % of its triangles), the surface edge flips remove 95 to 100 % of them.
+  All tet meshes are exactly valid (`TetMeshQuality.NotValidReason`), `MinDihedralMet` is true on all.
+- **Concave creases** (the gain): mean 6.3 to 22.4 offsets with the rounded wrap, 1.5 to 4.0 with S1-F (2.9 to 5.6 times closer: L-shape 4.2, octant 2.9, slot 5.0, V-notch 5.6; the average of the four is 2.3; the octant's maximum only 14.3 -> 10.8). **Convex creases** are within one offset either way (the rounded wrap at 0.4 to 0.5 offsets mean,
+  the sharp (mitred) surface at 0.8 to 0.96: no gain by this distance, the surface is sharp but no closer). The tets stay at 0.99 to 1.14 times S1-R (the slot, 1.14 times, the most); the time is 1.2 to 2.2 times (the feature pass and the recovery; the cube's 0.63 is the JIT of the first row). Only 4 of the 15 solids have concave creases; the others show recovery on convex creases (0 to 14 Steiner points).
+- **Boundary slide** (`BoundarySlideFactor` 0.5, TetMeshImprover untouched): it takes back nothing of the gain. The same runs with `BoundarySlideFactor` 0 give the same crease deviation to three digits (the 15 solids), but the slide matters for the dihedral: on the 12 degree wedge without it the smallest dihedral is 7.6 degrees (with it 10.06).
+- **Creases below 20 degrees and `MinDihedralMet`**: 0 of 5 end with it false (wedge 12 and Thingi 44041 with an 11 degree, 55429 with a 12 degree and 94240 with a degenerate crease; the V-notch's 10.8 degree bottom edge is a sixth: also met); a tet at a crease cannot have a
+  dihedral above the crease's angle, so this holds by the slide and the improver, not by a bound; `Targets` still reports a miss, never silently.
+
+24 Thingi10K meshes of the 2026-11-17 subset (the fastest 24 with status Success; ids in the CSV): **recovered on 19 of 24** (the others fall back to S1-R: 132560 and 91589 at the floor, 81132 over the Steiner budget, 208721 and 68659 because a flipped or split surface triangle touches the input, caught by the exact check), `NotValidReason` null on all, `MinDihedralMet` true on all.
+Over the 19 recovered: tets 1.05 times S1-R at the median (0.94 to 1.25), time 4.2 times at the median (max 15; 0.1 to 3.3 s per mesh; the exact input-touch check of the changed triangles is up to 1.9 s of that), mean concave crease distance 0.92 times at the median over the 17 with concave creases (best 0.30: 49884 8.9 -> 2.6, 113956 8.0 -> 2.6, 70379 6.6 -> 3.1; 9 of 17 within 10 % of S1-R or worse).
+So the gain on real meshes is much smaller than on CAD solids: most of their concave edges are not the alpha-scale bridges that the pass moves (they are fine detail below alpha or noise), at a clear time cost.
+
+**Worst absolute time with `CreaseAngleDegrees` on** (this container, one run): 0.58 s on the solids (the slot, 10.7k tets), 3.0 s on the Thingi meshes (94240: 4.4k boundary triangles, S1-R 0.25 s; the exact input-touch check of the changed triangles is up to 1.9 s of it). No input is near the 20 s limit of CLAUDE.md.
+
+### MaxDihedralDegrees: the objective on both ends (opt-in, 2026-11-19)
+
+`MeshTetrahedralization.MaxDihedralDegrees` (0 = off, the default; bit for bit the stage as before) adds the "op 4" of Klingner's thesis (ch. 3-5, paper only) to
+stage 2: the quality of a tet is min(smallest dihedral, F + G - largest dihedral), F = `SliverDihedralDegrees`, G = the option, so a tet meets the target
+exactly when its smallest dihedral is >= F and its largest <= G. The measurement on the throwaway branch `runs/tet-stellar` (objective alone, "p4") lost
+meshes on the min side (498 -> 458 of 500 reach min >= F at 10 / 150). Two additions, both inside the option:
+
+- **guard**: no operation may leave a tet with a smallest dihedral below min(F, that of the tets it replaces) (smoothing, boundary moves, contraction, edge
+  and face removal, split). It does not repair the loss: the stage-1 result has about 100 tets below F that master fixes, and with the objective a max-side
+  tet next to such a tet masks it (the neighbourhood's worst quality is the max-side one), so the repair is not accepted.
+- **staged**: the improver first runs on the smallest dihedral alone (master's behaviour), then with the objective and the guard. The guard then keeps what
+  the first phase reached.
+
+500-mesh sample (`compare/thingi-sample-ids.txt`, alpha / 40, relative offset 600, floor 10, G = 150; `MaxDihedral.cs`, `compare/run_maxdih_shard.sh`,
+`compare/maxdih_summary.py`; stage 1 once per mesh, then each configuration's improver from that result; meshes fetched at run time, not kept; 4-core cloud container,
+3 shards in parallel, so the improver times are indicative only). master = option off; p4 = objective alone; p4g = with the guard; p4s = guard and staged (the option as built):
+
+| config | min>=F | max<=G | both | valid | median p01 / p99 | worst min / max | tets vs master | improver us/tet (median) | improver s (sum / max) | violating tets (sum) |
+|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|
+| master | 498 | 0 | 0 | 500 | 11.4 / 157.8 | 9.43 / 179.0 | 1.000 | 18 | 89 / 1 | 164860 |
+| p4 | 454 | 466 | 449 | 500 | 14.0 / 148.2 | 2.58 / 158.8 | 0.981 | 26 | 166 / 10 | 443 |
+| p4g | 462 | 467 | 447 | 500 | 14.0 / 148.2 | 3.87 / 168.5 | 0.982 | 19 | 122 / 5 | 322 |
+| p4s | 499 | 443 | 443 | 500 | 14.0 / 148.2 | 9.53 / 170.4 | 0.983 | 22 | 161 / 8 | 748 |
+
+The measurement's numbers for p4 were 458 / 472 / 456 (before #1180 and #1184). The guard alone gives back 8 meshes on the min side (44 -> 36 meshes lost
+against master) and costs 2 on the max side; p4s loses no mesh on the min side (0 meshes below min(F, master's worst min); 499 against master's 498) and
+clears the max side on 443 meshes (the other 57 keep a few tets above G). The improver costs 1.8x master's time (161 s against 89 s over 500 meshes, max
+8 s). A 24-mesh subset with `G3_CHECK=1` (boundary self-intersection, input vertices outside): 0 and 0 in every configuration. Rows: data branch `runs/tet-maxdih`.
+
+Cost of a target the shape cannot meet (`Compute()` of the 4.4k-tet sphere of `TetMeshingStage2Tests.Input("sphere")`, alpha 40, offset 600, floor 10, one run each, shared container). Without a stall stop: G = 130: 2.0 s; 120: 12 s; 110: 147 s; 100, 90, 80: more than 200 s (stopped). With the stall stop (`maxdih_stall_stop`: 4 passes that neither lower the number of bad tets nor raise the worst quality by 0.1 degrees, while more than 1 % of the tets are bad): G = 150: 1.4 s (3 passes, no stop); 130: 1.5 s; 110: 10 s; 100: 9 s; 90: 13 s; 80: 13 s, ending at a largest dihedral of 125-128 degrees and a smallest of 10.0-10.6. Values below 70.6 are off (no tet can meet them). At G = 150 the stop is never taken on the 500-mesh sample (rows equal, see above).
