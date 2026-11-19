@@ -15,6 +15,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Tet: P4(b) creases via S1-F | Phase 1 study | Study report, then a go / no-go | [tet](design/TET_MESHING.md) |
 | Quad: degenerate star on open strips | Root cause found (boundary snap in `PositionField`); default-output change approved, owner 2026-11-19 | PR with tests and re-pinned hashes | #1179 |
 | Other: `ContourLoft` skeleton saddles, holes inside branching groups | Phase 1 study started 2026-11-19 (owner: finish the topic) | Study report, then the build | [loft](design/CONTOUR_LOFT.md) |
+| Repair: `fm_ms` above 20 s on Thingi10K 318843 (20.5 s) and 498456 (46.7 s) | Study started 2026-11-19 (owner), #1009 reopened | Measured plan on #1009, then a bit-identical PR | [#1009](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1009) |
 | Geodesics/param: saddle window trim of `PolyhedralGeodesicDistance` | Session running; saddle 317x317 takes 41 s | Below the 20 s rule | #1186 |
 
 ## 2. Waiting for an owner decision (options are on the table)
