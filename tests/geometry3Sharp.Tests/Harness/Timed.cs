@@ -79,11 +79,11 @@ namespace geometry3Sharp.Tests
             while (!thread.Join(100)) {
                 long idle = Stopwatch.GetTimestamp() - Interlocked.Read(ref last);
                 if (idle > stall.TotalSeconds * Stopwatch.Frequency) {
-                    tripped = $"no progress for {stall.TotalSeconds:G} s";
+                    tripped = FormattableString.Invariant($"no progress for {stall.TotalSeconds:G} s");
                     return false;
                 }
                 if (total.HasValue && Stopwatch.GetTimestamp() - started > total.Value.TotalSeconds * Stopwatch.Frequency) {
-                    tripped = $"total of {total.Value.TotalSeconds:G} s exceeded";
+                    tripped = FormattableString.Invariant($"total of {total.Value.TotalSeconds:G} s exceeded");
                     return false;
                 }
             }

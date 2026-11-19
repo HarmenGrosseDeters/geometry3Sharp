@@ -26,7 +26,7 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
             Assert.Contains("cone facets", d.Message);
-            Assert.Contains(d.FanTolerance.ToString("R"), d.Message);
+            Assert.Contains(d.FanTolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture), d.Message);
             Assert.True(d.FanTolerance > 1e-4, d.FanTolerance.ToString("R"));
             Assert.Equal(0, d.FacetAngle);
         }
@@ -146,7 +146,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
             Assert.Contains("cone facets", d.Message);
             Assert.True(d.FanTolerance > 0.002, d.FanTolerance.ToString("R"));
-            Assert.Contains(d.FanTolerance.ToString("R"), d.Message);
+            Assert.Contains(d.FanTolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture), d.Message);
             // (the named Tolerance counts the share a terrain reserves for the catch points, Tolerance / 4: its facets fit)
             d.Tolerance = d.FanTolerance;
             Assert.True(d.Compute(), d.Status + " " + d.Message);
@@ -169,7 +169,7 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
             Assert.StartsWith("cut: ", d.Message);
-            Assert.Contains("the facets fit from Tolerance " + d.FanTolerance.ToString("R"), d.Message);
+            Assert.Contains("the facets fit from Tolerance " + d.FanTolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture), d.Message);
             var cut = make(TerrainSlopeDesign.Directions.Cut, 0.002);
             Assert.False(cut.Compute());
             Assert.True(d.FanTolerance > cut.FanTolerance * 2, $"{d.FanTolerance} {cut.FanTolerance}");
