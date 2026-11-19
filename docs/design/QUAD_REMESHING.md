@@ -446,8 +446,7 @@ changes the representative of o_i and so not the lattice (the result is bit for 
 collapse length 0.6 / 0.7 by -2 / -9 on the sphere and 0 on the box (open patch 32 -> 17, the one place it matters), the mismatch limit 0.3 is worse everywhere, a local (damped least squares) coupling of orientation or scale per vertex by at most 7; the dislocations
 sit in the integer structure of the lattice and a local update cannot move them. (This is also the floor of any later stage that keeps the unit spacing and the field; I did not test the flow of 3B on it.)
 
-**The restated gate (closed meshes; owner 2026-11-19).** `irregular vertices <= 2 S + 4 + 1.25 C`, S the singular faces of the field, C the curl mass of the uniform spacing (`IntegrableFrames.CurlBefore`, computed with
-`SizeAdaptation = Scale` on any run; also `QuadRemesher.CurlBefore`). The constant 1.25 is fitted: the measured maximum of (irregular - 2 S - 4) / C is 1.01 on the six shapes with curl (0.88 sphere, 0.61 torus, 1.01 bumpy, 0.73 noisy sphere,
+**The restated gate (closed meshes; owner 2026-11-19).** `irregular vertices <= 2 S + 4 + 1.25 C`, S the singular faces of the field, C the curl mass of the uniform spacing (`IntegrableFrames.CurlBefore`; `QuadRemesher.CurlBefore` is set only when `SizeAdaptation` is not Off, so it takes one run with `Scale` to evaluate the gate). The constant 1.25 is fitted to the six shapes with curl (the tests check the formula on the sphere and torus only): the measured maximum of (irregular - 2 S - 4) / C is 1.01 on the six shapes with curl (0.88 sphere, 0.61 torus, 1.01 bumpy, 0.73 noisy sphere,
 0.70 cap), so it is a gate with a 25 % margin, not a bound. The 95 % quads gate is unchanged (4 of the 7 shapes below it at the default; the opt-in size field below reaches it on all closed shapes). Open meshes: the boundary adds dislocations
 that C does not see (open patch 32 with C = 2.1, cap within the formula); the ragged boundary stays an open item, no gate. Test: `QuadSizeAdaptationTests` pin the curl mass against the irregular count on the sphere and torus.
 
@@ -461,21 +460,23 @@ Benchmark (`benchmarks/QuadRemeshBenchmark`, `adapt=0|1|2`: Off, Scale, ScaleAnd
 
 | shape | Off: irregular V / quads % / corner p95 | Scale | ScaleAndRotation | spacing range (ScaleAndRotation) | solver (s), Scale / both | solver + position field + extraction (s), Off / Scale / both |
 |---|---|---|---|---|---|---|
-| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 36 / 97.4 / 10.4 | 0.54-1.13 | 0.39 / 0.44 | 0.32 / 0.72 / 0.73 |
-| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 26 / 98.1 / 8.1 | 0.59-1.69 | 0.21 / 0.21 | 0.14 / 0.33 / 0.32 |
-| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 127 / 96.5 / 9.6 | 0.53-1.24 | 0.38 / 0.80 | 0.14 / 0.52 / 0.94 |
-| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.22 / 0.22 | 0.08 / 0.30 / 0.29 |
-| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 48 / 96.9 / 9.6 | 0.50-1.23 | 0.12 / 0.28 | 0.07 / 0.21 / 0.36 |
-| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 101 / 92.6 / 19.3 | 0.55-1.61 | 0.18 / 0.08 | 0.05 / 0.23 / 0.12 |
-| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.14 / 0.03 | 0.02 / 0.17 / 0.05 |
-| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 218 / 99.1 / 5.0 | 0.46-1.02 | 12.23 / 15.55 | 0.94 / 13.15 / 16.53 |
+| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.37 / 0.44 | 0.33 / 0.65 / 0.74 |
+| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.18 / 0.24 | 0.23 / 0.32 / 0.41 |
+| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 126 / 96.9 / 9.7 | 0.53-1.24 | 0.38 / 0.72 | 0.17 / 0.52 / 0.86 |
+| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.25 | 0.09 / 0.32 / 0.33 |
+| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.26 | 0.07 / 0.19 / 0.34 |
+| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.13 / 0.09 | 0.04 / 0.18 / 0.13 |
+| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.03 | 0.02 / 0.11 / 0.04 |
+| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 12.60 / 15.63 | 0.91 / 13.42 / 16.58 |
 
-Reading: on the sphere, torus and noisy sphere the size field cuts the irregular vertices (sphere 77 -> 36-40, torus 76 -> 26-35, noisy sphere 92 -> 48-67, the 110k sphere 354 -> 218-245) and lifts the quads to 96-98 % (the 110k sphere 98.6 -> 99.1 %),
-with a corner p95 of 8.1-12.5 degrees (Off 12.7-15.7). Rotation adds to it (the bumpy sphere is not applied with Scale alone, 176 -> 127 with ScaleAndRotation). None of the closed shapes reaches the old gate (sphere 36 against 20),
-all of them are inside the restated one. It does nothing on the filleted box (not applied: the curl does not drop by 20 %, the result is the uniform one bit for bit). On the open shapes it is mixed: the cap goes 96 -> 83 irregular with Scale (94.7 % quads) but its one-sided
-Hausdorff grows to 1.39 s (above the 0.5 s gate; the spacing reaches 2.5 near the boundary), with ScaleAndRotation 101 irregular and 92.6 % quads; the open patch gets 32 -> 25 irregular and 95.8 -> 95.0 % quads with Scale. **Use it on closed smooth shapes only.**
-The edge length varies by a factor of up to 2.5 across a shape (0.5-1.1 of the target on the sphere, up to 1.7 on the torus), so the target edge length is the mean, not the size of every quad. Cost: 0.1-1.6 s for 5-18k input vertices, 16 s for the 110k sphere (the Cholesky factorization of
-220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s.
+Reading: on the sphere, torus and noisy sphere the size field cuts the irregular vertices (sphere 77 -> 34-40, torus 76 -> 35-46, noisy sphere 92 -> 46-67, the 110k sphere 354 -> 234-245) and lifts the quads to 96-98 % (the 110k sphere 98.6 -> 99.0 %),
+with a corner p95 of 9.0-12.5 degrees (Off 12.7-15.7). The rotation helps on the sphere, the noisy sphere and the bumpy sphere (not applied with Scale alone, 176 -> 126 with ScaleAndRotation) and not on the torus (35 with Scale, 46 with both): Scale is the safer default
+choice. None of the closed shapes reaches the old gate (sphere 34 against 20), all are inside the restated one. It does nothing on the filleted box (not applied: the curl does not drop by 20 %, the result is the uniform one bit for bit). On the open shapes it is mixed: the cap goes
+96 -> 83 irregular with Scale (94.7 % quads) but its one-sided Hausdorff grows to 1.39 s (above the 0.5 s gate; the spacing reaches 2.5 near the boundary), with ScaleAndRotation 81 irregular, 94.3 % quads and the Hausdorff inside the gate; the open patch gets 32 -> 25 irregular and
+95.8 -> 95.0 % quads with Scale. **Use it on closed smooth shapes only.** The edge length varies by a factor of 2 to 3 across a shape (spacing 0.54-1.13 of the target on the sphere, 0.59-1.69 on the torus), so the target edge length is the mean, not the size of every quad. The extraction's collapse
+length (0.4 s) is not scaled with the local spacing, so edges of the smallest cells (0.5 s) are close to it; it may be part of the cap's behaviour (not tested). Cost: 0.1-1.6 s for 5-18k input vertices, 16 s for the 110k sphere (the Cholesky factorization of
+220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s. (A review found that the first version of the solver turned the lattice by the opposite angle of the one the position
+field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds` checks it against an independent evaluation, and the table is from the corrected code.)
 
 Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
 

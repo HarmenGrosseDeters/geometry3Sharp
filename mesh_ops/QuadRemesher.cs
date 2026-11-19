@@ -115,12 +115,13 @@ namespace gs
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
             if (SizeAdaptation != SizeAdaptationMode.Off) {
+                if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
                 IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
                 fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
                 if (fr.Compute() == IntegrableFramesStatus.InvalidInput) return Fail(QuadRemeshStatus.InvalidInput, fr.Error);
                 SizeSeconds = fr.Seconds;
                 CurlBefore = fr.CurlBefore; CurlAfter = fr.CurlAfter;
-                if (fr.Success && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore) {
+                if (fr.Success && fr.CurlBefore > 0 && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore) {
                     pf.SpacingFactors = fr.Spacing; pf.RotationAngles = fr.Rotation;
                     SizeAdaptationApplied = true; MinSpacing = fr.MinSpacing; MaxSpacing = fr.MaxSpacing;
                 }

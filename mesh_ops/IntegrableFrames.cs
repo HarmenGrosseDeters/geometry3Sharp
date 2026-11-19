@@ -58,7 +58,7 @@ namespace gs
         public double Damping = 0.01;
         /// <summary> the rotation of a vertex stays within this angle (degrees) </summary>
         public double MaxRotationDegrees = 45;
-        /// <summary> the spacing stays within the range [1 / MaxSpacingRatio, MaxSpacingRatio] times the mean (a step that leaves it is clamped) </summary>
+        /// <summary> every step is clamped to [1 / MaxSpacingRatio, MaxSpacingRatio]; the shift to mean log spacing 0 can widen that, so the largest spacing is at most MaxSpacingRatio^2 times the smallest </summary>
         public double MaxSpacingRatio = 2.5;
 
         // test hook: the first trial step is this multiple of the Gauss-Newton step (an overshoot that the backtracking has to halve)
@@ -130,6 +130,8 @@ namespace gs
             }
             int m = tri.Count;
             TrianglesUsed = m;
+            var used = new bool[n]; int nUsed = 0;
+            foreach (int[] c in tri) foreach (int i in c) if (!used[i]) { used[i] = true; nUsed++; }
             if (m == 0) return Fail(IntegrableFramesStatus.NoSolution, "no triangle without a singularity of the field");
 
             var sig = new double[n]; var phi = new double[n];
@@ -137,6 +139,7 @@ namespace gs
             bool useRot = UseRotation && maxPhi > 0;
             double cost = Cost(tri, edgeVec, sig, phi, useRot, out CurlBefore);
             CurlAfter = CurlBefore;
+            if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the edge vectors are not finite in units of TargetEdgeLength"); }
             SparseCholesky chol = null; bool refactor = true;
             var w = new Vector2d[m]; var B = new double[m][];
             for (int step = 0; step < Iterations; ++step) {
@@ -168,8 +171,8 @@ namespace gs
                 }
                 var d = new double[2 * n];
                 chol.Solve(rhs, d);
-                double dm = 0; for (int i = 0; i < n; ++i) dm += d[2 * i]; dm /= n;
-                for (int i = 0; i < n; ++i) d[2 * i] -= dm;
+                double dm = 0; for (int i = 0; i < n; ++i) if (used[i]) dm += d[2 * i]; dm /= nUsed;
+                for (int i = 0; i < n; ++i) d[2 * i] = used[i] ? d[2 * i] - dm : 0;      // vertices of no used triangle keep spacing 1
                 // backtracking: halve a step that does not lower the cost
                 double alpha = InitialStepFactor, newCost = cost, newCurl = CurlAfter; bool accepted = false;
                 var sig2 = new double[n]; var phi2 = new double[n];
@@ -190,8 +193,8 @@ namespace gs
                 if (gain < StopTolerance) break;
             }
             // the gauge: mean log spacing 0 (a step keeps the mean, a clamp may not)
-            double mean = 0; for (int i = 0; i < n; ++i) mean += sig[i]; mean /= n;
-            for (int i = 0; i < n; ++i) sig[i] -= mean;
+            double mean = 0; for (int i = 0; i < n; ++i) if (used[i]) mean += sig[i]; mean /= nUsed;
+            for (int i = 0; i < n; ++i) if (used[i]) sig[i] -= mean;
             Cost(tri, edgeVec, sig, phi, useRot, out CurlAfter);
             double smin = double.MaxValue, smax = double.MinValue, pmax = 0;
             for (int i = 0; i < n; ++i) {
@@ -222,7 +225,7 @@ namespace gs
             double g = Math.Exp(-0.5 * (sig[i] + sig[j]));
             if (!useRot) return new Vector2d(g * a.x, g * a.y);
             double pe = 0.5 * (phi[i] + phi[j]), cs = Math.Cos(pe), sn = Math.Sin(pe);
-            return new Vector2d(g * (cs * a.x - sn * a.y), g * (sn * a.x + cs * a.y));
+            return new Vector2d(g * (cs * a.x + sn * a.y), g * (-sn * a.x + cs * a.y));      // the axes turn by +phi (PositionField.RotationAngles): the coordinates by -phi
         }
 
         // the residual w per triangle and the 2 x 2 blocks of the Jacobian per vertex slot: [dwx/dsigma, dwx/dphi, dwy/dsigma, dwy/dphi]
@@ -234,11 +237,11 @@ namespace gs
                 w[t] = ws;
                 var b = new double[12];
                 for (int k = 0; k < 3; ++k) {
-                    // vertex slot k starts edge k and ends edge k - 1; d term / d sigma_e = -term / 2 per end point, d term / d phi_e = Rot90(term) / 2
+                    // vertex slot k starts edge k and ends edge k - 1; d term / d sigma_e = -term / 2 per end point, d term / d phi_e = -Rot90(term) / 2
                     Vector2d e1 = ce[k], e2 = ce[(k + 2) % 3];
                     b[4 * k + 0] = -0.5 * (e1.x + e2.x);
                     b[4 * k + 2] = -0.5 * (e1.y + e2.y);
-                    if (useRot) { b[4 * k + 1] = 0.5 * (-e1.y - e2.y); b[4 * k + 3] = 0.5 * (e1.x + e2.x); }
+                    if (useRot) { b[4 * k + 1] = 0.5 * (e1.y + e2.y); b[4 * k + 3] = -0.5 * (e1.x + e2.x); }
                 }
                 B[t] = b;
             }

@@ -131,6 +131,39 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Shape(name).MaxVertexID, fr.Rotation.Length);
         }
 
+        [Theory]
+        [InlineData("sphere")]
+        [InlineData("torus")]
+        public void Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds(string name)
+        {
+            // an independent evaluation: the orientation rotated the way PositionField applies RotationAngles (about the vertex normal, by +phi),
+            // the spacing s * Spacing, the edge vectors measured in the averaged, aligned frames of the rotated orientation
+            IntegrableFrames fr = Frames(name);
+            Assert.True(fr.MaxRotationUsedDegrees > 1, "the test needs a rotation");
+            DMesh3 m = Shape(name); CrossField cf = FieldOf(name);
+            var singular = new HashSet<int>(cf.SingularFaces);
+            Func<int, Vector3d> q = v => Math.Cos(fr.Rotation[v]) * cf.VertexDirection(v, 0) + Math.Sin(fr.Rotation[v]) * cf.VertexNormal(v).Cross(cf.VertexDirection(v, 0));
+            double curl = 0;
+            foreach (int t in m.TriangleIndices()) {
+                if (singular.Contains(t)) continue;
+                Index3i tv = m.GetTriangle(t); int[] c = { tv.a, tv.b, tv.c };
+                Vector3d qa = q(c[0]), na = cf.VertexNormal(c[0]);
+                Vector3d w = Vector3d.Zero;
+                for (int e = 0; e < 3; ++e) {
+                    int i = c[e], j = c[(e + 1) % 3];
+                    Vector3d x0, x1, y0, y1;
+                    PositionField.CompatOrient(qa, na, q(i), cf.VertexNormal(i), out x0, out x1);
+                    PositionField.CompatOrient(qa, na, q(j), cf.VertexNormal(j), out y0, out y1);
+                    Vector3d qe = (x1 + y1).Normalized;
+                    double spacing = SizeOf(name) * Math.Exp(0.5 * (Math.Log(fr.Spacing[i]) + Math.Log(fr.Spacing[j])));
+                    Vector3d ev = (m.GetVertex(j) - m.GetVertex(i)) / spacing;
+                    w += new Vector3d(ev.Dot(qe), ev.Dot(na.Cross(qe)), 0);
+                }
+                curl += w.Length;
+            }
+            Assert.True(Math.Abs(curl - fr.CurlAfter) <= 0.02 * fr.CurlAfter, "independent curl " + curl + ", reported " + fr.CurlAfter);
+        }
+
         [Fact]
         public void Frames_ClampedSpacingKeepsTheMeanLogSpacingAtZero()
         {
@@ -433,6 +466,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
             Assert.Null(qr.Result);
             Assert.NotNull(qr.Error);
+        }
+
+        [Fact]
+        public void SizeAdaptation_UnknownModeIsInvalidInput()
+        {
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = S, SizeAdaptation = (SizeAdaptationMode)7 };
+            Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+            Assert.Null(qr.Result);
         }
 
         [Fact]

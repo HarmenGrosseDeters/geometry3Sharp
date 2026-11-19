@@ -51,13 +51,13 @@ Irregular vertices / quads % / corner p95 (degrees), same input and field as abo
 
 | shape | adapt=0 | adapt=1 (Scale) | adapt=2 (ScaleAndRotation) | spacing range | solver s (1 / 2) | solver + position + extraction s (0 / 1 / 2) |
 |---|---|---|---|---|---|---|
-| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 36 / 97.4 / 10.4 | 0.54-1.13 | 0.39 / 0.44 | 0.32 / 0.72 / 0.73 |
-| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 26 / 98.1 / 8.1 | 0.59-1.69 | 0.21 / 0.21 | 0.14 / 0.33 / 0.32 |
-| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 127 / 96.5 / 9.6 | 0.53-1.24 | 0.38 / 0.80 | 0.14 / 0.52 / 0.94 |
-| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.22 / 0.22 | 0.08 / 0.30 / 0.29 |
-| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 48 / 96.9 / 9.6 | 0.50-1.23 | 0.12 / 0.28 | 0.07 / 0.21 / 0.36 |
-| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 101 / 92.6 / 19.3 | 0.55-1.61 | 0.18 / 0.08 | 0.05 / 0.23 / 0.12 |
-| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.14 / 0.03 | 0.02 / 0.17 / 0.05 |
-| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 218 / 99.1 / 5.0 | 0.46-1.02 | 12.23 / 15.55 | 0.94 / 13.15 / 16.53 |
+| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.37 / 0.44 | 0.33 / 0.65 / 0.74 |
+| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.18 / 0.24 | 0.23 / 0.32 / 0.41 |
+| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 126 / 96.9 / 9.7 | 0.53-1.24 | 0.38 / 0.72 | 0.17 / 0.52 / 0.86 |
+| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.25 | 0.09 / 0.32 / 0.33 |
+| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.26 | 0.07 / 0.19 / 0.34 |
+| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.13 / 0.09 | 0.04 / 0.18 / 0.13 |
+| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.03 | 0.02 / 0.11 / 0.04 |
+| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 12.60 / 15.63 | 0.91 / 13.42 / 16.58 |
 
 The size field is not applied where it does not lower the curl by 20 % (the filleted box, the open patch with rotation): the result is the uniform one bit for bit. It helps on closed smooth shapes (sphere, torus, noisy sphere, the 110k sphere); the cap's Hausdorff exceeds the gate with Scale; the 110k input needs 16 s for the solver.
