@@ -23,12 +23,10 @@ def read_traces(d, cfg):
     for f in glob.glob(os.path.join(d, f"trace-{cfg}.csv")) + glob.glob(os.path.join(d, f"trace-{cfg}-*.csv")):
         for line in open(f, encoding="utf-8"):
             p = line.rstrip("\n").split(",")
-            if len(p) != 6:
-                continue
-            if p[1] == "end":
-                end[p[0]] = (int(p[3]), float(p[4]), float(p[5]))
-            elif p[1] == "attempts":
+            if len(p) == 7 and p[1] == "attempts":          # <name>,attempts,<split attempts>,<vertices>,0,0,<seconds>
                 att[p[0]] = (int(p[2]), int(p[3]))
+            elif len(p) == 6 and p[1] == "end":
+                end[p[0]] = (int(p[3]), float(p[4]), float(p[5]))
     return end, att
 
 
