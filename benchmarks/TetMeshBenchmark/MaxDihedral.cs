@@ -62,6 +62,7 @@ static class MaxDihedralSample
         TetMesh3 r = imp.Result();
         double impS = sw.Elapsed.TotalSeconds;
         int n = r.Tets.Count;
+        if (n == 0) return head + ",EMPTY_RESULT";
         var mins = new double[n]; var maxs = new double[n]; int lF = 0, gG = 0, either = 0;
         for (int i = 0; i < n; ++i) {
             Index4i t = r.Tets[i];

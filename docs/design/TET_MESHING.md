@@ -1286,5 +1286,5 @@ no `AlphaField` the output is bit for bit the same (`ExistingResult_IsBitForBitT
 ### 17.14 MaxDihedralDegrees (opt-in, 2026-11-19)
 
 Stage 2 can also work on the largest dihedral angle: `MaxDihedralDegrees` > 0 (default 0 = off, bit for bit as before) uses the quality
-min(smallest, F + G - largest) with a guard and a first phase on the smallest angle alone. Result on the 500-mesh sample and the numbers against the
+min(smallest, F + G - largest) with a guard and a first phase on the smallest angle alone. The worst smallest angle never ends below min(F, the first phase's worst) (not a per-tet claim: the guard's floor is per operation). Off for 0, negative, NaN, below 70.6 (impossible: every tet would miss it, minutes of work) and from 180. Result on the 500-mesh sample and the numbers against the
 measurement: [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "MaxDihedralDegrees". No default change.

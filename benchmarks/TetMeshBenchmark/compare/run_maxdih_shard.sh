@@ -1,6 +1,6 @@
 #!/bin/bash
 # One shard of the MaxDihedralDegrees sample (benchmarks/TetMeshBenchmark/MaxDihedral.cs): for every id of thingi-sample-ids.txt with
-# (line index % shards) == shard, `TetMeshBenchmark maxdih <id>.stl <alpha> <floor> <G>` (rows master, p4, p4g). Meshes are fetched at run
+# (line index % shards) == shard, `TetMeshBenchmark maxdih <id>.stl <alpha> <floor> <G>` (rows master, p4, p4g, p4s). Meshes are fetched at run
 # time (Hugging Face mirror of Thingi10K), deleted after use, never published. Resumable: ids already in the CSV are skipped.
 # Usage: run_maxdih_shard.sh <shard> <shards> <TetMeshBenchmark dll> <mesh dir> <out csv> <timeout_s> <alpha> <floor> <G>
 set -u

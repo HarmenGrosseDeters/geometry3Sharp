@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Summary table of the MaxDihedralDegrees sample (benchmarks/TetMeshBenchmark/MaxDihedral.cs, run_maxdih_shard.sh).
-Usage: maxdih_summary.py <csv> [<csv> ...]   (the rows master / p4 / p4g of every mesh, one CSV per shard)
+Usage: maxdih_summary.py <csv> [<csv> ...]   (the rows master / p4 / p4g / p4s of every mesh, one CSV per shard)
 Columns as the measurement of the throwaway branch runs/tet-stellar (SUMMARY_tables.md): meshes where the smallest dihedral of every tet is
 >= F (min ok), the largest <= G (max ok), both; valid; medians of the 1 % and 99 % quantiles; worst min / max; tets against master; the
 improver's time per tet and in total; tets violating F or G (sum). Only meshes with every configuration count."""
 import sys, collections, statistics as st
 
 H = "name,alpha,floor,G,cfg,status,tets,imp_s,stage1_s,imp_us_per_tet,total_us_per_tet,min,p01,max,p99,min_lt_F,max_gt_G,fail_either,valid,counts".split(",")
-rows = []
+rows = []; dropped = collections.Counter()
 for f in sys.argv[1:]:
     for l in open(f):
         p = l.strip().split(",", len(H) - 1)
         if len(p) >= len(H) - 1 and p[5] in ("Success", "PointLimitReached"):
             rows.append(dict(zip(H, p)))
+        elif len(p) > 5:
+            dropped[p[5]] += 1       # EXCEPTION_*, EMPTY_RESULT, TIMEOUT, ERROR_*, MISSING_MESH, a failed status
+if dropped: print("rows not counted: " + ", ".join("%s x%d" % kv for kv in sorted(dropped.items())) + "\n")
+if not rows:
+    sys.exit("no rows with status Success or PointLimitReached in the input")
 by = collections.defaultdict(dict)
 for r in rows: by[r["cfg"]][r["name"]] = r
 order = [c for c in ("master", "p4", "p4g", "p4s") if c in by]

@@ -81,10 +81,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Objective_BelowZero_StillImproves()
         {
-            // with a maximum this low the objective of valid tets is negative (10 + 60 - 120 = -50 before, higher after: the flip's two
+            // with a maximum this low the objective of valid tets is negative (10 + 71 - 120 = -39 before, higher after: the flip's two
             // tets have a smaller largest dihedral); a negative value is not the quality of an inverted tet
             TetMesh3 m = ThreeAroundAnEdge();
-            var on = new TetMeshImprover(m) { TargetDegrees = 10, MaxDihedralDegrees = 60 };
+            var on = new TetMeshImprover(m) { TargetDegrees = 10, MaxDihedralDegrees = 71 };
             on.Run();
             TetMesh3 r = on.Result();
             Assert.Null(TetMeshQuality.NotValidReason(r));
@@ -99,7 +99,13 @@ namespace geometry3Sharp.Tests
         [InlineData(-5.0)]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
-        public void ObjectiveOff_ForZeroNegativeNonFinite_IsTheImproverAsItWas(double g)
+        [InlineData(double.NegativeInfinity)]
+        [InlineData(double.Epsilon)]
+        [InlineData(60.0)]
+        [InlineData(70.5)]
+        [InlineData(180.0)]
+        [InlineData(1e9)]
+        public void ObjectiveOff_ForZeroNegativeNonFiniteImpossibleAndTooLarge_IsTheImproverAsItWas(double g)
         {
             TetMesh3 m = ThreeAroundAnEdge();
             var a = new TetMeshImprover(m) { TargetDegrees = 60 }; a.Run();
@@ -111,12 +117,35 @@ namespace geometry3Sharp.Tests
         // ---- the pipeline ----
 
         [Theory]
+        [InlineData(0.0, false)] [InlineData(-1.0, false)] [InlineData(double.NaN, false)] [InlineData(double.PositiveInfinity, false)]
+        [InlineData(double.NegativeInfinity, false)] [InlineData(double.Epsilon, false)] [InlineData(60.0, false)] [InlineData(70.5, false)]
+        [InlineData(179.99, true)] [InlineData(180.0, false)] [InlineData(1e300, false)] [InlineData(70.6, true)] [InlineData(150.0, true)]
+        public void ObjectiveActive_IsTheRangeWhereATetCanMissAndMeetTheMaximum(double g, bool on)
+        {
+            Assert.Equal(on, TetMeshImprover.ObjectiveActive(g));
+        }
+
+        [Fact]
+        public void ImpossibleMaximum_IsOffAndFast_NotMinutesOfWorkOnEveryTet()
+        {
+            // below 70.53 degrees (the regular tet's largest dihedral) every tet would miss the target on every pass: off, so the run
+            // takes as long as without the option (a Compute() of the sphere did not finish in 120 s before)
+            DMesh3 input = TetMeshingStage2Tests.Input("sphere");
+            var plain = Run(input, 0);
+            foreach (double g in new[] { 60.0, double.Epsilon, 70.5 }) {
+                var tm = Run(input, g);
+                AssertSame(plain.Result, tm.Result);
+                Assert.Equal(plain.Counts, tm.Counts);
+            }
+        }
+
+        [Theory]
         [MemberData(nameof(TetMeshingStage2Tests.Inputs), MemberType = typeof(TetMeshingStage2Tests))]
         public void Off_IsBitForBitTheDefault_ForEveryOffValue(string name)
         {
             DMesh3 input = TetMeshingStage2Tests.Input(name);
             var plain = new MeshTetrahedralization(input) { RelativeAlpha = 40, RelativeOffset = 600 }; Assert.True(plain.Compute());
-            foreach (double off in new[] { 0, -1, double.NaN, double.PositiveInfinity }) {
+            foreach (double off in new[] { 0, -1, double.NaN, double.PositiveInfinity, double.NegativeInfinity, 60, 180, 1e9 }) {
                 var tm = Run(input, off);
                 AssertSame(plain.Result, tm.Result);
                 Assert.Equal(plain.Counts, tm.Counts);
@@ -201,18 +230,28 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(simName);
             DMesh3 input = TetMeshingStage2Tests.Torus(48, 12, 1, 0.15);
-            var a = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200, MaxDihedralDegrees = G }; Assert.True(a.Compute());
+            var (a, plain) = SimilarityBase.Value;
             var b = new MeshTetrahedralization(Invariance.Transformed(input, s)) { RelativeAlpha = 12, RelativeOffset = 200, MaxDihedralDegrees = G }; Assert.True(b.Compute());
             TetMeshingStage2Tests.Invariants(b);
-            var plain = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200 }; Assert.True(plain.Compute());
             Assert.True(CountAbove(plain.Result, G) > CountAbove(a.Result, G), CountAbove(plain.Result, G) + " -> " + CountAbove(a.Result, G));   // the option does work here
             if (s.IsExact) {
                 Assert.Equal(a.Result.Tets, b.Result.Tets);
                 for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);
                 Assert.Equal(a.Counts, b.Counts);
-            } else
+            } else {
                 Assert.InRange(TetMeshQuality.Measure(b.Result).MinDihedral.Worst, 0.5 * TetMeshQuality.Measure(a.Result).MinDihedral.Worst, 90);
+                // and the max side improves under the transform too (the stage-1 mesh is transformed with the input; tets above G afterwards)
+                var plainB = new MeshTetrahedralization(Invariance.Transformed(input, s)) { RelativeAlpha = 12, RelativeOffset = 200 }; Assert.True(plainB.Compute());
+                Assert.True(CountAbove(b.Result, G) * 2 < CountAbove(plainB.Result, G), CountAbove(plainB.Result, G) + " -> " + CountAbove(b.Result, G));
+            }
         }
+        // the untransformed runs, once for every similarity
+        static readonly Lazy<(MeshTetrahedralization on, MeshTetrahedralization plain)> SimilarityBase = new Lazy<(MeshTetrahedralization, MeshTetrahedralization)>(() => {
+            DMesh3 input = TetMeshingStage2Tests.Torus(48, 12, 1, 0.15);
+            var a = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200, MaxDihedralDegrees = G }; Assert.True(a.Compute());
+            var plain = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200 }; Assert.True(plain.Compute());
+            return (a, plain);
+        });
         public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }

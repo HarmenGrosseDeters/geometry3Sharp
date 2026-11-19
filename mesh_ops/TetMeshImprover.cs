@@ -35,8 +35,8 @@ namespace gs
         /// <summary>
         /// opt-in objective on both ends (Klingner's thesis ch. 3-5, "op 4"): the quality of a tet is min(smallest dihedral,
         /// TargetDegrees + MaxDihedralDegrees - largest dihedral), so a tet reaches TargetDegrees exactly when its smallest dihedral
-        /// is at least TargetDegrees and its largest at most MaxDihedralDegrees. 0 (or not finite, or negative) = off: the quality
-        /// is the smallest dihedral and nothing here runs
+        /// is at least TargetDegrees and its largest at most MaxDihedralDegrees. 0, negative, NaN, below 70.6 or from 180 = off: the quality
+        /// is the smallest dihedral and nothing here runs (see ObjectiveActive for the values that are off)
         /// </summary>
         internal double MaxDihedralDegrees = 0;
         /// <summary>
@@ -181,7 +181,13 @@ namespace gs
         // an exactly non-positive tet in the objective's scale (valid tets reach below -1 there: TargetDegrees + MaxDihedralDegrees - 180)
         const double InvalidObjective = -1e9;
         bool invalid_q(double q) { return objective_on() ? q <= InvalidObjective : q < 0; }
-        bool objective_on() { return MaxDihedralDegrees > 0 && MaxDihedralDegrees < double.PositiveInfinity; }
+        /// <summary>
+        /// whether a MaxDihedralDegrees value switches the objective on: no tet has a largest dihedral angle below arccos(1/3) = 70.53 degrees
+        /// (the regular tet's), so below 70.6 every tet would miss the target on every pass (minutes of work for nothing); from 180 on no tet
+        /// can miss it. Those values, zero, negative values and NaN are off
+        /// </summary>
+        internal static bool ObjectiveActive(double g) { return g >= 70.6 && g < 180; }
+        bool objective_on() { return ObjectiveActive(MaxDihedralDegrees); }
         // while not -infinity: tets with a smallest dihedral below it get InvalidObjective (the guard of one operation's candidates)
         double guardFloor = double.NegativeInfinity;
         // evaluations the guard turned invalid (diagnosis): Counts["guard_trips_<operation>"] counts the candidates of that operation with one,
@@ -1153,7 +1159,7 @@ namespace gs
             }
             if (other < 0) return false;
             double old = Math.Min(quality(id), quality(other));
-            guardFloor = guard_floor(new[] { id, other }); long gt = guardTrips;
+            guardFloor = objective_on() ? guard_floor(new[] { id, other }) : double.NegativeInfinity; long gt = guardTrips;
             // the outward facet (f0, f1, f2) of t: e is behind it, d in front (Orient3d(f0, f1, f2, d) > 0). New tets around edge
             // (d, e), one per facet edge, oriented as t: (f1, f0, d, e) etc.; all three positive exactly iff the segment de
             // crosses the facet's interior (the 2-3 flip is valid)

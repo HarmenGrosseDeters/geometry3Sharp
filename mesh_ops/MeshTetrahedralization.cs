@@ -126,14 +126,18 @@ namespace gs
         /// </summary>
         public bool ContractEdges = true;
         /// <summary>
-        /// stage 2, opt-in objective on both ends (B. M. Klingner's thesis, ch. 3-5): with a value above 0, the improver also works on
-        /// tets with a largest dihedral angle above it (degrees). The quality of a tet becomes min(smallest dihedral, SliverDihedralDegrees
-        /// + MaxDihedralDegrees - largest dihedral), so a tet meets the target exactly when its smallest dihedral is at least
-        /// SliverDihedralDegrees and its largest at most MaxDihedralDegrees; no operation may leave a tet with a smallest dihedral below
-        /// min(SliverDihedralDegrees, that of the tets it replaces), and the improver first runs on the smallest dihedral alone, so no
-        /// tet that reaches the floor without the option is lost to it. A target, not a guarantee: tets can be left outside it (Targets
-        /// does not report the largest dihedral; TetMeshQuality.Measure does). 0 (the default), a negative value, NaN or infinity: off, the stage is as without this option. Needs Improve and a
-        /// positive SliverDihedralDegrees; the refinement of stage 1 is unchanged
+        /// stage 2, opt-in objective on both ends (B. M. Klingner's thesis, ch. 3-5): with a value from 70.6 to below 180, the improver also
+        /// works on tets with a largest dihedral angle above it (degrees). The quality of a tet becomes min(smallest dihedral,
+        /// SliverDihedralDegrees + MaxDihedralDegrees - largest dihedral), so a tet meets the target exactly when its smallest dihedral
+        /// is at least SliverDihedralDegrees and its largest at most MaxDihedralDegrees. The improver first runs on the smallest dihedral
+        /// alone (as without the option), then with the objective; there no operation may leave a tet with a smallest dihedral below
+        /// min(SliverDihedralDegrees, that of the tets it replaces). So the worst smallest dihedral never ends below
+        /// min(SliverDihedralDegrees, the first phase's worst) (measured: no mesh of 500 lost on the min side); single tets can trade
+        /// places within that. A target, not a guarantee: tets can be left above it (Targets does not report the largest dihedral;
+        /// TetMeshQuality.Measure does). Off (the stage is as without the option): 0 (the default), a negative value, NaN, a value
+        /// below 70.6 (no tet has a largest dihedral below 70.53 degrees, so every tet would miss it) and 180 or more (none can).
+        /// Values just above 70.6 are accepted but cost the most time. Needs Improve and a positive SliverDihedralDegrees; the refinement
+        /// of stage 1 is unchanged
         /// </summary>
         public double MaxDihedralDegrees = 0;
         internal bool MaxDihedralGuard = true, MaxDihedralStaged = true;
@@ -370,7 +374,7 @@ namespace gs
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
-                if (MaxDihedralDegrees > 0 && !double.IsInfinity(MaxDihedralDegrees)) { imp.MaxDihedralDegrees = MaxDihedralDegrees; imp.MaxDihedralGuard = MaxDihedralGuard; imp.MaxDihedralStaged = MaxDihedralStaged; }
+                if (TetMeshImprover.ObjectiveActive(MaxDihedralDegrees)) { imp.MaxDihedralDegrees = MaxDihedralDegrees; imp.MaxDihedralGuard = MaxDihedralGuard; imp.MaxDihedralStaged = MaxDihedralStaged; }
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
                     imp.InputTree = new DMeshAABBTree3(Mesh, true);
                     imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
