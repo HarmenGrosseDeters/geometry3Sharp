@@ -78,6 +78,20 @@ static class Program
         if (mode == "diag") levers = levers.Where(l => leverRx != null ? l.Name == A["lever"] : l.Name == "base").ToList();
         else if (leverRx != null) levers = levers.Where(l => l.Name == "base" || leverRx.IsMatch(l.Name)).ToList();
 
+        if (mode == "solver") {
+            foreach (var sh in shapes) {
+                if (only != null && !only.IsMatch(sh.Name)) continue;
+                double s = sh.S;
+                DMesh3 input = sh.Name == "open-patch" ? OpenPatch((int)Math.Round(1.0 / (s * ratio))) : MakeInput(sh, s * ratio, sh.Noise);
+                var cf = new CrossField(input); cf.Compute();
+                foreach (var (us, ur, gn, lam, mx, mr) in new[] { (true, false, 10, 1e-2, 3.0, 1.0), (true, false, 30, 1e-2, 3.0, 1.0), (true, false, 30, 1e-3, 3.0, 1.0), (true, true, 30, 1e-2, 3.0, 90.0), (true, true, 60, 1e-3, 3.0, 90.0) }) {
+                    Vector3d[] qo; double[] sc; string rep;
+                    IntegrableField.Solve(input, cf, s, us, ur, gn, lam, mx, mr, out qo, out sc, out rep);
+                    Console.WriteLine($"{sh.Name} scale={us} rot={ur} gn={gn} lam={lam} max={mx}: {rep}");
+                }
+            }
+            return 0;
+        }
         if (mode == "levers") {
             Console.WriteLine("| shape | lever | faces | quads % | tris | 5-6 | irreg. V | irreg / sing. | boundary V | manifold | corner p95 | Hausdorff out->in / s | t position (s) | t extract (s) | collapsed / val2 / dropped |");
             Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
@@ -138,8 +152,8 @@ static class Program
         l.Add(new Lever { Name = "couple-3-dev45", Apply = q => { q.CoupleRounds = 3; q.CoupleMaxDev = 45; q.FixOffsets = true; } });
         foreach (var (rn, eta, mx) in new[] { (5, 0.5, 0.2), (10, 0.5, 0.4) }) { int rr = rn; double ee = eta, xx = mx; l.Add(new Lever { Name = $"free-scale-{rr}x-max{xx:0.0}", Apply = q => { q.ScaleRounds = rr; q.ScaleEta = ee; q.ScaleMax = xx; q.FixOffsets = true; } }); }
         foreach (var (nm, us, ur, mx, mr, gn, lam) in new[] {
-            ("integrable-scale", true, false, 0.4, 0.0, 4, 1e-3), ("integrable-rot", false, true, 0.0, 30.0, 4, 1e-3), ("integrable-both", true, true, 0.4, 30.0, 4, 1e-3),
-            ("integrable-both-small", true, true, 0.2, 15.0, 4, 1e-3), ("integrable-scale-wide", true, false, 1.2, 0.0, 10, 1e-4), ("integrable-both-wide", true, true, 1.2, 45.0, 10, 1e-4) }) {
+            ("int2-scale-10", true, false, 3.0, 0.0, 10, 1e-2), ("int2-scale-30", true, false, 3.0, 0.0, 30, 1e-2), ("int2-both-30", true, true, 3.0, 45.0, 30, 1e-2),
+            ("int2-scale-30-max0.5", true, false, 0.5, 0.0, 30, 1e-2), ("int2-both-30-max0.5-rot15", true, true, 0.5, 15.0, 30, 1e-2) }) {
             string nn = nm; bool a = us, b = ur; double m1 = mx, m2 = mr, ll = lam; int g = gn;
             l.Add(new Lever { Name = nn, Apply = q => {
                 Vector3d[] qo; double[] sc; string rep;

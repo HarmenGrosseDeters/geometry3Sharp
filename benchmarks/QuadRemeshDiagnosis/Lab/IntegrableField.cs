@@ -49,7 +49,7 @@ namespace gs.Lab
             }
             int m = tri.Count;
             var sig = new double[n]; var phi = new double[n];
-            double sumW0 = 0, sumW1 = 0;
+            double sumW0 = 0, sumW1 = 0; SparseCholesky chol = null;
             for (int gn = 0; gn < gaussNewton; ++gn) {
                 // residuals and the blocks
                 var w = new Vector2d[m]; var B = new double[m][];    // per triangle, per vertex slot: [dwx/dsig, dwx/dphi, dwy/dsig, dwy/dphi]
@@ -77,7 +77,7 @@ namespace gs.Lab
                     B[t] = b;
                 }
                 if (gn == 0) sumW0 = sumW; sumW1 = sumW;
-                // CG on (J^T J + lambda I) d = -J^T w, unknowns d = (sigma, phi) per vertex
+                // Levenberg-damped Gauss-Newton step: (J^T J + lambda I) d = -J^T w, sparse Cholesky with blocks (sigma, phi) per vertex
                 var rhs = new double[2 * n];
                 for (int t = 0; t < m; ++t)
                     for (int k = 0; k < 3; ++k) {
@@ -85,32 +85,29 @@ namespace gs.Lab
                         rhs[2 * v] -= B[t][4 * k + 0] * w[t].x + B[t][4 * k + 2] * w[t].y;
                         rhs[2 * v + 1] -= B[t][4 * k + 1] * w[t].x + B[t][4 * k + 3] * w[t].y;
                     }
-                Func<double[], double[]> A = x => {
-                    var y = new double[2 * n];
-                    for (int t = 0; t < m; ++t) {
-                        double jx = 0, jy = 0;
-                        for (int k = 0; k < 3; ++k) { int v = tri[t][k]; jx += B[t][4 * k + 0] * x[2 * v] + B[t][4 * k + 1] * x[2 * v + 1]; jy += B[t][4 * k + 2] * x[2 * v] + B[t][4 * k + 3] * x[2 * v + 1]; }
-                        for (int k = 0; k < 3; ++k) { int v = tri[t][k]; y[2 * v] += B[t][4 * k + 0] * jx + B[t][4 * k + 2] * jy; y[2 * v + 1] += B[t][4 * k + 1] * jx + B[t][4 * k + 3] * jy; }
-                    }
-                    for (int i = 0; i < 2 * n; ++i) y[i] += lambda * x[i];
-                    return y;
-                };
-                var d = new double[2 * n]; var r = (double[])rhs.Clone(); var p = (double[])r.Clone();
-                double rr = 0; for (int i = 0; i < 2 * n; ++i) rr += r[i] * r[i];
-                double rr0 = rr;
-                for (int it = 0; it < 800 && rr > 1e-14 * rr0 && rr > 0; ++it) {
-                    var Ap = A(p); double pAp = 0; for (int i = 0; i < 2 * n; ++i) pAp += p[i] * Ap[i];
-                    if (!(pAp > 0)) break;
-                    double alpha = rr / pAp; double rrn = 0;
-                    for (int i = 0; i < 2 * n; ++i) { d[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; rrn += r[i] * r[i]; }
-                    double beta = rrn / rr; rr = rrn;
-                    for (int i = 0; i < 2 * n; ++i) p[i] = r[i] + beta * p[i];
-                }
+                if (chol == null) chol = new SparseCholesky(2 * n, 2); else chol.Clear();
+                for (int t = 0; t < m; ++t)
+                    for (int k = 0; k < 3; ++k)
+                        for (int l = k; l < 3; ++l) {
+                            int vk = tri[t][k], vl = tri[t][l];
+                            for (int ca = 0; ca < 2; ++ca)
+                                for (int cb = 0; cb < 2; ++cb) {
+                                    if (k == l && cb > ca) continue;
+                                    double val = B[t][4 * k + ca] * B[t][4 * l + cb] + B[t][4 * k + 2 + ca] * B[t][4 * l + 2 + cb];
+                                    chol.Add(2 * vk + ca, 2 * vl + cb, val);
+                                }
+                        }
+                for (int i = 0; i < 2 * n; ++i) chol.Add(i, i, lambda);
+                var d = new double[2 * n];
+                if (!chol.Factorize()) break;
+                chol.Solve(rhs, d);
+                { double dm = 0; for (int i = 0; i < n; ++i) dm += d[2 * i]; dm /= Math.Max(1, n); for (int i = 0; i < n; ++i) d[2 * i] -= dm; }
                 for (int i = 0; i < n; ++i) {
                     sig[i] = Math.Max(-maxLog, Math.Min(maxLog, sig[i] + d[2 * i]));
                     phi[i] = bnd[i] ? 0 : Math.Max(-maxRotDeg * Math.PI / 180, Math.Min(maxRotDeg * Math.PI / 180, phi[i] + d[2 * i + 1]));
                 }
             }
+            { double gm = 0; for (int i = 0; i < n; ++i) gm += sig[i]; gm /= Math.Max(1, n); for (int i = 0; i < n; ++i) sig[i] -= gm; }
             // final residual
             double fin = 0;
             for (int t = 0; t < m; ++t) {
