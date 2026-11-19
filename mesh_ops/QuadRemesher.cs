@@ -201,7 +201,8 @@ namespace gs
             public List<Vector3d> Nrm = new List<Vector3d>();
             public List<List<int>> Adj = new List<List<int>>();
             public List<byte> Kind = new List<byte>();      // 0 interior, 1 boundary, 2 corner of the boundary
-            public int Add(Vector3d p, Vector3d n, byte kind) { Pos.Add(p); Nrm.Add(n); Adj.Add(new List<int>()); Kind.Add(kind); return Pos.Count - 1; }
+            public List<double> Spc = new List<double>();   // the lattice spacing factor of the vertex (1: uniform spacing; the size field of SizeAdaptation)
+            public int Add(Vector3d p, Vector3d n, byte kind) { Pos.Add(p); Nrm.Add(n); Adj.Add(new List<int>()); Kind.Add(kind); Spc.Add(1.0); return Pos.Count - 1; }
             public bool Has(int a, int b) { return Adj[a].Contains(b); }
             public void Link(int a, int b) { if (a == b || Adj[a].Contains(b)) return; Adj[a].Add(b); Adj[b].Add(a); }
             public void Unlink(int a, int b) { Adj[a].Remove(b); Adj[b].Remove(a); }
@@ -231,24 +232,25 @@ namespace gs
             for (int i = 0; i < n; ++i) id[i] = -1;
             // a cluster is at the mean lattice point of its members; the members of the highest kind decide (a corner of the boundary
             // is a lattice point itself, a boundary vertex is on its lattice line: interior members must not pull them off)
-            var sumP = new List<Vector3d>(); var sumN = new List<Vector3d>(); var cnt = new List<int>(); var kinds = new List<byte>();
+            var sumP = new List<Vector3d>(); var sumN = new List<Vector3d>(); var cnt = new List<int>(); var kinds = new List<byte>(); var sumSpc = new List<double>();
             for (int pass = 0; pass < 2; ++pass)
                 for (int i = 0; i < n; ++i) {
                     int r = Find(uf, i);
                     if (pass == 0) {
-                        if (id[r] < 0) { id[r] = sumP.Count; sumP.Add(Vector3d.Zero); sumN.Add(Vector3d.Zero); cnt.Add(0); kinds.Add(0); }
+                        if (id[r] < 0) { id[r] = sumP.Count; sumP.Add(Vector3d.Zero); sumN.Add(Vector3d.Zero); cnt.Add(0); kinds.Add(0); sumSpc.Add(0); }
                         int c0 = id[r];
                         sumN[c0] += L.Nrm[i];
                         if (L.Kind[i] > kinds[c0]) kinds[c0] = L.Kind[i];
                     } else {
                         int c = id[r];
                         if (L.Kind[i] != kinds[c]) continue;
-                        sumP[c] += pf.Origins[i]; cnt[c]++;
+                        sumP[c] += pf.Origins[i]; cnt[c]++; sumSpc[c] += L.Sc == null ? 1.0 : L.Sc[i];
                     }
                 }
             for (int c = 0; c < sumP.Count; ++c) {
                 Vector3d nn = sumN[c]; double nl = nn.Length;
-                g.Add(sumP[c] / cnt[c], nl > 0 ? nn / nl : sumN[c], kinds[c]);
+                int gi = g.Add(sumP[c] / cnt[c], nl > 0 ? nn / nl : sumN[c], kinds[c]);
+                if (L.Sc != null) g.Spc[gi] = sumSpc[c] / cnt[c];
             }
             for (int u = 0; u < unitA.Count; ++u) {
                 int a = id[Find(uf, unitA[u])], b = id[Find(uf, unitB[u])];
@@ -280,7 +282,7 @@ namespace gs
         }
 
         /// <summary>
-        /// edges shorter than this (in units of the edge length) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
+        /// edges shorter than this (in units of the edge length, of the local spacing with SizeAdaptation) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
         /// 2026-11-19; it was 0.4): the ragged boundary of an open mesh is a row of short edges, 0.6 removes them (open patch 32 -> 17 irregular
         /// vertices, 95.8 -> 98.3 % quads), and the closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.5)
         /// </summary>
@@ -296,22 +298,23 @@ namespace gs
         internal static void CleanupGraph(PolyGraph g, double s, double collapseLength, out int collapsedEdges, out int removedValence2)
         {
             collapsedEdges = 0; removedValence2 = 0;
-            double lim = collapseLength * s;
+            double lim0 = collapseLength * s;       // the limit is relative to the local spacing (a factor 1 without a size field)
             for (int round = 0; round < 8; ++round) {
                 bool changed = false;
                 var cand = new List<(double, int, int)>();
                 for (int a = 0; a < g.Pos.Count; ++a)
                     foreach (int b in g.Adj[a])
-                        if (a < b) { double l = (g.Pos[a] - g.Pos[b]).Length; if (l < lim) cand.Add((l, a, b)); }
+                        if (a < b) { double l = (g.Pos[a] - g.Pos[b]).Length; if (l < lim0 * Math.Min(g.Spc[a], g.Spc[b])) cand.Add((l, a, b)); }
                 cand.Sort();
                 foreach (var c in cand) {
                     int a = c.Item2, b = c.Item3;
-                    if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim) continue;
+                    if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim0 * Math.Min(g.Spc[a], g.Spc[b])) continue;
                     if (g.Kind[a] == 2 && g.Kind[b] == 2) continue;
                     if (g.Kind[b] > g.Kind[a]) { int t = a; a = b; b = t; }
                     // the vertex of the higher kind keeps its place (a boundary vertex stays on its lattice line, a corner on its point)
                     Vector3d p = g.Kind[a] > g.Kind[b] ? g.Pos[a] : 0.5 * (g.Pos[a] + g.Pos[b]);
                     g.Pos[a] = p;
+                    g.Spc[a] = 0.5 * (g.Spc[a] + g.Spc[b]);
                     Vector3d nn = g.Nrm[a] + g.Nrm[b]; double nl = nn.Length; if (nl > 0) g.Nrm[a] = nn / nl;
                     foreach (int x in g.Adj[b].ToArray()) { g.Unlink(b, x); if (x != a) g.Link(a, x); }
                     collapsedEdges++; changed = true;

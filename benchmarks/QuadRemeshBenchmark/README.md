@@ -47,17 +47,17 @@ The cleanup of the paper (collapse of near-coincident points, valence 2 vertices
 
 ## Size field (`adapt`, 2026-11-19, docs/design/QUAD_REMESHING.md 4.5)
 
-Irregular vertices / quads % / corner p95 (degrees), same input and field as above, default settings of `IntegrableFrames`, all with `CollapseLength` 0.4 (the default before 2026-11-19; with 0.6 the open patch rows change, the others by at most 2 irregular vertices); `adapt=0` is the table above bit for bit.
+Irregular vertices / quads % / corner p95 (degrees), same input and field as above, default settings of `IntegrableFrames`, all with `CollapseLength` 0.6 (the default since 2026-11-19; the closed shapes are the same with 0.4); `adapt=0` is the table above with the new default.
 
 | shape | adapt=0 | adapt=1 (Scale) | adapt=2 (ScaleAndRotation) | spacing range | solver s (1 / 2) | solver + position + extraction s (0 / 1 / 2) |
 |---|---|---|---|---|---|---|
-| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.37 / 0.44 | 0.33 / 0.65 / 0.74 |
-| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.18 / 0.24 | 0.23 / 0.32 / 0.41 |
-| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 126 / 96.9 / 9.7 | 0.53-1.24 | 0.38 / 0.72 | 0.17 / 0.52 / 0.86 |
-| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.25 | 0.09 / 0.32 / 0.33 |
-| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.26 | 0.07 / 0.19 / 0.34 |
-| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.13 / 0.09 | 0.04 / 0.18 / 0.13 |
-| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.03 | 0.02 / 0.11 / 0.04 |
-| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 12.60 / 15.63 | 0.91 / 13.42 / 16.58 |
+| sphere | 75 / 94.8 / 14.6 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.43 / 0.56 | 0.33 / 0.78 / 0.83 |
+| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.19 / 0.26 | 0.15 / 0.37 / 0.41 |
+| bumpy | 174 / 95.9 / 10.8 | 174 / 95.9 / 10.8 (not applied) | 126 / 97.0 / 9.7 | 0.53-1.24 | 0.39 / 0.88 | 0.15 / 0.54 / 1.07 |
+| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.29 | 0.07 / 0.33 / 0.39 |
+| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.34 | 0.08 / 0.19 / 0.42 |
+| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.14 / 0.09 | 0.04 / 0.18 / 0.16 |
+| open-patch | 17 / 98.3 / 6.2 | 12 / 96.9 / 6.2 | 17 / 98.3 / 6.2 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.04 | 0.02 / 0.11 / 0.07 |
+| big-sphere | 352 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 13.91 / 17.62 | 1.06 / 14.92 / 18.58 |
 
 The size field is not applied where it does not lower the curl by 20 % (the filleted box, the open patch with rotation): the result is the uniform one bit for bit. It helps on closed smooth shapes (sphere, torus, noisy sphere, the 110k sphere); the cap's Hausdorff exceeds the gate with Scale; the 110k input needs 16 s for the solver.
