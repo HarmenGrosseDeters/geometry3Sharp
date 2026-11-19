@@ -197,6 +197,9 @@ namespace geometry3Sharp.Tests
                 var on = Step3(s, op, true);
                 var off = Step3(s, op, false);
                 Assert.Equal(Hash(off.result), Hash(on.result));
+                // the flag reaches the arrangement and the decision fires in step 3 (a vacuous A/B would pass the equalities alone)
+                Assert.Equal(0, off.b.ArrangementPreDecidedPairs);
+                Assert.True(on.b.ArrangementPreDecidedPairs > 0);
                 Assert.Equal(off.b.Counts["intersecting_pairs"], on.b.Counts["intersecting_pairs"]);
                 Assert.Equal(off.b.Counts["pieces"], on.b.Counts["pieces"]);
                 Assert.Equal(off.b.RoundingClean, on.b.RoundingClean);
@@ -230,6 +233,28 @@ namespace geometry3Sharp.Tests
             Assert.True(step.Compute());
             string h1 = Hash(step.Result);
             Assert.True(step.Compute());
+            Assert.Equal(h1, Hash(step.Result));
+        }
+
+        [Fact]
+        public void Step3OfAChain_ReuseOfOneInstance_ToggledFlagGivesTheSameResult()
+        {
+            DMesh3 a = FlatBox(Similarity.Identity, 0, 0, 0, 1, 1, 1, 5);
+            DMesh3 b = FlatBox(Similarity.Identity, 0.5, 0.25, 1, 0.75, 0.5, 0.5, 4);
+            var first = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            Assert.True(first.Compute());
+            var step = new ExactMeshBoolean(first.Result, a, ExactMeshBoolean.Operations.Difference);
+            Assert.True(step.Compute());
+            string h1 = Hash(step.Result);
+            int decided = step.ArrangementPreDecidedPairs;
+            Assert.True(decided > 0);
+            step.ArrangementPreDecideCoplanar = false;
+            Assert.True(step.Compute());
+            Assert.Equal(0, step.ArrangementPreDecidedPairs);
+            Assert.Equal(h1, Hash(step.Result));
+            step.ArrangementPreDecideCoplanar = true;
+            Assert.True(step.Compute());
+            Assert.Equal(decided, step.ArrangementPreDecidedPairs);
             Assert.Equal(h1, Hash(step.Result));
         }
 

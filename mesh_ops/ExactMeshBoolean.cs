@@ -218,6 +218,8 @@ namespace g3
         internal bool ArrangementSingleShard;
         /// <summary> for tests and the benchmark A/B: ExactMeshArrangement.PreDecideCoplanar (default true; the result is the same either way) </summary>
         internal bool ArrangementPreDecideCoplanar = true;
+        /// <summary> coplanar pairs the arrangement decided without clipping (ExactMeshArrangement.PreDecidedPairs) </summary>
+        internal int ArrangementPreDecidedPairs;
         /// <summary>
         /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
         /// RoundingMaxDisplacement of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
@@ -634,6 +636,7 @@ namespace g3
                 }
             }
             arr.Compute();
+            ArrangementPreDecidedPairs = arr.PreDecidedPairs;
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
             foreach (var kv in arr.PhaseMilliseconds)

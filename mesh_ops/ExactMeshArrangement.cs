@@ -2438,12 +2438,14 @@ namespace g3
 
 
         /// <summary>
-        /// for tests and the benchmark A/B (docs/perf/BOOLEAN_CHAINS_PROBE_2026-11.md): decide the coplanar pairs that meet only in
+        /// for tests and the benchmark A/B (docs/perf/BOOLEAN_COPLANAR_PREDECISION.md): decide the coplanar pairs that meet only in
         /// their shared corners or their shared edge before clipping them (meets_only_at_shared). Default true; false clips every pair
         /// as before. The result is the same either way (the pairs add only corners and boundary edges of the triangles they are
         /// added to, which prepare_touched and triangulate_touched treat as nothing).
         /// </summary>
         internal bool PreDecideCoplanar = true;
+        /// <summary> the coplanar pairs decided by meets_only_at_shared (not clipped); 0 with PreDecideCoplanar = false </summary>
+        internal int PreDecidedPairs;
 
         [MethodImpl(JitHints.Optimize)]
         void intersect_coplanar(int ti, int ui)
@@ -2453,6 +2455,7 @@ namespace g3
                 // the six clips would be corners of the triangle they are added to, or its boundary edge between two corners: nothing to add
                 // (R and A of a chained boolean share their surface, so this is most of the pairs of the last step: 57 % of its pair stage)
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
+                System.Threading.Interlocked.Increment(ref PreDecidedPairs);
                 lock (T.Lock) T.AddCoplanar(ui);
                 lock (U.Lock) U.AddCoplanar(ti);
                 return;
