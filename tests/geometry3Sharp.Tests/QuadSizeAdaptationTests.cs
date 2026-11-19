@@ -202,6 +202,103 @@ namespace geometry3Sharp.Tests
             Assert.True(cap.Rotation.Any(r => r != 0));
         }
 
+        // The scale-only solve has 1 unknown per vertex (sigma). The old layout (2 per vertex, phi decoupled: its normal matrix is the scalar one
+        // plus a diagonal block) stays reachable through ForceTwoUnknowns: both solve the same problem, the factorization order differs, so the
+        // sigma differ at rounding level (QUAD_REMESHING.md 4.5; owner 2026-11-19).
+        [Fact]
+        public void Frames_ScaleOnlyUsesOneUnknownPerVertex_AndRotationTwo()
+        {
+            Assert.Equal(1, Frames("sphere", f => f.UseRotation = false).UnknownsPerVertex);
+            IntegrableFrames noRot = Frames("sphere", f => f.MaxRotationDegrees = 0);                  // no rotation allowed: the same problem as UseRotation = false
+            Assert.Equal(1, noRot.UnknownsPerVertex);
+            Assert.All(noRot.Rotation, r => Assert.Equal(0.0, r));
+            AssertSameBits(Frames("sphere", f => f.UseRotation = false).Spacing, noRot.Spacing);
+            Assert.Equal(2, Frames("sphere").UnknownsPerVertex);                                      // ScaleAndRotation: sigma and phi
+            Assert.Equal(2, Frames("sphere", f => { f.UseRotation = false; f.ForceTwoUnknowns = true; }).UnknownsPerVertex);
+        }
+
+        [Theory]
+        [InlineData("sphere")]
+        [InlineData("torus")]
+        [InlineData("cap")]
+        [InlineData("patch")]
+        public void Frames_ScaleOnlyScalarSolveEqualsTheTwoUnknownLayoutUpToRounding(string name)
+        {
+            IntegrableFrames one = Frames(name, f => f.UseRotation = false);
+            IntegrableFrames two = Frames(name, f => { f.UseRotation = false; f.ForceTwoUnknowns = true; });
+            Assert.Equal(1, one.UnknownsPerVertex); Assert.Equal(2, two.UnknownsPerVertex);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(one.CurlBefore), BitConverter.DoubleToInt64Bits(two.CurlBefore));
+            Assert.Equal(one.StepsTaken, two.StepsTaken);
+            Assert.Equal(one.TrianglesUsed, two.TrianglesUsed);
+            Assert.InRange(one.CurlAfter, two.CurlAfter * (1 - 1e-6), two.CurlAfter * (1 + 1e-6));
+            double maxDiff = 0;
+            for (int v = 0; v < one.Spacing.Length; ++v) maxDiff = Math.Max(maxDiff, Math.Abs(Math.Log(one.Spacing[v] / two.Spacing[v])));
+            Assert.True(maxDiff <= 1e-9, name + ": log spacing differs by " + maxDiff);
+            Assert.Equal(one.MinSpacing, two.MinSpacing, 9);
+            Assert.Equal(one.MaxSpacing, two.MaxSpacing, 9);
+            Assert.All(one.Rotation, r => Assert.Equal(0.0, r));
+        }
+
+        // the curl of the scale-only solve, from the code before the scalar layout (master c57dd5d2, the 2 unknowns layout); a change of the solver (the gauge, the step
+        // clamp, the backtracking) moves it, a rounding difference of the factorization does not
+        [Theory]
+        [InlineData("sphere", 34.46081647091396, 16.67876727883907)]
+        [InlineData("torus", 41.03431585999114, 26.35672846387382)]
+        [InlineData("cap", 38.51016218953355, 22.158187902757724)]
+        public void Frames_ScaleOnlyCurlIsThatOfTheSolverBeforeTheScalarLayout(string name, double before, double after)
+        {
+            IntegrableFrames fr = Frames(name, f => f.UseRotation = false);
+            Assert.Equal(before, fr.CurlBefore, 9);
+            Assert.InRange(fr.CurlAfter, after * (1 - 1e-4), after * (1 + 1e-4));
+        }
+
+        [Theory]
+        [InlineData("sphere")]
+        [InlineData("torus")]
+        public void SizeAdaptation_ScaleResultHasTheQualityOfTheTwoUnknownLayout(string name)
+        {
+            QuadRemesher a = Run(name, SizeAdaptationMode.Scale);
+            QuadRemesher b = Run(name, SizeAdaptationMode.Scale, q => q.Frames = new IntegrableFrames(null, null) { ForceTwoUnknowns = true });
+            Assert.True(a.SizeAdaptationApplied && b.SizeAdaptationApplied);
+            PolyMeshMetrics ma = CheckResult(a.Result, name + " scalar"), mb = CheckResult(b.Result, name + " two unknowns");
+            Assert.Equal(mb.IrregularVertices, ma.IrregularVertices);
+            Assert.Equal(mb.Faces, ma.Faces);
+            Assert.Equal(mb.QuadFraction, ma.QuadFraction, 12);
+            Assert.Equal(b.CurlAfter, a.CurlAfter, 6);
+        }
+
+        [Fact]
+        public void Frames_ScaleOnlyIsTheSameWhenComputedAgain_AndRepeated()
+        {
+            var fr = new IntegrableFrames(Shape("torus"), FieldOf("torus")) { TargetEdgeLength = S, UseRotation = false };
+            Assert.Equal(IntegrableFramesStatus.Success, fr.Compute());
+            double[] sp = (double[])fr.Spacing.Clone();
+            Assert.Equal(IntegrableFramesStatus.Success, fr.Compute());     // reuse of the instance
+            AssertSameBits(sp, fr.Spacing);
+            AssertSameBits(sp, Frames("torus", f => f.UseRotation = false).Spacing);
+        }
+
+        [Theory, MemberData(nameof(Names))]
+        public void Frames_ScaleOnlyIsInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            IntegrableFrames baseFr = Frames("torus", f => f.UseRotation = false);
+            DMesh3 t = Invariance.Transformed(Shape("torus"), sim);
+            var cf = new CrossField(t);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var fr = new IntegrableFrames(t, cf) { TargetEdgeLength = sim.Scale * S, UseRotation = false };
+            Assert.Equal(IntegrableFramesStatus.Success, fr.Compute());
+            Assert.Equal(1, fr.UnknownsPerVertex);
+            if (sim.IsExact) {
+                AssertSameBits(baseFr.Spacing, fr.Spacing);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(baseFr.CurlAfter), BitConverter.DoubleToInt64Bits(fr.CurlAfter));
+            } else {
+                Assert.True(fr.CurlAfter < 0.8 * fr.CurlBefore, name + ": curl " + fr.CurlBefore + " -> " + fr.CurlAfter);
+                Assert.InRange(fr.MinSpacing, 0.8 * baseFr.MinSpacing, 1.25 * baseFr.MinSpacing);
+                Assert.InRange(fr.MaxSpacing, 0.8 * baseFr.MaxSpacing, 1.25 * baseFr.MaxSpacing);
+            }
+        }
+
         [Fact]
         public void Frames_NoCurlOnAFlatPatch_NothingToDo()
         {

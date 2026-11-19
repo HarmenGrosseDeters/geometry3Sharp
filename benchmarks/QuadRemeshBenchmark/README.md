@@ -8,11 +8,11 @@ deviation from 90 degrees, the one-sided Hausdorff distance output to input in u
 manifold (`PolyMeshMetrics`), and the seconds of the cross field, the position field and the extraction with its cleanup.
 
 ```
-dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1] [adapt=0|1|2] [iters=<n>] [tol=<x>] [maxratio=<x>] [damp=<x>] [collapse=<x>]
+dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1] [adapt=0|1|2] [iters=<n>] [tol=<x>] [maxratio=<x>] [damp=<x>] [collapse=<x>] [digest=1]
 ```
 
 `serial=1` runs the position field without parallel loops (the result is the same bit for bit), `big=<n>` adds a sphere of about
-`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths, `collapse=<x>` sets `CollapseLength` (default 0.6 since 2026-11-19, was 0.4: the results below are with 0.4; the open patch with 0.6 has 17 irregular vertices and 98.3 % quads, see QUAD_REMESHING.md 4.2). `adapt=1|2` turns `QuadRemesher.SizeAdaptation` on (Scale, ScaleAndRotation; the lines on stderr say whether it was applied, the curl before and after, the spacing range and the solver time), `iters`, `tol`, `maxratio`, `damp` set the solver of `IntegrableFrames`.
+`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths, `collapse=<x>` sets `CollapseLength` (default 0.6 since 2026-11-19, was 0.4: the results below are with 0.4; the open patch with 0.6 has 17 irregular vertices and 98.3 % quads, see QUAD_REMESHING.md 4.2). `adapt=1|2` turns `QuadRemesher.SizeAdaptation` on (Scale, ScaleAndRotation; the lines on stderr say whether it was applied, the curl before and after, the spacing range and the solver time), `iters`, `tol`, `maxratio`, `damp` set the solver of `IntegrableFrames`. `digest=1` prints an FNV-style digest (64-bit words) of the output mesh (vertex bits and face indices) on stderr, to compare two builds bit for bit.
 
 ## Results (2026-11-17, net10.0 Release, 4-core Xeon at 2.1 GHz in a cloud container, default options, master with the Hermitian CrossField of #1099)
 
@@ -89,3 +89,20 @@ Irregular vertices / quads % / corner p95 (degrees), same input and field as abo
 | big-sphere | 352 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 13.91 / 17.62 | 1.06 / 14.92 / 18.58 |
 
 The size field is not applied where it does not lower the curl by 20 % (the filleted box, the open patch with rotation): the result is the uniform one bit for bit. It helps on closed smooth shapes (sphere, torus, noisy sphere, the 110k sphere); the cap's Hausdorff exceeds the gate with Scale; the 110k input needs 16 s for the solver.
+
+### Scale solves with one unknown per vertex (2026-11-19, owner approved)
+
+`SizeAdaptation = Scale` (`IntegrableFrames.UseRotation = false`) solves for the log spacing only: n unknowns instead of 2n (the rotation unknown was decoupled and only held by the damping). Same input and field, 4 cores, solver seconds and solver + position field + extraction seconds, before (master c57dd5d2) / after, one run each on one machine:
+
+| shape | solver s | solver + position + extraction s | output digest |
+|---|---|---|---|
+| sphere | 0.42 / 0.26 | 0.77 / 0.58 | differs |
+| torus | 0.25 / 0.10 | 0.40 / 0.25 | differs |
+| bumpy | 0.40 / 0.21 | 0.65 / 0.38 | same (not applied) |
+| filleted-box | 0.28 / 0.11 | 0.37 / 0.19 | same (not applied) |
+| noisy-sphere | 0.14 / 0.08 | 0.22 / 0.17 | differs |
+| sphere-cap | 0.14 / 0.08 | 0.19 / 0.12 | differs |
+| open-patch | 0.14 / 0.05 | 0.15 / 0.07 | differs |
+| big-sphere (120806 input V in this run) | 14.76 / 5.24 | 16.05 / 6.40 | differs |
+
+The metrics are equal on every shape (irregular vertices, quads %, corner deviation, curl before and after, spacing range: the benchmark tables above are unchanged); the digests of the applied shapes differ because the factorization order changes the rounding of the log spacing (about 1e-9 or less), which moves vertex coordinates in the last bits. Owner decision 2026-11-19: output change of the opt-in Scale mode at rounding level. Off and ScaleAndRotation are bit for bit as before.
