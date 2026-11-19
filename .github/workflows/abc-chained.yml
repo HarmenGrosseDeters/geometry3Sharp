@@ -1,24 +1,24 @@
 name: ABC chained booleans
 
+# Task of 2026-11-19 (owner), data branch runs/boolean-chains: the probe methods ours_probe / ours_probe_expr on the ABC chains (step 3 diagnosis,
+# self-join of certified operands; docs/perf/BOOLEAN_CHAINS_PROBE_2026-11.md). A copy of abc-chained.yml (same data rules: the chunk is fetched
+# on the runner, no mesh leaves the job), with perf/chain_probe.patch applied to the library before the build and the results pushed to
+# runs/boolean-chains/results/run-<id>.
 # The abc-chained class of benchmarks/BooleanComparison (README.md, "Chained booleans on ABC models"): chains of booleans (union,
 # difference, intersection) on triplets of ABC models (Koch et al., CVPR 2019, CAD models from public Onshape documents) placed
 # with the exact contact transforms of thingi-contact. Manual only (workflow_dispatch, no schedule). Owner decision 2026-11-16: the ABC
 # dataset may be used for tests and benchmarks with run-time fetching only: the chunk is downloaded here, on a GitHub-hosted runner,
 # one file of it is extracted for a seeded sample of models, and neither a model nor a derived mesh is committed, uploaded as an
 # artifact or pushed anywhere: only result rows and model ids leave the job. No fetch happens in a PR-tier test.
-# Methods: ours, manifold (the Python package manifold3d, Apache-2.0) and CGAL EPECK, each as a black box on the runner (cgal_bool.cpp,
-# the repo's own driver, is built against the runner's libcgal-dev; GPL, the binary is not distributed; no CGAL source is read or ported).
+# Methods here: ours_probe and ours_probe_expr only (no CGAL, Manifold or Geogram is built or run by this workflow).
 # One job: the chunk (about 8 GB) is downloaded once, to /mnt (the runner's second disk).
-# Geogram (method geogram; docs/research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md): geogram (BSD-3) is fetched at a pinned commit and
-# built on the runner by external/build_geogram.sh (from the ref the workflow runs on), without Triangle or any TetGen path (sparse
-# clone, both switches off, checked); the binary is not distributed. threads=1 pins the chains to core 0 (ours with
-# DOTNET_PROCESSOR_COUNT=1, geogram with GEOGRAM_THREADS=1); the default uses all cores.
+# threads=1 pins the chains to core 0 (DOTNET_PROCESSOR_COUNT=1); the default uses all cores.
 on:
   workflow_dispatch:
     inputs:
       library_ref:
         description: 'Ref of the library and benchmark tool to measure (must contain the abc-chain-inputs command; the scripts come from the ref the workflow is run on)'
-        default: 'master'
+        default: 'runs/boolean-chains'
       chunk:
         description: 'ABC chunk number (4 digits) of the obj format, 10000 models per chunk'
         default: '0000'
@@ -38,8 +38,8 @@ on:
         description: 'Only these chains of the list, comma-separated (eg iud_p0005,iud_p0021; empty: all, up to chains_per_variant); chains_per_variant must cover them'
         default: ''
       methods:
-        description: 'Methods to run, comma-separated (ours, manifold, cgal_epeck, geogram; ours_exact: exact intermediates against round-each-step, ours_exact_time: its order-randomized timing, docs/design/EXACT_BOOLEAN_40_DESIGN.md)'
-        default: 'ours,manifold,cgal_epeck'
+        description: 'Methods to run, comma-separated (ours_probe: the chain as today, with the probe counters and the skip experiments; ours_probe_expr: the same operands as one ExactMesh expression per step; other methods of abc-chained.yml need tools this workflow does not install)'
+        default: 'ours_probe'
       threads:
         description: 'Threads of the booleans: all (all cores) or 1 (pinned to core 0)'
         default: 'all'
@@ -57,7 +57,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: abc-chained-data-branch
+  group: boolean-chains-data-branch
   cancel-in-progress: false
 
 jobs:
@@ -80,19 +80,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Install 7-Zip, build cgal_bool (CGAL from apt, used as a black box), install manifold3d
+      - name: Install 7-Zip
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q p7zip-full libcgal-dev libgmp-dev libmpfr-dev
-          g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG lib/benchmarks/BooleanComparison/external/cgal_bool.cpp -o cgal_bool -lgmp -lmpfr
-          dpkg -s libcgal-dev | grep '^Version'
-          python3 -m pip install numpy manifold3d==3.0.1
-      - name: Build geogram_bool (geogram BSD-3 at a pinned commit, without Triangle and TetGen)
-        if: ${{ contains(format(',{0},', inputs.methods), ',geogram,') }}
-        run: |
-          sudo apt-get install -y -q cmake libtbb-dev
-          bash scripts/benchmarks/BooleanComparison/external/build_geogram.sh "$RUNNER_TEMP/geogram"
-          cp "$RUNNER_TEMP/geogram/geogram_bool" geogram_bool
+          sudo apt-get install -y -q p7zip-full
+      - name: Apply the probe patch to the library (perf/chain_probe.patch, never part of the library)
+        run: git -C lib apply --verbose "$GITHUB_WORKSPACE/scripts/benchmarks/BooleanComparison/perf/chain_probe.patch"
       - name: Build the benchmark tool
         run: |
           dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
@@ -100,9 +93,6 @@ jobs:
           git -C lib rev-parse HEAD > lib_sha.txt
           git -C scripts rev-parse HEAD >> lib_sha.txt
           nproc >> lib_sha.txt
-          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
-          python3 -m pip show manifold3d | grep '^Version' >> lib_sha.txt
-          if [ -f "$RUNNER_TEMP/geogram/geogram_version.txt" ]; then cat "$RUNNER_TEMP/geogram/geogram_version.txt" >> lib_sha.txt; fi
           echo "threads ${{ inputs.threads }}" >> lib_sha.txt
       - name: Download the chunk
         env:
@@ -149,8 +139,6 @@ jobs:
       - name: Run the methods on the chains
         if: ${{ !inputs.listing_only }}
         env:
-          CGAL_BOOL: ${{ github.workspace }}/cgal_bool
-          GEOGRAM_BOOL: ${{ github.workspace }}/geogram_bool
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
           TIMEOUT: ${{ inputs.timeout_s }}
           BUDGET_MIN: ${{ inputs.budget_min }}
@@ -178,25 +166,13 @@ jobs:
           fi
       - name: Report
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
-        env:
-          METHODS: ${{ inputs.methods }}
-          THREADS: ${{ inputs.threads }}
         run: |
           set -o pipefail
-          python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
-          if [[ ",$METHODS," == *",ours_exact,"* ]]; then
-            { echo; echo "### Exact intermediates (one pass over the original operands) against round-each-step"; echo; python3 scripts/benchmarks/BooleanComparison/chain_exact.py summary results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [[ ",$METHODS," == *",ours_exact_time,"* ]]; then
-            { echo; echo "### ExactMesh.Round() against today's chain, order-randomized timing"; echo; python3 scripts/benchmarks/BooleanComparison/chain_exact.py time-summary results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [[ ",$METHODS," == *",geogram,"* ]]; then
-            { echo; echo "### ours against Geogram (threads $THREADS)"; echo; python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py versus geogram results.jsonl; } | tee -a report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 scripts/benchmarks/BooleanComparison/data/chain_probe.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: abc-chained
+          name: boolean-chains
           # result rows, the report, the sampled model ids and the chain list: no mesh, no derived mesh
           path: |
             results.jsonl
@@ -212,29 +188,29 @@ jobs:
     if: ${{ !cancelled() && needs.measure.result != 'skipped' && github.repository == 'harmengrossedeters/geometry3Sharp' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # the data branch runs/abc-chained
+      contents: write   # the data branch runs/boolean-chains
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         continue-on-error: true      # the measure job may have failed before it uploaded anything
         with:
           path: art
-      - name: Result rows to runs/abc-chained
+      - name: Result rows to runs/boolean-chains
         run: |
           d=$(mktemp -d)
           git worktree add -q --detach "$d"
           cd "$d"
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          if git ls-remote --exit-code --heads origin runs/abc-chained > /dev/null; then
-            git fetch -q --depth=1 origin runs/abc-chained:refs/remotes/origin/runs/abc-chained
-            git checkout -q -B runs/abc-chained origin/runs/abc-chained
+          if git ls-remote --exit-code --heads origin runs/boolean-chains > /dev/null; then
+            git fetch -q --depth=1 origin runs/boolean-chains:refs/remotes/origin/runs/boolean-chains
+            git checkout -q -B runs/boolean-chains origin/runs/boolean-chains
           else
-            git checkout -q --orphan runs/abc-chained
-            git rm -rqf .
+            echo "data branch missing"; exit 1
           fi
-          mkdir -p "run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "run-$GITHUB_RUN_ID"/ 2>/dev/null || true
-          git add .
+          mkdir -p "results/run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "results/run-$GITHUB_RUN_ID"/ 2>/dev/null || true
+          git add results
           git diff --cached --quiet && exit 0
-          git commit -q -m "ABC chained booleans run $GITHUB_RUN_ID"
-          git push origin runs/abc-chained
+          git commit -q -m "Boolean chains probe run $GITHUB_RUN_ID"
+          for i in 1 2 3 4; do git push origin runs/boolean-chains && exit 0; git pull -q --rebase origin runs/boolean-chains; done
+          exit 1
