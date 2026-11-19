@@ -164,6 +164,37 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // leaves of 9 triangles (three groups of the kernel: 4, 4, 1), with far and huge triangles among them, so that a group
+        // falls back to the scalar path in the middle of a leaf; and the other gates of the expansion (FWNBeta)
+        [Theory]
+        [InlineData(2.0, 0)]
+        [InlineData(2.0, 1)]
+        [InlineData(1.0, 1)]        // (below sqrt 3: the padded box test, the reference traversal)
+        [InlineData(1e10, 1)]       // (no expansion at all: every triangle summed exactly)
+        public void LargeLeaves_PartialGroupFallback_EqualsReferencePath(double beta, int huge)
+        {
+            DMesh3 m = Stack();
+            if (huge == 1) {
+                // triangles at 1e35 (beyond 2^100 from any query) and a sliver, appended to the stack
+                for (int i = 0; i < 12; ++i) {
+                    int a = m.AppendVertex(new Vector3d(1e35 * (1 + i), 0.1 * i, 0.2));
+                    int b = m.AppendVertex(new Vector3d(1e35 * (1 + i), 1 + 0.1 * i, 0.3));
+                    int c = m.AppendVertex(new Vector3d(0.3 * i, 0.1, 1e35));
+                    m.AppendTriangle(a, b, c);
+                }
+            }
+            var tree = new DMeshAABBTree3(m, false) { TopDownLeafMaxTriCount = 10, FWNBeta = beta };
+            tree.Build();
+            tree.FastWindingNumber(Vector3d.Zero);
+            foreach (Vector3d p in Points(m, 1500)) {
+                tree.FastWindingForceScalar = false;
+                double v = tree.FastWindingNumber(p);
+                tree.FastWindingForceScalar = true;
+                double r = tree.FastWindingNumber(p);
+                Assert.True(Same(v, r), $"beta {beta}, huge {huge}, at {p}: {v:R} vs reference path {r:R}");
+            }
+        }
+
         [Fact]
         public void Queries_ParallelEqualSerial_AndRepeatable()
         {

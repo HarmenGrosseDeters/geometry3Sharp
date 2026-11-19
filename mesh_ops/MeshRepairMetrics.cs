@@ -641,6 +641,8 @@ namespace gs
             internal bool[] Inside;
         }
 
+        static bool same_bits(double a, double b) { return BitConverter.DoubleToInt64Bits(a) == BitConverter.DoubleToInt64Bits(b); }
+
         internal static double volume_iou(Func<Vector3d, bool> referenceInside, SampleRegion region, Func<Vector3d, bool> resultInside,
             out double missing, out double extra, int samples, int seed, bool serial, InsideCache resultCache = null)
         {
@@ -656,7 +658,7 @@ namespace gs
             gParallel.BlockStartEnd(0, samples - 1, (start, end) => {
                 for (int k = start; k <= end; ++k) {
                     bool a = referenceInside(pts[k]);
-                    bool b = (known != null && known[k].x == pts[k].x && known[k].y == pts[k].y && known[k].z == pts[k].z) ? knownInside[k] : resultInside(pts[k]);
+                    bool b = (known != null && same_bits(known[k].x, pts[k].x) && same_bits(known[k].y, pts[k].y) && same_bits(known[k].z, pts[k].z)) ? knownInside[k] : resultInside(pts[k]);
                     if (inside != null) inside[k] = b;
                     cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
                 }

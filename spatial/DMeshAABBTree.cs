@@ -1827,7 +1827,7 @@ namespace g3
             fast_winding_leaf_lanes = null;
             fast_winding_leaf_lane_start = null;
 #if NET8_0_OR_GREATER
-            if (FastWindingLeafKernel.Available) {
+            if (FastWindingLeafKernel.Available && (long)triangles_end * FastWindingLeafKernel.GroupSize < int.MaxValue / 2) {      // (beyond that, about 29M leaf triangles, the scalar path only)
                 int groups = 0;
                 for (int iBox = 0; iBox < box_to_index.size; ++iBox) {
                     int idx = box_to_index[iBox];

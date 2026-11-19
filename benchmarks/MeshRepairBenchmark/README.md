@@ -1841,7 +1841,7 @@ and the construction of a box per test about a third, the expansions the rest. T
 12 meshes below):
 
 - the traversal of `DMeshAABBTree3.FastWindingNumber` runs on flat arrays (bounds, expansion centre and radius per box in one
-  entry; copies of `box_to_index` and `index_list`), with the same tests in the same order (+80 bytes per box);
+  entry; copies of `box_to_index` and `index_list`), with the same tests in the same order (+88 bytes per box, and 144 bytes per leaf triangle for the vector lanes);
 - the exact terms of a leaf (2 or 3 triangles on these meshes) are computed four at a time in a `Vector256`
   (`FastWindingLeafKernel`: square roots, dot products and the triple product in the lanes, `Math.Atan2` per triangle, no fused
   multiply-add, the terms added in the order of the triangles); a leaf with a coordinate outside the range where `TriSolidAngle`
