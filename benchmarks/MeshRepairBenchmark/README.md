@@ -1804,9 +1804,9 @@ numbers per face; on a self-intersecting mesh a query sums hundreds of triangles
 (`OuterFaceStallRounds`, `OuterFaceStallShare`). #1036 added `OuterFaceIncremental`, off by default; **owner 2026-11-19: it is
 on by default**, `OuterFaceIncremental = false` is the previous behaviour bit for bit (pinned by a unit test).
 `BENCH_OUTER_FULL=1` runs the measures a second time with `OuterFaceIncremental = false` (`fm_full_*` fields: time, rounds,
-faces judged again (0), faces whose verdict differs from the default `fm_full_changed`, outer face share and outer IoU); the
+faces judged again (0), `fm_full_changed`: the number of faces whose verdict differs between the opt-out and the incremental default, outer face share and outer IoU); the
 table below was measured with the first run `OuterFaceIncremental = false` and the second `true`, the library code of
-both paths is unchanged by the default flip, so the numbers hold for the new default (the `fm_ms` of a run is the "incremental"
+both paths is unchanged by the default flip, so the numbers hold (nothing was re-measured for the flip; the run order of the table is the reverse of the new benchmark's) for the new default (the `fm_ms` of a run is the "incremental"
 column, the opt-out is the "full rounds" column). Rounds after the first update each face's stored winding numbers
 by subtracting the winding number of the faces the last round removed (a tree of those only) and judge a face again with the
 big tree only if a stored value is within `OuterFaceIncrementalMargin` (0.2) of a decision boundary.
@@ -1822,7 +1822,7 @@ in one process (the second run has warm JIT and caches, which flatters it by a f
 | 1514905 | 3 | 20.9 s | 16.1 s | 7 | 0 | identical |
 | 498456 (55 rounds) | 55 | 67.2 s | 46.7 s | 731,646 | 0 | identical |
 
-Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run; rounds, shares and IoU identical, 0 changed verdicts on all):
+Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run, not the shipped 0.2; rounds, shares and IoU identical, 0 changed verdicts on all):
 37111 (88k faces, 4 rounds) 7.7 s to 4.2 s with 272 faces judged again; 37275, 37329, 37331, 37731, 37788, 37215 and 36075 (1 to 2
 rounds, 0 to 0 faces judged again after the first round) 0.2 to 1.9 s faster, the difference of the warm second run.
 Stacked interior layers (unit tests): with margin 0.1 the stack of 40 layers (60 rounds) differed in 2 of 320 faces from the

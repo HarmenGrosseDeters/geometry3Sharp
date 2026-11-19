@@ -993,8 +993,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void OuterFaceIncremental_SameFacesAsTheOptOut_FewerJudgements()
         {
-            // stacked interior layers (many rounds): the incremental update keeps the faces of the default, and the faces
-            // judged again after the first round are fewer than the face-rounds of the default
+            // stacked interior layers (many rounds): the incremental update (the default) keeps the faces of the opt-out, and the faces
+            // judged again after the first round are fewer than the face-rounds of the opt-out
             foreach (int n in new[] { 5, 40 }) {
                 DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
                 DMesh3 reference = new DMesh3(box);
