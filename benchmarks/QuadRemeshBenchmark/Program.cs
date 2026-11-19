@@ -42,6 +42,7 @@ static class Program
         bool cleanup = !(A.ContainsKey("cleanup") && A["cleanup"] == "0");
         double mm = A.ContainsKey("mm") ? double.Parse(A["mm"], CultureInfo.InvariantCulture) : 0.5;
         double align = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : 0;
+        double collapse = A.ContainsKey("collapse") ? double.Parse(A["collapse"], CultureInfo.InvariantCulture) : -1;
         double eps = A.ContainsKey("eps") ? double.Parse(A["eps"], CultureInfo.InvariantCulture) : 0.05;
 
         Func<Vector3d, double> sphere = p => p.Length - 1;
@@ -94,6 +95,7 @@ static class Program
             if (!cf.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | cross field " + cf.Status + " |"); continue; }
 
             var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps };
+            if (collapse >= 0) qr.CollapseLength = collapse;
             qr.Compute();
             double tPos = qr.PositionSeconds, tExt = qr.ExtractSeconds;
             if (!qr.Success) { Console.WriteLine("| " + sh.Name + " | " + input.VertexCount + " | quad remesh " + qr.Status + " " + qr.Error + " |"); continue; }

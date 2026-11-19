@@ -234,8 +234,12 @@ namespace gs
             return any;
         }
 
-        /// <summary> edges shorter than this (in units of the edge length) are collapsed by the cleanup: their end points are one point </summary>
-        public double CollapseLength = 0.4;
+        /// <summary>
+        /// edges shorter than this (in units of the edge length) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
+        /// 2026-11-19; it was 0.4): the ragged boundary of an open mesh is a row of short edges, 0.6 removes them (open patch 32 -> 17 irregular
+        /// vertices, 95.8 -> 98.3 % quads), and the closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.5)
+        /// </summary>
+        public double CollapseLength = 0.6;
         /// <summary> short edges collapsed and valence 2 vertices removed by the last Compute() </summary>
         public int CollapsedEdges, RemovedValence2;
         /// <summary> faces of the traced graph that are not in the result (the outer loops of an open mesh, folded faces, faces above MaxFaceSides) </summary>

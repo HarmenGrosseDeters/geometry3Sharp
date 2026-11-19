@@ -378,6 +378,28 @@ irregular-vertex gate, and the quad share of 95 % is borderline without it. Stag
 
 **Owner decision 2026-11-17:** stage 2 merges as quad-dominant remeshing with the missed gates recorded as open (irregular vertices 6 to 12 x the field singularities; quads below 95 % on 4 of the 8 shapes). Next is stage 3B (the QuadriFlow min-cost flow, from the paper only: Huang et al. 2018), starting with a small upper-bound measurement of how far the flow cuts the irregular count on the sphere and torus.
 
+**Update 2026-11-19 (owner approved): `CollapseLength` 0.4 -> 0.6.** The extraction cleanup collapses edges shorter than `CollapseLength` x s (shortest first).
+The ragged boundary of an open mesh is a row of short edges and 0.4 s never reached them; 0.6 s does. Before / after on the benchmark shapes
+(irregular V / quads % / faces; position field + extraction seconds, 4 cores; the 110k sphere is `big=100000`):
+
+| shape | 0.4 (before) | 0.6 (now) | seconds before / after | edges collapsed |
+|---|---|---|---|---|
+| sphere | 77 / 94.8 / 1275 | 75 / 94.8 / 1274 | 0.26 / 0.27 | 0 -> 1 collapsed |
+| torus | 76 / 94.9 / 1413 | 76 / 94.9 / 1413 | 0.14 / 0.13 | 0 -> 0 collapsed |
+| bumpy | 176 / 95.9 / 3533 | 174 / 95.9 / 3532 | 0.16 / 0.14 | 0 -> 2 collapsed |
+| filleted-box | 16 / 99.1 / 1732 | 16 / 99.1 / 1732 | 0.07 / 0.07 | 0 -> 0 collapsed |
+| noisy-sphere | 92 / 93.2 / 1272 | 92 / 93.2 / 1272 | 0.09 / 0.07 | 0 -> 0 collapsed |
+| sphere-cap | 96 / 91.4 / 950 | 96 / 91.4 / 950 | 0.05 / 0.05 | 0 -> 0 collapsed |
+| open-patch | 32 / 95.8 / 659 | 17 / 98.3 / 642 | 0.02 / 0.02 | 0 -> 17 collapsed |
+| big-sphere | 354 / 98.6 / 21592 | 352 / 98.6 / 21591 | 0.87 / 0.88 | 0 -> 1 collapsed |
+
+The open patch goes 32 -> 17 irregular vertices and 95.8 -> 98.3 % quads (faces 659 -> 642), the sphere 77 -> 75, the bumpy sphere 176 -> 174; the torus,
+box, noisy sphere and cap are unchanged, nothing is worse, the times are the same. The pure-quad gate of 3B (`benchmarks/QuadFlow3BGate`, 54 runs) is
+unchanged: 25 clean / 29 fallback / 0 undetected bad, time gate 25 / 25, irregular gate 25 / 25, Hausdorff 24 / 25, corner p95 17 / 25 (stage 2 on
+the same rows 18 / 25), clean rows median 2.7 x stage 2 (before 2.6). The value 0.6 is the owner's; 0.7 was measured on the data branch `runs/quad-stage2` (sphere 77 -> 68 irregular vertices but quads 94.8 -> 94.6 %, sphere cap
+quads 91.4 -> 91.1 %) and not taken.
+
+
 ### 4.3 Stage 3B upper bound (2026-11-17)
 
 **Status: parked, not a verdict on option B.** The measurement below used a formulation written from memory of the QuadriFlow

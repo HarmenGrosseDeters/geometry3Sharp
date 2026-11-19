@@ -8,11 +8,11 @@ deviation from 90 degrees, the one-sided Hausdorff distance output to input in u
 manifold (`PolyMeshMetrics`), and the seconds of the cross field, the position field and the extraction with its cleanup.
 
 ```
-dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1]
+dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1] [collapse=<x>]
 ```
 
 `serial=1` runs the position field without parallel loops (the result is the same bit for bit), `big=<n>` adds a sphere of about
-`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths.
+`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths, `collapse=<x>` sets `CollapseLength` (default 0.6 since 2026-11-19, was 0.4: the results below are with 0.4; the open patch with 0.6 has 17 irregular vertices and 98.3 % quads, see QUAD_REMESHING.md 4.2).
 
 ## Results (2026-11-17, net10.0 Release, 4-core Xeon at 2.1 GHz in a cloud container, default options, master with the Hermitian CrossField of #1099)
 
