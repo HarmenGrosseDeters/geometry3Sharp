@@ -303,6 +303,17 @@ namespace gs
         Delaunay3 dt;
         byte[] label = new byte[0];
         double alpha, offset, contact;
+        /// <summary> SPIKE (runs/tet-local-alpha only, not for master): a local alpha. The absolute alpha at a point (the gate test uses it at the centroid of the facet), clamped to [AlphaFloorOffsets * offset, alpha]; null = uniform </summary>
+        public Func<Vector3d, double> AlphaField;
+        public double AlphaFloorOffsets = 3.0;
+        double alpha_at(int c, int i)
+        {
+            if (AlphaField == null) return alpha;
+            Index3i f = dt.FacetVertices(c, i);
+            Vector3d p = (dt.GetVertex(f.a) + dt.GetVertex(f.b) + dt.GetVertex(f.c)) / 3.0;
+            double a = AlphaField(p);
+            return a < alpha ? Math.Max(a, AlphaFloorOffsets * offset) : alpha;
+        }
         double diag;
         // distance of each triangulation vertex to the input (NaN = not computed)
         List<double> vertexDistance = new List<double>();
@@ -689,7 +700,7 @@ namespace gs
                 // traversable is dropped, one whose radius changed goes back into the queue under its new key)
                 if (TraverseByEmptyBall) {
                     double r = facet_empty_ball(c, i);
-                    if (!(r > alpha)) { staleGates++; continue; }
+                    if (!(r > alpha_at(c, i))) { staleGates++; continue; }
                     if (r != key) { requeuedGates++; gates.Push(r, c, i, stampC); continue; }
                 }
                 Vector3d from, to;
@@ -1095,7 +1106,7 @@ namespace gs
             int c = g.C, i = g.I;
             if (TraverseByEmptyBall) {
                 double r = facet_empty_ball(c, i, g);
-                if (!(r > alpha)) { g.Kind = GateDrop; return; }
+                if (!(r > alpha_at(c, i))) { g.Kind = GateDrop; return; }
                 if (r != g.Key) { g.Kind = GateRequeue; g.NewKey = r; return; }
             }
             dual_edge(c, i, out Vector3d from, out Vector3d to, g);
@@ -1149,7 +1160,7 @@ namespace gs
         void add_push(RoundGate g, int c, int i)
         {
             double r = TraverseByEmptyBall ? facet_empty_ball(c, i, g) : facet_radius(c, i);
-            if (r > alpha)
+            if (r > alpha_at(c, i))
                 g.Pushes.Add((r, c, i));
         }
 
@@ -1194,7 +1205,7 @@ namespace gs
         void push_gate(int c, int i)
         {
             double r = TraverseByEmptyBall ? facet_empty_ball(c, i) : facet_radius(c, i);
-            if (r > alpha)
+            if (r > alpha_at(c, i))
                 gates.Push(r, c, i, dt.CellStamp(c));
         }
 

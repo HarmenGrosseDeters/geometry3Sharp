@@ -64,6 +64,8 @@ namespace gs
         public bool PeelBoundarySlivers = true;
         /// <summary> threads of the wrap's carving (MeshAlphaWrap.MaxThreads: 0 = all cores, 1 = one thread); the result is the same for every value </summary>
         public int MaxThreads = 0;
+        /// <summary> SPIKE (runs/tet-local-alpha only): the wrap's local alpha, see MeshAlphaWrap.AlphaField </summary>
+        public Func<Vector3d, double> AlphaField;
         /// <summary>
         /// stage 2: improve the refined mesh by flips and smoothing (TetMeshImprover, Klingner and Shewchuk 2007): every tet with a
         /// smallest dihedral angle below SliverDihedralDegrees is worked on. Flips never change the boundary triangles; with
@@ -159,7 +161,7 @@ namespace gs
             DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
-                RefineMinAngleDegrees = SurfaceMinAngleDegrees };
+                RefineMinAngleDegrees = SurfaceMinAngleDegrees, AlphaField = AlphaField };
             bool ok = wrap.Compute();
             Wrap = wrap;
             WrapStatus = wrap.Status;
