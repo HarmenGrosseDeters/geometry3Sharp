@@ -15,12 +15,7 @@ namespace geometry3Sharp.Tests
             Similarity s = Similarity.ByName(name);
             var mesh = new DMesh3();
             var spans = new List<EdgeSpan> { MakeSpan(0.01), MakeSpan(0.08) };
-            var fill = new AutoHoleFill(mesh, null);
-            // The experimental span strategy is disabled by the public classifier.
-            var sort = typeof(AutoHoleFill).GetMethod("sort_planar_spans", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(sort);
-            var groups = Assert.IsType<List<List<EdgeSpan>>>(
-                sort.Invoke(fill, new object[] { spans, s.ApplyDirection(Vector3d.AxisZ) }));
+            var groups = SortPlanarSpans(mesh, spans, s.ApplyDirection(Vector3d.AxisZ));
             Assert.Collection(groups,
                 first => Assert.Same(spans[0], Assert.Single(first)),
                 second => Assert.Same(spans[1], Assert.Single(second)));
@@ -34,6 +29,21 @@ namespace geometry3Sharp.Tests
                 return new EdgeSpan(mesh, new[] { a, b, c },
                     new[] { mesh.FindEdge(a, b), mesh.FindEdge(b, c) }, false);
             }
+        }
+
+        [Fact]
+        public void PlanarSpans_EmptyListHasNoGroups()
+        {
+            Assert.Empty(SortPlanarSpans(new DMesh3(), new List<EdgeSpan>(), Vector3d.AxisZ));
+        }
+
+        static List<List<EdgeSpan>> SortPlanarSpans(DMesh3 mesh, List<EdgeSpan> spans, Vector3d normal)
+        {
+            var fill = new AutoHoleFill(mesh, null);
+            // The experimental span strategy is disabled by the public classifier.
+            var sort = typeof(AutoHoleFill).GetMethod("sort_planar_spans", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(sort);
+            return Assert.IsType<List<List<EdgeSpan>>>(sort.Invoke(fill, new object[] { spans, normal }));
         }
     }
 }
