@@ -93,6 +93,9 @@
     <InternalsVisibleTo Include="DeterminismHarness" />
     <!-- the stage profile of the pure-quad repair (benchmarks/QuadFlow3BGate) -->
     <InternalsVisibleTo Include="QuadFlow3BGate" />
+    <!-- CertifiedPointMeshDistance in the pin checks of the reference parts (benchmarks/ReferenceParts, tests/g3cli.Tests ReferencePartsCliTests) -->
+    <InternalsVisibleTo Include="ReferenceParts" />
+    <InternalsVisibleTo Include="g3cli.Tests" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;
