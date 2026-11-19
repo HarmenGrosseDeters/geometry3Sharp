@@ -316,9 +316,6 @@ namespace geometry3Sharp.Tests
             { "Reducer.TriangleCount|utm", "R7" },
             // QA 2.0 T1 (RobustnessSweepTests.GapOps.cs, .Families.cs)
             { "PointAABBTree3|extreme scale 1E-160", "R25" },
-            { "MeshInsertPolygon|scale 1e-3", "R28" },
-            { "MeshInsertPolygon|scale 2^-10", "R28" },
-            { "MeshInsertPolygon|scale 2^-24", "R28" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+160", "R31" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+300", "R31" },
         };
