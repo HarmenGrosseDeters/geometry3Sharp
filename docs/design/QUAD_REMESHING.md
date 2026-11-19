@@ -239,7 +239,7 @@ before it.
 | **0. Decisions** | The owner decisions below. | - | - | Decided 2026-11-17. |
 | **1. Cross field** | A `CrossField` class (additive): Knöppel 2013 smoothest field and curvature-aligned field, with boundary and feature-edge alignment as constraints (one linear solve). Principal directions (Rusinkiewicz 2004, from the paper) as a small new block. Per-face singularity indices. Manifold input only (reports `NotManifold`). | **M** (about 1-2 worker sessions) | low: the spike already matches theory | On the procedural suite (plus open shapes and sharp-feature boxes): the per-face index histogram matches theory (8 x +1/4 on genus 0); singularities <= ideal + 4 on the sphere, box and torus (curvature-aligned torus: 0); <= 2 s per 50k vertices on 4 cores (measured 3.7 s at 41k single-threaded; levers: a residual stop instead of a fixed 30 iterations, an n x n complex Hermitian factorization instead of the 2n x 2n real form, and a nested-dissection ordering); bit-for-bit under 2^k scales; deterministic. No-go if the curvature alignment fails on the torus or noisy inputs. |
 | **2. Position field and extraction (quad-dominant)** (built; merged with the irregular-vertex and 95 % quad gates open, owner 2026-11-17: [4.2](#42-stage-2-status-2026-11-17-built-the-irregular-vertex-gate-is-the-no-go)) | The Instant Meshes position field on a hierarchy, implemented from the paper only (owner 2026-11-17). The paper's extraction with cleanup (collapse of near-coincident points, removal of valence-2 vertices, T-junction fixes). Boundaries as lattice constraints. Output into the stage 5 type. | **L** (about 2-3 sessions) | **medium**: position singularities (spike finding 3); determinism of a parallel Gauss-Seidel (needs a fixed colouring) | On the suite: >= 95 % quads; no face above 6 sides; irregular <= 2 x field singularities + 4 (restated 2026-11-19 relative to the curl mass, [4.5](#45-the-irregular-vertex-gate-restated-and-the-size-field-owner-2026-11-19)); corner p95 <= 15 degrees; Hausdorff <= 0.5 `s`; a manifold polygon mesh; <= 5 s per 100k input vertices on 4 cores (a benchmark target; the tests use inputs small enough for the 5 s test rule). No-go: irregular > 4 x singularities after the cleanup means stage 3 (flow) becomes a prerequisite. |
-| **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within 2 x stage 2's time. |
+| **3. Pure quads** | Option A: one Catmull-Clark split (S; doubles the irregular count). Option B: the QuadriFlow min-cost flow on the position field (BSD reference; a new flow solver), then pure quads by construction. Option C: local topology cleanup (collapses, rotations; Bommes, Lempfer, Kobbelt 2011, from memory). | A: S; B: L; C: M | B: a flow solver; C: no termination guarantee | 100 % quads; irregular <= field singularities + 10 % of stage 2's; the stage 2 quality gates still hold. No-go for B if the flow cannot reach it within max(3 x stage 2, 1 s) on clean runs (owner 2026-11-19, replacing 2 x stage 2; [4.4](#44-stage-3b-built-2026-11-19)). |
 | **4. Features** | Sharp edges (`MeshTopology.CreaseEdges`, Remesher constraints) as field constraints and position-field snapping. Corners as forced singularities. Feature curves resampled first (see [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)). | **L** | **high**: noisy crease networks break into fragments (the same finding as the remesher); QuadWild-quality alignment needs patch tracing (XL) | On sharp CAD boxes, cylinders and gears: quad edges along > 95 % of feature length with angle error p95 <= 10 degrees; Hausdorff at the feature edges <= 0.1 `s`. No-go means smooth-only quad remeshing ships (features as a documented limit). |
 | **5. API and writers** | Additive and compatible with 1.0.324: a new polygon container (`DPolyMesh`: compact face offsets plus vertex lists, face groups, `ToDMesh3()` that triangulates and records the triangle-pair map), OBJ polygon faces and PLY `vertex_indices` lists for n-gons, and `SimpleQuadMesh` from a pure-quad result. A `g3cli quadremesh` command. No change to `DMesh3`. | **S-M** | low; `dotnet pack` API validation catches breaks | The API validation passes; a round trip of OBJ and PLY through the readers keeps the faces (the polygon reader paths are added to `ReaderFuzzTests` if a reader is added). |
 
@@ -413,6 +413,38 @@ solve, flip and fragment removal, and a compactness term in the cost. The share 
 explain was not isolated (the aligned torus shows the inconsistency is not only theirs). Next: B again from the paper, or option C
 (local cleanup of the valence 5 / triangle dipoles) with an upper bound first.
 
+### 4.4 Stage 3B built (2026-11-19): pure quads by the sign-aware flow, opt-in
+
+Built as `QuadRemesher.PureQuads` (default `false`: the stage 2 result, bit for bit as before; the stage 2 results of 54 runs hash the
+same on master and on the branch). The method is the spike's chosen configuration (brief `LIBRARY_BRIEF.md` on the data branch
+`runs/quad-3b`, section 7), written from Huang et al. 2018 (sections 3.2-3.6), Ahuja, Magnanti, Orlin and the SAT texts in
+[SOURCES.md](../SOURCES.md); `mesh_ops/QuadFlowRepair.cs`, `solvers/MinCostFlow.cs`, `solvers/GroupSatSolver.cs`:
+
+- the integer offsets of the position field per triangle edge with the frame transitions; the regularity constraint (sum of the three
+  offsets = 0) as a network by a breadth-first rotation of the equations; the fixed variables (cycles with a holonomy) balanced greedily;
+- the min-cost flow (per-source successive shortest paths with early termination, equal-cost unit steps merged into one arc, heap ties by
+  node index) with the capacity growing from 2 by 2 until the flow is full; **cost mode 2**: the marginal cost of a unit step (two tiers, +1)
+  times 100 when the step grows |d| against the sign of the real offset;
+- the subdivision of every edge with |d|inf above 1 (a priority queue with lazy invalidation, order: largest |d|inf, triangle, slot), the
+  greedy vertex moves, the local SAT over rings 1 to 6 (implication encoding, a **total budget of 300k decisions**), the position solve
+  contracted to the clusters of d = 0 edges, the extraction (pairs over the hypotenuses, 2-gons cancel) and the projection onto the input;
+- **exact detection**: every offset is a small integer, `det(D0, D1)` is an `int`; `InvertedTriangles` counts the negative ones.
+
+Fallback contract: `PureQuadStatus` is `Success` only if every check passes; otherwise `Result` is the stage 2 mesh (identical to
+`PureQuads = false`), `QuadRemeshStatus` stays `Success`, and the status names the first failed check: `FlowInfeasible` (the flow cannot be
+completed within capacity 40, or the offsets are out of range), `BudgetExceeded` (the SAT budget or the split budget is used up and the
+map still has folds), `OrientationFolds` (folds left without a budget problem), `NotManifold` (not a manifold of quads only after the
+extraction), `FlippedFaces` (a quad faces away from the surface). The brief listed the budget after the fold count; here a map with folds
+that the budget stopped is `BudgetExceeded`, because the repair did not finish (on the 54 runs: 26 of the 29 fallbacks).
+
+**Time gate (owner 2026-11-19, replaces the 2 x stage 2 gate for 3B):** a clean run takes at most max(3 x stage 2, 1 s). Measured
+(`benchmarks/QuadFlow3BGate`, 54 runs, net10.0 Release, 4 cores; `Compute()` against `Compute()`): clean rows **25 / 25 within the gate**
+(ratio median 2.7, max 7.7; 0.16 s median, 0.85 s max); fallbacks at most 2.13 s (0.48 s median); 25 clean, 29 fallback, **0 undetected
+bad**. On the clean rows: irregular vertices within singularities + 10 % of stage 2 on 25 / 25, Hausdorff <= 0.5 s on 24 / 25 (the filleted
+box at scale 1.25: 0.52 s), corner deviation p95 <= 15 degrees on 17 / 25 (stage 2 on the same rows: 18 / 25). The fallback rate (54 %) stays: the
+option is useful as an opt-in only. Largest stage on clean rows and on fallbacks: the min-cost flow (50 % / 54 % of the attempt), then the
+SAT (20 % / 40 %); the numbers are in the benchmark README.
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
@@ -478,7 +510,7 @@ length (0.4 s) is not scaled with the local spacing, so edges of the smallest ce
 220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s. (A review found that the first version of the solver turned the lattice by the opposite angle of the one the position
 field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds` checks it against an independent evaluation, and the table is from the corrected code.)
 
-Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
+Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
 
 ## 5. Limits and recommendation
 

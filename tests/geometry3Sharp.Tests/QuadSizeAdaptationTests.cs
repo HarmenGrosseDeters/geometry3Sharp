@@ -477,6 +477,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SizeAdaptation_CannotBeCombinedWithPureQuads()
+        {
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = S, SizeAdaptation = SizeAdaptationMode.Scale, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+            Assert.Null(qr.Result);
+        }
+
+        [Fact]
         public void SizeAdaptation_UsesTheSettingsOfTheFramesObjectOfTheCaller()
         {
             var fr = new IntegrableFrames(null, null) { Iterations = 3, StopTolerance = 0 };

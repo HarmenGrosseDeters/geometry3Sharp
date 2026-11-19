@@ -15,7 +15,7 @@ Probe code and raw numbers are on the data branch `runs/plane-kernel-study` (com
 
 ## Verdict
 
-**Recommendation: no-go (owner decision pending)**, both for a replacement kernel and for an opt-in on-grid hybrid.
+**Decision: no-go (owner 2026-11-19)**, both for a replacement kernel and for an opt-in on-grid hybrid.
 Nothing is to be built. The octree-BSP / EMBER architecture stays shelved (owner 2026-11-17), now with numbers.
 
 | question | answer, with numbers |
