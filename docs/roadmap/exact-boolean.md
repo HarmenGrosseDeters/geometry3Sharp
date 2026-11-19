@@ -844,8 +844,8 @@ the input doubles while still needing our rounding for double output. The plane-
 question for the design analysis of Exact Boolean 4.0 (stage 0 merged as #1093; stage 1, the lazy `ExactMesh` expression,
 merged as #1107); later stages wait for a use case.
 Re-examined 2026-11-19 at the owner's request ("months are acceptable if quality does not drop"):
-[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). Recommendation: **no-go** (owner
-decision pending), both for a replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 %
+[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). **No-go** (owner
+2026-11-19), both for a replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 %
 (12 threads: 1.43x → 0.93x CGAL). The realistic gain is −17 to −26 %. 0 of 294 T6 booleans are on a short grid (10 of 190
 raw models fit 26 bits, counted per model). The rounding (20 %) and the self-join (19 %) stay under the quality bar.
 

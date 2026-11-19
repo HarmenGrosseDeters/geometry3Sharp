@@ -190,7 +190,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 steps (1) and (2) merged in #416 and #407): [research.md](roadmap/research.md#smt-checks-with-z3)
-- Mesh-kernel ideas and EMBER (EMBER / octree-BSP architecture shelved, owner 2026-11-17): [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04); re-examined 2026-11-19 in [PLANE_BASED_KERNEL_STUDY_2026-11.md](research/PLANE_BASED_KERNEL_STUDY_2026-11.md) (recommendation no-go, owner decision pending)
+- Mesh-kernel ideas and EMBER (EMBER / octree-BSP architecture shelved, owner 2026-11-17): [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04); re-examined 2026-11-19 in [PLANE_BASED_KERNEL_STUDY_2026-11.md](research/PLANE_BASED_KERNEL_STUDY_2026-11.md) (no-go, owner 2026-11-19)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)
 - Shared hotspots and leads for open tasks: [hotspots.md](roadmap/hotspots.md)
