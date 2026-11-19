@@ -740,6 +740,16 @@ cause, an open boundary on an edge that other pieces meet, in different shapes: 
 coplanar (with the sign of zero as the only difference between coincident vertices), the unrounded case kept the
 stray triangle that the comment of the original test called an interior sheet.
 
+### 2.10a Reference parts: what a chain of operations loses (owner 2026-11-19)
+
+A small suite of functional technical parts (a flange with a cross bore, a housing with a thin rib, an assembly with a separate small
+screw), built analytically with known targets and deliberate defects (unwelded, flipped, duplicated, a small gap), run through a chain
+(repair, subtract a cut-out, reduce with a two-sided certified bound, STL float32 and OBJ export, once `g3cli convert`) with a functional check
+after every step (a pin of fixed radius passes the bore, the rib is connected and keeps its thickness, the screw stays a body of its own
+with its box). It reports the first failing step per check, not a per-operation metric; the findings decide where development time goes.
+Tests: `tests/geometry3Sharp.Tests/ReferencePartsTests.cs` (the parts, mutation-checked checks, today's results pinned, invariance over
+`Similarity.All()`), `tests/g3cli.Tests/ReferencePartsCliTests.cs`; the sweep and its table: [benchmarks/ReferenceParts](../benchmarks/ReferenceParts/README.md).
+
 ### 2.10 Robustness sweep (`RobustnessSweepTests`, findings in [ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md))
 
 A table of public operations (mostly upstream code), each with a procedural input of size 1, its scalar

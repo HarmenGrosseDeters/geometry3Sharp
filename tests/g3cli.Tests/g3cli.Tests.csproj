@@ -25,4 +25,9 @@
     <Compile Include="..\..\tools\ReaderFuzzPilot\ReplayMutations.cs" Link="ReaderFuzz\ReplayMutations.cs" />
   </ItemGroup>
 
+  <!-- the reference parts, checks and chains of tests/geometry3Sharp.Tests/ReferenceParts: the export through g3cli is one step of the chain -->
+  <ItemGroup>
+    <Compile Include="..\geometry3Sharp.Tests\ReferenceParts\*.cs" Link="ReferenceParts\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>
