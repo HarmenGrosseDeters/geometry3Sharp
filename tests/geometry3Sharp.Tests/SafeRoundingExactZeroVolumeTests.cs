@@ -66,13 +66,13 @@ namespace geometry3Sharp.Tests
         }
 
         // a closed double cone over a 17-gon of radius r with apexes at +-h: thickness 2 |V| / area = about h * c
-        static DMesh3 Sheet(Vector3d at, double r, double h, bool inverted) => SafeRoundingInsideOutResidueTests.Bipyramid(17, r, h, at, inverted);
+        static DMesh3 Sheet(Vector3d at, double r, double h, bool inverted, int n = 17) => SafeRoundingInsideOutResidueTests.Bipyramid(n, r, h, at, inverted);
 
         // the apex height whose thickness is f ulps of the largest coordinate (formulas of the double cone, before rounding)
-        static double Height(Vector3d at, double r, double f)
+        static double Height(Vector3d at, double r, double f, int n = 17)
         {
             double ulp = Ulp(Math.Max(Math.Abs(at.x) + r, Math.Max(Math.Abs(at.y) + r, Math.Abs(at.z))));
-            double h0 = 1e-15, n = 17;
+            double h0 = 1e-15;
             double area = 2 * n * 0.5 * (2 * r * Math.Sin(Math.PI / n)) * Math.Sqrt(h0 * h0 + Math.Pow(r * Math.Cos(Math.PI / n), 2));
             double vol = 2.0 / 3 * (0.5 * n * r * r * Math.Sin(2 * Math.PI / n)) * h0;
             return h0 * f * ulp / (2 * vol / area);
@@ -137,6 +137,24 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(removed ? 1 : 0, rep.RemovedComponents);
                 Assert.Equal(removed ? 34 : 0, rep.RemovedTriangles);
             }
+        }
+
+        /// <summary>
+        /// the many-triangle flat sheet near the origin (2000 triangles, coordinates up to 0.45: the case of the old margin test, where
+        /// the terms cancel to far below their size): decided exactly on both sides of the threshold, 0.9 and 1.1 ulp thick
+        /// </summary>
+        [Theory]
+        [InlineData(0.9, true)]
+        [InlineData(0.99, true)]
+        [InlineData(1.01, false)]
+        [InlineData(1.1, false)]
+        public void ManyTrianglesNearTheOrigin_AreDecidedExactly(double f, bool removed)
+        {
+            Vector3d at = new Vector3d(0.25, 0, 0);
+            DMesh3 sheet = Sheet(at, 0.2, Height(at, 0.2, f, 1000), true, 1000);
+            Assert.Equal(2000, sheet.TriangleCount);
+            Assert.Equal(removed, Ratio(sheet, out _) < 1);
+            Assert.Equal(removed, Zero(sheet));
         }
 
         /// <summary>
