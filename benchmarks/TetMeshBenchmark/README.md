@@ -160,3 +160,36 @@ estimate (1.8 on the torus at alpha / 2); at h = alpha the wrap's own tets domin
 | cylinder (unsized 3 733) | 5 188 | 9 819 | 22 990 | 64 261 | 174 664 | 4 487 | 5 825 | 7 615 | 9 803 |
 | torus (unsized 5 014) | 5 091 | 5 455 | 8 469 | 20 645 | 54 695 | 5 104 | 5 525 | 6 336 | 7 594 |
 
+
+## Early rejection of split attempts in the improver (#1154, `G3_TET_FLOOR`)
+
+`refine <mesh> 40 600` with `G3_TET_FLOOR=<SliverDihedralDegrees>`, `G3_TET_WRAP_TIME=0`, one process at a time, master (base) and the
+branch (candidate) built from the same checkout state and run one after the other on the same 4-core cloud container. `time_s` is the whole
+`Compute()` (stage 1 and 2, about 2-4 s of it stage 1). The diagnosis (a stopwatch per operation, 40011 at floor 20): 90 % of the improver's
+time is split attempts, of which 0.2-6 % succeed; 82 % of the attempts have their neighbourhood's worst tet outside the edge's ring and cannot
+succeed (the exact argument is the comment in `TetMeshImprover.try_split`). The candidate skips those attempts. Every other column of the
+rows (tets, vertices, quality, deviations) and every count (including `improve_split_refused_input`) are equal between base and candidate.
+
+| floor | mesh | base time_s | candidate time_s | speedup | rest of the row equal |
+|---|---|---|---|---|---|
+| 20 | Thingi 40011 | 111.4 | 43.7 | 2.55x | yes |
+| 20 | Thingi 38781 | 105.5 | 48.9 | 2.16x | yes |
+| 30 | Thingi 301798 | 266.3 | 115.4 | 2.31x | yes |
+| 10 (default) | Thingi 40011 | 2.1 | 1.8 | 1.13x | yes |
+| 10 (default) | Thingi 301798 | 1.8 | 2.0 | 0.92x | yes |
+| 10 (default) | Thingi 100033 | 0.5 | 0.5 | 1.01x | yes |
+| 10 (default) | Thingi 100282 | 2.3 | 2.3 | 0.99x | yes |
+| 10 (default) | Thingi 1004825 | 0.8 | 0.8 | 0.98x | yes |
+
+The default path is unchanged (differences of 10 % at 2 s are timing noise of one run). The runs at floors 20 and 30 stay above 20 s:
+what is left is the 19 % of attempts that are tried to their end (16.7 s of 44 s on 40011), the other operations of the passes (about 16 s)
+and the skipped attempts' own check (6 s). An edge-keyed memo of failed splits on top (15-41 % of the attempts repeat an edge under an
+unchanged two-ring signature) was measured at about 6 % net after the cost of the signature and was not built.
+
+### Local alpha (TET_MESHING.md section 17.13, 2026-11-19)
+
+`compare/run_local_alpha.sh <dll> <mesh dir> <out csv>` runs the 40-mesh subset (meshes fetched at run time, not kept; 120628 skipped as above 40 MB) with uniform alpha 40 / 80 / 160 and with the
+local alpha (`refine` with `G3_TET_DEV=<x>`: `MaxSurfaceDeviation` = diagonal / x, `G3_TET_LOCALPASSES=<n>`), and `compare/summarize_local_alpha.py` prints the medians. Rows:
+`results/tet-local-alpha-subset39-2026-11-19.csv`. Medians over 39 meshes (ratios per mesh against uniform /80): diagonal / 150 gives 0.52x the tets at 1.00x the input-to-boundary max distance and 1.17x the time;
+diagonal / 250 gives 0.68x the tets at 0.92x the distance and 1.31x the time (two passes: 0.81x the tets, 0.92x, 1.69x); uniform /160 is 3.75x the tets at 0.70x the distance and 2.39x the time. All 39 valid, no self-intersection, every tet >= 10 degrees in every configuration.
+

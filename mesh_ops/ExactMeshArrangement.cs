@@ -1616,6 +1616,55 @@ namespace g3
             return Orient(t, p, q, r, null);
         }
 
+        /// <summary>
+        /// The floating-point filter of Orient for the edges of one triangle (a, b, c) against many points x (ExactPlanarSimplify's ear
+        /// test): the approximations of a, b, c and their errors are read once. EdgeSign(edge, x) is the sign of Orient(t, p, q, x) for the
+        /// edge (p, q) = (a, b), (b, c) or (c, a) if the filter of Orient decides it, else 0 (also 0 for repeated points and with
+        /// DisableFilters, so a 0 says nothing). It is Orient's filter stage for stage: the same error e (the largest approximation error
+        /// of p, q, x), the same orient2d_approx on the same values and its bound err; the sign is returned only if |fdet| > err
+        /// (strictly): the determinant of the exact points differs from fdet by at most err, so the exact sign is the sign of fdet.
+        /// A nonzero result therefore equals Orient's, never another sign.
+        /// </summary>
+        internal struct TriangleFilter
+        {
+            internal Vector3d A, B, C;
+            internal double EA, EB, EC;
+            internal int I, J, Sign0;
+            internal bool Active;
+        }
+
+        internal TriangleFilter BeginTriangleFilter(InputTriangle t, int a, int b, int c)
+        {
+            var f = new TriangleFilter();
+            if (DisableFilters || a == b || b == c || c == a)
+                return f;       // (inactive: every EdgeSign is 0; x equal to a, b or c is never asked)
+            f.Active = true;
+            f.I = (t.Axis + 1) % 3; f.J = (t.Axis + 2) % 3; f.Sign0 = t.Sign;
+            f.A = approx[a]; f.B = approx[b]; f.C = approx[c];
+            f.EA = approxErr[a]; f.EB = approxErr[b]; f.EC = approxErr[c];
+            return f;
+        }
+
+        // which edge: 0 = (a, b), 1 = (b, c), 2 = (c, a)
+        [MethodImpl(JitHints.Optimize)]
+        internal int EdgeSign(ref TriangleFilter f, int edge, int x)
+        {
+            if (f.Active == false)
+                return 0;
+            Vector3d px = approx[x];
+            double ex = approxErr[x];
+            Vector3d p, q; double ep, eq;
+            if (edge == 0) { p = f.A; q = f.B; ep = f.EA; eq = f.EB; }
+            else if (edge == 1) { p = f.B; q = f.C; ep = f.EB; eq = f.EC; }
+            else { p = f.C; q = f.A; ep = f.EC; eq = f.EA; }
+            double e = Math.Max(ep, Math.Max(eq, ex));
+            double err;
+            double fdet = orient2d_approx(p, q, px, f.I, f.J, e, out err);
+            if (fdet > err) return f.Sign0;
+            if (-fdet > err) return -f.Sign0;
+            return 0;
+        }
+
         /// <summary> Orient, with the local points of t as a second filter (null: none) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local)

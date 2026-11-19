@@ -949,7 +949,7 @@ namespace geometry3Sharp.Tests
                 var e = new Vector3d(0.3 + 0.2 * rnd.NextDouble(), 0.02 + 0.03 * rnd.NextDouble(), 0.3);
                 var b = new TrivialBox3Generator() { Box = new Box3d(c, e) }.Generate().MakeDMesh();
                 var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
-                MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(axis, 360 * rnd.NextDouble()));
+                MeshTransforms.Rotate(b, c, PortableMath.AxisAngleD(axis, 360 * rnd.NextDouble()));      // (#1151: the same bits on every platform)
                 MeshEditor.Append(m, b);
             }
             return m;

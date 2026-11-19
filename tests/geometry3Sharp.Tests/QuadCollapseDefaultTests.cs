@@ -56,12 +56,12 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        // A strip this narrow (2.5 to 4 target edges) gives non-manifold vertices with the old default as well (found by the review of this change, an open item in
-        // QUAD_REMESHING.md 4.2): the new default must not make it worse.
+        // Strips 1.7 to 7.5 target edges wide gave non-manifold vertices with the old default as well (issue #1179, repaired in BuildFaces, see
+        // QuadNonManifoldVertexTests): the new default must keep them manifold.
         [Theory]
         [InlineData(0.04)]
         [InlineData(0.06)]
-        public void NarrowStrip_IsNotWorseThanWithTheOldDefault(double s)
+        public void NarrowStrip_IsManifoldWithTheNewDefault_AsWithTheOld(double s)
         {
             DMesh3 m = Strip(100, 8, 0.1);
             var cf = new CrossField(m);
@@ -77,8 +77,7 @@ namespace geometry3Sharp.Tests
             PolyMeshMetrics now = Run(0.6), old = Run(0.4);
             Assert.True(now.MaxSides <= 6);
             Assert.Equal(0, now.NonManifoldEdges);
-            Assert.True(now.NonManifoldVertices <= old.NonManifoldVertices, "non-manifold vertices " + old.NonManifoldVertices + " -> " + now.NonManifoldVertices);
-            Assert.True(now.InconsistentEdges <= old.InconsistentEdges);
+            Assert.True(now.IsManifold && old.IsManifold, "non-manifold vertices " + old.NonManifoldVertices + " (0.4), " + now.NonManifoldVertices + " (0.6)");
         }
 
         [Theory]

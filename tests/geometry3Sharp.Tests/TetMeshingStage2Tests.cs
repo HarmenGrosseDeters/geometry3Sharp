@@ -35,7 +35,7 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < major; ++i)
                 for (int j = 0; j < minor; ++j) {
                     double u = 2 * Math.PI * i / major, v = 2 * Math.PI * j / minor;
-                    m.AppendVertex(new Vector3d((R + r * Math.Cos(v)) * Math.Cos(u), (R + r * Math.Cos(v)) * Math.Sin(u), r * Math.Sin(v)));
+                    m.AppendVertex(new Vector3d((R + r * PortableMath.Cos(v)) * PortableMath.Cos(u), (R + r * PortableMath.Cos(v)) * PortableMath.Sin(u), r * PortableMath.Sin(v)));      // (#1151)
                 }
             for (int i = 0; i < major; ++i)
                 for (int j = 0; j < minor; ++j) {
@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
             switch (name) {
                 case "sphere": return Sphere(1, 16);
                 case "box": return Box();
-                case "cylinder": return new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1.5f, Slices = 32 }.Generate().MakeDMesh();
+                case "cylinder": return PortableMath.CappedCylinder(0.5f, 0.5f, 1.5f, 32);      // (#1151: CappedCylinderGenerator with the same bits on every platform)
                 default: return Torus(64, 16, 1, 0.1);
             }
         }
@@ -88,7 +88,7 @@ namespace geometry3Sharp.Tests
             var s1 = new MeshTetrahedralization(tm.Mesh) { RelativeAlpha = tm.RelativeAlpha, RelativeOffset = tm.RelativeOffset,
                 MaxRadiusEdgeRatio = tm.MaxRadiusEdgeRatio, MaxCircumradius = tm.MaxCircumradius, SliverDihedralDegrees = tm.SliverDihedralDegrees,
                 SurfaceMinAngleDegrees = tm.SurfaceMinAngleDegrees, PeelBoundarySlivers = tm.PeelBoundarySlivers, MinFeatureFactor = tm.MinFeatureFactor,
-                MaxSteinerPoints = tm.MaxSteinerPoints, Improve = false };
+                MaxSteinerPoints = tm.MaxSteinerPoints, MaxSurfaceDeviation = tm.MaxSurfaceDeviation, LocalAlphaPasses = tm.LocalAlphaPasses, Improve = false };
             Assert.True(s1.Compute());
             Assert.Equal(tm.UsedOffset, s1.UsedOffset);
             return s1.Result.ToSurfaceMesh();
