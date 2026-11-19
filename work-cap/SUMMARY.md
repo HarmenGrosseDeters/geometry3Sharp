@@ -96,3 +96,8 @@ Setup as round 2 (500 meshes, 300 s timeout, same-run baseline), run 44586500696
   in the last pass the visited set is a prefix of the sorted bad list.
 - Timing is noisy on shared runners (baseline slow count: 3-4 at floor 20, 107-118 at floor 30 over the three runs); counts of visits and angles are deterministic.
 - 5 is not an optimum, only the smallest of 2/5/10 that brings floor 20 to 0. A level between 5 and 10 (say 7) would cost less quality and may leave 0-1 slow meshes; not measured.
+
+## Review of round 3 (independent; classes 0, 2, 3, 4, 5, 6, 7, 9, 11)
+
+No correctness defect. Fixed: test for a budget exactly as large as the run needs (not reported as reached); doc says both caps share the key `improve_work_cap_reached`.
+Left as noted: a test that pins "a visit = one improve() call on a live bad tet" independently of `Visits` itself, and an exact `passes` assertion for the break out of the pass loop (low value, cosmetic effect).

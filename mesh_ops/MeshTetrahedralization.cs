@@ -119,7 +119,7 @@ namespace gs
         /// <summary>
         /// stage 2: an opt-in work cap of the improvement, in the style of MaxTrialInsertionsPerWrapVertex: at most this many split attempts
         /// (edges tried for a split) per vertex of the stage-1 mesh over the whole improvement, counted and never wall-clock, so the result is
-        /// deterministic. Once spent, splits are skipped and the other operations go on; Counts["improve_work_cap_reached"] = 1 says so (only
+        /// deterministic. Once spent, splits are skipped and the other operations go on; Counts["improve_work_cap_reached"] = 1 says so (the same key for the other cap, MaxImproveVisitsPerVertex; only
         /// then the key exists) and the run does not fail. 0, a negative value or NaN: no cap (the default; the result is then bit for bit as before the option).
         /// </summary>
         public double MaxSplitAttemptsPerVertex = 0;

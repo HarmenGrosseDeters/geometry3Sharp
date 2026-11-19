@@ -142,6 +142,11 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(k, c.Visits);
                 Assert.Equal(1, c.Counts["work_cap_reached"]);
             }
+            // a budget exactly as large as the run needs is not "reached" (the cap trips only when a further visit would exceed it)
+            TetMeshImprover exact = ImproverV(used);
+            Assert.False(exact.Counts.ContainsKey("work_cap_reached"));
+            Assert.Equal(free.Result().Tets, exact.Result().Tets);
+            Assert.Equal(free.Counts, exact.Counts);
             TetMeshImprover roomy = ImproverV(used + 1);
             Assert.False(roomy.Counts.ContainsKey("work_cap_reached"));
             Assert.Equal(used, roomy.Visits);
