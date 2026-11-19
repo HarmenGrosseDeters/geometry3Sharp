@@ -5,7 +5,9 @@ using System.Collections.Generic;
 namespace g3
 {
     /// <summary> The outcome of <see cref="PolyhedralGeodesicDistance.Compute"/>. </summary>
-    public enum PolyhedralGeodesicStatus { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, Cancelled }
+    /// <summary> PartiallyReached: the run finished, but a vertex of a source's connected component (reachable over the edges) has no distance
+    /// (MaxDistance infinite); the reached values are in Distance, UnreachedVertices counts the rest. Seen on triangles of aspect ratio beyond about 1e5. </summary>
+    public enum PolyhedralGeodesicStatus { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, Cancelled, PartiallyReached }
 
     /// <summary>
     /// The geodesic distance along the surface of a triangle mesh (the shortest path on the piecewise flat surface, the
@@ -22,9 +24,10 @@ namespace g3
     /// approximation on any mesh <see cref="MeshGeodesicDistance"/> (the heat method).</para>
     /// <para><b>Limits.</b> (1) Windows per vertex grow with the grid width on meshes with many saddle vertices (a saddle of 101 x 101 needs
     /// about 120, 317 x 317 more than the default budget of 64: the run ends with <see cref="PolyhedralGeodesicStatus.WindowLimit"/>, after
-    /// about 40 s at 317 x 317, v1 has no ICH or VTP pruning). (2) On meshes whose triangles have an aspect ratio beyond about 10^5
-    /// (a strip of height 1e-6 against a length of 1 with several rows) a vertex can stay unreached: the status is Ok and its Distance is NaN.
-    /// Check the array for NaN when the input can be that thin.</para>
+    /// about 40 s at 317 x 317, v1 has no ICH or VTP pruning). (2) On meshes whose triangles have an aspect ratio beyond about 10^5 (a strip of height 1e-6 against a length of 1 with several rows)
+    /// a vertex can stay unreached; the status is then <see cref="PolyhedralGeodesicStatus.PartiallyReached"/> (owner decision 2026-11-19), the reached
+    /// values are kept and <see cref="UnreachedVertices"/> counts the others. Ok guarantees a distance for every vertex of the sources' components
+    /// when MaxDistance is infinite.</para>
     /// <para>Memory: a window is a 64-byte struct; a run holds at most about 120 bytes x (MaxWindows + 2 x the largest vertex
     /// valence) plus about 57 bytes per vertex (see the design note). Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
     /// double without FMA, and 2^k scalings of the input give the same bits (away from overflow and the subnormal range).</para>
@@ -43,12 +46,14 @@ namespace g3
         /// <summary> optional, polled between steps; returning true ends Compute with Cancelled and NaN arrays </summary>
         public Func<bool> CancelRequested;
         public PolyhedralGeodesicStatus Status { get; private set; }
-        /// <summary> per vertex id: the distance to the nearest source; NaN for unused ids, unreached vertices, and every vertex unless Status is Ok </summary>
+        /// <summary> per vertex id: the distance to the nearest source; NaN for unused ids, unreached vertices, and every vertex unless Status is Ok or PartiallyReached </summary>
         public double[] Distance { get; private set; }
         /// <summary> per vertex id: the source that realises Distance (the lowest id at an exact tie), -1 where Distance is NaN </summary>
         public int[] NearestSource { get; private set; }
         /// <summary> the windows created by the last Compute </summary>
         public long Windows { get; private set; }
+        /// <summary> with MaxDistance infinite: the vertices of the sources' connected components that got no distance (0 unless Status is PartiallyReached) </summary>
+        public int UnreachedVertices { get; private set; }
         /// <summary> merges of windows in the last Compute (diagnostics) </summary>
         internal long Merges { get; private set; }
 
@@ -100,7 +105,7 @@ namespace g3
             Status = PolyhedralGeodesicStatus.NotComputed;
             Distance = new double[n]; NearestSource = new int[n];
             for (int v = 0; v < n; ++v) { Distance[v] = double.NaN; NearestSource[v] = -1; }
-            Windows = 0; Merges = 0;
+            Windows = 0; Merges = 0; UnreachedVertices = 0;
             Status = Run(sourceVertices);
             return Status;
         }
@@ -154,6 +159,18 @@ namespace g3
             }
             for (int v = 0; v < n; ++v)
                 if (Mesh.IsVertex(v) && dist[v] <= MaxDistance && dist[v] < double.PositiveInfinity) { Distance[v] = dist[v]; NearestSource[v] = root[v]; }
+            if (double.IsPositiveInfinity(MaxDistance)) {
+                // Ok guarantees a distance for every vertex of the sources' components: a breadth-first walk over the edges from the sources
+                var seen = new bool[n]; var queue = new Queue<int>();
+                foreach (int s0 in src) { seen[s0] = true; queue.Enqueue(s0); }
+                int unreached = 0;
+                while (queue.Count > 0) {
+                    int v = queue.Dequeue();
+                    if (!(dist[v] < double.PositiveInfinity)) ++unreached;
+                    foreach (int nb in Mesh.VtxVerticesItr(v)) if (!seen[nb]) { seen[nb] = true; queue.Enqueue(nb); }
+                }
+                if (unreached > 0) { UnreachedVertices = unreached; return PolyhedralGeodesicStatus.PartiallyReached; }
+            }
             return PolyhedralGeodesicStatus.Ok;
         }
 

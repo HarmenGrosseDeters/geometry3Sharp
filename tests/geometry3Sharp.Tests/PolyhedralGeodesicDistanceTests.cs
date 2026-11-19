@@ -337,15 +337,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ThinStripWithFiveRows_KnownLimit_NeverTooSmall_AtMostSevenUnreached()
+        public void ThinStripWithFiveRows_UnreachedVertices_GiveTheStatusPartiallyReached_NeverOk()
         {
-            // the documented limit (class remarks, limit 2): vertices can stay unreached with status Ok; what is reached is never below the straight line
+            // the documented limit (class remarks, limit 2; owner decision 2026-11-19): a vertex of the source's component without a distance
+            // is never reported as Ok; what is reached is kept and never below the straight line
             var m = Grid(-1, -1e-8, 1, 1e-8, 21, 5, (x, y) => 0);
+            int partial = 0;
             foreach (int src in new[] { 10, 0 }) {
-                var g = Run(m, src);
-                Assert.True(g.Distance.Count(double.IsNaN) <= 7);
+                var g = new PolyhedralGeodesicDistance(m); var st = g.Compute(new[] { src });
+                int nan = g.Distance.Count(double.IsNaN);
+                Assert.Equal(nan == 0 ? PolyhedralGeodesicStatus.Ok : PolyhedralGeodesicStatus.PartiallyReached, st);
+                Assert.Equal(nan, g.UnreachedVertices);
+                if (nan > 0) ++partial;
                 foreach (int v in m.VertexIndices()) if (!double.IsNaN(g.Distance[v])) Assert.True(g.Distance[v] >= m.GetVertex(v).Distance(m.GetVertex(src)) * (1 - 1e-9));
             }
+            Assert.True(partial >= 1, "the strip no longer shows the limit: update the test and the class remarks");
+        }
+
+        [Fact]
+        public void TwoComponents_AreOk_TheOtherComponentStaysNaN()
+        {
+            var m = Grid(1, 5, (x, y) => 0); var other = Grid(1, 5, (x, y) => 0); int off = m.MaxVertexID;
+            foreach (int v in other.VertexIndices()) m.AppendVertex(other.GetVertex(v) + new Vector3d(10, 0, 0));
+            foreach (int t in other.TriangleIndices()) { var tr = other.GetTriangle(t); m.AppendTriangle(tr.a + off, tr.b + off, tr.c + off); }
+            var g = new PolyhedralGeodesicDistance(m);
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(new[] { 12 }));
+            Assert.Equal(0, g.UnreachedVertices); Assert.True(double.IsNaN(g.Distance[off + 12]));
         }
 
         [Fact]

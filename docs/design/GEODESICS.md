@@ -1323,9 +1323,11 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
    vertices a side (and the four 10^4 comparisons of the nightly tier pass at the same tolerance); against closed forms and the straight line the
    largest deviation is 2.4e-15 relative. The tests enforce 5e-15 d + 5e-16 extent (twice the measurement, was 1e-9 and 1e-12, unmeasured), and the class docs quote
    exactly these.
-10. *Known limit: thin slivers.* A strip of height 1e-6 (and 1e-7 .. 1e-8) with five rows of 21 vertices leaves 2-7 of 105 vertices unreached with
-    status Ok (aspect ratios of 10^5 to 10^7; heights 1e-9 to 1e-12 and three rows are fine). The class docs state it. A fix needs a decision (a new status
-    value, or a fall back to the oracle's intervals), which is the owner's.
+10. *Thin slivers: status `PartiallyReached` (owner decision 2026-11-19).* A strip of height 1e-6 (and 1e-7 .. 1e-8) with five rows of 21 vertices leaves 2-7 of
+    105 vertices unreached (aspect ratios of 10^5 to 10^7; heights 1e-9 to 1e-12 and three rows are fine). With `MaxDistance` infinite, `Compute` now walks the
+    edges from the sources and, if a vertex of their components has no distance, returns the new status `PartiallyReached` (appended to the enum: an
+    API addition) with the reached values kept and `UnreachedVertices` counting the rest; `Ok` guarantees a distance for every vertex of the sources'
+    components. The test forces `Ok` as a mutant (it fails). The class docs state it.
 
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
