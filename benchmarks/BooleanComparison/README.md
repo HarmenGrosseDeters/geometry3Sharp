@@ -1297,3 +1297,34 @@ The per-piece classification of open operands (98def50f, d458662c) costs 4 times
 results differ (98def50f changed the classification of open operands on purpose: a patch can reach through a hole from
 inside an open mesh to outside it, so the threshold is taken per piece).
 
+
+## Planar simplify: the ear emptiness test (#1158, 2026-11-19)
+
+Thingi10K pair p0084 (1088281 + 76477, 731 862 + 222 836 triangles, closed and clean; `thingi-pair` with the pair-list transform, one
+boolean per process, local 4-core container, Release net10.0, `ms` of `run`) took 29-35 s per operation, 85-93 % of it in
+`assembly.simplify`. The cause was not the Lawson flips (11 ms) but the ear clipping of `ExactPlanarSimplify.remove`: the polygon around a
+removed point is its link (up to 716 vertices here), every ear test scans all its vertices, and about 98 % of the vertices of the big
+polygons are collinear (long straight rims). A collinear vertex is never an ear but blocks the tests, and each test of it (`orient == 0`)
+runs the exact stage: 236 M orient calls per intersection, 54 M of them exact zeros, 31 s.
+
+The test "x in the closed triangle (a, b, c)" is the AND of three exact signs `>= 0`. It now takes the floating-point filter's signs of
+the three first (`ExactMeshArrangement.EdgeSign`, the filter of `Orient` unchanged: same error, same `orient2d_approx`, the sign only
+when `|fdet| > err`); a certainly negative one decides it, and only the signs the filter leaves open (and no negative one) go to the exact
+orient. The ears chosen, and so the result, are the same: the output `.off` of all three operations is byte-identical to master's (cmp), as
+are the 36 outputs of the normal stratum below. Second step: the three edges' filter inputs (approximations and errors of a, b, c) are read
+once per ear instead of once per tested point (same values, same decisions).
+
+| p0084, ms | master (`4dc12006`) total / simplify | step 1 (filter signs) total / simplify | + step 2 (read once per ear) total / simplify |
+|---|---|---|---|
+| union | 29 950 / 25 315 | 8 602 / 4 164 | 7 166, 7 001 / 2 908, 2 876 |
+| intersection | 34 758 / 32 400 | 7 915 / 5 601 | 6 186, 6 507 / 3 858, 4 192 |
+| difference | 29 606 / 25 463 | 8 240 / 4 021 | 6 918, 7 073 / 2 914, 2 828 |
+
+Step 2 gains 25-35 % of simplify on top of step 1 (13-23 % of the operation); intersection varies by 8 % between two runs. The exact orient
+calls of ear clipping drop from 236 M to 0.5 M. What is left of simplify (about 3 s) is the filter work of the O(n^2) scans (n = 715: 0.5 M
+tests per polygon); the next lever is a test that is sublinear for runs of collinear ring vertices (binary search along the run), which
+needs its own exactness argument and is not part of this change.
+
+Normal stratum (the first 12 pairs of `pairs.csv` whose models could be fetched, 3 operations, 36 operations): simplify 163 ms in total on
+master, 170 ms after (no polygon there has a long collinear run: the largest simplify is 22 ms on master and 29 ms after, within the noise of a
+one-shot measurement); total 9 693 ms and 9 454 ms.
