@@ -288,7 +288,7 @@ cap (appear / vanish), holes lofted like outer contours (tunnels), a torus by sl
   tie-breaks (bridge pair, start offset), no hash-order dependence; a test compares repeated runs and the reuse of one instance.
 - **Invariance**: Similarity.All(): index triples equal on inputs without near ties; bit for bit for 2^k scales (exact overlay and
   the existing power-of-two frame).
-- **Quality**: the saddle is a ridge at the intermediate height (the known look of bridged composite contours); no medial axis.
+- **Quality**: the saddle is a ridge at the intermediate height (the known look of bridged composite contours); no medial axis (the opt-in lowered saddle of 10.11 lowers the crotch of contained groups).
   Cost 1 slab = the stage 1 cost O(m n log n) per band plus the overlay O(N log N) per slab.
 - **Unsupported (reported)**: contours of one slice that touch or cross, a terminal contour with a through child, a bridge
   with no visible vertex pair.
@@ -427,4 +427,55 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
   of the upper side (20). Survivors, equivalent for valid inputs: the filter of unrelated pairs (removed as dead code: a contour of
   the group that is inside a hole of another cannot be in the group); the bridge obstacles of other groups (the nearest visible pair is
   always clear in the probed inputs); the second parent of a hole group (its two parents are in one group when the holes overlap).
+
+### 10.11 The lowered saddle (opt-in `LoweredSaddle`), the numbers for cut groups, and what stays (2026-11-19)
+
+- **Option.** `ContourLoftStack.LoweredSaddle` (default false: every result is bit for bit the old one, tested on the 11 golden
+  inputs, also with a `SaddleMesher` set) and `SaddleMesher` (a `QualityMesh2` for the roof, default `new QualityMesh2()`, 20 degrees).
+  It applies to a branching or merging group whose pieces are the contours of one side (the existing "contained" shortcut: no
+  intermediate plane, the bridge in the plane of a slice), when the container contour has no holes, the contained contours have
+  none, and the contained contours lie strictly inside the container (exact: `Inside` and `Touch`).
+- **Construction.** The contours inside the container K (of one slice) bound a region D (K minus the inner contours). The surface is the
+  graph of a height over D, meshed by `QualityMesh2` with the contour edges as locked segments (the same call as a cap, rings K and
+  its holes = the inner contours). The vertices of the contours keep their input positions and ids, so the boundary of the roof is the
+  contours edge for edge and the stages around it stay stitched. A vertex of the mesher (inside D, never on a contour) gets the height
+  `h = h_lower + t (h_upper - h_lower)` with `t = d_lower / (d_lower + d_upper)`, the distances to the lower and the upper contours of
+  the group (the distance-ratio height of shape-based interpolation, Raya & Udupa 1990, restricted to D). `t` is in (0, 1) because
+  the vertex is inside D; a vertex with a zero distance or a height outside the slab makes the group fall back. The triangles face up
+  for a branch (the roof of the lower solid) and down for a merge (the underside of the upper solid); holes (odd depth) flip them.
+- **Why this is safe.** The roof triangles are a graph over disjoint planar cells, so they cannot meet each other; the whole mesh keeps
+  the exact checks of section 10.4 (`SelfIntersecting` is still reported for contact with other groups or caps). Any failure of the
+  qualification or the mesher (a vertex merged, a contour edge not kept, a mesher status) returns to the bridged composite, without a
+  status. The guards for touching contours are defensive: the mesher refuses or merges the same inputs (mutating the strict
+  containment test or the edge-touch test keeps all tests green; the fallbacks they produce are pinned by
+  `ContoursThatTouch_KeepTheBridgedComposite`).
+- **Measured** (`benchmarks/ContourLoftBenchmark -- saddle`, README): max dihedral at non-contour edges 41.9 -> 33.3 degrees (1 to 2),
+  55.2 -> 35.2 (1 to 3), 20.6 -> 13.2 (dissimilar r10 -> r2, r5), 41.9 -> 33.3 (the merge); 20-30 more vertices; the crotch of the
+  1 to 2 case at 0.85 of the slab (merge: 0.15), where the bridged composite has it at 1.0.
+- **Probe for 1c (not built): per-vertex heights for the cut groups.** The vertices of the pieces' loops at the intermediate plane,
+  moved to the same distance-ratio height (clamped to [c, 1 - c]); `CapEnds` off, the vertices of the intermediate plane only:
+
+  | case | fixed t = 0.5 | c = 0 (pure ratio) | c = 0.10 | c = 0.25 |
+  |---|---|---|---|---|
+  | 1 to 2 cut | 60.8 deg | 90.0 deg, self-intersecting | 58.2 deg | 53.4 deg |
+  | 1 to 3 cut | 70.9 | 90.0, self-intersecting | 75.3 | 73.1 |
+  | 1 to 2 dissimilar cut | 80.6 | 149.1, self-intersecting | 174.2 | 170.2 |
+  | 2 to 1 cut | 60.8 | 90.0, self-intersecting | 58.2 | 53.4 |
+
+  The pure ratio puts the loop vertices that lie on a contour edge into a slice plane (zero height, self-intersections); with a clamp
+  the symmetric cases gain 2-7 degrees, a 1 to 3 loses and the dissimilar case becomes much worse. No gain that justifies the option:
+  not built. The ledge itself cannot serve the cut groups: the crossing points of the two contours lie on contour edges, so a roof
+  over the symmetric difference would split the contour edges there (and the stages before and after the slab would not fit).
+- **Limits that stay (documented, not open items).**
+  1. Cut groups (pieces that stick out of the contour: an intermediate plane) keep the ridge at `BranchFraction` (1c measured, above).
+  2. Groups with holes keep the bridged composite under `LoweredSaddle`; a hole with an island in a branching or merging solid group
+     is `Unsupported` (10.10); a contour that ends while its hole continues is `Unsupported`.
+  3. Pieces of one hole in different solid pieces (a slot across both legs): `BridgeNotFound`.
+  4. The straight skeleton of the overlay (Barequet et al. 2004) is not built, by decision (owner 2026-11-19 after the study). Reasons:
+     no skeleton, medial axis or Voronoi diagram of segments exists in core; the unit-speed bisectors are algebraic (square roots of
+     squared edge lengths), so exact event ordering needs an exact algebraic number type that the library does not have, and
+     filtered doubles meet simultaneous events on every symmetric procedural input (regular polygons); the effort is XL; and the
+     contained case, which is the visible defect (a full-height fin between the branches), is what 10.11 lowers. Two-sided
+     dissimilar cut groups stay as they are.
+  5. A two-slice stack whose end cap has a branching hole bridges in the plane of that cap: not touched.
 

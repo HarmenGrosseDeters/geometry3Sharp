@@ -1,6 +1,6 @@
 // Scaling of ContourLoft (docs/design/CONTOUR_LOFT.md section 6): the search is O(m n log n) steps and O(m n) triangle
 // evaluations; with the argument stack, ContourLoftStack (section 10): slices with one and two contours alternating every 8 slices.
-// Run: dotnet run --project benchmarks/ContourLoftBenchmark -c Release [-- quick | stack]
+// Run: dotnet run --project benchmarks/ContourLoftBenchmark -c Release [-- quick | stack | saddle]
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -75,8 +75,56 @@ static class Program
             }
     }
 
+    static List<Vector3d> Disc(int n, double r, double z, double cx = 0, double cy = 0, double ry = 0)
+    {
+        var c = new List<Vector3d>(n);
+        for (int i = 0; i < n; ++i) { double a = 2 * Math.PI * i / n; c.Add(new Vector3d(cx + r * Math.Cos(a), cy + (ry > 0 ? ry : r) * Math.Sin(a), z)); }
+        return c;
+    }
+
+    static IList<IList<IList<Vector3d>>> Two(params List<Vector3d>[][] slices) =>
+        slices.Select(sl => (IList<IList<Vector3d>>)sl.Select(c => (IList<Vector3d>)c).ToList()).ToList();
+
+    // ContourLoftStack.LoweredSaddle (section 10.11): the largest angle between the normals of the two triangles of an edge that is
+    // not an input contour edge (caps included, as in the PR numbers), with and without the option, on contained branches and merges
+    static void SaddleBenchmark()
+    {
+        var cases = new (string, IList<IList<IList<Vector3d>>>)[] {
+            ("1 to 2, r4 -> 2 x r1.6", Two(new[] { Disc(48, 4, 0) }, new[] { Disc(24, 1.6, 1, -2.2), Disc(24, 1.6, 1, 2.2) })),
+            ("1 to 3, ellipse 7 x 3 -> 3 x r1.5", Two(new[] { Disc(48, 7, 0, 0, 0, 3) }, new[] { Disc(24, 1.5, 1, -4), Disc(24, 1.5, 1, 0), Disc(24, 1.5, 1, 4) })),
+            ("1 to 2, dissimilar r10 -> r2, r5", Two(new[] { Disc(48, 10, 0) }, new[] { Disc(24, 2, 1, -6), Disc(24, 5, 1, 4) })),
+            ("2 to 1, 2 x r1.6 -> r4", Two(new[] { Disc(24, 1.6, 0, -2.2), Disc(24, 1.6, 0, 2.2) }, new[] { Disc(48, 4, 1) })),
+        };
+        Console.WriteLine("| case | roof | status | vertices | triangles | max dihedral at non-contour edges | ms |");
+        Console.WriteLine("|---|---|---|---:|---:|---:|---:|");
+        foreach (var (name, slices) in cases)
+            foreach (bool roof in new[] { false, true }) {
+                var loft = new ContourLoftStack { CapEnds = true, LoweredSaddle = roof };
+                loft.Compute(slices);   // warm-up
+                var sw = Stopwatch.StartNew();
+                var r = loft.Compute(slices);
+                double ms = sw.Elapsed.TotalMilliseconds;
+                if (r.Status != ContourLoftStackStatus.Success) { Console.WriteLine($"| {name} | {roof} | {r.Status} | | | | |"); continue; }
+                var m = r.Mesh;
+                var contourEdges = new HashSet<long>();
+                int id = 0;
+                foreach (var sl in slices) foreach (var c in sl) {
+                    for (int i = 0; i < c.Count; ++i) { int a = id + i, b = id + (i + 1) % c.Count; contourEdges.Add(((long)Math.Min(a, b) << 32) | (uint)Math.Max(a, b)); }
+                    id += c.Count;
+                }
+                double max = 0;
+                foreach (int e in m.EdgeIndices()) {
+                    var et = m.GetEdgeT(e); var ev = m.GetEdgeV(e);
+                    if (et.b < 0 || contourEdges.Contains(((long)Math.Min(ev.a, ev.b) << 32) | (uint)Math.Max(ev.a, ev.b))) continue;
+                    max = Math.Max(max, Math.Acos(Math.Max(-1, Math.Min(1, m.GetTriNormal(et.a).Dot(m.GetTriNormal(et.b))))) * 180 / Math.PI);
+                }
+                Console.WriteLine($"| {name} | {(roof ? "LoweredSaddle" : "bridged composite")} | {r.Status} | {m.VertexCount} | {m.TriangleCount} | {max:F1} deg | {ms:F1} |");
+            }
+    }
+
     static void Main(string[] args)
     {
+        if (args.Contains("saddle")) { SaddleBenchmark(); return; }
         if (args.Contains("stack")) { StackBenchmark(args.Contains("quick")); return; }
         bool quick = args.Contains("quick");
         int reps = quick ? 1 : 5;

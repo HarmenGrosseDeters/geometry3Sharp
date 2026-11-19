@@ -91,7 +91,7 @@ namespace g3
     /// <para>Branching and merging: a group of several contours is decomposed through the pieces in which the contours overlap; the
     /// pieces lie in an intermediate plane at <see cref="BranchFraction"/> of the slab and a set of pieces is joined by zero-width
     /// bridges into one contour, which the stage 1 search tiles against the single contour on its other side. The surface has a
-    /// ridge at the bridge (the known look of composite contours), no medial axis is used.</para>
+    /// ridge at the bridge (the known look of composite contours), no medial axis is used; <see cref="LoweredSaddle"/> lowers the crotch of a group whose pieces are the contours of one side.</para>
     /// <para>A slice is taken as planar: its height is the mean of its vertices' heights and the 2D work (nesting, overlay) uses the
     /// projection along the stacking direction; the exact check of the assembled mesh protects against slices that are not.</para>
     /// <para>Limits (status Unsupported, never a wrong mesh): a hole of a branching or merging solid group may have no island inside it; a
@@ -113,6 +113,15 @@ namespace g3
         public double BranchFraction = 0.5;
         /// <summary> Add caps on the first and the last slice (a closed solid). Contours that end between slices are always capped. </summary>
         public bool CapEnds;
+        /// <summary>
+        /// Opt-in (default false, the results are then unchanged): a branching or merging group whose contours are contained in one contour of
+        /// the other slice (no intermediate plane) is lofted as a roof over the region between them instead of a band through bridged composite
+        /// contours: the crotch between the branches is lowered (docs/design/CONTOUR_LOFT.md section 10.11). Groups with holes, cut pieces
+        /// and contours that touch keep the bridged composite.
+        /// </summary>
+        public bool LoweredSaddle;
+        /// <summary> Mesher of the roof of <see cref="LoweredSaddle"/> (contour edges are locked); null: <c>new QualityMesh2()</c> (minimum angle 20 degrees). Not changed by the loft. </summary>
+        public QualityMesh2 SaddleMesher;
         /// <summary> Options of the cap meshes (not changed by the loft); null: a constrained Delaunay triangulation without refinement. </summary>
         public QualityMesh2 CapMesher;
 
