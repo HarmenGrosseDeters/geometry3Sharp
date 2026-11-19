@@ -122,7 +122,7 @@ namespace g3
             snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
             apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;
             LxRe = new double[an.ValueCount]; LxIm = new double[an.ValueCount];
-            scheduleMinWork = -1; colCopyBuilt = false; colOff = null; colRe = colIm = null;
+            scheduleBuilt = false; planBuilt = false; colCopyBuilt = false; colOff = null; colRe = colIm = null;
         }
 
 
@@ -130,6 +130,10 @@ namespace g3
         // uniprocessor computers, SIAM J. Sci. Comput. 1993) on the structure from analyze(), complex arithmetic
         bool numeric()
         {
+            if (!ForceSerialNumeric) {
+                CholeskyNumericPlan plan = getNumericPlan();
+                if (plan != null) return numericParallel(plan);
+            }
             int[] relmap = new int[N];
             int[] head = new int[snCount], link = new int[snCount], pos = new int[snCount];
             for (int J = 0; J < snCount; ++J) head[J] = -1;
@@ -166,7 +170,8 @@ namespace g3
                     }
                     K = knext;
                 }
-                if (!factorBlock(J, diagA)) return false;
+                string ferr;
+                if (!factorBlock(J, diagA, out ferr)) { Error = ferr; return false; }
                 pos[J] = w;
                 if (w < h) {
                     int JS = colSnode[snRows[rp + w]];
@@ -177,7 +182,13 @@ namespace g3
         }
 
         // L_J[row of i, column of row c] -= L_K[i,:] . conj(L_K[c,:]) for the rows c in [p0, p1) of K and i >= c
-        unsafe void updateBlock(int K, int J, int p0, int p1, int[] relmap)
+        void updateBlock(int K, int J, int p0, int p1, int[] relmap)
+        {
+            updateRows(K, J, p0, p1, relmap, p0, snRowPtr[K + 1] - snRowPtr[K]);
+        }
+
+        // the rows i in [iStart, iEnd) of the update (each writes its own row of the block of J)
+        unsafe void updateRows(int K, int J, int p0, int p1, int[] relmap, int iStart, int iEnd)
         {
             int f = snFirst[J], w = snFirst[J + 1] - f, off = snVal[J];
             int kw = snFirst[K + 1] - snFirst[K], krp = snRowPtr[K], kh = snRowPtr[K + 1] - krp, koff = snVal[K];
@@ -187,7 +198,7 @@ namespace g3
             fixed (int* rows = snRows, rel = relmap) {
                 int* krows = rows + krp;
                 double* KR = LR + koff, KI = LI + koff;
-                for (int i = p0; i < kh; ++i) {
+                for (int i = iStart; i < iEnd; ++i) {
                     double* ar = KR + i * kw, ai = KI + i * kw;
                     int dbase = off + rel[krows[i]] * w - f;
                     int cend = Math.Min(i + 1, p1);
@@ -208,8 +219,9 @@ namespace g3
         }
 
         // dense Cholesky of the diagonal block of supernode J and the rows below it, row by row
-        unsafe bool factorBlock(int J, double[] diagA)
+        unsafe bool factorBlock(int J, double[] diagA, out string err)
         {
+            err = null;
             int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
             double[] inv = new double[w];
             bool vec = !ForceScalarKernels && SparseHermitianCholeskyKernels.VectorPath;
@@ -246,7 +258,7 @@ namespace g3
                             SparseHermitianCholeskyKernels.Dotc(lr, li, lr, li, row, out dr, out di, vec);        // |L_i,:i|^2 (dr), di = 0
                             double d = lr[row] - dr;
                             if (!(d > 1e-14 * Math.Abs(diagA[f + row])) || double.IsInfinity(d)) {
-                                Error = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
+                                err = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
                                 return false;
                             }
                             lr[row] = Math.Sqrt(d); li[row] = 0;
@@ -255,6 +267,161 @@ namespace g3
                     }
                     i += nr;
                 }
+            }
+            return true;
+        }
+
+        // ---- numeric factorization in parallel (CholeskyNumericPlan): the same operations on every entry as numeric()
+
+        // test switch: the serial numeric loop even where the plan of parallel tasks applies (the factor is the same bits)
+        internal bool ForceSerialNumeric;
+        // work below which the factorization stays serial, and the task size as a fraction of the work (tests lower them)
+        internal long NumericMinWork = CholeskyNumericPlan.DefaultMinWork;
+        internal int NumericTaskDivisor = CholeskyNumericPlan.DefaultDivisor;
+        // work of an update or of a dense block from which its rows run in parallel, and the width of a panel of columns of the dense factorization
+        internal long KernelParallelWork = 300000;
+        internal int PanelWidth = 32;
+        CholeskyNumericPlan numericPlan; bool planBuilt; long planMinWork; int planDivisor;
+        // calls of the parallel kernels (tests: the parallel paths ran)
+        internal int ParallelUpdateCalls, ParallelPanelCalls;
+
+        internal CholeskyNumericPlan NumericPlanForTests { get { return getNumericPlan(); } }
+
+        CholeskyNumericPlan getNumericPlan()
+        {
+            if (Environment.ProcessorCount < 2) return null;
+            if (!planBuilt || planMinWork != NumericMinWork || planDivisor != NumericTaskDivisor) {
+                planBuilt = true;
+                numericPlan = CholeskyNumericPlan.Build(snCount, snFirst, snRowPtr, snRows, colSnode, NumericMinWork, NumericTaskDivisor);
+                planMinWork = NumericMinWork; planDivisor = NumericTaskDivisor;
+            }
+            return numericPlan;
+        }
+
+        bool numericParallel(CholeskyNumericPlan plan)
+        {
+            double[] diagA = new double[N];
+            int nt = plan.TaskFirst.Length;
+            var failJ = new int[nt]; var failMsg = new string[nt];
+            for (int t = 0; t < nt; ++t) failJ[t] = -1;
+            gParallel.ForRange<int[]>(nt, () => new int[N], (t, relmap) => {
+                for (int J = plan.TaskFirst[t]; J < plan.TaskEnd[t]; ++J) {
+                    string err;
+                    if (!supernodeNumeric(plan, J, relmap, diagA, false, out err)) { failJ[t] = J; failMsg[t] = err; break; }
+                }
+            });
+            // the serial loop stops at the first failing supernode: report that one
+            int minFail = -1; string minMsg = null;
+            for (int t = 0; t < nt; ++t)
+                if (failJ[t] >= 0 && (minFail < 0 || failJ[t] < minFail)) { minFail = failJ[t]; minMsg = failMsg[t]; }
+            int[] topMap = new int[N];
+            foreach (int T in plan.Top) {
+                if (minFail >= 0 && minFail < T) break;
+                string err;
+                if (!supernodeNumeric(plan, T, topMap, diagA, true, out err)) { Error = err; return false; }
+            }
+            if (minFail >= 0) { Error = minMsg; return false; }
+            return true;
+        }
+
+        // supernode J: the entries of A, the updates in the order of the plan, the dense factorization
+        bool supernodeNumeric(CholeskyNumericPlan plan, int J, int[] relmap, double[] diagA, bool par, out string err)
+        {
+            int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+            for (int i = 0; i < h; ++i) relmap[snRows[rp + i]] = i;
+            Array.Clear(LxRe, off, h * w); Array.Clear(LxIm, off, h * w);
+            for (int c = 0; c < w; ++c) {
+                int j = f + c;
+                for (int q = apColPtr[j]; q < apColPtr[j + 1]; ++q) {
+                    int r = apRow[q];
+                    int s = apSrc[q];
+                    int slot = off + relmap[r] * w + c;
+                    double vr = aRe[s < 0 ? ~s : s], vi = aIm[s < 0 ? ~s : s];
+                    if (s < 0) vi = -vi;
+                    LxRe[slot] += vr; LxIm[slot] += vi;
+                    if (r == j) diagA[j] += vr;
+                }
+            }
+            for (int u = plan.UpdPtr[J]; u < plan.UpdPtr[J + 1]; ++u) {
+                int K = plan.UpdK[u], p0 = plan.UpdP0[u], p1 = plan.UpdP1[u];
+                int kh = snRowPtr[K + 1] - snRowPtr[K], kw = snFirst[K + 1] - snFirst[K];
+                if (par && (long)(kh - p0) * (p1 - p0) * kw >= KernelParallelWork && kh - p0 >= 8) {
+                    System.Threading.Interlocked.Increment(ref ParallelUpdateCalls);
+                    int rows = kh - p0, chunk = Math.Max(4, rows / 48), nch = (rows + chunk - 1) / chunk;
+                    gParallel.ForRange(nch, ch => {
+                        int a = p0 + ch * chunk;
+                        updateRows(K, J, p0, p1, relmap, a, Math.Min(a + chunk, kh));
+                    });
+                } else
+                    updateRows(K, J, p0, p1, relmap, p0, kh);
+            }
+            if (par && w >= 2 * PanelWidth && (long)w * w * h / 2 >= KernelParallelWork)
+                return factorBlockParallel(J, diagA, out err);
+            return factorBlock(J, diagA, out err);
+        }
+
+        // dense Cholesky of the block of J in panels of PanelWidth columns: the small triangle of a panel one row after the other, then
+        // the rows below the panel (independent of each other) in parallel. Entry (i, c) is (L[i,c] - dot(L[i,:c], conj L[c,:c])) / L[c,c]
+        // with the same dot product as in factorBlock, so the bits are the same.
+        unsafe bool factorBlockParallel(int J, double[] diagA, out string err)
+        {
+            err = null;
+            System.Threading.Interlocked.Increment(ref ParallelPanelCalls);
+            int f = snFirst[J], w = snFirst[J + 1] - f, h = snRowPtr[J + 1] - snRowPtr[J], off = snVal[J];
+            double[] inv = new double[w];
+            bool vec = !ForceScalarKernels && SparseHermitianCholeskyKernels.VectorPath;
+            int nb = Math.Max(1, PanelWidth);
+            for (int c0 = 0; c0 < w; c0 += nb) {
+                int c1 = Math.Min(c0 + nb, w);
+                fixed (double* LR = LxRe, LI = LxIm) {
+                    double* BR = LR + off, BI = LI + off;
+                    for (int row = c0; row < c1; ++row) {
+                        double* lr = BR + row * w, li = BI + row * w;
+                        for (int c = c0; c < row; ++c) {
+                            double dr, di;
+                            SparseHermitianCholeskyKernels.Dotc(lr, li, BR + c * w, BI + c * w, c, out dr, out di, vec);
+                            lr[c] = (lr[c] - dr) * inv[c]; li[c] = (li[c] - di) * inv[c];
+                        }
+                        double pr, pi;
+                        SparseHermitianCholeskyKernels.Dotc(lr, li, lr, li, row, out pr, out pi, vec);
+                        double d = lr[row] - pr;
+                        if (!(d > 1e-14 * Math.Abs(diagA[f + row])) || double.IsInfinity(d)) {
+                            err = "matrix is not positive definite (pivot " + d + " at unknown " + perm[f + row] + ")";
+                            return false;
+                        }
+                        lr[row] = Math.Sqrt(d); li[row] = 0;
+                        inv[row] = 1.0 / lr[row];
+                    }
+                }
+                int blocks = (h - c1 + 3) / 4;
+                if (blocks <= 0) continue;
+                int cc0 = c0, cc1 = c1;
+                gParallel.ForRange(blocks, b => {
+                    int i0 = c1 + 4 * b, nr = Math.Min(4, h - i0);
+                    unsafe {
+                        double* rr = stackalloc double[4], ri = stackalloc double[4];
+                        fixed (double* LR = LxRe, LI = LxIm) {
+                            double* BR = LR + off, BI = LI + off;
+                            if (vec && nr == 4) {
+                                double* L0R = BR + i0 * w, L0I = BI + i0 * w;
+                                for (int c = cc0; c < cc1; ++c) {
+                                    SparseHermitianCholeskyKernels.Dotc4Rows(L0R, L0I, w, BR + c * w, BI + c * w, c, rr, ri, true);
+                                    for (int q = 0; q < 4; ++q) {
+                                        L0R[q * w + c] = (L0R[q * w + c] - rr[q]) * inv[c]; L0I[q * w + c] = (L0I[q * w + c] - ri[q]) * inv[c];
+                                    }
+                                }
+                            } else
+                                for (int q = 0; q < nr; ++q) {
+                                    double* lr = BR + (i0 + q) * w, li = BI + (i0 + q) * w;
+                                    for (int c = cc0; c < cc1; ++c) {
+                                        double dr, di;
+                                        SparseHermitianCholeskyKernels.Dotc(lr, li, BR + c * w, BI + c * w, c, out dr, out di, vec);
+                                        lr[c] = (lr[c] - dr) * inv[c]; li[c] = (li[c] - di) * inv[c];
+                                    }
+                                }
+                        }
+                    }
+                });
             }
             return true;
         }
@@ -305,14 +472,15 @@ namespace g3
         // work below which Solve stays serial, and the task size as a fraction of the work (tests lower them)
         internal long SolveMinWork = CholeskySolveSchedule.DefaultMinWork;
         internal int SolveTaskDivisor = CholeskySolveSchedule.DefaultDivisor;
-        CholeskySolveSchedule solveSchedule; long scheduleMinWork = -1; int scheduleDivisor; readonly object scheduleLock = new object();
+        CholeskySolveSchedule solveSchedule; bool scheduleBuilt; long scheduleMinWork; int scheduleDivisor; readonly object scheduleLock = new object();
 
         internal CholeskySolveSchedule SolveScheduleForTests { get { return getSolveSchedule(); } }
 
         CholeskySolveSchedule getSolveSchedule()
         {
             lock (scheduleLock) {
-                if (scheduleMinWork != SolveMinWork || scheduleDivisor != SolveTaskDivisor) {
+                if (!scheduleBuilt || scheduleMinWork != SolveMinWork || scheduleDivisor != SolveTaskDivisor) {
+                    scheduleBuilt = true;
                     solveSchedule = Environment.ProcessorCount < 2 ? null :
                         CholeskySolveSchedule.Build(snCount, snFirst, snRowPtr, snRows, colSnode, SolveMinWork, SolveTaskDivisor);
                     scheduleMinWork = SolveMinWork; scheduleDivisor = SolveTaskDivisor;

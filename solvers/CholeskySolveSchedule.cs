@@ -39,31 +39,14 @@ namespace g3
         public static CholeskySolveSchedule Build(int snCount, int[] snFirst, int[] snRowPtr, int[] snRows, int[] colSnode, long minWork, int divisor)
         {
             if (snCount < 2 || divisor < 2) return null;
-            var own = new long[snCount]; var sub = new long[snCount]; var parent = new int[snCount]; var fd = new int[snCount];
-            long total = 0;
+            var own = new long[snCount]; var parent = new int[snCount];
             for (int J = 0; J < snCount; ++J) {
                 int w = snFirst[J + 1] - snFirst[J], h = snRowPtr[J + 1] - snRowPtr[J];
-                own[J] = (long)w * h + 32; sub[J] = own[J]; fd[J] = J;
+                own[J] = (long)w * h + 32;
                 parent[J] = h > w ? colSnode[snRows[snRowPtr[J] + w]] : -1;
-                total += own[J];
             }
-            if (total < minWork) return null;
-            for (int J = 0; J < snCount; ++J) {
-                int p = parent[J];
-                if (p >= 0) { sub[p] += sub[J]; if (fd[J] < fd[p]) fd[p] = fd[J]; }
-            }
-            long target = Math.Max(total / divisor, 1);
-            // maximal subtrees of at most `target` work, joined while adjacent (no top supernode between) and the sum stays within target
-            var first = new List<int>(); var end = new List<int>(); long curW = 0;
-            for (int J = 0; J < snCount; ++J) {
-                if (sub[J] > target || (parent[J] >= 0 && sub[parent[J]] <= target)) continue;
-                if (end.Count > 0 && end[end.Count - 1] == fd[J] && curW + sub[J] <= target) {
-                    end[end.Count - 1] = J + 1; curW += sub[J];
-                } else {
-                    first.Add(fd[J]); end.Add(J + 1); curW = sub[J];
-                }
-            }
-            if (first.Count < 2) return null;
+            List<int> first, end;
+            if (!Partition(snCount, own, parent, minWork, divisor, out first, out end)) return null;
             var s = new CholeskySolveSchedule();
             s.TaskFirst = first.ToArray(); s.TaskEnd = end.ToArray();
             s.TaskOf = new int[snCount]; s.Split = new int[snCount]; s.BufOff = new int[snCount];
@@ -82,6 +65,34 @@ namespace g3
             }
             s.BufSize = buf;
             return s;
+        }
+
+        /// <summary>
+        /// Split the supernode tree (postorder, parent[J] > J or -1, own[J] the work of J) into tasks: maximal subtrees of at most
+        /// total/divisor work, joined while adjacent (no other supernode between them) and within that bound. False if the total
+        /// work is below minWork or fewer than two tasks come out.
+        /// </summary>
+        internal static bool Partition(int snCount, long[] own, int[] parent, long minWork, int divisor, out List<int> first, out List<int> end)
+        {
+            first = new List<int>(); end = new List<int>();
+            var sub = (long[])own.Clone(); var fd = new int[snCount];
+            long total = 0;
+            for (int J = 0; J < snCount; ++J) { fd[J] = J; total += own[J]; }
+            if (total < minWork) return false;
+            for (int J = 0; J < snCount; ++J) {
+                int p = parent[J];
+                if (p >= 0) { sub[p] += sub[J]; if (fd[J] < fd[p]) fd[p] = fd[J]; }
+            }
+            long target = Math.Max(total / divisor, 1), curW = 0;
+            for (int J = 0; J < snCount; ++J) {
+                if (sub[J] > target || (parent[J] >= 0 && sub[parent[J]] <= target)) continue;
+                if (end.Count > 0 && end[end.Count - 1] == fd[J] && curW + sub[J] <= target) {
+                    end[end.Count - 1] = J + 1; curW += sub[J];
+                } else {
+                    first.Add(fd[J]); end.Add(J + 1); curW = sub[J];
+                }
+            }
+            return first.Count >= 2;
         }
     }
 }
