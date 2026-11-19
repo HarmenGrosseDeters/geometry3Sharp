@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using BoolCmp;
 using g3;
 using gs;
@@ -232,5 +233,196 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(Exact(t, tet), Filtered(t, tet));
             }
         }
+
+        // --- #1191: the exact magnitude compare of the zero-volume rule (docs/design/EXACT_VOLUME_SIGN.md, last section)
+
+        // value * 2^1074 as an integer (exact for every finite double)
+        internal static BigInteger Scaled(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int e = (int)((bits >> 52) & 0x7FF);
+            long frac = bits & 0xFFFFFFFFFFFFFL;
+            if (e != 0) frac |= 1L << 52;
+            int exp = e == 0 ? -1074 : e - 1075;
+            BigInteger m = new BigInteger(bits < 0 ? -frac : frac);
+            return m << (exp + 1074);
+        }
+
+        // the test's own oracle: S * 2^(3 * 1074), independent of ExactPredicates
+        internal static BigInteger ExactS(DMesh3 mesh, List<int> comp)
+        {
+            Vector3d o3 = mesh.GetVertex(mesh.GetTriangle(comp[0]).a);
+            BigInteger[] o = { Scaled(o3.x), Scaled(o3.y), Scaled(o3.z) };
+            BigInteger[] P(int v) { Vector3d p = mesh.GetVertex(v); return new[] { Scaled(p.x) - o[0], Scaled(p.y) - o[1], Scaled(p.z) - o[2] }; }
+            BigInteger total = 0;
+            foreach (int t in comp) {
+                Index3i tv = mesh.GetTriangle(t);
+                BigInteger[] a = P(tv.a), b = P(tv.b), c = P(tv.c);
+                total += c[0] * (a[1] * b[2] - a[2] * b[1]) + c[1] * (a[2] * b[0] - a[0] * b[2]) + c[2] * (a[0] * b[1] - a[1] * b[0]);
+            }
+            return total;
+        }
+
+        static DMesh3 Sheet(Vector3d at, double r, double h, bool inverted, int n = 17) => SafeRoundingInsideOutResidueTests.Bipyramid(n, r, h, at, inverted);
+
+        // a closed tetrahedron with legs 3 (S = 27, area-free: the test passes t directly), at an offset
+        internal static (double[] xyz, int[] corners) Tetra(double ox, double oy, double oz)
+        {
+            double[] xyz = { ox, oy, oz, ox + 3, oy, oz, ox, oy + 3, oz, ox, oy, oz + 3 };
+            int[] corners = { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 };
+            return (xyz, corners);
+        }
+
+        internal static double Next(double x, int k) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + k);
+
+        /// <summary> |S| = 27 against 3 t: equal at t = 9, below at the next double up, above at the next down; the filter cannot decide the equal case </summary>
+        [Fact]
+        public void Compare_EqualAndNeighbours()
+        {
+            var (xyz, c) = Tetra(0, 0, 0);
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 9, out int s));
+            Assert.Equal(0, s);
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, Next(9, 1), out s));
+            Assert.Equal(-1, s);
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, Next(9, -1), out s));
+            Assert.Equal(1, s);
+            // the filter decides far from the threshold, on both sides
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 1, out s));
+            Assert.Equal(1, s);
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, 100, out s));
+            Assert.Equal(-1, s);
+            // the orientation does not matter
+            int[] flipped = { 0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2 };
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, flipped, 9, out s));
+            Assert.Equal(0, s);
+        }
+
+        /// <summary>
+        /// open soups (the sum depends on the origin, the first vertex: a closed surface hides an error in the origin, whose
+        /// terms cancel over it) of one to five triangles with coordinates at offsets and mixed magnitudes, t at |S| / 3 and
+        /// its neighbours: the sign is that of the BigInteger comparison. (A single triangle has S = 0 and is asserted in
+        /// Compare_DecidesNothing_ForUnusableInput; the equal case in Compare_EqualAndNeighbours. Only the direction 3 emin < e_t of the
+        /// shift occurs here: for random full-mantissa coordinates e_t is about 3 emin + 115, and the other direction needs |S| below
+        /// 2^-102 of the cube of the smallest coordinate, which no sheet with representable coordinates has)
+        /// </summary>
+        [Fact]
+        public void Compare_AgreesWithTheOracle_OnOpenSoups()
+        {
+            var rnd = new Random(11911);
+            int equal = 0, below = 0, above = 0, accepted = 0;
+            for (int k = 0; k < 300; ++k) {
+                int n = 1 + rnd.Next(5);
+                double scale = Math.Pow(2, rnd.Next(-30, 30)), off = (rnd.NextDouble() - 0.5) * scale * Math.Pow(2, rnd.Next(0, 4));
+                var xyz = new double[9 * n];
+                for (int i = 0; i < xyz.Length; ++i)
+                    xyz[i] = off + (rnd.NextDouble() - 0.5) * scale;
+                var corners = new int[3 * n];
+                for (int i = 0; i < corners.Length; ++i)
+                    corners[i] = 3 * (i / 3) + i % 3;
+                // (S exactly, at the scale 2^(3 * 1074), the same sum as the library's: the first vertex is the origin)
+                BigInteger[] q = new BigInteger[xyz.Length];
+                for (int i = 0; i < q.Length; ++i)
+                    q[i] = Scaled(xyz[i]);
+                BigInteger total = 0;
+                for (int tri = 0; tri < n; ++tri) {
+                    BigInteger[] a = new BigInteger[3], b = new BigInteger[3], c = new BigInteger[3];
+                    for (int d = 0; d < 3; ++d) {
+                        a[d] = q[9 * tri + d] - q[d]; b[d] = q[9 * tri + 3 + d] - q[d]; c[d] = q[9 * tri + 6 + d] - q[d];
+                    }
+                    total += c[0] * (a[1] * b[2] - a[2] * b[1]) + c[1] * (a[2] * b[0] - a[0] * b[2]) + c[2] * (a[0] * b[1] - a[1] * b[0]);
+                }
+                BigInteger absS = BigInteger.Abs(total);
+                if (absS.IsZero)
+                    continue;
+                double t0 = (double)(absS >> (3 * 1074 - 60)) / 3 / 1152921504606846976.0;
+                if (t0 < ExactPredicates.MinNormal || double.IsInfinity(t0))
+                    continue;
+                ++accepted;
+                foreach (double t in new[] { t0, Next(t0, 1), Next(t0, -1), t0 * 1.5, t0 * 0.5 }) {
+                    int expected = absS.CompareTo(3 * Scaled(t) << (2 * 1074));
+                    Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out int got), $"case {k}");
+                    Assert.Equal(expected, got);
+                    if (expected == 0) ++equal; else if (expected < 0) ++below; else ++above;
+                }
+            }
+            Assert.True(below > 200 && above > 200, $"{below} below, {above} above, {equal} equal");
+            Assert.True(accepted > 150, $"{accepted} of 300 soups decided");
+        }
+
+        /// <summary> nothing is decided for a coordinate that is not finite, t that is not a positive normal number, a sum that overflows, or no triangles </summary>
+        [Fact]
+        public void Compare_DecidesNothing_ForUnusableInput()
+        {
+            var (xyz, c) = Tetra(0, 0, 0);
+            int s;
+            foreach (double t in new[] { 0, -9, double.NaN, double.PositiveInfinity, double.Epsilon, ExactPredicates.MinNormal / 2, -double.MaxValue })
+                Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, c, t, out s), "t = " + t);
+            // the smallest normal t is usable
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, c, ExactPredicates.MinNormal, out s));
+            Assert.Equal(1, s);
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                double[] x2 = (double[])xyz.Clone();
+                x2[4] = bad;
+                Assert.False(ExactPredicates.TryCompareAbsVolume6(x2, c, 9, out s));
+            }
+            // S_fp overflows: coordinates of 1e200 (the determinants of about 1e600)
+            var (huge, hc) = Tetra(0, 0, 0);
+            for (int i = 0; i < huge.Length; ++i) huge[i] *= 1e200 / 3;
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(huge, hc, 9, out s));
+            // (one triangle: S = 0, below 3 t, decided)
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, new[] { 0, 1, 2 }, 9, out s));
+            Assert.Equal(-1, s);
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, new[] { 0, 1 }, 9, out s));
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, new int[0], 9, out s));
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, null, 9, out s));
+            // (and numerically_zero_volume keeps: a sheet with area 0 has t = 0)
+            Assert.False(MeshRoundingRepair.numerically_zero_volume(new DMesh3(), new List<int>(), 0, 0, 1, 0));
+        }
+
+        /// <summary>
+        /// randomised against the oracle: closed cones with jittered rim at offsets where the differences round, t within a few ulps
+        /// of |S| / 3 (the exact path) and far from it (the filter); the sign is that of the BigInteger comparison, 200 cases
+        /// </summary>
+        [Fact]
+        public void Compare_AgreesWithTheOracle()
+        {
+            var rnd = new Random(1191);
+            int equal = 0, below = 0, above = 0;
+            for (int k = 0; k < 200; ++k) {
+                Vector3d at = new Vector3d(rnd.NextDouble() * 8 - 4, rnd.NextDouble(), rnd.NextDouble());
+                double r = 0.001 + rnd.NextDouble();
+                DMesh3 m = Sheet(at, r, r * Math.Pow(2, -rnd.Next(1, 60)) * (0.5 + rnd.NextDouble()), rnd.Next(2) == 0);
+                for (int v = 0; v < m.MaxVertexID; ++v) {
+                    Vector3d p = m.GetVertex(v);
+                    m.SetVertex(v, new Vector3d(p.x * (1 + 1e-9 * rnd.NextDouble()), p.y, p.z));
+                }
+                List<int> comp = MeshRoundingRepair.connected_components(m).First().ToList();
+                BigInteger absS = BigInteger.Abs(ExactS(m, comp));
+                // (the centre of the window: t0 = |S| / 3 as a double, S at the scale 2^(3 * 1074); then neighbours in ulps, and far values)
+                double t0 = (double)(absS >> (3 * 1074 - 60)) / 3 / 1152921504606846976.0;
+                if (t0 < ExactPredicates.MinNormal)
+                    continue;
+                var xyz = new List<double>();
+                var corners = new List<int>();
+                var index = new Dictionary<int, int>();
+                foreach (int id in comp) {
+                    Index3i tv = m.GetTriangle(id);
+                    for (int q = 0; q < 3; ++q) {
+                        if (!index.TryGetValue(tv[q], out int ix)) { index[tv[q]] = ix = xyz.Count / 3; Vector3d p = m.GetVertex(tv[q]); xyz.Add(p.x); xyz.Add(p.y); xyz.Add(p.z); }
+                        corners.Add(ix);
+                    }
+                }
+                foreach (double t in new[] { t0, Next(t0, 1), Next(t0, -1), Next(t0, 7), Next(t0, -7), t0 * 1.001, t0 * 0.999, t0 * 2, t0 / 2 }) {
+                    // (3 t exactly against |S| 2^(3 * 1074); |S| here is at the scale 2^(3 * 1074))
+                    BigInteger rhs = 3 * Scaled(t) << (2 * 1074);
+                    int expected = absS.CompareTo(rhs);
+                    Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz.ToArray(), corners.ToArray(), t, out int got), $"case {k} t={t:R} t0={t0:R}");
+                    Assert.Equal(expected, got);
+                    if (expected == 0) ++equal; else if (expected < 0) ++below; else ++above;
+                }
+            }
+            Assert.True(below > 100 && above > 100, $"{below} below, {above} above, {equal} equal");
+        }
+
     }
 }

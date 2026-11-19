@@ -78,6 +78,7 @@ static class ChainExact
     {
         switch (m) {
             case "diag": return RunDiag(ops, plan, info, rest[0].Split(',').Select(x => double.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray());
+            case "ab": return RunAb(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             case "time": return RunTime(ops, plan, info, int.Parse(rest[0], System.Globalization.CultureInfo.InvariantCulture));
             default: return RunChain(ops, plan, info);
         }
@@ -258,6 +259,49 @@ static class ChainExact
             row["lazy_ms"] = lazyMs[k];
             row["lazy_median_ms"] = Median(lazyMs[k]);
             Console.WriteLine(JsonSerializer.Serialize(row));
+        }
+        return 0;
+    }
+
+    // A/B of the coplanar pre-decision (ExactMeshArrangement.PreDecideCoplanar, docs/perf/BOOLEAN_COPLANAR_PREDECISION.md) on today's chain
+    // (each step on the previous rounded result): per step and repetition both settings, in a random order (a fixed seed), a full GC before
+    // each; one row per step with the times, their medians, the result hashes (which must be equal) and the change of the median.
+    //   chain-ab <A.off> <B.off> <C.off> <ucd|dui|iud> <reps>        chain-ab-proc <mixed|generic|abc-...> <seed> <steps> <reps>
+    static int RunAb(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, int reps)
+    {
+        Warm();
+        DMesh3 prev = null;
+        for (int k = 0; k < plan.Count; ++k) {
+            DMesh3 left = plan[k].Left < 0 ? prev : ops[plan[k].Left], right = ops[plan[k].Right];
+            var on = new List<double>(); var off = new List<double>();
+            var hashOn = new HashSet<string>(); var hashOff = new HashSet<string>();
+            DMesh3 next = null;
+            bool ok = true;
+            for (int rep = 0; rep < reps; ++rep) {
+                foreach (bool setting in (rep & 1) == 0 ? new[] { true, false } : new[] { false, true }) {   // balanced: ABBA, so a position effect (heap state after the first run) cancels in the medians of an even number of reps
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    // G3_AB_NULL=1: both runs with the pre-decision off (the null test of the A/B: the on/off labels are then only the positions)
+                    var b = new ExactMeshBoolean(left, right, plan[k].Op) { ArrangementPreDecideCoplanar = setting && Environment.GetEnvironmentVariable("G3_AB_NULL") != "1" };
+                    var sw = Stopwatch.StartNew();
+                    bool r = b.Compute();
+                    (setting ? on : off).Add(sw.Elapsed.TotalMilliseconds);
+                    ok &= r;
+                    if (r) {
+                        (setting ? hashOn : hashOff).Add(Profile.Hash(b.Result));
+                        if (setting && next == null) next = b.Result;
+                    }
+                }
+            }
+            var row = new Dictionary<string, object>(info) {
+                ["step"] = k + 1, ["op"] = Name(plan[k].Op), ["reps"] = reps, ["ok"] = ok,
+                ["on_ms"] = on, ["off_ms"] = off, ["on_median_ms"] = Median(on), ["off_median_ms"] = Median(off),
+                ["hash_equal"] = ok && hashOn.Count == 1 && hashOff.Count == 1 && hashOn.SequenceEqual(hashOff),
+                ["tris_in"] = left.TriangleCount, ["tris_out"] = next?.TriangleCount ?? -1,
+            };
+            Console.WriteLine(JsonSerializer.Serialize(row));
+            if (!ok || next == null || next.TriangleCount == 0)
+                break;
+            prev = next;
         }
         return 0;
     }
