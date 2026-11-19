@@ -68,7 +68,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void NearlyTangentialDipole_DoesNotOverflowBeforeApplyingTheAngle()
+        public void OverflowingDistanceCube_DipoleRetainsItsContribution()
+        {
+            double actual = AxialDipoleWinding(Math.Pow(2, 520), Math.Pow(2, 1000));
+            double expected = Math.Pow(2, -40) / MathUtil.FourPI;
+            Assert.Equal(1, actual / expected, 14);
+        }
+
+        [Fact]
+        public void ExtremePowerOfTwoScale_SameDipoleValueBitForBit()
+        {
+            double small = AxialDipoleWinding(Math.Pow(2, -530), Math.Pow(2, -1060));
+            double large = AxialDipoleWinding(Math.Pow(2, -520), Math.Pow(2, -1040));
+            Assert.Equal(1, small * MathUtil.FourPI, 14);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(small), BitConverter.DoubleToInt64Bits(large));
+        }
+
+        static double AxialDipoleWinding(double distance, double area)
+        {
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisX);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => area };
+            return tree.FastWindingNumber(-distance * Vector3d.AxisX);
+        }
+
+        [Fact]
+        public void NearlyTangentialDipole_WithUnderflowingDistanceCubeAndLargeArea()
         {
             var point = new DMesh3(true, false, false);
             int v = point.AppendVertex(Vector3d.Zero);
