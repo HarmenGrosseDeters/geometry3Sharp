@@ -1,5 +1,6 @@
 name: Tet meshing runner sample
 
+# (DATA BRANCH runs/tet-rescue-stop ONLY, never merged: the measurement of #1154, the rescue-loop stop; floors instead of alphas, per-pass traces.)
 # The runner sample of docs/design/TET_MESHING.md section 17.5 (stage P1, owner 2026-11-17): MeshTetrahedralization on 500 Thingi10K meshes
 # (benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt, every 20th id of metadata/file_ids.txt from index 7, disjoint from the
 # 40-mesh subset) at each alpha of `alphas`, all alphas of a mesh on the same runner, one process at a time. Meshes are fetched at run
@@ -9,8 +10,8 @@ on:
   workflow_dispatch:
     inputs:
       alphas:
-        description: relative alphas, the base (master's default) first, then the candidates coarsest first
-        default: '20 40 80'
+        description: SliverDihedralDegrees floors (the input name is kept from the sample workflow)
+        default: '10 20 30'
       shards:
         description: number of shard jobs (runners), 1-6
         default: '6'
@@ -21,7 +22,7 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  ALPHAS: ${{ inputs.alphas || '20 40 80' }}
+  ALPHAS: ${{ inputs.alphas || '10 20 30' }}
   SHARDS: ${{ inputs.shards || '6' }}
   TIMEOUT_S: ${{ inputs.timeout_s || '600' }}
 
@@ -62,7 +63,7 @@ jobs:
         run: |
           n=$(python3 -c "print(max(1, min(6, int('$SHARDS'))))")
           nproc > out-machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> out-machine.txt
-          bash benchmarks/TetMeshBenchmark/compare/run_sample_shard.sh ${{ matrix.shard }} "$n" \
+          bash benchmarks/TetMeshBenchmark/compare/run_floor_shard.sh ${{ matrix.shard }} "$n" \
             benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$RUNNER_TEMP/meshes" out "$TIMEOUT_S" $ALPHAS
           mv out-machine.txt out/machine-${{ matrix.shard }}.txt
       - uses: actions/upload-artifact@v4
@@ -84,32 +85,29 @@ jobs:
           path: src
       - uses: actions/checkout@v4
         with:
-          ref: runs/tet-meshing
+          ref: runs/tet-rescue-stop
           path: data
       - uses: actions/download-artifact@v4
         with:
           path: art
       - name: Merge, summarize, push to runs/tet-meshing
         run: |
-          dir=data/sample/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
+          dir=data/rescue-stop/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
           mkdir -p "$dir"
-          for a in $ALPHAS; do cat art/shard-*/a$a-*.csv 2>/dev/null | sort > "$dir/a$a.csv" || true; done
+          for a in $ALPHAS; do cat art/shard-*/f$a-*.csv 2>/dev/null | sort > "$dir/f$a.csv" || true; cat art/shard-*/trace-$a-*.csv 2>/dev/null | sort -t, -k1,1 -s > "$dir/trace-$a.csv" || true; done
           cat art/shard-*/machine-*.txt > "$dir/machines.txt" 2>/dev/null || true
-          base=${ALPHAS%% *}; cands=${ALPHAS#* }
           {
-            echo "# Tet meshing runner sample, run ${{ github.run_id }}"
+            echo "# Rescue-loop stop measurement (#1154), run ${{ github.run_id }}"
             echo
-            echo "- geometry3Sharp commit: ${{ github.sha }}; \`TetMeshBenchmark refine <id>.stl <alpha> 600\` per mesh and alpha (G3_TET_WRAP_TIME=0)"
-            echo "- $(grep -c . src/benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt) ids of benchmarks/TetMeshBenchmark/compare/thingi-sample-ids.txt; $SHARDS shards (ubuntu-latest, machines.txt); timeout $TIMEOUT_S s per mesh and alpha; relative offset 600"
-            echo "- Rule: docs/design/TET_MESHING.md section 17.5 (benchmarks/TetMeshBenchmark/compare/summarize_sample.py)"
+            echo "- commit ${{ github.sha }}; \`TetMeshBenchmark refine <id>.stl 40 600\` with G3_TET_FLOOR in {$ALPHAS}, G3_TET_WRAP_TIME=0, per-pass traces; $SHARDS shards; timeout $TIMEOUT_S s per mesh and floor"
             echo
-            python3 -I src/benchmarks/TetMeshBenchmark/compare/summarize_sample.py "$dir" $base $cands
+            python3 -I src/benchmarks/TetMeshBenchmark/compare/analyze_rescue_stop.py "$dir" $ALPHAS
           } > "$dir/SUMMARY.md"
           cat "$dir/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
           cd data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sample
-          git commit -q -m "Tet meshing runner sample, run ${{ github.run_id }}"
-          for i in 1 2 3 4; do git push origin HEAD:runs/tet-meshing && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-meshing; done
-          echo "push to runs/tet-meshing failed"; exit 1
+          git add rescue-stop
+          git commit -q -m "Rescue-stop measurement, run ${{ github.run_id }}"
+          for i in 1 2 3 4; do git push origin HEAD:runs/tet-rescue-stop && exit 0; sleep $((i * 10)); git pull -q --rebase origin runs/tet-rescue-stop; done
+          echo "push to runs/tet-rescue-stop failed"; exit 1

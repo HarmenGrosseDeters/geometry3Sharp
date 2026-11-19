@@ -83,7 +83,10 @@ static class Program
                 if (Environment.GetEnvironmentVariable("G3_TET_PASSES") is string ps) tm.ImprovePasses = int.Parse(ps, Inv);
                 if (Environment.GetEnvironmentVariable("G3_TET_RESCUE") is string rp) tm.RescuePasses = int.Parse(rp, Inv);
                 if (Environment.GetEnvironmentVariable("G3_TET_FLOOR") is string fl) tm.SliverDihedralDegrees = double.Parse(fl, Inv);
+                System.IO.StreamWriter trace = null;
+                if (Environment.GetEnvironmentVariable("G3_TET_TRACE_FILE") is string tf) { trace = new System.IO.StreamWriter(tf, true); string nm = kv.Key; tm.ImproveTrace = (l) => trace.WriteLine(nm + "," + l); }
                 tm.Compute();
+                if (trace != null) trace.Dispose();
                 if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);
                 double totalS = sw.Elapsed.TotalSeconds;
                 if (tm.Result == null) { Console.WriteLine(kv.Key + "," + tm.Status + "," + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value))); continue; }

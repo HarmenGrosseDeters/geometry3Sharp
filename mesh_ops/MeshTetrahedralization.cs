@@ -74,6 +74,8 @@ namespace gs
         /// (plain circumcentres)
         /// </summary>
         public double SliverDihedralDegrees = 10;
+        /// <summary> (data branch only) per-pass trace of the improver </summary>
+        public Action<string> ImproveTrace;
         /// <summary>
         /// the wrap's surface quality refinement (MeshAlphaWrap.RefineMinAngleDegrees: points on the offset surface for facets with a
         /// smaller angle, Chew 1993, Boissonnat and Oudot 2005). The surface is fixed during the tet refinement, so its triangles
@@ -229,6 +231,7 @@ namespace gs
                 imp.RescuePasses = RescuePasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
+                imp.Trace = ImproveTrace;
                 imp.Run();
                 if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();

@@ -169,8 +169,13 @@ namespace gs
         double quality(int id) { Index4i t = tets[id]; return Quality(pos[t.a], pos[t.b], pos[t.c], pos[t.d]); }
         double quality(int a, int b, int c, int d) { return Quality(pos[a], pos[b], pos[c], pos[d]); }
 
+        /// <summary> (data branch only) per-pass trace lines: phase, pass number, tets below the target, worst angle, seconds since Run </summary>
+        internal Action<string> Trace;
+        readonly System.Diagnostics.Stopwatch traceClock = System.Diagnostics.Stopwatch.StartNew();
+
         internal void Run()
         {
+            traceClock.Restart();
             hill_climb(MaxPasses);
             // rescue phase (TET_MESHING.md section 17): only if tets below the target are left (a mesh without any would stop after one
             // empty pass anyway; the test saves that scan and keeps the counts as before)
@@ -180,6 +185,11 @@ namespace gs
                 try { hill_climb(RescuePasses); }
                 finally { ActiveSet = false; }
                 Counts["rescue_passes"] = Counts["passes"] - p;
+            }
+            if (Trace != null) {
+                int nbad = 0; double w = 180;
+                for (int id = 0; id < tets.Count; ++id) if (alive[id]) { double q = quality(id); if (q < TargetDegrees) nbad++; w = Math.Min(w, q); }
+                Trace("end," + Counts["passes"] + "," + nbad + "," + w.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
             }
             classify_left();
         }
@@ -251,6 +261,7 @@ namespace gs
                 for (int id = 0; id < tets.Count; ++id)
                     if (alive[id]) { double q = quality(id); if (q < TargetDegrees) bad.Add((q, id)); }
                 bad.Sort();
+                Trace?.Invoke((ActiveSet ? "rescue," : "main,") + Counts["passes"] + "," + bad.Count + "," + (bad.Count > 0 ? bad[0].q : 180).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
                 foreach (var (q0, id) in bad) {
                     if (CancelF()) break;
                     if (!alive[id] || quality(id) >= TargetDegrees) continue;
