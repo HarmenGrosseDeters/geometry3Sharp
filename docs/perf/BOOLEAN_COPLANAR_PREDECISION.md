@@ -33,21 +33,24 @@ neighbour overlaps and is clipped) and `ExactMeshImprint`, which reads contact f
 
 ## Measurements
 
-Order-randomized A/B (`BooleanComparison chain-ab`, method `ours_ab`: per chain step, on and off alternate in random order, GC before each,
-median of the repetitions, result hashes compared). GitHub runner (4 cores), ABC chunk 0000, 12 chains per variant (ucd, dui, iud), run 44521833434.
-Sums over the chains of the median times:
+A/B (`BooleanComparison chain-ab`, method `ours_ab`): per chain step, the pre-decision on and off alternate in ABBA order (4 reps, GC before each run),
+the median per setting, result hashes compared. GitHub runner (4 cores), ABC chunk 0000, 12 chains per variant (ucd, dui, iud), run 44541072964
+(`data/coplanar_ab.py summary`). Sums over the chains of the median times:
 
 | step | chains | on s | off s | change (sum) | median chain change | hashes differ |
 |---|---|---|---|---|---|---|
-| 1 | 36 | 7.75 | 7.08 | +9.3 % | +9.5 % | 0 |
-| 2 | 35 | 35.03 | 34.86 | +0.5 % | +0.4 % | 0 |
-| 3 | 35 | 71.29 | 84.27 | **-15.4 %** | **-22.3 %** | 0 |
-| 1 to 3 | | 114.07 | 126.21 | **-9.6 %** | | |
+| 1 | 36 | 4.14 | 4.20 | -1.5 % | +2.5 % | 0 |
+| 2 | 35 | 20.32 | 20.37 | -0.2 % | +0.6 % | 0 |
+| 3 | 35 | 42.71 | 51.42 | **-16.9 %** | **-26.9 %** | 0 |
+| 1 to 3 | | 67.17 | 75.99 | **-11.6 %** | | |
 
-Step 3 gains as the probe predicted (-17.2 % time-weighted in the probe). **Step 1 is 9 % slower, in an order-randomized comparison, in 36 chains**
-(0.7 s of 7.1 s in sum, so 0.7 s of the 13 s gained): not noise. It is the cost of `meets_only_at_shared` on coplanar pairs that sharing corners
-but are not decided (step 1 decides no pair); not diagnosed beyond that (no per-phase profile of step 1 was run). A follow-up could make the 1-shared-corner
-test cheaper or skip it where the pair stage sees few shared ids; that is left out of this PR (no gate files, one change).
+Steps 1 and 2 decide almost no pair (probe, run 44470195190: step 1 has 167,752 coplanar pairs, 99.99 % share no corner and leave `meets_only_at_shared`
+after nine id compares) and do not change beyond noise. Step 3 gains as the probe predicted (-17.2 % time-weighted).
+
+**Superseded first run.** Run 44521833434 (the first A/B) used one fixed random order of the two settings for every chain's process (seed constant:
+step 1 had "on" first in 2 of 3 reps, step 3 had "off" first in all 3). A position effect then lands in one direction per step in all chains alike: it
+showed step 1 +9.3 %, step 3 -15.4 %. A null run (both settings off) locally shows differences of 5 to 8 % between the positions. The balanced run above
+replaces it; the +9 % of step 1 was this artefact, not a cost of the check.
 
 Procedural chains (`chain-ab-proc mixed`, seeds 1-3, 6 steps, 5 reps, local): hashes equal in all 18 steps, step times within noise (no coplanar chain
 step shares enough corners for a gain, and none loses visibly).

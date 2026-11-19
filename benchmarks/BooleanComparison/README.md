@@ -1332,6 +1332,6 @@ one-shot measurement); total 9 693 ms and 9 454 ms.
 ## Coplanar pair pre-decision (2026-11-19)
 
 `ExactMeshArrangement.intersect_coplanar` decides coplanar pairs that meet only in their shared corners or shared edge before clipping them
-(`docs/perf/BOOLEAN_COPLANAR_PREDECISION.md`: the change, its argument and the numbers). Order-randomized A/B on ABC chains (`chain-ab`, method
-`ours_ab`, `data/coplanar_ab.py summary`; GitHub runner, 12 chains per variant): step 1 +9.3 %, step 2 +0.5 %, **step 3 -15.4 % (median chain -22.3 %)**,
-steps 1 to 3 -9.6 %; result hashes equal in all chains. Step 1 gets slower (the check on pairs it cannot decide); see the page.
+(`docs/perf/BOOLEAN_COPLANAR_PREDECISION.md`: the change, its argument and the numbers). A/B on ABC chains (`chain-ab`, method `ours_ab`, ABBA order, 4 reps, `data/coplanar_ab.py summary`; GitHub runner, 12 chains per variant, run 44541072964):
+step 1 -1.5 %, step 2 -0.2 % (noise), **step 3 -16.9 % (median chain -26.9 %)**, steps 1 to 3 **-11.6 %**; result hashes equal in all chains.
+A first run with one fixed random order showed step 1 +9.3 %; that was a position effect of the fixed order (see the page), `G3_AB_NULL=1` is the null test.
