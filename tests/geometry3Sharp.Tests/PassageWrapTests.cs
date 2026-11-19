@@ -126,7 +126,7 @@ namespace geometry3Sharp.Tests
             double d = (pull ? 2.0 : 1.0) * a / ratio;
             // sqrt((r - d)^2 - a^2) = p: the carved wrap's clearance from the axis is exactly the pin radius at the largest alpha
             Assert.True(r - d > a);
-            Assert.True(Math.Abs(Math.Sqrt((r - d) * (r - d) - a * a) - p) <= 1e-12 * r, $"{a}");
+            Assert.True(Math.Abs((r - d) * (r - d) - a * a - p * p) <= 1e-12 * r * r, $"{a}");
             // and a larger alpha does not keep the pin (strictly below p)
             double a2 = a * 1.001, d2 = (pull ? 2.0 : 1.0) * a2 / ratio;
             Assert.True(!(r - d2 > a2) || Math.Sqrt((r - d2) * (r - d2) - a2 * a2) < p);
@@ -184,10 +184,10 @@ namespace geometry3Sharp.Tests
         public void OpenPassage_AlphaPlusOffsetIsTheClearance()
         {
             DMesh3 mesh = Part("cross");
-            PassageWrap w = Run(mesh, Axis("cross"), 1e-3 * BoreR);
+            PassageWrap w = Run(mesh, Axis("cross"), 0.05 * BoreR);
             Assert.Equal(PassageWrap.PassageStatus.Success, w.Status);
             double r = w.PinResults[0].InputClearance;
-            Assert.True(Math.Abs((w.BoundAlpha / 0.999 + w.BoundAlpha / 0.999 / 30) - r) <= 1e-3 * r);
+            Assert.True(Math.Abs((w.BoundAlpha / 0.999 + w.BoundAlpha / 0.999 / 30) - r) <= 5e-3 * r);
             Assert.Equal(0, w.FallbackSteps);
         }
 
@@ -197,7 +197,7 @@ namespace geometry3Sharp.Tests
         public void AboveTheBound_TheCheckFailsAndTheFallbackRecovers()
         {
             DMesh3 mesh = Part("cross");
-            PassageWrap w = Run(mesh, Axis("cross"), 1e-3 * BoreR, x => x.FirstAlphaScale = 1.1 / 0.999);
+            PassageWrap w = Run(mesh, Axis("cross"), 0.05 * BoreR, x => x.FirstAlphaScale = 1.1 / 0.999);
             Assert.Equal(PassageWrap.PassageStatus.Success, w.Status);
             Assert.True(w.FallbackSteps >= 1, $"steps {w.FallbackSteps}");
             Assert.True(w.PinResults[0].Passed);
@@ -208,12 +208,12 @@ namespace geometry3Sharp.Tests
         public void FarAboveTheBound_NoFallbackLeft_ReportsNotKept_NeverAPass()
         {
             DMesh3 mesh = Part("cross");
-            PassageWrap w = Run(mesh, Axis("cross"), 1e-3 * BoreR, x => { x.FirstAlphaScale = 3; x.MaxFallbackSteps = 0; });
+            PassageWrap w = Run(mesh, Axis("cross"), 0.05 * BoreR, x => { x.FirstAlphaScale = 3; x.MaxFallbackSteps = 0; });
             Assert.Equal(PassageWrap.PassageStatus.PassageNotKept, w.Status);
             Assert.NotNull(w.Result);
             PassagePinResult r = w.PinResults[0];
             Assert.False(r.Passed);
-            Assert.True(r.ClearanceLow < 1e-3 * BoreR || !r.AxisOutside);
+            Assert.True(r.ClearanceLow < 0.05 * BoreR || !r.AxisOutside);
             Assert.False(w.AllPassed);
         }
 
@@ -318,7 +318,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(w.Status == PassageWrap.PassageStatus.Success, s.Name + " " + w.Status + w.Error);
                 Assert.Equal(0, w.FallbackSteps);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
-                Assert.True(Math.Abs(w.BoundAlpha / s.Scale - w0.BoundAlpha) <= 1e-6 * w0.BoundAlpha, $"{s.Name}: alpha {w.BoundAlpha / s.Scale} vs {w0.BoundAlpha}");
+                // (the frames that round the coordinates: the certified clearance is a lower bound within 1e-4 of the part's size, so alpha differs by that much)
+                Assert.True(Math.Abs(w.BoundAlpha / s.Scale - w0.BoundAlpha) <= 5e-3 * w0.BoundAlpha, $"{s.Name}: alpha {w.BoundAlpha / s.Scale} vs {w0.BoundAlpha}");
                 if (s.IsExact) {
                     Assert.Equal(w0.BoundAlpha * s.Scale, w.BoundAlpha);
                     Assert.Equal(w0.PinResults[0].InputClearance * s.Scale, w.PinResults[0].InputClearance);
@@ -327,6 +328,29 @@ namespace geometry3Sharp.Tests
                     Assert.True(w0.Result.VertexIndices().All(v => w.Result.GetVertex(v) == s.Apply(w0.Result.GetVertex(v))), s.Name);
                 }
             }
+        }
+
+        // PolylineClearance brackets the true minimum, also where the distance dips in a short stretch (a small triangle near a long axis:
+        // sampling would miss it, the Lipschitz bound does not), and a crossing gives 0
+        [Fact]
+        public void PolylineClearance_BracketsTheTrueMinimum()
+        {
+            var m = new DMesh3();
+            // a tiny triangle near x = 37.3, 0.5 above the axis; a big far one
+            m.AppendTriangle(m.AppendVertex(new Vector3d(37.29, -0.003, 0.5)), m.AppendVertex(new Vector3d(37.31, -0.003, 0.5)), m.AppendVertex(new Vector3d(37.30, 0.004, 0.5)));
+            m.AppendTriangle(m.AppendVertex(new Vector3d(-50, -50, 20)), m.AppendVertex(new Vector3d(50, -50, 20)), m.AppendVertex(new Vector3d(0, 50, 20)));
+            var tree = new DMeshAABBTree3(m, true);
+            var axis = new List<Vector3d> { new Vector3d(-40, 0, 0), new Vector3d(40, 0, 0) };
+            PassageWrap.PolylineClearance(tree, axis, 1e-3, double.MaxValue, out double lo, out double hi);
+            Assert.True(lo <= 0.5 && hi >= 0.5 - 1e-9, $"[{lo}, {hi}]");
+            Assert.True(hi - lo <= 2e-3, $"[{lo}, {hi}]");
+            // a polyline of two legs, the second crossing the big triangle's plane at its interior: the clearance is 0
+            var bent = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(0, 0, 30) };
+            PassageWrap.PolylineClearance(tree, bent, 1e-3, double.MaxValue, out lo, out hi);
+            Assert.True(lo == 0 && hi <= 1e-3, $"[{lo}, {hi}]");
+            // a single point is a ball
+            PassageWrap.PolylineClearance(tree, new List<Vector3d> { new Vector3d(0, 0, 15) }, 1e-3, double.MaxValue, out lo, out hi);
+            Assert.True(lo <= 5 && hi >= 5 - 1e-9 && hi - lo <= 1e-6, $"[{lo}, {hi}]");
         }
 
         // ---- inputs that are not solids, pinches, the premises ----

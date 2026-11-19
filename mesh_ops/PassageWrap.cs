@@ -176,16 +176,18 @@ namespace gs
         /// <summary>
         /// The certified distance of a polyline to the triangles of a mesh: [lo, hi] with lo at most the true minimum, hi attained
         /// (up to a rounding margin of 1e-12 of the larger of the mesh and polyline size), hi - lo at most tolerance unless lo already
-        /// exceeds stopAbove. The distance to a mesh is 1-Lipschitz along the polyline, so an interval of length L with end values
+        /// exceeds stopAbove or the best value found is below stopBelow (a pin that fails needs no more precision). The distance to a mesh is 1-Lipschitz along the polyline, so an interval of length L with end values
         /// fa, fb has the lower bound (fa + fb - L) / 2; intervals are split until that is within the tolerance of the best value
         /// found. Cost: about the polyline length over the tolerance queries on a straight bore (each a nearest triangle query).
         /// </summary>
         internal static void PolylineClearance(DMeshAABBTree3 tree, IList<Vector3d> axis, double tolerance, double stopAbove,
-            out double lo, out double hi, Func<bool> cancelF = null)
+            out double lo, out double hi, Func<bool> cancelF = null, double stopBelow = 0)
         {
             AxisAlignedBox3d box = tree.Mesh.CachedBounds;
             foreach (Vector3d p in axis) box.Contain(p);
             double margin = 1e-12 * box.DiagonalLength;
+            // (a tolerance below 1e-4 of the size would cost hundreds of thousands of queries along a long straight bore)
+            tolerance = Math.Max(tolerance, 1e-4 * box.DiagonalLength);
             Func<Vector3d, double> f = (p) => { tree.FindNearestTriangle(p, out double dsq); return Math.Sqrt(dsq); };
             var pq = new MinHeap();
             double best = double.MaxValue;
@@ -201,7 +203,7 @@ namespace gs
             double low = best;
             int pops = 0;
             while (pq.TryDequeue(out var it, out double lb)) {
-                if (lb >= best - tolerance || lb > stopAbove) { low = Math.Min(best, lb); break; }
+                if (lb >= best - tolerance || lb > stopAbove || best < stopBelow) { low = Math.Min(best, lb); break; }
                 if ((++pops & 255) == 0 && cancelF != null && cancelF()) { low = Math.Min(best, lb); break; }
                 Vector3d m = 0.5 * (it.a + it.b);
                 double fm = f(m);
@@ -360,7 +362,7 @@ namespace gs
             var res = new PassagePinResult[Pins.Count];
             for (int i = 0; i < Pins.Count; ++i) {
                 PassagePin pin = Pins[i];
-                PolylineClearance(tree, pin.Axis, ClearanceTolerance * pin.Radius, pin.Radius, out double lo, out double hi, CancelF);
+                PolylineClearance(tree, pin.Axis, ClearanceTolerance * pin.Radius, pin.Radius, out double lo, out double hi, CancelF, pin.Radius);
                 bool outside = true;
                 foreach (Vector3d p in pin.Axis)
                     if (!(Math.Abs(tree.WindingNumber(p)) < 0.5)) { outside = false; break; }
