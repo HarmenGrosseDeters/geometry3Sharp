@@ -173,17 +173,18 @@ def cube_grid(n):
 class EvalSpeedTests(unittest.TestCase):
     def test_eval_of_a_large_result_is_not_quadratic(self):
         """the edge table of the pinch split used the default hash of a long (a ^ b for an edge): a result of 900k triangles took
-        more than 25 minutes to evaluate (thingi-pairs run of 2026-11-18, 5 of the 100 size pairs, eval timed out at 3600 s). 207k
-        triangles took 37 s with it and 2 s without; the bound is 20 s"""
+        more than 25 minutes to evaluate (thingi-pairs run of 2026-11-18, 5 of the 100 size pairs, eval timed out at 3600 s). The time
+        grows with the square of the size: 120k triangles took 12.5 s with it, 235k about 48 s (extrapolated); without it 235k take
+        2.4 s. The bound is 20 s"""
         with tempfile.TemporaryDirectory(prefix="thingi_pairs_eval_") as d:
-            v, f = cube_grid(120)
-            self.assertEqual(len(f), 172800)
+            v, f = cube_grid(140)
+            self.assertEqual(len(f), 235200)
             write_off(os.path.join(d, "ours_union.off"), v, f)
             with open(os.path.join(d, "info.json"), "w") as o:
                 json.dump({"file": "grid", "tris": len(f), "vA": 1.0, "vB": 0.0, "center": [0, 0, 0], "ops": ["union"], "notclean": True}, o)
             e = subprocess.run(["dotnet", DLL, "eval", d], capture_output=True, text=True, timeout=20)
             row = json.loads(e.stdout.strip().splitlines()[-1])
-            self.assertEqual(row["union_tris"], 172800)
+            self.assertEqual(row["union_tris"], 235200)
             self.assertTrue(row["union_manifold_closed"])
             self.assertEqual(row["union_selfint"], 0)
             self.assertEqual(row["union_clean_reason"], "")
