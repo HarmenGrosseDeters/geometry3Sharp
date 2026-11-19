@@ -399,18 +399,31 @@ namespace g3.Clipper2
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
         }
 
+        static Paths64 Regions(ClipperFrame frame, List<GeneralPolygon2d> polygons)
+            => Regions(frame, polygons, ReuseRegionEngine);
+
+        /// <summary> hook of the tests and the benchmark: false gives each polygon of Regions its own engine (the result is the same) </summary>
+        internal static bool ReuseRegionEngine = true;
+
+        internal static Paths64 RegionsOf(ClipperFrame frame, List<GeneralPolygon2d> polygons, bool reuseEngine)
+            => Regions(frame, polygons, reuseEngine);
+
         /// <summary>
         /// The region of each polygon on the grid, as oriented rings without overlaps (outer positive, holes negative):
         /// its outer ring (NonZero) minus its holes (NonZero). Each region has winding number 1 inside, so the fill
         /// rule only decides how different polygons combine.
         /// </summary>
-        static Paths64 Regions(ClipperFrame frame, List<GeneralPolygon2d> polygons)
+        static Paths64 Regions(ClipperFrame frame, List<GeneralPolygon2d> polygons, bool reuseEngine)
         {
             var result = new Paths64();
+            // one engine for all polygons: Clear() keeps its pools (vertices, out points, out records), which a fresh engine per
+            // polygon would allocate again
+            Clipper64 shared = reuseEngine ? new Clipper64() : null;
             foreach (GeneralPolygon2d g in polygons) {
                 if (g.Outer == null)
                     continue;
-                var clipper = new Clipper64();
+                Clipper64 clipper = shared ?? new Clipper64();
+                shared?.Clear();
                 clipper.AddSubject(frame.ToPath(g.Outer));
                 foreach (Polygon2d hole in g.Holes)
                     clipper.AddClip(frame.ToPath(hole));
