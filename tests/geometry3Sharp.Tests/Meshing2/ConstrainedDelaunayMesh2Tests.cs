@@ -397,28 +397,40 @@ namespace geometry3Sharp.Tests
 
         [Trait("Category", "Slow")]
         [Theory]
-        [InlineData(-560, 0)]
-        [InlineData(-560, 1)]
-        [InlineData(-1000, 0)]
-        [InlineData(-1000, 1)]
-        [InlineData(500, 0)]
-        [InlineData(500, 1)]
-        public void ExtremeScales_GiveTheSameMesh(int exponent, int half)
+        [InlineData(-560, 0, 0)]
+        [InlineData(-560, 1, 0)]
+        [InlineData(-1000, 0, 0)]
+        [InlineData(-1000, 1, 0)]
+        [InlineData(500, 0, -300)]
+        [InlineData(500, 1, -300)]
+        public void ExtremeScales_GiveTheSameMesh(int exponent, int half, int baseExponent)
         {
             // tolerance tests in doubles underflowed: a failure at 2^-560, other meshes and markers below
             // (two halves of the seeds, #698: the -1000 row took 5.7-7.3 s alone and up to 17.7 s in a full run)
-            double s = Math.Pow(2, exponent);
+            // The mesher does not take coordinates above 1e70 (squared terms must stay finite), and every fuzz input has
+            // coordinates of 10 or more, so at 2^500 the skip below dropped every seed (#1175). baseExponent shrinks the
+            // reference input first (exact, a power of two): the 500 rows compare 2^-300 times the fuzz input (about 1e-89)
+            // with 2^200 times it (about 1e61 .. 1e67), both inside the supported range.
+            double s = Math.Pow(2, exponent), b0 = Math.Pow(2, baseExponent);
+            int checkedSeeds = 0;
             for (int seed = 30 * half; seed < 30 * half + 30; ++seed) {
                 var input = Fuzz(seed);
-                if (input.X.Max(Math.Abs) * s > 1e70) continue;
+                if (input.X.Max(Math.Abs) * b0 * s > 1e70) continue;
                 var scaled = Fuzz(seed);
-                for (int k = 0; k < input.Count; ++k) { scaled.X[k] = input.X[k] * s; scaled.Y[k] = input.Y[k] * s; }
-                foreach (var r in scaled.Regions) r.Seed = new[] { r.Seed[0] * s, r.Seed[1] * s };
+                for (int k = 0; k < input.Count; ++k) {
+                    input.X[k] *= b0; input.Y[k] *= b0;
+                    scaled.X[k] = input.X[k] * s; scaled.Y[k] = input.Y[k] * s;
+                }
+                foreach (var r in input.Regions) r.Seed = new[] { r.Seed[0] * b0, r.Seed[1] * b0 };
+                foreach (var r in scaled.Regions) r.Seed = new[] { r.Seed[0] * b0 * s, r.Seed[1] * b0 * s };
                 Assert.True(Judge(input, out var a).Ok);
                 var report = Judge(scaled, out var b);
                 Assert.True(report.Ok, "seed " + seed + ": " + report);
                 Assert.Equal(Canonical(a), Canonical(b));
+                ++checkedSeeds;
             }
+            // a row that skips every seed asserts nothing (the 500 rows did, #1175)
+            Assert.True(checkedSeeds > 0, "every seed of the row was skipped");
         }
 
         [Fact]
