@@ -202,3 +202,27 @@ the noisy torus. With every non-solver phase perfectly parallel (not possible wi
 What remains is in the solver: the minimum degree ordering (0.2 to 0.25 s, serial; a parallel one must give the same permutation bit for
 bit) and the serial top supernodes of the solves (25 supernodes above the tasks on the 55k sphere); a nested dissection ordering changes
 the factor and the results (owner decision).
+
+## The parallel frames and bowtie test of `ParamMesh` (2026-11-19)
+
+The two clean serial loops of the `ParamMesh` constructor (used by `CrossField`) are `gParallel.ForRange` loops now: the triangle
+frames (each into its own slot; the surface area is still summed serially in triangle order) and `IsBowtieVertex` (flags per vertex,
+then the first flagged vertex in index order, so the error names the same vertex as before). The results are the bits of the serial
+loops (`ParamMeshParallelTests`: frames, area and error against the serial run, repeated runs). The loops respect the `gParallel` serial
+switches.
+
+Measured on the 4-core container (all cores = 4), net10.0 Release, 55k vertex UV sphere, best of 60 constructions in one process, the
+serial switch (`gParallel.SerialOnThisThread`) against the parallel loops, ms for the whole `ParamMesh` constructor (the rest of it,
+the topology, stays serial):
+
+| cores | serial loops | parallel loops |
+|---|---|---|
+| 1 | 30.3 | 33.2 |
+| 2 | 30.9 | 25.9 |
+| 4 | 30.5 | 24.6 |
+
+The gain is 6 ms at 4 cores, under 1 % of the 0.75 to 0.85 s `CrossField` at `h=0.017`, below the 3 to 4 % the earlier cold
+measurement (21 ms frames, 28 ms bowtie in the first call) suggested: on repeated constructions the two loops take only about 12 ms
+together, and the rest of the constructor is serial. `CrossFieldBenchmark only=^sphere$ h=0.017 reps=5` (best of 5, s; the bounds of the
+noise are larger than the gain) at 1, 2 and 4 cores, before / after: smoothest 1.22 / 1.24, 0.89 / 0.94, 0.75 / 0.78; aligned s=1
+1.29 / 1.43, 1.05 / 1.01, 0.86 / 0.86. The whole-run difference is not measurable; at 1 core the parallel loops cost about 3 ms.

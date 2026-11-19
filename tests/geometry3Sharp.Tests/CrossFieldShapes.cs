@@ -52,6 +52,13 @@ namespace geometry3Sharp.Tests
             return qp.Length + Math.Min(Math.Max(q.x, Math.Max(q.y, q.z)), 0) - fr;
         }
 
+        static double CappedCylinder(Vector3d p)
+        {
+            double dx = Math.Sqrt(p.x * p.x + p.y * p.y) - 0.6, dz = Math.Abs(p.z) - 0.8;
+            return Math.Min(Math.Max(dx, dz), 0) + new Vector2d(Math.Max(dx, 0), Math.Max(dz, 0)).Length;
+        }
+
+        static readonly Lazy<DMesh3> cappedCylinder = new Lazy<DMesh3>(() => Build(CappedCylinder, 0.1, 0));
         static readonly Lazy<DMesh3> sphere = new Lazy<DMesh3>(() => Build(Sphere, 0.1, 0));
         static readonly Lazy<DMesh3> torus = new Lazy<DMesh3>(() => Build(Torus, 0.1, 0));
         static readonly Lazy<DMesh3> noisyTorus = new Lazy<DMesh3>(() => Build(Torus, 0.1, 0.2));
@@ -66,6 +73,8 @@ namespace geometry3Sharp.Tests
         public static DMesh3 TorusMesh() => new DMesh3(torus.Value);
         /// <summary> a copy: the torus with every vertex moved up to 0.2 edge lengths along its normal </summary>
         public static DMesh3 NoisyTorus() => new DMesh3(noisyTorus.Value);
+        /// <summary> a copy: a cylinder of radius 0.6 and height 1.6 with sharp rims (rounded by the sampling; 8 cone singularities expected) </summary>
+        public static DMesh3 CappedCylinderMesh() => new DMesh3(cappedCylinder.Value);
         /// <summary> a copy: a box 2 x 1.4 x 1 with fillets of radius 0.15 (smooth, 8 corners) </summary>
         public static DMesh3 FilletedBoxMesh() => new DMesh3(filletedBox.Value);
 

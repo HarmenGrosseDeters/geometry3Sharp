@@ -1801,25 +1801,33 @@ Limit on the budget's coarsening (`MeshAlphaWrap.MaxAlphaCoarsening`, `MeshRobus
 
 `fm_ms` of single meshes of the alpha-defaults run was dominated by `MeshFidelityMetrics.OuterFaces` (rounds of 8 fast winding
 numbers per face; on a self-intersecting mesh a query sums hundreds of triangles exactly). #1023 stops rounds that stall
-(`OuterFaceStallRounds`, `OuterFaceStallShare`). `BENCH_OUTER_INCREMENTAL=1` runs the measures a second time with
-`OuterFaceIncremental = true` (`fm_inc_*` fields: time, rounds, faces judged again, faces whose verdict differs from the
-default `fm_inc_changed`, outer face share and outer IoU). Rounds after the first update each face's stored winding numbers
+(`OuterFaceStallRounds`, `OuterFaceStallShare`). #1036 added `OuterFaceIncremental`, off by default; **owner 2026-11-19: it is
+on by default**, `OuterFaceIncremental = false` is the previous behaviour bit for bit (pinned by a unit test).
+`BENCH_OUTER_FULL=1` runs the measures a second time with `OuterFaceIncremental = false` (`fm_full_*` fields: time, rounds,
+faces judged again (0), `fm_full_changed`: the number of faces whose verdict differs between the opt-out and the incremental default, outer face share and outer IoU); the
+table below was measured with the first run `OuterFaceIncremental = false` and the second `true`, the library code of
+both paths is unchanged by the default flip, so the numbers hold (nothing was re-measured for the flip; the run order of the table is the reverse of the new benchmark's) for the new default (the `fm_ms` of a run is the "incremental"
+column, the opt-out is the "full rounds" column). Rounds after the first update each face's stored winding numbers
 by subtracting the winding number of the faces the last round removed (a tree of those only) and judge a face again with the
 big tree only if a stored value is within `OuterFaceIncrementalMargin` (0.2) of a decision boundary.
 
-Thingi10K, std mode, net10.0 Release, 4 cores, one mesh at a time, the default measures first and the incremental ones second
+Thingi10K, std mode, net10.0 Release, 4 cores, one mesh at a time, the full rounds first and the incremental ones second
 in one process (the second run has warm JIT and caches, which flatters it by a few hundred ms on small meshes); `fm_ms` is all
 `MeshFidelityMetrics` measures:
 
-| mesh | rounds | fm_ms default | fm_ms incremental | faces judged again | changed verdicts | outer face share, outer IoU |
+| mesh | rounds | fm_ms before (full rounds) | fm_ms now (incremental, default) | faces judged again | changed verdicts | outer face share, outer IoU |
 |---|---:|---:|---:|---:|---:|---|
 | 55928 (88k faces, stalls, not converged) | 5 | 12.5 s | 6.2 s | 13,040 | 0 | identical |
 | 318843 | 4 | 36.9 s | 20.5 s | 6,847 | 0 | identical |
 | 1514905 | 3 | 20.9 s | 16.1 s | 7 | 0 | identical |
 | 498456 (55 rounds) | 55 | 67.2 s | 46.7 s | 731,646 | 0 | identical |
 
-Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run; rounds, shares and IoU identical, 0 changed verdicts on all):
+Corpus meshes that converge in 1 to 4 rounds (margin 0.1 in that run, not the shipped 0.2; rounds, shares and IoU identical, 0 changed verdicts on all):
 37111 (88k faces, 4 rounds) 7.7 s to 4.2 s with 272 faces judged again; 37275, 37329, 37331, 37731, 37788, 37215 and 36075 (1 to 2
 rounds, 0 to 0 faces judged again after the first round) 0.2 to 1.9 s faster, the difference of the warm second run.
 Stacked interior layers (unit tests): with margin 0.1 the stack of 40 layers (60 rounds) differed in 2 of 320 faces from the
-default; from margin 0.15 on none did (5, 20, 40 layers), so the default is 0.2.
+full rounds; from margin 0.15 on none did (5, 20, 40 layers), so the default is 0.2.
+
+Still above 20 s with the new default: 318843 (20.5 s), 498456 (46.7 s, 55 rounds); 1514905 (16.1 s) is below. The rest is the
+cost of the winding queries themselves (and of the IoUs on 1514905); the remaining options (query budget, coarser `FWNBeta`,
+neighbour verdicts) change the output and are owner decisions (#1009 stays open).

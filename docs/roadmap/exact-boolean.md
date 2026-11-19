@@ -14,7 +14,7 @@ Part of the [roadmap](../ROADMAP.md).
   [roadmap](../ROADMAP.md#now); the last: rounding-13 and boolean-2 in 44295650298, exact-arithmetic, imprint, planar and
   hausdorff in 44313345652); the CsCheck families and fuzz targets of #1038 are merged (#1120). The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
   RC4a #1040 merged, the pass-through of RC4a's parameters #1068 merged; see [After 3.0](#after-30-owner-2026-11-16)).
-  Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 goes ahead as option A, an opt-in API (owner 2026-11-17, in progress, PR #1107). Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
+  Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 (option A, an opt-in API, owner 2026-11-17) is merged as #1107. Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -244,7 +244,7 @@ fix was a narrower filter, applied in #883 and to the rounding shards of #843 (b
   spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
-**Exact Boolean 4.0 (owner 2026-11-10, milestone; stage 0, the design analysis, started 2026-11-17 (owner), no PR yet; later stages not scheduled):** exact output with provenance (pre-study topic 4,
+**Exact Boolean 4.0 (owner 2026-11-10, milestone; stage 0, the design analysis, merged as #1093; stage 1, the lazy `ExactMesh` expression, merged as #1107; later stages not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
 the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
 coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
@@ -392,8 +392,9 @@ merge queue behind the #403 mutation gate has cleared. Phase 2 merged in #501 (2
 **thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
 size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
-runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here. Owner 2026-11-12: both runs are still wanted,
-queued behind Exact Boolean 3.0.
+runner's data branch. #418 merged 2026-11-09. Owner 2026-11-12: both runs wanted, queued behind Exact Boolean 3.0.
+
+**thingi-pairs baseline and final runs (2026-11-18 / 2026-11-19, workflow `thingi-pairs.yml`, GitHub-hosted runners; results in the [README](../../benchmarks/BooleanComparison/README.md#results-of-the-two-full-runs-2026-11-18--2026-11-19)):** baseline at `7cb08f69`; the final run was dispatched with `library_ref: master` unpinned, so its jobs built four master commits (`bb2ea96a`, `b0969fbb`, `917d4133`, `19d2abb3`; the 4 size shards with the 5 lost pairs were rerun at `ae0ee28c`); the first three have no change in the exact boolean files against `bb2ea96a`, `ae0ee28c` also changes `MeshRoundingRepair` (details in the README). Ours on the 1000 pairs: 2765 of 3000 operations clean and 228 consistent empty results in the baseline (7 "degenerate triangles"), 2772 and 228 in the final run (all clean), identity error at most 4.6e-8, median 134 -> 121 ms, geomean 129 -> 116 ms, no operation above 20 s; size class (100 pairs): 281 -> 283 clean, median 1795 -> 1550 ms. Baseline against final per pair: no outcome regression (0 operations clean before and not after), 9 operations clean that were not, geomean time ratio 0.88, 4 operations more than 2x slower, all at 18-47 ms in the baseline (probably noise), and p0988 intersection 3961 -> 6097 ms (+54 %). Manifold is unchanged (1757 clean of 3000, 228 consistent empty, 1015 "degenerate triangles"), CGAL EPECK on the 100-pair sample 225 clean + 24 empty of 300; ours is clean or consistently empty in all 300 operations of the sample (276 + 24), at 2.85x (baseline) and 3.0x (final) the CGAL time at the median. The only operations above 20 s: size pair p0084_1088281+76477, three operations at 30-35 s (baseline) and 21-23 s (final): [#1158](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1158), 81-93 % in `assembly.simplify` by the phase timers, not #1047. Findings of the runs: the oracle's edge table of the pinch split was quadratic (`eval` timeout on 5 size pairs, fixed in #1157); a huggingface connection reset cost 2 of 35 measure jobs (retry and `only_jobs` in #1140). PRs #1132, #1140, #1157.
 
 **T6 measurement (runner, 2026-11-15; ours vs CGAL EPECK on 1k-100k triangles): no-go, the gap is 3.6-4.2x at the median, not <= 2x.**
 Workflow `t6-cgal.yml` (workflow_dispatch, GitHub-hosted `ubuntu-latest` with 4 cores, `cgal_bool` built unchanged from apt `libcgal-dev`, run as a black box;
@@ -613,9 +614,9 @@ Settled:
   failures; A's library code stays on `claude/snap-rounding-A-archive`.
 - **Default-hashed `long` keys:** done in #431 (2026-11-08); [LongHashAudit](../../benchmarks/LongHashAudit/README.md).
 - **Thingi10K full-run findings** (draft #385): superseded by the WP2 triage and the sign-off run.
-- **`thingi-pairs` class:** done (#418, 2026-11-09); its baseline and final runs are queued behind 3.0 (owner 2026-11-12).
+- **`thingi-pairs` class:** done (#418, 2026-11-09); its baseline and final runs are done (2026-11-18 / 2026-11-19, see the paragraph "thingi-pairs baseline and final runs" above).
 - **`thingi-contact` class (owner 2026-11-16):** Thingi10K pairs with exact contact (face contact, partial overlap, ulp shift, mirror; translations, power-of-two scales and reflections only, every sum checked exact), the hard cases for the exact predicates and the use case of `ExactMeshImprint`; first run of 30 pairs per variant on a GitHub runner (`thingi-contact.yml`, `workflow_dispatch`); PR #982 (merged 2026-11-16); first run 2026-11-16 (30 pairs per variant, ours / manifold / CGAL EPECK, [results](../../benchmarks/BooleanComparison/README.md#thingi10k-pairs-with-exact-contact)): 14 of 150 placements refused as inexact, findings filed as issues #993 (mirror: difference not closed) and #994 (face-contact: union not closed), not fixed in that PR; both closed 2026-11-17: the triage #1015 found edge contacts misread by the benchmark eval (RC2), fixed in the eval by #1021 and #1063, with `NotCleanReason` unchanged; `ours` drops the one-ulp shell A - A' by design (SafeRounding, owner decision 2026-11-16: default stays), the benchmark records `removed_components` to tell that from a really empty result.
-- **`abc-chained` class and the ABC dataset (owner decisions 2026-11-16):** chains of booleans on triplets of ABC CAD models (Koch et al. 2019) placed with the exact contact transforms (translations, power-of-two scales, reflections, every sum checked exact), each method on its own rounded results (results of exact booleans re-entering the exact pipeline); ours / manifold / CGAL EPECK as black boxes on runners, oracle as `thingi-pairs` with an error budget per step, `SafeRounding` removed components and time per step. **Dataset decisions:** ABC is approved for tests and benchmarks with run-time fetching only (download on GitHub-hosted runners, never committed or redistributed, no model or derived mesh as artifact, no fetch in PR-tier tests); the Fusion 360 Gallery is excluded; GrabCAD is not pursued. Workflow `abc-chained.yml` (`workflow_dispatch` only); README section "Chained booleans on ABC models"; first run 2026-11-17 (30 chains per variant, ours / manifold / CGAL EPECK, [results](../../benchmarks/BooleanComparison/README.md#chained-booleans-on-abc-models)): 381 of 400 sampled models clean after the single precision snap and the exact weld, all 90 chains passed the exactness check; ours stays clean through all three steps in 75 of 90 chains (manifold 34, CGAL EPECK 4); findings were issues #1010 (results that lost components to the rounding: not closed / inside-out / self-intersecting) and #1011 (results with nothing removed that are not closed or degenerate); both closed (owner 2026-11-17) after the robustness-round fixes and a rerun on master 9133bc25, with the remaining cases as documented limits (RC4b drift bound; effort budget below D = 50000, no budget raise) and the iud p0008 step-2 residue as #1067 (open); see [Robustness round](#after-30-owner-2026-11-16). PRs #1001, #1005, #1007.
+- **`abc-chained` class and the ABC dataset (owner decisions 2026-11-16):** chains of booleans on triplets of ABC CAD models (Koch et al. 2019) placed with the exact contact transforms (translations, power-of-two scales, reflections, every sum checked exact), each method on its own rounded results (results of exact booleans re-entering the exact pipeline); ours / manifold / CGAL EPECK as black boxes on runners, oracle as `thingi-pairs` with an error budget per step, `SafeRounding` removed components and time per step. **Dataset decisions:** ABC is approved for tests and benchmarks with run-time fetching only (download on GitHub-hosted runners, never committed or redistributed, no model or derived mesh as artifact, no fetch in PR-tier tests); the Fusion 360 Gallery is excluded; GrabCAD is not pursued. Workflow `abc-chained.yml` (`workflow_dispatch` only); README section "Chained booleans on ABC models"; first run 2026-11-17 (30 chains per variant, ours / manifold / CGAL EPECK, [results](../../benchmarks/BooleanComparison/README.md#chained-booleans-on-abc-models)): 381 of 400 sampled models clean after the single precision snap and the exact weld, all 90 chains passed the exactness check; ours stays clean through all three steps in 75 of 90 chains (manifold 34, CGAL EPECK 4); findings were issues #1010 (results that lost components to the rounding: not closed / inside-out / self-intersecting) and #1011 (results with nothing removed that are not closed or degenerate); both closed (owner 2026-11-17) after the robustness-round fixes and a rerun on master 9133bc25, with the remaining cases as documented limits (RC4b drift bound; effort budget below D = 50000, no budget raise) and the iud p0008 step-2 residue as #1067 (fixed in the component removal, see below); see [Robustness round](#after-30-owner-2026-11-16). PRs #1001, #1005, #1007.
 - **GPU / SIMD:** GPU not now (owner 2026-11-04; if ever, ILGPU in an add-on for the pair search only); SIMD for the
   `Orient3d` filter measured at 2-4 % ([research.md](research.md#later)).
 
@@ -816,7 +817,7 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 | The tail above 20 s (55928 and others) | medium ("always finishes" matters more than the mean) | only on a runtime-watch regression or an issue |
 | EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low: probe A (#967, 7.1) puts the operand self-join at 10.6 s of the 12.1 s pairs phase at 1 thread, so skipping it is at most about −15 % of the boolean at 12 threads (extrapolated), and 0 on single booleans of raw inputs such as T6; the clean flag would come only from the library's own results (`NotCleanReason == None`) or a prepared operand, never from the caller | parked until a caller chains booleans (re-confirmed by the owner 2026-11-16) |
 | Normal-cone patch certificate for the operand self-join (Volino and Magnenat-Thalmann 1994; [SELF_INTERSECTION_PATCH_CERTIFICATE.md](../design/SELF_INTERSECTION_PATCH_CERTIFICATE.md)) | low: estimated −7 to −10 % at 12 threads (not measured), at or below the 10 % bar of the stopping rule; needs new error bounds in exact code, and the same certificate was slower in the Reducer | parked (owner 2026-11-16) |
-| Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | stage 0 (the design analysis) started 2026-11-17 (owner), no PR yet; later stages parked until a concrete use case |
+| Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | stage 0 (the design analysis) merged as #1093, stage 1 (lazy `ExactMesh` expression) merged as #1107; later stages parked until a concrete use case |
 | Plateau variant of 3D snap rounding | low | parked (no-go, owner 2026-11-15) |
 | Exact output coordinates of the coplanar 2D clipping | low | parked |
 | S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
@@ -841,7 +842,13 @@ T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -1
 extrapolated). What is left is a second, quantized
 plane-based kernel: a speed lever after the speed work stopped, months of work, and it gives up exact computation on
 the input doubles while still needing our rounding for double output. The plane-based representation stays a
-question for the design analysis of Exact Boolean 4.0 (stage 0, started 2026-11-17 (owner), no PR yet); later stages wait for a use case.
+question for the design analysis of Exact Boolean 4.0 (stage 0 merged as #1093; stage 1, the lazy `ExactMesh` expression,
+merged as #1107); later stages wait for a use case.
+Re-examined 2026-11-19 at the owner's request ("months are acceptable if quality does not drop"):
+[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). **No-go** (owner
+2026-11-19), both for a replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 %
+(12 threads: 1.43x → 0.93x CGAL). The realistic gain is −17 to −26 %. 0 of 294 T6 booleans are on a short grid (10 of 190
+raw models fit 26 bits, counted per model). The rounding (20 %) and the self-join (19 %) stay under the quality bar.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.
@@ -865,7 +872,7 @@ Triage of #985, #993, #994, #1010, #1011 by root cause (2026-11-17, merged as #1
 - RC4a (effort limit): the pair-test budget grows with the initial defects, #1040; the pass-through of its parameters to
   `MeshRobustRepair`, `ExactMeshImprint` and g3cli is merged (#1068). No budget raise below D = 50000 (owner 2026-11-17).
 - RC4b (the drift bound `MaxLength`): kept as a documented limit (owner 2026-11-17).
-- Left: the iud p0008 step-2 residue of 34 near-zero-volume triangles is #1067 (open); the CsCheck / fuzz campaign plan is #1038 (open).
+- The iud p0008 step-2 residue of 34 near-zero-volume triangles (#1067) came from the component removal skipping components that no edit touched: an untouched, closed, tiny or thin component that is inside out and enclosed by nothing now goes too (a cavity stays). Reproduced procedurally (`SafeRoundingInsideOutResidueTests`); the ABC chain is to be rerun on runners to confirm. Left: the CsCheck / fuzz campaign plan is #1038 (open).
 
 ### Open for the future (2026-11-15)
 
@@ -880,7 +887,7 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 
 1. Close out Exact Boolean 3.0: done 2026-11-18 (the mutation shards #913 and lever 1 of #953 (#956) are merged; every
    touched shard has a full run above its threshold on master, see the status at the top).
-2. The thingi-pairs baseline and final runs, after 1 (owner 2026-11-12; a Haiku runner): not run yet.
+2. The thingi-pairs baseline and final runs, after 1 (owner 2026-11-12): done 2026-11-19 on GitHub-hosted runners (see "thingi-pairs baseline and final runs" above).
 3. The tail above 20 s: #888 is closed (#960, 2026-11-16); tail cases are judged by the regression rule only. #1047 (42327
    with its rotated copy, 18-26 s, the time is in the classification) is reduced by PR #1064 (merged; box prefilter for the coplanar stacks,
    memo of L2's exact sides, -7 to -14 % on 42327, bit-identical; 19.5 s median for the union, still above 20 s in one of 10
@@ -903,6 +910,6 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
-   exact pass) is option A, an opt-in API (owner 2026-11-17, in progress, PR #1107); the materialized provenance stages are parked until
+   exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups
    to a clean closed low-poly solid is in progress.

@@ -1,0 +1,41 @@
+shape,option,value,tets,uniform_estimate,tets_over_estimate,seconds,status,min_dihedral,radius_edge_met,unrefined_bad_tets,size_clamped_tets
+sphere n=16,none,0,3122,0,,0.9167,Success,10.10,False,1,0
+sphere n=16,h_over_alpha,1,3863,1454,2.66,0.3884,Success,10.03,False,1,0
+sphere n=16,h_over_alpha,0.7,7208,4238,1.70,0.4561,Success,10.01,False,2,0
+sphere n=16,h_over_alpha,0.5,16889,11630,1.45,0.2946,Success,10.01,False,212,0
+sphere n=16,h_over_alpha,0.35,48065,33907,1.42,0.5727,Success,10.00,False,2345,0
+sphere n=16,h_over_alpha,0.25,130727,93040,1.41,1.26,Success,10.00,False,6945,0
+sphere n=16,grading,2,3618,0,,0.2578,Success,10.10,False,8,0
+sphere n=16,grading,1,4928,0,,0.2868,Success,10.03,False,43,0
+sphere n=16,grading,0.5,6687,0,,0.3093,Success,10.07,False,137,0
+sphere n=16,grading,0.25,8863,0,,0.2965,Success,10.03,False,189,0
+box 1x0.5x0.25,none,0,1527,0,,0.03332,Success,10.01,False,87,0
+box 1x0.5x0.25,h_over_alpha,1,2706,1197,2.26,0.03565,Success,10.01,False,332,0
+box 1x0.5x0.25,h_over_alpha,0.7,5829,3490,1.67,0.08089,Success,10.03,False,1037,0
+box 1x0.5x0.25,h_over_alpha,0.5,13923,9577,1.45,0.2394,Success,10.00,False,2281,0
+box 1x0.5x0.25,h_over_alpha,0.35,39462,27920,1.41,1.037,Success,10.00,False,5218,0
+box 1x0.5x0.25,h_over_alpha,0.25,108580,76613,1.42,4.414,Success,10.00,False,11069,0
+box 1x0.5x0.25,grading,2,1951,0,,0.03431,Success,10.02,False,258,0
+box 1x0.5x0.25,grading,1,2598,0,,0.06865,Success,10.12,False,472,0
+box 1x0.5x0.25,grading,0.5,3253,0,,0.08313,Success,10.02,False,650,0
+box 1x0.5x0.25,grading,0.25,4068,0,,0.09528,Success,10.15,False,812,0
+cylinder,none,0,3733,0,,0.1644,Success,10.02,False,168,0
+cylinder,h_over_alpha,1,5188,1924,2.70,0.1415,Success,10.14,False,205,0
+cylinder,h_over_alpha,0.7,9819,5609,1.75,0.2,Success,10.01,False,547,0
+cylinder,h_over_alpha,0.5,22990,15391,1.49,0.2952,Success,10.02,False,1684,0
+cylinder,h_over_alpha,0.35,64261,44871,1.43,0.7837,Success,10.01,False,5022,0
+cylinder,h_over_alpha,0.25,174664,123125,1.42,2.84,Success,10.00,False,11646,0
+cylinder,grading,2,4487,0,,0.1351,Success,10.03,False,313,0
+cylinder,grading,1,5825,0,,0.1896,Success,10.01,False,651,0
+cylinder,grading,0.5,7615,0,,0.2039,Success,10.01,False,885,0
+cylinder,grading,0.25,9803,0,,0.2428,Success,10.04,False,1047,0
+torus,none,0,5014,0,,0.2646,Success,8.93,False,214,0
+torus,h_over_alpha,1,5091,587,8.68,0.27,Success,8.93,False,214,0
+torus,h_over_alpha,0.7,5455,1711,3.19,0.2692,Success,10.01,False,243,0
+torus,h_over_alpha,0.5,8469,4694,1.80,0.2802,Success,10.03,False,432,0
+torus,h_over_alpha,0.35,20645,13685,1.51,0.4179,Success,10.02,False,2095,0
+torus,h_over_alpha,0.25,54695,37551,1.46,0.9765,Success,10.00,False,5698,0
+torus,grading,2,5104,0,,0.2712,Success,10.01,False,321,0
+torus,grading,1,5525,0,,0.2602,Success,10.01,False,379,0
+torus,grading,0.5,6336,0,,0.2672,Success,10.03,False,436,0
+torus,grading,0.25,7594,0,,0.297,Success,10.03,False,513,0

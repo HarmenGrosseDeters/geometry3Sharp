@@ -83,6 +83,15 @@ namespace g3
         internal long SearchWork;
     }
 
+    /// <summary> the triangles of a band (<see cref="ContourLoft.ComputeBand"/>) </summary>
+    internal sealed class ContourLoftBandTriangles
+    {
+        public ContourLoftStatus Status;
+        public string Reason;
+        public double TotalCost;
+        public List<Index3i> Triangles;
+    }
+
     /// <summary>
     /// A triangulated band between two closed polygons in distinct parallel planes (contour lofting, stage 1 of
     /// docs/design/CONTOUR_LOFT.md): every triangle has an edge on one contour and its apex on the other, and the band is the
@@ -158,6 +167,21 @@ namespace g3
             return new Run(this, first, second, cancellationToken).Execute();
         }
 
+        /// <summary>
+        /// The band of <see cref="Compute"/> as triangles only (stage 2, <see cref="ContourLoftStack"/>): vertex ids 0 .. first.Count - 1 are
+        /// the first contour, first.Count .. the second, every triangle oriented as the band of Compute. No mesh, no self-intersection or
+        /// cap checks (the caller checks the assembled mesh); the contours may repeat a position at non-consecutive vertices (composite
+        /// contours with bridges). Null triangles on every status but Success.
+        /// </summary>
+        internal ContourLoftBandTriangles ComputeBand(IList<Vector3d> first, IList<Vector3d> second, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (Cost == ContourLoftCost.Custom && CustomCost == null) throw new ArgumentException("Cost is Custom but CustomCost is null");
+            if (MaxCells <= 0) throw new ArgumentException("MaxCells must be positive");
+            var run = new Run(this, first, second, cancellationToken) { BandOnly = true };
+            ContourLoftResult r = run.Execute();
+            return new ContourLoftBandTriangles { Status = r.Status, Reason = r.Reason, TotalCost = r.TotalCost, Triangles = r.Status == ContourLoftStatus.Success ? run.BandList : null };
+        }
+
         /// <summary> the predecessor array, States bytes per node of the (m + 1) x (n + 1) grid, fits an int-indexed array </summary>
         internal static bool StateArraysFit(int m, int n) => (long)(m + 1) * (n + 1) * Run.States <= int.MaxValue;
 
@@ -167,6 +191,8 @@ namespace g3
             readonly IList<Vector3d> first, second;
             readonly CancellationToken ct;
             readonly ContourLoftResult result = new ContourLoftResult();
+            internal bool BandOnly;                 // ComputeBand: the triangles only
+            internal List<Index3i> BandList;
 
             // internal contours: A (m vertices, the rows) and B (n <= m vertices, the starts); B runs the same way as A
             Vector3d[] A, B;       // the input points
@@ -610,8 +636,31 @@ namespace g3
             int VertexOfA(int i) { i %= m; return swapped ? first.Count + i : i; }
             int VertexOfB(int j) { int input = InputIndexB(j); return swapped ? input : first.Count + input; }
 
+            ContourLoftResult BuildBandOnly(int s, byte[] steps)
+            {
+                var list = new List<Index3i>(steps.Length);
+                int i = 0, j = s;
+                foreach (byte st in steps) {
+                    Index3i t = st == 1 ? new Index3i(VertexOfA(i), VertexOfA(i + 1), VertexOfB(j))
+                                         : new Index3i(VertexOfA(i), VertexOfB(j + 1), VertexOfB(j));
+                    if (st == 1) i++; else j++;
+                    if (sgn < 0) t = new Index3i(t.a, t.c, t.b);
+                    Vector3d pa = t.a < first.Count ? first[t.a] : second[t.a - first.Count];
+                    Vector3d pb = t.b < first.Count ? first[t.b] : second[t.b - first.Count];
+                    Vector3d pc = t.c < first.Count ? first[t.c] : second[t.c - first.Count];
+                    var tri = new Triangle3d(pa, pb, pc);
+                    if (ExactTriangleIntersection.IsDegenerate(ref tri))
+                        return Fail(ContourLoftStatus.InvalidInput, "a band triangle is degenerate (the contours are not in separated planes)");
+                    list.Add(t);
+                }
+                BandList = list;
+                result.Status = ContourLoftStatus.Success; result.Reason = "";
+                return result;
+            }
+
             ContourLoftResult Build(int s, byte[] steps)
             {
+                if (BandOnly) return BuildBandOnly(s, steps);
                 var mesh = new DMesh3();
                 foreach (var p in first) mesh.AppendVertex(p);
                 foreach (var p in second) mesh.AppendVertex(p);
