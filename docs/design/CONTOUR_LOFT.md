@@ -10,7 +10,7 @@ shapes. Output: a triangulated band whose boundary is exactly P and Q, every tri
 and its third vertex (the apex) on the other (the classic *tiling*; no Steiner points in the band). Optionally the two
 planar caps, giving a closed solid.
 
-Stage 2 (several contours per plane, branching) is not part of stage 1; its design is section 10 (proposal, not yet approved).
+Stage 2 (several contours per plane, branching) is not part of stage 1; its design is section 10.
 
 ## 2. Library search (AGENT_WORKFLOW §3.1)
 
@@ -202,7 +202,7 @@ On every path to `Success`:
 - **Hand mutants**: 21 mutants of the search, the statuses, the costs, the caps and the guards, all killed by the tests (the
   region-rule mutants only once the full-region fallback was counted: the fallback made them correct but O(m n^2)).
 
-## 10. Stage 2 design (proposal, 2026-11-19; awaits the coordinator's approval, nothing built)
+## 10. Stage 2 design (approved by the coordinator 2026-11-19: option A, overlay in core, `BranchFraction` 0.5; built, section 10.9 lists the changes)
 
 ### 10.1 Problem
 
@@ -340,3 +340,48 @@ self-intersection, volume against the analytic prism / frustum sums where known,
 (2 - p - q), `NotCleanReason == ""`. Plus Similarity.All, reuse, determinism, chained stage 1 equality, a status test per status,
 hand mutants of the matching, the overlay labelling, the bridge choice and the identification. Benchmark: stack of 64 slices,
 branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/ContourLoftBenchmark`.
+
+### 10.9 As built (2026-11-19): changes against the proposal, tests, measurements
+
+- **Files**: `mesh_generators/ContourLoftStack.cs` (public types), `ContourLoftStackRun.cs` (the run); `ContourLoft.ComputeBand`
+  (internal) returns the band's triangles only, through the same `Run` (`BandOnly`), so stage 1 `Compute` is untouched. The
+  composite contours repeat positions at non-consecutive vertices; the vertex ids of the repeats are the same mesh vertex, which
+  is the identification of the bridge vertices and edges (a triangle that does not fit makes `AppendTriangle` fail: `BandFailed`).
+- **Statuses**: `UnsupportedNesting` became `Unsupported` (nesting, and an overlap piece that touches itself); `NoAdmissibleBand` is
+  its own status (the bands' exact minimum is not summed over bands). Extra checks on every Success: all contour edges are mesh
+  edges, no bowtie vertex, consistent orientation, positive volume with `CapEnds`.
+- **Scope kept narrower than 10.4**: a group that branches, merges or is complex (p + q > 2) must have contours without holes
+  (`Unsupported` otherwise); holes of 1:1 groups, tunnels through many slices and holes that appear or vanish are supported. A
+  terminal contour whose child continues is `Unsupported`.
+- **Nesting and overlay**: the nesting tree of a slice and the labels of the overlay triangles come from one flood fill each over a
+  constrained Delaunay triangulation of the contours as marked segments (a slice with crossings or touching contours is
+  `CrossingContours`, detected by the failure of the no-crossing mode, a merged vertex, or a split segment). The overlay's vertices
+  are numbered canonically: an input point by its index, a crossing by the sorted markers of its segments, and the loop of a piece
+  starts at the smallest such key, so the numbering does not depend on the triangulation (tested under `Similarity.All()`).
+- **Pieces equal to a contour**: "the piece is the contour" holds when the contour's vertices are in the loop in their order; the
+  loop may hold more vertices (T-junctions of other contours on its edges), so a bar holding two legs that share its edges needs no
+  intermediate plane (the torus test: 72 input vertices, 72 in the mesh).
+- **Bridges**: besides the shortest visible pair of Prim's tree, a bridge must keep clear of the bridges already placed in the same
+  plane (a slice, or the intermediate plane of the slab): without it the bridge of a branch and the bridge of the next merge of a
+  torus are the same segment and the mesh has a non-manifold edge (found by the torus test). Visibility is exact (`Orient2d`):
+  no touching or overlap with any contour edge of the plane, the midpoint inside the container contour. The direction test at the
+  vertex ("in cone") that the design lists is not needed: a segment that leaves into a contour's interior crosses its boundary.
+- **Planes**: the stacking normal is the Newell normal of the first contour, signed so that the slices' mean heights increase; a
+  slice's height is the mean of its vertices' heights; the intermediate plane is `BranchFraction` between two such heights (its
+  vertices are `frame * (x, y, h)`, exact in 2^k scalings through the power-of-two working frame).
+- **Ties**: where a piece runs along a contour edge the band has a planar quad (same edge at two heights) whose diagonal is a tie of the
+  search, decided by rounding: such inputs are bit for bit invariant under 2^k scalings, and invariant in their numbering, counts,
+  areas and volumes (not in the diagonal) under the other similarities. Documented in the invariance test.
+- **Tests** (`ContourLoftStackTests`, 38): two cylinders merging and splitting, 1 to 3 and 3 to 1 (bridges leave no non-manifold edge
+  or vertex: closed, `NotCleanReason == ""`, every edge in two triangles, every fan one ring), cut pieces with the intermediate plane
+  (and `BranchFraction`), a torus by slices (bar, two legs, bar: Euler characteristic 0), a washer (nested tunnels), a hole that
+  appears and one that vanishes, a contour that ends / starts between slices, a zig-zag of 2 + 2 contours, two groups in one slab, caps
+  with refinement, the chained stage 1 equality (exactly the same triangles as `ContourLoft.Compute` per slab), clockwise input,
+  prism volume, every status once (each with a null mesh), `Similarity.All()`, reuse, determinism (repeated and concurrent).
+  Hand mutants (killed unless noted): hole orientation, cap orientation, the container test of bridges, the clearance from earlier
+  bridges, the parity of related contours, the intermediate-plane shortcut, the crossing detection, the terminal-child check, the
+  canonical start of a piece, the pieces' group filter, `BranchFraction`, the end caps, the clean check, cap heights and hole rings.
+  Equivalent or defensive survivors: the order tie-break of equal-distance candidates by loop, the contour-edge-in-mesh check.
+- **Measured** ([ContourLoftBenchmark](../../benchmarks/ContourLoftBenchmark/README.md), `-- stack`): 33 slices, one and two contours
+  alternating every 8 slices: 20 ms per slab at 100 vertices per contour, 190 ms at 400, 1.3 s at 1000 (the stage 1 band of a
+  composite of 2n against n vertices dominates); contained and cut pieces cost the same.
