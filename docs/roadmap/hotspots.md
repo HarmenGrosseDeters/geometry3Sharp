@@ -12,7 +12,7 @@ Part of the [roadmap](../ROADMAP.md).
 - `ExactMeshBoolean.coplanar_stack`: the worst-case latency fix (flood fill over the piece adjacency) was not built,
   closed (owner 2026-11-01; CHEAPER_CONSTRUCTIONS.md section 10a). Issue #1047 (42327 with its rotated copy, 18-26 s per
   operation, the time is in the classification) is reduced by PR #1064 (merged 2026-11-17; box prefilter for the coplanar stacks and a memo of L2's
-  exact sides, bit-identical, -7 to -14 % on 42327); the further levers are not built under the speed stop.
+  exact sides, bit-identical, -7 to -14 % on 42327); the further levers are not built under the speed stop; #1047 is dropped as a documented tail (owner 2026-11-19).
 - `Reducer` `MaxDeviation`: shared BVH queries per collapse were tried and merged in #275 (2026-11-01, 1.03-1.12x,
   bit-identical); the envelope stopped (owner 2026-11-01).
 - Leads in the second table: four are answered (wall-thickness sizing `RemeshSizing.FromWallThickness`, CCD stage 2
@@ -63,7 +63,7 @@ Open tasks further up, and work further down, in the code or in the research lis
 Written 2026-11-15; statuses re-checked 2026-11-17 (the heading keeps its date because other pages link to it).
 
 1. The exact-boolean tail above 20 s (#888, closed): 55928 at 460-480 s in the first report; the levers #881 (allocations) and #893
-   (limb kernels) are merged (2026-11-15); #1047 (42327) got #1064 (merged, -7 to -14 %; 19.5 s median for the union, still above 20 s in 1 of 10 processes).
+   (limb kernels) are merged (2026-11-15); #1047 (42327) got #1064 (merged, -7 to -14 %; 19.5 s median for the union, still above 20 s in 1 of 10 processes; dropped as a documented tail, owner 2026-11-19).
 2. The alpha wrap tail above 20 s (#888, closed): 18 pipelines of 21.9-77.7 s in the first report; (B) #774 is merged (2026-11-15).
 3. ~~CCD `MeshSweepCollision` on the 1M ToI frame (#866 / #940)~~: closed 2026-11-16 as a documented limit (owner) after #945 and #977 (serial 23.5-24.9 s, parallel 8.8-10.4 s).
 4. Dynamic PGO slowdown as a measurement hazard (#825, closed 2026-11-15 as an environment effect, owner).

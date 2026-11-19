@@ -602,8 +602,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    thickness (135363). Measured 2026-11-17 (#1075, [REMESHER_PHASE2_MEASURED.md](../perf/REMESHER_PHASE2_MEASURED.md)), defaults
    unchanged (upstream's, owner). The opt-in safe preset `Remesher.ApplySafePreset()` / `g3cli remesh --safe` (`MinTriangleQuality`
    0.2 + `PreventSelfIntersections`, 19x the plain default on Thingi10K) is merged (#1085; owner go, defaults unchanged).
-   Alpha wrap, in progress (owner 2026-11-17): an opt-in target triangle count that keeps the guarantees, defaults unchanged, the budget
-   default stays off (PR #1106); the additive final-result volume IoU diagnostic of boolean result class E (`MeshRobustRepair`, `Apply()` unchanged) is done with #1096 (below).
+   Alpha wrap, done (owner 2026-11-17): an opt-in target triangle count that keeps the guarantees, defaults unchanged, the budget
+   default stays off (merged #1106); the additive final-result volume IoU diagnostic of boolean result class E (`MeshRobustRepair`, `Apply()` unchanged) is done with #1096 (below).
    **Final-result volume IoU and the answer to #1096** (owner decision 2026-11-17, class E option (a); option (b), a guard that rejects a
    result, is not taken: an open sheet has almost no reference volume, so a volume guard would reject every thin open sheet).
    `MeshRobustRepair.MeasureResultVolumeIoU` (opt-in, default off) sets `ResultVolumeIoU`, the volume IoU of the final result in `Mesh`
@@ -642,7 +642,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    Thingi10K (77958, 79136, 87345) was not run for this (no mesh in the repository, no network in a PR test); `BENCH_REPAIR=robust
    BENCH_FIDELITY=0` on a runner can add `ResultVolumeIoU` and `fm_oviou` for them if the owner wants the numbers on the real meshes.
    Also seen while building the reproducers: a 2.3k-triangle open soup of two spheres (holes of 60 degrees) took 21.9 s at the
-   defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it).
+   defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it; closed 2026-11-18).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above.
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it.
