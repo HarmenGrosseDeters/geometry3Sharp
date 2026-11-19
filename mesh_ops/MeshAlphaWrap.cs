@@ -320,7 +320,7 @@ namespace gs
         /// </summary>
         public Func<Vector3d, double> AlphaField;
         /// <summary> the smallest local alpha, in offsets (see AlphaField) </summary>
-        public const double AlphaFieldFloorOffsets = 3.0;
+        public static readonly double AlphaFieldFloorOffsets = 3.0;
         double alpha_at(int c, int i)
         {
             if (AlphaField == null) return alpha;

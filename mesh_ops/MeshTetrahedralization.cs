@@ -227,7 +227,7 @@ namespace gs
             for (int pass = 0; pass < passes; ++pass) {
                 var tree = new DMeshAABBTree3(wrap.Result, true);
                 for (int i = 0; i < pos.Length; ++i) {
-                    if (CancelF()) { localCancelled = true; return false; }
+                    if ((i & 255) == 0 && CancelF()) { localCancelled = true; return false; }
                     tree.FindNearestTriangle(pos[i], out double d2);
                     aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
                 }
@@ -235,11 +235,17 @@ namespace gs
                 if (field.FineSamples == 0)
                     break;
                 MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
+                if (LocalWrapMaxSteinerPoints > 0) next.MaxSteinerPoints = LocalWrapMaxSteinerPoints;
                 bool ok = next.Compute();
+                if (next.Status == MeshAlphaWrap.WrapStatus.Cancelled) { wrap = next; return false; }
+                if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success) {
+                    // a refined wrap that failed (eg its point limit): the last successful wrap is the result, and the run says so (the same call without
+                    // the option succeeds, so it must not fail with it)
+                    localWrapFailedStatus = (long)next.Status;
+                    break;
+                }
                 wrap = next;
                 executed++;
-                if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success)
-                    return false;
             }
             localAlphaPasses = executed; localFineSamples = field == null ? 0 : field.FineSamples;
             return true;
@@ -255,6 +261,11 @@ namespace gs
         }
         long localAlphaPasses, localFineSamples;
         bool localRan;
+        long localWrapFailedStatus;
+        /// <summary> (tests) a point limit for the refined wraps of the local alpha, to force their failure; 0 = the wrap's default </summary>
+        internal int LocalWrapMaxSteinerPoints;
+        /// <summary> (tests) the gradation slope of the first run and of the retry (0 if there was none) </summary>
+        internal double GradationFirst, GradationRetry;
         bool localCancelled;
 
         /// <summary>
@@ -266,7 +277,7 @@ namespace gs
         public bool Compute()
         {
             gradation = LocalAlphaGradation;
-            RetryFirstWorstMinDihedral = double.NaN;
+            RetryFirstWorstMinDihedral = double.NaN; GradationFirst = gradation; GradationRetry = 0;
             bool ok = ComputeOnce();
             if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localFineSamples == 0)
                 return ok;
@@ -274,6 +285,7 @@ namespace gs
             var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, DiagnosticLines, localAlphaPasses, localFineSamples, localRan, ok);
             RetryFirstWorstMinDihedral = Targets.WorstMinDihedral;
             gradation = LocalAlphaGradation / 2;
+            GradationRetry = gradation;
             bool ok2 = ComputeOnce();
             if (Status == TetStatus.Cancelled) return ok2;        // cancelled during the retry: cancelled, not the first result
             bool keepSecond = Result != null && Targets != null && (Status == TetStatus.Success || Status == first.Item4)
@@ -291,7 +303,7 @@ namespace gs
 
         bool ComputeOnce()
         {
-            localAlphaPasses = 0; localFineSamples = 0; localCancelled = false; localRan = false;
+            localAlphaPasses = 0; localFineSamples = 0; localCancelled = false; localRan = false; localWrapFailedStatus = 0;
             Result = null;
             Targets = null;
             InvalidSizeSamples = 0;
@@ -340,7 +352,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
-            if (localRan) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; }   // only then: the default counts do not change
+            if (localRan) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; if (localWrapFailedStatus != 0) { Counts["local_alpha_wrap_failed"] = 1; Counts["local_alpha_wrap_failed_status"] = localWrapFailedStatus; } }   // only then: the default counts do not change
             if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change

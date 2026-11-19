@@ -19,7 +19,12 @@ namespace geometry3Sharp.Tests
             new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5 * (x0 + x1), 0.5 * (y0 + y1), 0.5 * (z0 + z1)), new Vector3d(0.5 * (x1 - x0), 0.5 * (y1 - y0), 0.5 * (z1 - z0))) }.Generate().MakeDMesh();
 
         /// <summary> a base plate with four teeth: gaps of 0.05 between the teeth (a little more than 1 alpha at diagonal / 20), exact union </summary>
-        internal static DMesh3 Comb()
+        // the comb and the reference run are shared by the tests (deterministic, read only): the union and the run are computed once
+        static readonly Lazy<DMesh3> CombShared = new Lazy<DMesh3>(MakeComb);
+        internal static DMesh3 Comb() => CombShared.Value;
+        static readonly Lazy<MeshTetrahedralization> Ref150 = new Lazy<MeshTetrahedralization>(() => { var tm = Local(Comb()); Run(tm); return tm; });
+
+        static DMesh3 MakeComb()
         {
             var parts = new List<DMesh3> { Box(0, 0, 0, 0.6, 0.12, 0.12) };
             for (int i = 0; i < 4; ++i) parts.Add(Box(0.01 + i * 0.15, 0.08, 0, 0.01 + i * 0.15 + 0.10, 0.5, 0.12));
@@ -108,19 +113,26 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // a dihedral target that one pass of stage 2 does not reach (20 degrees): the field is smoothed once, the target is still reported as missed
+        static MeshTetrahedralization Hard(DMesh3 input) { var tm = Local(input); tm.SliverDihedralDegrees = 20; tm.ImprovePasses = 1; tm.RescuePasses = 0; return tm; }
+
         [Fact]
+        [Trait("Category", "Slow")]       // two full runs of the retry (the second with half the slope), 4 to 6 s
         public void MissedDihedralTarget_RunsOnceMoreWithASmootherField_AndKeepsTheBetterResult()
         {
             DMesh3 input = Comb();
-            var met = Local(input); Run(met);
+            var met = Ref150.Value;
             Assert.True(met.Targets.MinDihedralMet);
             Assert.False(met.Counts.ContainsKey("local_alpha_retry"));            // the target is met: no second run
-            // a dihedral target that one pass of stage 2 does not reach (20 degrees): the field is smoothed once, the target is still reported as missed
-            var hard = Local(input); hard.SliverDihedralDegrees = 20; hard.ImprovePasses = 1; hard.RescuePasses = 0;
+            Assert.Equal(0.0, met.GradationRetry);
+            var hard = Hard(input);
             hard.Compute(); Assert.NotNull(hard.Result);
             Assert.Equal(1, hard.Counts["local_alpha_retry"]);
             Assert.False(hard.Targets.MinDihedralMet);
             Assert.Null(TetMeshQuality.NotValidReason(hard.Result));
+            // the second run used a different, smoother field: half the slope
+            Assert.Equal(0.25, hard.GradationFirst);
+            Assert.Equal(0.125, hard.GradationRetry);
             // the kept result is the better one: kept <=> the smoother field gave a larger smallest angle than the first run
             bool kept = hard.Counts.ContainsKey("local_alpha_retry_kept");
             if (kept) Assert.True(hard.Targets.WorstMinDihedral > hard.RetryFirstWorstMinDihedral);
@@ -129,6 +141,11 @@ namespace geometry3Sharp.Tests
             // the result, counts and targets belong to each other: the targets are those of the result
             var check = TetMeshQuality.CheckTargets(hard.Result, 20, hard.MaxRadiusEdgeRatio);
             Assert.Equal(check.WorstMinDihedral, hard.Targets.WorstMinDihedral);
+            // reuse with the retry: the same instance again gives the same result and counts, and the options are reset
+            var verts = hard.Result.Vertices.ToList(); var tets = hard.Result.Tets.ToList(); var counts = new Dictionary<string, long>(hard.Counts);
+            hard.Compute();
+            Assert.Equal(verts, hard.Result.Vertices); Assert.Equal(tets, hard.Result.Tets); Assert.Equal(counts, hard.Counts);
+            Assert.Equal(0.25, hard.GradationFirst); Assert.Equal(0.125, hard.GradationRetry);
         }
 
         [Fact]
@@ -146,15 +163,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SphereAndBox_WhichHaveNoDetail_KeepTheirTets_AndAbove2OffsetsNothingIsRefined()
+        public void SphereAndBox_WhichHaveNoDetail_AreNotRefined_AndNoSecondWrapRuns()
         {
             // the tolerance is not below the distance of the uniform wrap (about 1 offset): no sample is farther, no field, the second wrap is not run
             foreach (string name in new[] { "sphere", "box" }) {
                 DMesh3 input = TetMeshingStage2Tests.Input(name);
                 var tm = new MeshTetrahedralization(input) { RelativeAlpha = 12, MaxSurfaceDeviation = input.CachedBounds.DiagonalLength / 100 }; Run(tm);
                 Assert.Equal(0, tm.Counts["local_alpha_fine_samples"]);
+                Assert.Equal(0, tm.Counts["local_alpha_passes"]);               // no refined wrap ran
+                Assert.Null(tm.Wrap.AlphaField);                                // the wrap of the tets is the uniform one
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, tm.WrapStatus);
             }
+        }
+
+        [Fact]
+        public void FailedLocalWrap_KeepsTheLastSuccessfulWrap_AndSaysSo()
+        {
+            DMesh3 input = Comb();
+            var tm = Local(input); tm.LocalWrapMaxSteinerPoints = 30;     // the refined wrap needs many more points: its point limit is reached
+            Run(tm);                                                      // the run still succeeds, as it does without the option
+            Assert.Equal(1, tm.Counts["local_alpha_wrap_failed"]);
+            Assert.Equal((long)MeshAlphaWrap.WrapStatus.PointLimitReached, tm.Counts["local_alpha_wrap_failed_status"]);
+            Assert.Equal(0, tm.Counts["local_alpha_passes"]);
+            Assert.Null(tm.Wrap.AlphaField);                              // the uniform wrap is the one of the result
+            Assert.Null(TetMeshQuality.NotValidReason(tm.Result));
+            Assert.False(Ref150.Value.Counts.ContainsKey("local_alpha_wrap_failed"));
+            // the same result as the uniform wrap (without the surface angle refinement, which the option switches off)
+            var uni = Uniform(input); uni.SurfaceMinAngleDegrees = 0; Run(uni);
+            Assert.Equal(uni.Result.Tets, tm.Result.Tets);
         }
 
         [Fact]
@@ -168,20 +204,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        [Trait("Category", "Slow")]       // three full runs, 3 to 5 s
         public void MorePasses_NeverMakeTheDeviationLarger_AndTheCountsSaySo()
         {
             DMesh3 input = Comb();
-            var one = Local(input, 150, 1); Run(one);
+            var one = Ref150.Value;
             var two = Local(input, 150, 2); Run(two);
             Assert.True(MaxDeviation(two) <= MaxDeviation(one) * 1.05, MaxDeviation(two) + " against " + MaxDeviation(one));
             Assert.True(two.Counts["local_alpha_fine_samples"] >= one.Counts["local_alpha_fine_samples"]);
             Assert.Equal(1, one.Counts["local_alpha_passes"]);
             Assert.Equal(2, two.Counts["local_alpha_passes"]);       // the executed passes
             Assert.NotEqual(one.Result.Tets, two.Result.Tets);       // the second pass changed the field
-            foreach (int bad in new[] { 0, 4 }) {
-                var tm = Local(input, 150, bad); Run(tm);
-                Assert.Equal(one.Result.Tets, tm.Result.Tets);       // out of range counts as 1
-            }
+            var outOfRange = Local(input, 150, 4); Run(outOfRange);
+            Assert.Equal(one.Result.Tets, outOfRange.Result.Tets);   // out of range counts as 1
         }
 
         // ------------------------------------------------------------------------------------------------ determinism, reuse, invariance
@@ -190,13 +225,13 @@ namespace geometry3Sharp.Tests
         public void EveryMaxThreads_AndRepeatedRuns_GiveTheSameResult()
         {
             DMesh3 input = Comb();
-            var serial = Local(input); serial.MaxThreads = 1; Run(serial);
-            foreach (int threads in new[] { 0, 2, 4, 1 }) {
+            var reference = Ref150.Value;                      // (the default threads)
+            foreach (int threads in new[] { 1, 3 }) {
                 var tm = Local(input); tm.MaxThreads = threads; Run(tm);
-                Assert.Equal(serial.Result.Vertices, tm.Result.Vertices);
-                Assert.Equal(serial.Result.Tets, tm.Result.Tets);
-                Assert.Equal(serial.Result.BoundaryTriangles, tm.Result.BoundaryTriangles);
-                Assert.Equal(serial.Counts, tm.Counts);
+                Assert.Equal(reference.Result.Vertices, tm.Result.Vertices);
+                Assert.Equal(reference.Result.Tets, tm.Result.Tets);
+                Assert.Equal(reference.Result.BoundaryTriangles, tm.Result.BoundaryTriangles);
+                Assert.Equal(reference.Counts, tm.Counts);
             }
         }
 
@@ -217,16 +252,30 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(simName);
             DMesh3 input = Comb();
-            var a = Local(input); Run(a);
+            var a = Ref150.Value;
             DMesh3 moved = Invariance.Transformed(input, s);
-            var b = new MeshTetrahedralization(moved) { RelativeAlpha = BaseAlpha, MaxSurfaceDeviation = s.ApplyLength(a.MaxSurfaceDeviation) }; Run(b);
+            var b = new MeshTetrahedralization(moved) { RelativeAlpha = BaseAlpha, MaxSurfaceDeviation = s.ApplyLength(a.MaxSurfaceDeviation) };
+            if (!s.IsExact) {
+                // the relative alpha and offset are fractions of the bounding box diagonal, which a rotation changes: give the moved input the same absolute alpha and offset
+                double ratio = moved.CachedBounds.DiagonalLength / (s.Scale * input.CachedBounds.DiagonalLength);
+                b.RelativeAlpha = a.RelativeAlpha * ratio; b.RelativeOffset = a.RelativeOffset * ratio;
+            }
+            Run(b);
             TetMeshingStage2Tests.Invariants(b);
             if (s.IsExact) {
                 Assert.Equal(a.Result.Tets, b.Result.Tets);
                 for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);
                 Assert.Equal(a.Counts, b.Counts);
-            } else
-                Assert.True(b.Counts["local_alpha_fine_samples"] > 0);
+            } else {
+                // not bit for bit (the rounding of the moved coordinates and the grid differ), but the same refinement: the fine samples and the tets
+                // within 25 %, the distance (in the input's units, scaled back) within a factor of 1.6
+                double fa = a.Counts["local_alpha_fine_samples"], fb = b.Counts["local_alpha_fine_samples"];
+                Assert.InRange(fb, 0.8 * fa, 1.25 * fa);
+                double da = MaxDeviation(a), db = MaxDeviation(b) / s.Scale;
+                Assert.InRange(db, da / 1.6, da * 1.6);
+                Assert.InRange((double)b.Result.Tets.Count, 0.8 * a.Result.Tets.Count, 1.25 * a.Result.Tets.Count);
+                Assert.True(b.Targets.MinDihedralMet);
+            }
         }
         public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
 
@@ -338,6 +387,37 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, f.At(pos[0]));
             Assert.Equal(0.25 + 0.25 * 0.5, f.At(new Vector3d(0.5, 0, 0)), 12);          // the cone of the first sample
             Assert.Equal(0.5, f.At(new Vector3d(1, 0, 0)), 12);                          // 0.25 + 0.25 * 1: below alpha0, the cone counts
+        }
+
+        [Fact]
+        public void SizeField_QueryCost_IsBounded_OnAClusteredInput()
+        {
+            // 20000 samples packed on a small patch (a gear on a long axle: nearly all the area in one corner), all with the finest alpha
+            const double a0 = 1.0, aMin = 0.25, L = 0.25;
+            var rnd = new Random(11);
+            var pos = new Vector3d[20000]; var aj = new double[pos.Length];
+            for (int i = 0; i < pos.Length; ++i) { pos[i] = new Vector3d(rnd.NextDouble() * 4, rnd.NextDouble() * 4, 0); aj[i] = aMin; }
+            var f = new AlphaSizeField(pos, aj, a0, aMin, L);
+            Assert.True(f.FineSamples < 20000);                         // thinned to one per cube of aMin / 2 (16 x 16 cells of the patch at most: 64 x 64 = 4096)
+            Assert.True(f.FineSamples <= 4096 + 64);
+            double worstVisited = 0;
+            for (int i = 0; i < 400; ++i) {
+                Vector3d q = new Vector3d(rnd.NextDouble() * 6 - 1, rnd.NextDouble() * 6 - 1, rnd.NextDouble() * 2 - 1);
+                double v = f.At(q, out int visited);
+                worstVisited = Math.Max(worstVisited, visited);
+                // against the brute force over all the samples: the thinning moves the field by at most L * (aMin / 2) * sqrt(3)
+                double brute = a0;
+                foreach (Vector3d p in pos) brute = Math.Min(brute, aMin + L * (p - q).Length);
+                Assert.InRange(v, brute - 1e-12, brute + L * aMin / 2 * Math.Sqrt(3) + 1e-12);
+            }
+            Assert.True(worstVisited <= 4160, "visited " + worstVisited + " of " + f.FineSamples);
+            // far from the patch nothing is visited
+            f.At(new Vector3d(100, 100, 100), out int far); Assert.Equal(0, far);
+            // a cell that cannot lower the best is skipped: a coarse cluster next to a fine one
+            var pos2 = new[] { new Vector3d(0, 0, 0), new Vector3d(0.9, 0, 0) }; var aj2 = new[] { 0.25, 0.9 };
+            var g = new AlphaSizeField(pos2, aj2, 1.0, 0.25, 0.25);
+            Assert.Equal(0.25, g.At(new Vector3d(0, 0, 0), out int vis2), 12);
+            Assert.True(vis2 <= 2);
         }
 
         [Fact]

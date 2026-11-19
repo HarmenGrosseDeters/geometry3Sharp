@@ -20,22 +20,34 @@ namespace gs
         readonly Vector3d[] points;
         readonly double[] alphas;
         readonly double alpha0, slope, radius, cell;
-        readonly Dictionary<(long, long, long), int[]> cells = new Dictionary<(long, long, long), int[]>();
+        sealed class Cell { public int[] Items; public double MinAlpha; }
+        readonly Dictionary<(long, long, long), Cell> cells = new Dictionary<(long, long, long), Cell>();
 
         public int FineSamples => points.Length;
 
         /// <param name="pos">the samples</param>
         /// <param name="alphaJ">their alpha; only those below alpha0 are kept</param>
         /// <param name="alphaMin">the smallest alpha of the field (the reach of a sample is (alpha0 - alphaMin) / slope)</param>
+        /// <remarks>
+        /// The cost of a query is bounded: the kept samples are thinned to one per cube of alphaMin / 2 (the smallest alpha_j in it, the first by
+        /// index on a tie; the field changes by at most slope * alphaMin * sqrt(3) / 2), so the samples within the reach of a point, which lie on a
+        /// surface, number at most about (2 * reach / (alphaMin / 2))^2 whatever the input (20000 samples of a gear on a long axle in one corner included),
+        /// and a grid cell whose smallest alpha plus slope times its distance from the point is not below the best so far is skipped without a visit.
+        /// </remarks>
         public AlphaSizeField(Vector3d[] pos, double[] alphaJ, double alpha0, double alphaMin, double slope)
         {
             this.alpha0 = alpha0; this.slope = slope;
             radius = (alpha0 - alphaMin) / slope;
-            cell = radius;
-            var keep = new List<int>();
-            for (int i = 0; i < pos.Length; ++i)
-                if (alphaJ[i] < alpha0)
-                    keep.Add(i);
+            cell = radius / 2;
+            double h = alphaMin / 2;
+            var best = new Dictionary<(long, long, long), int>();
+            for (int i = 0; i < pos.Length; ++i) {
+                if (!(alphaJ[i] < alpha0)) continue;
+                var key = ((long)Math.Floor(pos[i].x / h), (long)Math.Floor(pos[i].y / h), (long)Math.Floor(pos[i].z / h));
+                if (!best.TryGetValue(key, out int b) || alphaJ[i] < alphaJ[b] || (alphaJ[i] == alphaJ[b] && i < b)) best[key] = i;
+            }
+            var keep = new List<int>(best.Values);
+            keep.Sort();
             points = new Vector3d[keep.Count]; alphas = new double[keep.Count];
             var lists = new Dictionary<(long, long, long), List<int>>();
             for (int k = 0; k < keep.Count; ++k) {
@@ -44,14 +56,22 @@ namespace gs
                 if (!lists.TryGetValue(key, out List<int> l)) lists[key] = l = new List<int>();
                 l.Add(k);
             }
-            foreach (var kv in lists) cells[kv.Key] = kv.Value.ToArray();
+            foreach (var kv in lists) {
+                double m = double.MaxValue;
+                foreach (int k in kv.Value) m = Math.Min(m, alphas[k]);
+                cells[kv.Key] = new Cell { Items = kv.Value.ToArray(), MinAlpha = m };
+            }
         }
 
         (long, long, long) Key(Vector3d p) => ((long)Math.Floor(p.x / cell), (long)Math.Floor(p.y / cell), (long)Math.Floor(p.z / cell));
 
         /// <summary> the alpha at x: alpha0 away from every fine sample, else the smallest alpha_j + L |x - p_j| within reach </summary>
-        public double At(Vector3d x)
+        public double At(Vector3d x) => At(x, out _);
+
+        /// <summary> as At, and the number of samples visited (tests: the cost of a query) </summary>
+        public double At(Vector3d x, out int visited)
         {
+            visited = 0;
             if (points.Length == 0) return alpha0;
             double best = alpha0, r2 = radius * radius;
             long x0 = (long)Math.Floor((x.x - radius) / cell), x1 = (long)Math.Floor((x.x + radius) / cell);
@@ -60,8 +80,14 @@ namespace gs
             for (long i = x0; i <= x1; ++i)
                 for (long j = y0; j <= y1; ++j)
                     for (long k = z0; k <= z1; ++k) {
-                        if (!cells.TryGetValue((i, j, k), out int[] l)) continue;
-                        foreach (int m in l) {
+                        if (!cells.TryGetValue((i, j, k), out Cell c)) continue;
+                        // the nearest point of the cell's box: no sample in it is closer
+                        double dx = Math.Max(Math.Max(i * cell - x.x, x.x - (i + 1) * cell), 0);
+                        double dy = Math.Max(Math.Max(j * cell - x.y, x.y - (j + 1) * cell), 0);
+                        double dz = Math.Max(Math.Max(k * cell - x.z, x.z - (k + 1) * cell), 0);
+                        if (c.MinAlpha + slope * Math.Sqrt(dx * dx + dy * dy + dz * dz) >= best) continue;
+                        foreach (int m in c.Items) {
+                            visited++;
                             double d2 = (points[m] - x).LengthSquared;
                             if (d2 > r2) continue;
                             double v = alphas[m] + slope * Math.Sqrt(d2);
