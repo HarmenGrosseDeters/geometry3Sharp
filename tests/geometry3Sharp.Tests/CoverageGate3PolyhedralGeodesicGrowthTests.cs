@@ -33,12 +33,13 @@ namespace geometry3Sharp.Tests
             MethodInfo nw = t.GetMethod("NewWindow", NonPublic);
             Type wt = t.GetNestedType("Window", BindingFlags.NonPublic);
             FieldInfo sigma = wt.GetField("Sigma");
+            foreach (object member in new object[] { wch, nch, pch, wc, nw, wt, sigma }) Assert.NotNull(member);   // a renamed private member fails clearly
             Array Chunk0() => ((Array[])wch.GetValue(g))[0];
 
             int len0 = Chunk0().Length;
             Assert.True(len0 < 1 << 16);
             int first = (int)wc.GetValue(g);
-            Assert.True(first <= len0);
+            Assert.True(first < len0);
             // fill the chunk exactly: no growth yet
             int last = -1;
             for (int i = first; i < len0; ++i) {
@@ -54,7 +55,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2 * len0, ((Array[])nch.GetValue(g))[0].Length);
             Assert.Equal(2 * len0, ((Array[])pch.GetValue(g))[0].Length);
             Assert.Equal(5.5, (double)sigma.GetValue(Chunk0().GetValue(id)));
-            if (last >= 0) Assert.Equal(100.0 + last, (double)sigma.GetValue(Chunk0().GetValue(last)));
+            Assert.True(last >= 0);
+            Assert.Equal(100.0 + last, (double)sigma.GetValue(Chunk0().GetValue(last)));
             Assert.Equal(len0 + 1, (int)wc.GetValue(g));
         }
     }

@@ -7,7 +7,8 @@ namespace geometry3Sharp.Tests
     /// <summary>The trace of PolyhedralGeodesicDistance through a partially reached run: a walk that arrives at a vertex without a record.</summary>
     public class CoverageGate3PolyhedralGeodesicTests
     {
-        // a 7 x 9 strip of 2 x 2e-8 (aspect 1e8, the documented limit of the run) with alternating diagonals
+        // a 7 x 9 strip of 2 x 2e-8 (aspect 1e8, the documented limit of the run) with alternating diagonals; the test depends on
+        // the run staying PartiallyReached here: a later precision fix that reaches every vertex makes it fail loudly, not pass silently
         static DMesh3 Strip()
         {
             const int nx = 7, ny = 9; const double h = 1e-8;
