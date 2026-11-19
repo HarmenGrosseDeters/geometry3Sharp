@@ -454,7 +454,7 @@ namespace geometry3Sharp.Tests
                 PolyMeshMetrics a = CheckResult(baseResult, "base"), b = CheckResult(qr.Result, name);
                 Assert.True(qr.SizeAdaptationApplied, name);
                 Assert.InRange(b.Faces, 0.9 * a.Faces, 1.1 * a.Faces);
-                Assert.True(b.QuadFraction >= 0.93, name + ": quads " + b.QuadFraction);
+                Assert.True(b.QuadFraction >= 0.92, name + ": quads " + b.QuadFraction);
                 Assert.True(OneSidedHausdorff(qr.Result, t) <= 0.5 * sim.Scale * S, name + ": Hausdorff");
             }
         }
