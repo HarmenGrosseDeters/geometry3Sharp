@@ -168,14 +168,14 @@ namespace geometry3Sharp.Tests
             // one improvement pass with splits leaves tets that have an interior vertex which the (dry) smoothing cannot improve:
             // the line of such a tet carries "Si" for that vertex, and the count says how often
             var m = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) {
-                RelativeAlpha = TetMeshingStage2SplitTests.MechanismAlpha, SplitEdges = true, ContractEdges = false, ImprovePasses = 1, DiagnoseImprovement = true };
+                RelativeAlpha = TetMeshingStage2SplitTests.MechanismAlpha, SplitEdges = true, ContractEdges = false, ImprovePasses = 1, RescuePasses = 0, DiagnoseImprovement = true };
             Assert.True(m.Compute());
             int si = m.DiagnosticLines.Sum(l => l.Split(' ').Count(t => t == "Si"));
             Assert.True(si > 0, "no interior vertex without a better position among " + m.DiagnosticLines.Count + " tets");
             Assert.Equal(si, m.Counts["improve_diag_smooth_interior_not_better"]);
             // and the diagnosis changes nothing
             var plain = new MeshTetrahedralization(TetMeshingStage2Tests.Input("torus thin")) {
-                RelativeAlpha = TetMeshingStage2SplitTests.MechanismAlpha, SplitEdges = true, ContractEdges = false, ImprovePasses = 1 };
+                RelativeAlpha = TetMeshingStage2SplitTests.MechanismAlpha, SplitEdges = true, ContractEdges = false, ImprovePasses = 1, RescuePasses = 0 };
             Assert.True(plain.Compute());
             Assert.Equal(plain.Result.Vertices, m.Result.Vertices);
             Assert.Equal(plain.Result.Tets, m.Result.Tets);

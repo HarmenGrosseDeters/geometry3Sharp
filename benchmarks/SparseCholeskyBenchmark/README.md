@@ -102,3 +102,103 @@ the supernode tree has 30 000 supernodes of which 25 000 are narrower than 8 col
 is too fine below a threshold and the parallel work belongs in the few large ones. A dot kernel with a single vector chain
 is not faster than the four-accumulator scalar one (the add latency bounds both); the gain of the vector kernels comes from running four
 independent products at once.
+
+## Parallel solves (2026-11-18)
+
+`Solve()` of `SparseCholesky` and `SparseHermitianCholesky` runs subtrees of the supernode tree as parallel tasks
+(`CholeskySolveSchedule`). Forward solve: the tasks run in parallel; a supernode adds its updates to the rows inside its task in
+place and writes the updates for the rows above the task into a per-supernode buffer; one serial pass in supernode order then
+applies the buffers and does the top supernodes, so every entry gets its subtractions in the order of the serial loop. Backward
+solve: the top supernodes first, then the tasks in parallel. The solutions are the same bits for every schedule and thread count
+(`CholeskyParallelSolveTests`, which compare with the old serial loops; the hashes of this benchmark are unchanged).
+
+The top supernodes (the 25 supernodes above the tasks on a 55k vertex system hold about half of the factor entries) dominate what
+is left, and the backward substitution reads a column of a row-major block, a cache miss per entry in a wide block (7.6 ms for the
+961 wide root alone, 16 ns per entry; a loop of the same chain in cache takes 1.4 ns). Blocks at least 64 columns wide are read
+from a column-major copy, built in parallel on the first `Solve` after a factorization (about 24 MB on the 55k sphere; only
+for systems with at least 200 000 entries in such blocks, so small systems keep the old path and memory). The copy only moves values.
+
+`SparseCholeskyBenchmark`, best of 3, 4 cores, Solve (ms), before (master 3a991801) / after (parallel / forced serial tasks, which
+still reads the column copy):
+
+| matrix | before | after parallel | after, tasks off |
+|---|---|---|---|
+| grid2d bs=1 n=40000 | 6.9 | 3.9 | 4.7 |
+| grid2d bs=2 n=80000 | 35.6 | 19.3 | 29.6 |
+| grid2d bs=2 n=120000 | 54.8 | 28.9 | 48.9 |
+| grid3d n=27000 | 47.7 | 25.1 | 29.2 |
+| hermitian grid2d n=40000 | 17.1 | 5.8 | 8.5 |
+| hermitian grid2d n=60000 | 24.1 | 10.7 | 19.0 |
+
+`CrossFieldBenchmark h=0.017` (4 cores, best of 3, s, master / this change, two interleaved runs, the better of each):
+
+| shape | field | V | solves | before | after | gain |
+|---|---|---|---|---|---|---|
+| sphere | smoothest | 54944 | 6 | 1.33 | 1.18 | 11 % |
+| sphere | aligned s=1 | 54944 | 6 | 1.38 | 1.21 | 12 % |
+| torus | smoothest | 60712 | 14 | 1.72 | 1.47 | 15 % |
+| torus | aligned s=1 | 60712 | 12 | 1.74 | 1.47 | 16 % |
+| noisy-sphere | smoothest | 54944 | 22 | 2.21 | 1.66 | 25 % |
+| noisy-torus | smoothest | 60712 | 34 | 3.36 | 2.44 | 27 % |
+| noisy-torus | aligned s=1 | 60712 | 21 | 2.25 | 1.87 | 17 % |
+
+Left in the solves: the serial top supernodes (the forward pass over them took about 7 ms per solve on the sphere before the column copy; the backward pass was not timed again after it; the rows below the
+diagonal block of a top supernode are independent and could run in parallel, the triangle itself is one chain per column).
+
+## Parallel numeric factorization (2026-11-18)
+
+`Factorize()` of both classes runs the numeric part in parallel when its work is at least 6 million multiplications
+(`CholeskyNumericPlan`). The serial left-looking loop keeps its updates in linked lists (`head`, `link`, `pos`), whose order fixes the
+order of the subtractions in every entry of L. The plan replays that loop on the structure only (no values) and keeps, for every supernode J,
+the table of its updates (K, row range) in exactly that order. With the table, J only reads supernodes of its own subtree, so:
+
+- subtrees (tasks of at most 1/48 of the work, adjacent ones joined) run in parallel, each worker with its own `relmap`;
+- the supernodes above the tasks run in ascending order; an update larger than 300 000 multiplications splits its rows over the
+  threads (every row writes its own row of the block of J), and a block at least 64 columns wide is factorized in panels of 32 columns:
+  the small triangle of the panel row by row, then the rows below the panel, which are independent of each other, in parallel.
+  Entry (i, c) is `(L[i,c] - dot(L[i,:c], L[c,:c])) * inv[c]` with the same dot kernel as the serial loop, so it has the same bits;
+- the failure of a matrix that is not positive definite is the one the serial loop reports (the failing supernode with the smallest index,
+  the same message and `IsValid`).
+
+Where the numeric time was (sphere, 55k vertices, one thread, ms): 500 in all; the supernodes at least 500 wide 218 (update 127,
+dense block 91), 100 to 500 wide 129, 8 to 100 wide 82, narrower than 8 12.
+
+`SparseCholeskyBenchmark`, Factorize (s), best of 3, 4 cores, master (b0969fbb) / this change (the solution hashes are unchanged):
+
+| matrix | before | after |
+|---|---|---|
+| grid2d bs=1 n=40000 | 0.16 | 0.17 |
+| grid2d bs=2 n=80000 | 0.33 | 0.31 |
+| grid2d bs=2 n=120000 | 0.60 | 0.42 |
+| grid3d n=27000 | 0.83 | 0.50 |
+| hermitian grid2d n=40000 | 0.16 | 0.15 |
+| hermitian grid2d n=60000 | 0.31 | 0.23 |
+
+(Factorize includes the serial analysis, 0.2 to 0.4 s per 100k unknowns.) `CrossFieldBenchmark h=0.017` (4 cores, best of 3, s,
+two interleaved runs, the better of each; field, eigenvalue and singular faces unchanged):
+
+| shape | field | solves | before | after | gain |
+|---|---|---|---|---|---|
+| sphere | smoothest | 6 | 1.16 | 0.83 | 28 % |
+| sphere | aligned s=1 | 6 | 1.15 | 0.90 | 22 % |
+| torus | smoothest | 14 | 1.27 | 1.13 | 11 % |
+| torus | aligned s=1 | 12 | 1.34 | 1.13 | 16 % |
+| noisy-sphere | smoothest | 22 | 1.58 | 1.35 | 15 % |
+| noisy-torus | smoothest | 34 | 2.39 | 1.96 | 18 % |
+| noisy-torus | aligned s=1 | 21 | 1.76 | 1.48 | 16 % |
+
+## What is left after the parallel solves and the parallel numeric factorization (2026-11-19)
+
+The first two levers of the table above are done (the parallel solves, #1136, and the parallel numeric factorization, #1141; bit
+identical, 11 % to 28 % of the `CrossField` total each time it was measured). The third, the loops of `CrossField` outside the
+solver, is not worth a change. `CrossFieldBenchmark h=0.017` on the 55k vertex sphere, 4 cores, one run (ms): `ParamMesh` 85 to 97,
+frames, topology and edge weights 64 (smoothest) to 175 (aligned: `MeshPrincipalCurvature`), assembly 21, ordering and numeric
+factorization 520 to 530, solves 590 to 1190 (6 to 34 solves), per-vertex and per-face results about 45. The loops that can be parallel with
+the same bits already are (`gParallel` over the faces, the edges and the corners and vertices of `MeshPrincipalCurvature`); the rest
+are scatter-adds whose per-vertex sum order is the triangle order, and dictionary-based edge building. The only clean candidates are the
+triangle frames of `ParamMesh` (about 21 ms) and its bowtie test (about 28 ms): at most 4 % of the sphere, 3 % of the torus, under 2 % of
+the noisy torus. With every non-solver phase perfectly parallel (not possible with the same bits) the bound is 20 %, 14 % and 8 %.
+
+What remains is in the solver: the minimum degree ordering (0.2 to 0.25 s, serial; a parallel one must give the same permutation bit for
+bit) and the serial top supernodes of the solves (25 supernodes above the tasks on the 55k sphere); a nested dissection ordering changes
+the factor and the results (owner decision).

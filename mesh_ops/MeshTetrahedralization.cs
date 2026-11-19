@@ -27,6 +27,9 @@ namespace gs
     /// of the wrap's own vertex separation), so the vertices are a packing of a bounded region and the number of insertions is
     /// finite whatever the input's angles; tets whose point the floor refuses are counted (refused_floor, unrefined_bad_tets).
     ///
+    /// The refinement has a work bound (MaxTrialInsertionsPerWrapVertex): below a radius-edge bound of 2 termination is not proven, and near 1 it does
+    /// not end in practice; the run then stops with status PointLimitReached and Targets says what was reached (TET_MESHING.md 17.10).
+    ///
     /// Serial and deterministic; relative parameters only, so scaling the input by 2^k gives the scaled result bit for bit.
     /// </summary>
     public class MeshTetrahedralization
@@ -81,6 +84,12 @@ namespace gs
         public bool ContractEdges = true;
         /// <summary> stage 2: passes over the bad tets, at most (the improvement stops earlier when a pass changes nothing) </summary>
         public int ImprovePasses = 50;
+        /// <summary>
+        /// stage 2 (TET_MESHING.md section 17): if tets below SliverDihedralDegrees are left after ImprovePasses, up to this many more
+        /// passes with smoothing also along the active-set direction (Freitag, Jones, Plassmann 1995); a mesh that reached the target
+        /// is not changed by it. 0: none
+        /// </summary>
+        public int RescuePasses = 150;
         /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
         internal bool DiagnoseImprovement = false;
         internal List<string> DiagnosticLines;
@@ -96,6 +105,17 @@ namespace gs
         public double MinFeatureFactor = 0.125;
         /// <summary> stop (status PointLimitReached, result still valid) after this many inserted points </summary>
         public int MaxSteinerPoints = 2000000;
+        /// <summary>
+        /// work bound of the refinement (docs/design/TET_MESHING.md section 17.10): stop (status PointLimitReached, result still valid, the
+        /// count "work_limit_reached" = 1) after this many trial insertions (the count "trial_insertions", the refinement's unit of work,
+        /// kept points and undone ones) per vertex of the wrap, plus 2000. Delaunay refinement is proven to end only for a radius-edge
+        /// bound above 2; below about 1.3 it can cascade without end (measured: 370 to 1400 trial insertions per wrap vertex within 25 s and rising,
+        /// against at most 2.5 on the default path and 7.2 for the slowest terminating runs, at radius-edge 1.1 to 1.3; measured at the default
+        /// sliver and floor settings: more candidate points per split (a larger SliverDihedralDegrees) cost up to 30 trials per split, so such a run can reach the bound
+        /// sooner and then reports it; raise this value or set it to 0 for it). Not used with a size
+        /// bound (MaxCircumradius &gt; 0: the point count then follows the volume, not the wrap); 0, a negative value or NaN turns it off. Targets says what was reached.
+        /// </summary>
+        public double MaxTrialInsertionsPerWrapVertex = 48;
         public Func<bool> CancelF = () => false;
 
         public enum TetStatus
@@ -103,7 +123,7 @@ namespace gs
             Success = 0,
             /// <summary> the alpha wrap did not give a result (WrapStatus says why) </summary>
             WrapFailed = 1,
-            /// <summary> MaxSteinerPoints reached: Result is valid but not fully refined </summary>
+            /// <summary> MaxSteinerPoints or the work bound (MaxTrialInsertionsPerWrapVertex, Counts "work_limit_reached") reached: Result is valid but not fully refined </summary>
             PointLimitReached = 2,
             Cancelled = 3
         }
@@ -116,6 +136,13 @@ namespace gs
         /// </summary>
         public MeshAlphaWrap Wrap;
         public TetMesh3 Result;
+        /// <summary>
+        /// the quality targets checked on Result (TET_MESHING.md section 17.3, P5(a)): the minimum dihedral angle target is
+        /// SliverDihedralDegrees (0 = off), the radius-edge target MaxRadiusEdgeRatio. Counts and flags are measured on the output
+        /// (TetMeshQuality.CheckTargets), not assumed from the method: stage 1 leaves tets whose circumcentre lies beyond the fixed
+        /// surface (unrefined_bad_tets) and stage 2 is hill climbing, so the flags can be false. null if Compute() gave no Result.
+        /// </summary>
+        public TetTargetReport Targets;
         /// <summary> tet_splits (inserted points), refused_floor, refused_surface (undone: the cavity reached the surface), unrefined_bad_tets </summary>
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         public double UsedAlpha, UsedOffset, UsedFloor;
@@ -128,6 +155,7 @@ namespace gs
         public bool Compute()
         {
             Result = null;
+            Targets = null;
             DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
@@ -145,7 +173,9 @@ namespace gs
             dt.RefinementSupport = true;
             foreach (int c in dt.CellIndices())
                 dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
+            double workLimit = MaxTrialInsertionsPerWrapVertex > 0 && MaxCircumradius <= 0 ? MaxTrialInsertionsPerWrapVertex * dt.VertexCount + 2000 : double.PositiveInfinity;
             var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
+                TrialLimit = workLimit,
                 Input = PeelBoundarySlivers ? Mesh : null };
             TetStatus st = r.Run();
             Status = st;
@@ -156,6 +186,7 @@ namespace gs
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
+            if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
                 var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
                 if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
@@ -164,6 +195,7 @@ namespace gs
                     imp.TangentOnly = BoundaryMovesTangentOnly;
                 }
                 imp.MaxPasses = ImprovePasses;
+                imp.RescuePasses = RescuePasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
                 imp.Run();
@@ -172,6 +204,7 @@ namespace gs
                 foreach (var kv in imp.Counts) Counts["improve_" + kv.Key] = kv.Value;
                 if (CancelF()) { Status = TetStatus.Cancelled; Result = null; return false; }
             }
+            Targets = TetMeshQuality.CheckTargets(Result, SliverDihedralDegrees, MaxRadiusEdgeRatio);
             return st == TetStatus.Success;
         }
 
@@ -192,6 +225,9 @@ namespace gs
             readonly List<int> removed = new List<int>(), added = new List<int>();
             int inserted;
             readonly int firstSteiner;
+            /// <summary> stop after this many trial insertions (the work bound); infinity = none </summary>
+            internal double TrialLimit = double.PositiveInfinity;
+            internal bool WorkLimitHit;
 
             internal Refiner(Delaunay3 dt, double floor, double rho, double size, double sliver, int maxPoints, Func<bool> cancel)
             {
@@ -211,6 +247,7 @@ namespace gs
                 while (tetQueue.Count > 0) {
                     if (cancel()) return TetStatus.Cancelled;
                     if (inserted >= maxPoints) return TetStatus.PointLimitReached;
+                    if (Counts["trial_insertions"] >= TrialLimit) { WorkLimitHit = true; return TetStatus.PointLimitReached; }
                     var (c, st) = tetQueue.Dequeue();
                     if (!dt.IsCell(c) || dt.CellStamp(c) != st || dt.CellLabel(c) != 1 || !is_bad(c)) continue;
                     split_tet(c);

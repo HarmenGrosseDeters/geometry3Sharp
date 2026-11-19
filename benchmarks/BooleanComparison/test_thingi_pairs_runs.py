@@ -39,6 +39,30 @@ class PlanTests(unittest.TestCase):
         jobs = run.plan(methods="cgal_epeck", classes="normal,size,cgal")["include"]
         self.assertEqual({j["kind"] for j in jobs}, {"cgal"})
 
+    def test_only_selects_jobs_of_the_full_plan(self):
+        full = {j["id"]: j for j in run.plan()["include"]}
+        jobs = run.plan(only="normal-2,size-9")["include"]
+        self.assertEqual([j["id"] for j in jobs], ["normal-2", "size-9"])
+        self.assertEqual(jobs[0], full["normal-2"])
+        with self.assertRaises(ValueError):
+            run.plan(only="normal-2,normal-99")
+
+    def test_fetch_retries_the_file_list(self):
+        calls = []
+        def flaky(d):
+            calls.append(d)
+            if len(calls) < 3:
+                raise OSError("reset")
+            raise KeyboardInterrupt        # stops after the successful call: no network afterwards
+        old, oldsleep = run.tp.file_list, run.time.sleep
+        run.tp.file_list, run.time.sleep = flaky, lambda s: None
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                run.cmd_fetch(tempfile.mkdtemp(), "x")
+        finally:
+            run.tp.file_list, run.time.sleep = old, oldsleep
+        self.assertEqual(len(calls), 3)
+
     def test_bad_input(self):
         for kw in ({"methods": "ours,cherchi"}, {"classes": "nope"}, {"shard": 0}):
             with self.assertRaises(ValueError):

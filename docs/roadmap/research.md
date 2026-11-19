@@ -587,7 +587,10 @@ Ordered by expected value for the library.
      have p01 >= 10° (section 12, #885). The floor on 100 % is still open.
    - 2026-11-17 (TET_MESHING.md section 16): diagnosis of the tets left (all touch the boundary; needles and wedges on short wrap
      edges, local optima, not the exact checks) and the lever, edge splits with roll-back (boundary edges in place) and interior
-     edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690). Exudation not needed.
+     edge contraction in stage 2: 36 of 40 with every tet >= 10° (17 on master), worst 6.1° (839690).
+   - 2026-11-18 (TET_MESHING.md 17.11, #1072): a rescue phase (more passes, active-set smoothing after Freitag, Jones, Plassmann 1995)
+     for meshes with tets left, on by default (owner): 4 of the 6 meshes left at alpha / 40 reach 10° (sample 494 -> 498 of 500);
+     38781 and 282598 stay at 9.4° / 9.5°. Exudation not needed.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
      At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
@@ -678,7 +681,7 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
 1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, merged in #1076), then the net48 / net10 measurement (#929, local, open).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs: 494 of 500 sample meshes at the new default alpha diagonal / 40 (#1073,
-   TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the 6 left go to the parked lever #1072; sliver exudation not needed by the diagnosis.
+   TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the rescue lever (#1072, 17.11) lifts 4 of the 6 left (498 of 500); 38781 and 282598 stay at 9.4° / 9.5°; sliver exudation not needed by the diagnosis.
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop

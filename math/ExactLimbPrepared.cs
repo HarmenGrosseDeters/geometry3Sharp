@@ -37,8 +37,9 @@ namespace g3
                 limbs = null;
                 return;
             }
-            limbs = new ulong[n0 + n1 + n2 + n3];
-            fixed (ulong* p = limbs) {
+            ulong[] own = new ulong[n0 + n1 + n2 + n3];
+            limbs = own;
+            fixed (ulong* p = own) {
                 FixedInt f0 = ExactLimbSigns.load(a, p, n0), f1 = ExactLimbSigns.load(b, p + n0, n1);
                 FixedInt f2 = ExactLimbSigns.load(c, p + n0 + n1, n2), f3 = ExactLimbSigns.load(d, p + n0 + n1 + n2, n3);
                 l0 = f0.Len; l1 = f1.Len; l2 = f2.Len; l3 = f3.Len;
@@ -63,7 +64,8 @@ namespace g3
                 int scratch = ExactLimbSigns.SideScratch(total);
                 ulong* sc = stackalloc ulong[scratch];
                 var ar = new FixedArena(sc, scratch);
-                fixed (ulong* pp = plane.limbs, qp = point.limbs) {
+                ulong[] planeLimbs = plane.limbs, pointLimbs = point.limbs;
+                fixed (ulong* pp = planeLimbs, qp = pointLimbs) {
                     FixedInt fa = new FixedInt(pp, plane.l0, (plane.negative & 1) != 0);
                     FixedInt fb = new FixedInt(pp + plane.n0, plane.l1, (plane.negative & 2) != 0);
                     FixedInt fc = new FixedInt(pp + plane.n0 + plane.n1, plane.l2, (plane.negative & 4) != 0);
