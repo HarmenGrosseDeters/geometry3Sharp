@@ -57,3 +57,42 @@ tests `TheBudget_IsExact` (exactly k attempts, budget above the use changes noth
 real property); `try_split_tet` returns early once the budget is spent (saves the memo and ring-signature work in the remaining passes; the results are the same, "cap reached"
 now also means "a split would have been tried after the budget was spent", so the measured counts of meshes where it was reached can differ marginally); doc wording.
 Not for merge: `ImproveTrace`/`Trace` (data branch only, would add public API). If the option goes to master it needs a docs line (TET_MESHING.md, ROADMAP) and the net48/pack/full-test steps of CLAUDE.md.
+
+# Round 3: a cap over all improvement operations (owner decision 2026-11-19: the split-only cap is dropped)
+
+Option: `MeshTetrahedralization.MaxImproveVisitsPerVertex` (default 0 = off, bit for bit). A visit is one `improve(id)` call on a bad tet (it tries edge removal, face removal,
+contraction, split, smoothing and boundary moves on it). At most cap x (stage-1 vertices) visits over main and rescue passes together; when spent the improvement ends
+(the worst tets are visited first in each pass), `improve_work_cap_reached=1`, the run does not fail. Counted, never wall-clock. Tests: `TetImproveWorkCapTests` (`Visits_*`).
+
+Why visits: in the baseline traces the improver's time follows the visits closely (0.2-0.4 ms per visit; 46017 at floor 20: 223k visits, 91 s, of them 110k visits / 62 s in the
+main phase; 58012 at floor 30: 969k visits, 253 s). The slow meshes need 10-40 visits per vertex at floor 20 and 5-185 at floor 30 (median of all meshes: 0.2 and 5.3).
+Setup as round 2 (500 meshes, 300 s timeout, same-run baseline), run 44586500696, data in `work-cap/2026-11-19-run44586500696/`.
+
+| floor | budget (visits/vertex) | cap reached (meshes) | improver > 20 s | timeouts | improver time sum | saved | worst angle lost: max / meshes > 0.5 deg | tets below floor: sum (base) / added max on one mesh (share of its tets) |
+|---|---|---|---|---|---|---|---|---|
+| 20 | 0 (master) | - | 3 | 0 | 549 s | - | - | 4912 |
+| 20 | 10 | 7 | 1 | 0 | 458 s | 91 s (16.6 %) | 1.94 / 1 | 6456 / +993 (3.3 %) |
+| 20 | 5 | 17 | **0** | 0 | 387 s | 162 s (29.5 %) | 1.94 / 3 | 8822 / +1956 (6.5 %) |
+| 20 | 2 | 36 | **0** | 0 | 299 s | 250 s (45.6 %) | 5.62 / 14 | 17184 / +5189 (17.3 %) |
+| 30 | 0 (master) | - | 118 | 7 | 8516 s | - | - | 113131 |
+| 30 | 10 | 138 | 59 | 0 | 5331 s | 3545 s (41.6 %) | 7.04 / 36 | 202356 / +997 (8.5 %) |
+| 30 | 5 | 238 | 12 | 0 | 3686 s | 5000 s (58.7 %) | 8.83 / 82 | 231911 / +2278 (11.2 %) |
+| 30 | 2 | 427 | **0** | 0 | 1655 s | 6918 s (81.2 %) | 10.4 / 293 | 527823 / +6452 (20.8 %) |
+
+## Findings
+
+1. **Floor 20 reaches 0 meshes above 20 s at 5 visits per vertex** (and at 2; 10 leaves 1). 5 acts on 17 of 500 meshes, saves 30 % of the improver time, and costs up to
+   1.94 degrees of worst angle on a mesh (3 meshes lose more than 0.5), with 3910 more tets below the floor in total (base 4912; at most 6.5 % of one mesh's tets). Smallest tested
+   level with 0 slow meshes: 5 (between 5 and 10 was not measured).
+2. **Floor 30 only reaches 0 at 2**, which is a different trade: 293 of 493 meshes lose more than 0.5 degrees (max 10.4) and the tets below the floor go from 113k to 528k. At 5: 12 meshes
+   stay above 20 s, 82 lose > 0.5 degrees (max 8.8), 59 % of the improver time saved; at 10: 59 stay above 20 s. Floor 30 is a quality target the improver does not reach on most meshes anyway
+   (median 43 tets below it in the baseline); the cap trades what is left of that for time.
+3. Compared with the split-only cap (round 2), a budget over all operations is the lever that matches the time (the split cap at 8 saved 13 % at floor 20 and left 2 slow meshes).
+4. The budget is a count of visits per stage-1 vertex; it scales with mesh size, so a given level means the same work per vertex on a small and on a large mesh.
+
+## Caveats
+
+- The cap changes results wherever it is reached. Default off is bit for bit (tested, `Counts` included). Worst-first order inside a pass means a spent budget leaves the best-ranked tets improved, but
+  in the last pass the visited set is a prefix of the sorted bad list.
+- Timing is noisy on shared runners (baseline slow count: 3-4 at floor 20, 107-118 at floor 30 over the three runs); counts of visits and angles are deterministic.
+- 5 is not an optimum, only the smallest of 2/5/10 that brings floor 20 to 0. A level between 5 and 10 (say 7) would cost less quality and may leave 0-1 slow meshes; not measured.
