@@ -1,0 +1,19 @@
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+4
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+CPU(s) scaling MHz:                      126%
+4
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) 6975P-C
+4
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) 6975P-C
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+4
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
