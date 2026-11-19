@@ -241,7 +241,7 @@ namespace geometry3Sharp.Tests
             PassageWrap w = Run(mesh, Axis("cross"), 1.2 * BoreR);
             Assert.Equal(PassageWrap.PassageStatus.PinBlockedByInput, w.Status);
             Assert.Null(w.Result);
-            Assert.Equal(1, w.PinResults.Length);
+            Assert.Single(w.PinResults);
         }
 
         [Fact]
