@@ -15,8 +15,8 @@ Probe code and raw numbers are on the data branch `runs/plane-kernel-study` (com
 
 ## Verdict
 
-**No-go**, both for a replacement kernel and for an opt-in on-grid hybrid. Nothing is to be built. The
-octree-BSP / EMBER architecture stays shelved (owner 2026-11-17), now with numbers.
+**Recommendation: no-go (owner decision pending)**, both for a replacement kernel and for an opt-in on-grid hybrid.
+Nothing is to be built. The octree-BSP / EMBER architecture stays shelved (owner 2026-11-17), now with numbers.
 
 | question | answer, with numbers |
 |---|---|
@@ -24,9 +24,9 @@ octree-BSP / EMBER architecture stays shelved (owner 2026-11-17), now with numbe
 | 2. Upper bound (the replaceable part takes 0 s) | ours / CGAL EPECK, summed, at 12 threads: 1.43x → **0.93x** (−35 %). At 1 thread: 3.95x → 2.58x. Removing the self-join as well, which breaks the bar: 0.66x. |
 | 2. Realistic | the replaceable part 2-4x faster (an estimate: no paper reports per-phase numbers that compare) gives **−17 to −26 %**, 1.18-1.06x CGAL at 12 threads. Against Geogram we are already at 0.31-0.40 (summed). |
 | 3. Exact on doubles, without quantization | possible: it is today's arithmetic. Plane-based predicates on the arrangement's grid (B = 54-58 bits on T6) need 9B+19 ≈ 510-540 bits, against the 256 bits of the quantized kernels. With filters the cost equals today's. Without filters (the papers' choice) it is about as slow as CGAL's lazy kernel. The number type is not where the gain is: multiplications are under 1 % of our time, and exact arithmetic is 5-6 % self time. |
-| 3. Hybrid for on-grid inputs | 0 of the 294 T6 booleans are on a short grid (the set normalizes and rotates its operands). Of the 190 raw T6 models, 13 (7 %) fit a 27-bit grid. Every on-grid result still needs the full rounding, because its vertices are rationals. Not worth a second exact kernel. |
-| 4. Iterated CSG | the gain of "no re-rounding between steps" is already captured by the merged `ExactMesh` expression (#1107, one exact n-ary pass), with constant bit lengths (7B+14) in today's representation. EMBER lever 2 is bounded at at most −15 % at 12 threads and needs no new kernel. A plane-based kernel adds only materialized exact intermediates, and no consumer needs them. |
-| 5. Effort and risk | 4-6 months, plus a second exact kernel to maintain. Today's kernel must stay for open and self-intersecting inputs. M1 (a probe, about 2 weeks) would be killed if the replaceable phases are not at least 3x faster. Its best realistic outcome is below the 25 % bar of this study's time box. |
+| 3. Hybrid for on-grid inputs | 0 of the 294 T6 booleans are on a short grid (the set normalizes and rotates its operands). Of the 190 raw T6 models, 10 (5 %) fit a 26-bit grid, the largest for which the side predicate fits 256 bits. That count is per model; a pair needs both operands on one grid. Every on-grid result still needs the full rounding, because its vertices are rationals. Not worth a second exact kernel. |
+| 4. Iterated CSG | the gain of "no re-rounding between steps" is already captured by the merged `ExactMesh` expression (#1107, one exact n-ary pass), with bit lengths that do not grow with the number of steps: at most 10B+20 / 9B+18 for today's one-pass constructions, and 7B+14 / 6B+12 under plane-based provenance (conditions C1-C4 of the 4.0 analysis, closed inputs). EMBER lever 2 is bounded at at most −15 % at 12 threads and needs no new kernel. A plane-based kernel adds only materialized exact intermediates, and no consumer needs them. |
+| 5. Effort and risk | 4-6 months, plus a second exact kernel to maintain. Today's kernel must stay for open and self-intersecting inputs. M1 (a probe, about 2 weeks) would be killed if the replaceable phases are not at least 3x faster. Its best realistic outcome (−17 to −26 %) is at or around the 25 % bar of the coordinator's brief of 2026-11-19. |
 
 What would reopen it: a consumer with long iterated CSG on inputs that are already on a short integer grid (milling
 or sweep simulation, voxel-based CAD), where Nehring-Wirxel et al. 2021 show their strength and the double output is
@@ -43,7 +43,8 @@ How the numbers are taken:
 - Stratum: normal single booleans of raw, clean inputs, warm process.
 - Shares are wall time per phase, including the allocation and GC cost incurred inside the phase.
 - The `touch_only` filter (#1002) and #1064 came after this head. They shrink `intersections.pairs` (about −13 to −21 %
-  of that phase); a new 12-thread run would move a few points from the self-join column to "not replaceable".
+  of that phase). A new 12-thread run would show a smaller self-join share and larger shares for every other phase,
+  K1 included.
 
 | phase | 1 thr ms | 4 thr | 12 thr | share at 12 | plane-based kernel |
 |---|---|---|---|---|---|
@@ -74,12 +75,16 @@ It was measured at 1 thread on the 4-vCPU container and is applied to every thre
 
 **ABC chains.** The phase timers of the abc-chained class are not split this way. What the 4.0 stage 0 analysis
 (EXACT_BOOLEAN_40_DESIGN.md section 4) measured: rounding is 3-44 % of a step on ABC, 11-30 % on generic procedural chains
-and 23-81 % on contact chains. That puts the non-replaceable share there at least as high as on T6. On step 3, where
+and 23-81 % on contact chains. The rounding share of a chain step can therefore be lower than on T6 (3 % on some ABC
+steps) or much higher, so T6's split does not carry over as a bound. On step 3, where
 we are 1.1-2.2x slower than Geogram and CGAL, the cause is not diagnosed. Nothing points to the arithmetic.
 
 ## 2. Upper bound, then a realistic estimate
 
-Starting point (T6 closing report, exact-boolean.md), #962 head, ours / CGAL EPECK at 1 thread:
+Starting point (T6 closing report, exact-boolean.md), #962 head: our time at 1 / 4 / 12 threads divided by CGAL EPECK's
+single-threaded time. CGAL's time on the owner's machine is an estimate: its runner time from one run (43819984226), scaled
+by one global machine factor. With per-operation factors the summed 12-thread ratio would be about 1.47x instead of
+1.43x.
 
 | | 1 thr | 4 thr | 12 thr |
 |---|---|---|---|
@@ -91,8 +96,8 @@ Starting point (T6 closing report, exact-boolean.md), #962 head, ours / CGAL EPE
 
 (The median columns apply the summed class shares to the median ratio, which is an approximation.)
 
-So the upper bound is about −35 % at every thread count, above the 25 % stop line of the brief. The realistic gain is
-−17 to −26 %.
+So the upper bound is about −35 % at every thread count, above the 25 % stop line of the coordinator's brief of
+2026-11-19. The realistic gain, −17 to −26 %, is at or around that bar.
 
 **Why 2-4x and not the factors in the papers.** The papers' factors compare against unfiltered or lazy exact kernels, or
 against pipelines with different end points:
@@ -105,14 +110,16 @@ against pipelines with different end points:
   - Our predicates are filtered, and exact evaluation is rare. Their factor is against an exact kernel we do not use.
 - **EMBER** (Trettner, Nehring-Wirxel, Kobbelt, ACM TOG 41(4), 2022). The paper was not reachable from this session
   (the host does not resolve). Our earlier notes (EXACT_BOOLEAN_30_PRESTUDY.md, "Published numbers") record:
-  - 1000 Thingi10K pairs of 1k-100k faces, 8 cores, geomean 3.6 ms against 711 ms for CGAL (variant not recorded in our
-    notes);
+  - 1000 Thingi10K pairs of 1k-100k faces, 8 cores, geomean 3.6 ms against 711 ms for CGAL 5.4 (the CGAL variant, Nef or
+    corefinement, is not recorded in our notes);
   - about 5.5x speedup on 8 cores;
   - input quantized to 26 bits;
   - output a plane-based polygon soup with T-junctions, not a double mesh.
-- **Cross-check.** Mapped through Manifold, ours is about 4.8x EMBER on the size class (pre-study, a rough mapping).
-  K1 + K2 are about 54 % of our time at 12 threads. If EMBER spent all of its time on the work of K1 + K2, it would be
-  about 2.6x faster on that part. That fits the 2-4x assumed above. It does not support 10x.
+- **Cross-check (an inference, not a measurement).** The pre-study mapped our size-class median through Manifold onto
+  trueform's numbers (1000 Thingi10K pairs of 100k-1M triangles per operand, M4 Max). There ours was about 4.8x EMBER,
+  on code before #962. K1 + K2 are about 54 % of our time at 12 threads on T6. If EMBER spent all of its time on the work
+  of K1 + K2, it would be about 2.6x faster on that part. That fits the 2-4x assumed above. It does not support 10x.
+  Different size classes, code versions and machines make this an order-of-magnitude check only.
 
 Against Geogram (public 1.10.2) the question does not arise: ours / Geogram is 0.31 (1 thread) and 0.40 (4 cores)
 summed on T6 (GEOGRAM_BOOLEAN_COMPARISON_2026-11.md).
@@ -141,7 +148,8 @@ normals" (section 4.6) matches the n column.
   about 5x the cycles of the 256-bit kernel: about 2000 cycles per `intersect_3_planes` and about 700 per
   `classify_vertex` (estimated from their Table 1 by limb count). That is CGAL-lazy speed. Without filters, a
   plane-based kernel on doubles loses the quantized kernels' advantage.
-- *With filters.* It is today's arithmetic.
+- *With filters.* It is today's arithmetic, so the cost should equal today's (an inference: the filter success rate of
+  a plane-based kernel's predicates was not measured).
 - *Wider grids.* Inputs with a large exponent span need more: the raw T6 models need up to B = 137 (below). So a
   `BigInteger` fallback stays, as today.
 - *Where the gain would have to come from.* Not from the number type. The fixed-width study (FIXED_WIDTH_EXACT_POINTS.md
@@ -159,6 +167,9 @@ normals" (section 4.6) matches the n column.
   | binary STL (float32) | 119 | 23 / 34 / 81 / 137 | 10 | 13 | 32 | 90 |
   | ASCII STL (decimal) | 71 | 57 / 71 / 110 / 116 | 0 | 0 | 0 | 0 |
 
+  - The counts are per model. A pair needs both operands, as placed, on one common grid, so the share of pairs is at
+    most that of models. B ≤ 26 is the limit for 256 bits under the bounds above (9B+19 ≤ 256). Nehring-Wirxel et al.
+    state 27-bit positions for 256 bits with their own, tighter bounds; the B ≤ 27 column shows that case.
   - float32 alone does not make a short grid: coordinates near zero carry fine bits, so B = 24 plus the exponent span.
   - Decimal values are almost never dyadic.
   - The T6 booleans themselves are 0 of 294: the set scales the operands to the unit box and rotates B in double.
@@ -168,9 +179,9 @@ normals" (section 4.6) matches the n column.
     That is quantization, which only the caller may choose.
 - **What the hybrid would gain.**
   - On-grid inputs have rational result vertices, so the rounding (20 %) stays in full.
-  - The fast path covers K1 (35 %) on about 7 % of raw models and none of T6.
+  - The fast path covers K1 (35 %) on at most 5 % of raw models (10 of 190 with B ≤ 26; fewer as pairs) and none of T6.
   - The self-join still runs, unless the caller certifies the inputs.
-  - The expected gain over T6 is 0. Over raw models it is about 7 % × (17-26 %), roughly 1-2 %.
+  - The expected gain over T6 is 0. Over raw models it is at most about 5 % × (17-26 %), roughly 1 %.
   - The cost is a second exact kernel, with its own review, bound tables and mutation shards.
 - **Determinism and API.** An octree with a fixed cell order and per-cell work can be deterministic and bit-identical
   across thread counts. The kernel would be internal, so the API is not affected. Neither is the obstacle.
@@ -180,11 +191,13 @@ normals" (section 4.6) matches the n column.
 This is where plane-based kernels shine: their results stay plane-based and exact, so nothing is re-rounded between
 steps.
 - **Already built.** The `ExactMesh` lazy expression (Exact Boolean 4.0 stage 1, #1107, merged) evaluates a known chain
-  as one exact n-ary boolean with one rounding. The stage 0 bound shows the bits of every vertex stay at 7B+14 / 6B+12 in
-  today's representation for any number of steps (EXACT_BOOLEAN_40_DESIGN.md section 2.3).
+  as one exact n-ary boolean with one rounding. Its points are single-level constructions over the original doubles, so they stay within
+  10B+20 / 9B+18 bits for any number of steps. The tighter 7B+14 / 6B+12 is the bound under plane-based provenance, for
+  closed inputs under the conditions C1-C4 (EXACT_BOOLEAN_40_DESIGN.md sections 2.2-2.3).
 - **The measured gain of no re-rounding** (4.0 stage 0, section 4):
   - the k − 1 saved roundings, 11-30 % of a step on generic chains, 3-44 % on ABC (upper bound);
-  - 6 of 6 unclean ABC results become clean.
+  - of the 6 unclean ABC results, 4 become clean non-empty results and 2 become clean empty ones (iud p0008, p0029,
+    where the final rounding removes the whole thin exact solid);
   - But on long contact chains, 21 of 108 results get worse: exact intermediates carry every sub-ulp slab to the final
     rounding.
 - **What a plane-based kernel would add:**
@@ -221,7 +234,7 @@ no filters needed. With unquantized doubles, M2 can only lose ground.
 - A patent check for EMBER was noted as open in the pre-study.
 
 **Why not M1 now.** Its best realistic outcome (−17 to −26 % at 12 threads, under 2 % expected on raw inputs through the
-hybrid) is at or below the brief's 25 % bar. Its upper bound is reached only by replacing the arrangement, which the
+hybrid) is at or around the 25 % bar of the coordinator's brief of 2026-11-19. Its upper bound is reached only by replacing the arrangement, which the
 owner ruled out as a rewrite on 2026-11-07. The speed work stopped on 2026-11-16 at 1.43x CGAL. That gap is in the
 range of the rounding, which no plane-based kernel removes.
 

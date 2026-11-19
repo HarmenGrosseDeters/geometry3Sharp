@@ -14,7 +14,7 @@ Part of the [roadmap](../ROADMAP.md).
   geodesic-1 are fixed (#1051, merged); rounding-4, rounding-7 and terrain-overlay got tests and filters in #1077 (merged; the
   terrain-overlay break 75 with honest timeouts, owner 2026-11-17); their reruns are pending. The robustness round after 3.0 has started (triage #1015 merged; RC1 #1027, RC3 #1031 and
   RC4a #1040 merged, the pass-through of RC4a's parameters #1068 merged; see [After 3.0](#after-30-owner-2026-11-16)).
-  Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 goes ahead as option A, an opt-in API (owner 2026-11-17, in progress, PR #1107). Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
+  Exact Boolean 4.0 stage 0 (design analysis) is merged (#1093); stage 1 (option A, an opt-in API, owner 2026-11-17) is merged as #1107. Open items: the [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -244,7 +244,7 @@ fix was a narrower filter, applied in #883 and to the rounding shards of #843 (b
   spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
-**Exact Boolean 4.0 (owner 2026-11-10, milestone; stage 0, the design analysis, started 2026-11-17 (owner), no PR yet; later stages not scheduled):** exact output with provenance (pre-study topic 4,
+**Exact Boolean 4.0 (owner 2026-11-10, milestone; stage 0, the design analysis, merged as #1093; stage 1, the lazy `ExactMesh` expression, merged as #1107; later stages not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
 the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
 coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
@@ -813,7 +813,7 @@ are about 3 % higher (1.47x instead of 1.43x at 12 threads). Ours is the median 
 | The tail above 20 s (55928 and others) | medium ("always finishes" matters more than the mean) | only on a runtime-watch regression or an issue |
 | EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low: probe A (#967, 7.1) puts the operand self-join at 10.6 s of the 12.1 s pairs phase at 1 thread, so skipping it is at most about −15 % of the boolean at 12 threads (extrapolated), and 0 on single booleans of raw inputs such as T6; the clean flag would come only from the library's own results (`NotCleanReason == None`) or a prepared operand, never from the caller | parked until a caller chains booleans (re-confirmed by the owner 2026-11-16) |
 | Normal-cone patch certificate for the operand self-join (Volino and Magnenat-Thalmann 1994; [SELF_INTERSECTION_PATCH_CERTIFICATE.md](../design/SELF_INTERSECTION_PATCH_CERTIFICATE.md)) | low: estimated −7 to −10 % at 12 threads (not measured), at or below the 10 % bar of the stopping rule; needs new error bounds in exact code, and the same certificate was slower in the Reducer | parked (owner 2026-11-16) |
-| Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | stage 0 (the design analysis) started 2026-11-17 (owner), no PR yet; later stages parked until a concrete use case |
+| Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | stage 0 (the design analysis) merged as #1093, stage 1 (lazy `ExactMesh` expression) merged as #1107; later stages parked until a concrete use case |
 | Plateau variant of 3D snap rounding | low | parked (no-go, owner 2026-11-15) |
 | Exact output coordinates of the coplanar 2D clipping | low | parked |
 | S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
@@ -838,12 +838,13 @@ T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -1
 extrapolated). What is left is a second, quantized
 plane-based kernel: a speed lever after the speed work stopped, months of work, and it gives up exact computation on
 the input doubles while still needing our rounding for double output. The plane-based representation stays a
-question for the design analysis of Exact Boolean 4.0 (stage 0, started 2026-11-17 (owner), no PR yet); later stages wait for a use case.
+question for the design analysis of Exact Boolean 4.0 (stage 0 merged as #1093; stage 1, the lazy `ExactMesh` expression,
+merged as #1107); later stages wait for a use case.
 Re-examined 2026-11-19 at the owner's request ("months are acceptable if quality does not drop"):
-[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). Leaning **no-go**, both for a
-replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 % (12 threads: 1.43x → 0.93x
-CGAL). The realistic gain is −17 to −26 %. 0 of 294 T6 booleans are on a short grid (13 of 190 raw models fit 27 bits).
-The rounding (20 %) and the self-join (19 %) stay with any kernel.
+[PLANE_BASED_KERNEL_STUDY_2026-11.md](../research/PLANE_BASED_KERNEL_STUDY_2026-11.md). Recommendation: **no-go** (owner
+decision pending), both for a replacement kernel and for an on-grid hybrid. Under the quality bar the upper bound is −35 %
+(12 threads: 1.43x → 0.93x CGAL). The realistic gain is −17 to −26 %. 0 of 294 T6 booleans are on a short grid (10 of 190
+raw models fit 26 bits, counted per model). The rounding (20 %) and the self-join (19 %) stay under the quality bar.
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
 stability, plus the exact imprint.
@@ -906,6 +907,6 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
-   exact pass) is option A, an opt-in API (owner 2026-11-17, in progress, PR #1107); the materialized provenance stages are parked until
+   exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups
    to a clean closed low-poly solid is in progress.
