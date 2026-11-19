@@ -79,7 +79,7 @@ namespace geometry3Sharp.Tests
             double count = tm.Result.Tets.Count;
             Assert.InRange(count, expected / 2, expected * 2);
             Assert.True(tm.Targets.MinDihedralMet, "worst dihedral " + tm.Targets.WorstMinDihedral);
-            Assert.Equal(0, tm.Counts["size_clamped_tets"]);
+            Assert.Equal(0, Clamped(tm));
             // a finer h gives more tets than the run without a size
             MeshTetrahedralization plain = Make(shape); Assert.True(Go(plain));
             Assert.True(count > plain.Result.Tets.Count);
@@ -169,9 +169,42 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static long Clamped(MeshTetrahedralization tm) => tm.Counts.TryGetValue("size_clamped_tets", out long n) ? n : 0;
+
         [Theory]
-        [MemberData(nameof(Adversarial))]
-        public void AdversarialSizeFunction_Terminates_WithAValidResult_AndTheClampIsCounted(string kind)
+        [InlineData("zero"), InlineData("negative"), InlineData("nan"), InlineData("minus infinity"), InlineData("plus infinity")]
+        public void InvalidSizeFunction_MeansNoSizeHere_DefaultOutputBitForBit_AndIsCounted(string kind)
+        {
+            MeshTetrahedralization plain = Make("box"); Assert.True(Go(plain));
+            MeshTetrahedralization tm = Make("box");                    // the default alpha of these tests, not a coarse one: no run of minutes
+            tm.SizeFunction = Function(kind);
+            var sw = Stopwatch.StartNew();
+            Assert.True(Go(tm), tm.Status.ToString());
+            Assert.True(sw.Elapsed.TotalSeconds < 5);
+            Assert.Equal(TetRefinementWorkBoundTests.Fingerprint(plain), TetRefinementWorkBoundTests.Fingerprint(tm));    // vertices, tets, boundary, counts
+            Assert.Equal(plain.Result.Tets, tm.Result.Tets);
+            Assert.True(tm.InvalidSizeSamples > 0);
+            Assert.True(tm.InvalidSizeSamples >= 0.9 * plain.Counts["tet_splits"]);
+            Assert.Equal(0, plain.InvalidSizeSamples);
+            Assert.Equal(0, Clamped(tm));
+            // the counter is reset by the next Compute
+            tm.SizeFunction = null; Assert.True(Go(tm));
+            Assert.Equal(0, tm.InvalidSizeSamples);
+        }
+
+        [Fact]
+        public void InvalidSizeFunction_NextToAValidSource_LeavesThatSourceInForce()
+        {
+            double h = Diagonal(TetMeshingStage2Tests.Input("sphere")) / 12;
+            MeshTetrahedralization a = Make("sphere"); a.TargetEdgeLength = h; Assert.True(Go(a));
+            MeshTetrahedralization b = Make("sphere"); b.TargetEdgeLength = h; b.SizeFunction = p => double.NaN; Assert.True(Go(b));
+            Assert.Equal(a.Result.Tets, b.Result.Tets);
+            Assert.True(b.InvalidSizeSamples > 0); Assert.Equal(0, a.InvalidSizeSamples);
+        }
+
+        [Theory]
+        [InlineData("denormal"), InlineData("tiny"), InlineData("mixed")]
+        public void TinyValidSizes_AreClamped_Terminate_AndAreCounted(string kind)
         {
             MeshTetrahedralization tm = Make("box", 4);
             tm.SizeFunction = Function(kind);
@@ -180,21 +213,15 @@ namespace geometry3Sharp.Tests
             Assert.True(sw.Elapsed.TotalSeconds < 5, sw.Elapsed.TotalSeconds + " s");
             AssertGood(tm);
             Assert.True(tm.Targets.MinDihedralMet);
-            Assert.True(tm.Counts["size_clamped_tets"] > 0);
-            // clamped to MinSizeFactor * alpha: no finer than that, so the count is bounded by the volume over it
+            Assert.True(Clamped(tm) > 0);
             double hmin = tm.MinSizeFactor * tm.UsedAlpha;
             Assert.True(tm.Result.Tets.Count < 3 * Invariance.Volume(tm.Mesh) / (0.12 * hmin * hmin * hmin), tm.Result.Tets.Count + " tets");
-            if (kind == "zero" || kind == "negative" || kind == "nan" || kind == "minus infinity" || kind == "denormal" || kind == "tiny") {
-                // the same as asking for the clamp itself
+            if (kind != "mixed") {
                 MeshTetrahedralization u = Make("box", 4); u.TargetEdgeLength = hmin; Assert.True(Go(u));
-                Assert.Equal(u.Result.Tets, tm.Result.Tets);
-                Assert.Equal(0, u.Counts["size_clamped_tets"]);
-                Assert.True(tm.Counts["size_clamped_tets"] > 0.9 * tm.Counts["tet_splits"]);      // every tet of the refinement (counted before stage 2)
-            }
-            if (kind == "plus infinity") {
-                MeshTetrahedralization plain = Make("box", 4); Assert.True(Go(plain));
-                Assert.Equal(plain.Result.Tets, tm.Result.Tets);                    // "no size wanted here"
-            }
+                Assert.Equal(u.Result.Tets, tm.Result.Tets);                   // the same as asking for the clamp itself
+                Assert.True(Clamped(tm) > 0.9 * tm.Counts["tet_splits"]);
+                Assert.Equal(0, tm.InvalidSizeSamples);
+            } else Assert.True(tm.InvalidSizeSamples > 0);                      // the NaN part
         }
 
         [Fact]
@@ -219,7 +246,7 @@ namespace geometry3Sharp.Tests
             Assert.True(Go(tm));
             MeshTetrahedralization u = Make("sphere", 6); u.TargetEdgeLength = 0.5 * tm.UsedAlpha; Assert.True(Go(u));
             Assert.Equal(u.Result.Tets, tm.Result.Tets);
-            Assert.Equal(0, u.Counts["size_clamped_tets"]); Assert.True(tm.Counts["size_clamped_tets"] > 0);
+            Assert.Equal(0, Clamped(u)); Assert.True(Clamped(tm) > 0);
         }
 
         [Fact]

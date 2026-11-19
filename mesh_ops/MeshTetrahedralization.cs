@@ -54,8 +54,9 @@ namespace gs
         public double TargetEdgeLength = 0;
         /// <summary>
         /// size control: the wanted edge length at a point (absolute), evaluated at the centroid of each tet, serially, so it need not be thread-safe;
-        /// null = off. A result that is NaN, not positive or infinite is clamped (to MinSizeFactor * alpha, or to the input's diagonal for +infinity)
-        /// and counted in Counts["size_clamped_tets"] (tets of the refinement that had a clamped size). An invalid value asks for the finest allowed mesh (MinSizeFactor * alpha everywhere), which at the default alpha is millions of tets: MaxSteinerPoints then stops the run, as is a finite size below MinSizeFactor * alpha. It must be deterministic for a deterministic result.
+        /// null = off. A result that is NaN, not positive or infinite is invalid and means "no size here" (not the finest mesh: a buggy function must not turn into a
+        /// run of minutes): the other size options still apply there, and the samples are counted in InvalidSizeSamples. A valid size below MinSizeFactor * alpha is clamped
+        /// to it and counted in Counts["size_clamped_tets"]. It must be deterministic for a deterministic result.
         /// </summary>
         public Func<Vector3d, double> SizeFunction = null;
         /// <summary>
@@ -63,8 +64,10 @@ namespace gs
         /// wrap's surface) + GradingFactor * d (a scale-free rule: 0.5 roughly doubles the size every 2 boundary spacings away from the surface); 0, a negative value or NaN = off
         /// </summary>
         public double GradingFactor = 0;
-        /// <summary> size control: sizes below this many alpha (UsedAlpha) are clamped and counted (the boundary spacing is about 1 to 2 alpha, 17.12); 0, a negative value or NaN = 0.25 </summary>
+        /// <summary> size control: sizes below this many alpha (UsedAlpha) are clamped and counted (a cost guard, 17.12); 0, a negative value or NaN = 0.25 </summary>
         public double MinSizeFactor = 0.25;
+        /// <summary> size control: the tets of the refinement (before stage 2) at whose centroid SizeFunction gave an invalid value (NaN, not positive or infinite): the function applied no size there (other size options still do). 0 if no size option is set; reset by Compute() </summary>
+        public long InvalidSizeSamples;
         /// <summary>
         /// sliver step (Li and Teng 2001): tets with a smallest dihedral angle below this (degrees) are refined too, and a new point
         /// is chosen among candidates near the circumcentre so that its new tets have no dihedral angle below it; 0 = off
@@ -177,6 +180,7 @@ namespace gs
         {
             Result = null;
             Targets = null;
+            InvalidSizeSamples = 0;
             DiagnosticLines = null;
             Counts = new Dictionary<string, long>();
             var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
@@ -198,11 +202,9 @@ namespace gs
             var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
                 TrialLimit = workLimit,
                 Input = PeelBoundarySlivers ? Mesh : null };
-            if (BuildSizeField(wrap, out Func<Vector3d, double> field)) {
+            if (BuildSizeField(wrap, out SizeField field)) {
                 r.SizeAt = field;
                 r.MinSize = (MinSizeFactor > 0 ? MinSizeFactor : 0.25) * UsedAlpha;
-                r.MaxSize = Mesh.GetBounds().DiagonalLength;
-                if (!(r.MaxSize > r.MinSize)) r.MaxSize = 2 * r.MinSize;
                 if (workLimit < double.PositiveInfinity) r.TrialsPerSizeSplit = MaxTrialInsertionsPerWrapVertex;   // a point inserted for the size counts like a wrap vertex
             }
             TetStatus st = r.Run();
@@ -213,7 +215,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
-            if (r.SizeAt != null) r.CountClamped();
+            if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
             if (r.WorkLimitHit) Counts["work_limit_reached"] = 1;                  // only then: the default path's counts do not change
             if (Improve && SliverDihedralDegrees > 0) {
@@ -237,8 +239,10 @@ namespace gs
             return st == TetStatus.Success;
         }
 
+        internal delegate double SizeField(Vector3d p, out bool invalid);
+
         // the size field of the options set (the smallest size at a point), or false if none is; sizes are not clamped here (the refiner does)
-        bool BuildSizeField(MeshAlphaWrap wrap, out Func<Vector3d, double> field)
+        bool BuildSizeField(MeshAlphaWrap wrap, out SizeField field)
         {
             field = null;
             double h = TargetEdgeLength;
@@ -256,7 +260,8 @@ namespace gs
                 tree = new DMeshAABBTree3(surface, true);
             }
             Func<Vector3d, double> f = SizeFunction;
-            field = (p) => {
+            field = (Vector3d p, out bool invalid) => {
+                invalid = false;
                 double s = double.PositiveInfinity;
                 if (uniform) s = h;
                 if (graded) {
@@ -266,8 +271,8 @@ namespace gs
                 }
                 if (user) {
                     double u = f(p);
-                    // an invalid value (NaN, not positive) stays the minimum (Math.Min passes a NaN on) and is clamped by the refiner
-                    s = Math.Min(s, u);
+                    if (double.IsNaN(u) || u <= 0 || double.IsInfinity(u)) invalid = true;     // no size from the function here; the other sources stay
+                    else s = Math.Min(s, u);
                 }
                 return s;
             };
@@ -294,9 +299,10 @@ namespace gs
             /// <summary> stop after this many trial insertions (the work bound); infinity = none </summary>
             internal double TrialLimit = double.PositiveInfinity;
             internal bool WorkLimitHit;
-            /// <summary> size control: the wanted edge length at a point (null = none), its clamp (MinSize .. MaxSize); see MeshTetrahedralization.SizeFunction </summary>
-            internal Func<Vector3d, double> SizeAt;
-            internal double MinSize, MaxSize;
+            /// <summary> size control: the wanted edge length at a point (null = none), its lower clamp MinSize; see MeshTetrahedralization.SizeFunction </summary>
+            internal SizeField SizeAt;
+            internal double MinSize;
+            internal long InvalidTets;
             /// <summary> trial insertions a point inserted for the size alone adds to the work bound (like a wrap vertex); 0 = none </summary>
             internal double TrialsPerSizeSplit;
             // the trials of points inserted for the size alone follow the volume (bounded by the packing, the floor, and MaxSteinerPoints); each such point
@@ -336,38 +342,39 @@ namespace gs
 
             internal bool is_bad(int c) { return shape_bad(c) || field_bad(c); }
 
-            // the wanted size at point p after the clamp; clamped = the function's value was invalid, infinite or below MinSize
-            double wanted_size(Vector3d p, out bool clamped)
+            // the wanted size at point p: false = no size here (no valid source); clamped = raised to MinSize
+            bool wanted_size(Vector3d p, out double h, out bool clamped, out bool invalid)
             {
-                double h = SizeAt(p);
+                h = SizeAt(p, out invalid);                  // invalid: SizeFunction gave no usable value here (counted even if another source gives a size)
                 clamped = false;
-                if (double.IsNaN(h) || h <= 0) { clamped = true; return MinSize; }
-                if (double.IsPositiveInfinity(h)) { clamped = true; return MaxSize; }
-                if (h < MinSize) { clamped = true; return MinSize; }
-                return Math.Min(h, MaxSize);
+                if (!(h > 0) || double.IsPositiveInfinity(h)) return false;       // no valid source
+                if (h < MinSize) { clamped = true; h = MinSize; }
+                return true;
             }
 
-            // the circumradius of the tet exceeds that of the regular tet of the wanted edge length at its centroid
+            // the circumradius of the tet exceeds 0.75 times the wanted edge length at its centroid
             bool field_bad(int c)
             {
                 if (SizeAt == null) return false;
                 Index4i t = dt.GetCell(c);
                 Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
-                double h = wanted_size((a + b + d + e) * 0.25, out _);
+                if (!wanted_size((a + b + d + e) * 0.25, out double h, out _, out _)) return false;
                 double R = Delaunay3.Circumcenter(a, b, d, e).Distance(a);       // not squared: lim * lim would underflow for inputs of 1e-160 and below
                 return !(R <= RegularCircumradius * h);
             }
 
             internal void CountClamped()
             {
-                long n = 0;
+                long n = 0, bad = 0;
                 foreach (int c in dt.CellIndices()) {
                     if (dt.CellLabel(c) != 1) continue;
                     Index4i t = dt.GetCell(c);
-                    wanted_size((dt.GetVertex(t.a) + dt.GetVertex(t.b) + dt.GetVertex(t.c) + dt.GetVertex(t.d)) * 0.25, out bool clamped);
+                    wanted_size((dt.GetVertex(t.a) + dt.GetVertex(t.b) + dt.GetVertex(t.c) + dt.GetVertex(t.d)) * 0.25, out _, out bool clamped, out bool invalid);
                     if (clamped) n++;
+                    if (invalid) bad++;
                 }
-                Counts["size_clamped_tets"] = n;
+                if (n > 0) Counts["size_clamped_tets"] = n;          // only then: a size that never applied leaves the counts as they are
+                InvalidTets = bad;
             }
 
             // the shape criteria (radius-edge, dihedral, degenerate) and the fixed circumradius bound

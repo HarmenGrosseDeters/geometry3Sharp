@@ -215,7 +215,6 @@ namespace g3cli.Tests
             Assert.True(I(sized["counts"]["tets"]) > 2 * I(plain["counts"]["tets"]));
             Assert.True(I(graded["counts"]["tets"]) > I(plain["counts"]["tets"]));
             Assert.True(B(sized["valid"]) && B(graded["valid"]));
-            Assert.NotNull(sized["steps"]["size_clamped_tets"]);
         }
 
         [Fact]
