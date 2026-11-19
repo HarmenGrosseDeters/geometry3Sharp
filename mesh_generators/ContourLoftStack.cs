@@ -94,7 +94,7 @@ namespace g3
     /// ridge at the bridge (the known look of composite contours), no medial axis is used.</para>
     /// <para>A slice is taken as planar: its height is the mean of its vertices' heights and the 2D work (nesting, overlay) uses the
     /// projection along the stacking direction; the exact check of the assembled mesh protects against slices that are not.</para>
-    /// <para>Limits (status Unsupported, never a wrong mesh): a hole of a branching or merging group may have no island inside it; a
+    /// <para>Limits (status Unsupported, never a wrong mesh): a hole of a branching or merging solid group may have no island inside it; a
     /// contour that ends must have only children that end too. A hole of a branching or merging group is lofted through the group's intermediate plane
     /// (docs/design/CONTOUR_LOFT.md section 10.10); where its pieces lie in different solid pieces there is no bridge (BridgeNotFound). Serial and deterministic.</para>
     /// </remarks>

@@ -292,6 +292,21 @@ namespace geometry3Sharp.Tests
             Assert.Contains("islands", r.Reason);
         }
 
+        [Fact]
+        public void AnIslandInAHoleThatBranchesByItself_IsBuilt()
+        {
+            // a ring-shaped solid whose hole splits into two holes, one of them holding an island that continues: the hole group branches,
+            // its parent group is 1:1, so the island is built (found by the review of this change)
+            var slices = Pad(Slices(
+                Sl(Disc(48, 8, 0), Disc(24, 3, 0), Disc(8, 0.3, 0, -1.8)),
+                Sl(Disc(48, 8, 1), Disc(16, 1.3, 1, -1.8), Disc(16, 1.3, 1, 1.8), Disc(8, 0.3, 1, -1.8))));
+            var r = Loft(slices);
+            Assert.True(r.Status == ContourLoftStackStatus.Success, r.Status + ": " + r.Reason);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            Assert.False(MeshRepairMetrics.HasSelfIntersections(r.Mesh));
+            AssertBoundaryIsTheInput(slices, r.Mesh);
+        }
+
         // ---- invariance, reuse, determinism ----
 
         static IList<IList<IList<Vector3d>>> Jitter(IList<IList<IList<Vector3d>>> s, int seed, double amount)

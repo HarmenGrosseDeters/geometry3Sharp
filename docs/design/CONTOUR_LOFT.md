@@ -407,14 +407,16 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
   legs to the hole of a leg runs through the fins of the bridge, `SelfIntersecting` on 6 of 18 probed inputs; with the hole
   pieces in the plane all 18 succeed. The bridges keep clear of the loops of every group of the slab (the obstacle list is the loops of
   the slab, not only of the group). A hole group of a parent group without an intermediate plane keeps the direct band.
-- **Limits that stay.** A hole with an island inside it in a branching or merging group (`Unsupported`: "holes with islands"); a
+- **Limits that stay.** A hole with an island inside it in a branching or merging *solid* group (`Unsupported`: "holes with islands";
+  the guard rejects a member of a general group whose child has children, so an island in a hole group that branches by itself is
+  built, and tested); a
   contour that ends while its hole continues (existing); pieces of one hole in different solid pieces with air between (a slot across
-  both legs): there is no bridge between them (`BridgeNotFound`, tested). The two-slice stack whose capped end has a branching hole
-  (`1:1 solid, hole branches`, found while probing) fails with `BandFailed` as before: the bridge of the hole's pieces lies in the
-  plane of the end cap; a stack with one more slice works.
+  both legs): there is no bridge between them (`BridgeNotFound`, tested).
 - **Unchanged.** Every result of a stack without holes in a branching group is bit for bit the same: the intermediate vertices and the
-  triangles are created in the same order (a test pins the digests of 11 results, taken before the change). The scan of the groups
-  runs in the same order; the new code runs only for groups with holes below a general group.
+  triangles are created in the same order (a test pins the digests of 11 results, taken before the change). Prepare, Assemble and the slab-wide obstacle list
+  run for every general group; the obstacles now hold the loops of all general groups of the slab, so a bridge that came close to the
+  loop of another group of the slab is now kept clear of it (the review compared four inputs with two general groups in one slab, all
+  digests equal; no test pins this).
 - **Tests** (`ContourLoftStackHolesTests`): the golden digests; 7 inputs (a hole that ends under a branch, through one leg
   (contained and cut), through one leg of a merge, that appears in a leg, that splits in a leg (Y tunnel, genus 2), through the middle leg of
   a 1 to 3): closed, manifold, no self-intersection, `NotCleanReason == ""`, the Euler characteristic of the expected topology, the
