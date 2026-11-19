@@ -14,8 +14,8 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// Property-based tests of SolidBooleanPipeline with CsCheck (net10.0 only, like ExactBooleanPropertyTests, whose
-    /// deterministic shrinking it uses). The cases are faceted-CAD-like: prisms over convex polygons with corners on a 1/64
-    /// grid, a second solid that overlaps the first, shares one of its side faces (with or without vertex noise of 1e-8,
+    /// deterministic shrinking it uses). The cases are faceted-CAD-like: prisms over convex polygons (centre and radius on a
+    /// 1/64 grid), a second solid that overlaps the first, shares one of its side faces (with or without vertex noise of 1e-8,
     /// the noise of a faceting), or is a thin layer through it, an optional third prism, all rotated about z, optionally
     /// at UTM-like coordinates and scaled by 2^k. Each case is a printable description; the meshes are built per run.
     ///
@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
             public Prism A, B, C;           // B: the overlapping prism (Second.Overlapping); C: an optional third prism
             public Second Kind;
             public int Face, Depth;         // SharedFace*: the side of A (corner Face to Face + 1) and the depth of the neighbour in 1/64
-            public int LayerMilli;          // ThinLayer: thickness in 1e-4 units (1 .. 100, so 1e-4 .. 1e-2)
+            public int LayerE4;             // ThinLayer: thickness in units of 1e-4 (1 .. 100, so 1e-4 .. 1e-2)
             public int Rotation, ScaleK;
             public bool Utm;
             public uint NoiseSeed;
@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
 
             public override string ToString()
             {
-                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerMilli}e-4 thick" : $"{Kind} side {Face} depth {Depth}/64";
+                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerE4}e-4 thick" : $"{Kind} side {Face} depth {Depth}/64";
                 return $"Case({Op}: A={A}, {second}{(C != null ? ", C=" + C : "")}, rotation {Rotation}deg, 2^{ScaleK}{(Utm ? ", UTM" : "")}, noise seed {NoiseSeed})";
             }
 
@@ -92,12 +92,12 @@ namespace geometry3Sharp.Tests
                         Vector3d outward = new Vector3d(edge.y, -edge.x, 0).Normalized * (Depth / 64.0);
                         var quad = new List<Vector3d> { q, p, p + outward, q + outward };
                         var rnd = Kind == Second.SharedFaceNoisy ? new Random((int)NoiseSeed) : null;
-                        list.Add(PrismMesh(quad, az0, az1, place, rnd));
+                        list.Add(PrismMesh(quad, az0, az1, place, rnd, 1e-8 * s));
                         break;
                     }
                     case Second.ThinLayer: {
                         // a slab through the middle of A, wider than A
-                        double t = LayerMilli * 1e-4, zc = (az0 + az1) / 2, w = A.R / 64.0 * 1.5;
+                        double t = LayerE4 * 1e-4, zc = (az0 + az1) / 2, w = A.R / 64.0 * 1.5;
                         var sq = new List<Vector3d> { new Vector3d(A.Cx / 64.0 - w, A.Cy / 64.0 - w, 0), new Vector3d(A.Cx / 64.0 + w, A.Cy / 64.0 - w, 0),
                             new Vector3d(A.Cx / 64.0 + w, A.Cy / 64.0 + w, 0), new Vector3d(A.Cx / 64.0 - w, A.Cy / 64.0 + w, 0) };
                         list.Add(PrismMesh(sq, zc, zc + t, place, null));
@@ -110,16 +110,16 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // a closed prism over the counter-clockwise polygon, from z0 to z1, placed; rnd: noise of 1e-8 (scaled) on every vertex
-        static DMesh3 PrismMesh(List<Vector3d> poly, double z0, double z1, Func<Vector3d, Vector3d> place, Random rnd)
+        // a closed prism over the counter-clockwise polygon, from z0 to z1, placed; rnd: noise up to `noise` on every vertex
+        // (1e-8 of the case's unit: far below the grid of InputGrid, 2^-20 of the unit, and above one ulp at UTM coordinates)
+        static DMesh3 PrismMesh(List<Vector3d> poly, double z0, double z1, Func<Vector3d, Vector3d> place, Random rnd, double noise = 0)
         {
             var m = new DMesh3();
             int n = poly.Count;
             Func<Vector3d, Vector3d> v = p => {
                 Vector3d w = place(p);
                 if (rnd != null) {
-                    double e = 1e-8 * Math.Max(1, w.Abs.MaxAbs * 1e-6);
-                    w += new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * (2 * e);
+                    w += new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * (2 * noise);
                 }
                 return w;
             };
@@ -146,7 +146,7 @@ namespace geometry3Sharp.Tests
         static readonly Gen<Case> GenCase =
             Gen.Select(GenPrism, GenPrism, Gen.Int[0, 3], Gen.Int[0, 5], Gen.Int[8, 128], Gen.Int[1, 100], Gen.Int[0, 359])
                 .SelectMany(t => Gen.Select(Gen.Int[-3, 3], Gen.Bool, Gen.UInt, Gen.Int[0, 2], Gen.Bool, GenPrism, (k, utm, seed, op, third, c) => new Case {
-                    A = t.Item1, B = t.Item2, Kind = (Second)t.Item3, Face = t.Item4, Depth = t.Item5, LayerMilli = t.Item6, Rotation = t.Item7,
+                    A = t.Item1, B = t.Item2, Kind = (Second)t.Item3, Face = t.Item4, Depth = t.Item5, LayerE4 = t.Item6, Rotation = t.Item7,
                     ScaleK = k, Utm = utm, NoiseSeed = seed, Op = (Ops)op, C = third ? c : null
                 }));
 
@@ -277,6 +277,11 @@ namespace geometry3Sharp.Tests
             // (what the campaign covered: the kinds of case and their outcomes)
             foreach (var kv in seen.OrderBy(k => k.Key))
                 log.WriteLine("  " + kv.Value + "  " + kv.Key);
+            // every kind of case reaches a solid result at least once (the campaign is not vacuous for any of them)
+            if (Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") == null)
+                foreach (Second kind in Enum.GetValues(typeof(Second)))
+                    Assert.True(seen.Any(kv => kv.Key.StartsWith(kind + " ") && (kv.Key.EndsWith("-> solid") || kv.Key.EndsWith("-> contacts"))),
+                        kind + " never gave a solid: " + string.Join(", ", seen.Keys));
         }
 
         [Fact]
@@ -284,7 +289,7 @@ namespace geometry3Sharp.Tests
         {
             // InputGrid 2^-20 (scaled with the case): the noise of nearly coincident faces is snapped away, so the strict
             // rounding never refuses, and the result keeps the contract of Valid
-            Campaign("Grid", GenCase, c => {
+            Campaign("WithInputGrid", GenCase, c => {
                 List<DMesh3> inputs = c.Build();
                 var before = inputs.Select(Fingerprint).ToList();
                 var p = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = Math.Pow(2, -20 + c.ScaleK) };
@@ -298,26 +303,47 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Volumes_AddUpAcrossTheOperations()
         {
-            // V(A u B) + V(A n B) = V(A) + V(B), V(A - B) = V(A) - V(A n B), within the rounding of the results: every new vertex
-            // moves at most RoundingMaxDisplacement (1e-5) of the diagonal, so a volume moves at most that times the area
+            // V(A u B) + V(A n B) = V(A) + V(B), V(A - B) = V(A) - V(A n B), and for a thin layer through A, V(A n B) = A's polygon
+            // times the thickness: within the rounding of the results (the displacements the rounding made, times the area)
             Campaign("Volumes", GenPair, c => {
                 List<DMesh3> inputs = c.Build();
-                var u = Run(inputs, Ops.Union);
-                var i = Run(inputs, Ops.Intersection);
-                var d = Run(inputs, Ops.Difference);
+                double drift = 0;
+                Func<Ops, SolidBooleanPipeline> run = op => {
+                    ExactMeshBoolean b = null;
+                    var p = new SolidBooleanPipeline(inputs, op) { ConfigureBoolean = x => b = x };
+                    p.Compute();
+                    if (b != null && b.Rounding != null)
+                        drift += b.Rounding.MaxDrift;
+                    return p;
+                };
+                var u = run(Ops.Union);
+                var i = run(Ops.Intersection);
+                var d = run(Ops.Difference);
                 if (new[] { u, i, d }.Any(p => p.Status != SolidBooleanPipeline.PipelineStatus.Success))
                     return "";      // (Valid judges the refusals)
                 double va = Volume(inputs[0]), vb = Volume(inputs[1]);
                 double vu = Volume(u.Result), vi = Volume(i.Result), vd = Volume(d.Result);
                 var box = inputs[0].GetBounds();
                 box.Contain(inputs[1].GetBounds());
-                double drift = 1e-5 * box.Diagonal.Length;
+                // (the displacements the rounding made in the three runs, and the rounding of new vertices to the double grid:
+                // a few units in the last place of the largest coordinate; times the area that can move)
+                double ulp = Math.Max(Math.Abs(box.Min.MaxAbs), Math.Abs(box.Max.MaxAbs)) * 2.3e-16;
                 double area = Area(inputs[0]) + Area(inputs[1]);
-                double tol = 3 * drift * area + 1e-12 * (Math.Abs(va) + Math.Abs(vb));
+                double tol = 2 * (drift + 8 * ulp) * area + 1e-12 * (Math.Abs(va) + Math.Abs(vb));
                 if (Math.Abs(vu + vi - va - vb) > tol)
                     return $"V(u) + V(n) = {vu + vi:R}, V(A) + V(B) = {va + vb:R} (tolerance {tol:G3})";
                 if (Math.Abs(vd - (va - vi)) > tol)
                     return $"V(A - B) = {vd:R}, V(A) - V(A n B) = {va - vi:R} (tolerance {tol:G3})";
+                if (c.Kind == Second.ThinLayer) {
+                    // the slab crosses A completely: A n B is A's polygon times the thickness
+                    var poly = c.A.Corners();
+                    double pa = 0;
+                    for (int k = 0; k < poly.Count; ++k)
+                        pa += poly[k].x * poly[(k + 1) % poly.Count].y - poly[(k + 1) % poly.Count].x * poly[k].y;
+                    double s3 = Math.Pow(2, 3 * c.ScaleK), want = pa / 2 * c.LayerE4 * 1e-4 * s3;
+                    if (Math.Abs(vi - want) > tol + 1e-6 * want)
+                        return $"V(A n layer) = {vi:R}, the polygon times the thickness = {want:R} (tolerance {tol:G3})";
+                }
                 return "";
             }, 25, 9102);
         }
@@ -345,7 +371,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PowerOfTwoScales_GiveTheSameResult_BitForBit()
         {
-            Campaign("Scales", GenCase, c => {
+            Campaign("PowerOfTwoScales", GenCase, c => {
                 List<DMesh3> inputs = c.Build();
                 var p = Run(inputs, c.Op);
                 foreach (int k in new[] { -7, 9 }) {
