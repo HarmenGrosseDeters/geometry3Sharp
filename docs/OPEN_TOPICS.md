@@ -8,12 +8,8 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Boolean: lever 1, coplanar pre-decision of corner / edge pairs | PR open, re-measured against the 10 % speed bar | Merge only if the bar is met | #1190 |
-| Rounding/repair: exact zero-volume check for undecided sheets | Session running | PR with the exact check (p0029, dui p0019/21/22) | #1191 |
-| Tet: deterministic work cap for `TetMeshImprover` | Being measured; part 1 merged (#1184) | Cap at SliverDihedralDegrees 20 / 30, within the time rule | #1154 |
-| Tet: opt-in `MaxDihedralDegrees` (Stellar op 4; guard, staged first phase, stall stop for unattainable maxima; TET_MESHING.md 17.15) | PR open, review fixes in | Merge; default output unchanged | #1189 |
-| Repair: `fm_ms` above 20 s on Thingi10K 318843 (20.5 s) and 498456 (46.7 s) | Study started 2026-11-19 (owner), #1009 reopened | Measured plan on #1009, then a bit-identical PR | [#1009](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1009) |
-| Geodesics/param: exact geodesic paths from `PolyhedralGeodesicDistance` (`TracePath`) | API approved 2026-11-19, being built (the #1186 trim is merged, #1193) | PR | #1 |
+| Rounding/repair: exact zero-volume check for undecided sheets | PR open | CI, both incremental mutation runs (exact-arithmetic, rounding-9), abc-chained outcome diff, then merge | #1195 (#1191) |
+| Tet: deterministic work cap for `TetMeshImprover` | Part 1 merged (#1184); a split-only cap was measured and dropped (owner 2026-11-19: it leaves meshes above 20 s at floor 20) | Measure a bound over all improvement attempts or a pass budget; results to the owner before a PR | #1154 |
 
 ## 2. Waiting for an owner decision (options are on the table)
 
@@ -94,6 +90,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
 | Loft: `ContourLoft` stage 2 limits: cut-group saddles stay at `BranchFraction` (per-vertex heights probed, no gain), a hole with an island in a branching solid group, a terminal contour whose hole continues, the straight skeleton (Barequet 2004) not built | Documented limits, owner 2026-11-19 (topic finished: holes #1197, opt-in `LoweredSaddle` for contained groups) | None | [loft](design/CONTOUR_LOFT.md#1011-the-lowered-saddle-opt-in-loweredsaddle-the-numbers-for-cut-groups-and-what-stays-2026-11-19) |
+| Repair: `fm_ms` of Thingi10K 498456 above 20 s (29.6 s after #1198; 318843 is at 13.1 s) | Documented exception, owner 2026-11-19 (option C); the levers that would cut it (FWNBeta, the stall rule) change the output | None | [README](../benchmarks/MeshRepairBenchmark/README.md#faster-winding-queries-same-bits-1009-tail), #1009 |
 | Tet creases (`CreaseAngleDegrees`, opt-in): small gain on scanned meshes, 3 to 15 times the time there; no guaranteed recovery at acute creases (falls back to the rounded wrap) | Documented, kept open | Protecting balls / weighted Delaunay for a guarantee; crease-local alpha for slits | [tet](design/TET_MESHING.md) 17.14 |
 | Boolean: Thingi10K 42327 with its rotated copy, 18-26 s per operation | Dropped as a documented tail, owner 2026-11-19; issue open | Regression rule only | #1047 |
 | Boolean: runtime-watch tail above 20 s (eg 55928 at about 470 s) | Judged by the regression rule only | Runtime watch regression or an issue | [boolean](roadmap/exact-boolean.md#open-for-the-future-2026-11-15) |
