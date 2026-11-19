@@ -343,14 +343,27 @@ namespace geometry3Sharp.Tests
             var axis = new List<Vector3d> { new Vector3d(-40, 0, 0), new Vector3d(40, 0, 0) };
             PassageWrap.PolylineClearance(tree, axis, 1e-3, double.MaxValue, out double lo, out double hi);
             Assert.True(lo <= 0.5 && hi >= 0.5 - 1e-9, $"[{lo}, {hi}]");
-            Assert.True(hi - lo <= 2e-3, $"[{lo}, {hi}]");
+            Assert.True(hi - lo <= 2e-2, $"[{lo}, {hi}]");  // (the floor 1e-4 of the size, about 0.01 here)
             // a polyline of two legs, the second crossing the big triangle's plane at its interior: the clearance is 0
             var bent = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(0, 0, 30) };
             PassageWrap.PolylineClearance(tree, bent, 1e-3, double.MaxValue, out lo, out hi);
-            Assert.True(lo == 0 && hi <= 1e-3, $"[{lo}, {hi}]");
+            Assert.True(lo == 0 && hi <= 2e-2, $"[{lo}, {hi}]");
             // a single point is a ball
             PassageWrap.PolylineClearance(tree, new List<Vector3d> { new Vector3d(0, 0, 15) }, 1e-3, double.MaxValue, out lo, out hi);
             Assert.True(lo <= 5 && hi >= 5 - 1e-9 && hi - lo <= 1e-6, $"[{lo}, {hi}]");
+        }
+
+        // a pin inside the material: far from every triangle of the wrap too, but not outside it: never a pass (the winding number, the
+        // second half of the check; the clearance alone would accept it)
+        [Fact]
+        public void PinInsideTheMaterial_IsNeverPassed()
+        {
+            var axis = new List<Vector3d> { new Vector3d(-5, 6, 6), new Vector3d(5, 6, 6) };
+            PassageWrap w = Run(Part("cross"), axis, 1.0);
+            Assert.Equal(PassageWrap.PassageStatus.PassageNotKept, w.Status);
+            Assert.False(w.PinResults[0].AxisOutside);
+            Assert.True(w.PinResults[0].ClearanceLow >= 1.0);
+            Assert.False(w.PinResults[0].Passed);
         }
 
         // ---- inputs that are not solids, pinches, the premises ----
