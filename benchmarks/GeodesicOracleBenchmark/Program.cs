@@ -12,6 +12,15 @@ using g3;
 
 static class Program
 {
+    // FNV-1a over the bits of Distance, NearestSource and the window count: equal digests mean bit for bit equal results
+    static ulong Digest(PolyhedralGeodesicDistance g)
+    {
+        ulong h = 14695981039346656037UL;
+        void Mix(ulong x) { h ^= x; h *= 1099511628211UL; }
+        if (g.Distance != null) for (int i = 0; i < g.Distance.Length; ++i) { Mix((ulong)BitConverter.DoubleToInt64Bits(g.Distance[i])); Mix((ulong)g.NearestSource[i]); }
+        Mix((ulong)g.Windows);
+        return h;
+    }
     static DMesh3 Grid(double half, int n, Func<double, double, double> h)
     {
         // the alternating diagonals of the tests (ExactMeshGeodesicDistanceTests.Grid)
@@ -80,8 +89,8 @@ static class Program
                             Row($"{kind} k = {k:G2}, {n} x {n}, {at}", Grid(1, n, h), src);
                         }
         } else if (mode == "poly") {
-            Console.WriteLine("| mesh | vertices | status | seconds | windows | windows per vertex | allocated MB | peak working set MB |");
-            Console.WriteLine("|---|---|---|---|---|---|---|---|");
+            Console.WriteLine("| mesh | vertices | status | seconds | windows | windows per vertex | allocated MB | peak working set MB | result digest |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|---|");
             foreach (int n in (args.Length > 1 ? args[1] : "101,201,317").Split(',').Select(int.Parse)) {
                 foreach (string fam in (Environment.GetEnvironmentVariable("G3_FAMS") ?? "terrain,plane,ridge4,ridge75,saddle").Split(',')) {
                     double half = (n - 1) * 0.25 / 2;
@@ -93,7 +102,7 @@ static class Program
                     var st = g.Compute(new[] { src });
                     double secs = sw.Elapsed.TotalSeconds; long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
                     long peak = Process.GetCurrentProcess().PeakWorkingSet64;
-                    Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {st} | {secs:F2} | {g.Windows} | {(double)g.Windows / m.VertexCount:F1} | {alloc / 1048576} | {peak / 1048576} | xi {g.PrMaxXi:E1} E {g.PrMaxE:E1} tiny {g.PrTiny} merges {g.Merges} pairs {g.PrPairs} |");
+                    Console.WriteLine($"| {fam} {n} x {n} | {m.VertexCount} | {st} | {secs:F2} | {g.Windows} | {(double)g.Windows / m.VertexCount:F1} | {alloc / 1048576} | {peak / 1048576} | digest {Digest(g):X16} |");
                 }
             }
         } else { Console.Error.WriteLine("modes: reach, sweep, poly"); return 1; }

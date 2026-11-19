@@ -42,7 +42,6 @@ namespace g3
         public long Windows { get; private set; }
         /// <summary> merges of windows in the last Compute (diagnostics) </summary>
         internal long Merges { get; private set; }
-        internal double PrMaxXi, PrMaxE; internal long PrTiny; internal int PrN; internal string PrLog = ""; internal long PrPairs, PrDone, PrFar; internal double PrMaxDp;
 
         public PolyhedralGeodesicDistance(DMesh3 mesh) { Mesh = mesh ?? throw new ArgumentNullException(nameof(mesh)); Status = PolyhedralGeodesicStatus.NotComputed; }
 
@@ -251,8 +250,7 @@ namespace g3
             }
             int id = wcount++;
             W(id) = w; pchunks[ci][id & (ChunkSize - 1)] = -1;
-            if (w.Origin == 220 && w.Sigma > 0 && PrN++ < 12) PrLog += $"id {id} side {w.Side} S=({w.Sx:G5},{w.Sy:G5}) sig {w.Sigma:G6} [{w.B0:G5},{w.B1:G5}] xi {w.Xi:E1} E {w.E:E1}\n";
-            Windows = wcount; if (w.Xi > PrMaxXi) PrMaxXi = w.Xi; if (w.E > PrMaxE) PrMaxE = w.E; if (w.B1 - w.B0 < 1e-9 * extent) ++PrTiny;
+            Windows = wcount;
             return id;
         }
         int Next(int id) => nchunks[id >> ChunkBits][id & (ChunkSize - 1)];
@@ -287,7 +285,6 @@ namespace g3
                 double segL = segs[0].l, segR = segs[segs.Count - 1].r;
                 if (b.B1 < segL - 0 || b.B0 > segR + 0) { prev = cur; cur = nx; continue; }
                 // merging (A.7): one origin, nearly the same position and sigma, pending partner, touching intervals
-                if (b.Origin == win.Origin) { ++PrPairs; if (b.Side < 0) ++PrDone; else { double dp0 = Hyp(b.Sx - win.Sx, b.Sy - win.Sy); if (dp0 > delta) { ++PrFar; if (PrFar % 3000 == 1) PrLog += $"origin {win.Origin} side {side} new S=({win.Sx:G6},{win.Sy:G6}) sig {win.Sigma:G6} [{win.B0:G5},{win.B1:G5}] old S=({b.Sx:G6},{b.Sy:G6}) sig {b.Sigma:G6} [{b.B0:G5},{b.B1:G5}] L {L:G5}\n"; if (dp0 > PrMaxDp && dp0 < 1e-6 * extent) PrMaxDp = dp0; } } }
                 if (b.Origin == win.Origin && b.Side >= 0) {
                     double dp = Hyp(b.Sx - win.Sx, b.Sy - win.Sy), ds = Math.Abs(b.Sigma - win.Sigma);
                     double nxi = Math.Max(b.Xi, win.Xi + dp + ds);
@@ -363,6 +360,10 @@ namespace g3
             if (!(r > l)) return;
             if (FMin(a, l, r) - 0 > FMax(b, l, r) + m) { rem.Add((l, r)); return; }
             if (depth == 0) return;
+            // no piece inside [l, r] can pass the test unless FMax(a) > FMin(b) + m: the two functions are monotone in |x - Sx| (also
+            // in floating point: every step of Hyp is monotone), so FMin(a, piece) <= FMax(a, l, r) and FMax(b, piece) >= FMin(b, l, r);
+            // the pruned recursion gives the same pieces bit for bit
+            if (!(FMax(a, l, r) > FMin(b, l, r) + m)) return;
             double mid = 0.5 * l + 0.5 * r;
             Dominated(a, b, l, mid, depth - 1, rem, m); Dominated(a, b, mid, r, depth - 1, rem, m);
         }
