@@ -297,6 +297,53 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, s);
         }
 
+        /// <summary>
+        /// open soups (the sum depends on the origin, the first vertex: a closed surface hides an error in the origin, whose
+        /// terms cancel over it) of one to five triangles with coordinates at offsets and mixed magnitudes, t at |S| / 3 and
+        /// its neighbours: the sign is that of the BigInteger comparison, including a single triangle and the equal case
+        /// </summary>
+        [Fact]
+        public void Compare_AgreesWithTheOracle_OnOpenSoups()
+        {
+            var rnd = new Random(11911);
+            int equal = 0, below = 0, above = 0;
+            for (int k = 0; k < 300; ++k) {
+                int n = 1 + rnd.Next(5);
+                double scale = Math.Pow(2, rnd.Next(-30, 30)), off = (rnd.NextDouble() - 0.5) * scale * Math.Pow(2, rnd.Next(0, 4));
+                var xyz = new double[9 * n];
+                for (int i = 0; i < xyz.Length; ++i)
+                    xyz[i] = off + (rnd.NextDouble() - 0.5) * scale;
+                var corners = new int[3 * n];
+                for (int i = 0; i < corners.Length; ++i)
+                    corners[i] = 3 * (i / 3) + i % 3;
+                // (S exactly, at the scale 2^(3 * 1074), the same sum as the library's: the first vertex is the origin)
+                BigInteger[] q = new BigInteger[xyz.Length];
+                for (int i = 0; i < q.Length; ++i)
+                    q[i] = Scaled(xyz[i]);
+                BigInteger total = 0;
+                for (int tri = 0; tri < n; ++tri) {
+                    BigInteger[] a = new BigInteger[3], b = new BigInteger[3], c = new BigInteger[3];
+                    for (int d = 0; d < 3; ++d) {
+                        a[d] = q[9 * tri + d] - q[d]; b[d] = q[9 * tri + 3 + d] - q[d]; c[d] = q[9 * tri + 6 + d] - q[d];
+                    }
+                    total += c[0] * (a[1] * b[2] - a[2] * b[1]) + c[1] * (a[2] * b[0] - a[0] * b[2]) + c[2] * (a[0] * b[1] - a[1] * b[0]);
+                }
+                BigInteger absS = BigInteger.Abs(total);
+                if (absS.IsZero)
+                    continue;
+                double t0 = (double)(absS >> (3 * 1074 - 60)) / 3 / 1152921504606846976.0;
+                if (t0 < ExactPredicates.MinNormal || double.IsInfinity(t0))
+                    continue;
+                foreach (double t in new[] { t0, Next(t0, 1), Next(t0, -1), t0 * 1.5, t0 * 0.5 }) {
+                    int expected = absS.CompareTo(3 * Scaled(t) << (2 * 1074));
+                    Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out int got), $"case {k}");
+                    Assert.Equal(expected, got);
+                    if (expected == 0) ++equal; else if (expected < 0) ++below; else ++above;
+                }
+            }
+            Assert.True(below > 200 && above > 200, $"{below} below, {above} above, {equal} equal");
+        }
+
         /// <summary> nothing is decided for a coordinate that is not finite, t that is not a positive normal number, a sum that overflows, or no triangles </summary>
         [Fact]
         public void Compare_DecidesNothing_ForUnusableInput()
@@ -317,6 +364,10 @@ namespace geometry3Sharp.Tests
             var (huge, hc) = Tetra(0, 0, 0);
             for (int i = 0; i < huge.Length; ++i) huge[i] *= 1e200 / 3;
             Assert.False(ExactPredicates.TryCompareAbsVolume6(huge, hc, 9, out s));
+            // (one triangle: S = 0, below 3 t, decided)
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, new[] { 0, 1, 2 }, 9, out s));
+            Assert.Equal(-1, s);
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, new[] { 0, 1 }, 9, out s));
             Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, new int[0], 9, out s));
             Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, null, 9, out s));
             // (and numerically_zero_volume keeps: a sheet with area 0 has t = 0)

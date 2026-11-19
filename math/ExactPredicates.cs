@@ -555,10 +555,9 @@ namespace g3
                 total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
             }
             decompose(t, out long mt, out int et);
-            BigInteger lhs = BigInteger.Abs(total), rhs = 3 * new BigInteger(mt);
-            // (|S| = lhs 2^(3 emin), 3 t = rhs 2^et)
-            int shift = 3 * emin - et;
-            if (shift >= 0) lhs <<= shift; else rhs <<= -shift;
+            // (|S| = |total| 2^(3 emin), 3 t = 3 m_t 2^et: both shifted to the smaller exponent, so that neither shift is negative)
+            int low = Math.Min(3 * emin, et);
+            BigInteger lhs = BigInteger.Abs(total) << (3 * emin - low), rhs = (3 * new BigInteger(mt)) << (et - low);
             sign = lhs.CompareTo(rhs);
             return true;
         }
