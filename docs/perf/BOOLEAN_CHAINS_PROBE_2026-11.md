@@ -112,6 +112,10 @@ flat-faced procedural chains (the step-3 setting `R op A`, `Similarity.All()` in
 Risk: the triangles that stay untouched change `predict_pieces` / `touchedPoints` counts, not the result (hash equal here); the review must check the
 `ConstraintEdges` consumers.
 
+Coordination (coordinator, 2026-11-19): lever 2 no-go accepted (below the 10 % bar). The lever of section 3 goes to the owner after the ABC number; the library
+PR does not start before the owner's go. #1158 (`ear_clip` in `ExactPlanarSimplify`, another file and stage) is also in `ExactMeshBoolean`; no overlap
+with `intersect_coplanar` expected.
+
 ## 5. Reproduce
 
 `perf/chains_probe_2026-11-19/README` is this page; commands: `abc_chained.py run ... --methods ours_probe | ours_probe_expr`
