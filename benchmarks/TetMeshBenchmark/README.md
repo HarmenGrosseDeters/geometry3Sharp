@@ -185,3 +185,11 @@ The default path is unchanged (differences of 10 % at 2 s are timing noise of on
 what is left is the 19 % of attempts that are tried to their end (16.7 s of 44 s on 40011), the other operations of the passes (about 16 s)
 and the skipped attempts' own check (6 s). An edge-keyed memo of failed splits on top (15-41 % of the attempts repeat an edge under an
 unchanged two-ring signature) was measured at about 6 % net after the cost of the signature and was not built.
+
+### Local alpha (TET_MESHING.md section 17.13, 2026-11-19)
+
+`compare/run_local_alpha.sh <dll> <mesh dir> <out csv>` runs the 40-mesh subset (meshes fetched at run time, not kept; 120628 skipped as above 40 MB) with uniform alpha 40 / 80 / 160 and with the
+local alpha (`refine` with `G3_TET_DEV=<x>`: `MaxSurfaceDeviation` = diagonal / x, `G3_TET_LOCALPASSES=<n>`), and `compare/summarize_local_alpha.py` prints the medians. Rows:
+`results/tet-local-alpha-subset39-2026-11-19.csv`. Medians over 39 meshes (ratios per mesh against uniform /80): diagonal / 150 gives 0.52x the tets at 1.00x the input-to-boundary max distance and 1.17x the time;
+diagonal / 250 gives 0.68x the tets at 0.92x the distance and 1.31x the time (two passes: 0.81x the tets, 0.92x, 1.69x); uniform /160 is 3.75x the tets at 0.70x the distance and 2.39x the time. All 39 valid, no self-intersection, every tet >= 10 degrees in every configuration.
+
