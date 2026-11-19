@@ -168,7 +168,9 @@ jobs:
         if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
         run: |
           set -o pipefail
-          python3 scripts/benchmarks/BooleanComparison/data/chain_probe.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/benchmarks/BooleanComparison/data/chain_probe.py summary results.jsonl > report.md
+          cat report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -188,7 +190,7 @@ jobs:
     if: ${{ !cancelled() && needs.measure.result != 'skipped' && github.repository == 'harmengrossedeters/geometry3Sharp' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # the data branch runs/boolean-chains
+      contents: write   # the rows branch runs/boolean-chains-rows (the run's own ref cannot be pushed by its token)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -212,5 +214,5 @@ jobs:
           git add results
           git diff --cached --quiet && exit 0
           git commit -q -m "Boolean chains probe run $GITHUB_RUN_ID"
-          for i in 1 2 3 4; do git push origin HEAD:runs/boolean-chains && exit 0; git pull -q --rebase origin runs/boolean-chains; done
+          for i in 1 2 3 4; do git push origin HEAD:refs/heads/runs/boolean-chains-rows && exit 0; git pull -q --rebase origin runs/boolean-chains-rows || true; done
           exit 1
