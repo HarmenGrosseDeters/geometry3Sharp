@@ -525,5 +525,81 @@
     ],
     "reason": "unreachable fail-closed guard: once det and perm are finite, t = Up(10 u perm) < 2.0e-15 perm and A = Up(2^-1070 Up(M + 1)) < 1e-13, so e = Up(t (1 + 2^-39)) or Up(t + A) is finite (at most about 2e293 for perm = double max) and no input reaches this line",
     "approved_in": "#1144"
+  },
+  {
+    "file": "mesh_ops/QuadFlowRepair.cs",
+    "text": "} else return null;       // not expected (the matrix is positive definite)",
+    "after": [
+      "for (int i = 0; i < nv; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int c = cid[FindRoot(ufc, i)]; pos[i] = new Vector3d(X[c], Y[c], Z[c]); }"
+    ],
+    "reason": "the Cholesky matrix is 0.5 I plus a sum of graph Laplacian terms, so it is positive definite for every input state and Factorize cannot fail",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "tools/g3cli/QuadCommand.cs",
+    "text": "throw new CommandException(ResultCodes.InvalidArguments, \"quad remeshing: \" + qr.Error, new JsonObject() { [\"quad_status\"] = status });",
+    "after": [
+      "if (qr.Status == QuadRemeshStatus.InvalidInput)"
+    ],
+    "reason": "QuadRemesher returns InvalidInput only for no triangles, a non-positive or infinite edge length or a SizeAdaptation setting; the CLI rejects an empty mesh at read (empty_mesh), validates edge_length and has no size adaptation option",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "tools/g3cli/QuadCommand.cs",
+    "text": "throw new CommandException(ResultCodes.OperationFailed, \"the Hausdorff distance could not be computed; nothing is written\", new JsonObject() { [\"quad_status\"] = status });",
+    "after": [
+      "if (h == null)"
+    ],
+    "reason": "MeshHausdorffDistance.Compute fails only for an empty or non-finite mesh; the reader rejects non-finite coordinates and a successful remesh has triangles with finite vertices",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "tools/g3cli/QuadCommand.cs",
+    "text": "throw new CommandException(ResultCodes.WriteError, $\"cannot write '{output}': {w.code}: {w.message}\");",
+    "after": [
+      "if (w.code != IOCode.Ok)"
+    ],
+    "reason": "PolyMeshIO.WriteOBJ and WritePLY always return IOWriteResult.Ok (I/O failures are exceptions, handled by the catch below), so the code check is defensive",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "mesh_ops/TerrainSlopeRamps.cs",
+    "text": "return ramp_problem(Statuses.InvalidInput, r, -1, FormattableString.Invariant($\"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})\"));",
+    "after": [
+      "if (!(gb > 0.5 * ri.G))",
+      "// (checked by ramp_share already, before the budget; kept for the build itself)"
+    ],
+    "reason": "defensive guard: build() returns InvalidInput at the RampGradeTooSmall check (TerrainSlopeDesign.cs, before build_ramps) for the same delta, sMin and ramps; ramp_share computes the identical condition, so build_ramps never sees it",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "mesh_generators/ContourLoftStackRun.cs",
+    "text": "throw Fail(ContourLoftStackStatus.InvalidInput, \"the triangulation rejected the contours: \" + ex.Message);",
+    "after": [
+      "} catch (ArgumentException ex) {",
+      "r = new ConstrainedDelaunayMesh2 { ResolveCrossings = resolveCrossings }.Compute(inp, ct);"
+    ],
+    "reason": "defensive: ConstrainedDelaunayMesh2.Validate throws ArgumentException only for non-finite or >1e70 coordinates, bad indices or heights; the 2D points are finite (checked in ReadInput) and scaled to the 2^-e working frame, indices come from the run itself; the catch only guards a future change of the mesher's validation",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "mesh_generators/ContourLoftStackRun.cs",
+    "text": "throw Fail(ContourLoftStackStatus.BandFailed, \"an edge of contour \" + k.Index + \" of slice \" + k.Slice + \" is not in the mesh\");",
+    "after": [
+      "if (mesh.FindEdge(k.Ids[i], k.Ids[(i + 1) % k.Ids.Length]) < 0)",
+      "for (int i = 0; i < k.Ids.Length; ++i)"
+    ],
+    "reason": "internal-consistency guard: every contour edge lies in a band triangle or a cap (the cap and roof meshers lock the ring segments), and a contour with neither would need both sides uncapped, which only the first and last slice are; random roof and cap mesher options never reached it",
+    "approved_in": "#1207"
+  },
+  {
+    "file": "mesh_ops/PolyhedralGeodesicPath.cs",
+    "text": "default: return false;",
+    "after": [
+      "}",
+      "v = u; break;"
+    ],
+    "reason": "invariant guard, unreachable through the public API: SetDist is the only writer of the vertex records and always sets Kind 1, 2 or 3, and every vertex a trace reaches has a finite distance and so a record",
+    "approved_in": "#1207"
   }
 ]

@@ -34,7 +34,7 @@ namespace geometry3Sharp.Tests
             var l = Assert.Single(d.CatchLines);
             Assert.NotEmpty(l.Points);
             Assert.Equal(l.Gradient.Count, l.Uncertainty.Count);
-            Assert.All(l.Uncertainty, u => Assert.True(u > 0 && double.IsFinite(u)));
+            Assert.All(l.Uncertainty, u => Assert.True(u > 0 && MathUtil.IsFinite(u)));
             Assert.Null(d.SlopeSurface);
             Assert.Null(d.Composite);
             Assert.Equal(0, d.Volume);
