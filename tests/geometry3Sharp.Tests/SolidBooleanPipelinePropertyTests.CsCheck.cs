@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        public enum Second { Overlapping, SharedFace, SharedFaceNoisy, ThinLayer }
+        public enum Second { Overlapping, SharedFace, SharedFaceNoisy, ThinLayer, Pinch }
 
         public sealed class Case
         {
@@ -65,7 +65,8 @@ namespace geometry3Sharp.Tests
 
             public override string ToString()
             {
-                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerE4}e-4 thick" : $"{Kind} side {Face} depth {Depth}/64";
+                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerE4}e-4 thick"
+                    : Kind == Second.Pinch ? $"two through-holes of {Depth}/64 touching at an edge" : $"{Kind} side {Face} depth {Depth}/64";
                 return $"Case({Op}: A={A}, {second}{(C != null ? ", C=" + C : "")}, rotation {Rotation}deg, 2^{ScaleK}{(Utm ? ", UTM" : "")}, noise seed {NoiseSeed})";
             }
 
@@ -93,6 +94,16 @@ namespace geometry3Sharp.Tests
                         var quad = new List<Vector3d> { q, p, p + outward, q + outward };
                         var rnd = Kind == Second.SharedFaceNoisy ? new Random((int)NoiseSeed) : null;
                         list.Add(PrismMesh(quad, az0, az1, place, rnd, 1e-8 * s));
+                        break;
+                    }
+                    case Second.Pinch: {
+                        // two square through-holes in A that touch each other along a vertical edge at A's centre: a
+                        // difference leaves A touching itself there (the corner is the same expression for both, so it coincides)
+                        double w = Math.Min(Depth, A.R / 2) / 64.0, cx = A.Cx / 64.0, cy = A.Cy / 64.0, lo = az0 - 1, hi = az1 + 1;
+                        var q1 = new List<Vector3d> { new Vector3d(cx - w, cy - w, 0), new Vector3d(cx, cy - w, 0), new Vector3d(cx, cy, 0), new Vector3d(cx - w, cy, 0) };
+                        var q2 = new List<Vector3d> { new Vector3d(cx, cy, 0), new Vector3d(cx + w, cy, 0), new Vector3d(cx + w, cy + w, 0), new Vector3d(cx, cy + w, 0) };
+                        list.Add(PrismMesh(q1, lo, hi, place, null));
+                        list.Add(PrismMesh(q2, lo, hi, place, null));
                         break;
                     }
                     case Second.ThinLayer: {
@@ -144,14 +155,14 @@ namespace geometry3Sharp.Tests
                 (cx, cy, r, n, start, z0, h) => new Prism { Cx = cx, Cy = cy, R = r, N = n, Start = start, Z0 = z0, H = h });
 
         static readonly Gen<Case> GenCase =
-            Gen.Select(GenPrism, GenPrism, Gen.Int[0, 3], Gen.Int[0, 5], Gen.Int[8, 128], Gen.Int[1, 100], Gen.Int[0, 359])
+            Gen.Select(GenPrism, GenPrism, Gen.Int[0, 4], Gen.Int[0, 5], Gen.Int[8, 128], Gen.Int[1, 100], Gen.Int[0, 359])
                 .SelectMany(t => Gen.Select(Gen.Int[-3, 3], Gen.Bool, Gen.UInt, Gen.Int[0, 2], Gen.Bool, GenPrism, (k, utm, seed, op, third, c) => new Case {
                     A = t.Item1, B = t.Item2, Kind = (Second)t.Item3, Face = t.Item4, Depth = t.Item5, LayerE4 = t.Item6, Rotation = t.Item7,
                     ScaleK = k, Utm = utm, NoiseSeed = seed, Op = (Ops)op, C = third ? c : null
                 }));
 
         // two inputs only (for the inclusion-exclusion of the volumes)
-        static readonly Gen<Case> GenPair = GenCase.Select(c => { c.C = null; return c; });
+        static readonly Gen<Case> GenPair = GenCase.Select(c => { c.C = null; if (c.Kind == Second.Pinch) c.Kind = Second.Overlapping; return c; });
 
         // ---------------------------------------------------------------- campaign
 
@@ -366,6 +377,52 @@ namespace geometry3Sharp.Tests
                     return "a second instance gives a different result";
                 return "";
             }, 25, 9103);
+        }
+
+        [Fact]
+        public void SeparateSelfContacts_KeepsTheContract_AndTheVolume()
+        {
+            // with InputGrid (which makes nearly touching faces touch) and SeparateSelfContacts 2^-20 of the case's unit: the
+            // contract of Valid holds, no self-contact is left that could be separated without a crossing (the count only goes
+            // down), the moves stay within the distance, and the volume moves at most the distance times the area
+            int withSelfContacts = 0, separated = 0;
+            Campaign("SeparateSelfContacts", GenCase, c => {
+                List<DMesh3> inputs = c.Build();
+                var before = inputs.Select(Fingerprint).ToList();
+                double grid = Math.Pow(2, -20 + c.ScaleK);
+                var plain = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = grid };
+                plain.Compute();
+                var p = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = grid, SeparateSelfContacts = grid };
+                p.Compute();
+                if (p.Status != plain.Status)
+                    return "status " + p.Status + " with the option, " + plain.Status + " without";
+                string contract = Contract(p, inputs, before);
+                if (contract != "")
+                    return contract;
+                if (p.Status != SolidBooleanPipeline.PipelineStatus.Success || p.Result.TriangleCount == 0)
+                    return "";
+                int found = SolidBooleanPipeline.SelfContacts(plain.Result).Count;
+                if (found > 0) withSelfContacts++;
+                if (found > 0 && p.Report.SelfContactsLeft == 0) separated++;
+                if (p.Report.SelfContactsFound != found)
+                    return $"SelfContactsFound {p.Report.SelfContactsFound}, the result without the option has {found}";
+                if (p.Report.SelfContactsLeft > found || p.Report.SelfContactsLeft != SolidBooleanPipeline.SelfContacts(p.Result).Count)
+                    return $"SelfContactsLeft {p.Report.SelfContactsLeft} of {found}";
+                // (up to the distance plus the rounding of the new coordinates: a few units in the last place of the largest one)
+                var bounds = p.Result.GetBounds();
+                double ulp = Math.Max(bounds.Min.Abs.MaxAbs, bounds.Max.Abs.MaxAbs) * 2.220446049250313e-16;
+                if (p.Report.SelfContactMaxMove > grid * (1 + 1e-12) + 4 * ulp)
+                    return $"a move of {p.Report.SelfContactMaxMove:R} beyond the distance {grid:R} (and 4 ulps, {4 * ulp:G3})";
+                if (p.Result.TriangleCount != plain.Result.TriangleCount)
+                    return "the separation changed the triangle count";
+                double tol = grid * Area(plain.Result) + 1e-12 * Math.Abs(Volume(plain.Result));
+                if (Math.Abs(Volume(p.Result) - Volume(plain.Result)) > tol)
+                    return $"volume {Volume(p.Result):R} against {Volume(plain.Result):R} (tolerance {tol:G3})";
+                return "";
+            }, 40, 9106);
+            log.WriteLine($"  results with self-contacts: {withSelfContacts}, all separated: {separated}");
+            if (Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") == null)
+                Assert.True(withSelfContacts > 0, "no case of the campaign had a self-contact (the property would be vacuous)");
         }
 
         [Fact]

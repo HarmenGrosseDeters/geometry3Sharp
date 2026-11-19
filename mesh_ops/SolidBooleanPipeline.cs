@@ -135,6 +135,20 @@ namespace gs
         /// <summary> with PairContacts: the collapses of an edge together with its twin edge (two edges each); 0 otherwise </summary>
         public int PairedCollapses;
         /// <summary>
+        /// with SeparateSelfContacts: the positions of the result where one solid touches itself (two or more vertices of one
+        /// connected component at one position), before and after the separation; 0 without the option
+        /// </summary>
+        public int SelfContactsFound, SelfContactsLeft;
+        /// <summary> with SeparateSelfContacts: the vertices moved, and the largest move </summary>
+        public int SelfContactVerticesMoved;
+        /// <summary>
+        /// with SeparateSelfContacts: the contact vertices not moved because the move would have been below 16 units in the
+        /// last place of their coordinates (Skipped), and the moves put back because a triangle then crossed another one or was
+        /// degenerate (UndoneCrossing) or turned over (UndoneFlipped)
+        /// </summary>
+        public int SelfContactVerticesSkipped, SelfContactMovesUndoneCrossing, SelfContactMovesUndoneFlipped;
+        public double SelfContactMaxMove;
+        /// <summary>
         /// PairContactsMode Auto: the second reduction (pairing on) ran because the first result was not clean with contacts left; it
         /// is kept (PairPassKept) if its NotCleanReason is the same or empty and it has fewer triangles (or as many and fewer contacts). False if it did not run
         /// </summary>
@@ -355,6 +369,21 @@ namespace gs
         /// MaxDeviationTwoSided Auto does nothing (pairing does not support it), On is InvalidInput as PairContacts
         /// </summary>
         public PairContactsModes PairContactsMode = PairContactsModes.Off;
+        /// <summary>
+        /// Default 0 (off: the result is the one without this option, bit for bit). Otherwise a length: where a solid of the
+        /// result touches itself (two vertices of one connected component at one position, eg a difference whose tools touch
+        /// each other at an edge or a corner inside the body), every vertex there moves into its own part of the solid by up to
+        /// this distance (back into its own fan of triangles; at most a quarter of its shortest edge; plus the rounding of the
+        /// new coordinates, a few units in their last place), so the solid no
+        /// longer touches itself. Such a result is a valid closed, manifold mesh, but a boundary representation that merges
+        /// coincident vertices (a mesh-to-solid conversion of a CAD system) sees a non-manifold vertex there and refuses it.
+        /// Every move is checked exactly: a vertex whose move would make a triangle intersect another one (that did not touch it
+        /// before) or flip a triangle stays where it was. Touching between different solids (contacts) is not changed. The
+        /// volume changes by about the moved distance times the area of the triangles around the moved vertices.
+        /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove say what was done.
+        /// Negative or not finite: InvalidInput
+        /// </summary>
+        public double SeparateSelfContacts = 0;
 
         /// <summary> the returned solid, or null if Status is not Success </summary>
         public DMesh3 Result;
@@ -412,6 +441,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
+            if (!(SeparateSelfContacts >= 0) || double.IsInfinity(SeparateSelfContacts))
+                return fail(PipelineStatus.InvalidInput, "SeparateSelfContacts must be finite and not negative", total);
             if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
                 return fail(PipelineStatus.InvalidInput, "ThinInputs is not a defined value", total);
             if (Inputs == null || Inputs.Count == 0)
@@ -584,11 +615,244 @@ namespace gs
                 Report.PairPassMilliseconds = clock.ElapsedMilliseconds;
             }
 
+            // 6. the self-contacts of the result, separated
+            if (SeparateSelfContacts > 0 && result.TriangleCount > 0) {
+                int moved, found, left;
+                double maxMove;
+                int skipped, undoneX, undoneF;
+                SeparateSelfContactsOf(result, SeparateSelfContacts, out found, out left, out moved, out maxMove, out skipped, out undoneX, out undoneF);
+                Report.SelfContactVerticesSkipped = skipped;
+                Report.SelfContactMovesUndoneCrossing = undoneX;
+                Report.SelfContactMovesUndoneFlipped = undoneF;
+                Report.SelfContactsFound = found;
+                Report.SelfContactsLeft = left;
+                Report.SelfContactVerticesMoved = moved;
+                Report.SelfContactMaxMove = maxMove;
+                if (moved > 0) {
+                    Report.ContactsResult = countContacts(result, null);
+                    Report.NotCleanReason = MeshRobustRepair.NotCleanReason(result);
+                }
+            }
+
             Result = result;
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
         }
+
+        // the positions where two or more vertices of one connected component lie: per position the vertices of the
+        // components that occur there more than once
+        internal static List<List<int>> SelfContacts(DMesh3 mesh)
+        {
+            var cc = new MeshConnectedComponents(mesh);
+            cc.FindConnectedT();
+            var compOf = new Dictionary<int, int>();
+            for (int c = 0; c < cc.Count; ++c)
+                foreach (int t in cc.Components[c].Indices) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    compOf[tv.a] = c; compOf[tv.b] = c; compOf[tv.c] = c;
+                }
+            var byPos = new Dictionary<Vector3d, List<int>>();
+            foreach (int v in mesh.VertexIndices()) {
+                if (!compOf.ContainsKey(v))
+                    continue;
+                Vector3d p = mesh.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);      // (+0.0: -0 and 0 are one position)
+                List<int> list;
+                if (!byPos.TryGetValue(key, out list))
+                    byPos[key] = list = new List<int>();
+                list.Add(v);
+            }
+            var result = new List<List<int>>();
+            foreach (List<int> vs in byPos.Values) {
+                if (vs.Count < 2)
+                    continue;
+                var self = new List<int>();
+                foreach (int v in vs) {
+                    int n = 0;
+                    foreach (int w in vs)
+                        if (compOf[w] == compOf[v])
+                            n++;
+                    if (n > 1)
+                        self.Add(v);
+                }
+                if (self.Count > 0)
+                    result.Add(self);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Moves every vertex of a self-contact (SelfContacts) into its own part of the solid: back into its own fan (the
+        /// area-weighted direction to the centroids of its triangles), by delta, at most a quarter of its shortest edge; a vertex
+        /// whose move would be below 16 units in the last place of its largest coordinate stays. A move is put back if a
+        /// triangle of the vertex then crosses another triangle beyond what they share (vertices at one position count as one,
+        /// so a touch at another contact is allowed; CrossingTriangles, exact), is degenerate, or turned over; putting back
+        /// repeats until no such triangle is left.
+        /// </summary>
+        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, out int found, out int left, out int moved, out double maxMove)
+        {
+            int skipped, undoneX, undoneF;
+            SeparateSelfContactsOf(mesh, delta, out found, out left, out moved, out maxMove, out skipped, out undoneX, out undoneF);
+        }
+
+        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, out int found, out int left, out int moved, out double maxMove,
+            out int skipped, out int undoneIntersecting, out int undoneFlipped)
+        {
+            skipped = undoneIntersecting = undoneFlipped = 0;
+            List<List<int>> contacts = SelfContacts(mesh);
+            found = contacts.Count;
+            moved = 0;
+            maxMove = 0;
+            left = found;
+            if (found == 0)
+                return;
+            var old = new Dictionary<int, Vector3d>();          // moved vertex -> its position before
+            var clusterOf = new Dictionary<int, int>();         // moved vertex -> its cluster
+            var clusters = new List<List<int>>();
+            var oldNormal = new Dictionary<int, Vector3d>();
+            foreach (List<int> vs in contacts)
+                foreach (int v0 in vs) {
+                    if (old.ContainsKey(v0))
+                        continue;
+                    var cluster = new List<int> { v0 };
+                    var inCluster = new HashSet<int> { v0 };
+                    // the direction: back into the vertex's own fan, along the area-weighted direction to the centroids of its
+                    // triangles (along its own surface, away from the other sheet; a normal would be unreliable where thin layers
+                    // fold back on themselves, and a measurement on faceted CAD data separated 271 of 274 self-contacts this way)
+                    Vector3d n = Vector3d.Zero;
+                    var tris = new HashSet<int>();
+                    Vector3d p0 = mesh.GetVertex(v0);
+                    foreach (int v in cluster)
+                        foreach (int t in mesh.VtxTrianglesItr(v))
+                            if (tris.Add(t)) {
+                                Index3i tv = mesh.GetTriangle(t);
+                                Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                                double area = 0.5 * (b - a).Cross(c - a).Length;
+                                n -= ((a + b + c) / 3 - p0) * area;      // (the move is -n below)
+                            }
+                    double shortest = double.MaxValue, largest = 0;
+                    foreach (int v in cluster) {
+                        Vector3d p = mesh.GetVertex(v);
+                        largest = Math.Max(largest, Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
+                        foreach (int w in mesh.VtxVerticesItr(v))
+                            if (!inCluster.Contains(w))
+                                shortest = Math.Min(shortest, p.Distance(mesh.GetVertex(w)));
+                    }
+                    double len = n.Length;
+                    double step = Math.Min(delta, 0.25 * shortest);
+                    if (!(len > 0) || !(step > 16 * largest * 2.220446049250313e-16)) {
+                        skipped++;
+                        continue;
+                    }
+                    Vector3d move = n * (-step / len);
+                    foreach (int t in tris)
+                        if (!oldNormal.ContainsKey(t))
+                            oldNormal[t] = mesh.GetTriNormal(t);
+                    int id = clusters.Count;
+                    clusters.Add(cluster);
+                    foreach (int v in cluster) {
+                        old[v] = mesh.GetVertex(v);
+                        clusterOf[v] = id;
+                        mesh.SetVertex(v, old[v] + move);
+                    }
+                }
+            // put back the moves whose triangles cross another triangle, are degenerate or turned over, until none is left
+            for (int round = 0; round < 64 && old.Count > 0; ++round) {
+                var undo = new HashSet<int>();
+                var undoF = new HashSet<int>();
+                bool flipping = false;
+                Action<int> flag = (t) => {
+                    Index3i tv = mesh.GetTriangle(t);
+                    for (int j = 0; j < 3; ++j) {
+                        int c;
+                        if (clusterOf.TryGetValue(tv[j], out c) && old.ContainsKey(tv[j]))
+                            (flipping ? undoF : undo).Add(c);
+                    }
+                };
+                foreach (int t in CrossingTriangles(mesh, old.Keys)) flag(t);
+                flipping = true;
+                foreach (var kv in oldNormal)
+                    if (mesh.GetTriNormal(kv.Key).Dot(kv.Value) <= 0)
+                        flag(kv.Key);
+                undoF.ExceptWith(undo);
+                undoneIntersecting += undo.Count;
+                undoneFlipped += undoF.Count;
+                undo.UnionWith(undoF);
+                if (undo.Count == 0)
+                    break;
+                foreach (int c in undo)
+                    foreach (int v in clusters[c])
+                        if (old.ContainsKey(v)) {
+                            mesh.SetVertex(v, old[v]);
+                            old.Remove(v);
+                        }
+            }
+            moved = old.Count;
+            foreach (var kv in old)
+                maxMove = Math.Max(maxMove, mesh.GetVertex(kv.Key).Distance(kv.Value));
+            left = SelfContacts(mesh).Count;
+        }
+
+        /// <summary>
+        /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
+        /// at one position count as one (so a touch at a contact, a position with several vertices, is not a crossing, but a
+        /// triangle that passes through another one is; ExactTriangleIntersection.IntersectsBeyondShared, exact), or that are
+        /// degenerate
+        /// </summary>
+        internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices)
+        {
+            var canon = new Dictionary<Vector3d, int>();
+            Func<int, int> id = (v) => {
+                Vector3d p = mesh.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);
+                int c;
+                if (!canon.TryGetValue(key, out c))
+                    canon[key] = c = v;
+                return c;
+            };
+            var tree = new DMeshAABBTree3(mesh, true);
+            var mine = new HashSet<int>();
+            foreach (int v in vertices)
+                foreach (int t in mesh.VtxTrianglesItr(v))
+                    mine.Add(t);
+            var crossing = new HashSet<int>();
+            foreach (int t in mine) {
+                var A = new Triangle3d();
+                mesh.GetTriVertices(t, ref A.V0, ref A.V1, ref A.V2);
+                if (ExactTriangleIntersection.IsDegenerate(ref A)) {
+                    crossing.Add(t);
+                    continue;
+                }
+                Index3i ta = mesh.GetTriangle(t);
+                var ia = new Index3i(id(ta.a), id(ta.b), id(ta.c));
+                var box = new AxisAlignedBox3d(A.V0);
+                box.Contain(A.V1); box.Contain(A.V2);
+                bool hit = false;
+                var trav = new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (b, depth) => !hit && b.Intersects(box),
+                    NextTriangleF = (u) => {
+                        if (hit || u == t)
+                            return;
+                        var B = new Triangle3d();
+                        mesh.GetTriVertices(u, ref B.V0, ref B.V1, ref B.V2);
+                        Index3i tb = mesh.GetTriangle(u);
+                        var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
+                        bool shares = ia.a == ib.a || ia.a == ib.b || ia.a == ib.c || ia.b == ib.a || ia.b == ib.b || ia.b == ib.c || ia.c == ib.a || ia.c == ib.b || ia.c == ib.c;
+                        if (shares && ExactTriangleIntersection.IsDegenerate(ref B))
+                            return;     // (a degenerate neighbour is judged as its own triangle, if it moved)
+                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
+                            hit = true;
+                    }
+                };
+                tree.DoTraversal(trav);
+                if (hit)
+                    crossing.Add(t);
+            }
+            return crossing;
+        }
+
+        static long PairKey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
 
         // a normal positive power of two: its stored significand bits are all zero (a subnormal power of two has one of them
         // set, and the only positive value with a zero exponent field and no significand bit is 0, excluded)
