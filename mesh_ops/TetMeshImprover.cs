@@ -180,7 +180,7 @@ namespace gs
             hill_climb(MaxPasses);
             // rescue phase (TET_MESHING.md section 17): only if tets below the target are left (a mesh without any would stop after one
             // empty pass anyway; the test saves that scan and keeps the counts as before)
-            if (RescuePasses > 0 && !CancelF() && any_bad()) {
+            if (RescuePasses > 0 && !CancelF() && !visitCapSpent && any_bad()) {
                 ActiveSet = true;
                 long p = Counts["passes"];
                 try { hill_climb(RescuePasses); }
@@ -188,7 +188,7 @@ namespace gs
                 Counts["rescue_passes"] = Counts["passes"] - p;
             }
             if (Trace != null) {
-                Trace("attempts," + splitAttempts + "," + startVertices + ",0,0," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                Trace("attempts," + splitAttempts + "," + startVertices + "," + visits + ",0," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
                 int nbad = 0; double w = 180;
                 for (int id = 0; id < tets.Count; ++id) if (alive[id]) { double q = quality(id); if (q < TargetDegrees) nbad++; w = Math.Min(w, q); }
                 Trace("end," + Counts["passes"] + "," + nbad + "," + w.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + traceClock.Elapsed.TotalSeconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
@@ -267,8 +267,12 @@ namespace gs
                 foreach (var (q0, id) in bad) {
                     if (CancelF()) break;
                     if (!alive[id] || quality(id) >= TargetDegrees) continue;
+                    // work cap over all operations (opt-in, a count of visits of a bad tet, never time): when spent, the improvement ends
+                    if (MaxVisits > 0 && visits >= MaxVisits) { Counts["work_cap_reached"] = 1; visitCapSpent = true; break; }
+                    visits++;
                     improve(id);
                 }
+                if (visitCapSpent) break;
                 if (Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count() == before) break;
             }
         }
@@ -657,6 +661,16 @@ namespace gs
         /// </summary>
         internal long MaxSplitAttempts = 0;
         long splitAttempts;
+        /// <summary>
+        /// work cap over every operation: at most this many visits of a bad tet (one visit tries edge and face removal, contraction, split,
+        /// smoothing and boundary moves on it) over the whole run, main and rescue passes together; 0 = no cap (the default, bit for bit as without
+        /// the option). When spent the improvement ends (the worst tets were visited first in each pass) and Counts["work_cap_reached"] = 1 (only then the key exists).
+        /// </summary>
+        internal long MaxVisits = 0;
+        long visits;
+        bool visitCapSpent;
+        /// <summary> the visits made so far </summary>
+        internal long Visits { get { return visits; } }
         /// <summary> the split attempts made so far (edges tried for a split), with or without the cap </summary>
         internal long SplitAttempts { get { return splitAttempts; } }
         int startVertices;

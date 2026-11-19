@@ -52,7 +52,7 @@ def main():
     d = sys.argv[1]
     base = {}
     for cfg in sys.argv[2:]:
-        floor = cfg.split("x")[0]
+        floor = cfg.replace("v", "x").split("x")[0]
         end, att = read_traces(d, cfg)
         rows = read_rows(d, cfg)
         timeouts = sorted(n for n, r in rows.items() if r[2] == "TIMEOUT")

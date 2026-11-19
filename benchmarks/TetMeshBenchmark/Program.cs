@@ -86,6 +86,7 @@ static class Program
                 System.IO.StreamWriter trace = null;
                 if (Environment.GetEnvironmentVariable("G3_TET_TRACE_FILE") is string tf) { trace = new System.IO.StreamWriter(tf, true); string nm = kv.Key; tm.ImproveTrace = (l) => trace.WriteLine(nm + "," + l); }
                 if (Environment.GetEnvironmentVariable("G3_TET_CAP") is string cp) tm.MaxSplitAttemptsPerVertex = double.Parse(cp, Inv);
+                if (Environment.GetEnvironmentVariable("G3_TET_VISITS") is string vc) tm.MaxImproveVisitsPerVertex = double.Parse(vc, Inv);
                 tm.Compute();
                 if (trace != null) trace.Dispose();
                 if (tm.DiagnosticLines != null) foreach (string l in tm.DiagnosticLines) Console.Error.WriteLine("diag," + kv.Key + "," + l);

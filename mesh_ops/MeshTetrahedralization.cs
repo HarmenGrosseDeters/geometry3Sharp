@@ -123,6 +123,13 @@ namespace gs
         /// then the key exists) and the run does not fail. 0, a negative value or NaN: no cap (the default; the result is then bit for bit as before the option).
         /// </summary>
         public double MaxSplitAttemptsPerVertex = 0;
+        /// <summary>
+        /// stage 2: an opt-in work cap over all improvement operations: at most this many visits of a bad tet (each tries edge and face removal,
+        /// contraction, split, smoothing and boundary moves) per vertex of the stage-1 mesh, main and rescue passes together; counted, never wall-clock.
+        /// When spent the improvement ends and Counts["improve_work_cap_reached"] = 1 (only then the key exists); the run does not fail.
+        /// 0, a negative value, NaN or infinity: no cap (the default; bit for bit as before the option).
+        /// </summary>
+        public double MaxImproveVisitsPerVertex = 0;
         /// <summary> (diagnosis, docs/design/TET_MESHING.md section 16) after stage 2, classify the tets left below the target: "diag_*" counts and DiagnosticLines </summary>
         internal bool DiagnoseImprovement = false;
         internal List<string> DiagnosticLines;
@@ -241,6 +248,8 @@ namespace gs
                 imp.Trace = ImproveTrace;
                 if (MaxSplitAttemptsPerVertex > 0 && !double.IsInfinity(MaxSplitAttemptsPerVertex))
                     imp.MaxSplitAttempts = (long)Math.Min(Math.Ceiling(MaxSplitAttemptsPerVertex * Result.Vertices.Count), long.MaxValue / 2);
+                if (MaxImproveVisitsPerVertex > 0 && !double.IsInfinity(MaxImproveVisitsPerVertex))
+                    imp.MaxVisits = (long)Math.Min(Math.Ceiling(MaxImproveVisitsPerVertex * Result.Vertices.Count), long.MaxValue / 2);
                 imp.Run();
                 if (DiagnoseImprovement) { imp.Diagnose(); DiagnosticLines = imp.DiagnosticLines; }
                 Result = imp.Result();
