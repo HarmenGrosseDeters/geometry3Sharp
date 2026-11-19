@@ -204,6 +204,39 @@ regression; `--strict` makes `compare` exit 1 on one. "pinches" (clean except wh
 the final tool only, so clean before and pinches after is listed apart. A self-intersection count of -1 (a result above 400k triangles,
 not computed) is unknown, not a hit.
 
+### Results of the two full runs (2026-11-18 / 2026-11-19)
+
+The baseline and the final run of the roadmap (owner 2026-11-08 / 2026-11-12), made with `thingi-pairs.yml` on GitHub-hosted `ubuntu-latest` (4 cores), one boolean at a time, timeout 300 s (900 s for the size class), `manifold3d` 3.0.1, CGAL EPECK from the runner's `libcgal-dev` (black box, only the 100-pair sample). Raw rows (no mesh) are on the data branch `runs/thingi-pairs`.
+
+| run | library | workflow run | data branch directory |
+|---|---|---|---|
+| baseline | `7cb08f69` (merge of #418; the tool of that tree has the commands the workflow calls) | 44411741780 | `run-44411741780-baseline` (37 jobs, all ok) |
+| final | master `bb2ea96a` (Exact Boolean 3.0 complete) | 44419047959 | `run-44419047959-final` |
+| final, 2 shards rerun | `bb2ea96a` | 44429883711 | `run-44429883711-final-rerun` (normal-2 and normal-15 lost to a huggingface connection reset, [#1140](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/1140)) |
+| final, size shards rerun | master `ae0ee28c` (the library is newer than `bb2ea96a`) | 44481015361 | `run-44481015361-final-size-rerun` (size-0, size-5, size-6, size-9 with the 5 pairs below) |
+
+The size shards of the final run lost 5 of the 100 size pairs (p0003, p0058, p0068, p0092, p0094): `BooleanComparison eval` hit its 3600 s timeout on them, not the booleans (3-4 s each). Cause: the edge table of `BoolCmp.Pinches.Build` (the pinch split of the oracle, new since the baseline) used the default hash of a long, `a ^ b` for an edge, quadratic on large results ([#1157](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/1157), the class of [LongHashAudit](../LongHashAudit/README.md)); with the fix the evaluation of p0003 takes 10 s (baseline tool: 11 s). The 5 pairs were rerun with the fixed tool (the rows of the size rerun). The tables are `python3 data/thingi_pairs_runs.py summary <dirs>` of the merged rows (final, the rerun of the 2 shards, the size rerun for the 4 shards), the comparison is `compare <baseline> <final>`.
+
+**Per method and class** (operations: 3 per pair; clean = `NotCleanReason == ""`; empty = volume-consistent empty result; times in ms of the boolean alone):
+
+| class | run | method | pairs | clean | empty ok | not clean | max identity error | median / p90 / max | geomean | ops > 5 s | ops > 20 s |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| thingi-pairs | baseline | ours | 1000 | 2765 | 228 | degenerate triangles 7 | 4.58e-08 | 134 / 402 / 3961 | 129 | 0 | 0 |
+| thingi-pairs | final | ours | 1000 | 2772 | 228 | 0 | 4.58e-08 | 121 / 318 / 6097 | 116 | 1 | 0 |
+| thingi-pairs | both | manifold | 1000 | 1757 | 228 | degenerate triangles 1015 | 3.55e-10 | 34 / 77-79 / 1186-1612 | 32 / 31 | 0 | 0 |
+| thingi-pairs, CGAL sample | baseline / final | cgal_epeck | 100 | 225 | 24 | degenerate triangles 51 | 3.70e-14 | 60 / 204 / 495 and 53 / 151 / 485 | 50 / 44 | 0 | 0 |
+| thingi-pairs-size | baseline | ours | 100 | 281 | 17 | degenerate triangles 2 | 1.95e-10 | 1795 / 3443 / 35187 | 1806 | 8 | 3 |
+| thingi-pairs-size | final | ours | 100 | 283 | 17 | 0 | 2.36e-10 | 1550 / 3028 / 23415 | 1396 | 4 | 3 |
+| thingi-pairs-size | baseline / final | manifold | 100 | 41 | 17 | degenerate triangles 242 | 3.39e-08 | 449 / 1087 / 25510 and 428 / 1098 / 25702 | 459 / 444 | 6 | 3 |
+
+The identity error of ours on the 1000 pairs (4.58e-08) is below the tolerance 1e-7 in both runs. All operations of ours and of Manifold succeeded (no rejected, failed, crashed or timed-out operation). On the 100-pair CGAL sample, ours is clean or a consistent empty result in all 300 operations, CGAL EPECK in 249 and Manifold in 194; the time of ours over CGAL EPECK per operation is 2.85 (baseline) and 3.00 (final) at the median, 5.7 and 6.4 at p90.
+
+**Baseline against final, ours** (1100 pairs, 3300 operations, `compare`): no regression. No operation that was clean before is not clean after (0 pairs without a row in the final run after the reruns). 9 operations that were "degenerate triangles" before are clean after (7 on `thingi-pairs`, 2 on the size class). Time ratio final / baseline: median 0.88, p10 0.59, p90 1.34, max 2.17, geomean 0.88; 139 operations are more than 2x faster. Slower than 2x: 4 operations, all with baseline times of 18-47 ms (noise level): p0961_72603+97126 difference 29 to 63 ms, p0970_56497+212134 intersection 18 to 39 ms, p0990_138581+250396 difference 47 to 100 ms, p0993_1036313+213384 union 25 to 51 ms. For Manifold the same comparison shows no change of any outcome (median ratio 0.98).
+
+**Operations above 5 s and 20 s (the 20 s rule):** ours, on `thingi-pairs`: one operation above 5 s, p0988_216763+105695 intersection 6.1 s (baseline below 4 s, ratio below 2). On the size class the three operations of p0084_1088281+76477 are above 20 s in both runs: baseline 30.8 / 35.2 / 30.0 s, final 20.6 / 23.4 / 20.9 s (-32 %); issue [#1158](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1158): 85-93 % of each operation is in `assembly.simplify` (`ExactPlanarSimplify`), not in the rounding, and it does not follow the size of the result (not the pair of #1047). The other slow ones of the size class are 5-6.5 s for ours; Manifold has 3 operations above 20 s too (p0016_518090+101337, 25 s, both runs).
+
+Limits of the numbers: one run of each class per commit on shared runners; the time of the baseline and of the final run are comparable within a few tens of percent, not exactly. The final run's size shards 0, 5, 6 and 9 (40 pairs) were measured on master `ae0ee28c`, newer than `bb2ea96a` for the other jobs; the five lost pairs got faster by about 4-35 % in that run, in the range of the other pairs.
+
 ### Trial run (2026-11-08, not the full run)
 
 The first 20 pairs of `pairs.csv` (60 booleans) and the first 3 of `pairs_size.csv` (9 booleans), tool built from this

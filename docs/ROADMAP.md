@@ -147,7 +147,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 In order:
 - Tet P2 (output / API); #1073 is merged.
-- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs (owner 2026-11-12); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification): a measured diagnosis first.
+- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs are done (2026-11-19; no regression, [results](../benchmarks/BooleanComparison/README.md#results-of-the-two-full-runs-2026-11-18--2026-11-19)); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification) and #1158 (one Thingi10K size pair at 21-35 s per operation, in `assembly.simplify`): a measured diagnosis first.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
