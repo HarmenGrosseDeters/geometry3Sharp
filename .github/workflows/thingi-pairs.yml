@@ -44,6 +44,9 @@ on:
       max_pairs:
         description: 'Only the first N pairs of each list (0: all; for a smoke run)'
         default: '0'
+      only_jobs:
+        description: 'Only these jobs of the plan, eg normal-2,size-9 (empty: all); to rerun the shards of a run whose jobs failed for infrastructure reasons, with the same shard sizes and another label'
+        default: ''
 
 permissions:
   contents: read
@@ -66,10 +69,11 @@ jobs:
           METHODS: ${{ inputs.methods }}
           CLASSES: ${{ inputs.classes }}
           MAX_PAIRS: ${{ inputs.max_pairs }}
+          ONLY: ${{ inputs.only_jobs }}
           LABEL: ${{ inputs.label }}
         run: |
           [[ "$LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "label: letters, digits, . _ - only"; exit 1; }
-          m=$(python3 benchmarks/BooleanComparison/data/thingi_pairs_runs.py plan --shard "$SHARD" --size-shard "$SIZE_SHARD" --cgal-shard "$CGAL_SHARD" --methods "$METHODS" --classes "$CLASSES" --max-pairs "$MAX_PAIRS")
+          m=$(python3 benchmarks/BooleanComparison/data/thingi_pairs_runs.py plan --shard "$SHARD" --size-shard "$SIZE_SHARD" --cgal-shard "$CGAL_SHARD" --methods "$METHODS" --classes "$CLASSES" --max-pairs "$MAX_PAIRS" --only "$ONLY")
           echo "matrix=$m" >> "$GITHUB_OUTPUT"
           echo "$m" | python3 -c 'import json,sys; j=json.load(sys.stdin)["include"]; print(len(j), "jobs")' | tee -a "$GITHUB_STEP_SUMMARY"
           [ "$(echo "$m" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')" -gt 0 ] || { echo "no job"; exit 1; }

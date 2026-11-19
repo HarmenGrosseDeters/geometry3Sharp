@@ -37,7 +37,7 @@ namespace g3cli
                     "Writes Medit .mesh, Gmsh .msh (4.1, or 2.2 with --format msh22) or VTK legacy .vtk (ASCII); no reader exists. Every boundary triangle has a marker " +
                     "(the group id of the nearest input triangle if the input has triangle groups, else its triangle id) and every tet a region id " +
                     "(connected component); the file refs are marker + 1 and region + 1 (0 = unmarked). Result: tet_status (success, or " +
-                    "point_limit_reached: a valid mesh, less refined, with a warning), counts, 'valid' (exact check), quality statistics and 'targets' " +
+                    "point_limit_reached: a valid mesh, less refined (max_steiner_points or the work bound of the refinement), with a warning), counts, 'valid' (exact check), quality statistics and 'targets' " +
                     "(the min_dihedral and max_radius_edge targets checked on the output: counts and 'met' flags, not a proof), the marker distances " +
                     "(boundary centroid to nearest input triangle; with --deviation also the Hausdorff distance). Other statuses fail with operation_failed " +
                     "and wrap_status or tet_status; nothing is written then.",
@@ -50,7 +50,7 @@ namespace g3cli
             c.Params.Add(new Param("min_dihedral", ParamType.Number, "target for the smallest dihedral angle in degrees (0 = off; library default 10): tets below it are worked on by the refinement and improvement, and counted in targets"));
             c.Params.Add(new Param("max_radius_edge", ParamType.Number, "target for the radius-edge ratio (library default 2): tets above it are refined where the fixed surface allows, and counted in targets"));
             c.Params.Add(new Param("max_circumradius", ParamType.Number, "size bound in mesh units: tets with a larger circumradius are refined (0 = none, the library default; at least 1/100 of the bounding box diagonal)"));
-            c.Params.Add(new Param("max_steiner_points", ParamType.Integer, "stop refining after this many inserted points (status point_limit_reached; library default 2000000)"));
+            c.Params.Add(new Param("max_steiner_points", ParamType.Integer, "stop refining after this many inserted points (status point_limit_reached; library default 2000000; the library's work bound of the refinement gives the same status)"));
             c.Params.Add(new Param("improve", ParamType.Boolean, "flips, smoothing, splits and contractions after the refinement (library default true)"));
             c.Params.Add(new Param("markers", ParamType.Boolean, "compute the boundary markers and region ids and write them as refs (false: every ref is 0)") { Default = true });
             c.Params.Add(Deviation());
@@ -99,7 +99,7 @@ namespace g3cli
                 if (!usable || tm.Result == null || tm.Result.Tets.Count == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "tet mesh failed: " + tetStatus + (tm.Status == MeshTetrahedralization.TetStatus.WrapFailed ? " (" + wrapStatus + ")" : ""), failure);
                 if (tm.Status == MeshTetrahedralization.TetStatus.PointLimitReached)
-                    warnings.Add("max_steiner_points reached: the tet mesh is valid but not fully refined");
+                    warnings.Add((tm.Counts.ContainsKey("work_limit_reached") ? "the refinement work bound was reached" : "max_steiner_points reached") + ": the tet mesh is valid but not fully refined (see targets)");
 
                 TetMesh3 t = tm.Result;
                 TetMeshMarkers markers = args.Bool("markers") ? TetMeshMarkers.Compute(t, input) : null;

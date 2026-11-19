@@ -844,6 +844,7 @@ namespace geometry3Sharp.Tests
         {
             // pinned on linux / .NET (libm atan2 and sin differ in the last bit on other platforms, which can change the hill climbing there)
             if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux) ||
+                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.X64 ||
                 !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET ", StringComparison.Ordinal) ||
                 System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal)) return;
             var box = new MeshTetrahedralization(TetMeshingStage2Tests.Input("box"));

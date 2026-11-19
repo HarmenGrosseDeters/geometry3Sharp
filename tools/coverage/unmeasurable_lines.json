@@ -490,10 +490,10 @@
     "file": "mesh_ops/SolidBooleanPipeline.cs",
     "text": "return fail(PipelineStatus.OpenInput, op.Error, total);",
     "after": [
-      "if (Array.IndexOf(Report.InputClosed, false) < 0)",
+      "if (!anyOpen)",
       "// (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)"
     ],
-    "reason": "dead branch: it sits inside `if (anyOpen && ...)`, and anyOpen is true only if some Report.InputClosed entry is false, so `Array.IndexOf(Report.InputClosed, false) < 0` can never hold. Listed at the coordinator's request (owner decision on deletion pending); not deleted in this tests-only PR",
+    "reason": "dead branch: it sits inside `if (anyOpen && ...)`, so `!anyOpen` can never hold (until #1137 written as `Array.IndexOf(Report.InputClosed, false) < 0`, the same condition: anyOpen is true only if some Report.InputClosed entry of the inputs the boolean gets is false). Listed at the coordinator's request (owner decision on deletion pending); not deleted in this tests-only PR",
     "approved_in": "#1124"
   },
   {

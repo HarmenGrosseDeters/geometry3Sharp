@@ -77,12 +77,12 @@ static class Program
             ("grid3d n=27000", () => Grid3(30), "641b48317c4b9c92"),
         };
         Console.WriteLine("vector kernels: " + (Vector256Accelerated() ? "yes" : "no"));
-        Console.WriteLine("| matrix | nnz(L) | Factorize (s) | Solve (ms) | solution hash |");
+        Console.WriteLine("| matrix | nnz(L) | Factorize (s) | Solve parallel / serial (ms) | solution hash |");
         Console.WriteLine("|---|---|---|---|---|");
         bool bad = false;
         foreach (var cs in cases) {
             if (!Regex.IsMatch(cs.name, only)) continue;
-            double bf = double.MaxValue, bs = double.MaxValue; long nnz = 0; ulong h = 0;
+            double bf = double.MaxValue, bs = double.MaxValue, bss = double.MaxValue; long nnz = 0; ulong h = 0;
             for (int r = 0; r < reps; ++r) {
                 var c = cs.make();
                 var sw = Stopwatch.StartNew();
@@ -91,15 +91,16 @@ static class Program
                 nnz = c.FactorNonZeros;
                 var b = new double[c.N]; for (int i = 0; i < b.Length; ++i) b[i] = 1 + (i % 7) / 7.0;
                 var x = new double[c.N];
-                sw.Restart(); for (int k = 0; k < 5; ++k) c.Solve(b, x); bs = Math.Min(bs, sw.Elapsed.TotalMilliseconds / 5);
+                bs = Math.Min(bs, TimeSolves(() => c.Solve(b, x), 3));
                 h = 1469598103934665603UL; foreach (double v in x) { h ^= (ulong)BitConverter.DoubleToInt64Bits(v); h *= 1099511628211UL; }
+                SetField(c, "ForceSerialSolve", true); bss = Math.Min(bss, TimeSolves(() => c.Solve(b, x), 3));
             }
-            Console.WriteLine($"| {cs.name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} | {h:x16} |");
+            Console.WriteLine($"| {cs.name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} / {bss:F1} | {h:x16} |");
             if (h.ToString("x16") != cs.hash) { Console.Error.WriteLine("solution hash differs from the scalar code: expected " + cs.hash); bad = true; }
         }
         foreach (var (name, nx, hash) in new[] { ("hermitian grid2d n=40000", 200, "dc5d10357e466a03"), ("hermitian grid2d n=60000", 245, "5d513cbc4bee6470") }) {
             if (!Regex.IsMatch(name, only)) continue;
-            double bf = double.MaxValue, bs = double.MaxValue; long nnz = 0; ulong h = 0;
+            double bf = double.MaxValue, bs = double.MaxValue, bss = double.MaxValue; long nnz = 0; ulong h = 0;
             for (int r = 0; r < reps; ++r) {
                 var c = HermitianGrid(nx, nx);
                 var sw = Stopwatch.StartNew();
@@ -108,13 +109,28 @@ static class Program
                 nnz = c.FactorNonZeros;
                 var b = new double[2 * c.N]; for (int i = 0; i < b.Length; ++i) b[i] = 1 + (i % 7) / 7.0;
                 var x = new double[2 * c.N];
-                sw.Restart(); for (int k = 0; k < 5; ++k) c.Solve(b, x); bs = Math.Min(bs, sw.Elapsed.TotalMilliseconds / 5);
+                bs = Math.Min(bs, TimeSolves(() => c.Solve(b, x), 3));
                 h = 1469598103934665603UL; foreach (double v in x) { h ^= (ulong)BitConverter.DoubleToInt64Bits(v); h *= 1099511628211UL; }
+                SetField(c, "ForceSerialSolve", true); bss = Math.Min(bss, TimeSolves(() => c.Solve(b, x), 3));
             }
-            Console.WriteLine($"| {name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} | {h:x16} |");
+            Console.WriteLine($"| {name} | {nnz / 1e6:F1}M | {bf:F2} | {bs:F1} / {bss:F1} | {h:x16} |");
             if (h.ToString("x16") != hash) { Console.Error.WriteLine("solution hash differs from the previous code: expected " + hash); bad = true; }
         }
         return bad ? 1 : 0;
+    }
+
+    // internal test switches of the solvers (reflection: the benchmark project has no InternalsVisibleTo)
+    static void SetField(object o, string name, object v)
+    {
+        o.GetType().GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).SetValue(o, v);
+    }
+
+    static double TimeSolves(Action solve, int reps)
+    {
+        double best = double.MaxValue;
+        var sw = new Stopwatch();
+        for (int r = 0; r < reps; ++r) { sw.Restart(); for (int k = 0; k < 5; ++k) solve(); best = Math.Min(best, sw.Elapsed.TotalMilliseconds / 5); }
+        return best;
     }
 
     static bool Vector256Accelerated()
