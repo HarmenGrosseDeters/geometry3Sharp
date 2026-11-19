@@ -1,7 +1,7 @@
 # Helper of .github/workflows/thingi-pairs.yml: the full runs of the thingi-pairs classes (README.md, "Thingi10K pairs after the
 # EMBER protocol", "Full runs"). Nothing of the data is part of this repository; the meshes are fetched at run time.
 #
-#   python3 data/thingi_pairs_runs.py plan [--shard N] [--size-shard N] [--cgal-shard N] [--methods M] [--classes C] [--max-pairs N]
+#   python3 data/thingi_pairs_runs.py plan [--shard N] [--size-shard N] [--cgal-shard N] [--methods M] [--classes C] [--max-pairs N] [--only ID,ID]
 #                                                  the job matrix (JSON {"include": [...]}) of one run: shards of pairs.csv (normal),
 #                                                  pairs_size.csv (size) and pairs_cgal_sample.csv (cgal; the method cgal_epeck only)
 #   python3 data/thingi_pairs_runs.py shard <kind> <lo> <hi> <out.csv>
@@ -19,7 +19,7 @@
 # A <directory> argument is searched (recursively) for results*.jsonl. The last row of a (class, file, method) wins, as compare.py
 # --resume may append a case again. The oracle is the one of thingi_pairs.py (NotCleanReason of the result, the volume identities
 # with the tolerance 1e-7, an empty result counts only if the identities hold and no result of the pair self-intersects).
-import csv, json, math, os, sys
+import csv, json, math, os, sys, time
 import thingi_pairs as tp
 
 OPS = ["union", "intersection", "difference"]
@@ -41,7 +41,7 @@ def read_list(kind):
 def shards(count, size):
     return [(lo, min(lo + size, count)) for lo in range(0, count, size)]
 
-def plan(shard=50, size_shard=10, cgal_shard=20, methods="ours,manifold,cgal_epeck", classes="normal,size,cgal", max_pairs=0):
+def plan(shard=50, size_shard=10, cgal_shard=20, methods="ours,manifold,cgal_epeck", classes="normal,size,cgal", max_pairs=0, only=""):
     """the matrix of jobs; a job runs the methods of its kind on the pairs [lo, hi) of its list. normal and size run the methods
     except cgal_epeck, cgal runs cgal_epeck only (owner 2026-11-08: CGAL EPECK on the fixed 100-pair sample)"""
     ms, cs = [m for m in methods.split(",") if m], [c for c in classes.split(",") if c]
@@ -64,6 +64,12 @@ def plan(shard=50, size_shard=10, cgal_shard=20, methods="ours,manifold,cgal_epe
             count = min(count, max_pairs)
         for i, (lo, hi) in enumerate(shards(count, size)):
             include.append({"id": f"{kind}-{i}", "kind": kind, "lo": lo, "hi": hi, "methods": methods_of_kind})
+    wanted = {x for x in only.split(",") if x}
+    if wanted:
+        missing = wanted - {j["id"] for j in include}
+        if missing:
+            raise ValueError(f"no such job: {', '.join(sorted(missing))}")
+        include = [j for j in include if j["id"] in wanted]
     return {"include": include}
 
 def write_shard(kind, lo, hi, out):
@@ -80,7 +86,14 @@ def write_shard(kind, lo, hi, out):
 
 def cmd_fetch(d, pairs):
     os.makedirs(d, exist_ok=True)
-    files = tp.file_list(d)
+    for attempt in range(6):        # the tree API of huggingface resets connections under load (run 44419047959: 2 of 35 jobs)
+        try:
+            files = tp.file_list(d)
+            break
+        except OSError:
+            if attempt == 5:
+                raise
+            time.sleep(5 * 2 ** attempt)
     with open(pairs) as f:
         rows = list(csv.DictReader(l for l in f if not l.startswith("#")))
     ids = sorted({r[k] for r in rows for k in ("a", "b")}, key=int)
@@ -233,7 +246,7 @@ def main(a):
         return cast(a[a.index(name) + 1]) if name in a else default
     if a[:1] == ["plan"]:
         print(json.dumps(plan(opt("--shard", 50, int), opt("--size-shard", 10, int), opt("--cgal-shard", 20, int),
-                              opt("--methods", "ours,manifold,cgal_epeck"), opt("--classes", "normal,size,cgal"), opt("--max-pairs", 0, int))))
+                              opt("--methods", "ours,manifold,cgal_epeck"), opt("--classes", "normal,size,cgal"), opt("--max-pairs", 0, int), opt("--only", ""))))
     elif a[:1] == ["shard"]: write_shard(a[1], int(a[2]), int(a[3]), a[4])
     elif a[:1] == ["fetch"]: cmd_fetch(a[1], a[2])
     elif a[:1] == ["summary"]: print(summary(a[1:]))
