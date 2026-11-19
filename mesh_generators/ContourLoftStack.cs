@@ -92,6 +92,8 @@ namespace g3
     /// pieces lie in an intermediate plane at <see cref="BranchFraction"/> of the slab and a set of pieces is joined by zero-width
     /// bridges into one contour, which the stage 1 search tiles against the single contour on its other side. The surface has a
     /// ridge at the bridge (the known look of composite contours), no medial axis is used.</para>
+    /// <para>A slice is taken as planar: its height is the mean of its vertices' heights and the 2D work (nesting, overlay) uses the
+    /// projection along the stacking direction; the exact check of the assembled mesh protects against slices that are not.</para>
     /// <para>Limits (status Unsupported, never a wrong mesh): the contours of a branching or merging group must have no holes; a
     /// contour that ends must have only children that end too. Serial and deterministic.</para>
     /// </remarks>

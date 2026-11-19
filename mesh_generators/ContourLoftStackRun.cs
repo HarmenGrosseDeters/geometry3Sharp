@@ -588,6 +588,19 @@ namespace g3
                 expect++;
             }
             if (expect != n) return false;
+            // the extra vertices lie on the contour's edges (up to the overlay's merge tolerance): between the contour vertices i and i + 1
+            double scale = 0;
+            foreach (var p in k.P2) scale = Math.Max(scale, Math.Max(Math.Abs(p.x), Math.Abs(p.y)));
+            for (int i = 0; i < loop.Length; ++i) {
+                int idx = (first + i) % loop.Length;
+                if (position.ContainsKey(loop[idx])) continue;
+                int j = i; while (!position.ContainsKey(loop[(first + j) % loop.Length])) --j;   // the contour vertex before it
+                Vector2d a = k.P2[position[loop[(first + j) % loop.Length]]], b = k.P2[(position[loop[(first + j) % loop.Length]] + 1) % n];
+                Vector2d pt = ov.Mesh.Vertices[loop[idx]];
+                Vector2d ab = b - a, ap = pt - a;
+                double len = ab.Length;
+                if (Math.Abs(ab.x * ap.y - ab.y * ap.x) > 1e-9 * (len + scale) * len) return false;
+            }
             return true;
         }
 
@@ -667,6 +680,7 @@ namespace g3
             var connected = new List<int> { 0 };
             var done = new bool[r]; done[0] = true;
             var bridges = new List<(int la, int va, int lb, int vb)>();
+            var usedVertex = new HashSet<(int, int)>();   // at most one bridge per vertex: the order of several would have to follow their angles
             if (!planeBridges.TryGetValue(planeKey, out var chosen)) planeBridges.Add(planeKey, chosen = new List<(Vector2d, Vector2d)>());
             while (connected.Count < r) {
                 ct.ThrowIfCancellationRequested();
@@ -689,8 +703,11 @@ namespace g3
                 });
                 bool found = false;
                 foreach (var cd in cand) {
+                    if (usedVertex.Contains((cd.la, cd.va)) || usedVertex.Contains((cd.lb, cd.vb))) continue;
+                    ct.ThrowIfCancellationRequested();
                     if (Visible(loops, cd.la, cd.va, cd.lb, cd.vb, container, obstacles, chosen)) {
                         bridges.Add((cd.la, cd.va, cd.lb, cd.vb));
+                        usedVertex.Add((cd.la, cd.va)); usedVertex.Add((cd.lb, cd.vb));
                         chosen.Add((loops[cd.la].P2[cd.va], loops[cd.lb].P2[cd.vb]));
                         connected.Add(cd.lb); done[cd.lb] = true;
                         found = true; break;
@@ -772,6 +789,11 @@ namespace g3
         void CheckTerminals()
         {
             foreach (var k in contours) {
+                bool capDown = k.TermDown && !(k.FreeDown && !o.CapEnds), capUp = k.TermUp && !(k.FreeUp && !o.CapEnds);
+                if (capDown && capUp)
+                    throw Fail(ContourLoftStackStatus.Unsupported, "contour " + k.Index + " of slice " + k.Slice + " has no counterpart in either neighbouring slice (zero thickness)");
+            }
+            foreach (var k in contours) {
                 foreach (int ch in k.Children) {
                     if (k.TermUp && !contours[ch].TermUp || k.TermDown && !contours[ch].TermDown)
                         throw Fail(ContourLoftStackStatus.Unsupported, "a contour that ends has a child that continues (contour " + k.Index + " of slice " + k.Slice + ")");
@@ -786,8 +808,8 @@ namespace g3
                     bool up = side == 1;
                     bool term = up ? k.TermUp : k.TermDown, free = up ? k.FreeUp : k.FreeDown;
                     if (!term || free && !o.CapEnds) continue;
-                    // a child that ends is part of its parent's cap
-                    if (k.Parent >= 0 && (up ? contours[k.Parent].TermUp : contours[k.Parent].TermDown)) continue;
+                    // a hole that ends is part of its parent's cap (an island, at even depth, is a solid of its own)
+                    if ((k.Depth & 1) == 1 && (up ? contours[k.Parent].TermUp : contours[k.Parent].TermDown)) continue;
                     AddCap(k, up);
                 }
         }

@@ -359,13 +359,59 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EmptySlices_EndTheSolidsAround_AndAnAllEmptyStackIsInvalid()
         {
-            var s = Slices(Sl(Disc(10, 1, 0)), Sl(), Sl(Disc(10, 1, 2)), Sl(Disc(10, 1, 3)));
+            var s = Slices(Sl(Disc(10, 1, 0)), Sl(Disc(10, 1, 1)), Sl(), Sl(Disc(10, 1, 3)), Sl(Disc(10, 1, 4)));
             var r = Loft(s);
             AssertClosedSolid(r, 4);
-            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Vanishing && g.Slab == 0);
-            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Appearing && g.Slab == 1);
+            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Vanishing && g.Slab == 1);
+            Assert.Contains(r.Groups, g => g.Kind == ContourLoftGroupKind.Appearing && g.Slab == 2);
             AssertFails(Loft(Slices(Sl(), Sl(), Sl())), ContourLoftStackStatus.InvalidInput);
-            AssertClosedSolid(Loft(Slices(Sl(), Sl(Disc(10, 1, 1)), Sl(Disc(10, 1, 2)))), 2);
+            AssertClosedSolid(Loft(Slices(Sl(), Sl(Disc(10, 1, 1)), Sl(Disc(10, 1, 2)))), 2);   // the empty first slice ends nothing
+        }
+
+        static List<Vector3d> Sq(double x0, double x1, double y0, double y1, double z) =>
+            new List<Vector3d> { new Vector3d(x0, y0, z), new Vector3d(x1, y0, z), new Vector3d(x1, y1, z), new Vector3d(x0, y1, z) };
+
+        [Fact]
+        public void IslandInAHoleThatEnds_GetsItsOwnCap()
+        {
+            // a ring around a rod: outer, hole and island (depth 2) all end above slice 1; the ring is a torus, the rod a sphere
+            Func<double, IList<Vector3d>[]> three = z => Sl(Sq(0, 10, 0, 10, z), Sq(2, 8, 2, 8, z), Sq(4, 6, 4, 6, z));
+            var s = Slices(three(0), three(1), Sl());
+            var r = Loft(s);
+            AssertClosedSolid(r, 2);
+            Assert.Equal(2, r.Groups.Count(g => g.Kind == ContourLoftGroupKind.Vanishing) - 1);   // outer + hole + island vanish: three groups
+        }
+
+        [Fact]
+        public void TwoContoursNearestToTheSameVertex_GetBridgesAtDifferentVertices()
+        {
+            // the apex of the small triangle is the nearest vertex of both discs
+            var tri = new List<Vector3d> { new Vector3d(-1, 0, 1), new Vector3d(1, 0, 1), new Vector3d(0, 1, 1) };
+            var s = Slices(Sl(Rect(-4, 4, -1, 4, 0, 6)), Sl(tri, Disc(10, 0.5, 1, -2, 3), Disc(10, 0.5, 1, 2, 3)));
+            var r = Loft(s);
+            AssertClosedSolid(r, 2);
+            AssertEdgeAndVertexManifold(r.Mesh);
+        }
+
+        [Fact]
+        public void PieceWithANotchIntrudingIntoAContour_IsNotTheContour()
+        {
+            // L1 is cut by a bite of D, whose vertices lie inside L1: the piece is not L1 itself, so an intermediate plane is needed
+            var l1 = Sq(0, 4, 0, 4, 0); var l2 = Sq(10, 11, 0, 1, 0);
+            var d = new List<Vector3d> {
+                new Vector3d(-1, -1, 1), new Vector3d(12, -1, 1), new Vector3d(12, 5, 1), new Vector3d(3, 5, 1), new Vector3d(3, 2, 1),
+                new Vector3d(1, 2, 1), new Vector3d(1, 5, 1), new Vector3d(-1, 5, 1) };
+            var s = Slices(Sl(l1, l2), Sl(d));
+            var r = Loft(s);
+            AssertClosedSolid(r, 2);
+            Assert.True(r.Mesh.VertexCount > s.Sum(sl => sl.Sum(c => c.Count)), "the piece was taken for the contour");
+        }
+
+        [Fact]
+        public void ALoneContour_WithoutNeighbours_IsReported()
+        {
+            AssertFails(Loft(Slices(Sl(), Sl(Disc(8, 1, 1)), Sl())), ContourLoftStackStatus.Unsupported);
+            AssertFails(Loft(Slices(Sl(), Sl(Disc(8, 1, 1)), Sl()), caps: false), ContourLoftStackStatus.Unsupported);
         }
 
         [Fact]

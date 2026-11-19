@@ -366,6 +366,11 @@ branching every 8 slices, 100 / 1000 vertices per contour, in `benchmarks/Contou
   torus are the same segment and the mesh has a non-manifold edge (found by the torus test). Visibility is exact (`Orient2d`):
   no touching or overlap with any contour edge of the plane, the midpoint inside the container contour. The direction test at the
   vertex ("in cone") that the design lists is not needed: a segment that leaves into a contour's interior crosses its boundary.
+- **One bridge per vertex** (review): a vertex ends at most one bridge, since the order of several bridges at one vertex would have to
+  follow their angles; the next-best pair is taken. A lone contour with no counterpart on either side is `Unsupported` (zero
+  thickness, two coincident caps). Only a hole that ends belongs to its parent's cap; an island (even depth) in an ending hole is
+  a solid of its own and gets its own cap (review). A bridge's container test is the midpoint only; a bridge through a thin notch of
+  the container is left to the exact check of the whole mesh.
 - **Planes**: the stacking normal is the Newell normal of the first contour, signed so that the slices' mean heights increase; a
   slice's height is the mean of its vertices' heights; the intermediate plane is `BranchFraction` between two such heights (its
   vertices are `frame * (x, y, h)`, exact in 2^k scalings through the power-of-two working frame).
