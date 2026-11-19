@@ -32,9 +32,9 @@ namespace gs
         FlippedFaces = 3,
         /// <summary> the extracted mesh is not a manifold of quads only (an unpaired triangle, a face that is not a quad, a non-manifold edge or vertex) </summary>
         NotManifold = 4,
-        /// <summary> the flow of the integer corrections could not be completed (or the lattice offsets are out of range) </summary>
+        /// <summary> the flow of the integer corrections could not be completed, the lattice offsets are out of range, or the mesh has a boundary (open meshes are not supported by the pure-quad attempt) </summary>
         FlowInfeasible = 5,
-        /// <summary> the repair used up its deterministic budget (the decisions of the SAT, the edge splits) before the map was free of folds </summary>
+        /// <summary> the repair used up a deterministic budget (the decisions, attempts or rounds of the SAT, the edge splits) before the map was free of folds </summary>
         BudgetExceeded = 6
     }
 
@@ -87,7 +87,7 @@ namespace gs
         /// map is inverted (exact), the repair stays in its budget, the extracted mesh is a manifold of quads only, no quad is flipped)
         /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
         /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
-        /// PureQuadStatus names the first failed check. The attempt succeeds on some meshes only (on shapes with long sharp
+        /// PureQuadStatus names the first failed check. Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
         /// features or strong curvature changes the integer map often has folds that the repair does not remove): test
         /// PureQuadStatus. Costs a few times the stage 2 time (QUAD_REMESHING.md, stage 3B).
         /// </summary>

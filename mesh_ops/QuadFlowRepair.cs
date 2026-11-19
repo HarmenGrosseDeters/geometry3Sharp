@@ -48,6 +48,10 @@ namespace gs
         public int MaxSplits = 400000;
         /// <summary> the largest capacity of the flow variables (from 2, by 2); a flow that is not full by then is infeasible </summary>
         public int MaxFlowCapacity = 40;
+        /// <summary> SAT attempts (also those that fail at once and cost no decision) and seeds tried; exhausted: the SAT budget is exhausted </summary>
+        public int SatMaxAttempts = 20000;
+        /// <summary> edge visits of the greedy balancing of the fixed variables (a count, not a clock); then every fixed variable is set to 0 </summary>
+        public long GreedyWorkLimit = 400000000;
 
         public PureQuadStatus Status = PureQuadStatus.NotRequested;
         public int InvertedTriangles, FlippedQuads;
@@ -65,6 +69,7 @@ namespace gs
 
         const double SignTolerance = 0;     // |r| above which a step against the sign of r is penalized
         const int SignPenaltyFactor = 100;
+
 
         readonly DMesh3 mesh; readonly CrossField cf; readonly PositionField pf; readonly double s;
         int maxV;
@@ -84,7 +89,7 @@ namespace gs
             public override bool Equals(object o) { return o is Off v && v == this; }
             public override int GetHashCode() { return X * 31 + Y; }
             public static Off Rot(Off v, int k) { k = ((k % 4) + 4) % 4; for (int i = 0; i < k; ++i) v = new Off(-v.Y, v.X); return v; }
-            public static int Det(Off a, Off b) { return a.X * b.Y - a.Y * b.X; }
+            public static int Det(Off a, Off b) { long d = (long)a.X * b.Y - (long)a.Y * b.X; return d > int.MaxValue ? int.MaxValue : d < int.MinValue ? int.MinValue : (int)d; }
             public int Inf { get { return Math.Max(Math.Abs(X), Math.Abs(Y)); } }
             public int L1 { get { return Math.Abs(X) + Math.Abs(Y); } }
             public bool IsZero { get { return X == 0 && Y == 0; } }
@@ -123,14 +128,22 @@ namespace gs
 
         // ------------------------------------------------------------------------------------------ run
 
+        bool ran;
+
+        /// <summary> runs the repair; once per instance (the data of the run stays for inspection) </summary>
         public PureQuadStatus Run()
         {
+            if (ran) throw new InvalidOperationException("QuadFlowRepair.Run can be called once");
+            ran = true;
             Status = PureQuadStatus.NotRequested; Result = null; InvertedTriangles = FlippedQuads = 0;
             var sw = Stopwatch.StartNew();
             BuildOffsets();
             if (setupFailed) { FlowSeconds = sw.Elapsed.TotalSeconds; return Status = PureQuadStatus.FlowInfeasible; }
             BuildTriangles();
             SetupSeconds = sw.Elapsed.TotalSeconds; Triangles = tris.Count;
+            // a boundary is not supported: its edges would be free variables of the flow, and the offsets that the position field leaves
+            // there are not small (the measurement covers closed meshes only)
+            foreach (var tr in tris) if (tr.Nb[0] < 0 || tr.Nb[1] < 0 || tr.Nb[2] < 0) { FlowSeconds = sw.Elapsed.TotalSeconds; return Status = PureQuadStatus.FlowInfeasible; }
             bool feasible = SolveFlow();
             FlowSeconds = sw.Elapsed.TotalSeconds;
             if (!feasible) { InvertedTriangles = Inverted(); return Status = PureQuadStatus.FlowInfeasible; }
@@ -143,9 +156,11 @@ namespace gs
             InvertedTriangles = Inverted();
             if (!splitOk) return Status = PureQuadStatus.BudgetExceeded;
             if (InvertedTriangles > 0) return Status = SatBudgetExhausted ? PureQuadStatus.BudgetExceeded : PureQuadStatus.OrientationFolds;
+            if (!MapCloses()) return Status = PureQuadStatus.FlowInfeasible;
             sw.Restart();
             Vector3d[] pos = SolvePositions();
             PositionSeconds = sw.Elapsed.TotalSeconds; sw.Restart();
+            if (pos == null) return Status = PureQuadStatus.FlowInfeasible;
             Extract(pos);
             ExtractSeconds = sw.Elapsed.TotalSeconds;
             return Status;
@@ -358,8 +373,10 @@ namespace gs
             long[] Bc = CompSums();
             long tot = 0; for (int i = 0; i < NN; ++i) tot += Math.Abs(Bc[i]);
             // feasibility: B = 0 for every component; the fixed variables change greedily (the first that lowers the total imbalance)
-            for (int round = 0; round < 100000 && tot > 0; ++round) {
+            long work = 0;
+            for (int round = 0; round < 100000 && tot > 0 && work < GreedyWorkLimit; ++round) {
                 bool improved = false;
+                work += E;
                 for (int k = 0; k < E && !improved; ++k) {
                     if (balanced[k]) continue;
                     var e = edges[k];
@@ -742,6 +759,7 @@ namespace gs
             var failed = new bool[tris.Count];
             int scan = 0;       // an inverted triangle only becomes fixed or stays (the triangles outside a region never change): the scan never goes back
             for (int round = 0; round < 10000; ++round) {
+                if (SatAttempts >= SatMaxAttempts) { SatBudgetExhausted = true; break; }
                 int seed = -1;
                 for (; scan < tris.Count; ++scan) if (Det(tris[scan]) < 0 && !failed[scan]) { seed = scan; break; }
                 if (seed < 0) break;
@@ -749,7 +767,22 @@ namespace gs
                 for (int ring = 1; ring <= SatMaxRing && !ok && SatDecisions < SatTotalBudget; ++ring) ok = TrySat(seed, ring);
                 if (ok) SatSolved++; else { SatFailed++; failed[seed] = true; }
                 if (SatDecisions >= SatTotalBudget) { SatBudgetExhausted = true; break; }
+                if (round == 9999) SatBudgetExhausted = true;      // the round limit stops the repair with folds left
             }
+        }
+
+        // every triangle of the repaired map closes (the three offsets sum to 0) and the two sides of every edge agree (D_nb = -R^rot D)
+        bool MapCloses()
+        {
+            for (int f = 0; f < tris.Count; ++f) {
+                Tri t = tris[f];
+                if (!(t.D[0] + t.D[1] + t.D[2]).IsZero) return false;
+                for (int sl = 0; sl < 3; ++sl) {
+                    int nb = t.Nb[sl]; if (nb < 0) continue;
+                    if (tris[nb].D[t.NbS[sl]] != -Off.Rot(t.D[sl], t.Rot[sl])) return false;
+                }
+            }
+            return true;
         }
 
         // ------------------------------------------------------------------------------------------ step 7: positions
@@ -787,7 +820,7 @@ namespace gs
                 var X = new double[nc]; var Y = new double[nc]; var Z = new double[nc];
                 ch.Solve(rx, X); ch.Solve(ry, Y); ch.Solve(rz, Z);
                 for (int i = 0; i < nv; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int c = cid[FindRoot(ufc, i)]; pos[i] = new Vector3d(X[c], Y[c], Z[c]); }
-            } else for (int i = 0; i < nv; ++i) pos[i] = VP[i];       // not expected (the matrix is positive definite); the checks of the result decide
+            } else return null;       // not expected (the matrix is positive definite)
             return pos;
         }
 
@@ -875,7 +908,7 @@ namespace gs
         {
             if (mesh == null || mesh.FaceCount == 0 || badTriangles > 0 || unpairedTriangles > 0) return PureQuadStatus.NotManifold;
             PolyMeshMetrics m = PolyMeshMetrics.Compute(mesh);
-            if (!m.IsManifold || m.QuadFraction < 1) return PureQuadStatus.NotManifold;
+            if (!m.IsManifold || m.QuadFraction < 1 || m.BoundaryVertices > 0) return PureQuadStatus.NotManifold;   // closed meshes only
             return flippedQuads > 0 ? PureQuadStatus.FlippedFaces : PureQuadStatus.Success;
         }
     }

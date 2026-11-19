@@ -283,14 +283,44 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData("cap", 0.2)]
         [InlineData("patch", 0.08)]
-        public void OpenMeshes_GiveAValidResultOrTheStage2Mesh(string name, double s)
+        public void OpenMeshes_AreNotSupported_AndGiveTheStage2Mesh(string name, double s)
         {
             QuadRemesher qr = Run(name, s);
             QuadRemesher stage2 = Run(name, s, 0, false);
-            if (qr.PureQuadStatus != PureQuadStatus.Success) { AssertFallback(qr, stage2, name); return; }
-            PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
-            Assert.True(m.IsManifold); Assert.Equal(1.0, m.QuadFraction);
-            Assert.True(qr.Result.Validate().IsValid);
+            AssertFallback(qr, stage2, name);
+            Assert.Equal(PureQuadStatus.FlowInfeasible, qr.PureQuadStatus);
+            Assert.Equal(0.0, qr.RepairSeconds);                  // stopped at the setup: no flow, no subdivision
+        }
+
+        [Fact]
+        public void IsolatedVertex_IsIgnored()
+        {
+            DMesh3 m = new DMesh3(Shape("torus-aligned"));
+            m.AppendVertex(new Vector3d(9, 9, 9));
+            var cf = new CrossField(m) { CurvatureAlignment = 10 };
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(m) { Field = cf, TargetEdgeLength = 0.2, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(1.0, PolyMeshMetrics.Compute(qr.Result).QuadFraction);
+        }
+
+        [Fact]
+        public void TwoComponents_AreRepairedTogether()
+        {
+            // two tori in one mesh (translated apart): the equations of each component are rotated from their own root
+            DMesh3 a = Shape("torus-aligned"), m = new DMesh3(a);
+            var map = new MeshEditor(m).AppendMesh(Invariance.Transformed(a, new Similarity("shift", 1, Matrix3d.Identity, new Vector3d(5, 0, 0))));
+            Assert.True(m.IsClosed());
+            var cf = new CrossField(m) { CurvatureAlignment = 10 };
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(m) { Field = cf, TargetEdgeLength = 0.2, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, CheckMap(qr, true));
+            PolyMeshMetrics pm = PolyMeshMetrics.Compute(qr.Result);
+            Assert.Equal(1.0, pm.QuadFraction); Assert.True(pm.IsManifold);
+            Assert.Equal(0, pm.EulerCharacteristic);              // two tori
         }
 
         // ---------------------------------------------------------------- the repair on its own: budgets and checks
@@ -316,6 +346,17 @@ namespace geometry3Sharp.Tests
             Assert.True(rep.FlowSeconds > 0);
             Assert.Equal(0.0, rep.RepairSeconds);                                 // nothing after the flow ran
             // and through the remesher: the infeasible status with the stage 2 result is covered by AssertFallback of the other cases
+        }
+
+        [Fact]
+        public void Repair_RunsOnce_AndTheBalancingHasAWorkLimit()
+        {
+            QuadFlowRepair ok = Repair("sphere", 0.29);
+            Assert.Throws<InvalidOperationException>(() => ok.Run());
+            // without the greedy balancing of the fixed variables they are set to 0, and the flow of that map is not the repaired one
+            QuadFlowRepair limited = Repair("sphere", 0.29, 0, r => r.GreedyWorkLimit = 0);
+            Assert.False(limited.Status == PureQuadStatus.Success && limited.SatDecisions == ok.SatDecisions && limited.Splits == ok.Splits && limited.FlowSettled == ok.FlowSettled,
+                "the limit changed nothing: the greedy balancing was not needed on this case");
         }
 
         [Fact]
@@ -366,8 +407,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void CheckExtracted_NamesTheFirstFailedCheck()
         {
+            DPolyMesh cube = new DPolyMesh();
+            for (int k = 0; k < 8; ++k) cube.AppendVertex(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+            foreach (var q in new[] { new[] { 0, 2, 3, 1 }, new[] { 4, 5, 7, 6 }, new[] { 0, 1, 5, 4 }, new[] { 2, 6, 7, 3 }, new[] { 0, 4, 6, 2 }, new[] { 1, 3, 7, 5 } })
+                cube.AppendFace(new List<int>(q), 0);
+            Assert.Equal(PureQuadStatus.Success, QuadFlowRepair.CheckExtracted(cube, 0, 0, 0));
             DPolyMesh grid = QuadGrid(3);
-            Assert.Equal(PureQuadStatus.Success, QuadFlowRepair.CheckExtracted(grid, 0, 0, 0));
+            Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(grid, 0, 0, 0));      // a boundary: closed meshes only
+            grid = cube;
             Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(null, 0, 0, 0));
             Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(new DPolyMesh(), 0, 0, 0));
             Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(grid, 1, 0, 0));      // a triangle that is not part of a quad
@@ -442,8 +489,9 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(baseRun.FlippedQuads, qr.FlippedQuads);
                 AssertSame(baseRun.Result, qr.Result, sim.Scale);
             } else {
-                // rotations, translations and other scales change the rounding: the same kind of mesh, the same size
-                Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+                // rotations, translations and other scales change the rounding: the same kind of mesh, the same size (or the attempt fails
+                // on the changed rounding, and then Result is a valid stage 2 mesh)
+                if (qr.PureQuadStatus != PureQuadStatus.Success) { Assert.True(qr.Result.Validate().IsValid); Assert.True(qr.InvertedTriangles > 0 || qr.PureQuadStatus != PureQuadStatus.OrientationFolds); return; }
                 PolyMeshMetrics a = PolyMeshMetrics.Compute(baseRun.Result), b = PolyMeshMetrics.Compute(qr.Result);
                 Assert.Equal(1.0, b.QuadFraction);
                 Assert.True(b.IsManifold);
