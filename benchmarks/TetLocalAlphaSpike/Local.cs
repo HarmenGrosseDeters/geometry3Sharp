@@ -18,14 +18,20 @@ using gs;
 
 sealed class AlphaGridField
 {
-    readonly S.Grid grid; readonly Vector3d[] p; readonly double[] aj; readonly double a0, L, rmax;
+    readonly S.Grid grid; readonly double amin; readonly Vector3d[] p; readonly double[] aj; readonly double a0, L, rmax;
     [ThreadStatic] static List<int> buf;
     public AlphaGridField(Vector3d[] pos, double[] alphaJ, double alpha0, double alphaMin, double slope)
     {
         var idx = Enumerable.Range(0, pos.Length).Where(i => alphaJ[i] < alpha0 * 0.999).ToArray();
+        // thinning: one sample per cell of alpha_min / 2 (the one with the smallest alpha_j): the envelope changes by at most L * cell, the ball query gets short
+        if (Environment.GetEnvironmentVariable("G3_THIN") == "1") {
+            double h = alphaMin / 2; var best = new Dictionary<(long, long, long), int>();
+            foreach (int i in idx) { var k = ((long)Math.Floor(pos[i].x / h), (long)Math.Floor(pos[i].y / h), (long)Math.Floor(pos[i].z / h)); if (!best.TryGetValue(k, out int b) || alphaJ[i] < alphaJ[b]) best[k] = i; }
+            idx = best.Values.OrderBy(i => i).ToArray();
+        }
         p = idx.Select(i => pos[i]).ToArray(); aj = idx.Select(i => alphaJ[i]).ToArray();
         a0 = alpha0; L = slope; rmax = (alpha0 - alphaMin) / slope;
-        grid = new S.Grid(p, Math.Max(rmax, 1e-12));
+        amin = alphaMin; grid = new S.Grid(p, Math.Max(rmax, 1e-12));
     }
     public int FineSamples => p.Length;
     public long Calls, Ticks;
@@ -61,6 +67,9 @@ static class Local
     {
         var sw = Stopwatch.StartNew();
         var tm = new MeshTetrahedralization(input) { RelativeAlpha = ra, RelativeOffset = 600, AlphaField = field };
+        if (Environment.GetEnvironmentVariable("G3_TET_RESCUE") is string rp) tm.RescuePasses = int.Parse(rp, S.Inv);
+        if (Environment.GetEnvironmentVariable("G3_TET_PASSES") is string ps) tm.ImprovePasses = int.Parse(ps, S.Inv);
+        if (Environment.GetEnvironmentVariable("G3_TET_SURFMIN") is string sm) tm.SurfaceMinAngleDegrees = double.Parse(sm, S.Inv);
         tm.Compute();
         double secs = sw.Elapsed.TotalSeconds;
         var r = new Run { Tm = tm, Secs = secs };
@@ -113,12 +122,13 @@ static class Local
 
         // uniform references (the first pass of post is the /40 run)
         var u = new Dictionary<int, Run>();
-        foreach (int ra in new[] { 40, 80, 160 }) { u[ra] = Exec(name, "uniform" + ra, input, pos, diag, 0, ra, null, 0); rows.Add(u[ra].Row); if (u[ra].D == null) return rows; }
+        bool quick = Environment.GetEnvironmentVariable("G3_QUICK") == "1";
+        foreach (int ra in quick ? new[] { 40, 80 } : new[] { 40, 80, 160 }) { u[ra] = Exec(name, "uniform" + ra, input, pos, diag, 0, ra, null, 0); rows.Add(u[ra].Row); if (u[ra].D == null) return rows; }
         double T = Math.Max(S.Quantile(u[80].D, .95), 2 * offRel);                // the target deviation: the uniform alpha / 80's p95
         double p1 = u[40].Secs;
 
         // oracle
-        {
+        if (!quick) {
             var aj = new double[nSamples];
             for (int i = 0; i < nSamples; ++i) aj[i] = u[40].D[i] <= T ? a40 : u[80].D[i] <= T ? diag / 80 : u[160].D[i] <= T ? a160 : a40;
             var f = new AlphaGridField(pos, aj, a40, a160, slope);
@@ -142,10 +152,10 @@ static class Local
             return post;
         }
         PostPair("_p95_80", T, slope);
-        double T160 = Math.Max(S.Quantile(u[160].D, .95), 2 * offRel);
-        PostPair("_p95_160", T160, slope);
+        double T160 = quick ? T : Math.Max(S.Quantile(u[160].D, .95), 2 * offRel);
+        if (!quick) PostPair("_p95_160", T160, slope);
         // the gradation slope: L / 2 on the first target
-        {
+        if (!quick) {
             double Tq = T;
             var aj = new double[nSamples];
             for (int i = 0; i < nSamples; ++i) aj[i] = Math.Min(a40, Math.Max(a160, a40 * Tq / Math.Max(u[40].D[i], 1e-12)));
@@ -153,7 +163,7 @@ static class Local
             var rr = Exec(name, "postLhalf_p95_80", input, pos, diag, p1, 40, f.AtTimed, f.FineSamples, f); rows.Add(rr.Row);
         }
         // lfs: a priori, one pass
-        {
+        if (!quick) {
             double ts = Stopwatch.GetTimestamp();
             var g = FreeDistance(input, tree, pos, nrm, tid, diag);
             var aj = new double[nSamples];

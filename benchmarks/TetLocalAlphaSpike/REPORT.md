@@ -48,3 +48,15 @@ Floor: size jumps cost the 10 degree floor on 3 of 39 (post 8.1, 8.8; post2_160 
 Fidelity of uniform /80 at about 0.65-0.75x its tets (about 0.45x the interpolated uniform tets), or 0.81x its deviation at 0.75-0.9x tets; /160-level max dev (0.0085) is not reached with a floor at /160 (0.0107). Not a time gain (1.0-1.5x). Gap vs fTetWild (0.001) stays ~10x.
 Options: (A) library PR, opt-in `MaxSurfaceDeviation` on `MeshTetrahedralization` with post2-style two passes + the `AlphaField` hook (additive; 1-1.5 weeks, not 2-3: guarantees hold by construction; needs invariance / reuse / determinism tests, floor fix, a cheaper field, wrap-only pass 1);
 (B) a-priori lfs only: cheap (+0.15 s), tets/eq 0.58, no second wrap, but 14 of 39 wins, only gap regions; (C) no-go: the gain is a third of the tets, the floor regresses, the time does not improve. Leaning A if tets (FEM size) matter more than time; owner decision (new option, default unchanged).
+
+## 5. Floor and field cost (2026-11-19, owner go for option A, step 1)
+**Floor: fixed, by turning the wrap's own surface-angle refinement off on the local-alpha path** (`SurfaceMinAngleDegrees = 0`; default 15 for uniform alpha stays).
+The 4 failing cases were 49884 post 8.81, 103538 post 8.11, 44041 post2_160 9.78, plates_gap post2_160 7.06. More improver passes did nothing
+(`ImprovePasses` 200, `RescuePasses` 600: same angles), so the misses are structural (the wrap's quality refinement adds short surface edges where alpha jumps). With 0:
+all 4 reach >= 10 (10.01, 10.01, 10.007, 10.006); post and post2 (T /80) on all 39 + 7: 0 misses, all valid, no self-intersection, boundary vs input
+trees disjoint (`results/*surfmin0*`); post_160 / post2_160 / postLhalf checked on 44041 and the 7 procedural inputs (all >= 10). A bonus: fewer tets
+(post 0.58x of /80's, was 0.65x; post2 0.72x, was 0.74x; max deviation unchanged 0.99x / 0.87x; /80 here is the surfmin-0 uniform run).
+Not covered: post_160 / post2_160 on the other 38 Thingi meshes with surfmin 0 (not rerun). The library must still report a missed target through `TetTargetReport` (it does today: `Targets.MinDihedralMet`); no silent path.
+**Field cost: not made cheaper.** Measured: 2.1 us per call, 0.24 s CPU median (max 1.27 s) per local run = 37 % of its wall time (CPU summed over threads, so an upper bound).
+Tried: ring-wise early-out of the ball query (same results, 40 of 40 identical) but 7x slower (the dictionary grid pays per cell); thinning to one sample per alpha_min / 2 cell does nothing at 20000 samples. Not tried: a lattice or octree with interpolation
+(changes results, needs a bound on the interpolation error), fewer field samples. For the library: pass 1 can be the wrap alone (no tets), and the field build can reuse the wrap's AABB tree; both are engineering, not research.
