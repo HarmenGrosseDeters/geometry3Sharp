@@ -683,18 +683,24 @@ platform and 2^k scalings give the same bits away from overflow and the subnorma
   a plain `area2 > 0`.
 - **`MaxDistance`.** A NaN or negative value throws `ArgumentOutOfRangeException` from `Compute`; 0 computes the sources only;
   vertices with a distance above it are NaN.
-- **`NearestSource`.** Each pseudo-source origin carries its root source (a table indexed by origin vertex, set when the origin
-  emits); at an exact tie the lowest source id wins; the tests accept either source at an exact tie.
+- **`NearestSource`.** Each pseudo-source origin carries its root source (a table indexed by origin vertex, set at each emission,
+  so a window of an earlier emission with another root reports the later root: the reported source is then within the error xi
+  of the nearest, documented); at an exact tie the lowest source id wins; the tests accept either source at an exact tie.
 - **Docs.** The class docs refer to `MeshGeodesicDistance` (the heat method: smooth, approximate, any size) for the cheap
   approximate distance and to the certified oracle for certified results.
 - **Memory.** A window is a 64-byte struct (layout in A.7); a run holds at most `MaxWindows` + one step's windows of them, plus
-  per window a 24-byte queue entry and a 4-byte link of its edge side's list (an intrusive list, no `List` doubling); the
-  windows live in chunks of 65536 structs, so nothing is copied when the store grows. The bound stated in the class docs:
-  at most 100 bytes x (`MaxWindows` + 2 x the largest vertex valence) plus 64 bytes x the vertex count (the queue's array may
-  hold up to twice its entries: 200 bytes per window in the worst case, said so). The test allocates a mesh with a small
-  `MaxWindows`, checks `WindowLimit` and NaN arrays, `Windows <= MaxWindows + 2 x max valence` (one step creates at most two
-  children or one emission), and the allocated bytes (`GC.GetAllocatedBytesForCurrentThread` before and after) against the
-  bound. The default of 64 windows per vertex (640 MB at 10^5 vertices by the bound above) must be enough for the target
+  per window a 4-byte link of its edge side's list (an intrusive list, no `List` doubling) and an entry of the queue, an
+  **indexed** heap with one entry per pending window (a merge decreases the key of b's entry, so lazy re-inserts do not exist and
+  the queue is bounded by the windows); the heap's array may double (24-byte entries, up to twice the entries). The windows live
+  in chunks of min(65536, `MaxWindows` + 2 x the largest valence) structs, so nothing is copied when the store grows and a
+  small `MaxWindows` allocates a small chunk. The bound stated in the class docs: at most **120 bytes** x (`MaxWindows` + 2 x the
+  largest valence) (64 + 4 + 2 x 24) plus about **57 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
+  U and the error xi_u of the vertex test, the kind, the root; and 24 for the heads of the edge side lists, an array by edge
+  id, no `Dictionary`). A window's state (pending, propagated, dead) is the sign bit of its side index. The test runs
+  single-threaded: it allocates a mesh with a small `MaxWindows`, checks `WindowLimit` and NaN arrays,
+  `Windows <= MaxWindows + 2 x max valence` (one step creates at most two children or one emission), and the allocated bytes
+  (`GC.GetAllocatedBytesForCurrentThread` before and after) against the bound. The default of 64 windows per vertex (770 MB
+  at 10^5 vertices by the bound above) must be enough for the target
   families, which the benchmark checks: the oracle with A7' creates 47-52 windows per vertex at 101 x 101 and the number grows
   with the grid width, the class with merging should stay below it (A.7). An addition to the API only (`dotnet pack`).
 
@@ -712,16 +718,18 @@ reachable; it is not promised before it is measured.
 comparisons at about 10^4 vertices (the oracle takes 3.4-14 s) are `[Trait("Category", "Nightly")]`, with the reason (the oracle's
 run is the check) in the test; the 317 x 317 closed forms and the timings are the benchmark's. Families: those of the
 oracle's tests, a noisy sphere, several sources, a cone with a sharp convex apex against its closed-form unfolding, and the oracle's
-sliver family (the 2026-11-15 `Mu` fix) against the straight distance. Always, on every mesh: Distance >= the 3D Euclidean
+sliver family (the 2026-11-15 `Mu` fix) against the straight distance, a collinear chain of flat vertices ending at a convex bend
+(the along-the-edge windows, A.7) against its closed form, and a mesh on which one origin is unfolded at two places (a tube, a loop
+around a hole) for the position check of the merge. Always, on every mesh: Distance >= the 3D Euclidean
 distance - tol (a polyhedral path is never shorter than the straight line: this catches a window that is not realised, A.7).
 Invariance over `Similarity.All()` (2^k bit equality, tolerance overlap for rotated copies), reuse, repeated-run determinism, the
 statuses, `MaxDistance`, the cancel poll, the memory test. Mutants by hand (the by-hand list is in A.7), and the incremental run.
 
 **Determinism and the build rules.** The convexity test of the classification uses `CoreMath.Atan2`, so the new file gets
 its `.editorconfig` entry (G3E0004: no platform libm), a `tools/DeterminismHarness` case and a `DeterministicApis.txt` entry
-with the code PR. The classification: kind 0 (no emission) only if the exact flatness test passes or the computed angle sum
-is below 2 pi by a margin of 64 eps x the valence (the oracle's interval is replaced by a margin, and a vertex within the
-margin of 2 pi that is not exactly flat is a pseudo-source).
+with the code PR. The classification reuses the oracle's `VertexKind` (the certified interval test of the angle sum, `CoreMath.Atan2`, and
+the exact flatness test): kind 0 only if certainly convex or exactly flat, so the coordinate size does not enter a margin (a
+margin in radians would be wrong by the ratio of the coordinates to the edge lengths, 1e-10 rad at UTM scale).
 
 **Targets** (net10 Release, the cloud reference machine; benchmark README with before and after): 317 x 317 terrain 5 s and
 1 GB (the double prototype of 6a: 3.3 s, 250 MB; that prototype also had the third-vertex test, which the class has, A.7),
@@ -1171,7 +1179,7 @@ interval [b0, b1] on the edge, the origin, sigma, and the unfolded position (sx,
 doubles; no inner intervals, no disks. Layout, 64 bytes: edge side 4, origin 4, b0 and b1 16, sx and sy 16, sigma 8, xi 8 (the
 accumulated distance error of the window, after Surazhsky et al. 2005: xi' = max(xi_0, xi_1) + the error added by this step, and
 at a merge the larger), e 8 (the error radius of the outer ends, below), exactly 64 (the origin's root source is in a table by origin
-vertex). The class is **sound in two halves**, which the first version of this note mixed up:
+vertex; the sign bit of the side index is the pending, propagated, dead flag; the vertex test's per-vertex error xi_u is an array). The class is **sound in two halves**, which the first version of this note mixed up:
 
 - **Coverage C:** for the shortest path gamma to a vertex v there is a window on gamma's chain whose outer interval contains gamma's
   crossing and whose function f_w(x) = sigma + |x - (sx, sy)| at the crossing is at most d(v) + xi_w.
@@ -1191,18 +1199,30 @@ next flat vertex is lost (the gate-2 failure on the aligned ridge: 9.75e-3). Rul
    vertex p exactly: the child on the edge (a, p) gets the end 0 or L assigned, not computed from `Mu`. Every ray through p meets
    the line of the next edge at p, so this is the true value and no error analysis is needed for it: A.6 (a)-(c) hold for the
    ray through p. The ends where the clip meets O0 or O1 are carried as computed.
-2. *Margin on interior ends.* Each window carries e, an error radius of its ends: e_child = e_parent x g + c eps extent, with g the
-   largest |dMu/dt| over the clip (Mu is monotone where its denominator D keeps its sign, so g is taken at the end where |D| is
-   smaller: g = |det| / min(|D(t0)|, |D(t1)|)^2, scaled to the edge length) and c eps extent the frame change's rounding. The split test
-   is xc in [O0 - e, O1 + e] and the children's ends are opened by e. The new window's xi grows by 2 e (the Lipschitz argument above).
+2. *Margin on interior ends.* Each window carries e, an error radius of its ends (it matters only at O0 and O1: the code clamps
+   a computed `Mu` beyond an edge end to that end). e_child = e_parent x g + the rounding of `Mu` + the rounding of the frame change.
+   (a) g is the largest |dMu/dt| over the clip: Mu is monotone where its denominator D keeps its sign, so g is taken at the end where
+   |D| is smaller, g = |det| / min(|D(t0)|, |D(t1)|)^2 scaled to the edge length; this is first order, so when e x |dD/dt| is comparable to min |D|
+   the interval of D over [t - e, t + e] is evaluated, and if it reaches 0 rule 3 applies. (b) `Mu`'s own rounding near a small D:
+   eps (|N| + |Mu| |D|) / |D| (N the numerator), a term of its own. (c) The frame-change rounding is c eps x the largest coordinate
+   magnitude, not the extent: the mesh is recentred once on the centre of its bounding box (a translation, applied the same way to every
+   input, so 2^k scalings stay bit-exact), and the extent is then the right scale; a mesh far from the origin (UTM) is
+   thereby no worse than one at the origin, up to the rounding of the recentring (c eps x the original magnitude, once). The split test is
+   xc in [O0 - e, O1 + e] and the children's ends are opened by e. The new window's xi grows by 2 e (the Lipschitz argument above).
 3. *D uncertain.* If the sign of D is not certain at a clip end (within e of 0), that end maps to the edge end the rays escape toward
    (the vertex end on the side where D changes sign), not to the whole edge.
 4. *The whole edge is allowed only* when the origin is a vertex of the face being entered (an emission: the rays from a vertex to the
-   opposite edge are real) or for the ray along an edge from its end (A.6 (d): the edge itself is a path). If sy >= -e (the origin on
-   or near the line of the edge, behind or on it) the window is the along-the-edge case of rule 4, not a general one.
+   opposite edge are real) or for the ray along an edge from its end (A.6 (d): the edge itself is a path). If sy >= -xi (the origin on
+   or near the line of the edge, behind or on it; the position error is xi, a distance, not e, a parameter error) the window is the
+   along-the-edge case of rule 4, not a general one. **An along-the-edge window** has the value sigma + |s - q| + |x - q|, with q the
+   end vertex it comes from (the ray along the edge is the path to q, then along the edge), and it inherits xi from the window that reached q;
+   its only children are the far end vertex (continuing the walk if that vertex is flat, A.6 (d)) and never whole-edge windows in the adjacent faces.
 
 The by-hand mutants: no snapping (kills: aligned ridge, L-shape), e = 0 (the same), D handled by the whole edge (kills: the sliver
-family and the cone).
+family and the cone), delta = 0 (a window budget on the plane), no position check or a large delta (the mesh with one origin
+unfolded at two places), the minimum of the pruning at the piece ends instead of the nearest point (a two-source plane), xi_b + xi_w
+dropped from the pruning margin, the vertex test without xi_u, the along-the-edge window with whole-edge children (the collinear
+chain ending at a convex bend).
 
 **Fragmentation (measured, 2026-11-19; the oracle, A7', centre source).** Pairs of windows of one origin whose outer intervals touch
 on one edge side, and why they stayed two windows (a probe in `Add`, not committed):
@@ -1224,18 +1244,23 @@ not, the lever is reopened with this table as its reference, the trigger being t
 
 **Merging.** A new window w and a pending window b on one edge side with the same origin, intervals overlapping or touching,
 |c_w - c_b| <= delta and |sigma_w - sigma_b| <= delta, merge: b's interval grows to the union, b keeps its own position and sigma (no
-averaging, so on one side b never moves: no chain on a side), xi_b = max(xi_b, xi_w), and the merge is allowed only if the
-merged xi stays below a cap (1e-10 extent). Pointwise |f_b(x) - f_w(x)| <= 2 delta by the triangle inequality, charged to xi.
-After the union b's queue key is inserted again lazily (the old entry is skipped when popped: its key is larger than b's lower
-bound, so a stale entry never makes b late), and the merge scan repeats while it merges, over the side's list in ascending window
-number (a deterministic order for the cascades). **delta** is fixed by measurement in the code PR: the distribution of
+averaging, so on one side b never moves: no chain on a side). The merge is **charged** with the computed differences:
+xi_b = max(xi_b, xi_w + |c_w - c_b| + |sigma_w - sigma_b|), and the end error e_b = max(e_b, e_w) + the shift of an end that a
+position change of |c_w - c_b| causes (the similar-triangles factor of the ray between the two edges, evaluated at the ends of the
+clip; its form is fixed with the code and tested). Pointwise |f_b(x) - f_w(x)| <= |c_w - c_b| + |sigma_w - sigma_b| <= 2 delta by the
+triangle inequality. A merge is refused when the merged xi would exceed the tested tolerance (about 1e-9 d: a cap tied to the contract,
+not a fixed 1e-10 extent, which a path of about 50 crossings would reach and so bring back the fragmentation of 6a); with no
+cap the model's bound would be the only guard. After the union b's key is decreased in the indexed heap (one entry per pending
+window: there are no stale entries), and the merge scan repeats while it merges, over the side's list in ascending window number
+(a deterministic order for the cascades). **delta** is fixed by measurement in the code PR: the distribution of
 |c_w - c_b| over the touching same-origin pairs at 317 x 317 on the plane, the ridge and the terrain (the oracle's disk radii reach 1.2e-12 d
 by A.2, so duplicates of a far origin can be 1e-12 extent apart, and a delta of exactly 1e-12 extent may not catch them), and the
 gap to the distinct images of one origin (unfolded around a vertex, a tube, a loop around a hole: at least an edge length apart). A
 delta too large costs only accuracy (2 delta per merge, charged to xi); a delta too small costs windows.
 
 **Error model (rationale of the tolerance form, not a bound).** A window on the chain carries xi = the sum of the rounding of
-its frame changes (c eps extent each), of its merges (2 delta each) and of its margin openings (2 e each). A path crosses K faces, so
+its frame changes (c eps extent each), of its merges (the computed differences, at most 2 delta each) and of its margin openings (2 e each); the accumulation of xi
+(the max plus the step of Surazhsky, or the sum along the chain) agree to first order, and the code uses the form of the merge above. A path crosses K faces, so
 |Distance - d| <= K (2 delta + c eps extent + 2 e) up to the last rounding. K is not bounded a priori, c is not derived; the class docs
 quote the measured figures (6e), not this.
 
@@ -1250,9 +1275,9 @@ gate-2 baseline of 3.3 s had it) is part of the class: a piece of w is dropped i
 + 4 eps extent for u an end of the edge or the third vertex, with U(u) the current best `Distance` estimate of u; by R,
 d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No lemma-based rule (ICH, VTP) in v1.
 
-*Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; is rule 2's e bound (g at the end where |D| is
-smaller) enough for rays near, but not through, a flat vertex, which A.6 does not need but the tolerance does? (2) R for the
-exceptions of rule 4: the along-the-edge window and the emission are realised; is the case "origin on the line of the edge,
-beyond the end" covered by sy >= -e and the realisability of the path to the end vertex? (3) Whether xi (Surazhsky's form,
-max + step) or the sum along the chain (the model above) is the right accumulation in the pruning margins. (4) The cap on xi at a merge and
-the dependence of delta on the measured distribution.
+*Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
+`Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
+through, a flat vertex, which A.6 does not need but the tolerance does? (2) R for the exceptions of rule 4: the along-the-edge window and
+the emission are realised; is the case "origin on the line of the edge, beyond the end" covered by sy >= -xi and the realisability of
+the path to the end vertex? (3) The cap on xi at a merge, set against the tested tolerance, and the dependence of delta on the
+measured distribution.
