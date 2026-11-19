@@ -9,8 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// QuadRemesher.BuildFaces splits a vertex whose kept faces form more than one fan into one copy per fan, so that the polygon mesh is manifold at every
-    /// vertex (docs/design/QUAD_REMESHING.md 4.2, "narrow strip"). The root cause, a degenerate star of the extraction on strips whose width is not a
-    /// multiple of the lattice spacing, is not fixed by it: the repair keeps the faces and the positions.
+    /// vertex (docs/design/QUAD_REMESHING.md 4.2, "narrow strip"). The cause, a degenerate star of the extraction on strips (not traced, see the issue), is not fixed by it: the repair keeps the faces and the positions.
     /// </summary>
     public class QuadNonManifoldVertexTests
     {
