@@ -204,7 +204,7 @@ jobs:
           git config user.email "github-actions@users.noreply.github.com"
           if git ls-remote --exit-code --heads origin runs/boolean-chains > /dev/null; then
             git fetch -q --depth=1 origin runs/boolean-chains:refs/remotes/origin/runs/boolean-chains
-            git checkout -q -B runs/boolean-chains origin/runs/boolean-chains
+            git checkout -q -B results-tmp origin/runs/boolean-chains
           else
             echo "data branch missing"; exit 1
           fi
@@ -212,5 +212,5 @@ jobs:
           git add results
           git diff --cached --quiet && exit 0
           git commit -q -m "Boolean chains probe run $GITHUB_RUN_ID"
-          for i in 1 2 3 4; do git push origin runs/boolean-chains && exit 0; git pull -q --rebase origin runs/boolean-chains; done
+          for i in 1 2 3 4; do git push origin HEAD:runs/boolean-chains && exit 0; git pull -q --rebase origin runs/boolean-chains; done
           exit 1
