@@ -114,6 +114,59 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(MeshIsoCurves.RootfindingModes.SingleLerp)]
+        [InlineData(MeshIsoCurves.RootfindingModes.LerpSteps)]
+        public void AsymmetricOverflowingBracket_KeepsTheCrossingPosition(MeshIsoCurves.RootfindingModes mode)
+        {
+            // values (-a, +3a, ...) along x: the crossing is at 0.25, also when 4a overflows (a = 4e307 and 1.7e308 / 3)
+            Vector3d Cross(double a)
+            {
+                var iso = new MeshIsoCurves(Triangle(Similarity.Identity), p => a * (4 * p.x - 1)) { RootMode = mode };
+                iso.Compute();
+                return iso.Graph.VertexIndices().Select(v => iso.Graph.GetVertex(v)).Where(q => q.y == 0 && q.x < 1).Single();
+            }
+            Vector3d reference = Cross(1);
+            Assert.True(reference.x == 0.25);
+            foreach (double a in new[] { 4e307, 5.5e307, Math.Pow(2, 1021), 1e-310, Math.Pow(2, -1070) })
+                Assert.True(Cross(a) == reference, "a = " + a);
+        }
+
+        [Theory]
+        [MemberData(nameof(ModeData))]
+        public void Status_SingleInfinityNextToFiniteValues_IsNonFiniteInput(MeshIsoCurves.RootfindingModes mode)
+        {
+            Assert.Equal(MeshIsoCurves.ComputeStatus.NonFiniteInput, Field(p => p.y > 0.5 ? double.PositiveInfinity : p.x - 0.5, mode).Status);
+            Assert.Equal(MeshIsoCurves.ComputeStatus.NonFiniteInput, Field(p => p.y > 0.5 ? double.NegativeInfinity : p.x - 0.5, mode).Status);
+        }
+
+        [Theory]
+        [MemberData(nameof(ModeData))]
+        public void ZeroNextToInfinities_DoesNotProduceNaN(MeshIsoCurves.RootfindingModes mode)
+        {
+            double inf = double.PositiveInfinity;
+            foreach (double[] f in new[] { new[] { 0.0, inf, inf }, new[] { 0.0, inf, -inf }, new[] { 0.0, -inf, inf }, new[] { 0.0, -inf, -inf } }) {
+                var iso = new MeshIsoCurves(Triangle(Similarity.Identity), p => p.x < 0.5 && p.y < 0.5 ? f[0] : (p.x > 0.5 ? f[1] : f[2])) { RootMode = mode };
+                iso.Compute();
+                Assert.Equal(MeshIsoCurves.ComputeStatus.NonFiniteInput, iso.Status);
+                foreach (int v in iso.Graph.VertexIndices())
+                    Assert.True(iso.Graph.GetVertex(v).IsFinite, $"{mode} {string.Join(",", f)}");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(ModeData))]
+        public void ZeroVertexWithTinyAndHugeValues_KeepsItsTopologyInEveryMode(MeshIsoCurves.RootfindingModes mode)
+        {
+            // linear field a (y - x): values (0, -a, +a), a vertex on the curve and one crossing on the opposite edge
+            foreach (double a in new[] { 1.0, 1e-200, 1e308 }) {
+                var iso = new MeshIsoCurves(Triangle(Similarity.Identity), p => a * (p.y - p.x)) { RootMode = mode };
+                iso.Compute();
+                Assert.True(iso.Graph.EdgeCount == 1 && iso.Graph.VertexCount == 2, $"{mode}, a = {a}");
+                Assert.Equal(MeshIsoCurves.ComputeStatus.Ok, iso.Status);
+            }
+        }
+
         // ---- Status ----
 
         static MeshIsoCurves Field(Func<Vector3d, double> f, MeshIsoCurves.RootfindingModes mode = MeshIsoCurves.RootfindingModes.SingleLerp)

@@ -52,7 +52,8 @@ namespace g3
             /// <summary>
             /// A NaN or infinite field value occurred in a processed triangle. Such a triangle adds nothing to the Graph,
             /// except that Bisection still finds the jump between +infinity and -infinity. The Graph is not a statement
-            /// about the whole field.
+            /// about the whole field. Only the field values at the vertices are checked, not the ones that
+            /// Bisection and LerpSteps sample between them.
             /// </summary>
             NonFiniteInput = 3
         }
