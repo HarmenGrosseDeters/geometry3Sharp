@@ -41,8 +41,7 @@ Missing = share of the true solid labelled outside, IoU = labelled solid against
 Reading: the GWN solid is wrong only where a hole is large (a cap of 1.0 rad and more, many holes of 0.6 rad). With a hole of 0.6 rad or
 less the loss is at most 3 %. Where the answer is wrong, the repair result is wrong by the same amount (the fallbacks follow the GWN), so a
 perfect classifier would lift the volume IoU of these fallbacks from 0.07-0.87 to about 0.99. The exact resolve never runs on them
-("not closed (winding number)"). A third of the misclassified samples are within 0.1 of 1/2; two thirds are not (GWN is confidently wrong
-inside a big hole region only for 8 holes 0.6).
+("not closed (winding number)"). Of the misclassified samples, 23-71 % lie within 0.1 of 1/2 in most cases (column `ambig_of_err` of `results/proc.csv`), but only 7 % in 8 holes 0.6, where GWN is confidently wrong: a threshold on |GWN - 1/2| flags most errors, not all.
 
 ## 2. Upper bound, Thingi10K: 80 open meshes of the 400 broken-category selection (<= 30000 triangles; 180 read, 79 closed)
 
