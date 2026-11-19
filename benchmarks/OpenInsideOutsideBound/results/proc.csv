@@ -1,0 +1,17 @@
+case,open,tris,gwn_missing,gwn_extra,gwn_iou,ambig01_share,ambig_of_err,path,clean,result_iou_truth,seconds,exact_reason
+sphere_closed,False,4332,0.0039,0.0000,0.9961,0.0000,0.000,Repair,True,0.9961,0.5,
+sphere_cap0.3,True,4232,0.0057,0.0000,0.9943,0.0008,0.324,Repair,True,0.9952,0.3,
+sphere_cap0.6,True,3946,0.0255,0.0000,0.9745,0.0061,0.539,Repair,True,0.9806,0.5,
+sphere_cap1.0,True,3346,0.1303,0.0000,0.8697,0.0207,0.372,Solidify,True,0.8707,2.1,not closed (winding number)
+sphere_cap1.4,True,2546,0.3646,0.0000,0.6354,0.0342,0.227,Solidify,True,0.6437,0.9,not closed (winding number)
+sphere_2caps1.0,True,2360,0.3724,0.0000,0.6276,0.0615,0.295,Solidify,True,0.6378,0.9,not closed (winding number)
+sphere_8holes0.3,True,3540,0.0284,0.0000,0.9716,0.0080,0.647,Solidify,True,0.9693,0.7,not closed (winding number)
+sphere_8holes0.6,True,1356,0.9290,0.0000,0.0710,0.0242,0.074,Solidify,True,0.0691,0.5,not closed (winding number)
+sphere_band0.15,True,3676,0.0267,0.0000,0.9733,0.0085,0.659,Solidify,True,0.9713,1.3,volume differs from the input; input: not closed (winding number)
+torus_closed,False,1920,0.0198,0.0000,0.9802,0.0000,0.000,Repair,True,0.9802,0.1,
+torus_window0.5,True,1770,0.0631,0.0000,0.9369,0.0058,0.304,Solidify,True,0.9356,0.9,not closed (winding number)
+torus_window1.0,True,1620,0.1405,0.0000,0.8595,0.0128,0.314,Solidify,True,0.8567,0.7,not closed (winding number)
+two_spheres_closed,False,8664,0.0021,0.0000,0.9979,0.0000,0.000,ExactResolve,True,0.9979,0.4,
+two_spheres_cut0.5,True,8116,0.0126,0.0000,0.9874,0.0038,0.713,ExactResolve,True,0.9904,0.3,
+two_spheres_cut1.0,True,6692,0.1229,0.0001,0.8769,0.0249,0.401,Solidify,True,0.8741,1.7,volume differs from the input; input: not closed (winding number)
+two_spheres_facing0.6,True,7910,0.0021,0.0000,0.9979,0.0000,0.000,ExactResolve,True,0.9979,0.2,
