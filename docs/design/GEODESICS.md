@@ -578,11 +578,7 @@ pseudo-source and has no continuation windows.** The argument is Appendix A.6.
 
 **Rule A7'.** (1) `VertexKind` returns 0 for an interior manifold vertex that the exact flatness test of A.5 accepts
 (coplanar fan with winding 1, or a straight fold; exact predicates on the double coordinates, no tolerance); every other
-vertex that is not certainly convex stays a pseudo-source. (2) No continuation windows. (3) Guard G: a child whose
-clip is nonempty but whose enclosure collapsed to a point (`u1 == u0`, today dropped by `u1 > u0`) is kept as a window of
-one spacing instead, when the clip end is the ray through a vertex of kind 0; widening an outer interval is sound, and the
-probe counted 0 such events on every mesh below, so G costs nothing and exists so that soundness does not rest on a
-measurement. (4) Upper is unchanged (edge paths and inner intervals; the final Dijkstra over edges replaces the
+vertex that is not certainly convex stays a pseudo-source. (2) No continuation windows. (3) No guard: the closure argument (A.6) rests on strict widening of every interval operation, not on a special case. (4) Upper is unchanged (edge paths and inner intervals; the final Dijkstra over edges replaces the
 neighbour bounds the flat vertex's emission gave).
 
 **Probe** (the A7' rule with a tolerance in place of the exact test, `kind` set to 0 for the flat vertices; net10 Release,
@@ -599,8 +595,7 @@ unfolding): 0 violations on either side in every row, and the new and the old en
 | plane 101 x 101, centre / corner | 10201 | window limit | 3.7 s, 260k / 13.8 s, 532k | 8.6 / 17.8 |
 | roof, slope 4, 101 x 101 | 10201 | window limit | 5.5 s, 481k | 16.0 |
 | plane 201 x 201, centre / corner | 40401 | | 23 s, 2.0M / 110 s, 4.2M | |
-| roof 75 degrees (tolerance flat), 41 x 41 | 1681 | 6.0 s, 97650 | 0.44 s, 32110 | 16.5 -> 6.6 |
-| roof 75 degrees, 201 x 201 (tolerance flat) | 40401 | | 41 s, 3.8M | |
+| roof 75 degrees, exact test (i) only, 41 x 41 | 1681 | 6.0 s, 97650 | 2.6 s, 65076 | |
 
 Three limits of the bound:
 
@@ -608,7 +603,8 @@ Three limits of the bound:
    slope vertices are not exactly coplanar (114 of 361 interior fans at 21 x 21, 936 of 1521 at 41 x 41 pass `Orient3d` = 0);
    the rest are intrinsically flat only up to 1e-16 and keep emitting, because a true sum of 2 pi + 1e-16 allows a bend
    (a skip of those would need cone-limited emission, the duplicate-prone A7 of A.5). With the exact test alone (i, no
-   fold test) the 75 degree ridge goes from 6.0 s to 2.6 s at 41 x 41 (0.65 s to 0.37 s at 21 x 21); the 4-5 times above
+   fold test) the 75 degree ridge goes from 6.0 s to 2.6 s at 41 x 41 (0.65 s to 0.37 s at 21 x 21): **that is the shippable
+   number for that ridge; runs with a tolerance in place of the exact test are not evidence for it.** The 4-5 times above
    need an exactly representable slope (z = 4 c: all slope vertices are coplanar, the crest and the two hinges at
    |x| = 2.5 are straight folds, A.5 (ii)). **Proposal: the reach benchmark and the tests get the slope-4 ridge as the
    exactly aligned member; the 75 degree ridge stays as the nearly flat member.**
@@ -640,7 +636,7 @@ saddle (the descendants of a dominated window are dominated too, so the fraction
 above, up to the rule's own cost). Each of the eight observations needs its own reviewed interval form (A.5) and the
 dominating side must be restricted to inner intervals, which the probe did not do, so the real gain is lower.
 
-**Leaning.** Build A7' (a small change: `VertexKind`, the guard G, the benchmark input; the argument A.6 to review first);
+**Leaning.** Build A7' (a small change: `VertexKind`, the benchmark input; the argument A.6 to review first);
 it gives the factor 10 to 20 on the flat and aligned inputs at 2 x 10^3 vertices, takes the plane and the ridge to 10^4
 vertices, and makes the oracle's flat members cheap enough for the tests (the 5 s rule). Do **not** build A9 now: 0 on
 the inputs of the task, at most 1.2-1.8 elsewhere, eight claims to review. Treat the fragmentation lever as the next
@@ -1020,43 +1016,63 @@ meets the closed edge e at x in O(W) (closed). Let rho' be its continuation beyo
 disk by the rigid frame changes of A.2 along the walk, whichever way round p the walk goes). Let F_k be the fan face whose
 closed sector at p contains rho' (two faces if rho' runs along an edge; take either), and e_k its edge opposite p.
 
-*Claim (closure).* Before any drop of A4, subsumption or A6, the windows created contain a window W_k on e_k (propagating
-away from p) with the origin and sigma of W, a disk that contains s in e_k's frame, and an outer interval that contains
-the crossing of rho' with e_k. Hence A3's chain continues past p without a pseudo-source at p, with the same lower-bound
-argument as A3 (the triangle inequality along the chain).
+*Invariant.* A *walk window* is a window W (before any drop of A4, subsumption or A6) on an edge f incident to p or
+opposite p, with: origin o and sigma enclosing d(o); a disk that contains the unfolded position s* in f's frame, with s*
+in the closed back half-plane of f (A.2, A.3); and a closed outer interval O(W) that contains t_p, the parameter of the
+crossing of the ray from s* through p with f (for an edge incident to p: the end p itself, t_p = 0 or L), or, for
+the window on the edge opposite p, the crossing of the continuation rho'. The claim: *for every shortest path gamma that
+passes through exactly flat interior vertices, and every such vertex p on it, the arrival of gamma at p establishes the
+invariant for a window on an edge of p's fan, the invariant is preserved around the fan, and it ends in a window on the
+edge e_k opposite p that satisfies A3's invariant for gamma's continuation.* Induction along gamma's flat vertices (collinear
+flat chains are everywhere on lattice planes, so a window of the walk of p can be the arrival window of the next
+flat vertex q; the arrival types below cover that): A3's chain continues past every flat vertex without a pseudo-source,
+with A3's triangle-inequality argument for the lower bound.
 
-*Proof sketch.* (a) *First step.* Propagate computes xc, an enclosure of the crossing of the ray through p with e, and
-x = xc_true is in O(W) = [O0, O1]. If xc.Hi > O0 the child on the edge (a, p) is created with the clip [O0, min(O1, xc.Hi)],
-which contains x; otherwise xc.Hi <= O0 and x >= O0 force x = O0 = xc.Hi, and then xc.Lo < O1 (W alive), so the child
-on (p, b) is created with the clip [max(O0, xc.Lo), O1], which contains x as its end. Either way one child, on an edge
-(p, y_1) of F, has a clip of positive width that contains x. (b) *Positive width of the child.* For a fixed source
-position, the crossing of the rays through the clip's points with the line of the next edge is strictly monotone in the
-clip parameter wherever the denominator D of Mu keeps its sign, so a clip of positive width gives a crossing set of
-positive width, and `Child` computes an enclosure of that set (the hull of Mu at the clip ends, D certified on the box,
-or the whole edge when D is not certified): `u1 > u0` holds, and the set contains the crossing 0 of rho with the line
-of (p, y_1) (it is at the end p of the edge). The case D = 0 (rho along the edge, the grazing ray of A.5) takes the whole
-edge, so the window is kept. A computed enclosure contains the true set, so it has positive width as well; the one
-failure is an enclosure that collapses to a point by exact arithmetic (zero-width disk and clip), which the guard G
-(section 6d) keeps. (c) *Around p.* The window on (p, y_1) has p at one end of its outer interval, and the same argument
-applies to its propagation into the next fan face F_1 = (p, y_1, y_2): the child on (p, y_2) has a clip that contains
-the end of e_1 at p, of positive width (the outer interval [0, u1] of the window on (p, y_1) has positive width), so
-the walk goes on face by face, with the disk carried by A.2 along the walk. (d) *End of the walk.* In the unfolding
-of the fan the sectors F_1, ..., F_{k-1} turn the walk by their angles, and rho' lies in the closed sector of F_k after a
-total of at most pi (either way round: the two sides of the branches are exactly pi each). In F_k the window on (p, y_k)
-splits at the ray through the third vertex y_{k+1}; both children's closed clips contain that ray, and rho' lies in the
-clip of at least one of them by (a) applied to F_k, so its crossing with e_k lies in that child's outer interval, which
-is the soundness of `Child` (an enclosure of all rays of the clip over all positions of the disk, A3). If rho' runs along
-an edge (p, y_j), the walk ends on that edge: its window has the whole-edge outer interval by D = 0 (b) and carries the
-ray to y_j by A3's vertex rule (`SetLower` of the third vertex, then the children at y_j). []
+*Arrival types.* gamma reaches p (i) as the third vertex beyond the edge e of a window W of the chain (the ordinary case:
+p in W's outer image, `Propagate`'s `xc`); (ii) along an edge (q, p), after a pseudo-source, the source or a flat vertex
+q: q's emission or the source's windows are whole-edge windows on the edges opposite q, and the window on the edge
+(q, p) of a face at q has the whole edge as outer interval (the D = 0 case of `Child`: the rays from a source on the
+line of the edge are parallel to it), so t_p = L is in O(W); for a flat q reached by a walk the same holds by the
+invariant at q; (iii) p as an edge end of a window's outer interval, ie the ray through p is the end ray of W's cone:
+the child whose clip contains that end is created as in (a).
 
-*Assumptions and open points for the reviewer.* (1) The claim needs the closed ray at a vertex to be an end ray of two
-clips; the code's `Propagate` takes `xc` as an interval and both children's clips contain it (the code of `Child` was
-written for the pseudo-source rays of S2, and the probe of 6d dropped no child by `u1 <= u0` in any run, from 2 x 10^3 to 4 x 10^6 windows). (2) Guard G is only for the exact-arithmetic collapse (b); the reviewer should say whether
-(b) is enough without it. (3) Subsumption and A4 drop only certified pieces, and a window on the walk that is dropped
-was dominated or subsumed by a window that carries the same ray's lower bound: the claim is about the windows created,
-and the drops keep A3's chain as in A.1-A.4 (one-sided pruning). The reviewer should check that a subsumption of a window of
-the walk by a window of another origin leaves the lower bound at least as large as the dropped one's on the dropped
-piece (it does by A4's certified inequality; the walk's windows are tiny, so the piece is tiny and the inequality is
-needed only on it). (4) The exact flatness test is the one of A.5 (reviewed); an angle sum of 2 pi + 1e-16 is **not**
-flat and stays a pseudo-source, so nothing is claimed for nearly flat vertices: the enclosure of the probe on the 75 degree
-ridge, where the slope vertices are flat only to 1e-16, is a measurement, not covered by this claim.
+*Proof sketch.* (a) *First step, type (i).* Propagate computes xc, an enclosure of the crossing of the ray through p
+with e; the true crossing t_p lies in xc and in O(W) = [O0, O1]. If xc.Hi > O0 the child on the edge (a, p) is created with
+the clip [O0, min(O1, xc.Hi)], which contains t_p; otherwise xc.Hi <= O0 and t_p >= O0 force t_p = O0 = xc.Hi, and then
+xc.Lo < O1 (W alive), so the child on (p, b) is created with the clip [max(O0, xc.Lo), O1], which contains t_p as its
+end. Either way one child, on an edge (p, y_1) of F, has a clip of positive width that contains t_p. (b) *The child
+is created, by strict widening.* For a fixed source position the crossing of the rays through the clip's points with
+the line of the next edge is strictly monotone in the clip parameter wherever the denominator D of Mu keeps its sign, so a clip of
+positive width gives a crossing set of positive width. `Child` computes an enclosure of it (the hull of Mu at the clip
+ends, with D certified on the box and the clip, otherwise the whole edge): every interval operation rounds outward,
+so the computed enclosure contains the true set and is at least as wide, and the disks never have radius zero, so
+`u1 > u0` holds. The set contains the crossing 0 (or L) of the ray through p, as that ray meets the line of (p, y_1) at
+its end p. The case D = 0 (the grazing ray of A.5) takes the whole edge. No special case for a collapsing enclosure
+is needed or wanted: a window of one spacing would be a window that no argument supports. (c) *Around p.* The window
+on (p, y_1) has p at one end of its outer interval (invariant), of positive width, and (a), (b) apply to its propagation
+into the next fan face F_1 = (p, y_1, y_2): the child on (p, y_2) has a clip that contains the end of e_1 at p. The walk
+goes on face by face, with the disk carried by A.2; the invariant holds at every step. (d) *End of the walk.* In the
+unfolding of the fan the walk turns by the sector angles, and the straight continuation rho' lies in the closed sector
+of F_k after a total of at most pi (either way round: the two sides of the branches are exactly pi each). In F_k the
+window on (p, y_k) splits at the ray through the third vertex y_{k+1}; the child whose clip contains t_p on the side
+of the true crossing is the child on the edge e_k opposite p (the one that sits beyond the ray through y_{k+1}'s side
+of rho'), by the same case split as (a), and its outer interval contains the crossing of rho' with e_k, which is
+the soundness of `Child` (an enclosure of all rays of the clip over all positions of the disk, A3). If rho' runs along an edge
+(p, y_j), the walk ends on that edge: its window has the whole-edge outer interval by D = 0 (b) and carries the ray to
+y_j by A3's vertex rule (`SetLower` of the third vertex, then the children at y_j). []
+
+*Windows beyond the walk.* Where the walk's turning exceeds pi (a child created past F_k, theta > pi) the windows have
+empty inner intervals (their rays are not rays of a real path) and only add terms to the Lower minimum: harmless, and
+the same as the windows around a vertex today.
+
+*Assumptions and open points for the reviewer.* (1) The claim needs the ray through p to be an end ray of the closed clips
+of both children of a window; this is the strict-enclosure argument of (b) (every operation widens), not a measurement; the
+probe of 6d dropped no child by `u1 <= u0` in any run, from 2 x 10^3 to 4 x 10^6 windows, consistent with it.
+(2) A window of the walk is dropped only by certified A4 dominance or by subsumption. The point each protects: for a
+walk window the point t_p, with L_w(t_p) <= d(p) (it needs sigma- <= d(o), A5's invariant); for W_k the crossing of
+rho' with e_k. Subsumption is a same-origin rule: a subsuming window has the same origin, a disk containing w's, and its
+outer interval contains w's piece, so it carries t_p as well and its lower function is at most w's on the piece. Windows
+of other origins remove a piece only by certified A4 dominance, whose strict inequality at every point of the piece
+includes t_p and the crossing of rho': the lower bound there stays at most d. (3) The exact flatness test is the one of
+A.5 (reviewed); an angle sum of 2 pi + 1e-16 is **not** flat and stays a pseudo-source, so nothing is claimed for nearly flat
+vertices. Flat boundary vertices stay pseudo-sources (S1: a boundary vertex is never kind 0), as does a flat vertex that is a source.
