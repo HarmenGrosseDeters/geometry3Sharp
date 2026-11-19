@@ -1,0 +1,21 @@
+op	config	ms	allocKB	pauseMs	gen2/call	vsBase	identical
+Union grid 30x30 (900 polys)	fresh engine per polygon	9.905	8443	1.628	0.000	+0.0%	yes
+Union grid 30x30 (900 polys)	one shared engine	9.162	4876	1.576	0.000	-7.5%	yes
+Difference grid 30x30 (900 polys)	fresh engine per polygon	17.467	10705	4.807	0.037	+0.0%	yes
+Difference grid 30x30 (900 polys)	one shared engine	15.845	7138	3.836	0.037	-9.3%	yes
+Offset round grid 30x30 (900 polys)	fresh engine per polygon	56.500	22738	6.174	0.143	+0.0%	yes
+Offset round grid 30x30 (900 polys)	one shared engine	57.042	20954	5.320	0.143	+1.0%	yes
+Offset miter grid 30x30 (900 polys)	fresh engine per polygon	7.332	7456	0.037	0.000	+0.0%	yes
+Offset miter grid 30x30 (900 polys)	one shared engine	6.864	5673	0.050	0.000	-6.4%	yes
+Union grid 100x100 (10000 polys)	fresh engine per polygon	275.866	92424	33.467	0.000	+0.0%	yes
+Union grid 100x100 (10000 polys)	one shared engine	227.593	52740	0.000	0.000	-17.5%	yes
+Difference grid 100x100 (10000 polys)	fresh engine per polygon	455.846	116640	0.000	0.000	+0.0%	yes
+Difference grid 100x100 (10000 polys)	one shared engine	432.505	76957	0.000	0.000	-5.1%	yes
+Offset round grid 100x100 (10000 polys)	fresh engine per polygon	2611.180	251688	90.556	0.000	+0.0%	yes
+Offset round grid 100x100 (10000 polys)	one shared engine	2507.182	231846	105.162	1.000	-4.0%	yes
+Offset miter grid 100x100 (10000 polys)	fresh engine per polygon	273.046	83816	0.000	0.000	+0.0%	yes
+Offset miter grid 100x100 (10000 polys)	one shared engine	265.650	63974	0.000	0.000	-2.7%	yes
+Bridge ToPaths grid 30x30	fresh engine per polygon	0.118	314	0.001	0.000	+0.0%	yes
+Bridge ToPaths grid 30x30	one shared engine	0.140	314	0.001	0.000	+18.7%	yes
+Bridge ToGeneralPolygons grid 30x30	fresh engine per polygon	0.171	652	0.002	0.000	+0.0%	yes
+Bridge ToGeneralPolygons grid 30x30	one shared engine	0.162	652	0.002	0.000	-5.1%	yes
