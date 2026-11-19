@@ -621,8 +621,9 @@ the score (rounded down, less two points; timeouts are 0.3 to 5 % of the mutants
 | `uv-foldover` | `FoldoverFreeParameterization.cs`, `LSCMParameterization.cs` (and since the spectral option, not in this run: `SpectralConformalParameterization.cs`) | 609 | 82.19 % | 515 / 2 / 92 / 20 | 80 (82) | 29 min |
 | `uv-core` | `MeshParameterization.cs` (the shared `ParamMesh`, `ParamMath`, `ConstrainedQuadratic`) | 550 | 79.55 % | 455 / 4 / 91 / 27 | 77 (79) | 25 min |
 
-Local full run of `solid-pipeline` (19 November 2026, Windows, net10.0, 12 CPUs, concurrency 2), the break threshold set
-by the same rule: 414 mutants, 370 tested, **74.59 %** (274 killed, 2 timeouts, 94 survived), break 72 (low 74), 25 min.
+Local full run of `solid-pipeline` (19 November 2026, Windows, net10.0, 12 CPUs, concurrency 2, with `InputGrid`,
+`MinThickness` and `ThinInputs` merged), the break threshold set by the same rule: 711 mutants, 630 tested, **77.30 %**
+(487 killed, 0 timeouts, 143 survived), break 75 (low 77), 47 min.
 The survivors are mostly message texts (`StopDetail`, `Error`), the validation of the settings, the stage times and the
 contact count of the report: tasks for the area's next PR.
 
