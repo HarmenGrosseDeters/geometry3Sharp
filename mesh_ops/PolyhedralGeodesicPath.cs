@@ -66,7 +66,7 @@ namespace g3
         /// The shortest path from the nearest source to the vertex <paramref name="targetVertex"/> (the vertex of the last <see cref="Compute"/>): backtracing through the
         /// windows (Mitchell, Mount and Papadimitriou 1987; Surazhsky et al. 2005): the run records at every vertex how its distance arose (the window and the unfolded
         /// image of its origin, or the edge from a pseudo-source), and the path is the straight line to that image, unfolded back across the triangles it crosses until it reaches
-        /// a vertex (a pseudo-source or a source), where it continues with that vertex's record. Valid until the next Compute; the mesh must not change in between.
+        /// a vertex (a pseudo-source or a source), where it continues with that vertex's record. Valid until the next Compute; the mesh must not change in between. Only reads the instance: calls may run concurrently with each other, not with Compute. Assumes no edge much shorter than 1e-7 of the extent (GEODESICS.md A.8).
         /// Costs memory: 32 bytes per vertex are kept during Compute for this, and the run's windows stay in memory after it.
         /// </summary>
         public PolyhedralGeodesicPath TracePath(int targetVertex)
@@ -100,13 +100,15 @@ namespace g3
             if (b1 == 1 && b0 == 0 && b2 == 0) return TracePath(tri.b);
             if (b2 == 1 && b0 == 0 && b1 == 0) return TracePath(tri.c);
             Vector3d pa = Mesh.GetVertex(tri.a), pb = Mesh.GetVertex(tri.b), pc = Mesh.GetVertex(tri.c);
-            Vector3d p = Math.Max(b0, 0) * pa + Math.Max(b1, 0) * pb + Math.Max(b2, 0) * pc;
+            double wsum = Math.Max(b0, 0) + Math.Max(b1, 0) + Math.Max(b2, 0);   // normalised: a sum within 1e-9 of 1 is accepted
+            Vector3d p = (Math.Max(b0, 0) * pa + Math.Max(b1, 0) * pb + Math.Max(b2, 0) * pc) / wsum;
             // candidates: the corners (straight segment inside the triangle) and the windows on the three edge sides that enter the triangle
             double best = double.PositiveInfinity; int bestCorner = -1, bestE = -1, bestSide = -1, bestOrigin = -1; double bestSx = 0, bestSy = 0, bestPx = 0, bestPy = 0;
             for (int k = 0; k < 3; ++k) {
                 int v = tri[k];
-                if (!(dist[v] < double.PositiveInfinity)) continue;
-                double c = dist[v] + p.Distance(Mesh.GetVertex(v));
+                double dv = Distance[v];                        // NaN beyond MaxDistance (dist[] holds tentative values there)
+                if (!(dv < double.PositiveInfinity)) continue;
+                double c = dv + p.Distance(Mesh.GetVertex(v));
                 if (c < best) { best = c; bestCorner = v; bestE = -1; }
             }
             Index3i te = Mesh.GetTriEdges(triangle);
@@ -125,7 +127,7 @@ namespace g3
                     if (cand < best) { best = cand; bestCorner = -1; bestE = e; bestSide = side; bestOrigin = w.Origin; bestSx = w.Sx; bestSy = w.Sy; bestPx = px; bestPy = py; }
                 }
             }
-            if (!(best < double.PositiveInfinity)) { res.Status = PolyhedralGeodesicPathStatus.Unreached; return res; }
+            if (!(best <= MaxDistance)) { res.Status = PolyhedralGeodesicPathStatus.Unreached; return res; }
             res.Distance = best;
             var target = new SurfacePathPoint { Position = p, Vertex = -1, Edge = -1, T = 0, Face = triangle };
             var pts = new List<SurfacePathPoint> { target }; var fcs = new List<int>();
@@ -148,6 +150,7 @@ namespace g3
         {
             if (!ok) { res.Status = PolyhedralGeodesicPathStatus.TraceFailed; res.Points = pts; res.Faces = fcs; return res; }
             pts.Reverse(); fcs.Reverse();
+            res.Source = pts[0].Vertex;                      // the vertex the walk ended at (a source); equals the root of the run except at near ties
             double len = 0;
             for (int i = 0; i + 1 < pts.Count; ++i) len += pts[i].Position.Distance(pts[i + 1].Position);
             res.Status = PolyhedralGeodesicPathStatus.Ok; res.Points = pts; res.Faces = fcs; res.Length = len;
@@ -207,7 +210,7 @@ namespace g3
         int TraceLeg(int e, int side, double sx, double sy, double qx, double qy, int cf, List<SurfacePathPoint> pts, List<int> fcs, ref int steps)
         {
             int cap = TraceStepCap > 0 ? TraceStepCap : 2 * Mesh.TriangleCount + 16;
-            double posTol = 1e-9 * extent;
+            double posTolGlobal = 1e-9 * extent, posTol = posTolGlobal;
             int pf;
             { Index2i et = Mesh.GetEdgeT(e); if (side >= 0) pf = Other(e, FaceOfSide(side)); else pf = et.a >= 0 ? et.a : et.b; }
             sy = Math.Min(sy, 0);
@@ -219,12 +222,15 @@ namespace g3
                     double t = qy / (qy - sy);
                     double xx = Math.Min(Math.Max(qx + (sx - qx) * t, 0), L);
                     // the line crosses the edge at one of its end vertices: the leg ends there (a subpath of a shortest path is shortest: the vertex continues with its own record)
-                    int endV = xx <= posTol ? ev.a : (xx >= L - posTol ? ev.b : -1);
+                    double tolX = Math.Min(posTolGlobal, 1e-6 * L);
+                    int endV = xx <= tolX ? ev.a : (xx >= L - tolX ? ev.b : -1);
                     if (endV >= 0) { fcs.Add(cf); pts.Add(VertexPoint(endV)); return endV; }
                     fcs.Add(cf); pts.Add(EdgePoint(e, xx)); qx = xx; qy = 0;
                 }
                 int cp = Third(pf, ev.a, ev.b);
                 Place(ev.a, ev.b, cp, L, out double cx, out double cy); double Cy = -cy;
+                // the tolerance for 'at a vertex' is 1e-9 extent but at most a millionth of the smallest edge of the triangle: a feature near the tolerance would be snapped away
+                posTol = Math.Min(posTolGlobal, 1e-6 * Math.Min(L, Math.Min(Hyp(cx, cy), Hyp(cx - L, cy))));
                 // S at a corner: the leg ends there
                 int corner = -1;
                 if (Hyp(sx, sy) <= posTol) corner = ev.a; else if (Hyp(sx - L, sy) <= posTol) corner = ev.b; else if (Hyp(sx - cx, sy - Cy) <= posTol) corner = cp;
@@ -260,7 +266,9 @@ namespace g3
                 Map(ux, uy, sg, p2ax, p2ay, qx, 0, out double nqx, out double nqy);
                 Map(ux, uy, sg, p2ax, p2ay, sx, sy, out double nsx, out double nsy);
                 // rounding: the exit edge is in the triangle's frame at y = 0, S beyond it
-                if (nqy < posTol) nqy = 0;          // Q at the vertex shared with the exit edge stays on it: the ray turns around the vertex
+                // Q is the last point; when that is the vertex shared with the exit edge, Q stays on the exit edge and the ray turns around the vertex (no snapping by a distance:
+                // in a sliver triangle a point far along the edge is close to the line of the next edge)
+                if (pts[pts.Count - 1].Vertex == u1) nqy = 0; else if (nqy < 0) nqy = 0;
                 if (nsy > 0) nsy = 0;
                 cf = pf; pf = Other(e2, pf); e = e2; qx = nqx; qy = nqy; sx = nsx; sy = nsy;
             }

@@ -125,7 +125,7 @@ namespace geometry3Sharp.Tests
             foreach (int t in m.VtxTrianglesItr(v)) {
                 Index3i tri = m.GetTriangle(t); var o = new List<int>(); for (int k = 0; k < 3; ++k) if (tri[k] != v) o.Add(tri[k]);
                 Vector3d a = (m.GetVertex(o[0]) - pv).Normalized, b = (m.GetVertex(o[1]) - pv).Normalized;
-                s += Math.Acos(Math.Max(-1, Math.Min(1, a.Dot(b))));
+                s += Math.Atan2(a.Cross(b).Length, a.Dot(b));      // accurate near 0 and pi, unlike acos
             }
             return s;
         }
@@ -199,6 +199,86 @@ namespace geometry3Sharp.Tests
                 var r = g.TracePath(t, new Vector3d(a, b, 1 - a - b));
                 Assert.True(Math.Abs(r.Length - s.Distance(p)) <= Tol(s.Distance(p), ext) && Math.Abs(r.Distance - s.Distance(p)) <= Tol(s.Distance(p), ext));
             }
+        }
+
+        // a grid with two columns a tiny gap apart: edges that short are inside the tolerance of 'at a vertex' if that were a distance of the whole mesh
+        static DMesh3 ColumnGap(double gap, Func<double, double, double> h)
+        {
+            var xs = new List<double>(); for (int i = 0; i < 9; ++i) { xs.Add(i / 8.0); if (i == 4) xs.Add(i / 8.0 + gap); }
+            int nx = xs.Count, ny = 9; var m = new DMesh3();
+            for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) m.AppendVertex(new Vector3d(xs[i], j / 8.0, h(xs[i], j / 8.0)));
+            for (int j = 0; j < ny - 1; ++j) for (int i = 0; i < nx - 1; ++i) {
+                int a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+                if (((i + j) & 1) == 0) { m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c); } else { m.AppendTriangle(a, b, c); m.AppendTriangle(b, d, c); }
+            }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(1e-6, false)]
+        [InlineData(1e-7, false)]
+        [InlineData(1e-6, true)]
+        [InlineData(1e-7, true)]
+        [InlineData(1e-8, true)]
+        public void ShortEdges_DoNotSnapTheTrace_PathsStayValid(double gap, bool terrain)
+        {
+            // the vertex tolerance is a millionth of the triangle's smallest edge at most, so edges of 1e-6 and 1e-7 of the extent are traced correctly
+            var m = ColumnGap(gap, terrain ? (Func<double, double, double>)((x, y) => Terrain(x * 10, y * 10)) : (x, y) => 0);
+            var g = Run(m, 0); double ext = Extent(m);
+            foreach (int v in m.VertexIndices()) AssertValidPath(m, g, g.TracePath(v), new[] { 0 }, ext);
+        }
+
+        [Fact]
+        public void FacePoint_BeyondMaxDistance_IsUnreached_LikeTheVertexQuery()
+        {
+            var m = Grid(1, 11, (x, y) => 0); var g = new PolyhedralGeodesicDistance(m) { MaxDistance = 0.3 };
+            Assert.Equal(PolyhedralGeodesicStatus.Ok, g.Compute(new[] { 60 }));
+            Vector3d s = m.GetVertex(60); int ok = 0, unreached = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tri = m.GetTriangle(t); Vector3d p = 0.3 * m.GetVertex(tri.a) + 0.3 * m.GetVertex(tri.b) + 0.4 * m.GetVertex(tri.c);
+                var r = g.TracePath(t, new Vector3d(0.3, 0.3, 0.4));
+                if (s.Distance(p) > 0.3 + 1e-12) { Assert.Equal(PolyhedralGeodesicPathStatus.Unreached, r.Status); ++unreached; }
+                else if (s.Distance(p) < 0.3 - 1e-12 && m.GetTriangle(t).a >= 0) {
+                    // within the range: a path if its corners have distances; the distance is the true one (the plane)
+                    if (r.Status == PolyhedralGeodesicPathStatus.Ok) { Assert.True(r.Distance <= 0.3 + 1e-12); Assert.True(Math.Abs(r.Distance - s.Distance(p)) <= 1e-12); ++ok; }
+                }
+            }
+            Assert.True(ok > 4 && unreached > 50);
+        }
+
+        [Fact]
+        public void FacePoint_BarycentricSumNotExactlyOne_IsNormalised_OnTheSurface()
+        {
+            var m = Grid(1, 11, (x, y) => 0); var g = Run(m, 60);
+            foreach (int t in m.TriangleIndices().Where(t => t % 9 == 0)) {
+                var r = g.TracePath(t, new Vector3d(0.3, 0.3, 0.4 + 5e-10)); var q = g.TracePath(t, new Vector3d(0.3 / (1 + 5e-10), 0.3 / (1 + 5e-10), (0.4 + 5e-10) / (1 + 5e-10)));
+                Assert.Equal(PolyhedralGeodesicPathStatus.Ok, r.Status);
+                Index3i tri = m.GetTriangle(t); Vector3d exact = 0.3 * m.GetVertex(tri.a) + 0.3 * m.GetVertex(tri.b) + 0.4 * m.GetVertex(tri.c);
+                Assert.True((r.Points[r.Points.Count - 1].Position - exact).Length <= 1e-9 * 0.4 * 2, "the point stays inside the triangle up to the tolerance of the sum");
+                Assert.True((r.Points[r.Points.Count - 1].Position - q.Points[q.Points.Count - 1].Position).Length <= 1e-14);
+            }
+        }
+
+        [Fact]
+        public void PartiallyReached_TracesTheReachedVertices_AndSaysUnreachedForTheRest()
+        {
+            var m = Grid(-1, -1e-8, 1, 1e-8, 21, 5, (x, y) => 0);          // aspect 1e8: the run leaves vertices unreached (the class remarks, limit 2)
+            int partial = 0, ok = 0;
+            foreach (int src in new[] { 10, 0 }) {
+                var g = new PolyhedralGeodesicDistance(m); var st = g.Compute(new[] { src });
+                if (st != PolyhedralGeodesicStatus.PartiallyReached) continue;
+                ++partial;
+                foreach (int v in m.VertexIndices()) {
+                    var r = g.TracePath(v);
+                    if (double.IsNaN(g.Distance[v])) Assert.Equal(PolyhedralGeodesicPathStatus.Unreached, r.Status);
+                    else {
+                        // an aspect ratio of 1e8 is beyond the tolerances of the unfolding (A.8): the trace may say TraceFailed, never a wrong Ok
+                        Assert.True(r.Status == PolyhedralGeodesicPathStatus.Ok || r.Status == PolyhedralGeodesicPathStatus.TraceFailed);
+                        if (r.Status == PolyhedralGeodesicPathStatus.Ok) { Assert.Equal(src, r.Source); Assert.True(Math.Abs(r.Length - r.Distance) <= 1e-6 * r.Distance + 1e-6 * 2); ++ok; }
+                    }
+                }
+            }
+            Assert.True(partial > 0 && ok > 10, $"{partial} partially reached runs");
         }
 
         [Fact]
