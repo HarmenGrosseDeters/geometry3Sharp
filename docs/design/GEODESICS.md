@@ -1341,7 +1341,9 @@ d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No l
     margin of 4 cEps covers (the same reliance as the old test, which compared the same two evaluations). The old depth-6 recursion found only whole
     dyadic pieces of 1/64 of the overlap: at every crossing of two windows both stayed alive over up to 1/64 of the edge, and at hundreds of crossings per
     edge on the saddle that is most of the windows. The new set contains the old one, so coverage C and realisability R of this note hold unchanged: a
-    dropped piece is one on which another window is certainly better, by the margin that C already charges. The same function trims the end of an existing
+    dropped piece is one on which another window is certainly better, by the margin that C already charges. (If the window that justified a cut is then merged into a
+    third window of its origin, C holds through the merge's charge: the merged window has xi at least xi_w + |c_w - c| + |sigma_w - sigma|, as for every merge; the order of the scan
+    is the one of the old end cut.) "The new set contains the old one" holds up to the rounding of the two evaluations (the old test compared FMin and FMax bounds). The same function trims the end of an existing
     window b where the new window w is certainly better (the old test cut only an end if the whole overlap qualified); a piece that lies **inside** b is left:
     splitting b into two windows was measured to create more windows than it saves (with the split: plane corner +1 % to +2 %, ridge +2 %, the cone with k = 1e-6 +2 %,
     against the run before the change; without it no family has more windows than before, and terrain and saddle have 1 % to 3 % fewer), so b keeps the hull of what remains.

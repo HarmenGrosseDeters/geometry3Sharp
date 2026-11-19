@@ -484,6 +484,18 @@ namespace geometry3Sharp.Tests
             Assert.True(g.Windows < 380603 * 0.8, $"{g.Windows} windows against 380603 before the trim");
             AssertAboveStraight(m, g, src);
             Assert.Equal(0, g.Distance[src[0]]);
+            AssertNotAboveEdgePath(m, g, src[0]);
+            // the mesh is symmetric about the source up to the diagonals: the distances to the four corners agree to the diagonals' effect
+            double ext = Extent(m); int c0 = 0, c1 = n - 1, c2 = (n - 1) * n, c3 = n * n - 1;
+            Assert.True(Math.Abs(g.Distance[c0] - g.Distance[c3]) <= 1e-9 * g.Distance[c0] && Math.Abs(g.Distance[c1] - g.Distance[c2]) <= 1e-9 * g.Distance[c1] + ext * 1e-12);
+        }
+
+        static void AssertNotAboveEdgePath(DMesh3 m, PolyhedralGeodesicDistance g, int a)
+        {
+            var dj = new double[m.MaxVertexID]; for (int i = 0; i < dj.Length; ++i) dj[i] = double.PositiveInfinity; dj[a] = 0;
+            var q = new SortedSet<(double, int)> { (0, a) };
+            while (q.Count > 0) { var (k, v) = q.Min; q.Remove(q.Min); if (k > dj[v]) continue; foreach (int u in m.VtxVerticesItr(v)) { double nd = dj[v] + m.GetVertex(v).Distance(m.GetVertex(u)); if (nd < dj[u]) { dj[u] = nd; q.Add((nd, u)); } } }
+            foreach (int v in m.VertexIndices()) Assert.True(g.Distance[v] <= dj[v] * (1 + 1e-12) + 1e-12, $"vertex {v}");
         }
 
         [Fact]
@@ -492,7 +504,7 @@ namespace geometry3Sharp.Tests
             var (m, src) = Family("saddle", 41); var g = Run(m, src);
             Assert.Equal(53887L, g.Windows);
             Assert.True(g.Windows < 63310L, "63310 windows before the trim");
-            AssertAboveStraight(m, g, src);
+            AssertAgreesWithOracle(m, g, src);
         }
 
         [Theory]
@@ -537,6 +549,10 @@ namespace geometry3Sharp.Tests
             yield return new object[] { 0.0, -1.0, 0.5, 1.0, -1.0, 0.0, -2.0, 3.0, 0.0 };      // equal heights
             yield return new object[] { 0.0, -1.0, 0.2, 0.1, -1.1, 0.0, -2.0, 3.0, 1e-3 };     // nearly equal, with a margin
             yield return new object[] { 0.5, -0.5, 0.0, 1.5, -3.0, 2.0, -1.0, 3.0, 0.0 };      // b with a large sigma
+            yield return new object[] { 0.5, 0.0, 0.0, 1.5, -1.0, 0.0, -1.0, 3.0, 0.0 };       // a on the line of the edge (the kink of |x - sa| is at its origin)
+            yield return new object[] { 0.5, -1.0, 0.0, 1.5, 0.0, 0.3, -1.0, 3.0, 0.01 };      // b on the line of the edge
+            yield return new object[] { 0.0, -1.0, 0.4, 2.0, -1.0, 0.0, -1.0, 4.0, 0.01 };     // equal heights, a margin (no critical point)
+            yield return new object[] { 0.0, -0.5, 0.0, 0.0, -0.5, 0.0, -1.0, 1.0, 0.0 };      // the same function twice: nothing is worse
         }
 
         [Theory]
@@ -555,6 +571,33 @@ namespace geometry3Sharp.Tests
                 else Assert.True(gap < 1e-9, $"x = {x}: outside every piece, gap {gap}");
             }
             if (p.Count == 0) Assert.True(inside == 0);
+        }
+
+        [Fact]
+        public void ExactTrim_EmptyOrReversedInterval_GivesNothing()
+        {
+            Assert.Empty(PolyhedralGeodesicDistance.DominatedPieces(0, -1, 100, 0, -1, 0, 2, 2, 0));
+            Assert.Empty(PolyhedralGeodesicDistance.DominatedPieces(0, -1, 100, 0, -1, 0, 3, 2, 0));
+        }
+
+        [Fact]
+        public void CutEnds_RemovesThePiecesAtTheEnds_ALeftPieceInTheMiddleStays()
+        {
+            void Check(double[] rem, double b0, double b1, double elo, double ehi)
+            {
+                var l = new List<(double l, double r)>(); for (int i = 0; i < rem.Length; i += 2) l.Add((rem[i], rem[i + 1]));
+                PolyhedralGeodesicDistance.CutEnds(l, b0, b1, out double lo, out double hi);
+                Assert.Equal((elo, ehi), (lo, hi));
+            }
+            Check(new[] { 0.0, 0.4 }, 0, 1, 0.4, 1);                        // the low end
+            Check(new[] { 0.7, 1.0 }, 0, 1, 0, 0.7);                        // the high end
+            Check(new[] { 0.0, 0.2, 0.9, 1.0 }, 0, 1, 0.2, 0.9);            // both
+            Check(new[] { 0.3, 0.5 }, 0, 1, 0, 1);                          // the middle: b stays whole (a split makes more windows)
+            Check(new[] { -1.0, 0.5, 0.6, 2.0 }, 0, 1, 0.5, 0.6);           // pieces reaching beyond the window's own interval
+            var all = new List<(double l, double r)> { (0, 1) };
+            PolyhedralGeodesicDistance.CutEnds(all, 0, 1, out double l0, out double h0);
+            Assert.True(!(h0 > l0), "a window covered completely is dead");
+            Check(new[] { 0.0, 0.3, 0.3, 1.0 }, 0, 1, 1, 0);                // two touching pieces cover it: dead (hi <= lo)
         }
 
         [Fact]

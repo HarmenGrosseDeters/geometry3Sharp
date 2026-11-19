@@ -90,7 +90,7 @@ bisecting to depth 6. Same machine, one process alone, default budget except the
 
 The saddle still ends in `WindowLimit` at the default budget, by design: at the end of a run on the saddle 99 % to 100 % of the live windows are the
 minimum of their edge somewhere (31, 48 and 82 essential windows per vertex at 41, 61 and 101 vertices a side), so no filter that drops only dominated
-windows can bring the count below about 0.85 per vertex and grid width (64 per vertex at about 78 x 78 vertices instead of about 62 x 62). The run to the limit
+windows can bring the count below about 0.8 to 0.9 per vertex and grid width (64 per vertex at about 78 x 78 vertices instead of about 62 x 62). The run to the limit
 at 317 x 317 takes 13 s instead of 42 s, under the 20 s rule. A saddle mesh beyond about 78 x 78 vertices needs an explicit `MaxWindows`.
 
 The saddle ends in `WindowLimit` at the default of 64 windows per vertex at all three sizes (its windows per vertex grow with the grid width:
