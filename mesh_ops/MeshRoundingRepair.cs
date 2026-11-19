@@ -3083,7 +3083,9 @@ namespace g3
             }
         }
 
-        // components with a degenerate triangle or an edited vertex that are tiny or thin
+        // closed components with a degenerate triangle or an edited vertex that are tiny or thin, and (#1067) untouched tiny
+        // ones that are inside out and enclosed by nothing (a residue). Called only when the repair edited or found something:
+        // a mesh with nothing to repair keeps such a residue (reported by NotCleanReason)
         [MethodImpl(JitHints.Optimize)]
         int remove_tiny_components(List<int> bad)
         {
@@ -3100,6 +3102,7 @@ namespace g3
             // the components to remove, decided first and removed after the loop: removing a closed component changes no
             // other component, so the decisions are the same as when removing on the way (and in the same order)
             var remove = new List<int[]>();
+            List<int[]> inverted = null;
             int removeTriangles = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
@@ -3112,9 +3115,11 @@ namespace g3
                     sum += area(t);
                     volume += (pos(tv.a) - o).Dot((pos(tv.b) - o).Cross(pos(tv.c) - o)) / 6;
                 }
-                if (hasBad == false)
-                    continue;
                 // tiny, or (closed) thinner than maxLength: a slab of thickness h has about volume = h area / 2
+                int v0 = Mesh.GetTriangle(comp[0]).a;
+                bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
+                if (tiny == false && thin == false)
+                    continue;
                 bool closed = true;
                 foreach (int t in comp) {
                     Index3i te = Mesh.GetTriEdges(t);
@@ -3122,10 +3127,22 @@ namespace g3
                 }
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
-                int v0 = Mesh.GetTriangle(comp[0]).a;
-                bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
-                if (closed == false || (tiny == false && thin == false))
+                if (closed == false)
                     continue;
+                if (hasBad == false) {
+                    // untouched by the edits (#1067): kept as it is, unless it is tiny, inside out (the exact sign of its volume)
+                    // and nothing encloses it (below): the solid it was cut from is gone, what is left is a residue of
+                    // near-zero volume that the evaluation reports as inside out. Only tiny ones: a thin one may be a real
+                    // foil that merely has the wrong orientation, which is reported, not deleted. A cavity (enclosed) is a
+                    // legitimate result and stays. (The exact sign is a pre-filter: the nesting test flags only inside-out
+                    // components, but builds trees)
+                    if (tiny) {
+                        int[] ids = comp.ToArray();
+                        if (gs.MeshPostRepairCleanup.volume_sign(Mesh, ids) < 0)
+                            (inverted ?? (inverted = new List<int[]>())).Add(ids);
+                    }
+                    continue;
+                }
                 // never as thin a component that holds real volume for its area (a sphere has |V| = 0.094 A^1.5, a slab
                 // of thickness h about h A / 2): thin by the bound but not by its shape, it is kept and counted
                 // (ScaleDisparity, not clean). Tiny components go, as decided (SAFE_ROUNDING.md section 1)
@@ -3135,6 +3152,24 @@ namespace g3
                 }
                 remove.Add(comp.ToArray());
                 removeTriangles += comp.Count;
+            }
+            if (inverted != null) {
+                // (the nesting is judged on the mesh without the edited components that go, as they are removed before: a
+                // tiny solid that encloses a residue does not make it a cavity; a copy with the same ids, once. Only the
+                // components it flags as inside out go)
+                var rest = new DMesh3(Mesh);
+                foreach (int[] comp in remove)
+                    foreach (int t in comp)
+                        rest.RemoveTriangle(t, true);
+                var flagged = new bool[Mesh.MaxTriangleID];
+                foreach (int[] fc in gs.MeshPostRepairCleanup.FindInvertedComponents(rest))
+                    foreach (int t in fc)
+                        flagged[t] = true;
+                foreach (int[] comp in inverted)
+                    if (flagged[comp[0]]) {
+                        remove.Add(comp);
+                        removeTriangles += comp.Length;
+                    }
             }
             // never all of a non-empty mesh whose input was itself thin or tiny (#985, KeepWhenEmptied): the scale is that
             // of the largest component, so a flattened or long thin solid is thin or tiny by its own diagonal. Then nothing
