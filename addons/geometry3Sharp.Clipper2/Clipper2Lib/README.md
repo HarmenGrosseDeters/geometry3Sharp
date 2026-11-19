@@ -64,6 +64,16 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
     least 2 points). Seen on the way, not changed: the C# 2.0.0 code drops the single points of Polygon and Joined groups
     (`StripDuplicates` of a closed path; the upstream tests expect them offset, so `DeltaCallback_SeesTheNormalsOfItsOwnPath`
     uses an open group).
+- #1169 (2026-11-19, own method, not an upstream port; upstream Clipper2 and PolyClipping/Clipper2 still have the 3-point join):
+  `Clipper.Offset.cs`, `OffsetPoint` and the new property `ClipperOffset.SinglePointInnerJoin` (the adapter sets it from
+  `Clipper2Options.SinglePointInnerJoin`, default true, owner 2026-11-19). A concave vertex whose two offset edges meet inside both (the miter point is at
+  most half an edge length from each end, `InnerJoinIsSimple`; turns below 90 degrees only) gets the miter point instead of
+  the 3 points `perp(k), vertex, perp(j)`. The detour makes a loop the final union removes, but on a dense smooth ring it
+  leaves about delta / spacing edges of length delta active in the sweep at once, so the union was O(n^2) (100k vertices:
+  17.8 s round, 14.3 s miter; with the single point 0.18 s and 0.07 s, `benchmarks/Clipper2Benchmark`). The result differs
+  from the 3-point one by the rounding of the miter point (3 grid units, more at the tip of a thin spike of the result:
+  about 3 / sin(half the tip angle)); results without such a join (convex rings, the grids of the benchmark) are bit for
+  bit the same. Measured on simple rings and open paths (the tests, and a 40 000-case sweep of the review, also Square and Bevel joins, negative deltas, holes, duplicate points): a vertex can differ more where the 3-point result rounds two nearly parallel edges (turns below 3 degrees; the single point is the more accurate one there). Not claimed: raw rings that cross themselves, where the 3-point loops also cancel the winding of non-adjacent overlaps and the regions can differ a lot (the adapter resolves polygons into disjoint regions first; self-crossing polylines agree to 1e-5 of the area). A raw offset is also counted (`RawVertexCount`, internal, for the tests `Clipper2InnerJoinTests`).
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the

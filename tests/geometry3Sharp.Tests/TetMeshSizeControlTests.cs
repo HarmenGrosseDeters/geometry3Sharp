@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using g3;
 using gs;
@@ -11,7 +10,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Size control of the tet meshing (docs/design/TET_MESHING.md 17.12, stage P3, target T7): a uniform target edge length, a user size
     /// function and an automatic one graded with the distance to the boundary, as an extra bad-tet criterion of the refinement. Interior only:
-    /// the boundary keeps the wrap's spacing. Every run has its own stopwatch as CancelF.
+    /// the boundary keeps the wrap's spacing. Every run has its own call budget as CancelF.
     /// </summary>
     public class TetMeshSizeControlTests
     {
@@ -20,11 +19,16 @@ namespace geometry3Sharp.Tests
         static MeshTetrahedralization Make(string shape, double alpha = 12)
             => new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, RescuePasses = 0 };
 
-        static bool Go(MeshTetrahedralization tm)
+        static bool Go(MeshTetrahedralization tm) => Go(tm, out _);
+
+        // a call budget as CancelF, not a stopwatch (CallBudget: the verdict does not depend on the load of the runner)
+        static bool Go(MeshTetrahedralization tm, out long calls)
         {
-            var sw = Stopwatch.StartNew();
-            tm.CancelF = () => sw.Elapsed.TotalSeconds > 15;
-            return tm.Compute();
+            var budget = new CallBudget(CallBudget.Standard);
+            tm.CancelF = budget.Exceeded;
+            bool ok = tm.Compute();
+            calls = budget.Calls;
+            return ok;
         }
 
         static void AssertGood(MeshTetrahedralization tm)
@@ -178,9 +182,8 @@ namespace geometry3Sharp.Tests
             MeshTetrahedralization plain = Make("box"); Assert.True(Go(plain));
             MeshTetrahedralization tm = Make("box");                    // the default alpha of these tests, not a coarse one: no run of minutes
             tm.SizeFunction = Function(kind);
-            var sw = Stopwatch.StartNew();
-            Assert.True(Go(tm), tm.Status.ToString());
-            Assert.True(sw.Elapsed.TotalSeconds < 5);
+            Assert.True(Go(tm, out long calls), tm.Status.ToString());
+            Assert.True(calls < 100000, calls + " calls of CancelF");               // the work of the default run (about 20k), not of a size run
             Assert.Equal(TetRefinementWorkBoundTests.Fingerprint(plain), TetRefinementWorkBoundTests.Fingerprint(tm));    // vertices, tets, boundary, counts
             Assert.Equal(plain.Result.Tets, tm.Result.Tets);
             Assert.True(tm.InvalidSizeSamples > 0);
@@ -208,9 +211,8 @@ namespace geometry3Sharp.Tests
         {
             MeshTetrahedralization tm = Make("box", 4);
             tm.SizeFunction = Function(kind);
-            var sw = Stopwatch.StartNew();
-            Assert.True(Go(tm), tm.Status.ToString());
-            Assert.True(sw.Elapsed.TotalSeconds < 5, sw.Elapsed.TotalSeconds + " s");
+            Assert.True(Go(tm, out long calls), tm.Status.ToString());
+            Assert.True(calls < 150000, calls + " calls of CancelF");                 // the clamp bounds the work (about 12k here), not a run of minutes
             AssertGood(tm);
             Assert.True(tm.Targets.MinDihedralMet);
             Assert.True(Clamped(tm) > 0);

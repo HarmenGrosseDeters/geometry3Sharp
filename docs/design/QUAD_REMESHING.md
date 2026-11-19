@@ -378,6 +378,29 @@ irregular-vertex gate, and the quad share of 95 % is borderline without it. Stag
 
 **Owner decision 2026-11-17:** stage 2 merges as quad-dominant remeshing with the missed gates recorded as open (irregular vertices 6 to 12 x the field singularities; quads below 95 % on 4 of the 8 shapes). Next is stage 3B (the QuadriFlow min-cost flow, from the paper only: Huang et al. 2018), starting with a small upper-bound measurement of how far the flow cuts the irregular count on the sphere and torus.
 
+**Update 2026-11-19 (owner approved): `CollapseLength` 0.4 -> 0.6.** The extraction cleanup collapses edges shorter than `CollapseLength` x s (shortest first).
+The ragged boundary of an open mesh is a row of short edges and 0.4 s never reached them; 0.6 s does. Before / after on the benchmark shapes
+(irregular V / quads % / faces; position field + extraction seconds, 4 cores; the 110k sphere is `big=100000`):
+
+| shape | 0.4 (before) | 0.6 (now) | seconds before / after | edges collapsed |
+|---|---|---|---|---|
+| sphere | 77 / 94.8 / 1275 | 75 / 94.8 / 1274 | 0.26 / 0.27 | 0 -> 1 collapsed |
+| torus | 76 / 94.9 / 1413 | 76 / 94.9 / 1413 | 0.14 / 0.13 | 0 -> 0 collapsed |
+| bumpy | 176 / 95.9 / 3533 | 174 / 95.9 / 3532 | 0.16 / 0.14 | 0 -> 2 collapsed |
+| filleted-box | 16 / 99.1 / 1732 | 16 / 99.1 / 1732 | 0.07 / 0.07 | 0 -> 0 collapsed |
+| noisy-sphere | 92 / 93.2 / 1272 | 92 / 93.2 / 1272 | 0.09 / 0.07 | 0 -> 0 collapsed |
+| sphere-cap | 96 / 91.4 / 950 | 96 / 91.4 / 950 | 0.05 / 0.05 | 0 -> 0 collapsed |
+| open-patch | 32 / 95.8 / 659 | 17 / 98.3 / 642 | 0.02 / 0.02 | 0 -> 17 collapsed |
+| big-sphere | 354 / 98.6 / 21592 | 352 / 98.6 / 21591 | 0.87 / 0.88 | 0 -> 1 collapsed |
+
+The open patch goes 32 -> 17 irregular vertices and 95.8 -> 98.3 % quads (faces 659 -> 642), the sphere 77 -> 75, the bumpy sphere 176 -> 174; the torus,
+box, noisy sphere and cap are unchanged, nothing is worse, the times are the same. The pure-quad gate of 3B (`benchmarks/QuadFlow3BGate`, 54 runs) is
+unchanged: 25 clean / 29 fallback / 0 undetected bad, time gate 25 / 25, irregular gate 25 / 25, Hausdorff 24 / 25, corner p95 17 / 25 (stage 2 on
+the same rows 18 / 25), clean rows median 2.7 x stage 2 (before 2.6). **Non-manifold vertices on open strips (bugfix 2026-11-19, repaired, root cause open).** Found by the review of the `CollapseLength` change and not caused by it: an open strip of 1 x w (w = 0.1, 0.2, 0.3, that is 1.7 to 7.5 target edges wide, s = 0.04 and 0.06) gave 1 or 2 non-manifold vertices in 5 of 6 cases, with the old and the new collapse length and also with `Cleanup = false` (0 edges collapse there): the extraction makes them. The cause is a degenerate star of the extraction: one vertex of the polygon graph with a fan of triangles around it (19 triangles around one boundary vertex at w = 0.1, s = 0.04) whose kept faces fall into several fans that touch only at that vertex; the fans are separated by faces that are dropped (the outer loop, faces above 6 sides, folded faces), and an interior vertex gets them the same way (`BuildFaces_SplitsAnInteriorVertexOfValence4WhoseOppositeFacesAreDropped`; the strips produced boundary ones only). What is measured (issue #1179, the star): the width over the spacing is 2.50 / 1.67 / 5.00 / 3.33 / 7.50 / 5.00 on the six cases and the star appears in 5 of them, **so it does not depend on the width being a multiple of the spacing** (an earlier version of this text said so; the integer ratio 5.00 has it too); the lattices of neighbouring vertices agree (at most 2 of 2500 to 7300 edges have a mismatch above the 0.5 s of the extraction, the largest mismatch is 0.56 s); the star vertex lies off the input surface (z = 0.007 against 0.0997 at x = 0.5 on w = 0.1, s = 0.04), which is the one-sided Hausdorff of 1.56-2.34 s of five of the six cases (0.30 s in the case without a star). Which merge of the union-find creates the star was not traced. **The repair** (`BuildFaces`): a vertex whose kept faces form more than one fan is split into one copy per fan, at the same position, numbered by the smallest face index of the fan; the faces and the quad share do not change. It does not fix the root cause: the star and the poor quads of a strip stay (quad share 41-80 % on the six cases, one-sided Hausdorff up to 2.3 s), and the copies count as irregular vertices (14 -> 17 on w = 0.1, s = 0.04). Result: 6 of 6 cases manifold (1 of 6 before: w = 0.2, s = 0.06), face counts and quad shares identical before and after (68.7 / 40.9 / 76.2 / 62.5 / 80.3 / 77.1 %). A face whose loop contains the same vertex twice (a pinched face) is not repaired (only the first corner is looked at; `PolyMeshMetrics` reports it as before). A mesh that was manifold is built exactly as before (the five pinned shapes and the seven benchmark shapes are manifold).
+The value 0.6 is the owner's; 0.7 was measured on the data branch `runs/quad-stage2` (sphere 77 -> 68 irregular vertices but quads 94.8 -> 94.6 %, sphere cap
+quads 91.4 -> 91.1 %) and not taken.
+
+
 ### 4.3 Stage 3B upper bound (2026-11-17)
 
 **Status: parked, not a verdict on option B.** The measurement below used a formulation written from memory of the QuadriFlow
@@ -488,25 +511,24 @@ that C does not see (open patch 32 with C = 2.1, cap within the formula); the ra
 (`SizeAdaptationMinGain`). The first solver of the study (conjugate gradients, no gauge) only seemed to reach a curl of 22 of 65 on the sphere: part of that was a constant spacing drifting to infinity; fixed with the gauge, the minimum
 the damped Gauss-Newton reaches is 28 of 65 (sphere), 29 of 72 (torus), 104 of 139 (bumpy), 59 of 99 (noisy sphere), 44 of 80 (cap); the box (29 -> 25) and the open patch (2.1 -> 1.9) do not gain 20 %, so they stay uniform.
 
-Benchmark (`benchmarks/QuadRemeshBenchmark`, `adapt=0|1|2`: Off, Scale, ScaleAndRotation; 4 cores; the time is the solver plus the position field plus the extraction, the field is the same for all):
+Benchmark (`benchmarks/QuadRemeshBenchmark`, `adapt=0|1|2`: Off, Scale, ScaleAndRotation; with the default `CollapseLength` 0.6 of 2026-11-19 (the closed shapes are the same numbers as with 0.4); 4 cores; the time is the solver plus the position field plus the extraction, the field is the same for all):
 
 | shape | Off: irregular V / quads % / corner p95 | Scale | ScaleAndRotation | spacing range (ScaleAndRotation) | solver (s), Scale / both | solver + position field + extraction (s), Off / Scale / both |
 |---|---|---|---|---|---|---|
-| sphere | 77 / 94.8 / 14.5 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.37 / 0.44 | 0.33 / 0.65 / 0.74 |
-| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.18 / 0.24 | 0.23 / 0.32 / 0.41 |
-| bumpy | 176 / 95.9 / 10.8 | 176 / 95.9 / 10.8 (not applied) | 126 / 96.9 / 9.7 | 0.53-1.24 | 0.38 / 0.72 | 0.17 / 0.52 / 0.86 |
-| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.25 | 0.09 / 0.32 / 0.33 |
-| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.26 | 0.07 / 0.19 / 0.34 |
-| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.13 / 0.09 | 0.04 / 0.18 / 0.13 |
-| open-patch | 32 / 95.8 / 8.6 | 25 / 95.0 / 7.6 | 32 / 95.8 / 8.6 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.03 | 0.02 / 0.11 / 0.04 |
-| big-sphere | 354 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 12.60 / 15.63 | 0.91 / 13.42 / 16.58 |
+| sphere | 75 / 94.8 / 14.6 | 40 / 97.1 / 9.4 | 34 / 97.3 / 9.0 | 0.54-1.13 | 0.43 / 0.56 | 0.33 / 0.78 / 0.83 |
+| torus | 76 / 94.9 / 12.7 | 35 / 98.0 / 9.2 | 46 / 97.6 / 9.6 | 0.59-1.69 | 0.19 / 0.26 | 0.15 / 0.37 / 0.41 |
+| bumpy | 174 / 95.9 / 10.8 | 174 / 95.9 / 10.8 (not applied) | 126 / 97.0 / 9.7 | 0.53-1.24 | 0.39 / 0.88 | 0.15 / 0.54 / 1.07 |
+| filleted-box | 16 / 99.1 / 4.9 | 16 / 99.1 / 4.9 (not applied) | 16 / 99.1 / 4.9 (not applied) | 1 (not applied) | 0.25 / 0.29 | 0.07 / 0.33 / 0.39 |
+| noisy-sphere | 92 / 93.2 / 15.7 | 67 / 95.8 / 12.5 | 46 / 96.9 / 10.0 | 0.50-1.23 | 0.12 / 0.34 | 0.08 / 0.19 / 0.42 |
+| sphere-cap | 96 / 91.4 / 19.9 | 83 / 94.7 / 17.6 (Hausdorff 1.39 s) | 81 / 94.3 / 17.7 | 0.55-1.61 | 0.14 / 0.09 | 0.04 / 0.18 / 0.16 |
+| open-patch | 17 / 98.3 / 6.2 | 12 / 96.9 / 6.2 | 17 / 98.3 / 6.2 (not applied) | 0.96-1.04 (Scale only) | 0.09 / 0.04 | 0.02 / 0.11 / 0.07 |
+| big-sphere | 352 / 98.6 / 5.8 | 245 / 99.0 / 5.2 | 234 / 99.1 / 4.9 | 0.46-1.02 | 13.91 / 17.62 | 1.06 / 14.92 / 18.58 |
 
 Reading: on the sphere, torus and noisy sphere the size field cuts the irregular vertices (sphere 77 -> 34-40, torus 76 -> 35-46, noisy sphere 92 -> 46-67, the 110k sphere 354 -> 234-245) and lifts the quads to 96-98 % (the 110k sphere 98.6 -> 99.0 %),
 with a corner p95 of 9.0-12.5 degrees (Off 12.7-15.7). The rotation helps on the sphere, the noisy sphere and the bumpy sphere (not applied with Scale alone, 176 -> 126 with ScaleAndRotation) and not on the torus (35 with Scale, 46 with both): Scale is the safer default
 choice. None of the closed shapes reaches the old gate (sphere 34 against 20), all are inside the restated one. It does nothing on the filleted box (not applied: the curl does not drop by 20 %, the result is the uniform one bit for bit). On the open shapes it is mixed: the cap goes
 96 -> 83 irregular with Scale (94.7 % quads) but its one-sided Hausdorff grows to 1.39 s (above the 0.5 s gate; the spacing reaches 2.5 near the boundary), with ScaleAndRotation 81 irregular, 94.3 % quads and the Hausdorff inside the gate; the open patch gets 32 -> 25 irregular and
-95.8 -> 95.0 % quads with Scale. **Use it on closed smooth shapes only.** The edge length varies by a factor of 2 to 3 across a shape (spacing 0.54-1.13 of the target on the sphere, 0.59-1.69 on the torus), so the target edge length is the mean, not the size of every quad. The extraction's collapse
-length (0.4 s) is not scaled with the local spacing, so edges of the smallest cells (0.5 s) are close to it; it may be part of the cap's behaviour (not tested). Cost: 0.1-1.6 s for 5-18k input vertices, 16 s for the 110k sphere (the Cholesky factorization of
+95.8 -> 95.0 % quads with Scale. **Use it on closed smooth shapes only.** The edge length varies by a factor of 2 to 3 across a shape (spacing 0.54-1.13 of the target on the sphere, 0.59-1.69 on the torus), so the target edge length is the mean, not the size of every quad. The extraction's collapse limit is relative to the local spacing (a vertex of the polygon graph carries the spacing factor of its cluster); a fixed 0.6 s would collapse regular cells of the size field (sphere at s = 0.2: quads 96.5 -> 93.0 %, found by the review of the collapse default). Cost: 0.1-1.6 s for 5-18k input vertices, 16 s for the 110k sphere (the Cholesky factorization of
 220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s. (A review found that the first version of the solver turned the lattice by the opposite angle of the one the position
 field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds` checks it against an independent evaluation, and the table is from the corrected code.)
 

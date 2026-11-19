@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using g3;
 using gs;
@@ -12,7 +11,7 @@ namespace geometry3Sharp.Tests
     /// The work bound of the tet refinement (docs/design/TET_MESHING.md section 17.10, issue #1138): a refinement that does not end
     /// (MaxRadiusEdgeRatio near 1) stops with status PointLimitReached, a valid result and Counts["work_limit_reached"], never on the
     /// default path. This file only uses what the library had before the bound (the default value of the bound applies), and every run has
-    /// its own stopwatch as CancelF, so the old code, which does not stop, fails these tests as status Cancelled instead of hanging.
+    /// its own call budget as CancelF (CallBudget), so the old code, which does not stop, fails these tests as status Cancelled instead of hanging.
     /// The tests that need the new field are in TetRefinementWorkBoundParameterTests.
     /// </summary>
     public class TetRefinementWorkBoundTests : IClassFixture<TetRefinementWorkBoundTests.ReferenceRun>
@@ -33,11 +32,10 @@ namespace geometry3Sharp.Tests
             return new MeshTetrahedralization(TetMeshingStage2Tests.Input(shape)) { RelativeAlpha = alpha, MaxRadiusEdgeRatio = rho, RescuePasses = 0 };
         }
 
-        // Compute with a stopwatch of its own (15 s per call: the new code needs 1 to 2 s, also under the load of parallel test classes; the old code runs into it)
+        // Compute with a call budget of its own as CancelF (CallBudget: the same verdict on a loaded runner; the new code needs 30k to 300k calls, the old code runs into the budget)
         internal static bool Go(MeshTetrahedralization tm)
         {
-            var sw = Stopwatch.StartNew();
-            tm.CancelF = () => sw.Elapsed.TotalSeconds > 15;
+            tm.CancelF = new CallBudget(CallBudget.Standard).Exceeded;
             return tm.Compute();
         }
 
