@@ -1003,6 +1003,7 @@ P5(a) statement of the run: the minimum dihedral angle (`--min-dihedral`, defaul
 ```
 g3cli tetmesh part.stl part.msh --relative-alpha 80 --deviation
 ```
+Interior size control (TET_MESHING.md 17.12, opt-in, the default output is unchanged): `--target-edge-length h`, `--grading-factor g` (library: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`); the boundary keeps the wrap's spacing (`--relative-alpha`), so a size takes effect below about alpha / 2 and sizes below alpha / 4 are clamped (`steps.size_clamped_tets`).
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
 solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally

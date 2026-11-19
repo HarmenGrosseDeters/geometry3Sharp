@@ -84,7 +84,8 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Exact imprint / deprecation:** done (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean` (#1037 merged).
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
-  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
+  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. P2 (output / API) is merged. P3 (interior size control,
+  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is built; boundary sizing is P4.
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
   parked).
@@ -93,7 +94,9 @@ the future" list, ordered by priority; this section names only what is in flight
   gate is then met on the sphere and torus by the Hermitian n x n form (#1099, done) and the parallel loops; the owner's next lever is a
   parallel `SparseCholesky` with an upper-bound check first, bit for bit, existing callers unchanged (#1103, bit-identical vector
   kernels, merged; more in progress). Stage 2 (`PositionField`, `QuadRemesher`, `PolyMeshMetrics`, #1100) merged as quad-dominant with the
-  missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; stage 3B (the
+  missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; the irregular gate is restated
+  relative to the curl of the field (owner 2026-11-19, [QUAD_REMESHING.md 4.5](design/QUAD_REMESHING.md)) and an opt-in size field (`SizeAdaptation`) halves
+  the irregular vertices of closed smooth shapes; stage 3B (the
   QuadriFlow min-cost flow, from the paper only) is on hold (owner 2026-11-18; the papers are unreachable).
   [QUAD_REMESHING.md](design/QUAD_REMESHING.md)
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
@@ -158,7 +161,7 @@ In order:
 3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go
    (owner 2026-11-15, no spike; #721 closed, it stays a design).
 4. **Scale-free robust repair** (hard problem 9): the study is merged (#1095): no-go for a larger effort; F1 done (#1101), F2 not now (owner 2026-11-17).
-5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 merged (#1073). Sharp
+5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 merged (#1073), P2, P3 (size control, 17.12) built. Sharp
    features (hard problem 4): lever 6 K (#736, opt-in); a provably valid feature recovery stays open.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
