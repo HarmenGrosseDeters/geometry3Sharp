@@ -19,6 +19,36 @@ namespace gs
         NoFaces = 4
     }
 
+    /// <summary> QuadRemesher.SizeAdaptation: what the position field may vary to close up the lattice on a curved surface (IntegrableFrames). </summary>
+    public enum SizeAdaptationMode
+    {
+        /// <summary> uniform spacing along the cross field (the default; the output of the stage 2 method) </summary>
+        Off = 0,
+        /// <summary> a smooth size field: the spacing varies by a factor of about 2 across a sphere </summary>
+        Scale = 1,
+        /// <summary> the size field and a rotation of the field of up to some 10 degrees (fewest irregular vertices on closed smooth shapes) </summary>
+        ScaleAndRotation = 2
+    }
+
+    /// <summary> Result of the pure-quad attempt of QuadRemesher (PureQuads): the first check that failed, see PureQuads </summary>
+    public enum PureQuadStatus
+    {
+        /// <summary> PureQuads is false (or Compute() failed before the attempt) </summary>
+        NotRequested = 0,
+        /// <summary> every check passed: Result is the mesh of quads only </summary>
+        Success = 1,
+        /// <summary> the repaired integer map still has triangles of negative orientation (InvertedTriangles, exact integer determinant) </summary>
+        OrientationFolds = 2,
+        /// <summary> the extracted faces include a quad that faces away from the surface (FlippedQuads) </summary>
+        FlippedFaces = 3,
+        /// <summary> the extracted mesh is not a manifold of quads only (an unpaired triangle, a face that is not a quad, a non-manifold edge or vertex) </summary>
+        NotManifold = 4,
+        /// <summary> the flow of the integer corrections could not be completed, the lattice offsets are out of range, or the mesh has a boundary (open meshes are not supported by the pure-quad attempt) </summary>
+        FlowInfeasible = 5,
+        /// <summary> the repair used up a deterministic budget (the decisions, attempts or rounds of the SAT, the edge splits) before the map was free of folds </summary>
+        BudgetExceeded = 6
+    }
+
     /// <summary>
     /// Quad-dominant remeshing by an instant field-aligned mesh: the cross field (CrossField, Knöppel et al. 2013), the position
     /// field (PositionField, Jakob et al. 2015) and the extraction of the polygon mesh from the integer lattice offsets with a
@@ -35,6 +65,11 @@ namespace gs
     /// are on the tangent planes of the input, not projected). Deterministic: the same input gives the same output bit for bit,
     /// serial or parallel; power of two scalings of the mesh and of TargetEdgeLength give the same polygon mesh up to the scaling.
     /// Compute() can be called again.
+    ///
+    /// Pure quads (opt-in, PureQuads = true): after the extraction the integer offsets of the position field are repaired (a flow
+    /// for the regularity, subdivision, local SAT; QuadFlowRepair, QUAD_REMESHING.md stage 3B) and a mesh of quads only is
+    /// extracted. It is used only if every check passes; otherwise Result is the quad-dominant mesh of stage 2 and PureQuadStatus
+    /// says which check failed (never silent).
     /// </summary>
     public class QuadRemesher
     {
@@ -55,7 +90,49 @@ namespace gs
         /// <summary> see PositionField.MiddleRegularization </summary>
         public double MiddleRegularization = 0.05;
 
+        /// <summary>
+        /// Off (default): the quads have the edge length TargetEdgeLength everywhere. Scale or ScaleAndRotation: a size field (and a rotation
+        /// of the cross field) from IntegrableFrames lets the lattice close up on curved surfaces, which halves the irregular vertices of
+        /// closed smooth shapes (sphere, torus) at the price of edge lengths that vary by a factor of about 2 (docs/design/QUAD_REMESHING.md
+        /// 4.5). It is used only if it lowers the curl by SizeAdaptationMinGain (otherwise the result is the uniform one); on shapes with sharp
+        /// features (a filleted box) and with boundaries it may not help or may worsen the counts. Default Off: the output is then bit for bit the
+        /// one without the option.
+        /// </summary>
+        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;       // not together with PureQuads (InvalidInput)
+        /// <summary>
+        /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, ...); the remesher sets its Mesh, Field, TargetEdgeLength and
+        /// UseRotation (from SizeAdaptation) and computes it, so after Compute() it holds the spacing, the rotation and the curl
+        /// </summary>
+        public IntegrableFrames Frames;
+        /// <summary> the size field is applied only if the curl (IntegrableFrames.CurlAfter) is at most (1 - this) times CurlBefore </summary>
+        public double SizeAdaptationMinGain = 0.2;
+        /// <summary> of the last Compute(): the size field was applied, the curl before and after, the solver time in seconds, the smallest and largest spacing factor </summary>
+        public bool SizeAdaptationApplied;
+        public double CurlBefore, CurlAfter, SizeSeconds, MinSpacing = 1, MaxSpacing = 1;
+
         internal int ChunkSize = 512;
+
+        /// <summary>
+        /// Off (default): Result is the quad-dominant mesh of stage 2, bit for bit as without this option. On: the pure-quad repair
+        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, no triangle of the integer
+        /// map is inverted (exact), the repair stays in its budget, the extracted mesh is a manifold of quads only, no quad is flipped)
+        /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
+        /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
+        /// PureQuadStatus names the first failed check. Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
+        /// features or strong curvature changes the integer map often has folds that the repair does not remove): test
+        /// PureQuadStatus. Costs a few times the stage 2 time (QUAD_REMESHING.md, stage 3B).
+        /// </summary>
+        public bool PureQuads = false;
+        /// <summary> the outcome of the pure-quad attempt of the last Compute(): NotRequested when PureQuads is false </summary>
+        public PureQuadStatus PureQuadStatus = PureQuadStatus.NotRequested;
+        /// <summary> the detection counters of the last pure-quad attempt: triangles of the repaired integer map with a negative determinant, and extracted quads that face away from the surface </summary>
+        public int InvertedTriangles, FlippedQuads;
+        /// <summary> seconds of the pure-quad attempt of the last Compute(): the offsets and the flow, then the subdivision and the local repair (the extraction is not counted here) </summary>
+        public double FlowSeconds, RepairSeconds;
+        /// <summary> test hook: false switches off the sign penalty of the flow cost (the plain marginal cost, which lets the sphere fold) </summary>
+        internal bool SignPenalty = true;
+        /// <summary> the last pure-quad attempt (profile and offsets for tests and benchmarks) </summary>
+        internal QuadFlowRepair PureQuadRepair;
 
         public QuadRemeshStatus Status = QuadRemeshStatus.Success;
         public string Error;
@@ -73,6 +150,8 @@ namespace gs
         public QuadRemeshStatus Compute()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+            SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
+            PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
@@ -82,12 +161,33 @@ namespace gs
             sw.Restart();
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
+            if (SizeAdaptation != SizeAdaptationMode.Off) {
+                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
+                if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
+                IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
+                fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
+                if (fr.Compute() == IntegrableFramesStatus.InvalidInput) return Fail(QuadRemeshStatus.InvalidInput, fr.Error);
+                SizeSeconds = fr.Seconds;
+                CurlBefore = fr.CurlBefore; CurlAfter = fr.CurlAfter;
+                if (fr.Success && fr.CurlBefore > 0 && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore) {
+                    pf.SpacingFactors = fr.Spacing; pf.RotationAngles = fr.Rotation;
+                    SizeAdaptationApplied = true; MinSpacing = fr.MinSpacing; MaxSpacing = fr.MaxSpacing;
+                }
+            }
             Positions = pf;
             if (pf.Compute() != PositionFieldStatus.Success) return Fail(QuadRemeshStatus.PositionFieldFailed, pf.Error);
             PositionSeconds = sw.Elapsed.TotalSeconds; sw.Restart();
             Result = Extract(pf);
             ExtractSeconds = sw.Elapsed.TotalSeconds;
             if (Result.FaceCount == 0) { Result = null; return Fail(QuadRemeshStatus.NoFaces, "no face was extracted"); }
+            if (PureQuads) {
+                var rep = new QuadFlowRepair(Mesh, cf, pf, TargetEdgeLength) { SignPenalty = SignPenalty };
+                PureQuadRepair = rep;
+                PureQuadStatus = rep.Run();
+                InvertedTriangles = rep.InvertedTriangles; FlippedQuads = rep.FlippedQuads;
+                FlowSeconds = rep.FlowSeconds; RepairSeconds = rep.RepairSeconds;
+                if (PureQuadStatus == PureQuadStatus.Success) Result = rep.Result;
+            }
             return Status;
         }
 

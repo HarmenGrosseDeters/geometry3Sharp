@@ -114,15 +114,26 @@ namespace geometry3Sharp.Tests
             Assert.True(checks > 0);
         }
 
-        [Trait("Category", "Slow")]
+        // the frames in 4 rows (#698: 5.1-7.6 s alone in one row, up to 26.9 s in a full run); each row repairs the base too
+        static readonly int[][] FrameRows = { new[] { 0, 4 }, new[] { 1, 5 }, new[] { 2, 6 }, new[] { 3, 7 } };
+
+        public static IEnumerable<object[]> FrameRowIndexes() => Enumerable.Range(0, FrameRows.Length).Select(r => new object[] { r });
+
         [Fact]
-        public void ManySlivers_Similarities_Pow2BitIdentical()
+        public void FrameRows_AreAllTheFramesOnce() =>
+            Assert.Equal(Enumerable.Range(0, Similarity.All().Count()), FrameRows.SelectMany(r => r).OrderBy(i => i));
+
+        [Trait("Category", "Slow")]
+        [Theory]
+        [MemberData(nameof(FrameRowIndexes))]
+        public void ManySlivers_Similarities_Pow2BitIdentical(int row)
         {
             DMesh3 m = SliverBox(16, 7);
             DMesh3 m0 = new DMesh3(m);
             MeshRoundingRepair r0 = Repair(m0);
             Assert.True(r0.IsClean);
-            foreach (Similarity sim in Similarity.All()) {
+            Similarity[] all = Similarity.All().ToArray();
+            foreach (Similarity sim in FrameRows[row].Select(i => all[i])) {
                 DMesh3 ms = Invariance.Transformed(m, sim);
                 MeshRoundingRepair rs = Repair(ms, check: true);
                 Assert.True(rs.IsClean, sim.ToString());

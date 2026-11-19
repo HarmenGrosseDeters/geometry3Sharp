@@ -103,9 +103,9 @@ namespace geometry3Sharp.Tests
             // Upper is tight too (#1058: it was up to 8% above the distance, an edge path, while A6 merging dropped the inner
             // interval of the second half of a fan)
             AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 1e-7);
-            // the lower bound is tight: each emission of a pseudo-source lowers sigma by 1e-9 relative (A5), and on a plane
-            // every vertex is a flat pseudo-source, so the margins add up along a chain of a few emissions
-            foreach (int v in m.VertexIndices()) { double d = m.GetVertex(v).Distance(m.GetVertex(src)); Assert.True(d - g.Lower[v] <= 1e-7 * (1 + d)); }
+            // the lower bound is tight: the interior vertices of a plane are exactly flat and do not emit (A7'), so no re-emission
+            // margin of A5 (1e-9 relative each) enters from the source at the centre
+            foreach (int v in m.VertexIndices()) { double d = m.GetVertex(v).Distance(m.GetVertex(src)); Assert.True(d - g.Lower[v] <= 1e-10 * (1 + d)); }
         }
 
         [Fact]
@@ -157,7 +157,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AlignedRidge_EnclosesTheUnfoldedDistance()
         {
-            // the exactly aligned ridge of gate 3: rays run through rows of flat fold vertices, which are pseudo-sources (S1)
+            // the exactly aligned ridge of gate 3: rays run through rows of flat fold vertices (exactly flat: no emission, A7')
             int n = 21; double h = 0.25, half = (n - 1) * h / 2;
             DMesh3 m = Grid(half, n, (x, y) => Ridge(x));
             int src = (n / 2) * n + 3;
@@ -166,10 +166,16 @@ namespace geometry3Sharp.Tests
             // #1058: the width was up to 17% (Upper on edge paths after A6 merging dropped an inner interval), now as narrow as
             // Lower's re-emission margins
             AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 2 * half, 1e-7);
-            // the window budget of the A6 rule (merge when at most one inner interval is nonempty): measured 10588; merging
-            // only windows without inner intervals costs 12821, the former merging (one inner interval dropped) 19594. A pruning
-            // change elsewhere may move the count: retune the bound between the measured count and 12821
-            Assert.True(g.Windows <= 11500, $"windows {g.Windows}");
+            // A7': every vertex of this cylinder (z depends on x only) is an exactly flat straight fold (A.5 ii), so none emits: measured
+            // 3126 windows, 32110 on the 41 x 41 mesh
+            Assert.True(g.FlatVertices > 300 && g.Windows <= 3500, $"flat {g.FlatVertices}, windows {g.Windows}");
+            // the window budget of the A6 rule (merge when at most one inner interval is nonempty), on the S1 path where the flat
+            // vertices emit and the windows pile up: measured 10588; merging only windows without inner intervals costs 12821, the
+            // former merging (one inner interval dropped) 19594. A pruning change elsewhere may move the count: retune the bound
+            // between the measured count and 12821
+            var s1 = RunS1(m, src);
+            Assert.True(s1.Windows <= 11500, $"S1 windows {s1.Windows}");
+            for (int v = 0; v < m.MaxVertexID; ++v) { Assert.True(g.Lower[v] <= s1.Upper[v]); Assert.True(s1.Lower[v] <= g.Upper[v]); }
         }
 
         [Fact]
@@ -276,16 +282,269 @@ namespace geometry3Sharp.Tests
         static Vector3d[] Ring(int k, Func<int, double> z) => Enumerable.Range(0, k).Select(i => new Vector3d(Math.Cos(2 * Math.PI * i / k), Math.Sin(2 * Math.PI * i / k), z(i))).ToArray();
 
         [Fact]
-        public void Classification_ConvexOnlyIfCertain_FlatAndSaddleAndBoundaryArePseudoSources()
+        public void Classification_ConvexAndExactlyFlatNeedNoEmission_SaddlesNearlyFlatAndBoundaryArePseudoSources()
         {
             Assert.Equal(0, Kind(Fan(Ring(6, i => -0.5)), 0));                          // a convex cone: no shortest path passes
             Assert.Equal(0, Kind(Fan(Ring(7, i => -1e-6)), 0));                         // nearly flat, but certainly convex
-            Assert.Equal(1, Kind(Fan(Ring(7, i => 0)), 0));                             // exactly flat: a pseudo-source (S1)
+            Assert.Equal(0, Kind(Fan(Ring(7, i => 0)), 0));                             // exactly flat (A7'): no emission
             Assert.Equal(1, Kind(Fan(Ring(6, i => (i & 1) == 0 ? 0.7 : -0.7)), 0));      // a saddle
+            // saddles whose excess over 2 pi is about 2e-3 and 1e-6 (10.4 h^2): not flat, no tolerance
+            Assert.Equal(1, Kind(Fan(Ring(6, i => (i & 1) == 0 ? 0.015 : -0.015)), 0));
+            Assert.Equal(1, Kind(Fan(Ring(6, i => (i & 1) == 0 ? 3e-4 : -3e-4)), 0));
             // a coplanar fan of eight 90-degree sectors wraps twice (4 pi): a saddle, not flat
             Assert.Equal(1, Kind(Fan(Enumerable.Range(0, 8).Select(i => (1 + 0.1 * i) * new Vector3d(Math.Cos(i * Math.PI / 2), Math.Sin(i * Math.PI / 2), 0)).ToArray()), 0));
             DMesh3 g = Grid(2, 5, (x, y) => 0);
-            Assert.Equal(1, Kind(g, 0));                                                  // a boundary vertex
+            Assert.Equal(1, Kind(g, 0));                                                  // a boundary vertex, flat or not
+            Assert.Equal(0, Kind(g, 2 * 5 + 2));                                          // an interior vertex of the plane
+        }
+
+        [Fact]
+        public void Classification_ExactFlatnessTest_IsIndependentOfTheCoordinateAxes()
+        {
+            // the same fans with the coordinates permuted: flat fans in planes x = c, y = c and tilted, folds along x, y and z,
+            // and the double winding with the reference neighbour on each axis (every projection and SameWay branch)
+            var perms = new Func<Vector3d, Vector3d>[] { q => q, q => new Vector3d(q.y, q.z, q.x), q => new Vector3d(q.z, q.x, q.y),
+                q => new Vector3d(q.y, q.x, q.z), q => new Vector3d(q.x, q.z, q.y), q => new Vector3d(q.z, q.y, q.x) };
+            Func<double, Vector3d[]> fold = kink => new[] { new Vector3d(0, 1, 0), new Vector3d(-1, 1, 1), new Vector3d(-1, 0, 1), new Vector3d(-1, -1, 1),
+                new Vector3d(0, -1, 0), new Vector3d(1, -1, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 1 + kink) };
+            Vector3d[] twice = Enumerable.Range(0, 8).Select(i => (1 + 0.5 * i) * new Vector3d(Math.Cos(i * Math.PI / 2), Math.Sin(i * Math.PI / 2), 0)).Select(q => new Vector3d(Math.Round(q.x), Math.Round(q.y), 0)).ToArray();
+            foreach (var f in perms) {
+                Assert.Equal(0, Kind(Fan(Lattice8.Select(f).ToArray()), 0));
+                Assert.Equal(0, Kind(Fan(fold(0).Select(f).ToArray()), 0));
+                Assert.Equal(1, Kind(Fan(fold(Math.Pow(2, -40)).Select(f).ToArray()), 0));
+                Assert.Equal(1, Kind(Fan(twice.Select(f).ToArray()), 0));
+            }
+        }
+
+        [Fact]
+        public void Classification_AFlatPinchedVertex_IsAPseudoSource()
+        {
+            // two coplanar closed fans sharing one vertex: the vertex is not manifold, its walk does not see every triangle
+            var m = new DMesh3(); int p = m.AppendVertex(Vector3d.Zero);
+            for (int f = 0; f < 2; ++f) {
+                int[] r = new int[4]; double sx = f == 0 ? 1 : -1;
+                for (int i = 0; i < 4; ++i) r[i] = m.AppendVertex(new Vector3d(sx * Math.Cos(i * Math.PI / 2 + 0.3 * f + 0.1), Math.Sin(i * Math.PI / 2 + 0.3 * f + 0.1) + 3 * f, 0));
+                for (int i = 0; i < 4; ++i) m.AppendTriangle(p, r[i], r[(i + 1) % 4]);
+            }
+            Assert.Equal(1, Kind(m, p));
+        }
+
+        static Vector3d V(double x, double y) => new Vector3d(x, y, 0);
+        static Vector3d[] Pts(params double[] xy) { var r = new Vector3d[xy.Length / 2]; for (int i = 0; i < r.Length; ++i) r[i] = V(xy[2 * i], xy[2 * i + 1]); return r; }
+        static Vector3d[] Polar(params double[] deg) => deg.Select(a => V(Math.Round(100 * Math.Cos(a * Math.PI / 180)), Math.Round(100 * Math.Sin(a * Math.PI / 180)))).ToArray();
+
+        [Fact]
+        public void FlatnessPredicates_EveryRejectionReason_AndTheAcceptedCases()
+        {
+            Vector3d P = Vector3d.Zero;
+            // CoplanarFan: accepted: a lattice fan whose last sector ends exactly on the reference ray; a fan starting at any neighbour
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 1, 1, 0, 1, -1, 1, -1, 0, -1, -1, 0, -1, 1, -1)));
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(0, 1, -1, 0, 0, -1, 1, 0)));
+            Assert.True(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(0, 1, 1, 0, 0, -1, -1, 0)));              // clockwise order: the same
+            // rejected: the first two neighbours collinear with P (a degenerate triangle: no regular projection)
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 2, 0, 0, 1, -1, 0, 0, -1)));
+            // a degenerate sector later on (two neighbours in the same direction), the total turn still 2 pi
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0, 0, -1, 0, -2)));
+            // a sector that turns the other way
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, 1, 1, -1, 0, 0, -1)));
+            // winding twice (eight 90 degree sectors), and a fan that does not close a turn (three sectors of 90 degrees)
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0, 0, -1, 2, 0, 0, 2, -2, 0, 0, -2)));
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, Pts(1, 0, 0, 1, -1, 0)));                    // sectors 90, 90, then 180 back: degenerate
+            // not coplanar
+            Assert.False(ExactMeshGeodesicDistance.CoplanarFan(P, new[] { new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0.5), new Vector3d(0, -1, 0) }));
+
+            // FoldHalf (the half from index 0 to the last): the fold line is the y axis, a = (0, 1), b = (0, -1), the half on x < 0
+            Vector3d b = V(0, -1), a = V(0, 1);
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(-1, -1), b }, 0, 3));
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, b }, 0, 1));                           // no intermediate: the sector is pi
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 0.5), V(-1, 1), b }, 0, 3));     // turns back
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(1, -1), b }, 0, 3));       // crosses the fold line, turns back
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, V(-1, 1), V(-1, -1), V(-1, -1), b }, 0, 4));   // a zero sector
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { a, new Vector3d(-1, 1, 0), new Vector3d(-1, -1, 1), b }, 0, 3));   // not coplanar
+            // a half that winds 3 pi: every sector turns the same way by less than pi, b is reached, but the half crosses the line
+            Assert.False(ExactMeshGeodesicDistance.FoldHalf(P, new[] { V(0, 100) }.Concat(Polar(190, 280, 370, 460, 550)).Concat(new[] { V(0, -100) }).ToArray(), 0, 6));
+            // the b side of a fold along a coordinate axis other than y, in the planes x = c and z = c (the axis choice)
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(1, 0, -1), new Vector3d(0, 0, -1) }, 0, 3));
+            Assert.True(ExactMeshGeodesicDistance.FoldHalf(P, new[] { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(-1, 1, 0), new Vector3d(-1, 0, 0) }, 0, 3));
+
+            // StraightFold: accepted: the valley of the classification test; rejected: collinear neighbours on the same side only
+            Assert.True(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(0, 1), V(-1, 1), V(-1, -1), V(0, -1), V(1, -1), V(1, 1) }));
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(0, 1), V(2, 0), V(0, 2) }));
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(-1, 1), V(-1, -1), V(2, 0), V(3, 1) }));
+            // two opposite neighbours that are adjacent in the fan: each side would be a sector of pi or a half with no intermediate
+            Assert.False(ExactMeshGeodesicDistance.StraightFold(P, new[] { V(1, 0), V(-1, 0), V(0, 1) }));
+        }
+
+        static readonly Vector3d[] Lattice8 = { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 1, 0),
+            new Vector3d(-1, 0, 0), new Vector3d(-1, -1, 0), new Vector3d(0, -1, 0), new Vector3d(1, -1, 0) };
+
+        [Fact]
+        public void Classification_ExactFlatnessTest_TiltedPlaneStraightFoldAndTheirBreaks()
+        {
+            Func<Vector3d, double, Vector3d> z = (q, dz) => new Vector3d(q.x, q.y, q.x / 2 + q.y / 4 + dz);
+            // a tilted dyadic plane: coplanar exactly, 8 sectors of 45 and 90 degrees in the projection, winding once
+            Assert.Equal(0, Kind(Fan(Lattice8.Select(q => z(q, 0)).ToArray()), 0));
+            // one neighbour 2^-40 off the plane: not coplanar, so not exactly flat (no tolerance)
+            Assert.Equal(1, Kind(Fan(Lattice8.Select((q, i) => z(q, i == 3 ? Math.Pow(2, -40) : 0)).ToArray()), 0));
+            // a straight fold along y (z = |x|, a valley): the neighbours (0, 1, 0) and (0, -1, 0) are opposite, each half is planar
+            Func<double, Vector3d[]> fold = (kink) => new[] { new Vector3d(0, 1, 0), new Vector3d(-1, 1, 1), new Vector3d(-1, 0, 1), new Vector3d(-1, -1, 1),
+                new Vector3d(0, -1, 0), new Vector3d(1, -1, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 1 + kink) };
+            Assert.Equal(0, Kind(Fan(fold(0)), 0));
+            Assert.Equal(1, Kind(Fan(fold(Math.Pow(2, -40))), 0));                          // the right half is not planar any more
+            // a ridge instead of a valley is the same fan mirrored: straight, but certainly convex or flat, never a pseudo-source
+            Assert.Equal(0, Kind(Fan(fold(0).Select(q => new Vector3d(q.x, q.y, -q.z)).ToArray()), 0));
+            // a bent fold: the two neighbours on the fold line are not opposite
+            Assert.Equal(1, Kind(Fan(new[] { new Vector3d(0, 1, 0), new Vector3d(-1, 1, 1), new Vector3d(-1, 0, 1), new Vector3d(-1, -1, 1),
+                new Vector3d(0.5, -1, 0), new Vector3d(1, -1, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 1) }), 0));
+        }
+
+        // ------------------------------------------------------------------ A7': exactly flat vertices emit nothing (GEODESICS.md 6d, A.6)
+
+        // an integer or dyadic lattice grid whose interior vertices are shifted in the plane by dyadic jitter (the boundary stays
+        // straight, so the domain is a convex square and the geodesic distance is the straight one); z = h(x, y) exactly
+        static DMesh3 DyadicGrid(int n, double step, Func<double, double, double> h, bool jitter)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    bool edge = i == 0 || j == 0 || i == n - 1 || j == n - 1;
+                    double dx = jitter && !edge ? ((i * 7 + j * 13) % 5 - 2) / 32.0 * step : 0, dy = jitter && !edge ? ((i * 11 + j * 3) % 5 - 2) / 32.0 * step : 0;
+                    double x = (i - (n - 1) / 2) * step + dx, y = (j - (n - 1) / 2) * step + dy;
+                    m.AppendVertex(new Vector3d(x, y, h(x, y)));
+                }
+            for (int j = 0; j < n - 1; ++j)
+                for (int i = 0; i < n - 1; ++i) {
+                    int a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+                    if (((i + j) & 1) == 0) { m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c); }
+                    else { m.AppendTriangle(a, b, c); m.AppendTriangle(b, d, c); }
+                }
+            return m;
+        }
+
+        // the run with the flat vertices emitting (S1, the behaviour before A7') on the same mesh
+        static ExactMeshGeodesicDistance RunS1(DMesh3 m, params int[] sources)
+        {
+            var g = new ExactMeshGeodesicDistance(m) { FlatVerticesEmit = true };
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(sources));
+            return g;
+        }
+
+        // the new path ran: the flat interior vertices are of kind 0 and none emitted (only sources and boundary vertices did),
+        // and the S1 run on the same mesh agrees (the two enclosures overlap at every vertex, no slack) with fewer windows here
+        static void AssertFlatPathAndOverlap(DMesh3 m, ExactMeshGeodesicDistance g, int interiorFlat, params int[] sources)
+        {
+            Assert.Equal(interiorFlat, g.FlatVertices);
+            foreach (int v in m.VertexIndices())
+                if (g.Emitted(v)) Assert.True(sources.Contains(v) || m.IsBoundaryVertex(v), $"vertex {v} emitted although it is flat and interior");
+            var old = RunS1(m, sources);
+            Assert.Equal(0, old.FlatVertices);
+            foreach (int v in m.VertexIndices()) {
+                Assert.True(g.Lower[v] <= old.Upper[v], $"vertex {v}: Lower {g.Lower[v]:R} above the S1 Upper {old.Upper[v]:R}");
+                Assert.True(old.Lower[v] <= g.Upper[v], $"vertex {v}: S1 Lower {old.Lower[v]:R} above Upper {g.Upper[v]:R}");
+            }
+            Assert.True(g.Windows < old.Windows, $"windows {g.Windows} against S1 {old.Windows}");
+        }
+
+        [Theory]
+        [InlineData("centre")]
+        [InlineData("corner")]
+        [InlineData("flat vertex")]
+        public void IntegerLatticePlane_ExactClosedForm_NoFlatVertexEmits(string at)
+        {
+            int n = 17;
+            DMesh3 m = DyadicGrid(n, 1, (x, y) => 0, false);
+            int src = at == "centre" ? (n / 2) * n + n / 2 : at == "corner" ? 0 : 5 * n + 11;
+            var g = Run(m, src);
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 1e-7);
+            AssertFlatPathAndOverlap(m, g, (n - 2) * (n - 2), src);
+        }
+
+        [Fact]
+        public void TiltedDyadicPlane_WithDyadicJitter_ExactClosedForm()
+        {
+            // z = x / 2 + y / 4 on interior vertices shifted by multiples of 1/32: every fan is coplanar exactly
+            int n = 15;
+            DMesh3 m = DyadicGrid(n, 1, (x, y) => x / 2 + y / 4, true);
+            int src = (n / 2) * n + 4;
+            var g = Run(m, src);
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 1e-7);
+            AssertFlatPathAndOverlap(m, g, (n - 2) * (n - 2), src);
+        }
+
+        [Fact]
+        public void PythagoreanValley_ExactClosedForm_TheFoldVerticesAreFlat()
+        {
+            // z = 3/4 |x|: the unfolding factor is exactly 5/4; the vertices on the fold line x = 0 are straight folds (A.5 ii)
+            int n = 15; double step = 0.25;
+            DMesh3 m = DyadicGrid(n, step, (x, y) => 0.75 * Math.Abs(x), false);
+            int src = (n / 2) * n + 2;
+            var g = Run(m, src);
+            Vector3d s = m.GetVertex(src);
+            AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = 1.25 * (Math.Abs(p.x) * Math.Sign(p.x) - s.x), dy = p.y - s.y; return ExactInterval.Sqrt(ExactInterval.Square(I(1.25 * Math.Sign(p.x) * Math.Abs(p.x) - 1.25 * s.x)) + ExactInterval.Square(I(dy))); }, 1e-7);
+            AssertFlatPathAndOverlap(m, g, (n - 2) * (n - 2), src);
+        }
+
+        [Fact]
+        public void LShapedLattice_ChainsPassFlatVerticesAfterTheReflexPseudoSource()
+        {
+            // the unit lattice on [0,8]^2 without (4,8]x(4,8]: from (7,1) the shadow behind the reflex corner (4,4) is reached only through it
+            var full = DyadicGrid(9, 1, (x, y) => 0, false);
+            var m = new DMesh3(full);
+            foreach (int t in full.TriangleIndices()) { Vector3d c = full.GetTriCentroid(t); if (c.x > 0 && c.y > 0) m.RemoveTriangle(t); }
+            // DyadicGrid is centred on 0: the reflex corner is the origin and the removed quadrant is x > 0, y > 0
+            int src = 1 * 9 + 8;      // (4, -3)
+            var g = Run(m, src);
+            Vector3d s = m.GetVertex(src), corner = Vector3d.Zero;
+            AssertEncloses(m, g, v => {
+                Vector3d p = m.GetVertex(v);
+                bool behind = p.y > 0 && s.x + (p.x - s.x) * (0 - s.y) / (p.y - s.y) > 0;
+                return behind ? Dist(s, corner) + Dist(corner, p) : Dist(s, p);
+            }, 1e-7);
+            int flat = 0; foreach (int v in m.VertexIndices()) if (g.Kind(v) == 0 && !m.IsBoundaryVertex(v)) ++flat;
+            Assert.True(g.FlatVertices > 20 && flat >= g.FlatVertices - 1, $"flat {g.FlatVertices}");
+            foreach (int v in m.VertexIndices()) if (g.Emitted(v)) Assert.True(v == src || m.IsBoundaryVertex(v));
+            Assert.True(m.IsBoundaryVertex(4 * 9 + 4) && g.Emitted(4 * 9 + 4), "the reflex corner is a boundary vertex and emitted");
+            var old = RunS1(m, src);
+            foreach (int v in m.VertexIndices()) { Assert.True(g.Lower[v] <= old.Upper[v]); Assert.True(old.Lower[v] <= g.Upper[v]); }
+            Assert.True(g.Windows < old.Windows);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FlatPlane_UnderSimilarities_ExactScalesGiveTheSameBits(string name)
+        {
+            // rotated and UTM-like copies lose exact flatness (their fans are coplanar only up to rounding) and fall back to S1
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m0 = DyadicGrid(9, 1, (x, y) => 0, false);
+            int src = 4 * 9 + 4;
+            var g0 = Run(m0, src);
+            Assert.Equal(49, g0.FlatVertices);
+            var g = Run(Invariance.Transformed(m0, sim), src);
+            foreach (int v in m0.VertexIndices()) {
+                if (sim.IsExact) {
+                    Assert.Equal(g0.Lower[v] * sim.Scale, g.Lower[v]);
+                    Assert.Equal(g0.Upper[v] * sim.Scale, g.Upper[v]);
+                } else {
+                    double res = sim.Resolution(8) * 1e3;
+                    Assert.True(g.Lower[v] / sim.Scale <= g0.Upper[v] + res && g0.Lower[v] <= g.Upper[v] / sim.Scale + res, $"{name}: vertex {v}");
+                }
+            }
+            if (sim.IsExact) { Assert.Equal(g0.Windows, g.Windows); Assert.Equal(49, g.FlatVertices); }
+        }
+
+        [Fact]
+        public void FlatPlane_ReuseOneInstance_SameBitsAndCounts()
+        {
+            DMesh3 m = DyadicGrid(9, 1, (x, y) => 0, false);
+            var g = new ExactMeshGeodesicDistance(m);
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { 40 }));
+            double[] lo = (double[])g.Lower.Clone(), up = (double[])g.Upper.Clone(); long w = g.Windows; int flat = g.FlatVertices;
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { 40 }));
+            Assert.Equal(w, g.Windows); Assert.Equal(flat, g.FlatVertices); Assert.Equal(49, flat);
+            for (int v = 0; v < lo.Length; ++v) { Assert.Equal(lo[v], g.Lower[v]); Assert.Equal(up[v], g.Upper[v]); }
+            // a different source on the same instance: a flat source emits (it is forced to kind 1), the others still do not
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { 4 * 9 + 5 }));
+            Assert.True(g.Emitted(4 * 9 + 5));
         }
 
         // ------------------------------------------------------------------ invariance, reuse, determinism, status
@@ -435,10 +694,11 @@ namespace geometry3Sharp.Tests
         public void AlignedRidge41_ReachesTheWindowLimit_WithNaNArrays()
         {
             // a limit must end with WindowLimit and NaN arrays, never with values that look valid. The exactly aligned 41 x 41
-            // ridge needs about 98000 windows (GEODESICS.md 6b; 286000 before #1058), so a limit of 60000 ends it
+            // ridge needs about 98000 windows with the flat vertices emitting (S1; GEODESICS.md 6b; 286000 before #1058; A7' needs
+            // about 32000 here, every vertex of this cylinder being an exactly flat straight fold), so the S1 path with a limit of 20000 ends it
             int n = 41; double h = 0.25, half = (n - 1) * h / 2;
             DMesh3 m = Grid(half, n, (x, y) => Ridge(x));
-            var g = new ExactMeshGeodesicDistance(m) { MaxWindows = 60000 };
+            var g = new ExactMeshGeodesicDistance(m) { MaxWindows = 20000, FlatVerticesEmit = true };
             Assert.Equal(ExactMeshGeodesicDistance.Result.WindowLimit, g.Compute(new[] { (n / 2) * n + 3 }));
             Assert.True(g.Lower.All(double.IsNaN) && g.Upper.All(double.IsNaN));
         }

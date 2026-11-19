@@ -91,6 +91,8 @@
     <InternalsVisibleTo Include="GeodesicOracleBenchmark" />
     <!-- the certified geodesic oracle (ExactMeshGeodesicDistance) in the cross-platform determinism cases -->
     <InternalsVisibleTo Include="DeterminismHarness" />
+    <!-- the stage profile of the pure-quad repair (benchmarks/QuadFlow3BGate) -->
+    <InternalsVisibleTo Include="QuadFlow3BGate" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

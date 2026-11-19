@@ -54,6 +54,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Smooth_RotationStaysWithinMeasuredBound()
+        {
+            DMesh3 original = Smoothed(Similarity.Identity);
+            DMesh3 rotated = Smoothed(Similarity.Rotated);
+            double max = 0;
+            foreach (int v in original.VertexIndices()) {
+                double distance = original.GetVertex(v).Distance(rotated.GetVertex(v));
+                Assert.True(MathUtil.IsFinite(distance));
+                max = Math.Max(max, distance);
+            }
+
+            // R21 measured 4.76e-5 on this unit-radius mesh with the default axis-wise CG solve.
+            Assert.InRange(max, 0, 5e-5);
+        }
+
+        [Fact]
         public void Smooth_ReuseAndRepeatedRuns_BitIdentical()
         {
             DMesh3 a = Smoothed(Similarity.Utm, twice: true);
