@@ -222,3 +222,5 @@ The measurement's numbers for p4 were 458 / 472 / 456 (before #1180 and #1184). 
 against master) and costs 2 on the max side; p4s loses no mesh on the min side (0 meshes below min(F, master's worst min); 499 against master's 498) and
 clears the max side on 443 meshes (the other 57 keep a few tets above G). The improver costs 1.8x master's time (161 s against 89 s over 500 meshes, max
 8 s). A 24-mesh subset with `G3_CHECK=1` (boundary self-intersection, input vertices outside): 0 and 0 in every configuration. Rows: data branch `runs/tet-maxdih`.
+
+Cost of a target the shape cannot meet (`Compute()` of the 4.4k-tet sphere of `TetMeshingStage2Tests.Input("sphere")`, alpha 40, offset 600, floor 10, one run each, shared container): G = 130: 2.0 s (8 passes); 120: 12 s (201 passes); 110: 147 s (201 passes); 100, 90, 80: more than 200 s (stopped). Values below 70.6 are off (no tet can meet them), so the run is as long as without the option. Where to cut off between is open (owner decision).

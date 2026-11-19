@@ -136,7 +136,7 @@ namespace gs
         /// places within that. A target, not a guarantee: tets can be left above it (Targets does not report the largest dihedral;
         /// TetMeshQuality.Measure does). Off (the stage is as without the option): 0 (the default), a negative value, NaN, a value
         /// below 70.6 (no tet has a largest dihedral below 70.53 degrees, so every tet would miss it) and 180 or more (none can).
-        /// Values just above 70.6 are accepted but cost the most time. Needs Improve and a positive SliverDihedralDegrees; the refinement
+        /// A target that the shape cannot meet costs time: every tet stays bad, so every pass works on the whole mesh (4.4k-tet sphere, alpha 40: G = 130 takes 2 s, 120 12 s, 110 147 s, 100 and below more than 200 s); realistic values are 140 and above. Needs Improve and a positive SliverDihedralDegrees; the refinement
         /// of stage 1 is unchanged
         /// </summary>
         public double MaxDihedralDegrees = 0;
