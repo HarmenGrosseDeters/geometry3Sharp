@@ -37,6 +37,32 @@ namespace g3
 
         public DGraph3 Graph = null;
 
+        /// <summary>
+        /// Outcome of the most recent Compute(). Compute() returns nothing and an empty Graph is ambiguous, so this
+        /// tells a valid field without a crossing apart from a field with non-finite values.
+        /// </summary>
+        public enum ComputeStatus
+        {
+            /// <summary>Compute() has not finished yet (also while it runs, or if ValueF threw)</summary>
+            NotComputed = 0,
+            /// <summary>All field values were finite and the Graph has at least one edge</summary>
+            Ok = 1,
+            /// <summary>All field values were finite and the iso value does not cross any triangle: an empty Graph is correct</summary>
+            NoCrossing = 2,
+            /// <summary>
+            /// A NaN or infinite field value occurred in a processed triangle. Such a triangle adds nothing to the Graph,
+            /// except that Bisection still finds the jump between +infinity and -infinity. The Graph is not a statement
+            /// about the whole field. Only the field values at the vertices are checked, not the ones that
+            /// Bisection and LerpSteps sample between them.
+            /// </summary>
+            NonFiniteInput = 3
+        }
+
+        /// <summary>
+        /// Status of the most recent Compute(); reset at the start of every call.
+        /// </summary>
+        public ComputeStatus Status { get; private set; } = ComputeStatus.NotComputed;
+
         public enum TriangleCase
         {
             EdgeEdge = 1,
@@ -88,6 +114,8 @@ namespace g3
 
         protected void compute_full(IEnumerable<int> Triangles, bool bIsFullMeshHint = false)
         {
+            Status = ComputeStatus.NotComputed;
+            bool nonFinite = false;
             Graph = new DGraph3();
             if (WantGraphEdgeInfo)
                 GraphEdges = new DVector<GraphEdgeInfo>();
@@ -127,14 +155,18 @@ namespace g3
 
                 // No crossing is defined where a value is NaN (Min keeps a NaN). Between +infinity and -infinity in
                 // one triangle nothing can be interpolated, but Bisection only needs the signs: it finds the jump.
-                // Compute() has no status: such triangles add nothing to the Graph, so a field that is NaN
-                // everywhere gives an empty Graph.
+                // Such triangles add nothing to the Graph, so a field that is NaN everywhere gives an empty Graph;
+                // Status reports NonFiniteInput then.
                 double fMin = Math.Min(f.x, Math.Min(f.y, f.z)), fMax = Math.Max(f.x, Math.Max(f.y, f.z));
+                if (double.IsNaN(fMin) || double.IsInfinity(fMin) || double.IsInfinity(fMax))
+                    nonFinite = true;
                 if (double.IsNaN(fMin))
                     continue;
                 if (RootMode != RootfindingModes.Bisection && double.IsNegativeInfinity(fMin) && double.IsPositiveInfinity(fMax))
                     continue;
 
+                // (signs are compared, not multiplied: a product of two small values underflows to 0, of two large ones
+                // overflows; R15)
                 if (f.x < 0 && f.y < 0 && f.z < 0)
                     continue;
                 if (f.x > 0 && f.y > 0 && f.z > 0)
@@ -142,11 +174,10 @@ namespace g3
 
                 Index3i triEdges = Mesh.GetTriEdges(tid);
 
-                // (the product of a 0 and an infinity is NaN)
-                if (f.x * f.y * f.z == 0 || f.x == 0 || f.y == 0 || f.z == 0) {
+                if (f.x == 0 || f.y == 0 || f.z == 0) {
                     int z0 = (f.x == 0) ? 0 : ((f.y == 0) ? 1 : 2);
                     int i1 = (z0+1) % 3, i2 = (z0+2) % 3;
-                    if (f[i1] * f[i2] > 0)  
+                    if (SameSign(f[i1], f[i2]))
                         continue;       // single-vertex-crossing case, skip here and let other edges catch it
 
                     if (f[i1] == 0 || f[i2] == 0) {
@@ -163,7 +194,7 @@ namespace g3
 
                     } else {
                         // edge/vertex case
-                        Util.gDevAssert(f[i1] * f[i2] < 0);
+                        Util.gDevAssert(!SameSign(f[i1], f[i2]));
 
                         int vert_vid = add_or_append_vertex(Mesh.GetVertex(triVerts[z0]));
 
@@ -189,7 +220,7 @@ namespace g3
                         int i = tei, j = (tei + 1) % 3;
                         if (f[i] < 0)
                             less_than++;
-                        if (f[i] * f[j] > 0)
+                        if (SameSign(f[i], f[j]))
                             continue;
                         if ( triVerts[j] < triVerts[i] ) {
                             int tmp = i; i = j; j = tmp;
@@ -228,6 +259,14 @@ namespace g3
 
 
             Vertices = null;
+            Status = nonFinite ? ComputeStatus.NonFiniteInput
+                : (Graph.EdgeCount > 0 ? ComputeStatus.Ok : ComputeStatus.NoCrossing);
+        }
+
+        // both values are non-zero and on the same side of 0 (no product: it can underflow or overflow)
+        static bool SameSign(double a, double b)
+        {
+            return (a < 0 && b < 0) || (a > 0 && b > 0);
         }
 
 
@@ -330,6 +369,11 @@ namespace g3
         {
             if (double.IsNegativeInfinity(fA))
                 return 1;
+            // fB - fA overflows for finite values of about 1e308 and opposite signs (then the quotient is 0 and the
+            // crossing lands on an end): rescale the bracket by 2, which is exact and keeps the result under 2^k scaling
+            if (double.IsInfinity(fB - fA) && !double.IsInfinity(fA) && !double.IsInfinity(fB)) {
+                fA *= 0.5; fB *= 0.5;
+            }
             return MathUtil.Clamp((0 - fA) / (fB - fA), 0, 1);
         }
 
