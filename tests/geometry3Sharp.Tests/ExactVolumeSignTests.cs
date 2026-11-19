@@ -300,13 +300,16 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// open soups (the sum depends on the origin, the first vertex: a closed surface hides an error in the origin, whose
         /// terms cancel over it) of one to five triangles with coordinates at offsets and mixed magnitudes, t at |S| / 3 and
-        /// its neighbours: the sign is that of the BigInteger comparison, including a single triangle and the equal case
+        /// its neighbours: the sign is that of the BigInteger comparison. (A single triangle has S = 0 and is asserted in
+        /// Compare_DecidesNothing_ForUnusableInput; the equal case in Compare_EqualAndNeighbours. Only the direction 3 emin < e_t of the
+        /// shift occurs here: for random full-mantissa coordinates e_t is about 3 emin + 115, and the other direction needs |S| below
+        /// 2^-102 of the cube of the smallest coordinate, which no sheet with representable coordinates has)
         /// </summary>
         [Fact]
         public void Compare_AgreesWithTheOracle_OnOpenSoups()
         {
             var rnd = new Random(11911);
-            int equal = 0, below = 0, above = 0;
+            int equal = 0, below = 0, above = 0, accepted = 0;
             for (int k = 0; k < 300; ++k) {
                 int n = 1 + rnd.Next(5);
                 double scale = Math.Pow(2, rnd.Next(-30, 30)), off = (rnd.NextDouble() - 0.5) * scale * Math.Pow(2, rnd.Next(0, 4));
@@ -334,6 +337,7 @@ namespace geometry3Sharp.Tests
                 double t0 = (double)(absS >> (3 * 1074 - 60)) / 3 / 1152921504606846976.0;
                 if (t0 < ExactPredicates.MinNormal || double.IsInfinity(t0))
                     continue;
+                ++accepted;
                 foreach (double t in new[] { t0, Next(t0, 1), Next(t0, -1), t0 * 1.5, t0 * 0.5 }) {
                     int expected = absS.CompareTo(3 * Scaled(t) << (2 * 1074));
                     Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out int got), $"case {k}");
@@ -342,6 +346,7 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(below > 200 && above > 200, $"{below} below, {above} above, {equal} equal");
+            Assert.True(accepted > 150, $"{accepted} of 300 soups decided");
         }
 
         /// <summary> nothing is decided for a coordinate that is not finite, t that is not a positive normal number, a sum that overflows, or no triangles </summary>
