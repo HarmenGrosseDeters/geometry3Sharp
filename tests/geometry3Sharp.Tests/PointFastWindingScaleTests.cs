@@ -50,6 +50,49 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void SubnormalArea_DipoleRetainsItsContribution(bool powerOfTwo)
+        {
+            double scale = powerOfTwo ? Math.Pow(2, -530) : 1e-160;
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisX);
+            double area = scale * scale;
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => area };
+            double expected = (area / scale / scale) / MathUtil.FourPI;
+            double actual = tree.FastWindingNumber(-scale * Vector3d.AxisX);
+            Assert.True(MathUtil.IsFinite(actual));
+            Assert.Equal(expected, actual, 14);
+            Assert.Equal(0, tree.FastWindingNumber(Vector3d.Zero));
+        }
+
+        [Fact]
+        public void NearlyTangentialDipole_DoesNotOverflowBeforeApplyingTheAngle()
+        {
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisY);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => Math.Pow(2, 500) };
+            var query = new Vector3d(-Math.Pow(2, -532), -double.Epsilon, 0);
+            double expected = Math.Pow(2, 1022) / MathUtil.FourPI;
+            Assert.Equal(1, tree.FastWindingNumber(query) / expected, 14);
+        }
+
+        [Fact]
+        public void NearlyTangentialDipole_RetainsTheContributionOfASubnormalArea()
+        {
+            double scale = Math.Pow(2, -530);
+            var point = new DMesh3(true, false, false);
+            int v = point.AppendVertex(Vector3d.Zero);
+            point.SetVertexNormal(v, Vector3f.AxisY);
+            var tree = new PointAABBTree3(point, true) { FWNAreaEstimateF = _ => scale * scale };
+            var query = new Vector3d(-scale, -double.Epsilon, 0);
+            double expected = (double.Epsilon / scale) / MathUtil.FourPI;
+            Assert.Equal(1, tree.FastWindingNumber(query) / expected, 14);
+        }
+
+        [Theory]
         [InlineData(-30)]
         [InlineData(-40)]
         [InlineData(-50)]
