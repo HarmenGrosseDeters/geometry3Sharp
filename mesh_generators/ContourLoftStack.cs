@@ -116,7 +116,7 @@ namespace g3
         /// <summary>
         /// Opt-in (default false, the results are then unchanged): a branching or merging group whose contours are contained in one contour of
         /// the other slice (no intermediate plane) is lofted as a roof over the region between them instead of a band through bridged composite
-        /// contours: the crotch between the branches is lowered (docs/design/CONTOUR_LOFT.md section 10.11). Groups with holes, cut pieces
+        /// contours: the crotch between the branches is lowered (docs/design/CONTOUR_LOFT.md section 10.11). Groups whose contours have holes, cut pieces
         /// and contours that touch keep the bridged composite; when the roofs make the stack fail (status BandFailed, SelfIntersecting, BridgeNotFound or CapFailed) it is built again without them.
         /// </summary>
         public bool LoweredSaddle;
