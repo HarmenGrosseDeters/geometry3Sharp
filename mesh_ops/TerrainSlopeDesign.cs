@@ -463,7 +463,7 @@ namespace gs
                         // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
                         // the previous round's catch lines show where)
                         if (round > 0 && Status != Statuses.Cancelled) {
-                            Message = $"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy; a smaller Tolerance ({Tolerance:G3}) failed: {Status}: {Message}";
+                            Message = FormattableString.Invariant($"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy; a smaller Tolerance ({Tolerance:G3}) failed: {Status}: {Message}");
                             Status = Statuses.CatchLineAccuracyNotReached;
                             CatchLines = previous;
                         }
@@ -673,7 +673,7 @@ namespace gs
                     undercutThroughDesign = r.undercutThroughDesign; UndercutCauses = r.UndercutCauses;
                     FanTolerance = r.FanTolerance;
                     if (r == f && r.Status == Statuses.ToeUndercut)
-                        return fail(Statuses.ToeOvertopped, $"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe");
+                        return fail(Statuses.ToeOvertopped, FormattableString.Invariant($"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe"));
                     // (the cut's facets refused: the fill's at the cut's named Tolerance too, without building it, so the
                     // Tolerance named fits both runs; a refusal of the fill comes after a cut that fits, and a larger
                     // Tolerance has fewer facets)
@@ -765,7 +765,7 @@ namespace gs
             // (final: each run raised its margin and lowering for its own region; the mixed one does not build again)
             if (bad.Count > 0) {
                 ProblemTriangles = bad;
-                return fail(Statuses.SlopeViolation, $"{bad.Count} triangles of the mixed composite's slope region failed the exact check");
+                return fail(Statuses.SlopeViolation, FormattableString.Invariant($"{bad.Count} triangles of the mixed composite's slope region failed the exact check"));
             }
             // the snap certificate of the mixed composite (TERRAIN.md 5.5): the larger of the two runs' budgets, which each
             // reserved Tolerance / 4 for it
@@ -863,7 +863,7 @@ namespace gs
                     if (start[i].IsValid == false)
                         return problem(t, i, "invalid slope");
                     if (end != null && (end[i].Kind != start[i].Kind || end[i].Value != start[i].Value))
-                        return fail(Statuses.NotImplemented, $"toe {t} segment {i}: a slope that changes along a segment is not in phase 1a");
+                        return fail(Statuses.NotImplemented, FormattableString.Invariant($"toe {t} segment {i}: a slope that changes along a segment is not in phase 1a"));
                     pieces.Add(new InPiece() { Toe = t, Segment = i, A = a, B = b, Spec = start[i], S = start[i].S });
                 }
             }
@@ -1120,9 +1120,9 @@ namespace gs
                 Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br, regionNeedles);
                 if (attempt > 0 && st == Statuses.InvalidInput) {
                     // (a larger margin whose facets need more than MaxFanDirections: said so, with the Tolerance they fit from)
-                    string why = FanTolerance > 0 ? $"; a larger margin needs more than {MaxFanDirections} cone facets per turn (they fit from Tolerance {FanTolerance:R})"
+                    string why = FanTolerance > 0 ? FormattableString.Invariant($"; a larger margin needs more than {MaxFanDirections} cone facets per turn (they fit from Tolerance {FanTolerance:R})")
                                                   : "; a larger margin does not fit into Tolerance";
-                    return fail(Statuses.SlopeViolation, (certFail ?? $"{ProblemTriangles.Count} triangles failed the exact check") + why);
+                    return fail(Statuses.SlopeViolation, (certFail ?? FormattableString.Invariant($"{ProblemTriangles.Count} triangles failed the exact check")) + why);
                 }
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
@@ -1163,7 +1163,7 @@ namespace gs
                 }
                 // (the build raised λ itself, by realizing again; what is left needs a larger margin δ and a new build)
                 if (attempt >= 7 || delta * 8 > 1e-3)
-                    return fail(Statuses.SlopeViolation, br.CertFail ?? $"{br.Bad.Count} triangles failed the exact check");
+                    return fail(Statuses.SlopeViolation, br.CertFail ?? FormattableString.Invariant($"{br.Bad.Count} triangles failed the exact check"));
                 delta *= 8;
                 regionNeedles = new HashSet<XYEdge>();
                 // (the measured lowering is kept; the next build caps it at its own bound)
@@ -1237,7 +1237,7 @@ namespace gs
         Statuses problem(int toe, int segment, string message)
         {
             ToeProblems.Add(new Index2i(toe, segment));
-            return fail(Statuses.InvalidInput, $"toe {toe}" + (segment >= 0 ? $" at {segment}" : "") + ": " + message);
+            return fail(Statuses.InvalidInput, FormattableString.Invariant($"toe {toe}") + (segment >= 0 ? FormattableString.Invariant($" at {segment}") : "") + ": " + message);
         }
 
         void checkCancel()
@@ -1312,21 +1312,21 @@ namespace gs
             // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins"; reach_and_resolution
             // computed it, and D0 from the lowest built height, #861)
             if (RampGradeTooSmall >= 0)
-                return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
+                return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, FormattableString.Invariant($"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})"));
             UsedRampShare = rampShare;
             double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
             double facetShare = Tolerance - withoutRamps - rampShare;
             if (!(facetShare > 0)) {
                 if (rampShare > 0 && Tolerance - withoutRamps > 0)
-                    return fail(Statuses.InvalidInput, $"the ramp is too long or too wide for Tolerance {Tolerance}: its share is {rampShare:G3} (the road's grade margin {RampShareRoad:G3}, the outer edge's widening {RampShareWidth:G3}; TERRAIN_RAMPS.md, \"Margins\"), the numerical margins without it {withoutRamps:G3}");
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({withoutRamps + rampShare:G3})");
+                    return fail(Statuses.InvalidInput, FormattableString.Invariant($"the ramp is too long or too wide for Tolerance {Tolerance}: its share is {rampShare:G3} (the road's grade margin {RampShareRoad:G3}, the outer edge's widening {RampShareWidth:G3}; TERRAIN_RAMPS.md, \"Margins\"), the numerical margins without it {withoutRamps:G3}"));
+                return fail(Statuses.InvalidInput, FormattableString.Invariant($"Tolerance {Tolerance} is below the numerical margins ({withoutRamps + rampShare:G3})"));
             }
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
             double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
             foreach (var pc in pieces)
                 if (pc.Kind == 0 && pc.A.xy.Distance(pc.B.xy) < minFeatureMax) {
                     ToeProblems.Add(new Index2i(pc.Toe, pc.Segment));
-                    return fail(Statuses.InvalidInput, $"toe {pc.Toe} segment {pc.Segment} is shorter than the smallest feature that can be realized ({minFeatureMax:G3})");
+                    return fail(Statuses.InvalidInput, FormattableString.Invariant($"toe {pc.Toe} segment {pc.Segment} is shorter than the smallest feature that can be realized ({minFeatureMax:G3})"));
                 }
             // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
@@ -1353,7 +1353,7 @@ namespace gs
                 // (none: with a cap from the terrain the facet share over the facets' scale tends to about
                 // 0.75 sMin (1 - δ) / (1.1 sMax) - δ as t grows, which slopes far apart keep below what the bound needs)
                 FanTolerance = fits ? t : 0;
-                string head = $"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})";
+                string head = FormattableString.Invariant($"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})");
                 return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
             }
             if (fanCheckOnly)
@@ -1463,7 +1463,7 @@ namespace gs
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
                 // (UnsupportedByMethod if any of them is caused through the design area)
                 undercutThroughDesign = causes.Any(uc => through_design_area(pieces, uc));
-                return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
+                return fail(Statuses.ToeUndercut, FormattableString.Invariant($"{undercut.Count} toe segments are undercut by the cones of other parts of the toe"));
             }
 
             // realization and the exact check, raising λ by measurement without a new build
@@ -1647,7 +1647,7 @@ namespace gs
                 if (et.b < 0) continue;
                 Index2i ev = mesh.GetEdgeV(e);
                 if (runs_along(mesh.GetTriangle(et.a), ev.a, ev.b) == runs_along(mesh.GetTriangle(et.b), ev.a, ev.b))
-                    return fail(Statuses.Failed, $"the realized slope surface folds over at edge {e}");
+                    return fail(Statuses.Failed, FormattableString.Invariant($"the realized slope surface folds over at edge {e}"));
             }
             br.Mesh = mesh;
             LastRealized = mesh;
@@ -1825,9 +1825,9 @@ namespace gs
 
         string cert_message(SlopeComposite comp, double dev, double budget)
         {
-            return $"the composite is not certified: its catch points moved (one at the largest deviation at ({comp.SnapWorstCatchAt.x:R}, {comp.SnapWorstCatchAt.y:R}), "
-                 + $"{comp.SnapWorstCatchOwn.xy.Distance(comp.SnapWorstCatchAt.xy):G3} from its own position) and changed the surface by up to {dev:G3}, "
-                 + $"where at most {Tolerance - budget:G3} fits into Tolerance (TERRAIN.md 5.5)";
+            return FormattableString.Invariant($"the composite is not certified: its catch points moved (one at the largest deviation at ({comp.SnapWorstCatchAt.x:R}, {comp.SnapWorstCatchAt.y:R}), ")
+                 + FormattableString.Invariant($"{comp.SnapWorstCatchOwn.xy.Distance(comp.SnapWorstCatchAt.xy):G3} from its own position) and changed the surface by up to {dev:G3}, ")
+                 + FormattableString.Invariant($"where at most {Tolerance - budget:G3} fits into Tolerance (TERRAIN.md 5.5)");
         }
 
         // every boundary edge of the realized surface lies on a toe or lateral limit (both ends on a barrier) or on the
@@ -2106,7 +2106,7 @@ namespace gs
                 edz = ExactDyadic.Of(B.z) - ExactDyadic.Of(A.z), es = ExactDyadic.Of(pc.Sb);
             if ((edz * edz - es * es * (edx * edx + edy * edy)).Sign >= 0) {
                 ToeProblems.Add(new Index2i(pc.Toe, pc.Segment));
-                return fail(Statuses.ToeSteeperThanSlope, $"toe {pc.Toe} segment {pc.Segment} is at least as steep as its slope");
+                return fail(Statuses.ToeSteeperThanSlope, FormattableString.Invariant($"toe {pc.Toe} segment {pc.Segment} is at least as steep as its slope"));
             }
             Vector2d u = new Vector2d(dx / L, dy / L), n = new Vector2d(-u.y, u.x);
             double g = (B.z - A.z) / L;
@@ -2238,7 +2238,7 @@ namespace gs
                         continue;
                     }
                     if (touch(s.a, s.b, r.a, r.b)) {
-                        why = (s.toe == r.toe) ? "toe self-intersects or touches itself in XY" : $"toes {r.toe} and {s.toe} cross or touch";
+                        why = (s.toe == r.toe) ? "toe self-intersects or touches itself in XY" : FormattableString.Invariant($"toes {r.toe} and {s.toe} cross or touch");
                         where = new Index2i(s.toe, s.i);
                         return false;
                     }
