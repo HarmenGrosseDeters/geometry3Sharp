@@ -102,6 +102,11 @@ namespace geometry3Sharp.Tests
                 }
                 Assert.Equal(B(area), B(pm.SurfaceArea));
             }
+            foreach (int order in new[] { -1, 7, 99 }) {   // other schedules of the loops (the environment adversary)
+                gParallel.SerialOnThisThread = true; gParallel.SerialOrderOnThisThread = order;
+                try { Assert.Equal(reference, Bits(new ParamMesh(m))); }
+                finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+            }
             if (shape == 2) Assert.Contains(Serial(m).Frames, f => f.Degenerate);
         }
 
@@ -130,6 +135,11 @@ namespace geometry3Sharp.Tests
             Assert.False(serial.Valid);
             Assert.Contains("bowtie", serial.Error);
             Assert.Contains("vertex " + centers[0] + " ", serial.Error);
+            foreach (int order in new[] { -1, 7 }) {
+                gParallel.SerialOnThisThread = true; gParallel.SerialOrderOnThisThread = order;
+                try { Assert.Contains("vertex " + centers[0] + " ", new ParamMesh(mesh).Error); }
+                finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+            }
             for (int rep = 0; rep < 5; ++rep) {
                 ParamMesh pm = new ParamMesh(mesh);
                 Assert.Equal(ParameterizationStatus.InvalidMesh, pm.Status);
