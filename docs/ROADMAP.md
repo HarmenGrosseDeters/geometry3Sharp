@@ -112,7 +112,7 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Platform and CI:** #999 (xatlas report) merged; the UV parameterization mutation shards are merged (#1006); the
   uncovered lines of the nightly changed-line coverage gate got tests (#1089; the next nightly run shows whether it is green); the flaky
   allocation test #1074 now explains its own failure (#1090); the gate-change check (#1087, observe mode) and the diff triggers of the
-  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 open (outer face rounds incremental by default since 2026-11-19; 318843 and 498456 `fm_ms` still above 20 s); tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
+  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009: outer face rounds incremental by default since 2026-11-19, FastWindingNumber 21 to 34 % faster with the same bits; known limit (owner 2026-11-19, option C): `fm_ms` of Thingi10K 498456 stays above 20 s (29.6 s, [README](../benchmarks/MeshRepairBenchmark/README.md#faster-winding-queries-same-bits-1009-tail)); tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
   (extreme field values) partly fixed, S10 deferred ([ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md)). Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).

@@ -1872,6 +1872,12 @@ scalar), traversal share about a third; the sum of the two was the bound for a c
 | 37215 | 1 | 2.2 s | 1.5 s | 31 % | identical |
 | 36075 | 1 | 1.0 s | 0.8 s | 23 % | identical |
 
+**Documented exception of the 20 s rule (owner 2026-11-19, option C): Thingi10K 498456, `fm_ms` 29.6 s after this change (41.6 s before).** Measured
+cause: 55 incremental rounds with 731,646 faces judged again (about 14k of about 20k per round), about 670 to 890 exact triangle terms per query, and in the
+late rounds 77 % of the stored points lie within the 0.2 margin of a decision boundary (values near w = 1 / 0.5). The default result stays bit for bit; no
+option was added. Changes that would be faster alter the output on this mesh: `FWNBeta` 1.5 (34 s) gives 51 rounds and outer IoU 0.9518 instead of 0.9431,
+leaf size 2 or 16 and a smaller margin or other stall rule change the rounds too.
+
 318843 is now below 20 s on this machine with room (13.1 s; 20.5 s in the table above, which was measured on another machine). 498456 stays above (29.6 s): its 54
 rounds each judge about 14k faces again, 77 % of whose stored points lie within the 0.2 margin of a decision boundary, and its
 outputs change under any perturbation of the winding values (the options that do are owner decisions on #1009).
