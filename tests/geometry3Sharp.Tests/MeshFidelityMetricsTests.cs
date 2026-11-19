@@ -991,18 +991,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OuterFaceIncremental_SameFacesAsTheDefault_FewerJudgements()
+        public void OuterFaceIncremental_SameFacesAsTheOptOut_FewerJudgements()
         {
-            // stacked interior layers (many rounds): the incremental update keeps the faces of the default, and the faces
-            // judged again after the first round are fewer than the face-rounds of the default
+            // stacked interior layers (many rounds): the incremental update (the default) keeps the faces of the opt-out, and the faces
+            // judged again after the first round are fewer than the face-rounds of the opt-out
             foreach (int n in new[] { 5, 40 }) {
                 DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
                 DMesh3 reference = new DMesh3(box);
                 for (int l = 0; l < n; ++l)
                     MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / n), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
-                var d = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                var d = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = false, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
                 Assert.True(d.Compute());
-                var inc = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                var inc = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
                 Assert.True(inc.Compute());
                 Assert.Equal(d.OuterFaceRemovedIds, inc.OuterFaceRemovedIds);
                 Assert.Equal(d.OuterFaceRounds, inc.OuterFaceRounds);
@@ -1010,6 +1010,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d.OuterVolumeIoU, inc.OuterVolumeIoU);
                 Assert.True(d.OuterFacesConverged && inc.OuterFacesConverged);
                 Assert.True(d.OuterFaceRemovedIds.Length >= 8 * n);
+                Assert.True(inc.OuterFaceRedoFaces > 0 && d.OuterFaceRedoFaces == 0);   // the default path is the incremental one
                 if (n == 40)
                     Assert.True(inc.OuterFaceRedoFaces < inc.OuterFaceRounds * reference.TriangleCount / 2, $"{inc.OuterFaceRedoFaces}");
                 // reuse
@@ -1025,7 +1026,7 @@ namespace geometry3Sharp.Tests
             DMesh3 reference = new DMesh3(box);
             for (int l = 0; l < 24; ++l)
                 MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 24), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
-            MeshFidelityMetrics Make(bool parallel) => new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, Parallel = parallel, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            MeshFidelityMetrics Make(bool parallel) => new MeshFidelityMetrics(reference, box) { Parallel = parallel, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
             var p0 = Make(true); Assert.True(p0.Compute());
             var s0 = Make(false); Assert.True(s0.Compute());
             Assert.Equal(p0.OuterFaceRemovedIds, s0.OuterFaceRemovedIds);
@@ -1044,18 +1045,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OuterFaceIncremental_DefaultIsOff_AndInvariantUnderSimilarityAll()
+        public void OuterFaceIncremental_DefaultIsOn_AndInvariantUnderSimilarityAll()
         {
-            Assert.False(new MeshFidelityMetrics(new DMesh3(), new DMesh3()).OuterFaceIncremental);
+            Assert.True(new MeshFidelityMetrics(new DMesh3(), new DMesh3()).OuterFaceIncremental);
             DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
             DMesh3 reference = new DMesh3(box);
             for (int l = 0; l < 12; ++l)
                 MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 12), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
-            var baseF = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            var baseF = new MeshFidelityMetrics(reference, box) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
             Assert.True(baseF.Compute());
             Assert.True(baseF.OuterFacesConverged);
             foreach (Similarity s in Similarity.All()) {
-                var f = new MeshFidelityMetrics(Invariance.Transformed(reference, s), Invariance.Transformed(box, s)) { OuterFaceIncremental = true, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+                var f = new MeshFidelityMetrics(Invariance.Transformed(reference, s), Invariance.Transformed(box, s)) { SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
                 Assert.True(f.Compute(), s.Name);
                 Assert.Equal(baseF.OuterFaceRemovedIds, f.OuterFaceRemovedIds);
                 if (s.IsExact) {
@@ -1064,6 +1065,25 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(baseF.OuterFaceRedoFaces, f.OuterFaceRedoFaces);
                 }
             }
+        }
+
+        [Fact]
+        public void OuterFaceIncremental_OptOut_PinnedGolden()
+        {
+            // OuterFaceIncremental = false is the code path before #1009: pinned values of a stack of 12 interior layers (taken from
+            // master before the default changed), exact; the default path gives the same faces (the test above)
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 12; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 12), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+            var f = new MeshFidelityMetrics(reference, box) { OuterFaceIncremental = false, SurfaceSamples = 2000, EdgeSamples = 500, VolumeSamples = 2000, Curvature = false };
+            Assert.True(f.Compute());
+            Assert.Equal(0L, f.OuterFaceRedoFaces);
+            Assert.Equal(15, f.OuterFaceRounds);
+            Assert.Equal(96, f.OuterFaceRemovedIds.Length);
+            Assert.Equal(5712L, f.OuterFaceRemovedIds.Sum(x => (long)x));
+            Assert.Equal(4601572671895748891L, BitConverter.DoubleToInt64Bits(f.OuterFaceShare));
+            Assert.Equal(4607182418800017408L, BitConverter.DoubleToInt64Bits(f.OuterVolumeIoU));
         }
 
         [Fact]
