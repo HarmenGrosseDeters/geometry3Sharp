@@ -33,8 +33,8 @@ namespace gs
         public double InputClearance;
         /// <summary>
         /// the distance from the axis to the triangles of the returned wrap lies in [ClearanceLow, ClearanceHigh] (a branch and bound on
-        /// the 1-Lipschitz distance function, ClearanceHigh - ClearanceLow at most 1e-3 times the pin radius unless the lower bound is
-        /// already above the radius; double rounding is covered by a margin, see PassageWrap)
+        /// the 1-Lipschitz distance function, ClearanceHigh - ClearanceLow at most 1e-3 times the pin radius (at least 1e-4 of the size of mesh and axis) unless the lower bound is
+        /// already above the radius, the best value is already below it (a failed pin is not refined further) or the run was cancelled; double rounding is covered by a margin, see PassageWrap)
         /// </summary>
         public double ClearanceLow, ClearanceHigh;
         /// <summary> every vertex of the axis has winding number below 0.5 in the wrap: it lies outside </summary>
@@ -89,7 +89,7 @@ namespace gs
             Cancelled = 7
         }
 
-        /// <summary> input triangles (any mesh: soup, open or non-manifold); vertices without triangles are ignored </summary>
+        /// <summary> input triangles (any mesh: soup, open or non-manifold); vertices without triangles are wrapped as points (as MeshAlphaWrap does) and count in the input clearance </summary>
         public DMesh3 Mesh;
         /// <summary> the pins that must stay open (at least one) </summary>
         public List<PassagePin> Pins = new List<PassagePin>();
@@ -188,6 +188,7 @@ namespace gs
             double margin = 1e-12 * box.DiagonalLength;
             // (a tolerance below 1e-4 of the size would cost hundreds of thousands of queries along a long straight bore)
             tolerance = Math.Max(tolerance, 1e-4 * box.DiagonalLength);
+            double fine = stopAbove < double.MaxValue ? 0.01 * tolerance : tolerance;
             Func<Vector3d, double> f = (p) => { tree.FindNearestTriangle(p, out double dsq); return Math.Sqrt(dsq); };
             var pq = new MinHeap();
             double best = double.MaxValue;
@@ -203,7 +204,7 @@ namespace gs
             double low = best;
             int pops = 0;
             while (pq.TryDequeue(out var it, out double lb)) {
-                if (lb >= best - tolerance || lb > stopAbove || best < stopBelow) { low = Math.Min(best, lb); break; }
+                if (lb > stopAbove || best < stopBelow || lb >= best - (lb <= stopAbove && stopAbove <= best ? fine : tolerance)) { low = Math.Min(best, lb); break; }
                 if ((++pops & 255) == 0 && cancelF != null && cancelF()) { low = Math.Min(best, lb); break; }
                 Vector3d m = 0.5 * (it.a + it.b);
                 double fm = f(m);
@@ -227,29 +228,33 @@ namespace gs
 
             var inputTree = new DMeshAABBTree3(Mesh, true);
             var results = new PassagePinResult[Pins.Count];
+            // (vertices without triangles are wrapped as points: the input clearance counts them)
+            var isolated = Mesh.VertexIndices().Where(v => Mesh.GetVtxEdgeCount(v) == 0).Select(v => Mesh.GetVertex(v)).ToList();
             double bound = double.MaxValue;
+            int blocked = -1;
             for (int i = 0; i < Pins.Count; ++i) {
                 PassagePin pin = Pins[i];
                 PolylineClearance(inputTree, pin.Axis, 1e-4 * pin.Radius, double.MaxValue, out double lo, out double hi, CancelF);
                 if (CancelF()) { Status = PassageStatus.Cancelled; return false; }
+                foreach (Vector3d q in isolated)
+                    lo = Math.Min(lo, PolylineDistance(pin.Axis, q));
                 results[i] = new PassagePinResult { InputClearance = lo };
                 double a = MaxAlpha(lo, pin.Radius, OffsetRatio, PullPinchPoints);
                 if (!(a > 0)) {
-                    PinResults = results;
-                    Error = "pin " + i + ": radius " + pin.Radius + " is not below the input's clearance " + lo;
-                    Status = PassageStatus.PinBlockedByInput;
-                    return false;
+                    if (blocked < 0) { blocked = i; Error = "pin " + i + ": radius " + pin.Radius + " is not below the input's clearance " + lo; }
+                    continue;
                 }
                 bound = Math.Min(bound, a);
             }
+            PinResults = results;
+            if (blocked >= 0) { Status = PassageStatus.PinBlockedByInput; return false; }
             bound *= BoundSafety;
             // (a wrap coarser than the input's size is the hull of it: no use)
             bound = Math.Min(bound, Mesh.CachedBounds.DiagonalLength);
             if (MaxAlphaLimit > 0)
                 bound = Math.Min(bound, MaxAlphaLimit);
-            PinResults = results;
             BoundAlpha = bound;
-            EstimatedTriangles = estimate(bound);
+            EstimatedTriangles = estimate(bound, MaxTriangles > 0);
             if (MaxTriangles > 0 && EstimatedTriangles > MaxTriangles) {
                 Status = PassageStatus.BudgetExceeded;
                 Error = "estimated " + EstimatedTriangles.ToString("F0") + " triangles at alpha " + bound + ", budget " + MaxTriangles;
@@ -259,6 +264,16 @@ namespace gs
             double alpha = bound * FirstAlphaScale;
             for (int step = 0; step <= MaxFallbackSteps; ++step, alpha *= FallbackFactor) {
                 if (CancelF()) { Status = PassageStatus.Cancelled; return false; }
+                if (step > 0 && MaxTriangles > 0) {
+                    // a fallback wrap is finer: the budget holds for it too (Result stays the last wrap that failed the check)
+                    double est = estimate(alpha, true);
+                    if (est > MaxTriangles) {
+                        Status = PassageStatus.BudgetExceeded;
+                        Error = "fallback at alpha " + alpha + " is estimated at " + est.ToString("F0") + " triangles, budget " + MaxTriangles;
+                        EstimatedTriangles = est;
+                        return false;
+                    }
+                }
                 double offset = alpha / OffsetRatio;
                 var wrap = new MeshAlphaWrap(Mesh) { Alpha = alpha, Offset = offset, MaxThreads = MaxThreads, PullPinchPoints = PullPinchPoints, CancelF = CancelF };
                 bool ok = wrap.Compute();
@@ -294,9 +309,8 @@ namespace gs
                 Result = chosen;
                 PinResults = measured;
                 if (passed) {
-                    Status = wrap.Status == MeshAlphaWrap.WrapStatus.Success || wrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached
-                        ? PassageStatus.Success : PassageStatus.WrapFailed;
-                    return Status == PassageStatus.Success;
+                    Status = PassageStatus.Success;
+                    return true;
                 }
             }
             Status = PassageStatus.PassageNotKept;
@@ -304,8 +318,8 @@ namespace gs
             return false;
         }
 
-        // the size estimate of MeshAlphaWrap with a budget (area, open components twice), at alpha
-        double estimate(double alpha)
+        // the size estimate of MeshAlphaWrap at alpha: with a budget (openToo) the open components count twice, without the one-sided estimate
+        double estimate(double alpha, bool openToo)
         {
             var tris = new List<Vector3d>(3 * Mesh.TriangleCount);
             double area = 0;
@@ -315,7 +329,7 @@ namespace gs
                 tris.Add(a); tris.Add(b); tris.Add(c);
                 area += 0.5 * (b - a).Cross(c - a).Length;
             }
-            return MeshAlphaWrap.EstimateDensity * (area + AlphaWrapEstimate.OpenArea(tris, alpha)) / alpha / alpha;
+            return MeshAlphaWrap.EstimateDensity * (area + (openToo ? AlphaWrapEstimate.OpenArea(tris, alpha) : 0)) / alpha / alpha;
         }
 
         // a binary min-heap of intervals by lower bound (netstandard2.0 has no PriorityQueue); ties by insertion order, so the
@@ -356,6 +370,20 @@ namespace gs
             }
         }
 
+        // the distance of a point to a polyline (a single point: to that point)
+        static double PolylineDistance(IList<Vector3d> axis, Vector3d q)
+        {
+            if (axis.Count == 1) return (q - axis[0]).Length;
+            double best = double.MaxValue;
+            for (int i = 0; i + 1 < axis.Count; ++i) {
+                Vector3d a = axis[i], ab = axis[i + 1] - a;
+                double len2 = ab.LengthSquared;
+                double t = len2 > 0 ? Math.Max(0, Math.Min(1, (q - a).Dot(ab) / len2)) : 0;
+                best = Math.Min(best, (q - (a + t * ab)).Length);
+            }
+            return best;
+        }
+
         PassagePinResult[] measure(DMesh3 wrap, PassagePinResult[] inputResults)
         {
             var tree = new DMeshAABBTree3(wrap, true);
@@ -381,13 +409,14 @@ namespace gs
                 Vector3d p = Mesh.GetVertex(v);
                 if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z)) { Error = "non-finite input coordinates"; return PassageStatus.InvalidInput; }
             }
+            if (Mesh.CachedBounds.MaxDim > 1e100 || Mesh.CachedBounds.Min.MaxAbs > 1e100 || Mesh.CachedBounds.Max.MaxAbs > 1e100) { Error = "coordinates above 1e100"; return PassageStatus.InvalidInput; }
             if (Pins == null || Pins.Count == 0) { Error = "no pins"; return PassageStatus.InvalidPins; }
             for (int i = 0; i < Pins.Count; ++i) {
                 PassagePin pin = Pins[i];
                 if (pin == null || pin.Axis == null || pin.Axis.Count == 0) { Error = "pin " + i + " has no axis"; return PassageStatus.InvalidPins; }
                 if (!(pin.Radius > 0) || double.IsInfinity(pin.Radius)) { Error = "pin " + i + ": the radius must be positive and finite"; return PassageStatus.InvalidPins; }
                 foreach (Vector3d p in pin.Axis)
-                    if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z)) { Error = "pin " + i + ": non-finite axis point"; return PassageStatus.InvalidPins; }
+                    if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z) || p.MaxAbs > 1e100) { Error = "pin " + i + ": non-finite axis point or above 1e100"; return PassageStatus.InvalidPins; }
             }
             if (!(OffsetRatio >= 3) || double.IsInfinity(OffsetRatio)) { Error = "OffsetRatio must be at least 3"; return PassageStatus.InvalidPins; }
             if (!(FallbackFactor > 0 && FallbackFactor < 1) || MaxFallbackSteps < 0) { Error = "bad fallback options"; return PassageStatus.InvalidPins; }

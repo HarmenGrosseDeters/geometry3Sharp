@@ -18,7 +18,7 @@ traversable if Phi(f) > a).
 - **(P2)** At the end of the carving (and of every refinement that continues it) every facet between an inside and an outside cell has
   Phi(f) <= a: a gate with Phi(f) > a is popped and carved, or replaced by a Steiner point (rule 1 or 2); the loop ends when none is left.
   (Paper notes section 2; `MeshAlphaWrap.Compute` loop.)
-- **(P3)** `MeshAlphaWrap.AlphaField` is not used (uniform alpha).
+- **(P3)** `MeshAlphaWrap.AlphaField` is not used (uniform alpha). (The proof needs only some ball through the three vertices with radius <= a: the smallest empty ball has R = Phi(f) <= a, and with `TraverseByEmptyBall` off, where gates use the circumradius, the circumball has R <= a: the bound holds for both.) The retry with another box (`RetryWithOtherBox`) starts a new run with fresh counts; the premises are those of the run that gave the result.
 - **(P4)** No rejected Steiner point (`Counts["rejected_points"]` = 0: a rejected point leaves a gate with Phi > a on the surface), no
   `PointLimitReached`, no box corner pinch points (`CornerPinchPoints` = 0).
 
@@ -70,7 +70,7 @@ Nothing in the proof uses the sampling density, the refinement rounds, rule 1 or
 | the manifold step (moving outside cells inside at pinches) | the moved cells' facets were never gates, so (P2) fails for them; a cell at the axis could be moved | the result is measured; clutter test with many pinches: no counterexample (6 seeds, with and without `PullPinchPoints`) |
 | rejected points, `PointLimitReached`, box corner pinch points | (P4) | `BoundPremisesHeld` reports them; the status of a failed check is `PassageNotKept` |
 | the simplification | a result within 0.5 offset of the raw wrap (one-sided, certified): clearance >= raw clearance - 0.5 offset, topology not argued | the simplified wrap is measured and kept only if it passes, else the raw wrap is returned |
-| rounding of vertices to the offset surface | (P1) holds up to the bisection's 60 steps | alpha is 0.999 of the root |
+| rounding of vertices to the offset surface, floating-point circumcenters | (P1) holds up to the bisection's 60 steps; Phi(f) is computed in doubles (a sliver cell can deviate) | alpha is 0.999 of the root; the check decides |
 | budget coarsening (`MeshAlphaWrap.MaxEstimatedTriangles`) | scales alpha and offset: (4) must use the used values | the helper never coarsens: a budget only decides `BudgetExceeded` |
 | `AlphaField` (P3) | local alpha is below the uniform one: the bound still holds with the smallest alpha, but not used here | not used |
 | an input whose clearance r is not known to the caller | the helper measures it: certified lower bound (below) | `PinResults[i].InputClearance` |

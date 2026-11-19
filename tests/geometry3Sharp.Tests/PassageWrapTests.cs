@@ -366,6 +366,70 @@ namespace geometry3Sharp.Tests
             Assert.False(w.PinResults[0].Passed);
         }
 
+        // two pins, the first blocked by the input: every entry of PinResults is set (AllPassed does not throw), the status names the block
+        [Fact]
+        public void TwoPins_FirstBlocked_AllEntriesSet()
+        {
+            DMesh3 mesh = Part("cross");
+            var w = new PassageWrap(mesh) { MaxThreads = 1 };
+            w.Pins.Add(new PassagePin(Axis("cross"), 1.5 * BoreR));
+            w.Pins.Add(new PassagePin(Axis("cross"), 0.5 * BoreR));
+            Assert.False(w.Compute());
+            Assert.Equal(PassageWrap.PassageStatus.PinBlockedByInput, w.Status);
+            Assert.Equal(2, w.PinResults.Length);
+            Assert.All(w.PinResults, p => Assert.NotNull(p));
+            Assert.False(w.AllPassed);
+            Assert.True(w.PinResults[1].InputClearance > 0.9 * BoreR);
+        }
+
+        // a vertex without triangles is wrapped as a point, so it counts in the input clearance (else the bound's r would be too large)
+        [Fact]
+        public void IsolatedVertexNearTheAxis_CountsInTheInputClearance()
+        {
+            DMesh3 mesh = Part("cross");
+            double r0 = Run(mesh, Axis("cross"), 0.5 * BoreR).PinResults[0].InputClearance;
+            mesh.AppendVertex(new Vector3d(0.5 * BoreR + 0.2, 0, 1));
+            PassageWrap w = Run(mesh, Axis("cross"), 0.25 * BoreR);
+            Assert.True(w.PinResults[0].InputClearance <= 0.5 * BoreR + 0.2 + 1e-9 && w.PinResults[0].InputClearance < r0);
+            Assert.Equal(PassageWrap.PassageStatus.Success, w.Status);
+            Assert.Equal(0, w.FallbackSteps);
+        }
+
+        // a pin whose radius is just below the wrap's clearance at the bound: the check refines near the radius (a result within the
+        // tolerance of the pin radius is decided, no needless fallback)
+        [Fact]
+        public void PinNearTheLimit_IsDecidedNotRetried()
+        {
+            DMesh3 mesh = Part("cross");
+            double r = Run(mesh, Axis("cross"), 0.5 * BoreR).PinResults[0].InputClearance;
+            PassageWrap w = Run(mesh, Axis("cross"), 0.93 * r);
+            Assert.Equal(PassageWrap.PassageStatus.Success, w.Status);
+            Assert.Equal(0, w.FallbackSteps);
+            Assert.True(w.PinResults[0].ClearanceLow >= 0.93 * r);
+        }
+
+        // the budget holds on fallback steps too: a first attempt that fails the check, then a finer wrap above the budget
+        [Fact]
+        public void Budget_AlsoHoldsOnFallback()
+        {
+            DMesh3 mesh = Part("cross");
+            PassageWrap first = Run(mesh, Axis("cross"), 0.05 * BoreR);
+            int budget = (int)Math.Ceiling(first.EstimatedTriangles) + 1;
+            PassageWrap w = Run(mesh, Axis("cross"), 0.05 * BoreR, x => { x.MaxTriangles = budget; x.FirstAlphaScale = 1.1; });
+            Assert.Equal(PassageWrap.PassageStatus.BudgetExceeded, w.Status);
+            Assert.NotNull(w.Result);       // the last wrap, which failed the check
+            Assert.False(w.PinResults[0].Passed);
+        }
+
+        // coordinates above 1e100 are rejected (the distances would overflow)
+        [Fact]
+        public void HugeCoordinates_AreInvalidInput()
+        {
+            DMesh3 mesh = Part("cross");
+            foreach (int v in mesh.VertexIndices().ToList()) mesh.SetVertex(v, 1e101 * mesh.GetVertex(v));
+            Assert.Equal(PassageWrap.PassageStatus.InvalidInput, Run(mesh, Axis("cross"), 1).Status);
+        }
+
         // ---- inputs that are not solids, pinches, the premises ----
 
         // a triangle soup (no shared vertices) of the cross bore: the same bound
