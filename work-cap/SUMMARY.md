@@ -33,7 +33,7 @@ timing noise near the 20 s line. Timeouts are counted as missing results in the 
 2. **A split cap alone cannot remove the tail.** All the slow meshes run all 200 passes (50 main + 150 rescue) with and without the cap. After the cap is reached
    each pass still scans all tets for bad ones and tries edge removal, face removal, contraction and smoothing on every bad tet; that work is the larger
    part of the time left: 46017 (floor 20) needs 74 s at cap 8, 61 s at cap 24; at floor 30 the slowest meshes keep 50-60 % of their time at cap 8 (58012: 254 -> 129 s,
-   591237: 214 -> 104 s, 170133: 212 -> 104 s) and ~65 % at cap 64. The split attempts are therefore about half of the time of the worst meshes, not the 16.7 of 44 s of
+   591237: 214 -> 104 s, 170133: 212 -> 104 s) and 55-65 % at cap 64. The split attempts are therefore about half of the time of the worst meshes, not the 16.7 of 44 s of
    40011 alone that the per-attempt profile showed after #1184. A bound that covers the whole improver (all attempts, or a pass budget) is the next candidate.
 3. **At floor 30 the cap is a trade, not a fix**: cap 8 saves 31 % of the improver time and takes the 7 timeouts to 1, but 132 meshes lose more than 0.5 degrees
    (max 7.2) and the tets left below the floor grow by 15 %; 107 -> 73 meshes above 20 s is still a long tail. Cap 64 acts on 79 meshes, loses > 0.5 degrees on 10 and
