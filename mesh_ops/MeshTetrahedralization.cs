@@ -55,7 +55,7 @@ namespace gs
         /// <summary>
         /// size control: the wanted edge length at a point (absolute), evaluated at the centroid of each tet, serially, so it need not be thread-safe;
         /// null = off. A result that is NaN, not positive or infinite is clamped (to MinSizeFactor * alpha, or to the input's diagonal for +infinity)
-        /// and counted in Counts["size_clamped_tets"] (final tets that had a clamped size), as is a finite size below MinSizeFactor * alpha. It must be deterministic for a deterministic result.
+        /// and counted in Counts["size_clamped_tets"] (tets of the refinement that had a clamped size). An invalid value asks for the finest allowed mesh (MinSizeFactor * alpha everywhere), which at the default alpha is millions of tets: MaxSteinerPoints then stops the run, as is a finite size below MinSizeFactor * alpha. It must be deterministic for a deterministic result.
         /// </summary>
         public Func<Vector3d, double> SizeFunction = null;
         /// <summary>
@@ -354,9 +354,8 @@ namespace gs
                 Index4i t = dt.GetCell(c);
                 Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
                 double h = wanted_size((a + b + d + e) * 0.25, out _);
-                double R2 = Delaunay3.Circumcenter(a, b, d, e).DistanceSquared(a);
-                double lim = RegularCircumradius * h;
-                return !(R2 <= lim * lim);
+                double R = Delaunay3.Circumcenter(a, b, d, e).Distance(a);       // not squared: lim * lim would underflow for inputs of 1e-160 and below
+                return !(R <= RegularCircumradius * h);
             }
 
             internal void CountClamped()

@@ -1199,10 +1199,10 @@ checks that no `size_*` count exists; `OffValuesOfEveryOption_GiveTheDefaultResu
   of 13 923 on the box at h = alpha / 2); that is the wrap's resolution, as in 14.8. **Coarser sizes than the boundary's give the wrap's own tets** (h = alpha
   gives 2.3 to 2.7 times the estimate, h = 2 alpha the unsized mesh): a size never coarsens.
 - **Termination and work bound** (any size function, also an adversarial one). (1) Every accepted point keeps the floor distance to all vertices (`MinFeatureFactor`), so the
-  accepted points are a packing of the bounded wrap region and their number is finite whatever the function returns; each tet leaves the queue after at most 29
+  accepted points are a packing of the bounded wrap region and their number is finite whatever the function returns; each tet leaves the queue after at most 30
   trial insertions and new tets are queued only by accepted points, so the trial insertions are finite. (2) The clamp makes the demanded size at least
   `MinSizeFactor * alpha`, so the count is at most about volume / (0.12 (0.25 alpha)^3) times the 1.4 above, not the packing bound of (1), which is far larger (the floor is
-  alpha / 300 at the default offset). (3) `MaxSteinerPoints` still stops a run that asks for more (status `PointLimitReached`, valid). (4) The work bound of 17.10 (48 trials per
+  alpha / 300 at the default offset). An invalid function value (NaN, not positive) asks for the finest allowed mesh, `MinSizeFactor * alpha` everywhere: at the default alpha (diagonal / 40) that is about diagonal / 160 and millions of tets, so such a run ends at `MaxSteinerPoints` after minutes (the tests use alpha = diagonal / 4). Owner decision if invalid values should instead mean "no size here". (3) `MaxSteinerPoints` still stops a run that asks for more (status `PointLimitReached`, valid). (4) The work bound of 17.10 (48 trials per
   wrap vertex + 2000, shape runaways below radius-edge 1.3) stays on with a size function: it was off for `MaxCircumradius` because the trials then follow the volume; here each
   point inserted for the size alone raises the bound by 48 (as a wrap vertex does; measured: at most 10 trials per such point, also with a size that is tiny only near the
   surface, where almost all tets are refused: trials / limit 0.01 to 0.3), so a legitimate sized run is never cut (`SizeBelowTheClamp_...AndTheWorkBoundDoesNotCutIt`: 130k tets, 30

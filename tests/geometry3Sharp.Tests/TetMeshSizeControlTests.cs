@@ -232,6 +232,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal(3000, tm.Counts["tet_splits"]);
         }
 
+        [Fact]
+        public void MaxCircumradiusWithASize_BothApply()
+        {
+            double h = Diagonal(TetMeshingStage2Tests.Input("sphere")) / 12;
+            MeshTetrahedralization a = Make("sphere"); a.TargetEdgeLength = h; Assert.True(Go(a));
+            MeshTetrahedralization b = Make("sphere"); b.TargetEdgeLength = h; b.MaxCircumradius = 0.3 * h; Assert.True(Go(b)); AssertGood(b);
+            Assert.True(b.Result.Tets.Count > a.Result.Tets.Count);
+            Assert.False(b.Counts.ContainsKey("work_limit_reached"));
+        }
+
         // a tet that is only too large is never peeled away (peeling is for slivers): with no shape criterion left, nothing is even tried
         [Theory]
         [InlineData("box", 16, 0.5), InlineData("torus thin", 16, 0.5)]
