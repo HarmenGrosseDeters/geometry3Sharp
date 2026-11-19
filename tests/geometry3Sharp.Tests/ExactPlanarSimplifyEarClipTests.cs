@@ -371,7 +371,6 @@ namespace geometry3Sharp.Tests
             var f = new Fan(new Vector2d(n / 2.0 + 0.5, n / 3.0), ChainRing(n));
             long zeros;
             AssertSameEars(f, out zeros);
-            var expectedEars = new List<Index3i>();
             Assert.True(zeros > (long)n * n / 8, $"plain test: {zeros} exact zeros");
             var s = new ExactPlanarSimplify(f.Arr, f.Tris, Enumerable.Range(0, f.Tris.Count).Select(i => f.Arr.MeshTriangles[0][i]).ToList(), f.Tris.Select(t => false).ToList());
             var add = new List<Index3i>();
@@ -383,7 +382,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EarClip_WithoutFilters_UsesTheExactOrientForEveryOpenSign()
         {
-            // DisableFilters: OrientFilterOnly decides nothing, every sign goes to the exact orient (the plain test's calls, up to the
+            // DisableFilters: EdgeSign decides nothing, every sign goes to the exact orient (the plain test's calls, up to the
             // early exit), and the ears are the same
             var f = new Fan(new Vector2d(6.5, 4), ChainRing(12), disableFilters: true);
             long zeros;

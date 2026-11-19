@@ -375,9 +375,9 @@ namespace g3
         }
 
         /// <summary> orient() calls of ear_clip made because the floating-point filter left the sign open (for tests: the exact calls the filter saves) </summary>
-        public long EarExactOrients;
+        internal long EarExactOrients;
         /// <summary> points x that ear_clip tested against a triangle </summary>
-        public long EarTests;
+        internal long EarTests;
 
         // x lies in the closed counter-clockwise triangle (a, b, c): orient(a, b, x), orient(b, c, x) and orient(c, a, x) are all
         // >= 0. Any one of them that the floating-point filter shows to be negative decides the answer false (the exact sign has the
