@@ -393,11 +393,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PowerOfTwoAtTheEndOfAnExponent_IsTheShortestTextThatReadsBack()
         {
-            // the value where the platform's "R" fails on Windows: the shortest text that reads back has 17 digits
+            // the value where the platform's "R" fails on Windows (net10.0): the shortest text that reads back has 17 digits.
+            // (The 16-digit "4.104536801298376E-289" denotes 0x040FFFFFFFFFFFFF; a correctly rounded parser reads it so, net48's
+            // parser is not correctly rounded and reads it as x: so that is not asserted here)
             double x = BitConverter.Int64BitsToDouble(0x0410000000000000);
             Assert.Equal("4.1045368012983762E-289", MeshIOUtil.FormatDouble(x));
             Assert.Equal(x, double.Parse(MeshIOUtil.FormatDouble(x), Inv));
-            Assert.NotEqual(x, double.Parse("4.104536801298376E-289", Inv));
         }
 
         [Fact]
