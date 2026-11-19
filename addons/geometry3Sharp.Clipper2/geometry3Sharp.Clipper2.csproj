@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Clipper2.Tests" />
+    <InternalsVisibleTo Include="Clipper2Benchmark" />
   </ItemGroup>
 
   <ItemGroup>

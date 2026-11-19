@@ -358,7 +358,7 @@ namespace g3.Clipper2
 
         static void Execute(ClipType op, Clipper2Options options, Paths64 subject, Paths64 clip, Paths64 openSubject, Clipper2Result result)
         {
-            var clipper = new Clipper64 { PreserveCollinear = options.PreserveCollinear };
+            var clipper = EnginePool.Rent(options.PreserveCollinear);
             clipper.AddSubject(subject);
             if (openSubject != null)
                 clipper.AddOpenSubject(openSubject);
@@ -367,6 +367,7 @@ namespace g3.Clipper2
             var open = new Paths64();
             if (!clipper.Execute(Bridge.ToVendored(op), Bridge.ToVendored(options.FillRule), tree, open))
                 throw new ClipperLibException("Clipper64.Execute failed");
+            EnginePool.Return(clipper);
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
             foreach (Path64 path in open)
                 result.PolyLines.Add(result.Frame.ToPolyLine2d(path));
@@ -391,11 +392,12 @@ namespace g3.Clipper2
             if (extra != null)
                 offset.AddRange(extra);
             // once more through a union for the hole nesting (the offset's output rings are oriented, outer positive)
-            var clipper = new Clipper64();
+            var clipper = EnginePool.Rent(true);
             clipper.AddSubject(offset);
             var tree = new PolyTree64();
             if (!clipper.Execute(V.ClipType.Union, V.FillRule.Positive, tree))
                 throw new ClipperLibException("Clipper64.Execute failed");
+            EnginePool.Return(clipper);
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
         }
 
@@ -407,10 +409,13 @@ namespace g3.Clipper2
         static Paths64 Regions(ClipperFrame frame, List<GeneralPolygon2d> polygons)
         {
             var result = new Paths64();
+            Clipper64 shared = Clipper2Levers.ReuseRegions ? EnginePool.Rent(true) : null;
             foreach (GeneralPolygon2d g in polygons) {
                 if (g.Outer == null)
                     continue;
-                var clipper = new Clipper64();
+                Clipper64 clipper;
+                if (shared != null) { shared.Clear(); shared._using_polytree = false; clipper = shared; }
+                else clipper = new Clipper64();
                 clipper.AddSubject(frame.ToPath(g.Outer));
                 foreach (Polygon2d hole in g.Holes)
                     clipper.AddClip(frame.ToPath(hole));
@@ -419,6 +424,7 @@ namespace g3.Clipper2
                     throw new ClipperLibException("Clipper64.Execute failed");
                 result.AddRange(region);
             }
+            if (shared != null) EnginePool.Return(shared);
             return result;
         }
 

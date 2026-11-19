@@ -142,7 +142,13 @@ namespace g3.Clipper2
         /// <summary> the vertices of a polygon, in order (orientation kept) </summary>
         internal Path64 ToPath(Polygon2d polygon)
         {
-            var path = new Path64(polygon.VertexCount);
+            int n = polygon.VertexCount;
+            var path = new Path64(n);
+            if (Clipper2Levers.LeanBridge) {
+                for (int i = 0; i < n; i++)
+                    path.Add(ToPoint(polygon[i]));
+                return path;
+            }
             foreach (Vector2d v in polygon.Vertices)
                 path.Add(ToPoint(v));
             return path;
@@ -203,6 +209,12 @@ namespace g3.Clipper2
             var vertices = new List<Vector2d>(path.Count);
             foreach (Point64 q in path)
                 vertices.Add(ToVector2d(q));
+            if (Clipper2Levers.LeanBridge) {
+                var lean = new Polygon2d();
+                lean.SetVertices(vertices, true);
+                lean.Timestamp = 0;
+                return lean;
+            }
             return new Polygon2d(vertices);
         }
 

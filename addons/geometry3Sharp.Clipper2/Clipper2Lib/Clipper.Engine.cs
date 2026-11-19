@@ -766,8 +766,10 @@ namespace g3.Clipper2.Vendored
       _horzSegList.Clear();
       _horzJoinList.Clear();
       _outPtPool.Clear();
-      _freeActives.Clear();
+      if (!KeepFreeActives) _freeActives.Clear();   // geometry3Sharp spike (runs/clipper-gc)
     }
+
+    internal static bool KeepFreeActives;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear()
