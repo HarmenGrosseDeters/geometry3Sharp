@@ -61,7 +61,7 @@ def load(paths):
         for l in open(p):
             if l.startswith("{"):
                 r = json.loads(l)
-                if r.get("class") in ("rounding-probe", "abc-rounding-probe") and "step" in r:
+                if (r.get("class") in ("rounding-probe", "abc-rounding-probe") or "exact_ok" in r) and "step" in r:
                     rows[(r.get("file") or (r.get("family"), r.get("seed")), r["step"])] = r      # the last row of a case (partial rows come first)
     return list(rows.values())
 
