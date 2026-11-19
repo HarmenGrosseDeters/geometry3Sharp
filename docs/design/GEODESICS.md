@@ -694,8 +694,8 @@ platform and 2^k scalings give the same bits away from overflow and the subnorma
   the queue is bounded by the windows); the heap's array may double (24-byte entries, up to twice the entries). The windows live
   in chunks of min(65536, `MaxWindows` + 2 x the largest valence) structs, so nothing is copied when the store grows and a
   small `MaxWindows` allocates a small chunk. The bound stated in the class docs: at most **120 bytes** x (`MaxWindows` + 2 x the
-  largest valence) (64 + 4 + 2 x 24) plus about **57 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
-  U and the error xi_u of the vertex test, the kind, the root; and 24 for the heads of the edge side lists, an array by edge
+  largest valence) (64 + 4 + 2 x 24) plus about **89 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
+  U and the error xi_u of the vertex test, the kind, the root; 32 for the record of `TracePath` (A.8); and 24 for the heads of the edge side lists, an array by edge
   id, no `Dictionary`). A window's state (pending, propagated, dead) is the sign bit of its side index. The test runs
   single-threaded: it allocates a mesh with a small `MaxWindows`, checks `WindowLimit` and NaN arrays,
   `Windows <= MaxWindows + 2 x max valence` (one step creates at most two children or one emission), and the allocated bytes
@@ -739,7 +739,7 @@ plane and the slope-4 ridge 10 s. **Methods and sources:** MMP 1987 and Surazhsk
 pseudo-sources, the accumulated error of a window), the exact flatness test of A.5 for A7' (flat vertices emit nothing),
 merging of pending windows of one origin (A.7) and the plain pruning of A.7; **no ICH (Xin and Wang) and no VTP filters**, no code
 ported (if a filter of Xin and Wang is added later it is listed in `docs/SOURCES.md` then). The sources go into `docs/SOURCES.md`
-with the code PR. **Not in v1:** surface-point sources, `TracePath`, parallel runs, a `g3cli` option, a certified mode.
+with the code PR. **Not in v1:** surface-point sources, parallel runs, a `g3cli` option, a certified mode.
 
 ## 7. Test plan (repo style)
 
@@ -1366,3 +1366,47 @@ through, a flat vertex, which A.6 does not need but the tolerance does? (2) R fo
 the emission are realised; is the case "origin on the line of the edge, beyond the end" covered by sy >= -xi and the realisability of
 the path to the end vertex? (3) The cap on xi at a merge, set against the tested tolerance, and the dependence of delta on the
 measured distribution.
+
+### A.8 Exact paths: `TracePath` (2026-11-19, issue #1; for review)
+
+**Claim.** From the run of A.7 the shortest path from the nearest source to a vertex, or to a point in a triangle, is a polyline on the surface whose
+length equals the distance of the run up to the rounding of the unfolding. It is found by backtracing (Mitchell, Mount and Papadimitriou 1987; Surazhsky et al. 2005),
+without a parent link between windows.
+
+**Record.** `SetDist` keeps, with every improvement of a vertex's distance (32 bytes per vertex): the kind (1 a source; 2 an edge from the pseudo-source u, the
+distance being dist[u] + the edge length; 3 a window), and for a window the edge, the edge side entered (-1 for a terminal window of a boundary edge), the origin
+and the unfolded origin image S = (Sx, Sy) in the frame of the edge (a at 0, b on +x, the entered triangle on y >= 0, so Sy <= 0). The record is the one of the
+window that gave the final value (an exact tie keeps the lower root, as the distance does). The cost: two stores per improvement; Compute on the 317 x 317 plane and terrain is
+within noise of the version without it (plane 6.37 to 6.51 s before, 6.42 to 6.61 s after; terrain 2.82 to 2.95 s before, 2.79 to 3.04 s after).
+
+**Backtracing a vertex v with a window record.** The point Q of v in the frame is a corner of the edge (when v is an end of the window's edge) or the third corner of the
+entered triangle (Propagate). The path is the straight segment from Q to S. A *leg* walks it back across the triangles: (1) if Q is not on the edge, the segment crosses the
+edge at x = qx + (sx - qx) qy / (qy - sy): a point of the path (or the end vertex, below); (2) in the previous triangle pf (the other side of the edge, the side of S) with
+corners A = (0, 0), B = (L, 0), C = (cx, -cy) (the placement of the third vertex): if S is within 1e-9 extent of a corner, the leg ends at that vertex; if C lies within that distance of the segment Q-S
+(the path runs along an edge of pf or through a flat vertex) it ends at C; otherwise the segment leaves pf through (a, c) when cross(C - Q, S - Q) < 0, else through (b, c);
+(3) Q and S are mapped by the rigid map that puts the exit edge on the x axis in the canonical orientation of that edge with pf on y >= 0, and the leg continues in the
+triangle on the other side. A crossing within 1e-9 extent of an end vertex ends the leg at that vertex too. **A leg ends at a vertex u, and the walk continues with u's own
+record** (a pseudo-source, a source, or a vertex the path passes through): a subpath of a shortest path is a shortest path, so this is valid wherever the segment passes a vertex, and
+it is what makes the walk independent of how the segment meets a vertex (exactly through it, or along an edge). A record of kind 2 adds the edge u-v. The walk ends at a source.
+A step budget (2 x triangles + 16 over the whole trace) guards against a failed unfolding (status `TraceFailed`; the points are then not a path).
+
+*Why the segments are real.* The window's realisability R (A.7) says f_w(x) >= d(x) - xi_w, and the ray from S to the vertex runs in the unfolding of the triangle strip the window
+came through; the trace unfolds the same strip back from its end. The segment between two consecutive crossings lies in one triangle by construction (both ends are on its edges,
+a convex set): the test checks it for every vertex of every tested mesh. A path through a convex vertex (angle sum < 2 pi) cannot occur, because no window continues through one
+(A.6): the tests check the angle sum at every interior vertex of every traced path.
+
+**Point in a triangle t** (barycentric b): p = sum b_i P_i. Candidates: each corner with a distance, dist + |p - corner| (the straight segment is inside t); and every live window w on the three edge
+sides that enter t whose ray from p to S crosses the edge inside [B0 - 64 cEps, B1 + 64 cEps], value sigma + |p - S|. The smallest wins (the first in list order at a tie, deterministic);
+by the coverage argument of A.7 every shortest path to p enters t through one of these sides or comes from a corner. A corner point (one coordinate 1) is the vertex query.
+The distance of a point is therefore `min` of enclosure-free values: it carries the tolerance of the run, like `Distance`.
+
+**Tolerance, measured.** |Length - Distance| / Distance, with Length the sum of the 3D lengths of the segments of the points: at most 1.7e-15 on 19 families of 15 to 31 vertices a side (plane, rotated and
+jittered plane, pyramid, dome, ridge, saddle, terrain, cube, sphere, tube, L-shape, sliver, two sources; every vertex and about 1/3 of the triangles with random points), and
+at the 101, 201 and 317 vertices a side of the benchmark (terrain, plane, saddle; about 2000 vertices each) 1.1e-15 to 2.5e-15 on terrain and saddle, 3.9e-15, 5.9e-15 and 6.0e-15 on the plane (paths of 143 to 469
+points: the error grows with the number of crossings, about 1e-17 per crossing). The class docs state 1e-14 relative; the tests at 15 to 31 vertices enforce the tolerance of the distances (5e-15 relative + 5e-16 extent), one test at 101 enforces 1e-14.
+
+**Tests and hand mutants.** Killed: the exit side flipped, the map orientation flipped, the corner test dropped (S at a corner), the crossing at an end vertex dropped, the third corner on the ray dropped, the
+snapping of Q at the shared vertex dropped, the hop without a face, the window tolerance with the wrong sign, windows ignored for face points, the corner candidate dropped, the corner delegation dropped, faces not reversed,
+`CanTrace` without the status, a record kept on a longer distance, a window record with the wrong side, a hop record with the wrong origin, Length copied from Distance. **Survivors, defensive code**: the detection of S at
+the edge's own end vertices A and B (needed only for an along-the-edge window whose record wins a vertex: not reached by the tested families, which get such vertices from hops or from windows with S at the third corner), the clamp
+Sy <= 0 of the stored image (rounding of Propagate; unreached), and the budget check inside `Walk` (a chain of hops alone: each leg has its own check).

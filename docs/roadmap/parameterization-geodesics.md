@@ -20,6 +20,7 @@ Part of the [roadmap](../ROADMAP.md).
   field up to 0.9 pi) does not win clearly (G1 3 of 21 cells, G2/G3 fail near the cut locus); no API. AffineLocal is
   clearly better only in the mid field (12-24 edge lengths); reopen only with a brief naming such a workload and its own
   pre-registered gate. Details in [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md).
+- **Exact geodesic paths (#1, `PolyhedralGeodesicDistance.TracePath`, 2026-11-19):** the globally shortest path from the nearest source to a vertex or to a point in a triangle, as a polyline on the surface, by backtracing through the unfolded window origins; its length equals the distance of the run (measured up to 6e-15 relative on 317 x 317, tolerance stated 1e-14). Unlike `MeshGeodesicPath` (FlipOut, locally shortest) it is the global minimum. Design and measurements: [design/GEODESICS.md](../design/GEODESICS.md) A.8.
 - **Exact geodesic distance (option A of [design/GEODESICS.md](../design/GEODESICS.md))**: a certified [Lower, Upper]
   enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
   **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Study and gates

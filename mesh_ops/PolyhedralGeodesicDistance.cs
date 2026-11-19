@@ -29,11 +29,13 @@ namespace g3
     /// a vertex can stay unreached; the status is then <see cref="PolyhedralGeodesicStatus.PartiallyReached"/> (owner decision 2026-11-19), the reached
     /// values are kept and <see cref="UnreachedVertices"/> counts the others. Ok guarantees a distance for every vertex of the sources' components
     /// when MaxDistance is infinite.</para>
+    /// <para><b>Paths.</b> <see cref="TracePath(int)"/> returns the shortest path from the nearest source to a vertex (or, with a barycentric point, to a point in a triangle) as a polyline on the
+    /// surface, by backtracing through the unfolded origin images (GEODESICS.md A.8); its length equals the distance of the run to 1e-14 relative on the tested families (measured at most 6.0e-15, growing with the number of triangles crossed).</para>
     /// <para>Memory: a window is a 64-byte struct; a run holds at most about 120 bytes x (MaxWindows + 2 x the largest vertex
-    /// valence) plus about 57 bytes per vertex (see the design note). Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
+    /// valence) plus about 89 bytes per vertex (see the design note; 32 of them are the record of how a vertex's distance arose, for <see cref="TracePath(int)"/>). Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
     /// double without FMA, and 2^k scalings of the input give the same bits (away from overflow and the subnormal range).</para>
     /// </summary>
-    public sealed class PolyhedralGeodesicDistance
+    public sealed partial class PolyhedralGeodesicDistance
     {
         /// <summary> The wording of the accuracy claim; the numbers are in the class remarks and are the constants of the tests </summary>
         public const string AccuracyNote = "measured on the tested families, not a certified bound";
@@ -136,6 +138,7 @@ namespace g3
             int me = Mesh.MaxEdgeID;
             elen = new double[me];
             foreach (int e in Mesh.EdgeIndices()) { Index2i ev = Mesh.GetEdgeV(e); elen[e] = Len(ev.a, ev.b); }
+            vrec = new VRec[n];
             dist = new double[n]; xiV = new double[n]; emitted = new double[n]; root = new int[n]; kind = new byte[n]; vpos = new int[n];
             for (int v = 0; v < n; ++v) { dist[v] = emitted[v] = double.PositiveInfinity; root[v] = -1; vpos[v] = -1; }
             var oracle = new ExactMeshGeodesicDistance(Mesh);
@@ -146,7 +149,7 @@ namespace g3
             wchunks = new Window[1][] { new Window[firstChunk] }; nchunks = new int[1][] { new int[firstChunk] }; pchunks = new int[1][] { new int[firstChunk] };
             wcount = 0; hn = 0;
 
-            foreach (int s in src) { kind[s] = 1; root[s] = s; dist[s] = 0; Push(~s, 0); }
+            foreach (int s in src) { kind[s] = 1; root[s] = s; dist[s] = 0; vrec[s].Kind = 1; Push(~s, 0); }
             long pops = 0;
             while (hn > 0) {
                 if (Windows > maxWindows) return PolyhedralGeodesicStatus.WindowLimit;
@@ -208,11 +211,17 @@ namespace g3
 
         // ------------------------------------------------------------------ distances and the queue
 
-        void SetDist(int v, double d, int rootSource, double xi)
+        // how dist[v] arose, for TracePath (PolyhedralGeodesicPath.cs): kind 1 a source, 2 an edge from the pseudo-source Org, 3 a window (edge E,
+        // the side entered Side (-1: a terminal window on a boundary edge), the unfolded origin Org at (X, Y) in the frame of the edge)
+        struct VRec { public double X, Y; public int E, Side, Org; public byte Kind; }      // 32 bytes
+        VRec[] vrec;
+
+        void SetDist(int v, double d, int rootSource, double xi, byte how = 0, int e = -1, int side = -1, int origin = -1, double ox = 0, double oy = 0)
         {
             if (d < dist[v] || (d == dist[v] && rootSource >= 0 && rootSource < root[v])) {
                 bool lower = d < dist[v];
                 dist[v] = d; root[v] = rootSource; xiV[v] = xi;
+                ref VRec vr = ref vrec[v]; vr.Kind = how; vr.E = e; vr.Side = side; vr.Org = origin; vr.X = ox; vr.Y = oy;
                 if (lower && kind[v] == 1 && d <= MaxDistance) Push(~v, d);
             }
         }
@@ -220,7 +229,7 @@ namespace g3
         void Emit(int v)
         {
             double sl = dist[v]; emitted[v] = sl;
-            foreach (int nb in Mesh.VtxVerticesItr(v)) SetDist(nb, sl + Len(v, nb), root[v], xiV[v] + cEps);
+            foreach (int nb in Mesh.VtxVerticesItr(v)) SetDist(nb, sl + Len(v, nb), root[v], xiV[v] + cEps, 2, -1, -1, v);
             foreach (int t in Mesh.VtxTrianglesItr(v)) {
                 Index3i tri = Mesh.GetTriangle(t);
                 int a = -1, b = -1; for (int k = 0; k < 3; ++k) if (tri[k] != v) { if (a < 0) a = tri[k]; else b = tri[k]; }
@@ -328,7 +337,7 @@ namespace g3
                         if (merged) {
                             ++Merges; b.Xi = nxi; b.E = Math.Max(b.E, win.E) + dp / Math.Max(Math.Abs(b.Sy), cEps);
                             Push(cur, LowerKey(b));
-                            RecordEnds(ref b, e);
+                            RecordEnds(ref b, e, side);
                         }
                         segB = segs; segA = keep; segs = keep; if (segs.Count == 0) return;
                         prev = cur; cur = nx; continue;
@@ -353,7 +362,7 @@ namespace g3
                 var c = win; c.B0 = sg.l; c.B1 = sg.r;
                 int id = NewWindow(c);
                 SetNext(id, head[side]); head[side] = id;
-                RecordEnds(ref W(id), e);
+                RecordEnds(ref W(id), e, side);
                 Push(id, LowerKey(W(id)));
             }
         }
@@ -453,12 +462,12 @@ namespace g3
         }
 
         // the distance a window gives the end vertices of its edge when its interval reaches them
-        void RecordEnds(ref Window w, int e)
+        void RecordEnds(ref Window w, int e, int side)
         {
             Index2i ev = Mesh.GetEdgeV(e); double L = elen[e];
             int r = root[w.Origin];
-            if (w.B0 <= EP(w, 0, L)) SetDist(ev.a, FAt(w, 0), r, w.Xi);
-            if (w.B1 >= L - EP(w, L, L)) SetDist(ev.b, FAt(w, L), r, w.Xi);
+            if (w.B0 <= EP(w, 0, L)) SetDist(ev.a, FAt(w, 0), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
+            if (w.B1 >= L - EP(w, L, L)) SetDist(ev.b, FAt(w, L), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
         }
 
         // ------------------------------------------------------------------ propagation
@@ -474,7 +483,7 @@ namespace g3
             double xc = sx + (cx - sx) * (-sy) / (cy - sy);
             double E = EP(w, xc, L);
             int r = root[w.Origin];
-            if (xc >= w.B0 - E && xc <= w.B1 + E) SetDist(c, w.Sigma + Hyp(cx - sx, cy - sy), r, w.Xi);
+            if (xc >= w.B0 - E && xc <= w.B1 + E) SetDist(c, w.Sigma + Hyp(cx - sx, cy - sy), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
             // at a flat vertex the clips are closed (they carry the ray through it, A.6); elsewhere they are the plain clips
             double Es = flat[c] ? E : 0;
             if (flat[c] ? w.B0 <= xc + Es : w.B0 < xc) MakeChild(in w, f, ev.a, c, 0, 0, cx, cy, xc, true, Es);
@@ -563,7 +572,7 @@ namespace g3
         void Finish(ref Window cw, int e2, int f2)
         {
             if (f2 < 0) {                                   // a boundary edge: terminal, only the end vertices get a distance
-                if (cw.B1 > cw.B0) RecordEnds(ref cw, e2);
+                if (cw.B1 > cw.B0) RecordEnds(ref cw, e2, -1);
                 return;
             }
             Add(ref cw);

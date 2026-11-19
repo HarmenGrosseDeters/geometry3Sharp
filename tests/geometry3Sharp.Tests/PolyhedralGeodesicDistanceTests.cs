@@ -279,7 +279,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WindowLimit_EndsBeforeMemoryGrowsPastTheBound()
         {
-            // the bound of the class docs: at most 120 bytes x (MaxWindows + 2 x the largest valence) + 57 bytes per vertex (+ the result arrays)
+            // the bound of the class docs: at most 120 bytes x (MaxWindows + 2 x the largest valence) + 89 bytes per vertex (+ the result arrays)
             int n = 41; var m = Grid(1, n, (x, y) => 0); int c = (n / 2) * n + n / 2;
             long limit = 2000; var g = new PolyhedralGeodesicDistance(m) { MaxWindows = limit };
             int valence = m.VertexIndices().Max(v => m.GetVtxEdgeCount(v));
@@ -290,7 +290,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PolyhedralGeodesicStatus.WindowLimit, st);
             Assert.True(g.Distance.All(double.IsNaN) && g.NearestSource.All(x => x == -1));
             Assert.True(g.Windows <= limit + 2 * valence, $"windows {g.Windows}");
-            long bound = 120L * (limit + 2 * valence) + 57L * m.MaxVertexID + 40L * m.MaxVertexID + 8L * m.MaxEdgeID * 8 + (4L << 20);
+            long bound = 120L * (limit + 2 * valence) + 89L * m.MaxVertexID + 40L * m.MaxVertexID + 8L * m.MaxEdgeID * 8 + (4L << 20);
             Assert.True(used <= bound, $"allocated {used} bytes, bound {bound}");
         }
 
