@@ -68,6 +68,31 @@ dominance test that recursed to depth 6 into every piece). After: the log is gon
 | ridge75 317 x 317 | 100489 | Ok | 592678 (5.9) | 24.10, 5515, 963 | 5.73, 228, 568 | yes |
 | saddle 317 x 317 | 100489 | WindowLimit | 6431297 (64.0) | 37.55, 579, 963 | 41.56, 579, 656 | yes |
 
+**Exact trim (issue #1186).** The dominance test of the pruning now finds the dominated part of an overlap exactly (GEODESICS.md A.7 note 11) instead of
+bisecting to depth 6. Same machine, one process alone, default budget except the 141 row (`G3_MAXW=60000000`, so that it finishes). Before: master at
+`1c52b293`; after: this change. Distances differ by at most 8.9e-16 absolute (4.3e-16 relative) over 39 runs, and the plane rows are digest-equal.
+
+| mesh | status | before: seconds, windows (per vertex) | after: seconds, windows (per vertex) |
+|---|---|---|---|
+| terrain 101 x 101 | Ok | 0.66, 123453 (12.1) | 0.50, 112758 (11.1) |
+| plane 101 x 101 | Ok | 0.69, 77422 (7.6) | 0.78, 77422 (7.6) |
+| ridge75 101 x 101 | Ok | 0.54, 57993 (5.7) | 0.57, 57969 (5.7) |
+| saddle 101 x 101 | WindowLimit | 2.61, 652865 (64.0) | 0.92, 652865 (64.0) |
+| terrain 201 x 201 | Ok | 1.27, 506347 (12.5) | 1.06, 461974 (11.4) |
+| plane 201 x 201 | Ok | 2.36, 314820 (7.8) | 2.30, 314820 (7.8) |
+| ridge75 201 x 201 | Ok | 2.36, 235926 (5.8) | 2.31, 235852 (5.8) |
+| saddle 201 x 201 | WindowLimit | 14.00, 2585665 (64.0) | 4.30, 2585665 (64.0) |
+| terrain 317 x 317 | Ok | 3.23, 1273983 (12.7) | 2.65, 1162603 (11.6) |
+| plane 317 x 317 | Ok | 6.30, 790653 (7.9) | 6.12, 790653 (7.9) |
+| ridge75 317 x 317 | Ok | 6.19, 592678 (5.9) | 6.16, 592546 (5.9) |
+| saddle 317 x 317 | WindowLimit | 42.07, 6431297 (64.0) | 13.37, 6431297 (64.0) |
+| saddle 141 x 141, budget 60M | Ok | 20.06, 3718007 (187.0) | 3.94, 2394554 (120.4) |
+
+The saddle still ends in `WindowLimit` at the default budget, by design: at the end of a run on the saddle 99 % to 100 % of the live windows are the
+minimum of their edge somewhere (31, 48 and 82 essential windows per vertex at 41, 61 and 101 vertices a side), so no filter that drops only dominated
+windows can bring the count below about 0.8 to 0.9 per vertex and grid width (64 per vertex at about 78 x 78 vertices instead of about 62 x 62). The run to the limit
+at 317 x 317 takes 13 s instead of 42 s, under the 20 s rule. A saddle mesh beyond about 78 x 78 vertices needs an explicit `MaxWindows`.
+
 The saddle ends in `WindowLimit` at the default of 64 windows per vertex at all three sizes (its windows per vertex grow with the grid width:
 62, 91 and 119 at 61, 81 and 101 vertices a side with a budget of 30 million windows, 5.3 s at 101 x 101): a documented v1 limit
 (A.7, no ICH or VTP pruning). The `WindowLimit` run at 317 x 317 takes 41 s before it gives up; the check of the prune costs it about
