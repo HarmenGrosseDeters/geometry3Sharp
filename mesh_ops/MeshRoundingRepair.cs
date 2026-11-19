@@ -3083,9 +3083,10 @@ namespace g3
             }
         }
 
-        // closed components with a degenerate triangle or an edited vertex that are tiny or thin, and (#1067) untouched tiny
-        // ones that are inside out and enclosed by nothing (a residue). Called only when the repair edited or found something:
-        // a mesh with nothing to repair keeps such a residue (reported by NotCleanReason)
+        // closed components with a degenerate triangle or an edited vertex that are tiny or thin, and (#1067) untouched ones
+        // of numerically zero volume (thickness 2 |V| / area below the ulp of the largest coordinate, any orientation, whatever
+        // encloses them) and untouched tiny ones that are inside out and enclosed by nothing (a residue). Called only when the
+        // repair edited or found something: a mesh with nothing to repair keeps such components (reported by NotCleanReason)
         [MethodImpl(JitHints.Optimize)]
         int remove_tiny_components(List<int> bad)
         {
@@ -3106,19 +3107,25 @@ namespace g3
             int removeTriangles = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
-                double sum = 0, volume = 0;
+                double sum = 0, volume = 0, largest = 0, tripleNorms = 0;
                 // (the volume relative to a point of the component, against cancellation far from the origin)
                 Vector3d o = pos(Mesh.GetTriangle(comp[0]).a);
                 foreach (int t in comp) {
                     Index3i tv = Mesh.GetTriangle(t);
                     hasBad |= isBad[t] || isTouched[tv.a] || isTouched[tv.b] || isTouched[tv.c];
                     sum += area(t);
-                    volume += (pos(tv.a) - o).Dot((pos(tv.b) - o).Cross(pos(tv.c) - o)) / 6;
+                    Vector3d pa = pos(tv.a), pb = pos(tv.b), pc = pos(tv.c);
+                    double term = (pa - o).Dot((pb - o).Cross(pc - o)) / 6;
+                    volume += term;
+                    tripleNorms += (pa - o).Length * (pb - o).Length * (pc - o).Length;
+                    largest = Math.Max(largest, Math.Max(pa.MaxAbs, Math.Max(pb.MaxAbs, pc.MaxAbs)));
                 }
                 // tiny, or (closed) thinner than maxLength: a slab of thickness h has about volume = h area / 2
                 int v0 = Mesh.GetTriangle(comp[0]).a;
                 bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
-                if (tiny == false && thin == false)
+                // numerically zero volume (#1067): see numerically_zero_volume
+                bool zeroVolume = numerically_zero_volume(volume, sum, largest, comp.Count, tripleNorms);
+                if (tiny == false && thin == false && zeroVolume == false)
                     continue;
                 bool closed = true;
                 foreach (int t in comp) {
@@ -3130,12 +3137,21 @@ namespace g3
                 if (closed == false)
                     continue;
                 if (hasBad == false) {
-                    // untouched by the edits (#1067): kept as it is, unless it is tiny, inside out (the exact sign of its volume)
-                    // and nothing encloses it (below): the solid it was cut from is gone, what is left is a residue of
-                    // near-zero volume that the evaluation reports as inside out. Only tiny ones: a thin one may be a real
-                    // foil that merely has the wrong orientation, which is reported, not deleted. A cavity (enclosed) is a
-                    // legitimate result and stays. (The exact sign is a pre-filter: the nesting test flags only inside-out
-                    // components, but builds trees)
+                    // untouched by the edits (#1067): kept as it is, unless
+                    // - its volume is numerically zero: a closed sheet whose thickness 2 |V| / area is below the unit in the last place
+                    //   of its largest coordinate has no thickness that its coordinates can tell from zero (the p0008 residue: a
+                    //   double-sided sheet of thickness 2e-18 at coordinates of 0.3, whatever its orientation, whatever encloses it;
+                    //   the solid it was cut from is gone). A sheet with a thickness of a few ulps is a solid that its coordinates
+                    //   can resolve, and stays; or
+                    // - it is tiny, inside out and enclosed by nothing (below): a residue that NotCleanReason reports as inside out.
+                    //   Only tiny ones: a thin one may be a real foil that merely has the wrong orientation, which is reported,
+                    //   not deleted. A cavity (enclosed) is a legitimate result and stays. (The exact sign of the volume is a
+                    //   pre-filter: the nesting test flags only inside-out components, but builds trees)
+                    if (zeroVolume) {
+                        remove.Add(comp.ToArray());
+                        removeTriangles += comp.Count;
+                        continue;
+                    }
                     if (tiny) {
                         int[] ids = comp.ToArray();
                         if (gs.MeshPostRepairCleanup.volume_sign(Mesh, ids) < 0)
@@ -3197,6 +3213,19 @@ namespace g3
                 rebuild_tree();
             }
             return count;
+        }
+
+        /// <summary>
+        /// Whether a closed sheet has a numerically zero volume (#1067): its thickness 2 |V| / area is below the unit in the last
+        /// place of its largest coordinate, with the error of the computed volume counted against it, so that a sheet whose
+        /// volume the sum cannot tell from zero stays. volume = the sum of the triple products (relative to a point of the
+        /// component) over 6; tripleNorms = the sum of |pa-o| |pb-o| |pc-o| over the triangles. Each triple product has an error
+        /// of about u times that product of lengths (on a flat sheet the terms cancel to far below it, so u |term| would
+        /// understate it), the sum adds n half ulps of the terms: (n + 16) u tripleNorms covers both. Not finite: false.
+        /// </summary>
+        internal static bool numerically_zero_volume(double volume, double area, double largest, int count, double tripleNorms)
+        {
+            return 2 * (Math.Abs(volume) + (count + 16) * 1.1102230246251565e-16 * tripleNorms) < ulp(largest) * area;
         }
     }
 }

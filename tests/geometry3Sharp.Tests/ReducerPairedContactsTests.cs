@@ -66,7 +66,7 @@ namespace geometry3Sharp.Tests
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
             foreach (int v in m.VertexIndices()) {
                 Vector3d p = m.GetVertex(v);
-                m.SetVertex(v, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5) + 0.05 * Math.Sin(9 * p.z)));
+                m.SetVertex(v, p * (1 + 0.1 * PortableMath.Sin(5 * p.x + 1) * PortableMath.Cos(4 * p.y - 0.5) + 0.05 * PortableMath.Sin(9 * p.z)));      // (#1151: the same bits on every platform)
             }
             return m;
         }

@@ -872,7 +872,7 @@ Triage of #985, #993, #994, #1010, #1011 by root cause (2026-11-17, merged as #1
 - RC4a (effort limit): the pair-test budget grows with the initial defects, #1040; the pass-through of its parameters to
   `MeshRobustRepair`, `ExactMeshImprint` and g3cli is merged (#1068). No budget raise below D = 50000 (owner 2026-11-17).
 - RC4b (the drift bound `MaxLength`): kept as a documented limit (owner 2026-11-17).
-- The iud p0008 step-2 residue of 34 near-zero-volume triangles (#1067) came from the component removal skipping components that no edit touched: an untouched, closed, tiny or thin component that is inside out and enclosed by nothing now goes too (a cavity stays). Reproduced procedurally (`SafeRoundingInsideOutResidueTests`); the ABC chain is to be rerun on runners to confirm. Left: the CsCheck / fuzz campaign plan is #1038 (open).
+- The iud p0008 step-3 residue of 34 near-zero-volume triangles (#1067) came from the component removal skipping components that no edit touched. #1152 took untouched tiny inside-out residues (procedural case); the abc-chained rerun on 29ba341f (run 44485992303, diagnostic of #1170) showed the real one: an 8-triangle inside-out double-sided sheet of area 6.5e-6 (not tiny), thickness 2.2e-18 at coordinates of 0.3 (numerically zero), untouched. Owner decision 2026-11-19: an untouched closed component whose thickness 2 |V| / area is below the ulp of its largest coordinate is removed, any orientation, whatever encloses it; a sheet with a resolvable thickness stays (an inverted one is reported). Left: the CsCheck / fuzz campaign plan is #1038 (open).
 
 ### Open for the future (2026-11-15)
 
@@ -891,7 +891,7 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 3. The tail above 20 s: #888 is closed (#960, 2026-11-16); tail cases are judged by the regression rule only. #1047 (42327
    with its rotated copy, 18-26 s, the time is in the classification) is reduced by PR #1064 (merged; box prefilter for the coplanar stacks,
    memo of L2's exact sides, -7 to -14 % on 42327, bit-identical; 19.5 s median for the union, still above 20 s in one of 10
-   processes); the further levers are not built under the speed stop.
+   processes); the further levers are not built under the speed stop; #1047 is dropped as a documented tail (owner 2026-11-19).
 4. Rounding: the `rebuild_tree` reuse is dropped (see [After 3.0](#after-30-owner-2026-11-16)); lever 2 of #837 parked for the
    rotated-CAD class.
 5. Thread scaling beyond 4 cores (#858): answered and closed 2026-11-17 by the owner's 1 / 4 / 12-thread A/B of #962 (T6 closing
@@ -912,4 +912,4 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
    exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups
-   to a clean closed low-poly solid is in progress.
+   to a clean closed low-poly solid is merged (#1112).

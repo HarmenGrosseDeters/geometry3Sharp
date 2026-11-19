@@ -1,5 +1,7 @@
 # Roadmap
 
+Open topics at a glance: [OPEN_TOPICS.md](OPEN_TOPICS.md) (one line per open item; this page and roadmap/ hold the history and details).
+
 ## How to use this file
 
 - This index holds status only: the direction, what runs now, what waits on the owner, what is queued, and what is
@@ -47,7 +49,7 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-18 (afternoon, Berlin), after the merges up to #1127 (the docs freshness audit was #1079-#1083). Each subpage ends with an "Open for
+Status on 2026-11-18 (afternoon, Berlin), after the merges up to #1127 (the docs freshness audit was #1079-#1083; stale items corrected 2026-11-19). Each subpage ends with an "Open for
 the future" list, ordered by priority; this section names only what is in flight.
 
 - **Exact Boolean 3.0: complete (2026-11-18).** Every touched mutation shard has a full run above its threshold on master, and no
@@ -74,7 +76,7 @@ the future" list, ordered by priority; this section names only what is in flight
   for "exact boolean on triangle soups -> clean closed low-poly solid" is `SolidBooleanPipeline` (#1112, below).
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
-  #1067 (p0008: an untouched inside-out residue survived the component removal) is fixed in the removal; open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
+  #1067 (p0008: an untouched zero-volume sheet survived the component removal; #1152, #1170, owner decision 2026-11-19) is fixed in the removal (merged #1178, #1067 closed 2026-11-19); open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
   [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
 - **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
   and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is merged (#1112); 26 of 26 reduced
@@ -84,8 +86,8 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Exact imprint / deprecation:** done (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean` (#1037 merged).
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
-  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. P2 (output / API) is merged. P3 (interior size control,
-  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is merged (#1155); boundary fidelity is P4: (a) the local alpha (opt-in `MaxSurfaceDeviation`, owner 2026-11-19, TET_MESHING.md 17.13: the fidelity of uniform /80 at about half its tets) is built, (b) S1-F creases and (c) option (b) are open.
+  1.30x time), merged (#1073); the 6 meshes below went to the lever #1072 (closed: the rescue phase, on by default, lifts 4 of them). P2 (output / API) is merged. P3 (interior size control,
+  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is merged (#1155); boundary fidelity is P4: (a) the local alpha (opt-in `MaxSurfaceDeviation`, owner 2026-11-19, TET_MESHING.md 17.13: the fidelity of uniform /80 at about half its tets) is built, (b) S1-F creases (phase 1 study in progress) and (c) option (b) are open.
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
   parked).
@@ -103,7 +105,7 @@ the future" list, ordered by priority; this section names only what is in flight
   scale-free repair study (hard problem 9, #1095) is merged: no-go for a larger effort. Owner 2026-11-17: F1 go, done (#1101,
   `MeshRobustRepair` reports a lost separable part: `LostFarPart`, new `LostFarOpenPart`, `LostSeparatePart`); F2 not now.
 - **Alpha Wrap 3.0:** done. Lever 6 K stays opt-in (#736), the raw-size budget stays off with the opt-in
-  `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). In progress (owner 2026-11-17): an opt-in target triangle count that keeps the
+  `MaxAlphaCoarsening` (#1014) (owner 2026-11-17). Done (owner 2026-11-17): an opt-in target triangle count that keeps the
   guarantees, defaults unchanged, the budget default stays off (merged #1106). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Dual contouring:** exact Hermite data and octree simplification on by default (#991, #995, #1003); the
   `SymmetricEigenSolver` allocation fix is merged (3a256c7b).
@@ -112,7 +114,7 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Platform and CI:** #999 (xatlas report) merged; the UV parameterization mutation shards are merged (#1006); the
   uncovered lines of the nightly changed-line coverage gate got tests (#1089; the next nightly run shows whether it is green); the flaky
   allocation test #1074 now explains its own failure (#1090); the gate-change check (#1087, observe mode) and the diff triggers of the
-  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 open (outer face rounds incremental by default since 2026-11-19; 318843 and 498456 `fm_ms` still above 20 s); tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
+  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 reopened 2026-11-19 for 318843 and 498456, whose `fm_ms` is still above 20 s (outer face rounds incremental by default since 2026-11-19); tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
   (extreme field values) partly fixed, S10 deferred ([ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md)). Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
@@ -130,7 +132,7 @@ Checked on 2026-11-17 (night).
   owner deletes them (owner 2026-11-17); sessions cannot delete branches; `runs/*` branches hold run data and stay.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - **#1064 levers** (#1064 is merged; if the 20 s rule needs more on 42327: union max 20.02 s in 1 of 10 processes): the centroid without
-  `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop.
+  `AddPoint` / per-region stacks (~1.5 s) and an exact `PlaneSide` kernel; not built under the speed stop (#1047 dropped as a documented tail, owner 2026-11-19).
 
 Decided on 2026-11-17 (owner): split pinches stay "not clean" in `NotCleanReason` (only the benchmark reports them as
 their own class); the cleanup never empties a non-empty result (RC1); the inside-out check gets an exact volume sign
@@ -139,7 +141,7 @@ terrain-overlay break 75 with honest timeouts; late cron runs kept; Boolean 4.0 
 step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feature recovery stays open in research.md), hard problem 8 is fixed (#528), only speed remains there; terrain: the slope envelope construction and 3D blocks are later too
 (with berms, GeoTIFF and the showcase); `SnapRounding2.Diagnostics` text is culture-invariant (O1, done, #1092); tet 16.2: the boundary
 bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label (#1094): the coordinator labels a change that keeps or tightens a check after reviewing the gate-file diff, the owner one that loosens a check or changes the gate check or the rule files, workers never set it, and a push after the label needs a fresh review ([QA.md](QA.md) 2.8a);
-MeshRobustRepair F1 go (done, #1101), F2 not now; Exact Boolean 4.0 stage 1 as option A, an opt-in API (merged #1107; 1b and 1c on hold, owner 2026-11-18); quad remeshing: stage 1 merged with the speed gate open (#1098), then a parallel `SparseCholesky` with an upper-bound check first (bit for bit, existing callers unchanged; #1103), the Hermitian form (#1099, done), stage 2 merged as quad-dominant with the missed gates open (#1100), stage 3B on hold (owner 2026-11-18; the papers are unreachable); alpha wrap: an opt-in target triangle count keeping the guarantees, defaults unchanged, budget default off (merged #1106); boolean result classes: issue #1104 with procedural cases (PR #1105), class E option (a), an additive final-result volume IoU diagnostic in `MeshRobustRepair` with `Apply()` unchanged, with #1096 after the wrap target-count work; an opt-in helper for "exact boolean on triangle soups -> clean closed low-poly solid" (merged, #1112).
+MeshRobustRepair F1 go (done, #1101), F2 not now; Exact Boolean 4.0 stage 1 as option A, an opt-in API (merged #1107; 1b and 1c on hold, owner 2026-11-18); quad remeshing: stage 1 merged with the speed gate open (#1098), then a parallel `SparseCholesky` with an upper-bound check first (bit for bit, existing callers unchanged; #1103), the Hermitian form (#1099, done), stage 2 merged as quad-dominant with the missed gates open (#1100), stage 3B merged as opt-in (#1153), its follow-ups wait for the papers (owner 2026-11-18: unreachable); alpha wrap: an opt-in target triangle count keeping the guarantees, defaults unchanged, budget default off (merged #1106); boolean result classes: issue #1104 with procedural cases (PR #1105), class E option (a), an additive final-result volume IoU diagnostic in `MeshRobustRepair` with `Apply()` unchanged, with #1096 after the wrap target-count work; an opt-in helper for "exact boolean on triangle soups -> clean closed low-poly solid" (merged, #1112).
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -148,8 +150,8 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ## Next / queued
 
 In order:
-- Tet P2 (output / API); #1073 is merged.
-- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs are done (2026-11-19; no outcome regression, p0988 intersection +54 % (3961 -> 6097 ms), the final run built four master commits, [results](../benchmarks/BooleanComparison/README.md#results-of-the-two-full-runs-2026-11-18--2026-11-19)); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification) and #1158 (one Thingi10K size pair at 21-35 s per operation, in `assembly.simplify`): a measured diagnosis first.
+- Tet P2 (output / API): merged (TET_MESHING.md 17.9); #1073 is merged.
+- After 3.0 (complete 2026-11-18): the thingi-pairs baseline and final runs are done (2026-11-19; no outcome regression, p0988 intersection +54 % (3961 -> 6097 ms), the final run built four master commits, [results](../benchmarks/BooleanComparison/README.md#results-of-the-two-full-runs-2026-11-18--2026-11-19)); #1047 (one Thingi10K pair at 18-26 s per operation, in the classification) and #1158 (one Thingi10K size pair at 21-35 s per operation, in `assembly.simplify`): a measured diagnosis first; #1158 closed (#1183), #1047 dropped as a documented tail (owner 2026-11-19, the issue stays open).
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 

@@ -171,6 +171,22 @@ namespace geometry3Sharp.Tests
         }
 
 
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FrameGridIndexer3_SubmetreCellsAtUtm(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            const double cellSize = 0.125;
+            var frame = (Frame3f)new Frame3d(s.Translation, s.Rotation.ToQuaternion());
+            var indexer = new FrameGridIndexer3(frame, Vector3f.One * (float)(s.Scale * cellSize));
+            var local = new Vector3d(2.25, -2.75, 1.5);
+            Vector3d point = s.Apply(cellSize * local);
+            Assert.Equal(new Vector3i(2, -3, 1), indexer.ToGrid(point));
+            if (s.IsExact)
+                Assert.Equal(local, indexer.ToGridf(point));
+        }
+
+
         // ---- MeshSignedDistanceGrid.point_triangle_distance with degenerate triangles ----
 
         [Fact]

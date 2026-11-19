@@ -726,8 +726,10 @@ Invariance over `Similarity.All()` (2^k bit equality, tolerance overlap for rota
 statuses, `MaxDistance`, the cancel poll, the memory test. Mutants by hand (the by-hand list is in A.7), and the incremental run.
 
 **Determinism and the build rules.** The convexity test of the classification uses `CoreMath.Atan2`, so the new file gets
-its `.editorconfig` entry (G3E0004: no platform libm), a `tools/DeterminismHarness` case and a `DeterministicApis.txt` entry
-with the code PR. The classification reuses the oracle's `VertexKind` (the certified interval test of the angle sum, `CoreMath.Atan2`, and
+its `.editorconfig` entry (G3E0004: no platform libm), a `tools/DeterminismHarness` case. **No `DeterministicApis.txt` entry (decided with the code PR):** that list and the analyzers G3D0001-9 are the closed
+world of the exact kernel and its building blocks (the files named in the second `.editorconfig` section), which the class is not part of: it is serial, uses only
+IEEE +, -, *, / and `Math.Sqrt`, `Math.Min` and `Math.Max`, no parallel loop and no transcendental function, and its bits are checked by the harness case and by
+the invariance and determinism tests. The classification reuses the oracle's `VertexKind` (the certified interval test of the angle sum, `CoreMath.Atan2`, and
 the exact flatness test): kind 0 only if certainly convex or exactly flat, so the coordinate size does not enter a margin (a
 margin in radians would be wrong by the ratio of the coordinates to the edge lengths, 1e-10 rad at UTM scale).
 
@@ -1274,6 +1276,89 @@ errors; the A8 failure of A.5 was a tie slack subtracted from Lower, a different
 gate-2 baseline of 3.3 s had it) is part of the class: a piece of w is dropped if min f_w over it > U(u) + max |u - x| + xi_w + xi_u
 + 4 eps extent for u an end of the edge or the third vertex, with U(u) the current best `Distance` estimate of u; by R,
 d(u) <= U(u) + xi_u, so a real path of that length exists up to the errors. No lemma-based rule (ICH, VTP) in v1.
+
+**Implementation notes (2026-11-19, the code PR; where the code differs from the text above, the code is right).**
+1. *The end error is an angle.* The recurrence e' = e x g of rule 2 grew exponentially on lattices (the end error reached 1e-7 extent on a
+   25 x 25 plane: g > 1 at every hop, and a doubling cap did not help). The window carries an **angular** error E (radians) of its rays and
+   the error of an end on its edge is E R^2 / h (R: the distance of the origin from the end point, h: its distance from the edge's line, floored
+   at 16 eps extent). A hop adds the rounding, 16 eps + 4 cEps / R_p (R_p: the distance of the origin from the nearer clip end). Rays nearly along an
+   edge are badly conditioned (h small) and get wide ends, which only widens clips. This is rule 2's content without its exponential.
+2. *No recentring.* Every quantity the class uses is a difference of coordinates or a length derived from differences (accurate relative to
+   itself), so the magnitude of the coordinates does not enter; the shifted copies of the similarity tests agree (rule 2 (c) is not needed).
+3. *The clips are closed only at exactly flat vertices.* At every other vertex the plain clips (strict inequalities, no margin, the split end still
+   mapped to the vertex exactly): the tiny windows at the vertex ends of the closed clips tripled the windows on lattices where every vertex is flat
+   (4115 of 6580 windows on a 21 x 21 plane), and they are needed only for the ray through a flat vertex (A.6). `ExactMeshGeodesicDistance`
+   got an internal `IsFlatVertex` for this (the exact flatness test, whatever the run's settings).
+4. *The cap on xi at a merge is a safeguard, 1e-6 extent.* At 1e-9 extent the merging stopped after about 70 crossings on the plane (xi had grown
+   to 2e-9 through the charges of the openings) and the windows per vertex grew from 7 to 20 and then without bound; the accuracy is what the tests
+   enforce, the cap does not bound it.
+5. *delta = 1e-12 extent, measured.* On the plane, the ridges and the terrain, every touching pair of one origin was either within delta (merged) or
+   at least 3.9e-5 extent apart (the largest distance below 1e-6 extent was 0 on the planes and the ridges, 3.9e-5 on the 41 x 41 terrain: the
+   windows of one origin at a different image).
+6. *The vertex test is in; ICH and VTP are not (see 11 for what was measured later).* The saddle 101 x 101 (0.3 (x^2 - y^2)) reaches the default of 64 windows per vertex and ends with
+   `WindowLimit`: a mesh whose pseudo-sources are dense needs the stronger pruning of the lemma-based filters, which v1 leaves out (the oracle
+   needs 120 windows per vertex there too). The target families (terrain, plane, the ridges) stay below 40 per vertex (the benchmark numbers in
+   `benchmarks/GeodesicOracleBenchmark/README.md`).
+
+7. *The dominance recursion stops early (the performance fix of the code PR).* `Dominated` recursed to depth 6 into every piece (127 calls
+   per piece and per overlapping window, 824 million calls on a 201 x 201 plane). A piece [l, r] is now left when
+   `FMax(a, l, r) <= FMin(b, l, r) + m`: a sub-piece that passes the test needs `FMin(a, sub) > FMax(b, sub) + m`, and `FMin(a, sub) <= FMax(a, l, r)`
+   and `FMax(b, sub) >= FMin(b, l, r)` because `Hyp(x - sx, sy)` is monotone in |x - sx| in floating point (every step, the subtraction, the
+   squares, the sum and the square root, is monotone), so no sub-piece can pass. The pieces are the same bit for bit (checked by the benchmark's digest over
+   all five families at 101, 201 and 317 vertices a side, and by the pins of the window and merge counts). Plane 317 x 317: 24.5 s to 6.1 s; the
+   terrain is unchanged at 3.3 s. A second finding of the profile: a debug log of the first version grew a string by concatenation (6 GB allocated
+   at 317 x 317); it is gone.
+8. *Hand mutants (outcome).* Each mutant of the list above is run against the PR tests. Killed: no snapping of both ends, e = 0, delta = 0
+   (the window budget), no position check and a huge delta (the jittered plane), no sigma check, no xi cap, the minimum of the pruning at the
+   piece ends, xi_w and xi_b dropped from the dominance margin (each alone and both), from the cut of b's end, the vertex test without xi_u or
+   without xi_w, the along-the-edge window as the whole edge, all flat flags false, the sign of either margin flipped. Most of these change the
+   window count, not the distances beyond about 1e-15 (the margins are a few cEps), so the kill is the **pinned window and merge counts** of
+   `Pruning_WindowAndMergeCounts_ArePinned` (thin slivers, rotated and jittered grids put near ties on both sides of a margin). Two
+   survive: (a) snapping of the clip's upper end only (`snap1`): it differs only on a strip of height 1e-8 with five rows (a mesh on which the class leaves
+   vertices unreached, item 10), where no result is to be pinned; (b) the escape direction when D is uncertain always `+MaxValue`: the branch
+   (a clip end ray parallel to the child edge within the rounding of D) was **not reached by any input of 129 test and benchmark meshes, 3000
+   lattice meshes with random diagonals, shears and scalings, and 6000 random integer strips**, in which exact parallelism is common, so the
+   mutant is invisible; the branch is the defensive fallback of rule 3 and stays.
+9. *Accuracy (measured).* Against the oracle's enclosure the deviation is exactly 0 (the result lies inside [Lower, Upper]) on 12 families at 31 and 41
+   vertices a side (and the four 10^4 comparisons of the nightly tier pass at the same tolerance); against closed forms and the straight line the
+   largest deviation is 2.4e-15 relative. The tests enforce 5e-15 d + 5e-16 extent (twice the measurement, was 1e-9 and 1e-12, unmeasured), and the class docs quote
+   exactly these.
+10. *Thin slivers: status `PartiallyReached` (owner decision 2026-11-19).* A strip of height 1e-6 (and 1e-7 .. 1e-8) with five rows of 21 vertices leaves 2-7 of
+    105 vertices unreached (aspect ratios of 10^5 to 10^7; heights 1e-9 to 1e-12 and three rows are fine). With `MaxDistance` infinite, `Compute` now walks the
+    edges from the sources and, if a vertex of their components has no distance, returns the new status `PartiallyReached` (appended to the enum: an
+    API addition) with the reached values kept and `UnreachedVertices` counting the rest; `Ok` guarantees a distance for every vertex of the sources'
+    components. The test forces `Ok` as a mutant (it fails). The class docs state it.
+
+11. *Exact trimming (issue #1186, 2026-11-19).* The dominance test of the pruning no longer bisects to depth 6; it computes the set where a
+    window is certainly worse than another on the part of the edge they share. Claim: for two windows with origins sa = (ax, ay) and
+    sb = (bx, by) (both with y <= 0, the edge on the x axis) the function g(x) = |x - sa| - |x - sb| has at most one critical point. Proof: g'(x) =
+    cos(alpha_a) - cos(alpha_b), the cosines of the angles between the edge and the rays from the origins to x; they are equal only if the two rays are
+    parallel, that is if x, sa and sb are collinear, and the line through sa and sb meets the line of the edge once (if ay = by it is parallel to
+    the edge and there is no critical point: g is monotone). There g takes the extreme value +-|sa - sb| (the triangle inequality, both origins on one
+    side of the edge). The set {x: sigma_a + |x - sa| > sigma_b + |x - sb| + m} (m = xi_a + xi_b + the margin of the pruning, as before) is therefore, on each of the
+    two monotone pieces [l, xs] and [xs, r], a prefix or a suffix of the piece; its end is found by bisection from the end at which the test
+    was **verified** in floating point (48 steps), so the reported set lies inside the true set up to the rounding of the two evaluations, which the
+    margin of 4 cEps covers (the same reliance as the old test, which compared the same two evaluations). The old depth-6 recursion found only whole
+    dyadic pieces of 1/64 of the overlap: at every crossing of two windows both stayed alive over up to 1/64 of the edge, and at hundreds of crossings per
+    edge on the saddle that is most of the windows. The new set contains the old one, so coverage C and realisability R of this note hold unchanged: a
+    dropped piece is one on which another window is certainly better, by the margin that C already charges. (If the window that justified a cut is then merged into a
+    third window of its origin, C holds through the merge's charge: the merged window has xi at least xi_w + |c_w - c| + |sigma_w - sigma|, as for every merge; the order of the scan
+    is the one of the old end cut.) "The new set contains the old one" holds up to the rounding of the two evaluations (the old test compared FMin and FMax bounds). The same function trims the end of an existing
+    window b where the new window w is certainly better (the old test cut only an end if the whole overlap qualified); a piece that lies **inside** b is left:
+    splitting b into two windows was measured to create more windows than it saves (with the split: plane corner +1 % to +2 %, ridge +2 %, the cone with k = 1e-6 +2 %,
+    against the run before the change; without it no family has more windows than before, and terrain and saddle have 1 % to 3 % fewer), so b keeps the hull of what remains.
+    The early exit `FMax(a) <= FMin(b) + m` of note 7 stays (it makes the common case cost two
+    evaluations).
+    *Measured, same machine and runs as the benchmark README.* Distances: 39 runs (plane, terrain, saddle 21 to 141, dome, a rotated saddle, ridge, three sources each)
+    against the run before the change: the largest difference is 8.9e-16 absolute and 4.3e-16 relative (the tolerance of the class is 5e-15); 37 of the 39 runs are
+    bit for bit equal. Windows: saddle 101 x 101 centre 1.216M to 0.855M, 141 x 141 3.72M to 2.39M; terrain 101 -9 %; plane 101 and 317 unchanged (same digest). Seconds:
+    `benchmarks/GeodesicOracleBenchmark/README.md`.
+    *Why this is not enough for the 317 x 317 saddle.* At the end of a run on the saddle, 99 % to 100 % of the windows alive on an edge side are *essential*:
+    each is the minimum of all live windows of its side, to 1e-12 extent, at some point of its own interval (31, 48 and 82 per vertex at 41, 61 and 101 vertices a side, growing
+    linearly with the width). The geodesics follow the lattice lines through chains of saddle vertices, every vertex of a chain adds a piece of the distance function of about
+    1e-4 of the edge's length, and any exact window method has to create these windows: a filter that only drops dominated windows (ICH, VTP) cannot reduce the final count,
+    and the budget of 64 per vertex is passed at about 78 x 78 (it was passed at about 62 x 62). The 317 x 317 saddle needs about 250 to 275 windows per vertex (27M windows, 1.8 GB)
+    and still ends in `WindowLimit`, now after 14 s instead of 41 s; that is by design, the budget is the owner's, and a saddle mesh beyond about 78 x 78 needs an explicit `MaxWindows`.
 
 *Open points for the reviewer.* (1) Snapping (rule 1) is exact for rays through p; e matters only at the interior ends O0, O1 (with
 `Mu` clamped to the edge ends); is rule 2's e (second-order D test, the rounding term of `Mu`, recentring) enough for rays near, but not
