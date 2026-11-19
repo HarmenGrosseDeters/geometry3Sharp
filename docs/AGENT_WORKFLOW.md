@@ -231,9 +231,8 @@ from secret tests, which a public repository cannot keep.
   **Local tasks as issues** (owner 2026-11-11): small and medium tasks for a session on the owner's machine are
   GitHub issues with the label `local`, each with the complete §2 brief. The local session works one as follows:
   (1) branch `local/<issue>-<name>` from the current master when it starts (no branch or draft PR prepared in
-  advance: it would go stale); (2) `CLAUDE.md` applies; (3) the files the cloud sessions hold are locked (during
-  Exact Boolean 3.0: `mesh_ops/ExactMesh*`, the exact files of `.editorconfig`, `math/Exact*`,
-  `math/AdaptivePredicates.cs`, and the files of open `claude/t1-*` and T3a PRs); a task that seems to need one stops
+  advance: it would go stale); (2) `CLAUDE.md` applies; (3) the files the cloud sessions hold are locked (the files of
+  open cloud-session PRs); a task that seems to need one stops
   and comments on the issue; (4) a draft PR with `Closes #<issue>`, pushed after the local checks of "Before every
   push"; the coordinator subscribes, reviews and merges; (5) no Stryker kill measurements on the owner's machine (CI is
   the gate). Result-only runs (fuzzing campaigns) report on the issue and put raw output on a `runs/` branch, as
