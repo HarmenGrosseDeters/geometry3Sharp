@@ -238,6 +238,7 @@ namespace gs
                 MaxDihedralDegrees = 0;
                 try { run_phase(); }
                 finally { MaxDihedralDegrees = g; }
+                splitFailed.Clear();      // a failed split of the first phase says nothing about the objective's
             }
             run_phase();
             classify_left();
@@ -780,7 +781,7 @@ namespace gs
             // So every tet of the stars of nb that is not in the ring survives unchanged (its vertices do not move, and it is still in
             // the star of the same nb vertex), and now <= untouched, the smallest quality of those. If untouched <= old (it is never
             // below: old is the minimum over a superset) the strict test must fail, and the attempt is undone with the same tets, ids,
-            // free list, lists' order and counts (not the dead entries it leaves in ver and slideMargin, which only change hash values of the memo), except for Counts["split_refused_input"], which the refusal of a boundary split by the
+            // free list, lists' order and counts (not the dead entries it leaves in ver and slideMargin, which only change hash values of the memo), except for Counts["split_refused_input"] and, with MaxDihedralDegrees, the diagnostic Counts["guard_trips_split"] (not evaluated here), which the refusal of a boundary split by the
             // input keeps: reproduced below by the same pure checks (inverted halves, then TetTouchesInput of the boundary triangles).
             if (SplitEarlyReject && !IgnoreQualityForTest && untouched <= old) {
                 SplitEarlyRejects++;
