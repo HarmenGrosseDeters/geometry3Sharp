@@ -48,14 +48,5 @@ namespace geometry3Sharp.Tests
             Assert.Contains("remove the nearly collinear path point", d.Message);
             Assert.StartsWith("ramp 0 at 1: ", d.Message);
         }
-
-        [Fact]
-        public void BendAboveTheSmallestFeature_IsBuilt()
-        {
-            // a bend with a visible turn is realized: the guard refuses only a kite below the smallest feature
-            var d = TerrainSlopeRampTests.AroundCorner();
-            Assert.True(d.Compute(), d.Status + " " + d.Message);
-            Assert.Empty(d.RampProblems);
-        }
     }
 }

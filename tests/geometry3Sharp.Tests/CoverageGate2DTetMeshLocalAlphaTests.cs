@@ -18,6 +18,7 @@ namespace geometry3Sharp.Tests
             new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
 
         [Fact]
+        [Trait("Category", "Slow")]       // a full wrap and refinement of a cube, 3 to 4 s
         public void LocalAlpha_WithAlphaNotAboveThreeOffsets_HasNothingToRefine_AndStillSucceeds()
         {
             // alpha = diag / 40 and offset = diag / 60: 3 offsets = diag / 20 > alpha, so the smallest local alpha (not below 3 offsets) is not below the uniform one
@@ -36,6 +37,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        [Trait("Category", "Slow")]       // two full runs of the retry, 3 to 5 s
         public void MissedDihedralTarget_SmootherFieldGivesALargerSmallestAngle_ItIsKept()
         {
             // the comb at alpha diag / 20, deviation diag / 100, a 20 degree dihedral target one improve pass cannot reach: the first run's smallest dihedral

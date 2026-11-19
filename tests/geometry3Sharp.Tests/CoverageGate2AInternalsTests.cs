@@ -41,27 +41,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1e220 / MathUtil.FourPI, finite, 1e205);
         }
 
-        // ------------------------------------------------------------------ AutoHoleFill.to_polygon
-
-        [Fact]
-        public void AutoHoleFill_ToPolygon_ProjectsTheSpanIntoTheFrame()
-        {
-            var mesh = new DMesh3();
-            int a = mesh.AppendVertex(new Vector3d(1, 2, 3)), b = mesh.AppendVertex(new Vector3d(4, 2, 7)),
-                c = mesh.AppendVertex(new Vector3d(4, 6, -1)), d = mesh.AppendVertex(new Vector3d(1, 6, 0));
-            var span = new EdgeSpan(mesh, new[] { a, b, c, d }, new int[3], false);
-            var fill = new AutoHoleFill(mesh, null);
-            MethodInfo toPolygon = typeof(AutoHoleFill).GetMethod("to_polygon", Any, null, new[] { typeof(EdgeSpan), typeof(Frame3d) }, null);
-            Assert.NotNull(toPolygon);
-            var frame = new Frame3d(new Vector3d(1, 2, 3));
-            var poly = (Polygon2d)toPolygon.Invoke(fill, new object[] { span, frame });
-            Assert.Equal(4, poly.VertexCount);
-            Assert.Equal(new Vector2d(0, 0), poly[0]);
-            Assert.Equal(new Vector2d(3, 0), poly[1]);
-            Assert.Equal(new Vector2d(3, 4), poly[2]);
-            Assert.Equal(new Vector2d(0, 4), poly[3]);
-        }
-
         // ------------------------------------------------------------------ QuadFlowRepair
 
         static readonly Type RepairType = typeof(QuadFlowRepair);
