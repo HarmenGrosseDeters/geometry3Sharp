@@ -74,7 +74,7 @@ the future" list, ordered by priority; this section names only what is in flight
   for "exact boolean on triangle soups -> clean closed low-poly solid" is `SolidBooleanPipeline` (#1112, below).
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
-  open: #1067 (p0008) and the owner's local campaigns (#1038). The certifying checker is merged (#1061).
+  #1067 (p0008: an untouched inside-out residue survived the component removal) is fixed in the removal; open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
   [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
 - **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
   and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is merged (#1112); 26 of 26 reduced
@@ -84,7 +84,8 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Exact imprint / deprecation:** done (owner 2026-11-17): `Obsolete` on the float `MeshMeshCut` / `MeshBoolean` (#1037 merged).
 - **Tet meshing:** defaults on (#1065); the production study is merged (#1071, stages P1-P5). P1 (owner 2026-11-17):
   default alpha diag/40 as a documented exception to the 17.5 rule (494 of 500 sample meshes with every tet >= 10 deg,
-  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. Next: P2 (output / API).
+  1.30x time), merged (#1073); the 6 meshes below go to the parked lever #1072. P2 (output / API) is merged. P3 (interior size control,
+  owner 2026-11-19: `TargetEdgeLength`, `SizeFunction`, `GradingFactor`, opt-in, default output unchanged; TET_MESHING.md 17.12) is built; boundary sizing is P4.
 - **Remeshers:** the Phase 2 study is merged (#1075); an opt-in safe preset (quality 0.2 + `PreventSelfIntersections`,
   defaults unchanged, owner 2026-11-17) is merged (#1085, `Remesher.ApplySafePreset`, `g3cli remesh --safe`); the inversion guard study #1070 closed hard problem 14 (options
   parked).
@@ -109,7 +110,7 @@ the future" list, ordered by priority; this section names only what is in flight
 - **Platform and CI:** #999 (xatlas report) merged; the UV parameterization mutation shards are merged (#1006); the
   uncovered lines of the nightly changed-line coverage gate got tests (#1089; the next nightly run shows whether it is green); the flaky
   allocation test #1074 now explains its own failure (#1090); the gate-change check (#1087, observe mode) and the diff triggers of the
-  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 open; tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
+  review checklist (#1088, `tools/review_triggers.py`) are merged; #1009 open (outer face rounds incremental by default since 2026-11-19; 318843 and 498456 `fm_ms` still above 20 s); tests above 20 s in full runs only (#698) open; robustness sweep remainders R13, R15
   (extreme field values) partly fixed, S10 deferred ([ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md)). Late cron runs of `mutation.yml` stay as they are (owner 2026-11-17).
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
@@ -158,7 +159,7 @@ In order:
 3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go
    (owner 2026-11-15, no spike; #721 closed, it stays a design).
 4. **Scale-free robust repair** (hard problem 9): the study is merged (#1095): no-go for a larger effort; F1 done (#1101), F2 not now (owner 2026-11-17).
-5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 merged (#1073). Sharp
+5. **Tet meshing:** stages 1 and 2 merged, defaults on (#1065), production plan P1-P5 (#1071); P1 merged (#1073), P2, P3 (size control, 17.12) built. Sharp
    features (hard problem 4): lever 6 K (#736, opt-in); a provably valid feature recovery stays open.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
@@ -190,7 +191,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 steps (1) and (2) merged in #416 and #407): [research.md](roadmap/research.md#smt-checks-with-z3)
-- Mesh-kernel ideas and EMBER (EMBER / octree-BSP architecture shelved, owner 2026-11-17): [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
+- Mesh-kernel ideas and EMBER (EMBER / octree-BSP architecture shelved, owner 2026-11-17): [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04); re-examined 2026-11-19 in [PLANE_BASED_KERNEL_STUDY_2026-11.md](research/PLANE_BASED_KERNEL_STUDY_2026-11.md) (no-go, owner 2026-11-19)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)
 - Shared hotspots and leads for open tasks: [hotspots.md](roadmap/hotspots.md)

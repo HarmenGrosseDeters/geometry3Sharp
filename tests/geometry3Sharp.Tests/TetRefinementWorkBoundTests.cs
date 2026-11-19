@@ -86,7 +86,7 @@ namespace geometry3Sharp.Tests
         };
 
 
-        static ulong Fingerprint(MeshTetrahedralization tm)
+        internal static ulong Fingerprint(MeshTetrahedralization tm)
         {
             ulong h = 14695981039346656037UL;
             Action<ulong> add = x => { for (int i = 0; i < 8; ++i) { h ^= (x >> (8 * i)) & 0xFF; h *= 1099511628211UL; } };
@@ -112,6 +112,7 @@ namespace geometry3Sharp.Tests
                 var tm = Make(shape, p.alpha, p.rho);
                 Assert.True(Go(tm));
                 Assert.False(tm.Counts.ContainsKey("work_limit_reached"));
+                Assert.DoesNotContain(tm.Counts.Keys, k => k.StartsWith("size_", StringComparison.Ordinal));      // P3: no size set, no size key
                 if (p.rho == 2) Assert.True(tm.Counts["trial_insertions"] < 3 * WrapVertices(tm), shape + ": " + tm.Counts["trial_insertions"] + " of " + WrapVertices(tm));   // 16 times below the bound
                 if (!PinnedPlatform()) continue;
                 Assert.Equal(p.tets, tm.Result.Tets.Count);

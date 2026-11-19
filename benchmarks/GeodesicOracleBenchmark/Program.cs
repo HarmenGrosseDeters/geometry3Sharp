@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Width of the certified geodesic enclosure of ExactMeshGeodesicDistance (internal) on procedural grids, its time and
-// window count (#1058, docs/design/GEODESICS.md section 6b). No mesh files.
+// window count (#1058, docs/design/GEODESICS.md sections 6b, 6d). No mesh files. Set G3_FLAT_EMITS=1 for the S1 behaviour
+// (flat vertices emit) to compare with A7'.
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- reach      the reach meshes of GEODESICS.md 6b
 //   dotnet run -c Release --project benchmarks/GeodesicOracleBenchmark -- sweep      domes and saddles over a curvature sweep
 using System;
@@ -30,11 +31,13 @@ static class Program
     static double Terrain(double x, double y) => 3 * Math.Sin(x / 7 + 1) * Math.Sin(y / 5) + 0.8 * Math.Sin(x * 1.3) * Math.Cos(y * 1.1);
     static readonly double RidgeSlope = Math.Tan(75 * Math.PI / 180);
     static double Ridge(double x) => RidgeSlope * Math.Max(0, 2.5 - Math.Abs(x));
+    // slope 4: the vertices of the slope planes and of the folds are exactly flat in doubles (A7', GEODESICS.md 6d)
+    static double Ridge4(double x) => 4 * Math.Max(0, 2.5 - Math.Abs(x));
 
     // one Compute: status, seconds, windows and the largest (Upper - Lower) / Lower over the vertices other than the source
     static void Row(string name, DMesh3 m, int src)
     {
-        var g = new ExactMeshGeodesicDistance(m);
+        var g = new ExactMeshGeodesicDistance(m) { MaxWindows = int.Parse(Environment.GetEnvironmentVariable("G3_MAXW") ?? "300000"), FlatVerticesEmit = Environment.GetEnvironmentVariable("G3_FLAT_EMITS") == "1" };
         var sw = Stopwatch.StartNew();
         var r = g.Compute(new[] { src });
         double secs = sw.Elapsed.TotalSeconds;
@@ -60,6 +63,10 @@ static class Program
             foreach (int n in new[] { 21, 31, 41 }) {
                 double half = (n - 1) * 0.25 / 2;
                 Row($"aligned ridge {n} x {n}", Grid(half, n, (x, y) => Ridge(x)), (n / 2) * n + 3);
+            }
+            foreach (int n in new[] { 41, 101 }) {
+                double half = (n - 1) * 0.25 / 2;
+                Row($"aligned ridge, slope 4 (exactly flat) {n} x {n}", Grid(half, n, (x, y) => Ridge4(x)), (n / 2) * n + 3);
             }
         } else if (mode == "sweep") {
             foreach (string kind in new[] { "dome", "saddle" })

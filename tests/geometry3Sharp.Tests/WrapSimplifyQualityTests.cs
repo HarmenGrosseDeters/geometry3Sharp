@@ -134,13 +134,16 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // one row per shape and cap (#698: 5.9-8.0 s alone in one row, up to 19 s in a full run)
         [Trait("Category", "Slow")]
-        [Fact]
-        public void SimplifyWithin_SliverOfTheWrap_Removed()
+        [Theory]
+        [InlineData("box", false)]
+        [InlineData("box", true)]
+        [InlineData("cylinder", false)]
+        [InlineData("cylinder", true)]
+        public void SimplifyWithin_SliverOfTheWrap_Removed(string shape, bool cap)
         {
             int kept = 0, cases = 0;
-            foreach (string shape in new[] { "box", "cylinder" })
-            foreach (bool cap in new[] { false, true })
             for (int k = 0; k < 400; k += 37) {
                 DMesh3 m = WrapWithSliver(shape, k, cap, out double tol);
                 if (MeshRobustRepair.NotCleanReason(m, true) != "") continue;
@@ -152,7 +155,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(after >= Math.Min(MeshRobustRepair.WrapSimplifyMinQuality, before), $"{shape} {cap} {k}: {after} < {before}");
                 if (after < 0.01) kept++;
             }
-            Assert.True(cases >= 20, $"{cases} cases");
+            Assert.True(cases >= 5, $"{cases} cases (at least 20 in the 4 rows together)");
             Assert.True(kept == 0, $"the sliver stays in {kept} of {cases} cases");
         }
 

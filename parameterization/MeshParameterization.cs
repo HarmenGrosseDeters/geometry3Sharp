@@ -348,12 +348,17 @@ namespace g3
             Pos = new Vector3d[N];
             for (int i = 0; i < N; ++i)
                 Pos[i] = mesh.GetVertex(ToVertex[i]) - center;
-            foreach (Index3i t in Tris) {
-                TriangleFrame f = new TriangleFrame(Pos[t.a], Pos[t.b], Pos[t.c]);
-                Frames.Add(f);
+            // each frame depends on its own triangle only: parallel, each into its own slot; the area is summed
+            // serially in triangle order (the same bits as a serial loop)
+            var frames = new TriangleFrame[Tris.Count];
+            gParallel.ForRange(frames.Length, ti => {
+                Index3i t = Tris[ti];
+                frames[ti] = new TriangleFrame(Pos[t.a], Pos[t.b], Pos[t.c]);
+            });
+            Frames.AddRange(frames);
+            foreach (TriangleFrame f in frames)
                 if (!f.Degenerate)
                     SurfaceArea += f.Area;
-            }
             if (!(SurfaceArea > 0)) {
                 Status = ParameterizationStatus.InvalidMesh; Error = "all triangles are degenerate";
                 return;
@@ -429,8 +434,11 @@ namespace g3
             }
             // interior bowties (fans that only share the vertex) have no boundary half-edges at the vertex;
             // a chart joined to the rest only through such a vertex is not held by the pins (LSCM collapses it)
+            // (read-only per vertex: flags in parallel, then the first flagged vertex in index order, as the serial loop)
+            var bowtie = new bool[N];
+            gParallel.ForRange(N, i => { bowtie[i] = mesh.IsBowtieVertex(ToVertex[i]); });
             for (int i = 0; i < N; ++i)
-                if (mesh.IsBowtieVertex(ToVertex[i])) {
+                if (bowtie[i]) {
                     Status = ParameterizationStatus.InvalidMesh;
                     Error = "vertex " + ToVertex[i] + " is a bowtie (non-manifold vertex); split bowtie vertices first";
                     return;

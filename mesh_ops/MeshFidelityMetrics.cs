@@ -487,16 +487,17 @@ namespace gs
         public const double OuterFaceStallShare = 0.001;
 
         /// <summary>
-        /// Measurement option (default false: every round judges every face left against a new winding number tree).
-        /// If true, rounds after the first update the winding numbers stored for each face by subtracting the winding
-        /// number of the faces the last round removed (a tree of those faces only: far-field expansions, cheap), and judge
+        /// Default true (since #1009; false before: every round judged every face left against a new winding number tree, and
+        /// false still does exactly that, bit for bit). Rounds after the first update the winding numbers stored for each face by
+        /// subtracting the winding number of the faces the last round removed (a tree of those faces only: far-field expansions, cheap), and judge
         /// again with the big tree only the faces whose stored values lie within OuterFaceIncrementalMargin of a decision
         /// boundary of the rule (is_outer, the double layer test, the mean threshold of the round). The verdicts of the
         /// other faces are those of the updated values, which differ from a new judgement by the error of the two
-        /// approximations (FWN); no exactness is promised, the result can differ from the default's. OuterFaceRedoFaces counts the faces judged again.
+        /// approximations (FWN); no exactness is promised, the result can differ from the opt-out's (measured on Thingi10K and
+        /// stacks of interior layers: no differing verdict at margin 0.2, benchmarks/MeshRepairBenchmark/README.md). OuterFaceRedoFaces counts the faces judged again.
         /// Memory: about 70 bytes per triangle id of the reference while it runs.
         /// </summary>
-        public bool OuterFaceIncremental = false;
+        public bool OuterFaceIncremental = true;
         /// <summary> output (OuterFaceIncremental): faces judged again with the winding number tree after the first round </summary>
         public long OuterFaceRedoFaces;
         /// <summary> output (OuterSurface, VolumeSamples): the triangle ids of the reference that the outer face classification removed (sorted; null if OuterSurface or VolumeSamples is off), eg to compare two settings </summary>
