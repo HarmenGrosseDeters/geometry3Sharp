@@ -395,7 +395,7 @@ def run_exact(case, files, rows, info, timeout, method="ours_exact"):
         rows.append({"class": EXACT_CLASS, "file": case["name"], "method": method, "runner_error": err[-300:]})
 
 AB_CLASS = "abc-chained-ab"     # rows of the method ours_ab (run_ab)
-AB_REPS = 3
+AB_REPS = 4
 
 def run_ab(case, files, rows, info, timeout):
     """method ours_ab (docs/perf/BOOLEAN_COPLANAR_PREDECISION.md): `chain-ab` on the chain's A, B, C: per step the coplanar pre-decision

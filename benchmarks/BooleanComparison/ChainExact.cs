@@ -270,7 +270,6 @@ static class ChainExact
     static int RunAb(List<DMesh3> ops, List<Step> plan, Dictionary<string, object> info, int reps)
     {
         Warm();
-        var rng = new Random(20261119);
         DMesh3 prev = null;
         for (int k = 0; k < plan.Count; ++k) {
             DMesh3 left = plan[k].Left < 0 ? prev : ops[plan[k].Left], right = ops[plan[k].Right];
@@ -279,9 +278,10 @@ static class ChainExact
             DMesh3 next = null;
             bool ok = true;
             for (int rep = 0; rep < reps; ++rep) {
-                foreach (bool setting in rng.Next(2) == 0 ? new[] { true, false } : new[] { false, true }) {
+                foreach (bool setting in (rep & 1) == 0 ? new[] { true, false } : new[] { false, true }) {   // balanced: ABBA, so a position effect (heap state after the first run) cancels in the medians of an even number of reps
                     GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-                    var b = new ExactMeshBoolean(left, right, plan[k].Op) { ArrangementPreDecideCoplanar = setting };
+                    // G3_AB_NULL=1: both runs with the pre-decision off (the null test of the A/B: the on/off labels are then only the positions)
+                    var b = new ExactMeshBoolean(left, right, plan[k].Op) { ArrangementPreDecideCoplanar = setting && Environment.GetEnvironmentVariable("G3_AB_NULL") != "1" };
                     var sw = Stopwatch.StartNew();
                     bool r = b.Compute();
                     (setting ? on : off).Add(sw.Elapsed.TotalMilliseconds);
