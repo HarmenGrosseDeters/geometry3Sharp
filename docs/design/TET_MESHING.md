@@ -1283,6 +1283,30 @@ no `AlphaField` the output is bit for bit the same (`ExistingResult_IsBitForBitT
 - **Limits**: only an input with triangles; not applied to the wrap's other passes (simplification, quality pass, feature pass); the tolerance cannot go below 2 offsets (raised); the field is built from 20000 samples, so a detail smaller than the sample spacing (about sqrt(area / 20000)) can be missed; the cost of the field is about 2 us per gate test (0.24 s of CPU per run in the spike, 37 % of the local run's wall time as an upper bound).
 - **Not built**: the a-priori estimator (free distance along the outward normal, one pass, no second wrap: 0.64x tets at 1.0x max distance, 1.18x the p95, better than uniform /80 on only 14 of 39 meshes), the oracle, a lattice field.
 
+### 17.14 Stage P4(b): sharp creases through the featured surface, `CreaseAngleDegrees` (2026-11-19)
+
+Coordinator go 2026-11-19 (phase 1 plan, option 1 with a gate). Opt-in and additive: with `CreaseAngleDegrees` 0 (the default), negative, NaN or infinity the output is bit for bit the same
+(`TetMeshCreaseTests.Default_IsOff_...`; `ExistingResult_IsBitForBitTheSameAsBeforeP2` pins the default). 30 is the suggested value.
+
+- **State before** (checked in the code): S1-F was design only (13, 14); `MaxRecoverySteiner` / `FeatureRecoveryFailed` did not exist; #736 (lever 6 K) was the internal `AlphaWrapFeaturePass`, used by `MeshRobustRepair`, not by the tets.
+- **Method** (`mesh_ops/TetFeatureSurface.cs`, the hook in `MeshTetrahedralization.ComputeOnce`): after the wrap (uniform or local alpha) the feature pass runs on a copy of the raw wrap
+  (`AlphaWrapFeaturePass`, crease angle = the option; it changes nothing on an input without such creases, then the S1-R output is kept), and the surface is made **Delaunay conforming** in a fresh `Delaunay3` of its vertices:
+  (1) surface **edge flips** (an edge that is missing in the `Delaunay3` whose flipped edge is present, across a convex quad flat within 20 degrees (the new normals agree with both old ones), triangle angles kept above min(10 degrees, before)): the surface changes by at most a small fold, and the final exact check against the input (`Reducer.TrianglesTouch`) covers it;
+  they remove 95 to 100 % of the missing facets, which the first spike had not tried (the midpoint-split rule alone never converged within 40 x the vertex count, as 14.8 found);
+  (2) **Steiner points** for what is left: the midpoint of a missing edge, else the circumcentre of a missing triangle in its plane (the midpoint of its longest edge if that is not inside it), then flips again, up to 60 rounds, a budget of
+  100 + 0.25 x vertices points and the floor (no edge shorter than 2 floors is split); (3) the cells are labelled by a flood fill from the box corners that never crosses a surface triangle; the Refiner then runs as on S1-R (it keeps the surface fixed).
+  A finished recovery is checked by `NotCleanReason` (closed, manifold, no self-intersection) and exactly against the input (no contact); a recovery that does not finish gives the S1-R mesh and `Counts["crease_recovery_failed"]` = 1 (Status unchanged, no new `TetStatus`).
+  Counts with the option: `crease_recovered`, `crease_flips`, `crease_steiner`, `crease_missing_triangles` / `_edges`. Serial and deterministic; relative thresholds only, so 2^k scales give the same result bit for bit (tested).
+- **What it guarantees**: the output is valid (every tet exactly positive, closed boundary, no self-intersection, the input inside and not touched) or the S1-R output; the guarantees come from the feature pass (exact checks per move, 13) and the final check.
+  It does not guarantee the recovery (acute and re-entrant creases can exhaust the budget or the floor: protecting balls and weighted Delaunay would, 14.3, not built), and no dihedral bound at a crease (a tet at a crease is bounded by its angle).
+- **Result** (benchmarks/TetMeshBenchmark README, "Sharp creases"): 15 of 15 procedural sharp solids recovered (at most 22 Steiner points); concave creases 2.9 to 5.6 times closer (mean 6.3 to 22.4 -> 1.5 to 4.0 offsets; only 4 of the 15 solids have concave creases), convex creases unchanged (within one offset);
+  tets 0.99 to 1.14 times, time 1.2 to 2.2 times; 19 of 24 Thingi10K meshes recovered (two of the five fallbacks are the exact input-touch check catching a flip), there the gain is small (median 0.92 times the concave mean) at 4.2 times the time (max 15). The boundary slide takes none of it back.
+  The gate of the plan (recovery on at least 70 % of the solids, concave mean below 3 offsets) holds on the solids (15 of 15, 2.3 on average; the V-notch alone 4.0); on the Thingi meshes the concave mean has a median of about 3.6, so the gain there is modest.
+- **Mutation check** (manual, 9 mutants of the new code, one slot-test addition after the first round): flips off, flat test off, labelling ignoring the surface, floor ignored, budget ignored, angle not passed to the pass, failure count not set, circumcentre test removed: all killed;
+  survivor: the edge branch of the recovery round (edges first, then triangles) disabled, which only changes the order of the splits (a missing edge is also the edge of a missing triangle, whose longest-edge split reaches the same state on the tested inputs). Review (independent, 2026-11-19) findings fixed: flips need a convex quad and the result is checked against the input; the cancel is polled in the flip passes; numbers recomputed from the CSVs.
+- **Open**: protecting balls for a guaranteed recovery at acute creases; a pinned-vertex input for the improver (not needed: the slide takes nothing back); three-plane corners (the pass does not handle them: the crease ends keep the largest deviation, 5 to 11 offsets);
+  crease-local alpha (option 2 of the plan, 2.5 to 3 times the triangles, for slits narrower than what the pass reaches).
+
 ### 17.15 MaxDihedralDegrees (opt-in, 2026-11-19)
 
 Stage 2 can also work on the largest dihedral angle: `MaxDihedralDegrees` > 0 (default 0 = off, bit for bit as before) uses the quality

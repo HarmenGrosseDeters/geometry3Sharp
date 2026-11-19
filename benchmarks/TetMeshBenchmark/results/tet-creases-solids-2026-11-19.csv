@@ -1,0 +1,106 @@
+input,mode,status,tets,time_s,crease_dev_convex_max/mean_concave_max/mean_in_offsets,min_dihedral,p01_dihedral,surf_tris,missing_tris,missing_edges,extra
+cube,S1-R,Success,10814,1.14,0.814/0.534 NaN/NaN,10.01,11.76,5038,,,wrap_tris=5038 alpha/offset=15
+cube,wrap,,,,0.814/0.537 NaN/NaN,,,5038,,,
+cube,S1-F surface,,,0.213,1/0.912 NaN/NaN,,,5050,64,33,creases=24 snaps=288 splits=6 flips=26
+cube,S1-F + flips,,,,1/0.912 NaN/NaN,,,5050,0,0,flips=33
+cube,S1-F tets,Success,11021,0.722,1/0.908 NaN/NaN,10.02,11.48,5050,,,crease_recovered=1 crease_flips=33 crease_steiner=0 crease_missing_triangles=64 crease_missing_edges=33 fail= minInterior=90 dihMet=True NotValid=
+cube,S1-F noslide,Success,11021,,1/0.908 NaN/NaN,10.02
+cube,local alpha at creases,,,,0.814/0.539 NaN/NaN tris=7794 vs 5038 time_s=0.23,,,,,,
+box 3x2x1,S1-R,Success,8264,0.2805,0.783/0.43 NaN/NaN,10.02,11.98,4104,,,wrap_tris=4104 alpha/offset=15
+box 3x2x1,wrap,,,,0.783/0.43 NaN/NaN,,,4104,,,
+box 3x2x1,S1-F surface,,,0.1179,1/0.864 NaN/NaN,,,4120,66,34,creases=24 snaps=260 splits=8 flips=14
+box 3x2x1,S1-F + flips,,,,1/0.864 NaN/NaN,,,4120,0,0,flips=34
+box 3x2x1,S1-F tets,Success,8243,0.4415,1/0.853 NaN/NaN,10.01,11.69,4120,,,crease_recovered=1 crease_flips=34 crease_steiner=0 crease_missing_triangles=66 crease_missing_edges=34 fail= minInterior=90 dihMet=True NotValid=
+box 3x2x1,S1-F noslide,Success,8243,,1/0.853 NaN/NaN,10.01
+box 3x2x1,local alpha at creases,,,,0.805/0.461 NaN/NaN tris=6584 vs 4104 time_s=0.145,,,,,,
+wedge 60,S1-R,Success,7109,0.1882,0.759/0.463 NaN/NaN,10,11.81,3872,,,wrap_tris=3872 alpha/offset=15
+wedge 60,wrap,,,,0.759/0.463 NaN/NaN,,,3872,,,
+wedge 60,S1-F surface,,,0.06283,1/0.887 NaN/NaN,,,4124,152,80,creases=18 snaps=169 splits=126 flips=7
+wedge 60,S1-F + flips,,,,1/0.887 NaN/NaN,,,4124,5,3,flips=77
+wedge 60,S1-F tets,Success,7187,0.2585,1/0.873 NaN/NaN,10,11.62,4130,,,crease_recovered=1 crease_flips=80 crease_steiner=3 crease_missing_triangles=152 crease_missing_edges=80 fail= minInterior=60 dihMet=True NotValid=
+wedge 60,S1-F noslide,Success,7187,,1/0.873 NaN/NaN,10
+wedge 60,local alpha at creases,,,,0.779/0.467 NaN/NaN tris=5742 vs 3872 time_s=0.0942,,,,,,
+wedge 30,S1-R,Success,5877,0.1084,0.791/0.376 NaN/NaN,10.09,11.91,3328,,,wrap_tris=3328 alpha/offset=15
+wedge 30,wrap,,,,0.833/0.381 NaN/NaN,,,3328,,,
+wedge 30,S1-F surface,,,0.06234,1/0.883 NaN/NaN,,,3464,148,79,creases=18 snaps=194 splits=68 flips=10
+wedge 30,S1-F + flips,,,,1/0.883 NaN/NaN,,,3464,8,6,flips=73
+wedge 30,S1-F tets,Success,5863,0.2183,1/0.865 NaN/NaN,10.02,11.62,3484,,,crease_recovered=1 crease_flips=75 crease_steiner=10 crease_missing_triangles=148 crease_missing_edges=79 fail= minInterior=30 dihMet=True NotValid=
+wedge 30,S1-F noslide,Success,5863,,1/0.865 NaN/NaN,10.02
+wedge 30,local alpha at creases,,,,0.833/0.435 NaN/NaN tris=5044 vs 3328 time_s=0.0973,,,,,,
+wedge 20,S1-R,Success,6002,0.08602,0.748/0.407 NaN/NaN,10.02,11.63,3308,,,wrap_tris=3308 alpha/offset=15
+wedge 20,wrap,,,,0.767/0.415 NaN/NaN,,,3308,,,
+wedge 20,S1-F surface,,,0.07804,1/0.819 NaN/NaN,,,3338,68,35,creases=18 snaps=188 splits=15 flips=7
+wedge 20,S1-F + flips,,,,1/0.819 NaN/NaN,,,3338,0,0,flips=35
+wedge 20,S1-F tets,Success,5965,0.1403,1/0.801 NaN/NaN,10.03,11.47,3338,,,crease_recovered=1 crease_flips=35 crease_steiner=0 crease_missing_triangles=68 crease_missing_edges=35 fail= minInterior=20 dihMet=True NotValid=
+wedge 20,S1-F noslide,Success,5965,,1/0.801 NaN/NaN,10.03
+wedge 20,local alpha at creases,,,,0.784/0.463 NaN/NaN tris=4824 vs 3308 time_s=0.0999,,,,,,
+wedge 12,S1-R,Success,4610,0.1214,0.712/0.384 NaN/NaN,10.06,11.98,2836,,,wrap_tris=2828 alpha/offset=15
+wedge 12,wrap,,,,0.712/0.385 NaN/NaN,,,2828,,,
+wedge 12,S1-F surface,,,0.09914,1/0.796 NaN/NaN,,,2844,64,34,creases=18 snaps=142 splits=8 flips=13
+wedge 12,S1-F + flips,,,,1/0.796 NaN/NaN,,,2844,8,6,flips=28
+wedge 12,S1-F tets,Success,4692,0.1952,1/0.792 NaN/NaN,10.06,11.43,2878,,,crease_recovered=1 crease_flips=34 crease_steiner=14 crease_missing_triangles=64 crease_missing_edges=34 fail= minInterior=12 dihMet=True NotValid=
+wedge 12,S1-F noslide,Success,4696,,1/0.792 NaN/NaN,7.572
+wedge 12,local alpha at creases,,,,0.749/0.454 NaN/NaN tris=4472 vs 2828 time_s=0.0819,,,,,,
+box rotated,S1-R,Success,4485,0.06891,0.769/0.411 NaN/NaN,10.06,11.96,2108,,,wrap_tris=2108 alpha/offset=15
+box rotated,wrap,,,,0.804/0.413 NaN/NaN,,,2108,,,
+box rotated,S1-F surface,,,0.05085,1/0.881 NaN/NaN,,,2126,55,28,creases=24 snaps=189 splits=9 flips=9
+box rotated,S1-F + flips,,,,1/0.881 NaN/NaN,,,2126,2,1,flips=27
+box rotated,S1-F tets,Success,4713,0.1502,1/0.875 NaN/NaN,10.01,11.19,2130,,,crease_recovered=1 crease_flips=27 crease_steiner=1 crease_missing_triangles=55 crease_missing_edges=28 fail= minInterior=90 dihMet=True NotValid=
+box rotated,S1-F noslide,Success,4716,,1/0.875 NaN/NaN,10.01
+box rotated,local alpha at creases,,,,0.89/0.46 NaN/NaN tris=4246 vs 2108 time_s=0.0745,,,,,,
+box offset,S1-R,Success,8164,0.2373,0.718/0.424 NaN/NaN,10.03,11.87,4058,,,wrap_tris=4058 alpha/offset=15
+box offset,wrap,,,,0.745/0.425 NaN/NaN,,,4058,,,
+box offset,S1-F surface,,,0.08277,1/0.855 NaN/NaN,,,4074,64,35,creases=24 snaps=251 splits=8 flips=15
+box offset,S1-F + flips,,,,1/0.855 NaN/NaN,,,4074,0,0,flips=35
+box offset,S1-F tets,Success,8119,0.2981,1/0.847 NaN/NaN,10.03,11.68,4074,,,crease_recovered=1 crease_flips=35 crease_steiner=0 crease_missing_triangles=64 crease_missing_edges=35 fail= minInterior=90 dihMet=True NotValid=
+box offset,S1-F noslide,Success,8119,,1/0.847 NaN/NaN,10.03
+box offset,local alpha at creases,,,,0.767/0.475 NaN/NaN tris=6616 vs 4058 time_s=0.0933,,,,,,
+box x2^-10,S1-R,Success,8264,0.2473,0.783/0.43 NaN/NaN,10.02,11.98,4104,,,wrap_tris=4104 alpha/offset=15
+box x2^-10,wrap,,,,0.783/0.43 NaN/NaN,,,4104,,,
+box x2^-10,S1-F surface,,,0.09812,1/0.864 NaN/NaN,,,4120,66,34,creases=24 snaps=260 splits=8 flips=14
+box x2^-10,S1-F + flips,,,,1/0.864 NaN/NaN,,,4120,0,0,flips=34
+box x2^-10,S1-F tets,Success,8243,0.4335,1/0.853 NaN/NaN,10.01,11.69,4120,,,crease_recovered=1 crease_flips=34 crease_steiner=0 crease_missing_triangles=66 crease_missing_edges=34 fail= minInterior=90 dihMet=True NotValid=
+box x2^-10,S1-F noslide,Success,8243,,1/0.853 NaN/NaN,10.01
+box x2^-10,local alpha at creases,,,,0.805/0.461 NaN/NaN tris=6584 vs 4104 time_s=0.144,,,,,,
+box x2^10,S1-R,Success,8264,0.2288,0.783/0.43 NaN/NaN,10.02,11.98,4104,,,wrap_tris=4104 alpha/offset=15
+box x2^10,wrap,,,,0.783/0.43 NaN/NaN,,,4104,,,
+box x2^10,S1-F surface,,,0.1003,1/0.864 NaN/NaN,,,4120,66,34,creases=24 snaps=260 splits=8 flips=14
+box x2^10,S1-F + flips,,,,1/0.864 NaN/NaN,,,4120,0,0,flips=34
+box x2^10,S1-F tets,Success,8243,0.3068,1/0.853 NaN/NaN,10.01,11.69,4120,,,crease_recovered=1 crease_flips=34 crease_steiner=0 crease_missing_triangles=66 crease_missing_edges=34 fail= minInterior=90 dihMet=True NotValid=
+box x2^10,S1-F noslide,Success,8243,,1/0.853 NaN/NaN,10.01
+box x2^10,local alpha at creases,,,,0.805/0.461 NaN/NaN tris=6584 vs 4104 time_s=0.126,,,,,,
+lshape,S1-R,Success,7866,0.2343,0.999/0.47 11.6/6.7,10,11.69,3788,,,wrap_tris=3788 alpha/offset=15
+lshape,wrap,,,,0.999/0.473 11.6/6.7,,,3788,,,
+lshape,S1-F surface,,,0.07723,1/0.951 6.1/1.62,,,3818,87,44,creases=208 snaps=294 splits=15 flips=12
+lshape,S1-F + flips,,,,1/0.951 6.1/1.62,,,3818,4,2,flips=42
+lshape,S1-F tets,Success,8367,0.4165,1/0.949 6.1/1.61,10.04,11.26,3832,,,crease_recovered=1 crease_flips=42 crease_steiner=3 crease_missing_triangles=87 crease_missing_edges=44 fail= minInterior=90 dihMet=True NotValid=
+lshape,S1-F noslide,Success,8380,,1/0.949 6.1/1.62,10.04
+lshape,local alpha at creases,,,,0.988/0.543 5.23/3.73 tris=10278 vs 3788 time_s=0.404,,,,,,
+octant,S1-R,Success,11106,0.3041,0.999/0.526 14.3/6.3,10,11.76,5166,,,wrap_tris=5166 alpha/offset=15
+octant,wrap,,,,0.999/0.529 14.3/6.3,,,5166,,,
+octant,S1-F surface,,,0.1707,1/0.959 10.8/2.15,,,5212,137,71,creases=240 snaps=360 splits=23 flips=37
+octant,S1-F + flips,,,,1/0.959 10.8/2.15,,,5212,0,0,flips=71
+octant,S1-F tets,Success,11712,0.4967,1/0.953 10.8/2.15,10.02,11.43,5216,,,crease_recovered=1 crease_flips=71 crease_steiner=0 crease_missing_triangles=137 crease_missing_edges=71 fail= minInterior=90 dihMet=True NotValid=
+octant,S1-F noslide,Success,11712,,1/0.953 10.8/2.15,10.02
+octant,local alpha at creases,,,,0.994/0.554 8/3.44 tris=12996 vs 5166 time_s=0.592,,,,,,
+slot,S1-R,Success,9380,0.2635,0.999/0.457 13.7/7.53,10.02,11.72,4680,,,wrap_tris=4680 alpha/offset=15
+slot,wrap,,,,0.999/0.462 13.7/7.53,,,4680,,,
+slot,S1-F surface,,,0.1248,1/0.943 5.57/1.54,,,4782,140,73,creases=304 snaps=388 splits=51 flips=25
+slot,S1-F + flips,,,,1/0.943 5.57/1.54,,,4782,15,8,flips=65
+slot,S1-F tets,Success,10675,0.5804,1/0.936 5.57/1.54,10,11.59,4826,,,crease_recovered=1 crease_flips=82 crease_steiner=22 crease_missing_triangles=140 crease_missing_edges=73 fail= minInterior=90 dihMet=True NotValid=
+slot,S1-F noslide,Success,10675,,1/0.936 5.57/1.54,10
+slot,local alpha at creases,,,,1/0.537 5.54/3.39 tris=14012 vs 4680 time_s=0.645,,,,,,
+vnotch,S1-R,Success,9481,0.2547,1/0.489 31.1/22.4,10,11.46,4528,,,wrap_tris=4528 alpha/offset=15
+vnotch,wrap,,,,1/0.493 31.1/22.4,,,4528,,,
+vnotch,S1-F surface,,,0.09407,1/0.907 8.4/4.1,,,4542,111,58,creases=42 snaps=332 splits=7 flips=10
+vnotch,S1-F + flips,,,,1/0.907 8.4/4.1,,,4542,11,7,flips=51
+vnotch,S1-F tets,Success,9538,0.4664,1/0.901 8.4/3.97,10.02,11.5,4584,,,crease_recovered=1 crease_flips=62 crease_steiner=20 crease_missing_triangles=111 crease_missing_edges=58 fail= minInterior=90 dihMet=True NotValid=
+vnotch,S1-F noslide,Success,9535,,1/0.901 8.4/3.97,10.02
+vnotch,local alpha at creases,,,,1/0.5 35.1/21.9 tris=8460 vs 4528 time_s=0.191,,,,,,
+chamfer,S1-R,Success,7935,0.2921,0.917/0.51 NaN/NaN,10.01,11.78,3840,,,wrap_tris=3840 alpha/offset=15
+chamfer,wrap,,,,0.917/0.511 NaN/NaN,,,3840,,,
+chamfer,S1-F surface,,,0.1539,1/0.958 NaN/NaN,,,3844,82,41,creases=48 snaps=307 splits=2 flips=26
+chamfer,S1-F + flips,,,,1/0.958 NaN/NaN,,,3844,2,1,flips=40
+chamfer,S1-F tets,Success,8286,0.3461,1/0.956 NaN/NaN,10.01,11.71,3846,,,crease_recovered=1 crease_flips=40 crease_steiner=1 crease_missing_triangles=82 crease_missing_edges=41 fail= minInterior=90 dihMet=True NotValid=
+chamfer,S1-F noslide,Success,8286,,1/0.956 NaN/NaN,10.01
+chamfer,local alpha at creases,,,,0.925/0.54 NaN/NaN tris=7840 vs 3840 time_s=0.191,,,,,,
