@@ -160,3 +160,10 @@ estimate (1.8 on the torus at alpha / 2); at h = alpha the wrap's own tets domin
 | cylinder (unsized 3 733) | 5 188 | 9 819 | 22 990 | 64 261 | 174 664 | 4 487 | 5 825 | 7 615 | 9 803 |
 | torus (unsized 5 014) | 5 091 | 5 455 | 8 469 | 20 645 | 54 695 | 5 104 | 5 525 | 6 336 | 7 594 |
 
+### Local alpha (TET_MESHING.md section 17.13, 2026-11-19)
+
+`compare/run_local_alpha.sh <dll> <mesh dir> <out csv>` runs the 40-mesh subset (meshes fetched at run time, not kept; 120628 skipped as above 40 MB) with uniform alpha 40 / 80 / 160 and with the
+local alpha (`refine` with `G3_TET_DEV=<x>`: `MaxSurfaceDeviation` = diagonal / x, `G3_TET_LOCALPASSES=<n>`), and `compare/summarize_local_alpha.py` prints the medians. Rows:
+`results/tet-local-alpha-subset39-2026-11-19.csv`. Medians over 39 meshes (ratios per mesh against uniform /80): diagonal / 150 gives 0.52x the tets at 1.00x the input-to-boundary max distance and 1.06x the time;
+diagonal / 250 gives 0.68x the tets at 0.92x the distance and 1.30x the time; uniform /160 is 3.75x the tets at 0.70x the distance and 2.34x the time. All 39 valid, no self-intersection, every tet >= 10 degrees in every configuration.
+
