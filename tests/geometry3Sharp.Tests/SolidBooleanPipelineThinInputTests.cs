@@ -30,7 +30,8 @@ namespace geometry3Sharp.Tests
 
         static SolidBooleanPipeline Run(ExactMeshBoolean.Operations op, SolidBooleanPipeline.ThinInputModes mode, params DMesh3[] inputs)
         {
-            var p = new SolidBooleanPipeline(inputs, op) { MinThickness = 0.05, ThinInputs = mode };
+            // (AutoRepair: some cases have open inputs; the default refuses them)
+            var p = new SolidBooleanPipeline(inputs, op) { MinThickness = 0.05, ThinInputs = mode, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
             p.Compute();
             return p;
         }

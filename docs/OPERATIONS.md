@@ -191,9 +191,11 @@ else
 ```
 
 Per input it runs `ExactMeshBoolean.IsWindingClosed` (a soup of a closed solid is closed: copies of a vertex count as one).
-Only an input that fails it, and that the boolean then refuses as open, is repaired, on a copy, with `MeshAutoRepair`
-(`InputRepair = AutoRepairThenRobust` adds `MeshRobustRepair` as the fallback, which may solidify or wrap; `Refuse` repairs
-nothing and fails with `OpenInput`); `Report.RepairedInputs` names each repaired input and the method. The boolean runs with
+An input that fails it, and that the boolean then refuses as open, fails the run with `OpenInput` by default
+(`InputRepair = Refuse`): a missing face is missing information. On request it is repaired on a copy: `AutoRepair` with
+`MeshAutoRepair` (only for solids with small holes: an open cutting surface used as a tool is closed to a surface that
+encloses almost nothing, and the cut then removes almost nothing with `Success`, #1211), `AutoRepairThenRobust` adds
+`MeshRobustRepair` as the fallback, which may solidify or wrap; `Report.RepairedInputs` names each repaired input and the method. The boolean runs with
 `AllowOpenMeshes = false` and `StrictRounding = true` (`ConfigureBoolean` runs before these are set). The reduction takes one
 of `TargetTriangleCount`, `TargetFraction` (of the boolean result), `MinEdgeLength` or `MaxQuadricError`, with
 `PreventSelfIntersections` on, an optional certified `MaxDeviation`, and `MinTriangleQuality = 0.02` (without it the
