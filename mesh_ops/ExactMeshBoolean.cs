@@ -59,6 +59,13 @@ namespace g3
     /// on the open Thingi10K cohort of docs/design/LEVY_CLASSIFICATION.md (21 models, 63 operations) that costs 4.3
     /// times the total time of the per-patch evaluation (classification 18 times; up to 10 times on single
     /// operations, about 100 s). Closed inputs are not affected.
+    /// Roles: an input can be given the role Sheet (Roles): an open, oriented cutting surface that is the tool of a Difference. Its
+    /// normals point away from the part that is cut off: the cells of the first mesh (closed) that the sheet divides are labelled
+    /// from the sheet pieces around them, front 0 (kept) and back 1 (inside the tool), exactly; where that is not possible (a free
+    /// edge of the sheet inside the first mesh, a cell on both sides of the sheet, a part of the first mesh that the sheet does not
+    /// touch, a sheet that is not an oriented manifold surface, a Union or Intersection) Compute() fails with Status SheetRefused and
+    /// SheetReason, and nothing is guessed or repaired. The part of the first mesh that the sheet does not touch is handled by
+    /// SheetUncutSide where the first mesh has one shell; with several, the nesting of the shells would be needed and the sheet is refused.
     /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
     /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
     /// acceptable and very broken input (triangle soups) must give a closed mesh.
@@ -1543,6 +1550,11 @@ namespace g3
                 }
                 wb[i] = b;
             }
+            ExactMeshCells.Labelling bestLab = null;
+            int bestPriority = 0, bestSheet = 0;
+            List<int> bestPiece = null;
+            List<Index3i> bestTris = null;
+            ExactMeshCells bestCells = null;
             for (int s = 1; s < nm; ++s) {
                 if (sheetRole[s] == false)
                     continue;
@@ -1601,38 +1613,15 @@ namespace g3
                 Counts["sheet_pieces"] = count;
                 Counts["sheet_cells"] = cells.CellCount;
                 if (lab.Reason != SheetRefusal.None) {
-                    SheetReason = lab.Reason;
-                    SheetWitnessMesh = s;
-                    SheetConflictingCells = lab.ConflictingCells;
-                    SheetUncutCells = lab.UncutCells;
-                    ExactMeshArrangement.OutputTriangle w = output[piece[lab.Piece]];
-                    switch (lab.Reason) {
-                        case SheetRefusal.RimInsideWorkpiece: {
-                            Index3i t = tris[lab.Piece];
-                            int e = lab.Corner;
-                            int u = e == 0 ? t.a : e == 1 ? t.b : t.c;
-                            SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
-                            SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
-                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
-                                SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
-                            break;
-                        }
-                        case SheetRefusal.SidesInconsistent:
-                            SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
-                            SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
-                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
-                                lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
-                            break;
-                        default:
-                            SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
-                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
-                                lab.UncutCells, s, SheetUncutSide, cells.ShellCount, SheetWitnessTriangle);
-                            break;
+                    // (the refusal that names the sheet's own fault first: a free edge, then the two marks, then an unmarked part; a part that is
+                    // unmarked in one sheet's pass may be another sheet's patch with a free edge, which its own pass names)
+                    int priority = lab.Reason == SheetRefusal.RimInsideWorkpiece ? 0 : lab.Reason == SheetRefusal.SidesInconsistent ? 1 : 2;
+                    if (bestLab == null || priority < bestPriority) {
+                        bestLab = lab; bestPriority = priority; bestSheet = s; bestPiece = piece; bestTris = tris; bestCells = cells;
                     }
-                    return;
+                    if (priority == 0)
+                        break;
+                    continue;
                 }
                 front[s] = new sbyte[n];
                 back[s] = new sbyte[n];
@@ -1640,6 +1629,42 @@ namespace g3
                     front[s][piece[k]] = lab.Label[2 * k];
                     back[s][piece[k]] = lab.Label[2 * k + 1];
                 }
+            }
+            if (bestLab != null) {
+                ExactMeshCells.Labelling lab = bestLab;
+                int s = bestSheet;
+                SheetReason = lab.Reason;
+                SheetWitnessMesh = s;
+                SheetConflictingCells = lab.ConflictingCells;
+                SheetUncutCells = lab.UncutCells;
+                ExactMeshArrangement.OutputTriangle w = output[bestPiece[lab.Piece]];
+                switch (lab.Reason) {
+                    case SheetRefusal.RimInsideWorkpiece: {
+                        Index3i t = bestTris[lab.Piece];
+                        int e = lab.Corner;
+                        int u = e == 0 ? t.a : e == 1 ? t.b : t.c;
+                        SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
+                        SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
+                        SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
+                            SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
+                        break;
+                    }
+                    case SheetRefusal.SidesInconsistent:
+                        SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
+                        SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
+                        SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
+                            lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                        break;
+                    default:
+                        SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
+                        SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
+                            lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle);
+                        break;
+                }
+
             }
         }
 

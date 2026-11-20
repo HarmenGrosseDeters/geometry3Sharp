@@ -745,5 +745,63 @@ namespace geometry3Sharp.Tests
             ResultChecks.AssertClosed(op.Result);
             Assert.Equal(0.75 * 0.75 * 1.0, Volume(op.Result), 12);
         }
+
+        [Fact]
+        public void ClosedToolTouchingTheSheetAlongAnEdge_ItsInsideIsInTheCellOfItsOutside()
+        {
+            // a triangular prism (an edge on the plate z = 0.25, the apex above) inside the upper half: around the edge the tool's inside is a wedge that no
+            // piece of the sheet bounds, it is the tool's pieces that join it to the cell; the prism leaves 0.75 - 0.125 * 0.5
+            var s = new Soup();
+            Func<double, double, double, Vector3d> P = (x, y, z) => new Vector3d(x, y, z);
+            Vector3d a0 = P(0.25, 0.5, 0.25), b0 = P(0.25, 0.75, 0.75), c0 = P(0.25, 0.25, 0.75);
+            Vector3d a1 = P(0.75, 0.5, 0.25), b1 = P(0.75, 0.75, 0.75), c1 = P(0.75, 0.25, 0.75);
+            s.Tri(a0, c0, b0);                       // x = 0.25 (normal -x)
+            s.Tri(a1, b1, c1);                       // x = 0.75
+            s.Quad(a0, b0, b1, a1);                  // the side towards +y
+            s.Quad(a0, a1, c1, c0);                  // the side towards -y
+            s.Quad(c0, c1, b1, b0);                  // the top
+            Assert.True(Volume(s.Mesh) > 0, "the prism is a solid");
+            var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Plate(0.25, -1, 2, -1, 2), s.Mesh }, Ops.Difference) {
+                Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Solid }
+            };
+            Assert.True(op.Compute(), op.SheetReason + " " + op.Error);
+            ResultChecks.AssertClosed(op.Result);
+            Assert.Equal(0.75 - Volume(s.Mesh), Volume(op.Result), 12);
+        }
+
+        [Fact]
+        public void TwoSheets_TheSecondOnesRimIsInside_TheWitnessNamesTheSecond()
+        {
+            // the first sheet separates the cube; the second is a patch inside it, with a free edge all around: its own pass refuses, the first sees its pieces as no wall
+            var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Plate(0.25, -1, 2, -1, 2), Plate(0.75, 0.25, 0.75, 0.25, 0.75) }, Ops.Difference) {
+                Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.False(op.Compute());
+            AssertRefused(op, Refusal.RimInsideWorkpiece, "second sheet");
+            Assert.Equal(2, op.SheetWitnessMesh);
+        }
+
+        [Fact]
+        public void SheetPartlyInThePlaneOfAFace_TheRimOnTheSurface_LabelsTheCellByContact()
+        {
+            // the plate z = 1 over x in [0.5, 2] touches the top face of the cube on a part of it, its rim (x = 0.5) runs on the face: a contact only
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            ExactMeshBoolean up = Run(cube, Plate(1, 0.5, 2, -1, 2, true));
+            Assert.True(up.Status == Status.Success, up.SheetReason + " " + up.Error);
+            Assert.Equal(0.0, Volume(up.Result), 12);
+            Cut(cube, Plate(1, 0.5, 2, -1, 2, false), 1, "partial contact, outside the tool");
+        }
+
+        [Fact]
+        public void WorkpieceWithAFaceSharedByTwoOfItsShells_IsNoWall()
+        {
+            // two cubes of one mesh that share the face x = 1 (two coincident triangles of opposite orientation: a stack with winding 1 on both sides):
+            // the plate z = 0.5 leaves the two upper halves, 1 in all, and the shared face is no wall of the cells
+            DMesh3 two = TwoCubes(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0));
+            ExactMeshBoolean op = Run(two, Plate(0.5, -1, 3, -1, 2));
+            Assert.True(op.Status == Status.Success, op.SheetReason + " " + op.Error);
+            ResultChecks.AssertClosed(op.Result);
+            Assert.Equal(1.0, Volume(op.Result), 12);
+        }
     }
 }

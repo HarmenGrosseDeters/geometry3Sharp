@@ -14,9 +14,10 @@ namespace g3
     /// of the included pieces the pieces are taken in their exact radial order; the wedge between two neighbours p, q
     /// (q after p) is seen from the side of p that looks to increasing angles (the front if p runs Low to High, else the back)
     /// and from the side of q that looks to decreasing angles (the back if q runs Low to High, else the front): these two
-    /// nodes are one local cell. With one piece at an edge (a free edge) its front and its back are joined, with two pieces no
-    /// sort is needed (both wedges follow from the directions alone). Within a piece the sides are continuous, so a piece
-    /// needs no more than its two nodes.
+    /// nodes are one local cell. With two pieces no
+    /// sort is needed (both wedges follow from the directions alone). An edge with a single piece (a free edge) has no wedge:
+    /// the edge is reported (<see cref="FreeEdges"/>) and <see cref="Label"/> refuses it, so no cell is derived from it. Within a piece the
+    /// sides are continuous, so a piece needs no more than its two nodes.
     ///
     /// A local cell is one connected region of the workpiece's interior that the included pieces bound; two local cells that
     /// lie in one cell (a cavity inside a cell, another shell inside a cell) are not recognized as one: that needs the nesting
@@ -32,7 +33,8 @@ namespace g3
         /// <summary> the shell (connected set of the pieces flagged as boundary of the workpiece, across shared edges) of each piece flagged so, else -1 </summary>
         public int[] Shell;
         public int ShellCount;
-        bool[] Transparent, Boundary;
+        /// <summary> the flags that Build was given (per piece): no wall, and a piece of the workpiece's boundary </summary>
+        internal bool[] Transparent, Boundary;
 
         static int corner(Index3i t, int e)
         {
@@ -126,9 +128,9 @@ namespace g3
                     }
                 }
                 if (n == 1) {
+                    // (a free edge has no wedge to join: it is reported, and Label refuses it before it looks at any cell)
                     if (transparent[p0] == false)
                         cells.FreeEdges.Add(new KeyValuePair<int, int>(p0, e0));
-                    union(parent, 2 * p0, 2 * p0 + 1);
                     continue;
                 }
                 if (n == 2) {
