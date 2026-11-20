@@ -370,6 +370,8 @@ namespace g3cli
                 // (set by a successful Compute only: null after a failure, where the library stopped before it counted them)
                 ["contacts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.Contacts : (JsonNode)null,
                 ["reoriented_triangles"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.ReorientedTriangles : (JsonNode)null,
+                // (only with count_inside_out)
+                ["inside_out_cells"] = op.Status == ExactMeshBoolean.BooleanStatus.Success && op.CountInsideOutCells ? op.InsideOutCells : (JsonNode)null,
                 ["counts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? CountsInfo(op.Counts) : null,
             };
         }
@@ -537,7 +539,8 @@ namespace g3cli
             c.Params.Add(new Param("more", ParamType.String, "further input mesh files, separated by ';' (all inputs in one operation, in the order a, b, these)"));
             c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
             c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
-            c.Params.Add(new Param("orientation", ParamType.String, "a closed input with inconsistently oriented faces: refuse (fail with operation_failed, boolean_status inconsistent_orientation) or area_majority (orient each component by its larger part by area, as before)") { Default = "refuse", Enum = new[] { "refuse", "area_majority" } });
+            c.Params.Add(new Param("orientation", ParamType.String, "a closed input with inconsistently oriented faces: refuse (fail with operation_failed, boolean_status inconsistent_orientation) or area_majority (orient each component by its larger part by area, as before) or by_nesting (an input that is closed modulo 2 and embedded is oriented by the parity of the crossings of one exact ray per component: the solid is what the surface encloses; fails with boolean_status self_intersecting_inconsistent if it self-intersects and is inconsistently oriented)") { Default = "refuse", Enum = new[] { "refuse", "area_majority", "by_nesting" } });
+            c.Params.Add(new Param("count_inside_out", ParamType.Boolean, "count the closed components of the inputs that are inside-out (boolean.inside_out_cells; up to about 10 percent of a boolean of 800k-triangle inputs, off: free)") { Default = false });
             c.Params.Add(SafeRounding());
             AddRoundingTolerances(c);
             c.Params.Add(SimplifyFlatRegions());
@@ -575,7 +578,9 @@ namespace g3cli
                     op = (meshes.Count == 2) ? new ExactMeshBoolean(meshes[0], meshes[1], ops[opName]) : new ExactMeshBoolean(meshes, ops[opName]);
                 }
                 op.AllowOpenMeshes = args.Bool("allow_open");
-                op.Orientation = args.String("orientation") == "area_majority" ? ExactMeshBoolean.OrientationModes.AreaMajority : ExactMeshBoolean.OrientationModes.Refuse;
+                string orientation = args.String("orientation");
+                op.Orientation = orientation == "area_majority" ? ExactMeshBoolean.OrientationModes.AreaMajority : orientation == "by_nesting" ? ExactMeshBoolean.OrientationModes.ByNesting : ExactMeshBoolean.OrientationModes.Refuse;
+                op.CountInsideOutCells = args.Bool("count_inside_out");
                 op.SafeRounding = args.Bool("safe_rounding");
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
