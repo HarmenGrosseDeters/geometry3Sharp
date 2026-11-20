@@ -419,6 +419,12 @@ within the tolerance of the result, so the two-sided Hausdorff distance is at mo
 the one-sided check, a few more triangles ([BOUNDED_SIMPLIFICATION.md](design/BOUNDED_SIMPLIFICATION.md)). It applies to
 `FastCollapsePass` too, and refuses (InvalidOperationException) a projection after the reduction, an explicit `SetDeviationReference`
 and a mesh changed outside the Reducer between reductions.
+`Reducer.FastCollapseEndpointFallback` (opt-in, `FastCollapsePass` only; off by default, the result is then bit for bit the old pass)
+retries an edge whose midpoint collapse was refused (flip / fold-over, `MaxDeviation`, `MaxDeviationTwoSided`,
+`PreventSelfIntersections`) as a collapse onto its sharper end (the larger angle defect, so a spike's tip stays where it is); all
+checks and constraints apply to the end position, so the certified bounds still hold. It reaches 9 to 70 % fewer triangles on the
+benchmark meshes (9 to 45 % at 0.003 of the diagonal, 15 to 70 % at 0.01), for 1.2 to 2.1x the time (median
+1.5x); see the benchmark README, "Endpoint fallback".
 
 `Reducer.ReduceToMaxQuadricError(maxError)` keeps float queue ordering, but checks the actual collapse position's
 quadric error in double precision after constraint/inline projection adjustments. Errors equal to the budget
