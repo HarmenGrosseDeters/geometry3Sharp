@@ -77,6 +77,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyEarClipTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshGeodesicDistanceTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactMeshCellsTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshImprintTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshImprintSliver*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImprintAssemblyTests.cs'
