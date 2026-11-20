@@ -5655,7 +5655,7 @@ namespace g3
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
         // triangle with the next one around the edge on its back (solid) side, which runs the other way
         [MethodImpl(JitHints.Optimize)]
-        List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
+        internal List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
         {
             var pairs = new List<KeyValuePair<int, int>>();
             if (list.Count < 2)
@@ -5664,10 +5664,61 @@ namespace g3
                 pairs.Add(new KeyValuePair<int, int>(list[0], list[1]));
                 return pairs;
             }
-            // the triangles' half-planes in the order of increasing angle around the axis u -> v (exact: half-planes
-            // can differ by less than the rounding of the points), from the half-plane of the first triangle
-            // the axis from the smaller point to the larger one by ComparePoints, not by id (ids depend on the thread
-            // schedule; the order of equal half-planes, by triangle, would not reverse with the axis)
+            RadialOrder order = radial_order(arr, tris, list, u, v, false);
+            // a triangle running u -> v has its normal towards increasing angle: its solid is at decreasing angle
+            // (Direction is relative to the axis from the smaller to the larger point; the pairs do not depend on which end is u)
+            var used = new HashSet<int>();
+            int n = order.Pieces.Length;
+            for (int k = 0; k < n; ++k) {
+                int t = order.Pieces[k];
+                if (order.Direction[k] <= 0 || used.Contains(t))
+                    continue;
+                int prev = (k - 1 + n) % n;
+                int next = order.Pieces[prev];
+                if (order.Direction[prev] < 0 && used.Contains(next) == false) {
+                    pairs.Add(new KeyValuePair<int, int>(t, next));
+                    used.Add(t); used.Add(next);
+                }
+            }
+            return pairs;
+        }
+
+        /// <summary>
+        /// The exact cyclic order of pieces around an edge, from <see cref="radial_order"/>.
+        /// </summary>
+        internal sealed class RadialOrder
+        {
+            /// <summary> the point ids of the axis, Low smaller than High by <see cref="ExactMeshArrangement.ComparePoints"/> (not by id) </summary>
+            public int Low, High;
+            /// <summary> the pieces (the triangle ids of the input list) in the order of increasing angle around the axis Low -> High; the
+            /// first angle is the half-plane of the first piece of the input list (the piece at position 0 if no other piece of the list
+            /// lies in that half-plane with a smaller id; the input list is expected in ascending order of ids, as the assembly gives it) </summary>
+            public int[] Pieces;
+            /// <summary> per position: 1 if the piece runs Low -> High, -1 if it runs High -> Low (the piece's solid is then at the
+            /// decreasing, respectively increasing, angle side: a piece running Low -> High has its normal towards increasing angle) </summary>
+            public int[] Direction;
+            /// <summary> per position k, only if asked for: true if the piece at k lies in the same half-plane as the piece at k - 1
+            /// (never at 0, never across the wrap-around; such pieces are ordered by id); null if not asked for </summary>
+            public bool[] SameHalfPlane;
+        }
+
+        /// <summary>
+        /// The pieces (triangles that have the edge u, v as a side) sorted by their exact angle around the axis of the edge. Exact:
+        /// half-planes can differ by less than the rounding of the points; a half-plane class (0: the first piece's half-plane,
+        /// 1: angle in (0, pi), 2: pi, 3: (pi, 2 pi)) by the signs of two exact dot products, pieces of one open class by the
+        /// sign of a cross product, pieces of one half-plane (angle equal, also for coincident ones) by the triangle id. No error
+        /// bound and no floating-point decision; the same signs the assembly's pairing uses.
+        /// </summary>
+        /// <param name="arr">the arrangement whose points the ids in <paramref name="tris"/> name</param>
+        /// <param name="tris">the pieces by id: three point ids per piece, wound as the piece; every piece in <paramref name="list"/> has u and v among them</param>
+        /// <param name="list">the ids of the pieces at the edge, no duplicates (any number: for one or two pieces the result is the same
+        /// computation, so a caller that needs no order for them skips the call and saves the exact points); the first one is the reference of angle 0</param>
+        /// <param name="u">one end of the edge; the order does not depend on which one is u and which is v (the axis goes from the smaller point to the larger one by ComparePoints, not by id: ids depend on the thread schedule)</param>
+        /// <param name="v">the other end</param>
+        /// <param name="reportTies">fill <see cref="RadialOrder.SameHalfPlane"/> (one more sign per neighbouring pair in an open class); the result order is the same either way</param>
+        /// <returns>the order, increasing angle seen as the right-hand turn around Low -> High; pieces in one half-plane are neighbours in the order of ascending id</returns>
+        internal static RadialOrder radial_order(ExactMeshArrangement arr, List<Index3i> tris, List<int> list, int u, int v, bool reportTies)
+        {
             if (arr.ComparePoints(u, v) > 0) { int tmp = u; u = v; v = tmp; }
             ExactPoint3 U = arr.Exact(u), V = arr.Exact(v);
             BigInteger[] axis = scaled_difference(V, U);
@@ -5686,27 +5737,28 @@ namespace g3
                 int s = dot(y, d).Sign;
                 half[t] = (s > 0) ? 1 : (s < 0) ? 3 : (dot(cross(axis, d), y).Sign > 0) ? 0 : 2;
             }
-            var sorted = new List<int>(list);
-            sorted.Sort((a, b) => {
+            // the order of a and b without the final tie by id
+            Func<int, int, int> angle_compare = (a, b) => {
                 int c = half[a].CompareTo(half[b]);
                 if (c == 0 && (half[a] & 1) == 1)
                     c = -dot(cross(axis, dir[a]), dir[b]).Sign;      // b at a larger angle than a: positive
+                return c;
+            };
+            var sorted = new List<int>(list);
+            sorted.Sort((a, b) => {
+                int c = angle_compare(a, b);
                 return (c != 0) ? c : a.CompareTo(b);
             });
-            // a triangle running u -> v has its normal towards increasing angle: its solid is at decreasing angle
-            var used = new HashSet<int>();
             int n = sorted.Count;
-            for (int k = 0; k < n; ++k) {
-                int t = sorted[k];
-                if (runs(tris[t], u, v) == false || used.Contains(t))
-                    continue;
-                int next = sorted[(k - 1 + n) % n];
-                if (runs(tris[next], v, u) && used.Contains(next) == false) {
-                    pairs.Add(new KeyValuePair<int, int>(t, next));
-                    used.Add(t); used.Add(next);
-                }
+            var order = new RadialOrder { Low = u, High = v, Pieces = sorted.ToArray(), Direction = new int[n] };
+            for (int k = 0; k < n; ++k)
+                order.Direction[k] = runs(tris[sorted[k]], u, v) ? 1 : runs(tris[sorted[k]], v, u) ? -1 : 0;
+            if (reportTies) {
+                order.SameHalfPlane = new bool[n];
+                for (int k = 1; k < n; ++k)
+                    order.SameHalfPlane[k] = angle_compare(sorted[k - 1], sorted[k]) == 0;
             }
-            return pairs;
+            return order;
         }
 
         // p - q times the positive factor p.W q.W
