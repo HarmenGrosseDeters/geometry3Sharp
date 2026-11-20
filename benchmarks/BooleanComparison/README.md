@@ -37,7 +37,7 @@ checks the checkout, the objects and the library symbols for them; the binary is
 | name | implementation | license | threads |
 |---|---|---|---|
 | `ours` | `ExactMeshBoolean` (this library) | Boost | parallel |
-| `pipeline` | `SolidBooleanPipeline` (this library) with its defaults: input checks and repair of open inputs, `ExactMeshBoolean`, the reduction, the final check (`run-pipeline <A> <B> <op> <out> default`) | Boost | parallel |
+| `pipeline` | `SolidBooleanPipeline` (this library) with its defaults: input checks (an open input follows the pipeline's `InputRepair`, which refuses it by default from #1212 on), `ExactMeshBoolean`, the reduction, the final check (`run-pipeline <A> <B> <op> <out> default`) | Boost | parallel |
 | `pipeline_cad` | the same with the settings for faceted CAD inputs: `InputGrid` = 2^(floor(log2(largest box dimension of the inputs)) - 20), an exact snap of the inputs relative to the model size (`run-pipeline ... cad`) | Boost | parallel |
 | `cgal_epick` | CGAL Polygon Mesh Processing corefinement, inexact constructions | GPL | 1 |
 | `cgal_epeck` | the same with exact constructions | GPL | 1 |
