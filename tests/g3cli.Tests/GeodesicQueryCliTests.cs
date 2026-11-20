@@ -297,7 +297,7 @@ namespace g3cli.Tests
         public void Query3d_ResultsDoNotDependOnOrderOrParallel()
         {
             var rnd = new Random(7);
-            var rays = Enumerable.Range(0, 2500).Select(_ => $"{rnd.NextDouble() * 6 - 3},{rnd.NextDouble() * 6 - 3},-5,{rnd.NextDouble() - 0.5},{rnd.NextDouble() - 0.5},1").ToList();
+            var rays = Enumerable.Range(0, 2500).Select(_ => FormattableString.Invariant($"{rnd.NextDouble() * 6 - 3},{rnd.NextDouble() * 6 - 3},-5,{rnd.NextDouble() - 0.5},{rnd.NextDouble() - 0.5},1")).ToList();   // (invariant: the CLI reads a dot; a comma culture broke the list)
             JsonArray Results(System.Collections.Generic.IEnumerable<string> list, params string[] more) =>
                 Run(new[] { "query3d", m.Sphere, "--rays", string.Join(";", list), "--max-results", "5000", "--compact" }.Concat(more).ToArray()).result["rays"]["results"].AsArray();
             var a = Results(rays);
@@ -310,7 +310,7 @@ namespace g3cli.Tests
             Assert.Contains(a, x => x["triangle"] == null);
 
             // points: nearest and inside, 2500 (above the batch's sort and block size)
-            var pts = Enumerable.Range(0, 2500).Select(_ => $"{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2}").ToList();
+            var pts = Enumerable.Range(0, 2500).Select(_ => FormattableString.Invariant($"{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2}")).ToList();
             JsonArray PointResults(System.Collections.Generic.IEnumerable<string> list, params string[] more) =>
                 Run(new[] { "query3d", m.Sphere, "--points", string.Join(";", list), "--nearest", "--inside", "winding_number", "--max-results", "5000", "--compact" }.Concat(more).ToArray()).result["points"]["results"].AsArray();
             var pa = PointResults(pts);

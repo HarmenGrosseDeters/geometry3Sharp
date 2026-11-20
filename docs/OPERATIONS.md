@@ -191,9 +191,11 @@ else
 ```
 
 Per input it runs `ExactMeshBoolean.IsWindingClosed` (a soup of a closed solid is closed: copies of a vertex count as one).
-Only an input that fails it, and that the boolean then refuses as open, is repaired, on a copy, with `MeshAutoRepair`
-(`InputRepair = AutoRepairThenRobust` adds `MeshRobustRepair` as the fallback, which may solidify or wrap; `Refuse` repairs
-nothing and fails with `OpenInput`); `Report.RepairedInputs` names each repaired input and the method. The boolean runs with
+An input that fails it, and that the boolean then refuses as open, fails the run with `OpenInput` by default
+(`InputRepair = Refuse`): a missing face is missing information. On request it is repaired on a copy: `AutoRepair` with
+`MeshAutoRepair` (only for solids with small holes: an open cutting surface used as a tool is closed to a surface that
+encloses almost nothing, and the cut then removes almost nothing with `Success`, #1211), `AutoRepairThenRobust` adds
+`MeshRobustRepair` as the fallback, which may solidify or wrap; `Report.RepairedInputs` names each repaired input and the method. The boolean runs with
 `AllowOpenMeshes = false` and `StrictRounding = true` (`ConfigureBoolean` runs before these are set). The reduction takes one
 of `TargetTriangleCount`, `TargetFraction` (of the boolean result), `MinEdgeLength` or `MaxQuadricError`, with
 `PreventSelfIntersections` on, an optional certified `MaxDeviation`, and `MinTriangleQuality = 0.02` (without it the
@@ -419,6 +421,12 @@ within the tolerance of the result, so the two-sided Hausdorff distance is at mo
 the one-sided check, a few more triangles ([BOUNDED_SIMPLIFICATION.md](design/BOUNDED_SIMPLIFICATION.md)). It applies to
 `FastCollapsePass` too, and refuses (InvalidOperationException) a projection after the reduction, an explicit `SetDeviationReference`
 and a mesh changed outside the Reducer between reductions.
+`Reducer.FastCollapseEndpointFallback` (opt-in, `FastCollapsePass` only; off by default, the result is then bit for bit the old pass)
+retries an edge whose midpoint collapse was refused (flip / fold-over, `MaxDeviation`, `MaxDeviationTwoSided`,
+`PreventSelfIntersections`) as a collapse onto its sharper end (the larger angle defect, so a spike's tip stays where it is); all
+checks and constraints apply to the end position, so the certified bounds still hold. It reaches 9 to 70 % fewer triangles on the
+benchmark meshes (9 to 45 % at 0.003 of the diagonal, 15 to 70 % at 0.01), for 1.2 to 2.1x the time (median
+1.5x); see the benchmark README, "Endpoint fallback".
 
 `Reducer.ReduceToMaxQuadricError(maxError)` keeps float queue ordering, but checks the actual collapse position's
 quadric error in double precision after constraint/inline projection adjustments. Errors equal to the budget

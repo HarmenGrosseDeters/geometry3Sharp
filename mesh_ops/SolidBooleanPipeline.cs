@@ -174,12 +174,13 @@ namespace gs
     /// them:
     /// <list type="number">
     /// <item><description>Every input is checked with ExactMeshBoolean.IsWindingClosed (cheap; unwelded copies of a vertex count as one,
-    /// so an STL-like soup of a closed solid is closed). Only if an input fails and the boolean refuses it as open (an
-    /// input that is closed once its flipped triangles agree is not open: the boolean refuses it with
-    /// InconsistentOrientation by default, see Orientation) is that input repaired, on a copy, with the cheapest repair that makes it closed:
-    /// MeshAutoRepair, and only with InputRepair = AutoRepairThenRobust, MeshRobustRepair (which can resolve, solidify or
-    /// wrap, so it changes the geometry more) as the fallback. RepairedInputs of the report names each repaired input and
-    /// the method. With InputRepair = Refuse an open input fails the run with Status OpenInput.</description></item>
+    /// so an STL-like soup of a closed solid is closed). An input that fails and that the boolean refuses as open fails the
+    /// run with Status OpenInput by default (InputRepair = Refuse): a missing face is missing information, and no repair
+    /// knows what the input means (a solid with a hole, or an open cutting surface). An input that is closed once its
+    /// flipped triangles agree is not open: the boolean refuses it with InconsistentOrientation by default (see
+    /// Orientation). Only on request is an open input repaired, on a copy: with InputRepair = AutoRepair by MeshAutoRepair,
+    /// with AutoRepairThenRobust also by MeshRobustRepair (which can resolve, solidify or wrap, so it changes the geometry
+    /// more) as the fallback. RepairedInputs of the report names each repaired input and the method.</description></item>
     /// <item><description>ExactMeshBoolean of all inputs (Union, Intersection or Difference: first minus the others), with AllowOpenMeshes = false and
     /// StrictRounding = true (ConfigureBoolean runs before these two are forced): the result is exact up to the
     /// rounding of the new vertices, within the relative bound of StrictRounding, or the run fails with BooleanFailed. One
@@ -205,9 +206,15 @@ namespace gs
         /// <summary> what happens to an input that is not closed in the winding number sense </summary>
         public enum InputRepairModes
         {
-            /// <summary> no repair: Compute() fails with Status OpenInput </summary>
+            /// <summary> no repair: Compute() fails with Status OpenInput (default) </summary>
             Refuse = 0,
-            /// <summary> MeshAutoRepair on a copy of the input (default) </summary>
+            /// <summary>
+            /// MeshAutoRepair on a copy of the input. It fills holes by its own rules, without knowing the other inputs or what
+            /// the open input means. For a solid with a small hole that is usually right; for an open cutting surface (a sheet
+            /// used as the tool of a Difference) it is about never where the missing face was: the closed copy can enclose
+            /// almost nothing, and the cut then removes almost nothing, with Status Success and a clean report (#1211). Use
+            /// it only for inputs known to be solids with small holes
+            /// </summary>
             AutoRepair = 1,
             /// <summary> MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry can change) </summary>
             AutoRepairThenRobust = 2
@@ -290,8 +297,8 @@ namespace gs
         /// <summary> Difference is the first input minus all others, see ExactMeshBoolean.Operations </summary>
         public ExactMeshBoolean.Operations Operation;
 
-        /// <summary> what to do with an input that is not closed (default AutoRepair) </summary>
-        public InputRepairModes InputRepair = InputRepairModes.AutoRepair;
+        /// <summary> what to do with an input that is not closed (default Refuse: Status OpenInput; see InputRepairModes.AutoRepair before choosing a repair) </summary>
+        public InputRepairModes InputRepair = InputRepairModes.Refuse;
         /// <summary>
         /// Default 0 (off: the inputs are used as given, and the result is the one without this option, bit for bit). Otherwise a
         /// power of two (eg 2^-20, about 1e-6 in metres): every coordinate of every input is moved to the nearest multiple of it,
