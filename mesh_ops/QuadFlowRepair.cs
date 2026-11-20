@@ -869,11 +869,13 @@ namespace gs
             foreach (var key in hypKeys) {
                 var l = new List<(int a, int b, int c)>(hyp[key]);
                 if (PairQuad(l, ref Cancelled, out int A, out int B, out int C1, out int C2)) {
-                    outMesh.AppendFace(new List<int> { Vid(A), Vid(C2), Vid(B), Vid(C1) }, 0);
-                    // geometric check: the normal of the quad against the sum of the normals of its clusters
+                    int va = Vid(A), vc2 = Vid(C2), vb = Vid(B), vc1 = Vid(C1);
+                    outMesh.AppendFace(new List<int> { va, vc2, vb, vc1 }, 0);
+                    // geometric check: the normal of the quad (both before and after projection onto the input) against the sum of the normals of its clusters
                     Vector3d pa = sum[A] / cnt[A], pc2 = sum[C2] / cnt[C2], pb = sum[B] / cnt[B], pc1 = sum[C1] / cnt[C1];
-                    Vector3d fn = (pb - pa).Cross(pc1 - pc2); Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
-                    Quads++; if (fn.Dot(sn) <= 0) FlippedQuads++;
+                    Vector3d qa = outMesh.GetVertex(va), qc2 = outMesh.GetVertex(vc2), qb = outMesh.GetVertex(vb), qc1 = outMesh.GetVertex(vc1);
+                    Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
+                    Quads++; if (IsQuadFlipped(pa, pc2, pb, pc1, qa, qc2, qb, qc1, sn)) FlippedQuads++;
                 } else {
                     foreach (var tr in l) leftover.Add(new[] { tr.a, tr.b, tr.c });
                     UnpairedTriangles += l.Count;
@@ -883,6 +885,13 @@ namespace gs
             // the second gate, on the extracted mesh
             Status = CheckExtracted(outMesh, BadTriangles, UnpairedTriangles, FlippedQuads);
             if (Status == PureQuadStatus.Success) Result = outMesh;
+        }
+
+        /// <summary> true if the quad (a, c2, b, c1) faces away from (or is degenerate/non-finite against) sn either before or after projection onto the input </summary>
+        internal static bool IsQuadFlipped(Vector3d pa, Vector3d pc2, Vector3d pb, Vector3d pc1, Vector3d qa, Vector3d qc2, Vector3d qb, Vector3d qc1, Vector3d sn)
+        {
+            double d0 = (pb - pa).Cross(pc1 - pc2).Dot(sn), d1 = (qb - qa).Cross(qc1 - qc2).Dot(sn);
+            return !(d0 > 0) || double.IsInfinity(d0) || !(d1 > 0) || double.IsInfinity(d1);
         }
 
         /// <summary>

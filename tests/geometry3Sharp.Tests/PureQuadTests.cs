@@ -553,5 +553,19 @@ namespace geometry3Sharp.Tests
                 AssertSame(serial.Result, r.Result);
             }
         }
+
+        [Fact]
+        public void QuadFlowRepair_IsQuadFlipped_DetectsFlipBeforeAndAfterProjection()
+        {
+            // Quad (a, c2, b, c1) in the xy plane: (b - a) x (c1 - c2) points along +z when oriented counter-clockwise.
+            Vector3d a = new Vector3d(0, 0, 0), c2 = new Vector3d(1, 0, 0), b = new Vector3d(1, 1, 0), c1 = new Vector3d(0, 1, 0);
+            Vector3d sn = Vector3d.AxisZ;
+            Assert.False(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, c2, b, c1, sn));
+            Assert.True(QuadFlowRepair.IsQuadFlipped(a, c1, b, c2, a, c2, b, c1, sn));
+            Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, c1, b, c2, sn));
+            Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, a, b, b, sn));
+            Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, new Vector3d(double.NaN, 0, 0), c2, b, c1, sn));
+            Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, c2, b, c1, new Vector3d(0, 0, double.PositiveInfinity)));
+        }
     }
 }
