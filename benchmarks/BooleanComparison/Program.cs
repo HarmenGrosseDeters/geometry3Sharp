@@ -277,7 +277,7 @@ static class Program
     }
 
     // run-pipeline <A> <B> <op> <out.off> [default|cad]
-    // The operation through SolidBooleanPipeline (input checks and repair, the exact boolean, the reduction to its defaults,
+    // The operation through SolidBooleanPipeline (input checks, the exact boolean, the reduction to its defaults,
     // the final check) instead of the bare ExactMeshBoolean of `run`. Variant default: the pipeline's defaults. Variant cad:
     // the settings for faceted CAD inputs, InputGrid = 2^(floor(log2(largest box dimension of the inputs)) - 20), a grid
     // relative to the size of the model (the exact snap of the inputs). The result is the pipeline's Result (closed,
