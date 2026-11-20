@@ -130,6 +130,24 @@ namespace g3
         public bool MaxDeviationTwoSided = false;
 
         /// <summary>
+        /// FastCollapsePass only. If true, an edge whose midpoint collapse is refused by the flip / fold-over test, by MaxDeviation
+        /// (with MaxDeviationTwoSided) or by PreventSelfIntersections is tried again as a collapse onto one of its two end
+        /// vertices, the end of the larger angle defect (the sharper feature). Every check applies to the end position exactly as to the midpoint (constraints,
+        /// flip and fold-over, MaxDeviation, MaxDeviationTwoSided, PreventSelfIntersections), so the guarantees of the options
+        /// set hold for the result. It keeps features the midpoint pulls off tolerance (a spike's tip stays where it is) and
+        /// reaches fewer triangles; it costs time (about 1.2x to 2.1x, median 1.5x, benchmarks/ReducerBenchmark README, "endpoint
+        /// fallback"). Off by default; with it off the result is unchanged bit for bit. Deterministic (no randomness; the end
+        /// order is a function of the mesh).
+        /// </summary>
+        public bool FastCollapseEndpointFallback = false;
+
+        /// <summary> (benchmarks) FastCollapseEndpointFallback also tries the other end when the feature end is refused (a little fewer triangles, more time) </summary>
+        internal bool FastCollapseFallbackBothEnds = false;
+
+        /// <summary> (benchmarks) FastCollapseEndpointFallback retries only in the first round of FastCollapsePass </summary>
+        internal bool FastCollapseFallbackFirstRoundOnly = false;
+
+        /// <summary>
         /// If set, a collapse is only done if its new triangles intersect no other triangle (exact test,
         /// ExactTriangleIntersection.IntersectsBeyondShared, against a grid of the current triangles), so
         /// the reduction cannot push the surface through nearby parts of itself (thin walls, narrow gaps).
@@ -497,6 +515,9 @@ namespace g3
                     Vector3d midpoint = va * 0.5 + vb * 0.5;
                     int vKept;
                     ProcessResult result = CollapseEdge(eid, midpoint, out vKept);
+                    if (result != ProcessResult.Ok_Collapsed && FastCollapseEndpointFallback && (ri == 0 || !FastCollapseFallbackFirstRoundOnly)
+                        && (result == ProcessResult.Ignored_CreatesFlip || result == ProcessResult.Ignored_ExceedsDeviation || result == ProcessResult.Ignored_CreatesIntersection))
+                        result = collapse_onto_end(eid, midpoint, out vKept);
                     if (result == ProcessResult.Ok_Collapsed) {
                         ++num_last_pass;
                     }
@@ -1807,6 +1828,53 @@ namespace g3
             bowtieStamp = mesh.ShapeTimestamp;
         }
 
+        // the collapse of edge eid (just refused at its midpoint) onto one of its ends: the end of the larger angle defect first (ties: the
+        // first), then, with FastCollapseFallbackBothEnds, the other. CollapseEdge repeats every check for the end position
+        ProcessResult collapse_onto_end(int eid, Vector3d midpoint, out int vKept)
+        {
+            Index2i ev = mesh.GetEdgeV(eid);
+            // (a difference below the rounding noise of a flat vertex is a tie: the first end)
+            bool aFirst = angle_defect(ev.a) >= angle_defect(ev.b) - 1e-9;
+            int first = aFirst ? ev.a : ev.b, second = aFirst ? ev.b : ev.a;
+            ProcessResult result;
+            try {
+                forceKeep = first;
+                result = CollapseEdge(eid, midpoint, out vKept);
+                if (result != ProcessResult.Ok_Collapsed && result != ProcessResult.Failed_NotAnEdge && FastCollapseFallbackBothEnds) {
+                    forceKeep = second;
+                    result = CollapseEdge(eid, midpoint, out vKept);
+                }
+            } finally {
+                forceKeep = -1;
+            }
+            return result;
+        }
+
+        // |2 pi - sum of the corner angles at v|: large at a spike tip or a sharp ridge, 0 on a flat interior vertex. Scale invariant
+        static double angle_defect_of(DMesh3 mesh, int v)
+        {
+            double sum = 0;
+            foreach (int t in mesh.VtxTrianglesItr(v)) {
+                Index3i tv = mesh.GetTriangle(t);
+                int k = tv.a == v ? 0 : (tv.b == v ? 1 : 2);
+                Vector3d p = mesh.GetVertex(tv[k]), q = mesh.GetVertex(tv[(k + 1) % 3]), r = mesh.GetVertex(tv[(k + 2) % 3]);
+                Vector3d e1 = q - p, e2 = r - p;
+                // (the edges are not unit vectors, so not AngleR; divided by their largest component, which keeps cross and dot in range
+                // at any scale, and gives the same bits at every power of two scale)
+                double big = Math.Max(Math.Max(Math.Max(Math.Abs(e1.x), Math.Abs(e1.y)), Math.Max(Math.Abs(e1.z), Math.Abs(e2.x))), Math.Max(Math.Abs(e2.y), Math.Abs(e2.z)));
+                if (!(big > 0) || double.IsInfinity(big))
+                    continue;
+                e1 /= big; e2 /= big;
+                sum += Math.Atan2(e1.Cross(e2).Length, e1.Dot(e2));
+            }
+            return Math.Abs(2 * Math.PI - sum);
+        }
+        internal static double AngleDefect(DMesh3 mesh, int v) { return angle_defect_of(mesh, v); }
+        double angle_defect(int v) { return angle_defect_of(mesh, v); }
+
+        // the end vertex CollapseEdge must keep (collapse onto it); -1: free (FastCollapseEndpointFallback)
+        int forceKeep = -1;
+
         void forget_bowtie_state(int vid)
         {
             if (vid >= 0 && vid < bowtieState.Length)
@@ -1923,6 +1991,23 @@ namespace g3
                     ta = pairTwin[a]; tb = pairTwin[b];
                     Index2i tt = mesh.GetEdgeT(twinEdge);
                     tT0 = tt.a; tT1 = tt.b;
+                }
+            }
+
+            // FastCollapseEndpointFallback: onto the given end, if nothing else fixed the other one
+            if (forceKeep != -1) {
+                if (collapse_to != -1 && collapse_to != forceKeep)
+                    return ProcessResult.Ignored_Constrained;
+                collapse_to = forceKeep;
+                // (a twin edge was validated for the collapse onto b only)
+                if (twinEdge >= 0)
+                    return ProcessResult.Ignored_CannotCollapse;
+                // the constraint check above assumed that a goes: the edges of the vertex that goes now must be unconstrained
+                if (constraints != null && forceKeep == a) {
+                    if (c != DMesh3.InvalidID && constraints.GetEdgeConstraint(mesh.FindEdgeFromTri(b, c, t0)).IsUnconstrained == false)
+                        return ProcessResult.Ignored_Constrained;
+                    if (d != DMesh3.InvalidID && constraints.GetEdgeConstraint(mesh.FindEdgeFromTri(b, d, t1)).IsUnconstrained == false)
+                        return ProcessResult.Ignored_Constrained;
                 }
             }
 
