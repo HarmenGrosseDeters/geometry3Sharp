@@ -178,6 +178,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenInput_IsRefusedByDefault()
+        {
+            // the default is Refuse: an open input fails with OpenInput, nothing is repaired
+            var p = new SolidBooleanPipeline(HoledSphere(), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U);
+            Assert.Equal(SolidBooleanPipeline.InputRepairModes.Refuse, p.InputRepair);
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Null(p.Result);
+            Assert.Empty(p.Report.RepairedInputs);
+        }
+
+        [Fact]
+        public void ACubeMinusAnOpenCuttingSheet_IsRefusedByDefault_NotReturnedUnchanged()
+        {
+            // #1211: [0,4]^3 minus the square sheet z = 2 (larger than the cube). The intended result is a half of the cube;
+            // MeshAutoRepair closes the sheet to a surface that encloses nothing, so with AutoRepair the cube comes back
+            // unchanged (volume 64) with Status Success and a clean report. The default refuses it
+            var sheet = new DMesh3();
+            int a = sheet.AppendVertex(new Vector3d(-1, -1, 2)), b = sheet.AppendVertex(new Vector3d(5, -1, 2)), c = sheet.AppendVertex(new Vector3d(5, 5, 2)), d = sheet.AppendVertex(new Vector3d(-1, 5, 2));
+            sheet.AppendTriangle(a, b, c);
+            sheet.AppendTriangle(a, c, d);
+            DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(4, 4, 4))) }.Generate().MakeDMesh();
+            var p = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference);
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Contains("not closed", p.Error);
+            // the documented hazard of AutoRepair, pinned: the cube unchanged
+            var repaired = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            Assert.True(repaired.Compute(), repaired.Error);
+            Assert.Equal(64, MeshMeasurements.VolumeArea(repaired.Result, repaired.Result.TriangleIndices(), repaired.Result.GetVertex).x, 6);
+        }
+
+        [Fact]
         public void OpenInput_IsRefusedWithRefuse()
         {
             DMesh3 holed = HoledSphere();
@@ -620,7 +653,7 @@ namespace geometry3Sharp.Tests
         public void CancelledAfterTheOpenInputWasSeen_StopsInTheRepair()
         {
             var cts = new CancellationTokenSource();
-            var p = new SolidBooleanPipeline(HoledSphere(), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U) { Cancellation = cts.Token, TargetFraction = 0.5, ConfigureBoolean = op => cts.Cancel() };
+            var p = new SolidBooleanPipeline(HoledSphere(), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U) { Cancellation = cts.Token, TargetFraction = 0.5, ConfigureBoolean = op => cts.Cancel(), InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, p.BooleanStatus);      // (the boolean had refused the input: the repair was entered)

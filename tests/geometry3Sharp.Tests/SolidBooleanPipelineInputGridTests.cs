@@ -291,7 +291,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 holed = Sphere(Vector3d.Zero, 1, 10);
             holed.RemoveTriangle(holed.TriangleIndices().First());
-            var p = new SolidBooleanPipeline(new List<DMesh3> { Soup(holed), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)) }, U) { InputGrid = Grid };
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Soup(holed), Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)) }, U) { InputGrid = Grid, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
             Assert.True(p.Compute(), p.Error);
             AssertSolid(p);
             Assert.False(p.Report.InputClosed[0]);

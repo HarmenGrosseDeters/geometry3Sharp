@@ -25,7 +25,7 @@ import argparse, collections, json, statistics as st
 OPS = ["union", "intersection", "difference"]
 OUTCOMES = ["clean", "pinches", "degenerate", "non-manif.", "self-int.", "inside-out", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
 CORRECT = {"clean", "pinches", "degenerate", "non-manif.", "self-int."}
-NAMES = {"ours": "ExactMeshBoolean", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
+NAMES = {"ours": "ExactMeshBoolean", "pipeline": "SolidBooleanPipeline", "pipeline_cad": "SolidBooleanPipeline (CAD settings)", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
 TOL = 1e-6
 # the relative tolerance of the volume identities per class (README.md, "Thingi10K pairs", justifies 1e-7)
 CLASS_TOL = {"thingi-pairs": 1e-7, "thingi-pairs-size": 1e-7, "thingi-contact": 1e-7, "abc-chained": 1e-7}
