@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t == 0 || t == 7);
             var before = m.TriangleIndices().Select(m.GetTriangle).ToList();
-            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(2, b.ReorientedTriangles);
             Assert.True(b.ExactWindingA);       // oriented, the box is closed in the winding sense: exact winding numbers
@@ -112,7 +112,7 @@ namespace geometry3Sharp.Tests
             DMesh3 cavity = Box(Vector3d.One, 2 * Vector3d.One);
             cavity.ReverseOrientation();
             MeshEditor.Append(m, cavity);
-            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(1, b.ReorientedTriangles);
             Assert.True(b.ExactWindingA);
@@ -127,13 +127,13 @@ namespace geometry3Sharp.Tests
             DMesh3 cavity = Box(Vector3d.One, 2 * Vector3d.One);
             cavity.ReverseOrientation();
             MeshEditor.Append(outer, cavity);       // one mesh of two shells: winding number 0 in the cavity
-            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(0, b.ReorientedTriangles);
             AssertOriented(b.Result, 27 - 1);
             DMesh3 open = Box(Vector3d.Zero, Vector3d.One);
             open.RemoveTriangle(0);
-            var c = new ExactMeshBoolean(open, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var c = new ExactMeshBoolean(open, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(c.Compute(), c.Error);
             Assert.Equal(0, c.ReorientedTriangles);
         }
@@ -146,7 +146,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 a = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t == 3);
             DMesh3 b = Flipped(Box(0.5 * Vector3d.One, 1.5 * Vector3d.One), (t) => t == 4 || t == 9);
-            var op2 = new ExactMeshBoolean(a, b, op);
+            var op2 = new ExactMeshBoolean(a, b, op) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op2.Compute(), op2.Error);
             Assert.Equal(3, op2.ReorientedTriangles);
             AssertOriented(op2.Result, volume);
@@ -182,7 +182,7 @@ namespace geometry3Sharp.Tests
             // the larger part keeps its orientation: 10 of 12 triangles flipped is an inverted box, whose solid is
             // outside (an empty result for Resolve)
             DMesh3 m = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t >= 2);
-            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(2, b.ReorientedTriangles);
             Assert.True(b.ExactWindingA);
@@ -203,7 +203,7 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(0.5 * (a + b) + n));
             m.AppendTriangle(m.AppendVertex(b), m.AppendVertex(a), m.AppendVertex(0.5 * (a + b) + 1.5 * n));
             MeshEditor.Append(m, Soup(box));
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.ReorientedTriangles);
             Assert.Equal(0, SameDirectionEdges(op.Result));
@@ -230,7 +230,7 @@ namespace geometry3Sharp.Tests
                 m.AppendTriangle(m.AppendVertex(at(i, 0)), m.AppendVertex(at(i, 1)), m.AppendVertex(at(i + 1, 1)));
                 m.AppendTriangle(m.AppendVertex(at(i, 0)), m.AppendVertex(at(i + 1, 1)), m.AppendVertex(at(i + 1, 0)));
             }
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(0, op.ReorientedTriangles);
         }
@@ -244,9 +244,9 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(name);
             DMesh3 a = FlippedBox(), b = FlippedSphere();
-            var op0 = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference);
+            var op0 = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op0.Compute(), op0.Error);
-            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), ExactMeshBoolean.Operations.Difference);
+            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), ExactMeshBoolean.Operations.Difference) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(op0.ReorientedTriangles, op.ReorientedTriangles);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result));
@@ -263,14 +263,14 @@ namespace geometry3Sharp.Tests
         public void ReusedInstance_ReorientedTrianglesReset()
         {
             // flipped inputs, then consistent ones on the same instance: the count and the result as from a fresh instance
-            var op = new ExactMeshBoolean(FlippedBox(), FlippedSphere(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(FlippedBox(), FlippedSphere(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.True(op.ReorientedTriangles > 0);
             op.MeshA = Box(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
             op.MeshB = Sphere(new Vector3d(0.7, 0.4, 0.3), 0.8, 8);
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(0, op.ReorientedTriangles);
-            var fresh = new ExactMeshBoolean(op.MeshA, op.MeshB, ExactMeshBoolean.Operations.Union);
+            var fresh = new ExactMeshBoolean(op.MeshA, op.MeshB, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(fresh.Compute(), fresh.Error);
             Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
         }
@@ -280,7 +280,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 first = null;
             for (int run = 0; run < 10; ++run) {
-                var op = new ExactMeshBoolean(FlippedBox(), FlippedSphere(), ExactMeshBoolean.Operations.Union);
+                var op = new ExactMeshBoolean(FlippedBox(), FlippedSphere(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
                 Assert.True(op.Compute(), op.Error);
                 if (first == null)
                     first = op.Result;
@@ -293,7 +293,7 @@ namespace geometry3Sharp.Tests
         public void NaryConstructor_CallersListUnchanged_SameCountOnSecondCompute()
         {
             DMesh3 a = FlippedBox(), b = FlippedSphere();
-            var op = new ExactMeshBoolean(new List<DMesh3>() { a, b }, ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(new List<DMesh3>() { a, b }, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             int count = op.ReorientedTriangles;
             Assert.True(count > 0);
@@ -312,7 +312,7 @@ namespace geometry3Sharp.Tests
             // under every transform
             Similarity s = Similarity.ByName(name);
             DMesh3 m = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t % 2 == 1);
-            var op = new ExactMeshBoolean(Invariance.Transformed(m, s), new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(Invariance.Transformed(m, s), new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(6, op.ReorientedTriangles);
             Assert.True(op.ExactWindingA);
@@ -338,7 +338,7 @@ namespace geometry3Sharp.Tests
             Index3i e = box.GetTriangle(0);
             Vector3d a = box.GetVertex(e.a), b = box.GetVertex(e.b);
             m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(0.5 * (a + b)));
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.ReorientedTriangles);
             AssertOriented(op.Result, 1);
@@ -352,7 +352,7 @@ namespace geometry3Sharp.Tests
             DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
             box.SetVertex(2, box.GetVertex(2) + 1e-12 * Vector3d.AxisX);
             DMesh3 m = Flipped(box, (t) => t % 2 == 1);
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(6, op.ReorientedTriangles);
             Assert.Equal(12, op.Result.TriangleCount);

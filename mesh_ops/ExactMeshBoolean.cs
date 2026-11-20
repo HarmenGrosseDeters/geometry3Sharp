@@ -27,10 +27,13 @@ namespace g3
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
-    /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
-    /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
-    /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
-    /// cannot be oriented are left as they are. Where solids touch along an edge, the result is
+    /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) that is closed once
+    /// they are oriented consistently is refused by default (Orientation = Refuse, Status InconsistentOrientation): which
+    /// side is inside is not in the data, and the earlier rule (keep the orientation of the larger part by area) turned eg
+    /// a cube tool with three of its six faces flipped into an empty tool, silently (#1210). With Orientation =
+    /// AreaMajority (and always for a mesh that stays open, with AllowOpenMeshes) each component (triangles connected
+    /// across edges with two triangles, by vertex position) is oriented consistently, keeping the orientation of the
+    /// larger part by area (ReorientedTriangles); components that cannot be oriented are left as they are. Where solids touch along an edge, the result is
     /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
     /// into manifold pairs with copies of its vertices (NonManifoldEdges); Contacts counts the positions with two or more
     /// vertices, so that a caller that welds (eg writes STL) knows. Two different exact points that round to one double
@@ -98,8 +101,38 @@ namespace g3
             /// </summary>
             BudgetExceeded = 5,
             /// <summary> Cancellation was cancelled during Compute(); Result is null </summary>
-            Cancelled = 6
+            Cancelled = 6,
+            /// <summary>
+            /// Orientation = Refuse: a mesh is closed only after some of its triangles are flipped (inconsistently oriented
+            /// faces); Error names the mesh and how many triangles disagree with the orientation of the larger part. Result is null
+            /// </summary>
+            InconsistentOrientation = 7
         }
+
+        /// <summary> what Compute() does with a mesh whose triangles are inconsistently oriented (Orientation) </summary>
+        public enum OrientationModes
+        {
+            /// <summary>
+            /// a mesh with a component that is closed by itself only after flipping some of its triangles fails with Status
+            /// InconsistentOrientation (default). A consistently oriented mesh is used as given (an inside-out one has an empty
+            /// solid); a component that stays open is oriented by AreaMajority (its rim does not close a side either way)
+            /// </summary>
+            Refuse = 0,
+            /// <summary>
+            /// each component is oriented consistently, keeping the orientation of the larger part by area (ties within a
+            /// relative 1e-9: of its first triangle); ReorientedTriangles counts the flips. A heuristic: with nearly equal
+            /// parts the larger area is not the outside (a cube with three of six faces flipped becomes inside-out, an empty
+            /// solid). For repairs of broken meshes, where any consistent orientation is wanted
+            /// </summary>
+            AreaMajority = 1
+        }
+
+        /// <summary>
+        /// what to do with a mesh whose triangles are inconsistently oriented and that is closed once they agree (default
+        /// Refuse: Status InconsistentOrientation). Meshes that stay open are oriented by AreaMajority in either mode (they
+        /// fail with OpenInput anyway unless AllowOpenMeshes)
+        /// </summary>
+        public OrientationModes Orientation = OrientationModes.Refuse;
 
         /// <summary>
         /// budget: the largest number of pieces (triangles of the arrangement, Counts["pieces"]) that Compute() takes on;
@@ -179,7 +212,7 @@ namespace g3
         public int Patches;
         /// <summary>
         /// input triangles flipped to orient their component consistently (see Compute; 0 for consistently oriented
-        /// inputs)
+        /// inputs). Counted also when Compute() then fails with InconsistentOrientation (what AreaMajority would flip)
         /// </summary>
         public int ReorientedTriangles;
         /// <summary>
@@ -609,6 +642,12 @@ namespace g3
                 ReorientedTriangles += prepared[m].Reoriented;
                 ExactWinding[m] = prepared[m].Closed && ForceGeneralizedWinding == false;
             }
+            // a component that is closed by itself only after flipping some of its triangles: its own orientation does not say
+            // which side is inside (decided per component: other, open components of the mesh do not switch this off)
+            for (int m = 0; m < inputs.Count; ++m)
+                if (Orientation == OrientationModes.Refuse && prepared[m].ReorientedInClosed > 0)
+                    return fail(BooleanStatus.InconsistentOrientation, "input mesh " + m + " is inconsistently oriented: " + prepared[m].ReorientedInClosed + " of its " +
+                        prepared[m].Source.TriangleCount + " triangles disagree with the orientation of the larger part of a closed component (Orientation = AreaMajority reorients by area)");
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
@@ -765,10 +804,14 @@ namespace g3
         /// </summary>
         /// <param name="mesh">the mesh</param>
         /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
+        /// <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
+        /// (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
         [MethodImpl(JitHints.Optimize)]
-        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped)
+        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped, out int flippedInClosed)
         {
             flipped = 0;
+            flippedInClosed = 0;
+            List<(List<int> component, int flips)> changed = null;
             // (vertices welded by position: pos; the triangles at each undirected edge, by welded vertices)
             EdgeTable edges = EdgeTable.Build(mesh, pos);
             Index3i[] wtri = edges.Welded;
@@ -818,9 +861,14 @@ namespace g3
                 // (nearly equal areas: the first triangle keeps its orientation, so that the choice does not depend on
                 // the rounding of the areas, eg under a rotation)
                 bool invert = flippedArea - keptArea > 1e-9 * (flippedArea + keptArea);
+                int flips = 0;
                 foreach (int t in component)
-                    if (flipT[t] != invert)
+                    if (flipT[t] != invert) {
                         (toFlip ?? (toFlip = new List<int>())).Add(t);
+                        flips++;
+                    }
+                if (flips > 0)
+                    (changed ?? (changed = new List<(List<int>, int)>())).Add((new List<int>(component), flips));
             }
             if (toFlip == null)
                 return mesh;
@@ -828,6 +876,11 @@ namespace g3
             foreach (int t in toFlip)
                 copy.ReverseTriOrientation(t);
             flipped = toFlip.Count;
+            // (a component closed by itself: its flips decided which side is inside, whatever else the mesh has, eg a stray
+            // open triangle elsewhere)
+            foreach (var (comp, flips) in changed)
+                if (IsWindingClosed(new DSubmesh3(copy, comp.ToArray()).SubMesh))
+                    flippedInClosed += flips;
             return copy;
         }
 
@@ -840,6 +893,8 @@ namespace g3
             public DMesh3 Source, Input;
             public bool Finite, Closed;
             public int Reoriented;
+            // of Reoriented, the triangles of components that are closed by themselves (oriented)
+            public int ReorientedInClosed;
         }
 
         internal static PreparedInput prepare_input(DMesh3 mesh)
@@ -857,7 +912,7 @@ namespace g3
             int[] pos = null;       // (the vertices welded by position, computed when needed and shared)
             p.Closed = windingClosed(mesh, ref pos);
             if (p.Closed == false) {
-                DMesh3 o = oriented(mesh, pos, out p.Reoriented);
+                DMesh3 o = oriented(mesh, pos, out p.Reoriented, out p.ReorientedInClosed);
                 if (o != mesh) {
                     p.Input = o;
                     p.Closed = windingClosed(o, ref pos);
@@ -923,7 +978,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
+            // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
             return op.Compute() ? op.Result : null;
         }
 

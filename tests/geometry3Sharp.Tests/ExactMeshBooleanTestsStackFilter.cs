@@ -119,7 +119,9 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Computed(DMesh3 a, DMesh3 b, Ops op, bool filters, bool exactOnly = false)
         {
-            var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, RecordOpenWinding = true,
+            // (AreaMajority: the layer fixtures hold two coincident copies of an open disc, which glue into a closed flat component
+            // that is consistent only with one copy flipped, refused by default; the stack filters are tested as before)
+            var s = new ExactMeshBoolean(a, b, op) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AllowOpenMeshes = true, RecordOpenWinding = true,
                 CoplanarBoxFilter = filters, MemoTracedSides = filters, DisableFilters = exactOnly, RecordStacks = true };
             Assert.True(s.Compute(), s.Error);
             return s;
@@ -270,7 +272,7 @@ namespace geometry3Sharp.Tests
             } finally {
                 gParallel.SerialOnThisThread = false;
             }
-            var reused = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true, RecordOpenWinding = true, DisableFilters = true, RecordStacks = true };
+            var reused = new ExactMeshBoolean(a, b, Ops.Difference) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AllowOpenMeshes = true, RecordOpenWinding = true, DisableFilters = true, RecordStacks = true };
             for (int run = 0; run < 2; ++run) {
                 Assert.True(reused.Compute(), reused.Error);
                 AssertSameDecisions(serial, reused);

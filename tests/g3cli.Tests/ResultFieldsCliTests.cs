@@ -58,6 +58,18 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Boolean_InconsistentlyOrientedInput_IsRefusedByDefault_AndOrientedOnRequest()
+        {
+            // the sphere with every 20th triangle reversed: the boolean refuses it by default (#1210), area_majority orients it
+            var (exit, r) = Run("boolean", m.Flipped, m.Cube, m.Path_("o.stl"), "--op", "union", "--compact");
+            Assert.Equal(ResultCodes.ExitCode("operation_failed"), exit);
+            Assert.Equal("inconsistent_orientation", S(r["boolean_status"]));
+            var (exit2, r2) = Run("boolean", m.Flipped, m.Cube, m.Path_("o2.stl"), "--op", "union", "--orientation", "area_majority", "--compact");
+            Assert.Equal(0, exit2);
+            Assert.Equal(39, I(r2["boolean"]["reoriented_triangles"]));
+        }
+
+        [Fact]
         public void Boolean_Failure_CarriesTheStatusAndTheLibraryText()
         {
             var (exit, r) = Run("boolean", m.Open, m.Cube, m.Path_("f.stl"), "--op", "union", "--allow-open=false", "--compact");

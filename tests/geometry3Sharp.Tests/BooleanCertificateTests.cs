@@ -110,9 +110,10 @@ namespace geometry3Sharp.Tests
         {
             var (a, b) = Solids[name]();
             foreach (Ops op in BooleanOracle.AllOps) {
-                AssertCertified(a, b, op, name);
-                AssertCertified(a, b, op, name + " without SafeRounding", x => x.SafeRounding = false);
-                AssertCertified(a, b, op, name + " without SimplifyFlatRegions", x => x.SimplifyFlatRegions = false);
+                // (AreaMajority: the case "one face flipped" certifies the reoriented operand; it changes nothing for the others)
+                AssertCertified(a, b, op, name, x => x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority);
+                AssertCertified(a, b, op, name + " without SafeRounding", x => { x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority; x.SafeRounding = false; });
+                AssertCertified(a, b, op, name + " without SimplifyFlatRegions", x => { x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority; x.SimplifyFlatRegions = false; });
             }
         }
 

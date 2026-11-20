@@ -28,6 +28,9 @@ namespace g3
     /// chains of near-coincident sources (copies one ulp apart) can leave the single final rounding defects that need edits
     /// beyond its drift bound, where the chain's own roundings had resolved them step by step (section 8): check
     /// RoundingClean / NotCleanReason, and round an intermediate result explicitly where needed (FromDMesh(x.Round())).
+    /// The booleans use ExactMeshBoolean's defaults, so a source mesh with inconsistently oriented faces makes Round() return
+    /// null (InconsistentOrientation, #1210; ToBoolean() for the status), also for a leaf; ExactMeshBoolean.Resolve orients it
+    /// by area instead.
     ///
     /// Immutable: a value can be used in several expressions and from several threads at once. The source meshes are
     /// copied by FromDMesh, so later changes to the caller's mesh do not change the expression; the copies are what
