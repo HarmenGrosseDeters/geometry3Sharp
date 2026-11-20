@@ -35,7 +35,7 @@ namespace geometry3Sharp.Tests
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
             foreach (int v in m.VertexIndices()) {
                 Vector3d p = m.GetVertex(v);
-                m.SetVertex(v, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5) + 0.05 * Math.Sin(9 * p.z)));
+                m.SetVertex(v, p * (1 + 0.1 * PortableMath.Sin(5 * p.x + 1) * PortableMath.Cos(4 * p.y - 0.5) + 0.05 * PortableMath.Sin(9 * p.z)));
             }
             return m;
         }
@@ -132,7 +132,7 @@ namespace geometry3Sharp.Tests
             double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
             DMesh3 feature = Pass(input, eps, true, 0.05 * diag, out Reducer _, r => r.FastCollapseFallbackFeatureOnly = true);
             DMesh3 both = Pass(input, eps, true, 0.05 * diag);
-            Assert.Equal("240 61BEE92BD6349AD9", $"{feature.TriangleCount} {Digest(feature)}");
+            Assert.Equal("250 24E50BFFEA470D4E", $"{feature.TriangleCount} {Digest(feature)}");
             Assert.Equal("246 998BEC30DF0A57AB", $"{both.TriangleCount} {Digest(both)}");
             AssertBounds(input, feature, eps, "feature end only");
         }
@@ -214,6 +214,44 @@ namespace geometry3Sharp.Tests
             }
             AssertBounds(input, m, eps, "constrained");
             Assert.True(m.TriangleCount < input.TriangleCount);
+        }
+
+        /// <summary> an edge constraint is never lost: a retry onto either end checks the edges of the vertex that goes </summary>
+        [Theory]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(7)]
+        public void Fallback_RespectsEdgeConstraints(int every)
+        {
+            DMesh3 input = Spiky(12);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            var constraints = new MeshConstraints();
+            var kept = new List<int>();
+            foreach (int e in input.EdgeIndices())
+                if (e % every == 0) { constraints.SetOrUpdateEdgeConstraint(e, new EdgeConstraint(EdgeRefineFlags.NoCollapse)); kept.Add(e); }
+            var m = new DMesh3(input);
+            var r = new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = true, FastCollapseEndpointFallback = true };
+            r.SetExternalConstraints(constraints);
+            r.FastCollapsePass(0.1 * diag, 5);
+            foreach (int e in kept) Assert.True(m.IsEdge(e), $"constrained edge {e} lost");
+            AssertBounds(input, m, eps, "edge constraints");
+            Assert.True(m.TriangleCount < input.TriangleCount);
+        }
+
+        /// <summary> the angle defect: 0 on a flat vertex, large on a spike tip, the same at every power of two scale, bit for bit </summary>
+        [Fact]
+        public void AngleDefect_IsScaleInvariant_AndSeesTheTip()
+        {
+            DMesh3 m = Tower(8, 0.5, out int tip);
+            int inner = m.VertexIndices().First(v => v != tip && m.GetVertex(v).x > 0.1 && m.GetVertex(v).x < 0.2 && m.GetVertex(v).y > 0.1 && m.GetVertex(v).y < 0.2);
+            double dTip = Reducer.AngleDefect(m, tip), dFlat = Reducer.AngleDefect(m, inner);
+            Assert.True(dTip > 1 && dFlat < 1e-9, $"{dTip} {dFlat}");
+            foreach (double scale in new[] { 1024.0, 1.0 / 1024 }) {
+                var s = new DMesh3(m);
+                foreach (int v in s.VertexIndices()) s.SetVertex(v, s.GetVertex(v) * scale);
+                Assert.Equal(dTip, Reducer.AngleDefect(s, tip));
+                Assert.Equal(dFlat, Reducer.AngleDefect(s, inner));
+            }
         }
 
         /// <summary> PreventSelfIntersections applies to the end position too </summary>

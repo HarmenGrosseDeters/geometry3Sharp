@@ -1834,7 +1834,8 @@ namespace g3
         ProcessResult collapse_onto_end(int eid, Vector3d midpoint, out int vKept)
         {
             Index2i ev = mesh.GetEdgeV(eid);
-            bool aFirst = angle_defect(ev.a) >= angle_defect(ev.b);
+            // (a difference below the rounding noise of a flat vertex is a tie: the first end)
+            bool aFirst = angle_defect(ev.a) >= angle_defect(ev.b) - 1e-9;
             int first = aFirst ? ev.a : ev.b, second = aFirst ? ev.b : ev.a;
             ProcessResult result;
             try {
@@ -1858,10 +1859,12 @@ namespace g3
                 Index3i tv = mesh.GetTriangle(t);
                 int k = tv.a == v ? 0 : (tv.b == v ? 1 : 2);
                 Vector3d p = mesh.GetVertex(tv[k]), q = mesh.GetVertex(tv[(k + 1) % 3]), r = mesh.GetVertex(tv[(k + 2) % 3]);
-                sum += Vector3d.AngleR(q - p, r - p);
+                Vector3d e1 = q - p, e2 = r - p;
+                sum += Math.Atan2(e1.Cross(e2).Length, e1.Dot(e2));     // (the edges are not unit vectors: AngleR would not do)
             }
             return Math.Abs(2 * Math.PI - sum);
         }
+        internal static double AngleDefect(DMesh3 mesh, int v) { return angle_defect_of(mesh, v); }
         double angle_defect(int v) { return angle_defect_of(mesh, v); }
 
         // the end vertex CollapseEdge must keep (collapse onto it); -1: free (FastCollapseEndpointFallback)
@@ -1991,6 +1994,13 @@ namespace g3
                 if (collapse_to != -1 && collapse_to != forceKeep)
                     return ProcessResult.Ignored_Constrained;
                 collapse_to = forceKeep;
+                // the constraint check above assumed that a goes: the edges of the vertex that goes now must be unconstrained
+                if (constraints != null && forceKeep == a) {
+                    if (c != DMesh3.InvalidID && constraints.GetEdgeConstraint(mesh.FindEdgeFromTri(b, c, t0)).IsUnconstrained == false)
+                        return ProcessResult.Ignored_Constrained;
+                    if (d != DMesh3.InvalidID && constraints.GetEdgeConstraint(mesh.FindEdgeFromTri(b, d, t1)).IsUnconstrained == false)
+                        return ProcessResult.Ignored_Constrained;
+                }
             }
 
             int iKeep = b, iCollapse = a;
