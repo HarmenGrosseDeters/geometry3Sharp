@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace g3
 {
     /// <summary>
-    /// Layer B of the exact side labelling of a cutting sheet (docs/design: sides, cells and the sheet check): the sides of the pieces
+    /// Layer B of the exact side labelling of a cutting sheet (described here: the sides of the pieces, the local cells, the labelling of the sheet's marks): the sides of the pieces
     /// of an exact arrangement, joined into local cells, and the integer label of the cells that a sheet's pieces mark.
     /// Purely combinatorial: the only geometric decision is the exact cyclic order of the pieces around an edge
     /// (<see cref="ExactMeshBoolean.radial_order"/>, exact signs of BigInteger dot products), so there is no floating-point
@@ -207,7 +207,7 @@ namespace g3
             public int Piece = -1, Piece2 = -1, Corner = -1;
             /// <summary> the arrangement's input triangles that gave the marks (SidesInconsistent), or -1 </summary>
             public int MarkTriangle0 = -1, MarkTriangle1 = -1;
-            public int ConflictingCells, UncutCells;
+            public int ConflictingCells, UncutCells, FloatingCells;
         }
 
         /// <summary>
@@ -263,6 +263,22 @@ namespace g3
             }
             if (result.ConflictingCells > 0) {
                 result.Reason = ExactMeshBoolean.SheetRefusal.SidesInconsistent;
+                return result;
+            }
+            // (a cell with a mark that has no piece of the workpiece's surface: a component of the sheet with no edge in common with the walls, in one
+            // cell of the workpiece. Cells are joined only across shared edges, so this cell may be the same region as another cell with the other
+            // mark, which only the nesting of the shells could tell: refused, whatever UncutSide says)
+            for (int c = 0; c < nc; ++c) {
+                if (seen[c] && wall[c] == false && (first0[c] >= 0 || first1[c] >= 0)) {
+                    if (result.FloatingCells++ == 0) {
+                        result.Piece = (first0[c] >= 0 ? first0[c] : first1[c]) / 2;
+                        result.MarkTriangle0 = first0[c] >= 0 ? mark0[first0[c]] : -1;
+                        result.MarkTriangle1 = first1[c] >= 0 ? mark1[first1[c]] : -1;
+                    }
+                }
+            }
+            if (result.FloatingCells > 0) {
+                result.Reason = ExactMeshBoolean.SheetRefusal.FloatingComponent;
                 return result;
             }
             for (int c = 0; c < nc; ++c) {

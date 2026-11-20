@@ -803,5 +803,68 @@ namespace geometry3Sharp.Tests
             ResultChecks.AssertClosed(op.Result);
             Assert.Equal(1.0, Volume(op.Result), 12);
         }
+
+        // ---- a part of the sheet that floats inside a cell (no edge in common with the surface or the rest of the sheet) -----------------------------
+
+        static DMesh3 Joined(DMesh3 a, DMesh3 b)
+        {
+            DMesh3 m = new DMesh3(a);
+            var map = new int[b.MaxVertexID];
+            foreach (int v in b.VertexIndices())
+                map[v] = m.AppendVertex(b.GetVertex(v));
+            foreach (int t in b.TriangleIndices()) {
+                Index3i f = b.GetTriangle(t);
+                m.AppendTriangle(map[f.a], map[f.b], map[f.c]);
+            }
+            return m;
+        }
+
+        static void AssertNothingInsideOut(ExactMeshBoolean op, string what)
+        {
+            if (op.Status == Status.Success) {
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result));
+                Assert.True(Volume(op.Result) >= 0, what + ": negative volume");
+            }
+        }
+
+        [Theory]
+        [InlineData(0.1)]
+        [InlineData(0.7)]
+        public void ABubbleOfTheSheetFloatingInACell_IsRefused_NeverInsideOut(double z)
+        {
+            // the plate z = 0.5 (up) and a closed box with outward normals at z .. z + 0.2, a separate component of the sheet: behind the plate (z = 0.1) its inside is
+            // marked 1 in a cell that is also the region behind the plate, and the cell outside the box is marked 0 by the box: a contradiction that no shared edge
+            // shows. In the kept half (z = 0.7) it would be a correct cavity, but it is refused as well: the cells are joined across edges only
+            DMesh3 sheet = Joined(Plate(0.5, -1, 2, -1, 2), Box(0.25, 0.25, z, 0.75, 0.75, z + 0.2));
+            foreach (var side in new[] { ExactMeshBoolean.SheetUncutSides.Refuse, ExactMeshBoolean.SheetUncutSides.Outside, ExactMeshBoolean.SheetUncutSides.Inside }) {
+                ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), sheet, side);
+                AssertRefused(op, Refusal.FloatingComponent, "bubble at " + z + ", " + side);
+                Assert.Equal(1, op.SheetWitnessMesh);
+                Assert.True(op.SheetWitnessTriangle >= 0);
+            }
+        }
+
+        [Theory]
+        [InlineData(ExactMeshBoolean.SheetUncutSides.Refuse)]
+        [InlineData(ExactMeshBoolean.SheetUncutSides.Outside)]
+        [InlineData(ExactMeshBoolean.SheetUncutSides.Inside)]
+        public void ALoneClosedSheetInsideTheCube_IsRefused_WhateverTheUncutSide(ExactMeshBoolean.SheetUncutSides side)
+        {
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Box(0.25, 0.25, 0.25, 0.75, 0.75, 0.75), side);
+            AssertRefused(op, Refusal.FloatingComponent, "lone box " + side);
+            AssertNothingInsideOut(op, "lone box");
+        }
+
+        [Fact]
+        public void ABubbleOfAnotherSheet_AloneInACell_IsRefused()
+        {
+            // the same with the bubble as a sheet of its own: in its pass it floats too
+            var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2), Box(0.25, 0.25, 0.1, 0.75, 0.75, 0.3) }, Ops.Difference) {
+                Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.False(op.Compute());
+            Assert.Equal(Status.SheetRefused, op.Status);
+            AssertNothingInsideOut(op, "two sheets");
+        }
     }
 }

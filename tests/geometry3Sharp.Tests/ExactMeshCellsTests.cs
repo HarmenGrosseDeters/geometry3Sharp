@@ -154,7 +154,7 @@ namespace geometry3Sharp.Tests
         static (ExactMeshCells, bool[], int[], int[]) Flat()
         {
             Fan f = MakeFan(new[] { 0.0, 180 }, new[] { true, false });
-            ExactMeshCells c = ExactMeshCells.Build(f.Arr, f.Tris, All(2, false), All(2, false));
+            ExactMeshCells c = ExactMeshCells.Build(f.Arr, f.Tris, All(2, true), All(2, false));
             c.FreeEdges.Clear();       // (the pages' other edges are free: Label would refuse them; the cells are what these tests look at)
             var interior = All(4, true);
             var m0 = new[] { -1, -1, -1, -1 }; var m1 = new[] { -1, -1, -1, -1 };
@@ -205,8 +205,21 @@ namespace geometry3Sharp.Tests
             ExactMeshCells.Labelling refused = ExactMeshCells.Label(c, interior, m0, m1, Uncut.Refuse);
             Assert.Equal(Refusal.UncutComponents, refused.Reason);
             Assert.Equal(1, refused.UncutCells);
-            // (the pieces here are no boundary of the workpiece: a cell without a wall of the workpiece is a floating part, refused whatever the side)
-            Assert.Equal(Refusal.UncutComponents, ExactMeshCells.Label(c, interior, m0, m1, Uncut.Outside).Reason);
+            // (pieces that are no boundary of the workpiece: a marked cell without a wall is a floating part of the sheet, refused whatever the side;
+            // an unmarked one is refused as uncut)
+            Fan fl = MakeFan(new[] { 0.0, 180 }, new[] { true, false });
+            ExactMeshCells floating = ExactMeshCells.Build(fl.Arr, fl.Tris, All(2, false), All(2, false));
+            floating.FreeEdges.Clear();
+            ExactMeshCells.Labelling fr = ExactMeshCells.Label(floating, interior, m0, m1, Uncut.Outside);
+            Assert.Equal(Refusal.FloatingComponent, fr.Reason);
+            Assert.Equal(1, fr.FloatingCells);
+            Assert.Equal(1, fr.MarkTriangle0);
+            Assert.Equal(-1, fr.MarkTriangle1);
+            Assert.Equal(0, fr.Piece);
+            Assert.Equal(Refusal.FloatingComponent, ExactMeshCells.Label(floating, interior, m0, m1, Uncut.Refuse).Reason);
+            m0[0] = -1;
+            Assert.Equal(Refusal.UncutComponents, ExactMeshCells.Label(floating, interior, m0, m1, Uncut.Outside).Reason);
+            m0[0] = 1;
             // with the pieces as the boundary of the workpiece (one shell): the stated side labels the cell
             Fan f = MakeFan(new[] { 0.0, 180 }, new[] { true, false });
             ExactMeshCells w = ExactMeshCells.Build(f.Arr, f.Tris, All(2, true), All(2, false));

@@ -65,7 +65,7 @@ namespace g3
     /// edge of the sheet inside the first mesh, a cell on both sides of the sheet, a part of the first mesh that the sheet does not
     /// touch, a sheet that is not an oriented manifold surface, a Union or Intersection) Compute() fails with Status SheetRefused and
     /// SheetReason, and nothing is guessed or repaired. The part of the first mesh that the sheet does not touch is handled by
-    /// SheetUncutSide where the first mesh has one shell; with several, the nesting of the shells would be needed and the sheet is refused.
+    /// SheetUncutSide where the first mesh has one shell and every part of the sheet (and of any other tool inside it) shares an edge with its surface or with a part that does; with several shells, or a part that floats, the nesting of the shells would be needed and the sheet is refused (SheetRefusal.UncutComponents, FloatingComponent).
     /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
     /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
     /// acceptable and very broken input (triangle soups) must give a closed mesh.
@@ -148,10 +148,21 @@ namespace g3
             OrientationInconsistent = 7,
             /// <summary> a free edge (boundary edge) of the sheet lies inside the first mesh, not on its surface: the sheet does not separate; SheetWitnessPoint is one end </summary>
             RimInsideWorkpiece = 8,
-            /// <summary> a cell of the first mesh is in front of a piece of the sheet and behind another (or both sides of one): SheetWitnessTriangle is the piece it is in front of, SheetWitnessTriangle2 the one it is behind </summary>
+            /// <summary>
+            /// a cell of the first mesh is in front of a piece of the sheet and behind another (or both sides of one): SheetWitnessTriangle is the piece it is in front of, SheetWitnessTriangle2 the one it is behind.
+            /// Also the reason for a free edge of a piece that belongs to another tool or another sheet, not to the sheet that is checked: that edge only shows as the two sides of the cell
+            /// being one, while a free edge of the checked sheet itself is RimInsideWorkpiece
+            /// </summary>
             SidesInconsistent = 9,
             /// <summary> a part of the first mesh that no piece of the sheet touches, and UncutSide does not say where it is (or the first mesh has more than one shell, where this version cannot tell a separate part from a cavity) </summary>
-            UncutComponents = 10
+            UncutComponents = 10,
+            /// <summary>
+            /// a component of the sheet (a closed part, or any part with no edge in common with the first mesh's surface or with a part that has)
+            /// floats inside the first mesh: its cell is not joined to the surface, so it may be the same region as a cell with the other label, which only
+            /// the nesting of the shells could tell. Refused, also where it would be right (a closed bubble in the kept half), and whatever UncutSide says;
+            /// SheetWitnessTriangle names a triangle of it
+            /// </summary>
+            FloatingComponent = 11
         }
 
         /// <summary> the side of the sheet that a part of the first mesh without any piece of the sheet is on (SheetUncutSide) </summary>
@@ -200,8 +211,9 @@ namespace g3
         /// <summary>
         /// the side of a sheet that the part of the first mesh is on that no piece of the sheet touches (or reaches only as far as
         /// a free edge does not): Refuse (the default) fails with SheetRefusal.UncutComponents. Outside and Inside are applied only if the first
-        /// mesh has a single shell (edge-connected boundary): with several, a part that the sheet misses may be a cavity of a part it
-        /// cuts, and that needs the nesting of the shells, so it is refused.
+        /// mesh has a single shell (edge-connected boundary), and then only if every part of the sheet is joined to its surface (a part with no
+        /// edge in common with the surface or with a part that has one is refused as FloatingComponent first): with several shells, a part that the
+        /// sheet misses may be a cavity of a part it cuts, and that needs the nesting of the shells, so it is refused.
         /// </summary>
         public SheetUncutSides SheetUncutSide = SheetUncutSides.Refuse;
         /// <summary> the reason of Status SheetRefused, else None </summary>
@@ -1615,7 +1627,7 @@ namespace g3
                 if (lab.Reason != SheetRefusal.None) {
                     // (the refusal that names the sheet's own fault first: a free edge, then the two marks, then an unmarked part; a part that is
                     // unmarked in one sheet's pass may be another sheet's patch with a free edge, which its own pass names)
-                    int priority = lab.Reason == SheetRefusal.RimInsideWorkpiece ? 0 : lab.Reason == SheetRefusal.SidesInconsistent ? 1 : 2;
+                    int priority = lab.Reason == SheetRefusal.RimInsideWorkpiece ? 0 : (lab.Reason == SheetRefusal.SidesInconsistent || lab.Reason == SheetRefusal.FloatingComponent) ? 1 : 2;
                     if (bestLab == null || priority < bestPriority) {
                         bestLab = lab; bestPriority = priority; bestSheet = s; bestPiece = piece; bestTris = tris; bestCells = cells;
                     }
@@ -1656,6 +1668,13 @@ namespace g3
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                             "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
                             lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                        break;
+                    case SheetRefusal.FloatingComponent:
+                        SheetWitnessTriangle = lab.MarkTriangle0 >= 0 ? arr.Triangles[lab.MarkTriangle0].Tid : arr.Triangles[lab.MarkTriangle1].Tid;
+                        SheetConflictingCells = lab.FloatingCells;
+                        SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells",
+                            lab.FloatingCells, s, SheetWitnessTriangle);
                         break;
                     default:
                         SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
