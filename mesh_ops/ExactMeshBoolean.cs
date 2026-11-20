@@ -98,7 +98,64 @@ namespace g3
             /// </summary>
             BudgetExceeded = 5,
             /// <summary> Cancellation was cancelled during Compute(); Result is null </summary>
-            Cancelled = 6
+            Cancelled = 6,
+            /// <summary>
+            /// an input with the role Sheet cannot be used as stated (see SheetReason, Error and the Sheet witness fields); Result is null.
+            /// A sheet is never repaired, reoriented or classified by generalized winding numbers: it is an exact tool or it is refused
+            /// </summary>
+            SheetRefused = 7
+        }
+
+        /// <summary> the role of an input mesh (see Roles) </summary>
+        public enum InputRole
+        {
+            /// <summary> a solid: the points with winding number above 0 (the default) </summary>
+            Solid = 0,
+            /// <summary>
+            /// an open, oriented cutting surface used as a tool of a Difference: the part of the first mesh behind it (the side its normals
+            /// point away from) is inside the tool, the part in front of it is outside. Exact, with no threshold: it needs the first mesh
+            /// closed, the sheet an oriented manifold surface (every edge once or in both directions twice), no free edge of the sheet
+            /// inside the first mesh, and no cell of the first mesh in front of one piece of the sheet and behind another (SheetRefusal).
+            /// Only as a tool of a Difference, never as its first operand. The sheet is used as given (not reoriented, not repaired)
+            /// </summary>
+            Sheet = 1
+        }
+
+        /// <summary> what a sheet cannot be used for, or why not (SheetReason) </summary>
+        public enum SheetRefusal
+        {
+            None = 0,
+            /// <summary> the operation is a Union </summary>
+            InUnion = 1,
+            /// <summary> the operation is an Intersection </summary>
+            InIntersection = 2,
+            /// <summary> the first mesh is a sheet </summary>
+            AsFirstOperand = 3,
+            /// <summary> WindingPredicate is set (the winding numbers of a sheet are not integers of a solid) </summary>
+            WithWindingPredicate = 4,
+            /// <summary> the first mesh (the workpiece) is not closed in the winding number sense </summary>
+            WorkpieceNotClosed = 5,
+            /// <summary> an edge of the sheet is used by more than two triangles (by position); SheetWitnessTriangle names one </summary>
+            NotSurface = 6,
+            /// <summary> two triangles of the sheet run through an edge in the same direction (the sheet is not consistently oriented as given); SheetWitnessTriangle names one </summary>
+            OrientationInconsistent = 7,
+            /// <summary> a free edge (boundary edge) of the sheet lies inside the first mesh, not on its surface: the sheet does not separate; SheetWitnessPoint is one end </summary>
+            RimInsideWorkpiece = 8,
+            /// <summary> a cell of the first mesh is in front of a piece of the sheet and behind another (or both sides of one): SheetWitnessTriangle is the piece it is in front of, SheetWitnessTriangle2 the one it is behind </summary>
+            SidesInconsistent = 9,
+            /// <summary> a part of the first mesh that no piece of the sheet touches, and UncutSide does not say where it is (or the first mesh has more than one shell, where this version cannot tell a separate part from a cavity) </summary>
+            UncutComponents = 10
+        }
+
+        /// <summary> the side of the sheet that a part of the first mesh without any piece of the sheet is on (SheetUncutSide) </summary>
+        public enum SheetUncutSides
+        {
+            /// <summary> refuse (SheetRefusal.UncutComponents) </summary>
+            Refuse = 0,
+            /// <summary> it is outside the tool: kept by the Difference </summary>
+            Outside = 1,
+            /// <summary> it is inside the tool: removed by the Difference </summary>
+            Inside = 2
         }
 
         /// <summary>
@@ -126,6 +183,28 @@ namespace g3
         public List<DMesh3> Meshes;
         /// <summary> the operation computed by Compute() (unless WindingPredicate is set) </summary>
         public Operations Operation;
+        /// <summary>
+        /// the role of each input, in the order of Meshes (or A, B); null: all Solid; a shorter list: the others are Solid. An input with
+        /// the role Sheet is an open, oriented cutting surface that is the tool of a Difference (see <see cref="InputRole.Sheet"/>); with a
+        /// sheet, Compute() fails with Status SheetRefused (and SheetReason) unless the operation is a Difference and the sheet is not the
+        /// first mesh. ExactWinding is false for a sheet.
+        /// </summary>
+        public List<InputRole> Roles;
+        /// <summary>
+        /// the side of a sheet that the part of the first mesh is on that no piece of the sheet touches (or reaches only as far as
+        /// a free edge does not): Refuse (the default) fails with SheetRefusal.UncutComponents. Outside and Inside are applied only if the first
+        /// mesh has a single shell (edge-connected boundary): with several, a part that the sheet misses may be a cavity of a part it
+        /// cuts, and that needs the nesting of the shells, so it is refused.
+        /// </summary>
+        public SheetUncutSides SheetUncutSide = SheetUncutSides.Refuse;
+        /// <summary> the reason of Status SheetRefused, else None </summary>
+        public SheetRefusal SheetReason;
+        /// <summary> witness of SheetReason: the mesh of the sheet (index of Meshes) and the triangle(s) of its input mesh, -1 if none </summary>
+        public int SheetWitnessMesh = -1, SheetWitnessTriangle = -1, SheetWitnessTriangle2 = -1;
+        /// <summary> witness of SheetReason: a point (input coordinates, rounded) of the free edge, or of the conflicting or uncut cell </summary>
+        public Vector3d SheetWitnessPoint;
+        /// <summary> the cells that SidesInconsistent found with both marks, the cells that no sheet marks </summary>
+        public int SheetConflictingCells, SheetUncutCells;
         /// <summary>
         /// if set, decides instead of Operation where the result's solid is (Zhou et al. 2016): called with the
         /// winding numbers of all input meshes at a point (entry i for mesh i, in the order of Meshes, or A, B),
@@ -561,6 +640,12 @@ namespace g3
             ReorientedTriangles = Contacts = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
+            SheetReason = SheetRefusal.None;
+            SheetError = null;
+            SheetWitnessMesh = SheetWitnessTriangle = SheetWitnessTriangle2 = -1;
+            SheetWitnessPoint = Vector3d.Zero;
+            SheetConflictingCells = SheetUncutCells = 0;
+            sheetRole = null;
             PhaseMilliseconds = new Dictionary<string, long>();
             PhaseAllocatedBytes = new Dictionary<string, long>();
             Counts = new Dictionary<string, long>();
@@ -594,14 +679,46 @@ namespace g3
             foreach (DMesh3 m in inputs)
                 if (m == null)
                     return fail(BooleanStatus.InvalidInput, "input mesh is null");
+            // the roles (a sheet is used as given: it is not reoriented or repaired, and its winding is a cell label)
+            bool[] sheet = null;
+            if (Roles != null) {
+                if (Roles.Count > inputs.Count)
+                    return fail(BooleanStatus.InvalidInput, "more roles than input meshes");
+                for (int m = 0; m < Roles.Count; ++m) {
+                    if (Roles[m] != InputRole.Solid && Roles[m] != InputRole.Sheet)
+                        return fail(BooleanStatus.InvalidInput, "an input role is not a defined value");
+                    if (Roles[m] == InputRole.Sheet) {
+                        if (sheet == null)
+                            sheet = new bool[inputs.Count];
+                        sheet[m] = true;
+                    }
+                }
+            }
+            sheetRole = sheet;
+            if (sheet != null) {
+                if (WindingPredicate != null)
+                    return refuse_sheet(SheetRefusal.WithWindingPredicate, "a sheet cannot be used with a WindingPredicate");
+                if (Operation == Operations.Union)
+                    return refuse_sheet(SheetRefusal.InUnion, "a sheet cannot be used in a Union");
+                if (Operation == Operations.Intersection)
+                    return refuse_sheet(SheetRefusal.InIntersection, "a sheet cannot be used in an Intersection");
+                if (sheet[0])
+                    return refuse_sheet(SheetRefusal.AsFirstOperand, "a sheet cannot be the first operand of a Difference");
+            }
             // inconsistently oriented inputs (flipped triangles, as from broken files) are oriented consistently per
             // component first, on copies: their winding numbers are not meaningful otherwise (the generalized
             // winding number jumps the wrong way across a flipped triangle, so next to it the inside reads as outside)
             // (prepare_input; the first mesh's from PreparedFirst when it was prepared once for several booleans)
-            PreparedInput[] prepared = prepare_inputs(inputs);
+            PreparedInput[] prepared = prepare_inputs(inputs, sheet);
             for (int m = 0; m < inputs.Count; ++m)
                 if (prepared[m].Finite == false)
                     return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
+            for (int m = 0; m < inputs.Count; ++m)
+                if (prepared[m].Refusal != SheetRefusal.None) {
+                    SheetWitnessMesh = m;
+                    SheetWitnessTriangle = prepared[m].RefusalTriangle;
+                    return refuse_sheet(prepared[m].Refusal, "input " + m + " (a sheet): " + prepared[m].RefusalText);
+                }
             inputs = new List<DMesh3>(inputs);
             ExactWinding = new bool[inputs.Count];
             for (int m = 0; m < inputs.Count; ++m) {
@@ -611,7 +728,9 @@ namespace g3
             }
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
-            if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
+            if (sheet != null && ExactWinding[0] == false)
+                return refuse_sheet(SheetRefusal.WorkpieceNotClosed, "the first mesh (the workpiece of a sheet) must be closed (every edge used equally often in both directions)");
+            if (AllowOpenMeshes == false && any_generalized())
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
             inputClock.Lap("input");
@@ -665,6 +784,10 @@ namespace g3
             bool[] keep, flip;
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
+            if (SheetReason != SheetRefusal.None) {
+                Result = null;
+                return fail(BooleanStatus.SheetRefused, SheetError);
+            }
             if (RecordCertificate) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
@@ -840,6 +963,66 @@ namespace g3
             public DMesh3 Source, Input;
             public bool Finite, Closed;
             public int Reoriented;
+            // a sheet: why it is not an oriented manifold surface, and a triangle of it
+            public SheetRefusal Refusal;
+            public int RefusalTriangle = -1;
+            public string RefusalText;
+        }
+
+        // a sheet is used as given: finite coordinates, and an oriented manifold surface by position (every edge used once, or twice in
+        // opposite directions; a free edge is the sheet's rim). Never reoriented or repaired: the orientation is the caller's statement
+        [MethodImpl(JitHints.Optimize)]
+        internal static PreparedInput prepare_sheet(DMesh3 mesh)
+        {
+            var p = new PreparedInput() { Source = mesh, Input = mesh, Finite = true, Closed = false };
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false) {
+                    p.Finite = false;
+                    return p;
+                }
+            }
+            int[] pos = weld_vertices(mesh);
+            int cap = 3 * mesh.TriangleCount, m = 0;
+            var keys = new long[cap];
+            var items = new long[cap];      // 2 (3 t + k) + 1 if the edge runs from the smaller welded vertex to the larger
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i f = mesh.GetTriangle(t);
+                int[] w = { pos[f.a], pos[f.b], pos[f.c] };
+                for (int k = 0; k < 3; ++k) {
+                    int u = w[k], v = w[(k + 1) % 3];
+                    if (u == v)
+                        continue;
+                    keys[m] = ExactMeshArrangement.EdgeKey(u, v);
+                    items[m] = 2L * (3L * t + k) + (u < v ? 1 : 0);
+                    ++m;
+                }
+            }
+            Array.Resize(ref keys, m);
+            Array.Resize(ref items, m);
+            Array.Sort(keys, items);
+            long nonManifold = long.MaxValue, inconsistent = long.MaxValue;
+            for (int g0 = 0, g1; g0 < m; g0 = g1) {
+                g1 = g0 + 1;
+                while (g1 < m && keys[g1] == keys[g0]) g1++;
+                long lowest = long.MaxValue;
+                for (int g = g0; g < g1; ++g)
+                    lowest = Math.Min(lowest, items[g] / 2 / 3);
+                if (g1 - g0 > 2)
+                    nonManifold = Math.Min(nonManifold, lowest);
+                else if (g1 - g0 == 2 && (items[g0] & 1) == (items[g0 + 1] & 1))
+                    inconsistent = Math.Min(inconsistent, lowest);
+            }
+            if (nonManifold != long.MaxValue) {
+                p.Refusal = SheetRefusal.NotSurface;
+                p.RefusalTriangle = (int)nonManifold;
+                p.RefusalText = "an edge is used by more than two triangles, eg at triangle " + nonManifold;
+            } else if (inconsistent != long.MaxValue) {
+                p.Refusal = SheetRefusal.OrientationInconsistent;
+                p.RefusalTriangle = (int)inconsistent;
+                p.RefusalText = "two triangles run through an edge in the same direction, eg at triangle " + inconsistent;
+            }
+            return p;
         }
 
         internal static PreparedInput prepare_input(DMesh3 mesh)
@@ -869,7 +1052,7 @@ namespace g3
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
         // read, so they are prepared in parallel, each result into its own slot
         [MethodImpl(JitHints.Optimize)]
-        internal PreparedInput[] prepare_inputs(List<DMesh3> inputs)
+        internal PreparedInput[] prepare_inputs(List<DMesh3> inputs, bool[] sheet = null)
         {
             var prepared = new PreparedInput[inputs.Count];
             PreparedInput first = PreparedFirst;
@@ -877,7 +1060,8 @@ namespace g3
             gParallel.ForRange(inputs.Count, (m) => {
                 if (observer != null)
                     observer(m);
-                prepared[m] = (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
+                prepared[m] = (sheet != null && sheet[m]) ? prepare_sheet(inputs[m])
+                    : (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
             });
             return prepared;
         }
@@ -898,6 +1082,27 @@ namespace g3
         {
             Status = status;
             Error = error;
+            return false;
+        }
+
+        // the roles of the inputs of this Compute (null: no sheet)
+        bool[] sheetRole;
+        string SheetError;
+
+        bool refuse_sheet(SheetRefusal reason, string text)
+        {
+            SheetReason = reason;
+            SheetError = text;
+            Result = null;
+            return fail(BooleanStatus.SheetRefused, text);
+        }
+
+        // some input is open and classified by generalized winding numbers (not a solid, not a sheet)
+        bool any_generalized()
+        {
+            for (int m = 0; m < ExactWinding.Length; ++m)
+                if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
+                    return true;
             return false;
         }
 
@@ -1117,7 +1322,7 @@ namespace g3
             steps.LapMicroseconds("classification.edges");
             int[] parent = ExactMeshEdgeGroups.NewForest(n);
             // (L1: the pairs of pieces without stacks joined across an edge, the adjacency of the patches)
-            List<long> joins = PerPatchOpenWinding && TracedOpenWinding == false && ExactWinding != null && Array.IndexOf(ExactWinding, false) >= 0 ? new List<long>() : null;
+            List<long> joins = PerPatchOpenWinding && TracedOpenWinding == false && ExactWinding != null && any_generalized() ? new List<long>() : null;
             join_pieces(output, stack, edgeKeys, edgeTri, parent, joins);
             Func<int, int> find = (x) => find_root(parent, x);
 
@@ -1132,7 +1337,8 @@ namespace g3
             var openMeshes = new List<int>();
             for (int m = 0; m < nm; ++m) {
                 closedBoxes.Add(ExactWinding[m] ? input_bounds(m) : AxisAlignedBox3d.Empty);
-                if (ExactWinding[m] == false)
+                // (a sheet has no winding number of its own: its entry is the label of a cell, label_sheets)
+                if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
                     openMeshes.Add(m);
                 // (the caches that the parallel evaluation reads)
                 BigInteger[] bmin, bmax;
@@ -1144,7 +1350,7 @@ namespace g3
             OpenBoundarySegments = new int[nm];
             for (int m = 0; m < nm; ++m) {
                 OpenBoundarySegments[m] = -1;
-                if (ExactWinding[m])
+                if (ExactWinding[m] || (sheetRole != null && sheetRole[m]))
                     continue;
                 if (arr.Meshes[m].TriangleCount >= AntipodalMaxTriangles) {
                     OpenBoundarySegments[m] = -2;
@@ -1223,6 +1429,14 @@ namespace g3
             }
             OpenWindingPerPiece = RecordOpenWinding ? openWinding : null;
             steps.LapMicroseconds("classification.open");
+            // the sheets: the label of the cell in front of and behind each piece (the cells of the first mesh that the sheet cuts)
+            sbyte[][] sheetFront = null, sheetBack = null;
+            if (sheetRole != null) {
+                label_sheets(output, stack, representative, find, patchWinding, out sheetFront, out sheetBack);
+                steps.LapMicroseconds("classification.sheets");
+                if (SheetReason != SheetRefusal.None)
+                    return;
+            }
 
             int[] winding = new int[nm];
             int[][] front = RecordCertificate ? new int[n][] : null;
@@ -1247,21 +1461,33 @@ namespace g3
                     for (int k = 0; k < w.Length; k += 2)
                         add(w[k], w[k + 1]);
                 }
+                if (sheetFront != null)
+                    for (int m = 0; m < nm; ++m)
+                        if (sheetFront[m] != null && sheetFront[m][i] != 0)
+                            add(m, sheetFront[m][i]);
                 if (front != null)
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
+                // (a sheet's entry is the label of the cell on each side, not a count of crossings)
                 if (stack[i] == null) {
-                    add(ot.Mesh, 1);
+                    if (sheetRole == null || sheetRole[ot.Mesh] == false)
+                        add(ot.Mesh, 1);
                 } else {
                     var src = arr.Triangles[ot.Source];
                     foreach (int ti in stack[i]) {
                         var U = arr.Triangles[ti];
+                        if (sheetRole != null && sheetRole[U.Mesh])
+                            continue;
                         int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
                         add(U.Mesh, (dot > 0) ? 1 : -1);
                     }
                 }
+                if (sheetFront != null)
+                    for (int m = 0; m < nm; ++m)
+                        if (sheetFront[m] != null && sheetFront[m][i] != sheetBack[m][i])
+                            add(m, sheetBack[m][i] - sheetFront[m][i]);
                 bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
@@ -1273,6 +1499,148 @@ namespace g3
             }
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
+        }
+
+        // The label of the cell in front of and behind every representative piece, per sheet (null for the other meshes): 0 outside the tool,
+        // 1 inside it; 0 where the side is not in the first mesh's interior (the winding of the first mesh is 0 there and decides alone).
+        // For each sheet its own pass (the other sheets' pieces are not walls of its cells): the pieces of the first mesh's boundary (where the
+        // sign of its winding number changes) and the sheet's pieces that touch the first mesh's solid (a winding number above 0 on a side)
+        // are the included pieces; ExactMeshCells joins their sides around the edges into local cells; the sheet's pieces mark the cell in front
+        // of them 0 and the one behind them 1. Where that fails, SheetReason and the witness fields are set.
+        [MethodImpl(JitHints.Optimize)]
+        void label_sheets(List<ExactMeshArrangement.OutputTriangle> output, List<int>[] stack, bool[] representative, Func<int, int> find, int[][] patchWinding,
+            out sbyte[][] front, out sbyte[][] back)
+        {
+            int n = output.Count, nm = arr.Meshes.Count;
+            front = new sbyte[nm][];
+            back = new sbyte[nm][];
+            // the winding number of the first mesh on both sides of each representative piece (exact, the closed meshes' windings of classify)
+            var wf = new int[n];
+            var wb = new int[n];
+            for (int i = 0; i < n; ++i) {
+                if (representative[i] == false)
+                    continue;
+                int[] w = patchWinding[find(i)];
+                int f = 0;
+                for (int k = 0; k < w.Length; k += 2)
+                    if (w[k] == 0)
+                        f += w[k + 1];
+                wf[i] = f;
+                var ot = output[i];
+                int b = f;
+                if (stack[i] == null) {
+                    if (ot.Mesh == 0)
+                        b += 1;
+                } else {
+                    var src = arr.Triangles[ot.Source];
+                    foreach (int ti in stack[i]) {
+                        var U = arr.Triangles[ti];
+                        if (U.Mesh != 0)
+                            continue;
+                        int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
+                        b += (dot > 0) ? 1 : -1;
+                    }
+                }
+                wb[i] = b;
+            }
+            for (int s = 1; s < nm; ++s) {
+                if (sheetRole[s] == false)
+                    continue;
+                var piece = new List<int>();            // the included pieces (output indices, ascending)
+                var tris = new List<Index3i>();
+                var boundary = new List<bool>();
+                var transparent = new List<bool>();
+                var onSheet = new List<List<int>>();    // per included piece, the sheet's input triangles in its stack
+                for (int i = 0; i < n; ++i) {
+                    if (representative[i] == false)
+                        continue;
+                    var ot = output[i];
+                    List<int> sheetTris = null;
+                    if (stack[i] == null) {
+                        if (ot.Mesh == s)
+                            sheetTris = new List<int>() { ot.Source };
+                    } else {
+                        foreach (int ti in stack[i])
+                            if (arr.Triangles[ti].Mesh == s)
+                                (sheetTris ?? (sheetTris = new List<int>())).Add(ti);
+                    }
+                    // (a piece with no side in the first mesh's interior is outside it and decided by the first mesh alone)
+                    if (wf[i] <= 0 && wb[i] <= 0)
+                        continue;
+                    bool wall = (wf[i] > 0) != (wb[i] > 0);
+                    piece.Add(i);
+                    tris.Add(new Index3i(ot.A, ot.B, ot.C));
+                    boundary.Add(wall);
+                    onSheet.Add(sheetTris);
+                    // (the others inside the first mesh, of other tools or other sheets or of its own overlaps, are no wall of this sheet's cells: their sides are one cell)
+                    transparent.Add(wall == false && sheetTris == null);
+                }
+                int count = piece.Count;
+                var interior = new bool[2 * count];
+                var mark0 = new int[2 * count];
+                var mark1 = new int[2 * count];
+                for (int k = 0; k < count; ++k) {
+                    int i = piece[k];
+                    interior[2 * k] = wf[i] > 0;
+                    interior[2 * k + 1] = wb[i] > 0;
+                    mark0[2 * k] = mark1[2 * k] = mark0[2 * k + 1] = mark1[2 * k + 1] = -1;
+                    if (onSheet[k] == null)
+                        continue;
+                    var src = arr.Triangles[output[i].Source];
+                    foreach (int ti in onSheet[k]) {
+                        var U = arr.Triangles[ti];
+                        int dot = (ti == output[i].Source) ? 1 : ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
+                        // the sheet's front is the piece's front for dot > 0: the front is outside the tool (0), the back inside (1)
+                        int nf = dot > 0 ? 2 * k : 2 * k + 1, nb = dot > 0 ? 2 * k + 1 : 2 * k;
+                        if (mark0[nf] < 0) mark0[nf] = ti;
+                        if (mark1[nb] < 0) mark1[nb] = ti;
+                    }
+                }
+                ExactMeshCells cells = ExactMeshCells.Build(arr, tris, boundary.ToArray(), transparent.ToArray());
+                ExactMeshCells.Labelling lab = ExactMeshCells.Label(cells, interior, mark0, mark1, SheetUncutSide);
+                Counts["sheet_pieces"] = count;
+                Counts["sheet_cells"] = cells.CellCount;
+                if (lab.Reason != SheetRefusal.None) {
+                    SheetReason = lab.Reason;
+                    SheetWitnessMesh = s;
+                    SheetConflictingCells = lab.ConflictingCells;
+                    SheetUncutCells = lab.UncutCells;
+                    ExactMeshArrangement.OutputTriangle w = output[piece[lab.Piece]];
+                    switch (lab.Reason) {
+                        case SheetRefusal.RimInsideWorkpiece: {
+                            Index3i t = tris[lab.Piece];
+                            int e = lab.Corner;
+                            int u = e == 0 ? t.a : e == 1 ? t.b : t.c;
+                            SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
+                            SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
+                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
+                                SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
+                            break;
+                        }
+                        case SheetRefusal.SidesInconsistent:
+                            SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
+                            SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
+                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
+                                lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                            break;
+                        default:
+                            SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
+                            SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
+                                lab.UncutCells, s, SheetUncutSide, cells.ShellCount, SheetWitnessTriangle);
+                            break;
+                    }
+                    return;
+                }
+                front[s] = new sbyte[n];
+                back[s] = new sbyte[n];
+                for (int k = 0; k < count; ++k) {
+                    front[s][piece[k]] = lab.Label[2 * k];
+                    back[s][piece[k]] = lab.Label[2 * k + 1];
+                }
+            }
         }
 
         // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
@@ -4954,7 +5322,7 @@ namespace g3
             // with an open input, the per-piece classification (front_generalized_winding) can keep pieces whose fans
             // around a vertex meet only at the vertex (the kept region's boundary, {w = 1/2}, does not run along mesh
             // edges): each such vertex gets one copy per fan, so that the result is a valid mesh without bowties
-            if (Array.IndexOf(ExactWinding, false) >= 0)
+            if (any_generalized())
                 SplitBowtieVertices = split_bowties(result, vertexPoint);
 
             // input vertices (kept by SafeRounding where possible) and exact coordinates

@@ -271,6 +271,18 @@ namespace gs
         /// <summary> what to do with an input that is not closed (default Refuse: Status OpenInput; see InputRepairModes.AutoRepair before choosing a repair) </summary>
         public InputRepairModes InputRepair = InputRepairModes.Refuse;
         /// <summary>
+        /// the role of each input (entry i for Inputs[i]; null or a shorter list: the others are Solid). An input with the role Sheet
+        /// (<see cref="ExactMeshBoolean.InputRole.Sheet"/>) is an open, oriented cutting surface, the tool of a Difference: it is handed to the boolean
+        /// as given (never repaired, reoriented, or counted as an open input), the boolean cuts the first input along it exactly, and refuses
+        /// (BooleanStatus SheetRefused, SheetReason) where the sheet does not define the sides; see <see cref="ExactMeshBoolean.SheetRefusal"/>.
+        /// A sheet in a Union or Intersection, or as the first input, is refused. InputGrid still snaps its coordinates.
+        /// </summary>
+        public List<ExactMeshBoolean.InputRole> InputRoles;
+        /// <summary> the side of the sheets that a part of the first input is on that no sheet touches (see <see cref="ExactMeshBoolean.SheetUncutSide"/>; default Refuse) </summary>
+        public ExactMeshBoolean.SheetUncutSides UncutSide = ExactMeshBoolean.SheetUncutSides.Refuse;
+        /// <summary> the reason of a refused sheet (BooleanStatus SheetRefused), else None; the witness is in Error </summary>
+        public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
+        /// <summary>
         /// Default 0 (off: the inputs are used as given, and the result is the one without this option, bit for bit). Otherwise a
         /// power of two (eg 2^-20, about 1e-6 in metres): every coordinate of every input is moved to the nearest multiple of it,
         /// on copies, before the input check (ties to even). With a power of two the snap is exact, so the snapped
@@ -402,6 +414,7 @@ namespace gs
             Error = null;
             Status = PipelineStatus.NotComputed;
             BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
+            SheetReason = ExactMeshBoolean.SheetRefusal.None;
             Report = new SolidBooleanReport();
 
             int criteria = (TargetTriangleCount > 0 ? 1 : 0) + (TargetFraction > 0 ? 1 : 0) + (MinEdgeLength > 0 ? 1 : 0) + (MaxQuadricError > 0 ? 1 : 0);
@@ -426,6 +439,10 @@ namespace gs
             for (int i = 0; i < Inputs.Count; ++i)
                 if (Inputs[i] == null)
                     return fail(PipelineStatus.InvalidInput, "input " + i + " is null", total);
+            if (InputRoles != null && InputRoles.Count > Inputs.Count)
+                return fail(PipelineStatus.InvalidInput, "more InputRoles than inputs", total);
+            if (UncutSide < ExactMeshBoolean.SheetUncutSides.Refuse || UncutSide > ExactMeshBoolean.SheetUncutSides.Inside)
+                return fail(PipelineStatus.InvalidInput, "UncutSide is not a defined value", total);
 
             // 1. the snap to InputGrid (on copies), then the cheap check per input
             var clock = Stopwatch.StartNew();
@@ -445,7 +462,8 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 Report.InputTriangles[i] = Inputs[i].TriangleCount;
                 Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(given[i]);
-                anyOpen |= !Report.InputClosed[i];
+                // (a sheet is open by role: not an open input to refuse or repair)
+                anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
             // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
             var active = new List<int>(n);
@@ -454,6 +472,8 @@ namespace gs
             if (MinThickness > 0) {
                 var thin = new bool[n];
                 for (int i = 0; i < n; ++i) {
+                    if (isSheet(i))
+                        continue;       // (a surface has no volume: it is not thin)
                     double v, a;
                     MeasureInput(given[i], out v, out a);
                     double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
@@ -485,10 +505,10 @@ namespace gs
                     used.Add(given[i]);
                 anyOpen = false;
                 foreach (int i in active)
-                    anyOpen |= !Report.InputClosed[i];
+                    anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
             clock.Restart();
-            ExactMeshBoolean op = runBoolean(used);
+            ExactMeshBoolean op = runBoolean(used, active);
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
             BooleanStatus = op.Status;
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
@@ -501,7 +521,7 @@ namespace gs
                 clock.Restart();
                 for (int k = 0; k < active.Count; ++k) {
                     int i = active[k];
-                    if (Report.InputClosed[i])
+                    if (Report.InputClosed[i] || isSheet(i))
                         continue;
                     DMesh3 repaired;
                     SolidBooleanInputRepair r = repair(i, given[i], out repaired);
@@ -514,7 +534,7 @@ namespace gs
                 }
                 Report.RepairMilliseconds = clock.ElapsedMilliseconds;
                 clock.Restart();
-                op = runBoolean(used);
+                op = runBoolean(used, active);
                 BooleanStatus = op.Status;
                 Report.BooleanMilliseconds += clock.ElapsedMilliseconds;
             }
@@ -528,6 +548,7 @@ namespace gs
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
+                SheetReason = op.SheetReason;
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
@@ -776,11 +797,24 @@ namespace gs
             return removed;
         }
 
-        ExactMeshBoolean runBoolean(List<DMesh3> meshes)
+        bool isSheet(int i)
+        {
+            return InputRoles != null && i < InputRoles.Count && InputRoles[i] == ExactMeshBoolean.InputRole.Sheet;
+        }
+
+        ExactMeshBoolean runBoolean(List<DMesh3> meshes, List<int> active)
         {
             var op = new ExactMeshBoolean(meshes, Operation);
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
+            // (the roles of the inputs the boolean gets, in its order)
+            if (InputRoles != null) {
+                var roles = new List<ExactMeshBoolean.InputRole>(active.Count);
+                foreach (int i in active)
+                    roles.Add(i < InputRoles.Count ? InputRoles[i] : ExactMeshBoolean.InputRole.Solid);
+                op.Roles = roles;
+                op.SheetUncutSide = UncutSide;
+            }
             op.AllowOpenMeshes = false;
             op.StrictRounding = true;
             op.Cancellation = Cancellation;
