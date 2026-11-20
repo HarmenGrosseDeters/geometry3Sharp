@@ -698,7 +698,7 @@ namespace gs
         /// <summary>
         /// Removes from mesh every solid (an outer shell, positive volume, with the cavities, negative volume, inside it)
         /// whose 2 Volume / Area is below minThickness, and returns them. A cavity belongs to the smallest outer shell whose
-        /// box contains the cavity's box and that contains the cavity exactly (ShellIndex); a cavity
+        /// box contains the cavity's box and that contains the cavity (ShellIndex.Contains: exact, by a vertex of the cavity); a cavity
         /// in no outer shell (not a valid solid) is left alone, and so is a solid with a shell that has boundary edges (closed
         /// only by position). Whole components are removed, so a closed mesh stays closed. Volumes are taken relative to a
         /// vertex of each component (exact enough far from the origin).
@@ -738,26 +738,21 @@ namespace gs
             }
             // the solid of each component: an outer shell is its own; a cavity goes to the smallest outer shell that contains
             // it, decided exactly (ShellIndex.Contains). A cavity and another shell share at most points where they touch, so the
-            // cavity is inside or outside the shell as a whole: one point of the cavity that is not on the shell decides
+            // cavity is inside or outside the shell as a whole: one point of the cavity that is not on the shell decides (the
+            // probes are the cavity's vertices, exact points of the cavity)
             var owner = new int[n];
             var shellIndex = new Dictionary<int, ShellIndex>();
             for (int c = 0; c < n; ++c) {
                 owner[c] = vol[c] > 0 ? c : -1;
                 if (vol[c] > 0)
                     continue;
-                // the probes: the centroids of the cavity's triangles, the largest first (a centroid on the shell is skipped)
-                int[] probes = (int[])tris[c].Clone();
-                double[] areas = new double[probes.Length];
-                for (int j = 0; j < probes.Length; ++j)
-                    areas[j] = -mesh.GetTriArea(probes[j]);
-                Array.Sort(areas, probes);
                 for (int o = 0; o < n; ++o) {
                     if (!(vol[o] > 0) || (owner[c] >= 0 && vol[o] >= vol[owner[c]]) || !boxes[o].Contains(boxes[c]))
                         continue;
                     ShellIndex index;
                     if (!shellIndex.TryGetValue(o, out index))
                         shellIndex[o] = index = new ShellIndex(mesh, tris[o], boxes[o]);
-                    if (index.Contains(mesh, probes))
+                    if (index.Contains(mesh, tris[c]))
                         owner[c] = o;
                 }
             }
@@ -795,12 +790,12 @@ namespace gs
         internal sealed class ShellIndex
         {
             /// <summary>
-            /// Is the first probe point (centroid of a probe triangle of mesh) that does not lie on the closed shell (triangles
-            /// tris of mesh, box its box) inside it? See ShellIndex.Contains
+            /// Does the closed shell (triangles tris of mesh, box its box) contain the cavity (triangles cavity of mesh)? See
+            /// ShellIndex.Contains
             /// </summary>
-            internal static bool Contains(DMesh3 mesh, int[] tris, AxisAlignedBox3d box, int[] probes)
+            internal static bool Contains(DMesh3 mesh, int[] tris, AxisAlignedBox3d box, int[] cavity)
             {
-                return new ShellIndex(mesh, tris, box).Contains(mesh, probes);
+                return new ShellIndex(mesh, tris, box).Contains(mesh, cavity);
             }
 
             /// <summary>
@@ -819,15 +814,10 @@ namespace gs
                     Vector3d a = tri.V0, b = tri.V1, c = tri.V2;
                     int op = ExactPredicates.Orient3d(a, b, c, p), oq = ExactPredicates.Orient3d(a, b, c, q);
                     if (op == 0 || oq == 0) {
-                        // the segment ends on the plane of the triangle (p is not on the triangle itself): a touch at its end
-                        // or a segment in the plane (or a degenerate triangle) is not a clean crossing
+                        // the segment ends on the plane of the triangle, or lies in it (p is not on the triangle itself, and a
+                        // segment that starts in the plane and ends off it meets the triangle at most at p): it is not a clean
+                        // crossing if it meets the triangle at its end or along the plane
                         if (oq == 0 && ExactTriangleIntersection.SegmentIntersectsTriangle(p, q, ref tri)) {
-                            degenerate = true;
-                            return w;
-                        }
-                        if (op == 0 && oq != 0)
-                            continue;
-                        if (op == 0 && oq == 0 && ExactTriangleIntersection.SegmentIntersectsTriangle(p, q, ref tri)) {
                             degenerate = true;
                             return w;
                         }
@@ -857,15 +847,30 @@ namespace gs
             readonly DMesh3 shell;
             readonly DMeshAABBTree3 tree;
             readonly AxisAlignedBox3d box;
+            readonly double touch;
 
             public ShellIndex(DMesh3 mesh, int[] tris, AxisAlignedBox3d box)
             {
                 shell = new DSubmesh3(mesh, tris).SubMesh;
                 tree = new DMeshAABBTree3(shell, true);
                 this.box = box;
+                // the distance below which a probe counts as touching the shell: a few hundred units of rounding of the largest
+                // coordinate (a mesh that was moved or rotated has its touching faces apart by that much)
+                double magnitude = 0;
+                for (int k = 0; k < 3; ++k)
+                    magnitude = Math.Max(magnitude, Math.Max(Math.Abs(box.Min[k]), Math.Abs(box.Max[k])));
+                touch = 256 * 2.220446049250313e-16 * magnitude;
             }
 
-            // the triangles of the shell whose boxes meet the box q (the tree's boxes are the exact bounds of the triangles)
+            // does p lie on the shell, or within the rounding of its coordinates of it?
+            bool touches(Vector3d p)
+            {
+                double distance;
+                return tree.FindNearestTriangleByClosestPoint(p, out distance) != DMesh3.InvalidID && distance <= touch;
+            }
+
+            // the triangles of the shell whose boxes meet the box q (the tree's boxes are supersets of the triangles' bounds, padded by
+            // ComputeBoxPadding, so no triangle that meets q is missed)
             int[] near(AxisAlignedBox3d q)
             {
                 var list = new List<int>();
@@ -878,16 +883,41 @@ namespace gs
             }
 
             /// <summary>
-            /// Is the first probe point (the centroid of a probe triangle of mesh) that does not lie on the shell inside it
-            /// (a positive winding number)? False if every probe lies on the shell
+            /// Is the cavity (triangles cavity of mesh, a closed shell that does not cross this one) inside this shell (a positive
+            /// winding number)? A cavity and this shell share at most points where they touch, so the cavity is inside or outside as
+            /// a whole and one point of it that is not on this shell decides. The probes are the cavity's vertices in the order of
+            /// their index (the input doubles, points of the cavity: the winding number at each is exact); a vertex outside the box
+            /// is outside. A vertex on the shell, or within a few hundred units of rounding of it (touch), is skipped: a mesh that
+            /// was moved or rotated has the touching faces of the two shells apart by that much, and which side a vertex falls on
+            /// is noise. Only if every vertex touches the shell, the centroids of the cavity's triangles follow (the largest
+            /// triangle first, ties by index; one outside the box or touching the shell is skipped): a centroid is a rounded point,
+            /// so this fallback is not exact. False if no probe decides
             /// </summary>
-            public bool Contains(DMesh3 mesh, int[] probes)
+            public bool Contains(DMesh3 mesh, int[] cavity)
             {
-                foreach (int t in probes) {
+                var set = new HashSet<int>();
+                foreach (int t in cavity) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    set.Add(tv.a); set.Add(tv.b); set.Add(tv.c);
+                }
+                int[] vertices = new int[set.Count];
+                set.CopyTo(vertices);
+                Array.Sort(vertices);
+                int w;
+                foreach (int v in vertices) {
+                    Vector3d p = mesh.GetVertex(v);
+                    if (!touches(p) && ExactWinding(p, out w))
+                        return w > 0;
+                }
+                var area = new Dictionary<int, double>();
+                foreach (int t in cavity)
+                    area[t] = mesh.GetTriArea(t);
+                int[] byArea = (int[])cavity.Clone();
+                Array.Sort(byArea, (x, y) => { int c = area[y].CompareTo(area[x]); return c != 0 ? c : x.CompareTo(y); });
+                foreach (int t in byArea) {
                     Vector3d p = mesh.GetTriCentroid(t);
-                    int w;
-                    if (!box.Contains(p))
-                        return false;
+                    if (!box.Contains(p) || touches(p))
+                        continue;
                     if (ExactWinding(p, out w))
                         return w > 0;
                 }
@@ -899,7 +929,7 @@ namespace gs
             /// closed triangle), or if no direction avoided every edge and vertex (not expected). The count is taken along a
             /// segment from p to just beyond the nearest face of the shell's box (its direction jittered by a fixed seed, and
             /// another direction if the segment passes through an edge or a vertex), so only the triangles near it are tested.
-                /// jitter (for tests): the jitter of attempt i instead of the seeded one
+            /// jitter (for tests): the jitter of attempt i instead of the seeded one
             /// </summary>
             public bool ExactWinding(Vector3d p, out int winding, Func<int, Vector3d> jitter = null)
             {

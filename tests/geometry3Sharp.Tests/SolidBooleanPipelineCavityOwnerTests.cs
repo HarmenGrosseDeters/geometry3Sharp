@@ -144,22 +144,257 @@ namespace geometry3Sharp.Tests
             Assert.True(anyUndecided);
         }
 
-        [Fact]
-        public void Contains_SkipsProbesOnTheShell()
+        // the triangle ids of the shells appended by Shells(...) into one mesh: shell i has the triangles of range i
+        static int[][] Ranges(params DMesh3[] shells)
         {
-            // the cube 4 around a cavity 1 x 1 x 1 on its floor: the cavity's triangles in z = 0 (centroids on the shell's
-            // bottom face) come first; the next one decides
-            DMesh3 outer = Box(0, 0, 0, 4, 4, 4);
-            DMesh3 cavity = Shells((Box(1, 1, 0, 2, 2, 1), true));
-            DMesh3 m = Shells((Box(0, 0, 0, 4, 4, 4), false), (Box(1, 1, 0, 2, 2, 1), true));
-            int[] outerTris = Enumerable.Range(0, outer.TriangleCount).ToArray();
-            int[] cavTris = Enumerable.Range(outer.TriangleCount, cavity.TriangleCount).ToArray();
-            int[] probes = cavTris.OrderBy(t => m.GetTriCentroid(t).z == 0 ? 0 : 1).ToArray();
-            Assert.Equal(0, m.GetTriCentroid(probes[0]).z);
-            Assert.True(SolidBooleanPipeline.ShellIndex.Contains(m, outerTris, m.GetBounds(), probes));
-            // every probe on the shell: not contained (nothing decides)
-            int[] onShell = cavTris.Where(t => m.GetTriCentroid(t).z == 0).ToArray();
-            Assert.False(SolidBooleanPipeline.ShellIndex.Contains(m, outerTris, m.GetBounds(), onShell));
+            var r = new int[shells.Length][];
+            int at = 0;
+            for (int i = 0; i < shells.Length; ++i) {
+                r[i] = Enumerable.Range(at, shells[i].TriangleCount).ToArray();
+                at += shells[i].TriangleCount;
+            }
+            return r;
+        }
+
+        static AxisAlignedBox3d BoundsOf(DMesh3 m, int[] tris)
+        {
+            var box = AxisAlignedBox3d.Empty;
+            foreach (int t in tris) {
+                Index3i tv = m.GetTriangle(t);
+                box.Contain(m.GetVertex(tv.a)); box.Contain(m.GetVertex(tv.b)); box.Contain(m.GetVertex(tv.c));
+            }
+            return box;
+        }
+
+        [Fact]
+        public void Contains_SkipsVerticesOnTheShell_AndFallsBackToCentroids()
+        {
+            // a cube 4 around a cavity 1 x 1 x 1 on its floor: the four vertices of the cavity in z = 0 lie on the shell, the
+            // others decide
+            DMesh3 outer = Box(0, 0, 0, 4, 4, 4), cav = Box(1, 1, 0, 2, 2, 1);
+            DMesh3 m = Shells((outer, false), (cav, true));
+            int[][] r = Ranges(outer, cav);
+            var box = BoundsOf(m, r[0]);
+            Assert.True(SolidBooleanPipeline.ShellIndex.Contains(m, r[0], box, r[1]));
+            // only the cavity's floor (every vertex and every centroid on the shell): nothing decides
+            int[] floor = r[1].Where(t => m.GetTriCentroid(t).z == 0).ToArray();
+            Assert.Equal(2, floor.Length);
+            Assert.False(SolidBooleanPipeline.ShellIndex.Contains(m, r[0], box, floor));
+            // a tetrahedron on four corners of the cube: every vertex on the shell, the centroids (the fallback) decide
+            var tet = new DMesh3();
+            int a = tet.AppendVertex(new Vector3d(0, 0, 0)), b = tet.AppendVertex(new Vector3d(4, 4, 0)), c = tet.AppendVertex(new Vector3d(4, 0, 4)), d = tet.AppendVertex(new Vector3d(0, 4, 4));
+            tet.AppendTriangle(a, c, b); tet.AppendTriangle(a, b, d); tet.AppendTriangle(a, d, c); tet.AppendTriangle(b, c, d);
+            DMesh3 m2 = Shells((outer, false), (tet, false));
+            int[][] r2 = Ranges(outer, tet);
+            Assert.True(SolidBooleanPipeline.ShellIndex.Contains(m2, r2[0], box, r2[1]));
+        }
+
+        // the cube [X, X + 4]^3 with a cavity that touches its wall x = X from inside, the large touching face first
+        static DMesh3 TouchingCavity(double X, out int[][] ranges)
+        {
+            DMesh3 outer = Box(X, X, X, X + 4, X + 4, X + 4), cav = Box(X, X + 1, X + 1, X + 0.5, X + 3, X + 3);
+            ranges = Ranges(outer, cav);
+            return Shells((outer, false), (cav, true));
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(1.0)]
+        [InlineData(0.1)]
+        [InlineData(1e6 + 1.0 / 3)]
+        [InlineData(2527500.3)]
+        [InlineData(5634200.7)]
+        [InlineData(123456.789)]
+        [InlineData(37.123456789)]
+        [InlineData(-98765.4321)]
+        public void Contains_ACavityTouchingTheWall_IsContainedAtEveryOffset(double X)
+        {
+            int[][] r;
+            DMesh3 m = TouchingCavity(X, out r);
+            Assert.True(SolidBooleanPipeline.ShellIndex.Contains(m, r[0], BoundsOf(m, r[0]), r[1]));
+        }
+
+        static IEnumerable<Similarity> Rotations()
+        {
+            var rng = new Random(1204);
+            for (int i = 0; i < 40; ++i) {
+                var axis = new Vector3d(rng.NextDouble() - 0.5, rng.NextDouble() - 0.5, rng.NextDouble() - 0.5).Normalized;
+                yield return new Similarity("rot" + i, 1, Matrix3d.AxisAngleD(axis, 5 + 8.5 * i), new Vector3d(rng.Next(-5, 5) * 1000.3, rng.NextDouble() * 1e6, 0));
+            }
+        }
+
+        [Fact]
+        public void Contains_ARotatedCavityTouchingTheWall_IsContained()
+        {
+            // rotation rounds the vertices of the cavity and of the shell apart: a probe that is a rounded point of the cavity
+            // would come out on either side; the vertices of the cavity decide
+            int[][] r;
+            DMesh3 m0 = TouchingCavity(0, out r);
+            string bad = "";
+            foreach (var s in Rotations()) {
+                DMesh3 m = Invariance.Transformed(m0, s);
+                if (!SolidBooleanPipeline.ShellIndex.Contains(m, r[0], BoundsOf(m, r[0]), r[1])) bad += s.Name + " ";
+            }
+            Assert.Equal("", bad);
+        }
+
+        [Fact]
+        public void Contains_ARotatedPlugThatFillsTheCavity_IsNotItsOwner()
+        {
+            // a plug (an outer shell with the cavity's vertices): every vertex of the cavity lies on it, no point decides
+            DMesh3 block = Box(0, 0, 0, 10, 10, 10), cavity = Box(1, 1, 1, 3, 3, 3), plug = Box(1, 1, 1, 3, 3, 3);
+            DMesh3 m0 = Shells((block, false), (cavity, true), (plug, false));
+            int[][] r = Ranges(block, cavity, plug);
+            string bad = "";
+            foreach (var s in Rotations()) {
+                DMesh3 m = Invariance.Transformed(m0, s);
+                if (SolidBooleanPipeline.ShellIndex.Contains(m, r[2], BoundsOf(m, r[2]), r[1])) bad += "P" + s.Name + " ";
+                if (!SolidBooleanPipeline.ShellIndex.Contains(m, r[0], BoundsOf(m, r[0]), r[1])) bad += "B" + s.Name + " ";
+            }
+            Assert.Equal("", bad);
+            // and through RemoveThinSolids: the block owns the cavity; the plug (thickness 2/3) is its own solid, removed alone
+            DMesh3 rest;
+            var removed = Removed(m0, out rest);
+            Assert.Single(removed);
+            Assert.Equal(1, removed[0].Shells);
+            Assert.Equal(8, removed[0].Volume, 9);
+        }
+
+        [Fact]
+        public void Contains_AnInvertedShellAroundAPoint_DoesNotContain()
+        {
+            // winding -1 is not inside: a shell with inward normals around an island
+            DMesh3 outer = Box(0, 0, 0, 4, 4, 4), inner = Box(1, 1, 1, 2, 2, 2);
+            DMesh3 m = Shells((outer, true), (inner, false));
+            int[][] r = Ranges(outer, inner);
+            Assert.False(SolidBooleanPipeline.ShellIndex.Contains(m, r[0], BoundsOf(m, r[0]), r[1]));
+            bool decided;
+            Assert.Equal(-1, Winding(Shells((Box(0, 0, 0, 4, 4, 4), true)), new Vector3d(1, 1, 1), out decided));
+            Assert.True(decided);
+        }
+
+        [Fact]
+        public void CrossingsAlong_InThePlaneOfATriangle_AndEndingOnIt()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            int[] tris = cube.TriangleIndices().ToArray();
+            bool degenerate;
+            // in the plane z = 1 of the top face and through it: degenerate
+            SolidBooleanPipeline.ShellIndex.CrossingsAlong(cube, tris, new Vector3d(-1, 0.6, 1), new Vector3d(2, 0.6, 1), out degenerate);
+            Assert.True(degenerate);
+            // in that plane beside the face: nothing is crossed
+            int w = SolidBooleanPipeline.ShellIndex.CrossingsAlong(cube, tris, new Vector3d(-1, 2, 1), new Vector3d(2, 2, 1), out degenerate);
+            Assert.False(degenerate); Assert.Equal(0, w);
+            // ending on the top face (inside it): degenerate
+            SolidBooleanPipeline.ShellIndex.CrossingsAlong(cube, tris, new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.6, 0.2, 1), out degenerate);
+            Assert.True(degenerate);
+            // ending in the plane z = 1 beside the cube, or starting in it: clean
+            w = SolidBooleanPipeline.ShellIndex.CrossingsAlong(cube, tris, new Vector3d(2.5, 0.5, 0.5), new Vector3d(3, 0.5, 1), out degenerate);
+            Assert.False(degenerate); Assert.Equal(0, w);
+            w = SolidBooleanPipeline.ShellIndex.CrossingsAlong(cube, tris, new Vector3d(3, 0.5, 1), new Vector3d(3, 0.5, -2), out degenerate);
+            Assert.False(degenerate); Assert.Equal(0, w);
+        }
+
+        static DMesh3 Positive(DMesh3 m)
+        {
+            if (Volume(m) < 0)
+                m.ReverseOrientation();
+            return m;
+        }
+
+        static DMesh3 Torus(double R, double r, int nu, int nv)
+        {
+            var m = new DMesh3();
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+                    m.AppendVertex(new Vector3d((R + r * Math.Cos(v)) * Math.Cos(u), (R + r * Math.Cos(v)) * Math.Sin(u), r * Math.Sin(v)));
+                }
+            Func<int, int, int> id = (i, j) => (i % nu) * nv + (j % nv);
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    m.AppendTriangle(id(i, j), id(i + 1, j), id(i + 1, j + 1));
+                    m.AppendTriangle(id(i, j), id(i + 1, j + 1), id(i, j + 1));
+                }
+            return Positive(m);
+        }
+
+        [Fact]
+        public void ExactWinding_OfASphereAndATorus_AgreesWithTheAnalyticInsideTest()
+        {
+            DMesh3 sphere = Positive(new Sphere3Generator_NormalizedCube() { Radius = 2, EdgeVertices = 16 }.Generate().MakeDMesh());
+            DMesh3 torus = Torus(3, 1, 32, 16);
+            var rng = new Random(77);
+            int insideS = 0, outsideS = 0, insideT = 0, outsideT = 0;
+            for (int k = 0; k < 600; ++k) {
+                var p = new Vector3d((rng.NextDouble() - 0.5) * 9, (rng.NextDouble() - 0.5) * 9, (rng.NextDouble() - 0.5) * 3);
+                double ds = p.Length - 2;
+                bool decided;
+                if (Math.Abs(ds) > 0.08) {
+                    int w = Winding(sphere, p, out decided);
+                    Assert.True(decided);
+                    Assert.Equal(ds < 0 ? 1 : 0, w);
+                    if (ds < 0) insideS++; else outsideS++;
+                }
+                double dt = Math.Sqrt(Math.Pow(Math.Sqrt(p.x * p.x + p.y * p.y) - 3, 2) + p.z * p.z) - 1;
+                if (Math.Abs(dt) > 0.08) {
+                    int w = Winding(torus, p, out decided);
+                    Assert.True(decided);
+                    Assert.Equal(dt < 0 ? 1 : 0, w);
+                    if (dt < 0) insideT++; else outsideT++;
+                }
+            }
+            Assert.True(insideS > 10 && outsideS > 10 && insideT > 10 && outsideT > 10, insideS + " " + outsideS + " " + insideT + " " + outsideT);
+        }
+
+        // an L-shaped prism: the outline (0,0) (1,0) (2,0) (2,1) (1,1) (1,2) (0,2) (0,1) scaled by size in x and y, extruded to height h
+        static DMesh3 LPrism(double size, double h)
+        {
+            double[,] o = { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 1, 1 }, { 1, 2 }, { 0, 2 }, { 0, 1 } };
+            var m = new DMesh3();
+            for (int k = 0; k < 2; ++k)
+                for (int i = 0; i < 8; ++i)
+                    m.AppendVertex(new Vector3d(o[i, 0] * size, o[i, 1] * size, k * h));
+            // the caps: the squares (0,1,4,7), (1,2,3,4), (7,4,5,6)
+            int[][] squares = { new[] { 0, 1, 4, 7 }, new[] { 1, 2, 3, 4 }, new[] { 7, 4, 5, 6 } };
+            foreach (var q in squares) {
+                m.AppendTriangle(q[0], q[2], q[1]); m.AppendTriangle(q[0], q[3], q[2]);
+                m.AppendTriangle(8 + q[0], 8 + q[1], 8 + q[2]); m.AppendTriangle(8 + q[0], 8 + q[2], 8 + q[3]);
+            }
+            for (int i = 0; i < 8; ++i) {
+                int j = (i + 1) % 8;
+                m.AppendTriangle(i, j, 8 + j); m.AppendTriangle(i, 8 + j, 8 + i);
+            }
+            return Positive(m);
+        }
+
+        static DMesh3 Moved(DMesh3 m, Vector3d t)
+        {
+            var c = new DMesh3(m);
+            foreach (int v in c.VertexIndices())
+                c.SetVertex(v, c.GetVertex(v) + t);
+            return c;
+        }
+
+        [Theory]
+        [InlineData(0.0, 0.0, 0.0)]
+        [InlineData(2527500.0, 5634200.0, 100.0)]
+        public void ANonconvexShell_OwnsItsCavityInAnArm_NotOneInTheNotch(double ox, double oy, double oz)
+        {
+            // a thin L prism (thickness 0.1 < MinThickness 1) with a small cavity inside its arm and another one in its notch (the
+            // empty square, inside the prism's box and outside the prism): the first goes with the prism, the second is no one's
+            var t = new Vector3d(ox, oy, oz);
+            DMesh3 l = Moved(LPrism(10, 0.1), t);
+            DMesh3 arm = Moved(Box(15, 2, 0.04, 16, 3, 0.06), t), notch = Moved(Box(15, 15, 0.04, 16, 16, 0.06), t);
+            DMesh3 m = Shells((l, false), (arm, true), (notch, true));
+            DMesh3 rest;
+            var removed = Removed(m, out rest);
+            Assert.Single(removed);
+            Assert.Equal(2, removed[0].Shells);
+            Assert.Equal(notch.TriangleCount, rest.TriangleCount);
+            // the same prism thick (thickness 5): nothing is removed
+            DMesh3 thick = Shells((Moved(LPrism(10, 20), t), false), (Moved(Box(15, 2, 4, 16, 3, 5), t), true));
+            Assert.Empty(Removed(thick, out rest));
         }
 
         // the thin solids removed from a copy of m (MinThickness scale)
@@ -205,12 +440,47 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ACavityOutsideAShellsBoxContents_IsLeftAlone()
         {
-            // the box filter: a shell whose box does not contain the cavity's box cannot own it (a cavity in no shell is left)
-            DMesh3 m = Shells((Box(0, 0, 0, 10, 10, 10), false), (Box(5, 5, 5, 12, 12, 12), true));
+            // the box filter: a shell whose box does not contain the cavity's box cannot own it (a cavity in no shell is left).
+            // The tetrahedron's first vertex (5, 5, 0.1) lies inside the plate and the others outside: a vertex alone would
+            // decide "inside"; the filter keeps it from owning the cavity
+            var tet = new DMesh3();
+            int a = tet.AppendVertex(new Vector3d(5, 5, 0.1)), b = tet.AppendVertex(new Vector3d(12, 5, 0.1)), c = tet.AppendVertex(new Vector3d(5, 12, 0.1)), d = tet.AppendVertex(new Vector3d(5, 5, 5));
+            tet.AppendTriangle(a, c, b); tet.AppendTriangle(a, b, d); tet.AppendTriangle(a, d, c); tet.AppendTriangle(b, c, d);
+            if (Volume(tet) > 0)
+                tet.ReverseOrientation();
+            DMesh3 m = Shells((Box(0, 0, 0, 10, 10, 0.2), false), (tet, false));
             DMesh3 rest;
             var removed = Removed(m, out rest);
-            Assert.Empty(removed);
+            Assert.Single(removed);
+            Assert.Equal(1, removed[0].Shells);
+            Assert.Equal(4, rest.TriangleCount);
+            // (a cube cavity that crosses a block: no owner either)
+            m = Shells((Box(0, 0, 0, 10, 10, 10), false), (Box(5, 5, 5, 12, 12, 12), true));
+            Assert.Empty(Removed(m, out rest));
             Assert.Equal(24, rest.TriangleCount);
+        }
+
+        [Fact]
+        public void Contains_AFallbackCentroidOutsideTheBox_IsSkipped()
+        {
+            // a tetrahedron with every vertex on the walls of the cube [X, X + 4]^3, the face on the wall x = X the largest: its
+            // centroid is a rounded point that may lie one unit in the last place outside the cube, and is skipped
+            var rng = new Random(5);
+            int outside = 0;
+            for (int k = 0; k < 60; ++k) {
+                double X = (rng.NextDouble() - 0.5) * 1e5;
+                DMesh3 cube = Box(X, X, X, X + 4, X + 4, X + 4);
+                var tet = new DMesh3();
+                int a = tet.AppendVertex(new Vector3d(X, X, X)), b = tet.AppendVertex(new Vector3d(X, X + 4, X)), c = tet.AppendVertex(new Vector3d(X, X, X + 4)), d = tet.AppendVertex(new Vector3d(X + 1, X, X + 1));
+                tet.AppendTriangle(a, c, b); tet.AppendTriangle(a, b, d); tet.AppendTriangle(a, d, c); tet.AppendTriangle(b, c, d);
+                DMesh3 m = Shells((cube, false), (tet, true));
+                int[][] r = Ranges(cube, tet);
+                var box = BoundsOf(m, r[0]);
+                Assert.True(SolidBooleanPipeline.ShellIndex.Contains(m, r[0], box, r[1]), X.ToString("R"));
+                if (!box.Contains(m.GetTriCentroid(r[1][0])))
+                    outside++;
+            }
+            Assert.True(outside > 0, "no centroid fell outside the box: the case is not tested");
         }
 
         [Theory]
@@ -230,6 +500,16 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(restA.TriangleCount, restB.TriangleCount);
             Assert.Equal(2, a.Count);
+            if (s.IsExact)
+                for (int i = 0; i < a.Count; ++i) {
+                    // a power-of-two scale: volume, thickness and centre are the same bit for bit, scaled
+                    double k = s.Scale;
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a[i].Volume * k * k * k), BitConverter.DoubleToInt64Bits(b[i].Volume));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a[i].Thickness * k), BitConverter.DoubleToInt64Bits(b[i].Thickness));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a[i].Center.x * k), BitConverter.DoubleToInt64Bits(b[i].Center.x));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a[i].Center.y * k), BitConverter.DoubleToInt64Bits(b[i].Center.y));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(a[i].Center.z * k), BitConverter.DoubleToInt64Bits(b[i].Center.z));
+                }
         }
 
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
