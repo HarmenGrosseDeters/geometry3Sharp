@@ -423,7 +423,7 @@ and a mesh changed outside the Reducer between reductions.
 retries an edge whose midpoint collapse was refused (flip / fold-over, `MaxDeviation`, `MaxDeviationTwoSided`,
 `PreventSelfIntersections`) as a collapse onto its sharper end (the larger angle defect, so a spike's tip stays where it is); all
 checks and constraints apply to the end position, so the certified bounds still hold. It reaches 9 to 70 % fewer triangles on the
-benchmark meshes (about 10 to 25 % at 0.003 of the diagonal, up to 70 % at 0.01 on spiky meshes), for 1.2 to 2.1x the time (median
+benchmark meshes (9 to 45 % at 0.003 of the diagonal, 15 to 70 % at 0.01), for 1.2 to 2.1x the time (median
 1.5x); see the benchmark README, "Endpoint fallback".
 
 `Reducer.ReduceToMaxQuadricError(maxError)` keeps float queue ordering, but checks the actual collapse position's

@@ -239,7 +239,7 @@ namespace geometry3Sharp.Tests
             Assert.True(m.TriangleCount < input.TriangleCount);
         }
 
-        /// <summary> the angle defect: 0 on a flat vertex, large on a spike tip, the same at every power of two scale, bit for bit </summary>
+        /// <summary> the angle defect: 0 on a flat vertex, large on a spike tip, the same at every power of two scale (also near the ends of the floating point range), bit for bit </summary>
         [Fact]
         public void AngleDefect_IsScaleInvariant_AndSeesTheTip()
         {
@@ -247,12 +247,27 @@ namespace geometry3Sharp.Tests
             int inner = m.VertexIndices().First(v => v != tip && m.GetVertex(v).x > 0.1 && m.GetVertex(v).x < 0.2 && m.GetVertex(v).y > 0.1 && m.GetVertex(v).y < 0.2);
             double dTip = Reducer.AngleDefect(m, tip), dFlat = Reducer.AngleDefect(m, inner);
             Assert.True(dTip > 1 && dFlat < 1e-9, $"{dTip} {dFlat}");
-            foreach (double scale in new[] { 1024.0, 1.0 / 1024 }) {
+            foreach (double scale in new[] { 1024.0, 1.0 / 1024, Math.Pow(2, 600), Math.Pow(2, -600) }) {
                 var s = new DMesh3(m);
                 foreach (int v in s.VertexIndices()) s.SetVertex(v, s.GetVertex(v) * scale);
                 Assert.Equal(dTip, Reducer.AngleDefect(s, tip));
                 Assert.Equal(dFlat, Reducer.AngleDefect(s, inner));
             }
+        }
+
+        /// <summary> touching solids with PairCoincidentVertices: a twin edge is validated for one end only, so the retry leaves those edges alone </summary>
+        [Fact]
+        public void Fallback_WithPairedContacts()
+        {
+            DMesh3 start = ReducerPairedContactsTests.TouchingBoxes(6, new Vector3d(2, 2, 0));
+            DMesh3 off = new DMesh3(start), on = new DMesh3(start);
+            new Reducer(off) { PairCoincidentVertices = true, PreventSelfIntersections = true, MinCollapseTriangleQuality = 0.02 }.FastCollapsePass(0.8, 3);
+            var r = new Reducer(on) { PairCoincidentVertices = true, PreventSelfIntersections = true, MinCollapseTriangleQuality = 0.02, FastCollapseEndpointFallback = true };
+            r.FastCollapsePass(0.8, 3);
+            Assert.True(on.CheckValidity(eFailMode: FailMode.ReturnOnly));
+            Assert.True(r.PairedCollapses > 0);
+            Assert.True(on.TriangleCount <= off.TriangleCount, $"{on.TriangleCount} against {off.TriangleCount}");
+            foreach (int v in on.VertexIndices()) Assert.True(on.GetVertex(v).IsFinite);
         }
 
         /// <summary> PreventSelfIntersections applies to the end position too </summary>

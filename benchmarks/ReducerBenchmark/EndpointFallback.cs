@@ -46,6 +46,18 @@ static class EndpointFallback
             if (m != null && m.TriangleCount > 0) cases.Add((System.IO.Path.GetFileNameWithoutExtension(f), m));
         }
         if (only != null) cases = cases.Where(c => only.Split(',').Any(o => c.Item1.Contains(o))).ToList();
+        if (Environment.GetEnvironmentVariable("FB_BOUNDS") == "1") {      // the certified bounds of the shipped variant (feature end only)
+            Console.WriteLine("| mesh | triangles | eps / diag | off: triangles | feature end: triangles | feature end: h(M,S) / eps | feature end: h(S,M) / eps |\n|---|---|---|---|---|---|---|");
+            foreach (var (name, input) in cases)
+                foreach (double rel in new[] { 3e-3, 1e-2 }) {
+                    double diag = input.CachedBounds.DiagonalLength, eps = rel * diag;
+                    var off = new DMesh3(input); Make(off, eps, 0, false).FastCollapsePass(0.05 * diag, 5);
+                    var fe = new DMesh3(input); Make(fe, eps, 1, false).FastCollapsePass(0.05 * diag, 5);
+                    var (f, b) = Bounds(input, fe, eps);
+                    Console.WriteLine($"| {name} | {input.TriangleCount} | {rel:0.###} | {off.TriangleCount} | {fe.TriangleCount} | {f:F3} | {b:F3} |");
+                }
+            return;
+        }
         Console.WriteLine($"rounds: {rounds}, processors: {Environment.ProcessorCount}, PreventSelfIntersections: {pit}");
         { var wm = bumpy(20); double e = 0.003 * wm.CachedBounds.DiagonalLength; for (int v = 0; v < Variants.Length; ++v) Make(new DMesh3(wm), e, v, pit).FastCollapsePass(0.05 * wm.CachedBounds.DiagonalLength, 5); }
 

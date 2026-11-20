@@ -311,8 +311,31 @@ Rule for the shipped variant: the most triangles removed per extra second over t
 least 75 % of the reduction of the full retry (both ends in every round). The feature end alone keeps 91 % of it at 67
 triangles per extra second (both ends: 53, both ends in round 1: 48, feature end in round 1: 58, 78 %), so the feature end alone
 is shipped (the other knobs default to false). Its time against off is 1.15x to 2.05x (median 1.51x) and its triangles 9 to 70 %
-fewer; the certified bounds of the both-ends variant (last column) are at most 1.010 eps in all 18 rows, and those of the
-shipped variant are checked by `ReducerEndpointFallbackTests`. The result is the same on repeated runs.
+fewer. The last column of the table is the both-ends variant (at most 1.010 eps in all 18 rows); the bounds of the shipped feature
+end alone (`FB_BOUNDS=1 ... -- fallback 1 [files]`, certified upper bounds at 0.01 eps tolerance, in eps) are at most 1.010 eps in all 18 rows too:
+
+| mesh | triangles | eps / diag | off: triangles | feature end: triangles | feature end: h(M,S) / eps | feature end: h(S,M) / eps |
+|---|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.003 | 934 | 696 | 1.010 | 1.008 |
+| bumpy sphere 40 | 18252 | 0.01 | 596 | 216 | 1.007 | 1.009 |
+| spiky sphere 60 | 41772 | 0.003 | 1184 | 652 | 1.008 | 1.008 |
+| spiky sphere 60 | 41772 | 0.01 | 834 | 254 | 1.005 | 1.009 |
+| terrain 80 | 12800 | 0.003 | 1498 | 1358 | 1.009 | 1.004 |
+| terrain 80 | 12800 | 0.01 | 762 | 500 | 1.010 | 0.999 |
+| 1036464 | 7068 | 0.003 | 664 | 586 | 1.009 | 1.005 |
+| 1036464 | 7068 | 0.01 | 322 | 272 | 1.008 | 1.006 |
+| 1436278 | 18610 | 0.003 | 410 | 288 | 1.007 | 1.006 |
+| 1436278 | 18610 | 0.01 | 238 | 184 | 1.006 | 0.997 |
+| 472201 | 5572 | 0.003 | 326 | 266 | 1.007 | 0.990 |
+| 472201 | 5572 | 0.01 | 202 | 158 | 0.990 | 1.006 |
+| 51011 | 8656 | 0.003 | 1634 | 1408 | 1.009 | 1.003 |
+| 51011 | 8656 | 0.01 | 798 | 656 | 1.008 | 1.003 |
+| 60516 | 14628 | 0.003 | 1502 | 1128 | 1.009 | 1.007 |
+| 60516 | 14628 | 0.01 | 804 | 624 | 1.006 | 1.008 |
+| 894833 | 7952 | 0.003 | 1430 | 1190 | 1.008 | 1.007 |
+| 894833 | 7952 | 0.01 | 542 | 436 | 1.008 | 1.002 |
+
+The result is the same on repeated runs.
 
 With `PreventSelfIntersections` also on (`FB_PIT=1`, `fallback 1`, four meshes, 8 rows) the ranking is the same, the feature end
 alone again the best ratio (129 triangles per extra second, 92 % of the reduction):

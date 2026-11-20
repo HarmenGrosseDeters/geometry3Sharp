@@ -132,12 +132,12 @@ namespace g3
         /// <summary>
         /// FastCollapsePass only. If true, an edge whose midpoint collapse is refused by the flip / fold-over test, by MaxDeviation
         /// (with MaxDeviationTwoSided) or by PreventSelfIntersections is tried again as a collapse onto one of its two end
-        /// vertices, the end of the larger angle defect (the sharper feature: a spike's tip stays where it is). Every check applies to the end position exactly as to the midpoint (constraints,
+        /// vertices, the end of the larger angle defect (the sharper feature). Every check applies to the end position exactly as to the midpoint (constraints,
         /// flip and fold-over, MaxDeviation, MaxDeviationTwoSided, PreventSelfIntersections), so the guarantees of the options
         /// set hold for the result. It keeps features the midpoint pulls off tolerance (a spike's tip stays where it is) and
         /// reaches fewer triangles; it costs time (about 1.2x to 2.1x, median 1.5x, benchmarks/ReducerBenchmark README, "endpoint
         /// fallback"). Off by default; with it off the result is unchanged bit for bit. Deterministic (no randomness; the end
-        /// order depends on the mesh only).
+        /// order is a function of the mesh).
         /// </summary>
         public bool FastCollapseEndpointFallback = false;
 
@@ -1859,7 +1859,13 @@ namespace g3
                 int k = tv.a == v ? 0 : (tv.b == v ? 1 : 2);
                 Vector3d p = mesh.GetVertex(tv[k]), q = mesh.GetVertex(tv[(k + 1) % 3]), r = mesh.GetVertex(tv[(k + 2) % 3]);
                 Vector3d e1 = q - p, e2 = r - p;
-                sum += Math.Atan2(e1.Cross(e2).Length, e1.Dot(e2));     // (the edges are not unit vectors: AngleR would not do)
+                // (the edges are not unit vectors, so not AngleR; divided by their largest component, which keeps cross and dot in range
+                // at any scale, and gives the same bits at every power of two scale)
+                double big = Math.Max(Math.Max(Math.Max(Math.Abs(e1.x), Math.Abs(e1.y)), Math.Max(Math.Abs(e1.z), Math.Abs(e2.x))), Math.Max(Math.Abs(e2.y), Math.Abs(e2.z)));
+                if (!(big > 0) || double.IsInfinity(big))
+                    continue;
+                e1 /= big; e2 /= big;
+                sum += Math.Atan2(e1.Cross(e2).Length, e1.Dot(e2));
             }
             return Math.Abs(2 * Math.PI - sum);
         }
@@ -1993,6 +1999,9 @@ namespace g3
                 if (collapse_to != -1 && collapse_to != forceKeep)
                     return ProcessResult.Ignored_Constrained;
                 collapse_to = forceKeep;
+                // (a twin edge was validated for the collapse onto b only)
+                if (twinEdge >= 0)
+                    return ProcessResult.Ignored_CannotCollapse;
                 // the constraint check above assumed that a goes: the edges of the vertex that goes now must be unconstrained
                 if (constraints != null && forceKeep == a) {
                     if (c != DMesh3.InvalidID && constraints.GetEdgeConstraint(mesh.FindEdgeFromTri(b, c, t0)).IsUnconstrained == false)
