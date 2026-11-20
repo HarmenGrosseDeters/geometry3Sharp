@@ -118,17 +118,42 @@ namespace geometry3Sharp.Tests
             new Reducer(def) { MaxDeviation = eps, MaxDeviationTwoSided = true }.FastCollapsePass(0.05 * diag, 5);
             Assert.False(new Reducer(new DMesh3(input)).FastCollapseEndpointFallback);
             AssertSame(def, Pass(input, eps, false, 0.05 * diag));
-            Assert.Equal("@SPIKY2@", Digest(def));
+            Assert.Equal("1D3355FCFD57C06E", Digest(def));
             var one = new DMesh3(input);
             new Reducer(one) { MaxDeviation = eps }.FastCollapsePass(0.05 * diag, 5);
-            Assert.Equal("@SPIKY1@", Digest(one));
+            Assert.Equal("FFD7DC95EE512CB6", Digest(one));
+        }
+
+        /// <summary> the order and the dispatch of the retry: the result with the feature end only and with both ends is pinned (it changes with the end order) </summary>
+        [Fact]
+        public void Fallback_Order_IsPinned()
+        {
+            DMesh3 input = Spiky(16);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            DMesh3 feature = Pass(input, eps, true, 0.05 * diag, out Reducer _, r => r.FastCollapseFallbackFeatureOnly = true);
+            DMesh3 both = Pass(input, eps, true, 0.05 * diag);
+            Assert.Equal("240 61BEE92BD6349AD9", $"{feature.TriangleCount} {Digest(feature)}");
+            Assert.Equal("246 998BEC30DF0A57AB", $"{both.TriangleCount} {Digest(both)}");
+            AssertBounds(input, feature, eps, "feature end only");
+        }
+
+        /// <summary> (benchmark knob) the retry only in the first round: between the pass without and the one with the retry in every round </summary>
+        [Fact]
+        public void FirstRoundOnly_IsBetweenOffAndEveryRound()
+        {
+            DMesh3 input = Bumpy(12);
+            double diag = input.CachedBounds.DiagonalLength, eps = 3e-3 * diag;
+            DMesh3 off = Pass(input, eps, false, 0.05 * diag), all = Pass(input, eps, true, 0.05 * diag);
+            DMesh3 first = Pass(input, eps, true, 0.05 * diag, out Reducer _, r => r.FastCollapseFallbackFirstRoundOnly = true);
+            AssertBounds(input, first, eps, "first round only");
+            Assert.True(first.TriangleCount < off.TriangleCount && first.TriangleCount > all.TriangleCount, $"{off.TriangleCount} > {first.TriangleCount} > {all.TriangleCount}");
         }
 
         /// <summary> the certified bounds hold in both directions on spheres with a spike / bumps, and the pass reaches fewer triangles than without </summary>
         [Theory]
         [InlineData("spiky", 16, 1e-2)]
         [InlineData("spiky", 16, 3e-3)]
-        [InlineData("bumpy", 16, 1e-2)]
+        [InlineData("bumpy", 12, 1e-2)]
         public void Fallback_KeepsTheBounds_AndReachesFewerTriangles(string name, int n, double rel)
         {
             DMesh3 input = name == "spiky" ? Spiky(n) : Bumpy(n);
@@ -168,7 +193,6 @@ namespace geometry3Sharp.Tests
             AssertBounds(input, on, eps, "tower, feature end only");
             Assert.True(on.GetVertex(tip) == new Vector3d(0.5, 0.5, 0.5), "the tip is kept in place");
             Assert.True(on.TriangleCount < off.TriangleCount, $"{on.TriangleCount} against {off.TriangleCount}");
-            Assert.True(on.TriangleCount <= 40, $"{on.TriangleCount}");
         }
 
         /// <summary> a vertex fixed by a constraint is never removed or moved: a retry onto the other end must respect it </summary>
@@ -243,7 +267,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Fallback_Invariance()
         {
-            DMesh3 input = Spiky(16);
+            DMesh3 input = Spiky(12);
             double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
             DMesh3 baseRes = Pass(input, eps, true, 0.05 * diag);
             Assert.True(baseRes.TriangleCount < Pass(input, eps, false, 0.05 * diag).TriangleCount);

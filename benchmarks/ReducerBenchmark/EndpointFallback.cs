@@ -45,7 +45,7 @@ static class EndpointFallback
             DMesh3 m = StandardMeshReader.ReadMesh(f);
             if (m != null && m.TriangleCount > 0) cases.Add((System.IO.Path.GetFileNameWithoutExtension(f), m));
         }
-        if (only != null) cases = cases.Where(c => c.Item1.Contains(only)).ToList();
+        if (only != null) cases = cases.Where(c => only.Split(',').Any(o => c.Item1.Contains(o))).ToList();
         Console.WriteLine($"rounds: {rounds}, processors: {Environment.ProcessorCount}, PreventSelfIntersections: {pit}");
         { var wm = bumpy(20); double e = 0.003 * wm.CachedBounds.DiagonalLength; for (int v = 0; v < Variants.Length; ++v) Make(new DMesh3(wm), e, v, pit).FastCollapsePass(0.05 * wm.CachedBounds.DiagonalLength, 5); }
 

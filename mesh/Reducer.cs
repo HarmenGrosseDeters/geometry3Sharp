@@ -136,7 +136,7 @@ namespace g3
         /// FastCollapseFallbackFeatureOnly). Every check applies to the end position exactly as to the midpoint (constraints,
         /// flip and fold-over, MaxDeviation, MaxDeviationTwoSided, PreventSelfIntersections), so the guarantees of the options
         /// set hold for the result. It keeps features the midpoint pulls off tolerance (a spike's tip stays where it is) and
-        /// reaches fewer triangles; it costs time (about 1.3x to 2.5x, benchmarks/ReducerBenchmark README, "endpoint
+        /// reaches fewer triangles; it costs time (about 1.4x to 2.5x, benchmarks/ReducerBenchmark README, "endpoint
         /// fallback"). Off by default; with it off the result is unchanged bit for bit. Deterministic (no randomness; the end
         /// order depends on the mesh only).
         /// </summary>
