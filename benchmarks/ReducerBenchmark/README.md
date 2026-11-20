@@ -264,3 +264,96 @@ run (`twosided 3`, the same meshes, at eps 0.003 and 0.01 of the diagonal): A is
   the two-sided one in none (upper bounds <= 1.010 eps at the 0.01 eps tolerance).
 - Triangles: B keeps more where A cut features (spiky sphere at 0.01: 324 -> 834; 1436278: 158 -> 238; bumpy sphere at
   0.01: 296 -> 596), 0-4 % more elsewhere.
+
+### Endpoint fallback (`FastCollapseEndpointFallback`, November 2026)
+
+`Reducer.FastCollapseEndpointFallback` (opt-in, off by default): in `FastCollapsePass`, an edge whose midpoint collapse is
+refused (flip / fold-over, `MaxDeviation`, the two-sided check, `PreventSelfIntersections`) is tried again as a collapse onto
+one of its ends, the end of the larger angle defect (the sharper feature) first; every check applies to the end position, so
+the bounds hold. Measured with the same meshes as above (`fallback 3`, `FastCollapsePass(0.05 * diag, 5)` with `MaxDeviation`
+and `MaxDeviationTwoSided`, medians of 3 alternating rounds; Linux container, 4 cores, net10.0). The variants are internal
+knobs (`FastCollapseFallbackBothEnds`: also the other end when the feature end is refused; `FastCollapseFallbackFirstRoundOnly`);
+"off" is today's pass.
+
+```
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- fallback 3 [mesh files...]
+```
+
+| mesh | triangles | eps / diag | off: triangles, ms | feature end: triangles, ms | both ends, round 1: triangles, ms | feature end, round 1: triangles, ms | both ends: triangles, ms | h(M,S) / h(S,M) / eps, both ends |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.003 | 934, 6838 | 696, 10559 | 706, 11655 | 720, 9733 | 688, 11901 | 1.010 / 1.009 |
+| bumpy sphere 40 | 18252 | 0.01 | 596, 5756 | 216, 8707 | 224, 10086 | 226, 8678 | 216, 9979 | 1.006 / 1.006 |
+| spiky sphere 60 | 41772 | 0.003 | 1184, 16664 | 652, 32366 | 624, 37839 | 658, 32319 | 622, 37240 | 1.009 / 1.009 |
+| spiky sphere 60 | 41772 | 0.01 | 834, 12332 | 254, 25290 | 242, 31286 | 268, 26582 | 236, 30755 | 1.007 / 1.009 |
+| terrain 80 | 12800 | 0.003 | 1498, 2038 | 1358, 3320 | 1356, 3527 | 1378, 3188 | 1354, 3698 | 1.009 / 1.006 |
+| terrain 80 | 12800 | 0.01 | 762, 2432 | 500, 4457 | 448, 6026 | 506, 4578 | 440, 6017 | 1.002 / 1.009 |
+| 1036464 | 7068 | 0.003 | 664, 3268 | 586, 4266 | 562, 4743 | 610, 4110 | 554, 4834 | 1.008 / 1.003 |
+| 1036464 | 7068 | 0.01 | 322, 1201 | 272, 1703 | 256, 1926 | 278, 1653 | 250, 1928 | 1.006 / 0.999 |
+| 1436278 | 18610 | 0.003 | 410, 7701 | 288, 14632 | 370, 16662 | 386, 14392 | 284, 17716 | 1.010 / 1.008 |
+| 1436278 | 18610 | 0.01 | 238, 4034 | 184, 7148 | 212, 7793 | 242, 6906 | 140, 7936 | 1.007 / 1.002 |
+| 472201 | 5572 | 0.003 | 326, 2645 | 266, 3038 | 266, 3498 | 272, 2998 | 254, 3591 | 1.007 / 0.997 |
+| 472201 | 5572 | 0.01 | 202, 918 | 158, 1254 | 172, 1276 | 180, 1218 | 154, 1349 | 0.998 / 1.006 |
+| 51011 | 8656 | 0.003 | 1634, 1477 | 1408, 1735 | 1378, 1895 | 1444, 1782 | 1338, 2096 | 1.009 / 1.008 |
+| 51011 | 8656 | 0.01 | 798, 862 | 656, 1224 | 678, 1319 | 682, 1216 | 650, 1344 | 1.004 / 1.003 |
+| 60516 | 14628 | 0.003 | 1502, 5839 | 1128, 8585 | 1108, 8975 | 1156, 8352 | 1082, 8708 | 1.010 / 1.006 |
+| 60516 | 14628 | 0.01 | 804, 2905 | 624, 4943 | 678, 4924 | 694, 4421 | 644, 4931 | 1.006 / 1.003 |
+| 894833 | 7952 | 0.003 | 1430, 1444 | 1190, 2097 | 1194, 2312 | 1232, 2113 | 1180, 2273 | 1.010 / 1.005 |
+| 894833 | 7952 | 0.01 | 542, 872 | 436, 1105 | 442, 1160 | 476, 1175 | 408, 1257 | 1.008 / 1.005 |
+
+| variant | triangles removed against off (sum over the rows) | extra time (sum, s) | triangles per extra second | share of the both-ends reduction | time against off (median of the rows) |
+|---|---|---|---|---|---|
+| feature end | 3808 | 57.2 | 67 | 91 % | 1.51x |
+| both ends, round 1 | 3764 | 77.7 | 48 | 90 % | 1.69x |
+| feature end, round 1 | 3272 | 56.2 | 58 | 78 % | 1.46x |
+| both ends | 4186 | 78.3 | 53 | 100 % | 1.70x |
+
+Rule for the shipped variant: the most triangles removed per extra second over the 18 rows, among the variants that keep at
+least 75 % of the reduction of the full retry (both ends in every round). The feature end alone keeps 91 % of it at 67
+triangles per extra second (both ends: 53, both ends in round 1: 48, feature end in round 1: 58, 78 %), so the feature end alone
+is shipped (the other knobs default to false). Its time against off is 1.15x to 2.05x (median 1.51x) and its triangles 9 to 70 %
+fewer. The last column of the table is the both-ends variant (at most 1.010 eps in all 18 rows); the bounds of the shipped feature
+end alone (`FB_BOUNDS=1 ... -- fallback 1 [files]`, certified upper bounds at 0.01 eps tolerance, in eps) are at most 1.010 eps in all 18 rows too:
+
+| mesh | triangles | eps / diag | off: triangles | feature end: triangles | feature end: h(M,S) / eps | feature end: h(S,M) / eps |
+|---|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.003 | 934 | 696 | 1.010 | 1.008 |
+| bumpy sphere 40 | 18252 | 0.01 | 596 | 216 | 1.007 | 1.009 |
+| spiky sphere 60 | 41772 | 0.003 | 1184 | 652 | 1.008 | 1.008 |
+| spiky sphere 60 | 41772 | 0.01 | 834 | 254 | 1.005 | 1.009 |
+| terrain 80 | 12800 | 0.003 | 1498 | 1358 | 1.009 | 1.004 |
+| terrain 80 | 12800 | 0.01 | 762 | 500 | 1.010 | 0.999 |
+| 1036464 | 7068 | 0.003 | 664 | 586 | 1.009 | 1.005 |
+| 1036464 | 7068 | 0.01 | 322 | 272 | 1.008 | 1.006 |
+| 1436278 | 18610 | 0.003 | 410 | 288 | 1.007 | 1.006 |
+| 1436278 | 18610 | 0.01 | 238 | 184 | 1.006 | 0.997 |
+| 472201 | 5572 | 0.003 | 326 | 266 | 1.007 | 0.990 |
+| 472201 | 5572 | 0.01 | 202 | 158 | 0.990 | 1.006 |
+| 51011 | 8656 | 0.003 | 1634 | 1408 | 1.009 | 1.003 |
+| 51011 | 8656 | 0.01 | 798 | 656 | 1.008 | 1.003 |
+| 60516 | 14628 | 0.003 | 1502 | 1128 | 1.009 | 1.007 |
+| 60516 | 14628 | 0.01 | 804 | 624 | 1.006 | 1.008 |
+| 894833 | 7952 | 0.003 | 1430 | 1190 | 1.008 | 1.007 |
+| 894833 | 7952 | 0.01 | 542 | 436 | 1.008 | 1.002 |
+
+The result is the same on repeated runs.
+
+With `PreventSelfIntersections` also on (`FB_PIT=1`, `fallback 1`, four meshes, 8 rows) the ranking is the same, the feature end
+alone again the best ratio (129 triangles per extra second, 92 % of the reduction):
+
+| mesh | triangles | eps / diag | off: triangles, ms | feature end: triangles, ms | both ends, round 1: triangles, ms | feature end, round 1: triangles, ms | both ends: triangles, ms | h(M,S) / h(S,M) / eps, both ends |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.003 | 934, 6480 | 696, 10158 | 706, 11393 | 720, 10157 | 688, 11724 | 1.010 / 1.009 |
+| bumpy sphere 40 | 18252 | 0.01 | 596, 6534 | 216, 8900 | 224, 10149 | 226, 8797 | 216, 10920 | 1.006 / 1.006 |
+| terrain 80 | 12800 | 0.003 | 1498, 2477 | 1358, 3970 | 1356, 3814 | 1378, 3691 | 1354, 4429 | 1.009 / 1.006 |
+| terrain 80 | 12800 | 0.01 | 762, 2970 | 500, 5191 | 448, 6228 | 506, 4987 | 440, 6436 | 1.002 / 1.009 |
+| 472201 | 5572 | 0.003 | 326, 2922 | 266, 3510 | 266, 3674 | 272, 3102 | 254, 3774 | 1.007 / 0.997 |
+| 472201 | 5572 | 0.01 | 202, 1024 | 158, 1410 | 172, 1537 | 180, 1325 | 154, 1548 | 0.998 / 1.006 |
+| 894833 | 7952 | 0.003 | 1430, 1718 | 1190, 2181 | 1194, 2279 | 1232, 2192 | 1180, 2368 | 1.010 / 1.005 |
+| 894833 | 7952 | 0.01 | 542, 1165 | 436, 1355 | 442, 1393 | 476, 1324 | 408, 1505 | 1.008 / 1.005 |
+
+| variant | triangles removed against off (sum over the rows) | extra time (sum, s) | triangles per extra second | share of the both-ends reduction | time against off (median of the rows) |
+|---|---|---|---|---|---|
+| feature end | 1470 | 11.4 | 129 | 92 % | 1.38x |
+| both ends, round 1 | 1482 | 15.2 | 98 | 93 % | 1.54x |
+| feature end, round 1 | 1300 | 10.3 | 126 | 81 % | 1.35x |
+| both ends | 1596 | 17.4 | 92 | 100 % | 1.67x |
