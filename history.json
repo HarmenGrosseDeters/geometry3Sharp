@@ -78,6 +78,19 @@
      1.185
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 1.513,
+    "ok": true,
+    "runs_s": [
+     1.532,
+     1.479,
+     1.513
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-knot-dense-wrap": [
@@ -158,6 +171,19 @@
      1.279
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 1.848,
+    "ok": true,
+    "runs_s": [
+     1.848,
+     1.793,
+     1.859
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-111959-wrappipe": [
@@ -242,6 +268,19 @@
      16.906
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 21.454,
+    "ok": true,
+    "runs_s": [
+     21.425,
+     21.718,
+     21.454
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-1514905-wrappipe": [
@@ -322,6 +361,19 @@
      11.626
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 14.801,
+    "ok": true,
+    "runs_s": [
+     14.966,
+     14.801,
+     14.554
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-222687-wrappipe": [
@@ -406,6 +458,19 @@
      23.568
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 29.603,
+    "ok": true,
+    "runs_s": [
+     29.604,
+     29.603,
+     29.333
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-222695-wrappipe": [
@@ -490,6 +555,19 @@
      24.291
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 30.596,
+    "ok": true,
+    "runs_s": [
+     31.27,
+     30.596,
+     30.464
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-224108-wrappipe": [
@@ -574,6 +652,19 @@
      16.687
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 21.037,
+    "ok": true,
+    "runs_s": [
+     21.082,
+     20.861,
+     21.037
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-39368-wrappipe": [
@@ -656,6 +747,19 @@
      14.295
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 18.032,
+    "ok": true,
+    "runs_s": [
+     17.992,
+     18.11,
+     18.032
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-40118-wrappipe": [
@@ -734,6 +838,17 @@
      55.899
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 70.529,
+    "ok": true,
+    "runs_s": [
+     70.529
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-49901-wrappipe": [
@@ -818,6 +933,19 @@
      18.15
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 22.792,
+    "ok": true,
+    "runs_s": [
+     22.312,
+     22.836,
+     22.792
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-49998-wrappipe": [
@@ -902,6 +1030,19 @@
      15.045
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 19.078,
+    "ok": true,
+    "runs_s": [
+     19.061,
+     19.171,
+     19.078
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-500097-wrappipe": [
@@ -986,6 +1127,19 @@
      22.748
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 28.786,
+    "ok": true,
+    "runs_s": [
+     28.584,
+     28.786,
+     29.58
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-500099-wrappipe": [
@@ -1070,6 +1224,19 @@
      19.063
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 23.451,
+    "ok": true,
+    "runs_s": [
+     23.583,
+     23.282,
+     23.451
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-500115-wrappipe": [
@@ -1154,6 +1321,19 @@
      21.664
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 26.021,
+    "ok": true,
+    "runs_s": [
+     26.021,
+     26.204,
+     25.964
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-520646-wrappipe": [
@@ -1238,6 +1418,19 @@
      24.459
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 31.229,
+    "ok": true,
+    "runs_s": [
+     31.229,
+     31.09,
+     31.405
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-535629-wrappipe": [
@@ -1322,6 +1515,19 @@
      25.358
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 31.362,
+    "ok": true,
+    "runs_s": [
+     31.401,
+     31.362,
+     30.716
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-679615-wrappipe": [
@@ -1406,6 +1612,19 @@
      20.244
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 24.987,
+    "ok": true,
+    "runs_s": [
+     24.91,
+     25.074,
+     24.987
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-69261-wrappipe": [
@@ -1490,6 +1709,19 @@
      25.016
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 31.401,
+    "ok": true,
+    "runs_s": [
+     31.38,
+     31.537,
+     31.401
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-78968-wrappipe": [
@@ -1574,6 +1806,19 @@
      31.568
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 39.619,
+    "ok": true,
+    "runs_s": [
+     39.619,
+     39.799,
+     38.613
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-84042-wrappipe": [
@@ -1656,6 +1901,19 @@
      13.46
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 17.475,
+    "ok": true,
+    "runs_s": [
+     17.491,
+     17.198,
+     17.475
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "alphawrap-thingi-860049-wrappipe": [
@@ -1740,6 +1998,19 @@
      37.265
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 45.753,
+    "ok": true,
+    "runs_s": [
+     46.155,
+     45.753,
+     45.512
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-knot-default-union": [
@@ -1820,6 +2091,19 @@
      1.554
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 2.054,
+    "ok": true,
+    "runs_s": [
+     2.177,
+     1.998,
+     2.054
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-knot-dense-union": [
@@ -1900,6 +2184,19 @@
      3.634
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 4.798,
+    "ok": true,
+    "runs_s": [
+     6.019,
+     4.798,
+     4.786
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-1005586-union": [
@@ -1984,6 +2281,19 @@
      47.443
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 58.352,
+    "ok": true,
+    "runs_s": [
+     57.351,
+     58.44,
+     58.352
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-107554-union": [
@@ -2068,6 +2378,19 @@
      19.771
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 24.849,
+    "ok": true,
+    "runs_s": [
+     24.286,
+     25.318,
+     24.849
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-1087141-union": [
@@ -2152,6 +2475,19 @@
      25.957
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 32.942,
+    "ok": true,
+    "runs_s": [
+     33.586,
+     32.942,
+     32.67
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-112798-union": [
@@ -2236,6 +2572,19 @@
      31.532
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 38.898,
+    "ok": true,
+    "runs_s": [
+     38.898,
+     38.619,
+     39.016
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-113906-union": [
@@ -2320,6 +2669,19 @@
      22.607
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 25.986,
+    "ok": true,
+    "runs_s": [
+     25.951,
+     25.986,
+     26.509
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-117959-union": [
@@ -2404,6 +2766,19 @@
      28.77
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 35.519,
+    "ok": true,
+    "runs_s": [
+     35.972,
+     35.032,
+     35.519
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-1368057-union": [
@@ -2488,6 +2863,19 @@
      21.447
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 27.455,
+    "ok": true,
+    "runs_s": [
+     27.383,
+     27.557,
+     27.455
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-42327-union": [
@@ -2572,6 +2960,19 @@
      22.663
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 29.933,
+    "ok": true,
+    "runs_s": [
+     29.933,
+     29.98,
+     29.731
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-498458-union": [
@@ -2652,6 +3053,19 @@
      11.299
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 13.654,
+    "ok": true,
+    "runs_s": [
+     13.811,
+     13.654,
+     13.298
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-519511-union": [
@@ -2732,6 +3146,19 @@
      11.858
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 16.136,
+    "ok": true,
+    "runs_s": [
+     16.457,
+     16.129,
+     16.136
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-55928-difference": [
@@ -2804,6 +3231,17 @@
      325.743
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 410.078,
+    "ok": true,
+    "runs_s": [
+     410.078
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ],
   "boolean-thingi-55928-union": [
@@ -2876,6 +3314,17 @@
      351.226
     ],
     "sha": "99ed1d9695f629034aa800c9d2b3a8ca0d9b7736"
+   },
+   {
+    "date": "2026-11-20T08:36:41Z",
+    "flags": [],
+    "machine": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "median_s": 435.125,
+    "ok": true,
+    "runs_s": [
+     435.125
+    ],
+    "sha": "33618d83918bab207394b7a67b7a138aeea75ac6"
    }
   ]
  },
