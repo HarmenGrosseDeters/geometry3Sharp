@@ -1530,9 +1530,7 @@ namespace gs
                 if (CancelF())
                     return null;
                 timer.Restart();
-                // (a repair: an inconsistently oriented mesh is oriented by area, as before #1210)
                 var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) {
-                    Orientation = ExactMeshBoolean.OrientationModes.AreaMajority,
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
                     RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,

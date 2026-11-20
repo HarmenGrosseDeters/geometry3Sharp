@@ -120,6 +120,8 @@ namespace geometry3Sharp.Tests
             var withOpen = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D);
             Assert.True(withOpen.Compute(), withOpen.Error);
             Assert.True(withOpen.ReorientedTriangles > 0);
+            Assert.True(Invariance.AllFinite(withOpen.Result));
+            Assert.InRange(Volume(withOpen.Result), 25.5, 27);      // (the open cube, classified by generalized winding numbers)
         }
 
         [Fact]
@@ -150,26 +152,89 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(frame);
             for (int k = 0; k <= 6; ++k) {
+                var reference = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(k), D);
+                bool refOk = reference.Compute();
                 var b = new ExactMeshBoolean(Invariance.Transformed(Box(-1, -1, -1, 2, 2, 2), s), Invariance.Transformed(FlippedCube(k), s), D);
                 bool ok = b.Compute();
                 Assert.Equal(k == 0 || k == 6, ok);
-                if (!ok)
+                Assert.Equal(refOk, ok);
+                if (!ok) {
                     Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, b.Status);
+                    Assert.Equal(reference.Error, b.Error);
+                } else if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(b.Result, s)));
             }
         }
 
         [Fact]
-        public void Resolve_AndRobustRepair_StillOrientARepairInput()
+        public void Resolve_StillOrientsARepairInput()
         {
-            // repairs want any consistent orientation: Resolve and MeshRobustRepair keep AreaMajority
-            DMesh3 flipped = FlippedCube(1);
-            DMesh3 resolved = ExactMeshBoolean.Resolve(flipped);
+            // Resolve is a repair of one mesh: it keeps AreaMajority
+            DMesh3 resolved = ExactMeshBoolean.Resolve(FlippedCube(1));
             Assert.NotNull(resolved);
             Assert.Equal(1, Volume(resolved), 9);
-            var repair = new MeshRobustRepair(new DMesh3(flipped));
-            repair.Apply();
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(repair.Mesh));
-            Assert.InRange(Volume(repair.Mesh), 0.99, 1.01);     // (the robust repair may move the surface slightly; oriented outwards, not refused)
+            Assert.True(resolved.IsClosed());
+        }
+
+        [Fact]
+        public void AStrayOpenTriangle_DoesNotSwitchTheRefusalOff()
+        {
+            // the decision is per component: a closed, inconsistently oriented cube next to a stray open triangle in the same
+            // mesh is refused (with open meshes allowed, the default), not reoriented by area into an empty tool
+            DMesh3 tool = FlippedCube(3);
+            int a = tool.AppendVertex(new Vector3d(10, 10, 10)), b = tool.AppendVertex(new Vector3d(11, 10, 10)), c = tool.AppendVertex(new Vector3d(10, 11, 10));
+            tool.AppendTriangle(a, b, c);
+            var op = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D);
+            Assert.True(op.AllowOpenMeshes);
+            Assert.False(op.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, op.Status);
+            Assert.Contains("6 of its 13 triangles", op.Error);
+        }
+
+        [Fact]
+        public void TheFirstMeshIsRefusedToo_AlsoInDifferenceEach()
+        {
+            var b = new ExactMeshBoolean(FlippedCube(2), Box(0.5, 0.5, 0.5, 2, 2, 2), D);
+            Assert.False(b.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, b.Status);
+            Assert.Contains("input mesh 0", b.Error);
+            // the shared preparation of the first mesh (PreparedFirst)
+            var ops = new List<ExactMeshBoolean>();
+            DMesh3[] results = ExactMeshBoolean.DifferenceEach(FlippedCube(2), new List<DMesh3> { Box(0.5, 0.5, 0.5, 2, 2, 2), Box(-1, -1, -1, 0.5, 0.5, 0.5) }, x => { lock (ops) ops.Add(x); });
+            Assert.All(results, Assert.Null);
+            Assert.Equal(2, ops.Count);
+            Assert.All(ops, x => Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, x.Status));
+        }
+
+        [Fact]
+        public void TwoInconsistentMeshes_TheFirstIsNamedWithItsOwnCount()
+        {
+            var b = new ExactMeshBoolean(new List<DMesh3> { Box(-1, -1, -1, 2, 2, 2), FlippedCube(1), FlippedCube(2) }, ExactMeshBoolean.Operations.Union);
+            Assert.False(b.Compute());
+            Assert.Contains("input mesh 1", b.Error);
+            Assert.Contains("2 of its 12 triangles", b.Error);
+            Assert.Equal(6, b.ReorientedTriangles);     // (both meshes counted: 2 + 4)
+        }
+
+        [Fact]
+        public void InconsistentOrientation_GoesBeforeOpenInput()
+        {
+            // an inconsistently oriented closed mesh and an open one without AllowOpenMeshes: the orientation is reported
+            DMesh3 open = Box(5, 5, 5, 6, 6, 6);
+            open.RemoveTriangle(open.TriangleIndices().First());
+            var b = new ExactMeshBoolean(new List<DMesh3> { Box(-1, -1, -1, 2, 2, 2), FlippedCube(1), open }, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = false };
+            Assert.False(b.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, b.Status);
+        }
+
+        [Fact]
+        public void Pipeline_ConfigureBoolean_CanOverrideTheOrientation()
+        {
+            // the pipeline sets Orientation before ConfigureBoolean runs, so ConfigureBoolean has the last word
+            var parts = new List<DMesh3> { Box(-1, -1, -1, 2, 2, 2), FlippedCube(1) };
+            var p = new SolidBooleanPipeline(parts, D) { ConfigureBoolean = op => op.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(26, Volume(p.Result), 9);
         }
 
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }

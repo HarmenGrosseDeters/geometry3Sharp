@@ -1,4 +1,4 @@
-// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -113,8 +113,9 @@ namespace g3
         public enum OrientationModes
         {
             /// <summary>
-            /// a mesh that is closed only after flipping some of its triangles fails with Status InconsistentOrientation
-            /// (default). A consistently oriented mesh is used as given (an inside-out one has an empty solid)
+            /// a mesh with a component that is closed by itself only after flipping some of its triangles fails with Status
+            /// InconsistentOrientation (default). A consistently oriented mesh is used as given (an inside-out one has an empty
+            /// solid); a component that stays open is oriented by AreaMajority (its rim does not close a side either way)
             /// </summary>
             Refuse = 0,
             /// <summary>
@@ -211,7 +212,7 @@ namespace g3
         public int Patches;
         /// <summary>
         /// input triangles flipped to orient their component consistently (see Compute; 0 for consistently oriented
-        /// inputs)
+        /// inputs). Counted also when Compute() then fails with InconsistentOrientation (what AreaMajority would flip)
         /// </summary>
         public int ReorientedTriangles;
         /// <summary>
@@ -641,11 +642,12 @@ namespace g3
                 ReorientedTriangles += prepared[m].Reoriented;
                 ExactWinding[m] = prepared[m].Closed && ForceGeneralizedWinding == false;
             }
-            // a mesh that is closed only after flipping some of its triangles: which side is inside is not in the data
+            // a component that is closed by itself only after flipping some of its triangles: its own orientation does not say
+            // which side is inside (decided per component: other, open components of the mesh do not switch this off)
             for (int m = 0; m < inputs.Count; ++m)
-                if (Orientation == OrientationModes.Refuse && prepared[m].Reoriented > 0 && prepared[m].Closed)
-                    return fail(BooleanStatus.InconsistentOrientation, "input mesh " + m + " is inconsistently oriented: " + prepared[m].Reoriented + " of its " +
-                        prepared[m].Source.TriangleCount + " triangles disagree with the orientation of the larger part (Orientation = AreaMajority reorients by area)");
+                if (Orientation == OrientationModes.Refuse && prepared[m].ReorientedInClosed > 0)
+                    return fail(BooleanStatus.InconsistentOrientation, "input mesh " + m + " is inconsistently oriented: " + prepared[m].ReorientedInClosed + " of its " +
+                        prepared[m].Source.TriangleCount + " triangles disagree with the orientation of the larger part of a closed component (Orientation = AreaMajority reorients by area)");
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
@@ -802,10 +804,14 @@ namespace g3
         /// </summary>
         /// <param name="mesh">the mesh</param>
         /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
+        /// <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
+        /// (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
         [MethodImpl(JitHints.Optimize)]
-        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped)
+        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped, out int flippedInClosed)
         {
             flipped = 0;
+            flippedInClosed = 0;
+            List<(List<int> component, int flips)> changed = null;
             // (vertices welded by position: pos; the triangles at each undirected edge, by welded vertices)
             EdgeTable edges = EdgeTable.Build(mesh, pos);
             Index3i[] wtri = edges.Welded;
@@ -855,9 +861,14 @@ namespace g3
                 // (nearly equal areas: the first triangle keeps its orientation, so that the choice does not depend on
                 // the rounding of the areas, eg under a rotation)
                 bool invert = flippedArea - keptArea > 1e-9 * (flippedArea + keptArea);
+                int flips = 0;
                 foreach (int t in component)
-                    if (flipT[t] != invert)
+                    if (flipT[t] != invert) {
                         (toFlip ?? (toFlip = new List<int>())).Add(t);
+                        flips++;
+                    }
+                if (flips > 0)
+                    (changed ?? (changed = new List<(List<int>, int)>())).Add((new List<int>(component), flips));
             }
             if (toFlip == null)
                 return mesh;
@@ -865,6 +876,11 @@ namespace g3
             foreach (int t in toFlip)
                 copy.ReverseTriOrientation(t);
             flipped = toFlip.Count;
+            // (a component closed by itself: its flips decided which side is inside, whatever else the mesh has, eg a stray
+            // open triangle elsewhere)
+            foreach (var (comp, flips) in changed)
+                if (IsWindingClosed(new DSubmesh3(copy, comp.ToArray()).SubMesh))
+                    flippedInClosed += flips;
             return copy;
         }
 
@@ -877,6 +893,8 @@ namespace g3
             public DMesh3 Source, Input;
             public bool Finite, Closed;
             public int Reoriented;
+            // of Reoriented, the triangles of components that are closed by themselves (oriented)
+            public int ReorientedInClosed;
         }
 
         internal static PreparedInput prepare_input(DMesh3 mesh)
@@ -894,7 +912,7 @@ namespace g3
             int[] pos = null;       // (the vertices welded by position, computed when needed and shared)
             p.Closed = windingClosed(mesh, ref pos);
             if (p.Closed == false) {
-                DMesh3 o = oriented(mesh, pos, out p.Reoriented);
+                DMesh3 o = oriented(mesh, pos, out p.Reoriented, out p.ReorientedInClosed);
                 if (o != mesh) {
                     p.Input = o;
                     p.Closed = windingClosed(o, ref pos);
