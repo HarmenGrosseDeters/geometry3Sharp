@@ -32,7 +32,7 @@ namespace Meshing2Acceptance
             var first = new Dictionary<(double, double), int>();
             var canon = new int[p.X.Length];
             for (int v = 0; v < p.X.Length; ++v) {
-                if (!first.TryAdd((p.X[v], p.Y[v]), v)) ++DuplicateCount;
+                if (first.ContainsKey((p.X[v], p.Y[v]))) ++DuplicateCount; else first[(p.X[v], p.Y[v])] = v;   // (no TryAdd on net48)
                 canon[v] = first[(p.X[v], p.Y[v])];
             }
             p.Unique = first.Values.ToArray();
