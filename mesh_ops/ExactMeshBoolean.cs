@@ -147,8 +147,15 @@ namespace g3
             /// inside the cavity is solid again) and a consistently inside-out closed input becomes the solid it encloses.
             /// ReorientedTriangles counts the flips. Overlapping shells of one mesh are read even-odd (a doubly covered region is
             /// empty); such a mesh self-intersects, so it keeps its own orientation if it is oriented consistently (the winding
-            /// number decides, as with Refuse) and is refused with SelfIntersectingInconsistent otherwise. An input that is not
-            /// closed modulo 2 is oriented as with AreaMajority (and refused as open unless AllowOpenMeshes)
+            /// number decides, as with Refuse) and is refused with SelfIntersectingInconsistent otherwise. The decision is made per
+            /// input mesh, not per component: one pair of triangles that meet beyond a common edge or vertex anywhere in a mesh
+            /// makes the whole mesh "not embedded". A component of such a mesh that is oriented consistently but encloses a negative
+            /// volume (an inside-out solid, or the wall of a cavity: nesting cannot tell them apart there) is refused with
+            /// InconsistentOrientation; one that encloses a positive volume keeps its orientation, so an outward-given cavity wall
+            /// in a mesh that is not embedded is not flipped (nesting per component is not implemented). A component whose
+            /// triangles all have no area has no side and is left as given. An input that is not closed modulo 2 is oriented as with
+            /// AreaMajority (and refused as open unless AllowOpenMeshes). The extra arrangement of each input makes ByNesting cost
+            /// more than the other modes (not benchmarked); DifferenceEach / IntersectEach prepare the shared first mesh again for every body
             /// </summary>
             ByNesting = 2
         }
@@ -266,7 +273,7 @@ namespace g3
         /// compute InsideOutCells (default false: it stays 0). It costs a welding of the closed inputs' vertices, an edge table and
         /// a component traversal at their preparation, and one exact ray per component: measured up to about 10 percent of a
         /// boolean on the largest inputs tried (800k triangles), within noise below 200k; off, there is no cost. SolidBooleanPipeline
-        /// turns it on for its InsideOutInput refusal
+        /// turns it on for its InsideOutInput refusal (a ConfigureBoolean callback that sets it to false again turns that refusal off)
         /// </summary>
         public bool CountInsideOutCells;
         /// <summary>
@@ -961,6 +968,10 @@ namespace g3
                     }
                 if (nest != null && nest.Embedded == false && flips > 0)
                     nest.Inconsistent += flips;
+                // (not embedded, oriented consistently as given, and enclosing a negative volume: an inside-out solid, or the wall of a
+                // cavity; which, is a question of nesting, which the parity of crossings cannot answer in a mesh that is not embedded)
+                if (nest != null && nest.Embedded == false && flips == 0 && negative_volume(mesh, component))
+                    nest.NegativeVolume++;
                 if (flips > 0)
                     (changed ?? (changed = new List<(List<int>, int)>())).Add((new List<int>(component), flips));
             }
@@ -1021,6 +1032,22 @@ namespace g3
                 edge_components(p.Input, EdgeTable.Build(p.Input, pos), out p.ComponentTriangles, out p.ComponentStart);
             }
             return p;
+        }
+
+        // the signed volume of the triangles of one component is negative (as oriented; relative to a vertex of the component, so
+        // far from the origin it is as exact as the coordinates; a flat component, whose volume is rounding noise, is not negative)
+        static bool negative_volume(DMesh3 mesh, List<int> component)
+        {
+            Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
+            double v6 = 0, magnitude = 0;
+            foreach (int t in component) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                double term = (a - o).Dot((b - o).Cross(c - o));
+                v6 += term;
+                magnitude += Math.Abs(term);
+            }
+            return v6 < -1e-9 * magnitude;
         }
 
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
@@ -1089,6 +1116,12 @@ namespace g3
                     "the orientation cannot be derived by nesting there (fix the intersections or the orientation)";
                 return BooleanStatus.SelfIntersectingInconsistent;
             }
+            if (nest.NegativeVolume > 0) {
+                error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex), and " +
+                    nest.NegativeVolume + " of its components enclose a negative volume as given: inside-out solids, or the walls of cavities; which of the two is not decided " +
+                    "by nesting in a mesh that is not embedded (fix the intersections, or orient the components)";
+                return BooleanStatus.InconsistentOrientation;
+            }
             if (nest.Unorientable > 0) {
                 error = "input mesh " + m + " is closed modulo 2 and embedded, but " + nest.Unorientable + " of its components cannot be oriented consistently";
                 return BooleanStatus.InconsistentOrientation;
@@ -1132,6 +1165,8 @@ namespace g3
             public int Inconsistent;
             /// <summary> components of an embedded mesh that cannot be oriented consistently (a Moebius-like strip whose rim lies on edges with four triangles; not constructed in a test) </summary>
             public int Unorientable;
+            /// <summary> components of a mesh that is not embedded, oriented consistently as given, that enclose a negative volume (an inside-out solid or the wall of a cavity: not decided there) </summary>
+            public int NegativeVolume;
 
             public NestingContext(ExactMeshBoolean owner, DMesh3 mesh)
             {
