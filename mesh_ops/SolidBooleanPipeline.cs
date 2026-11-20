@@ -93,6 +93,8 @@ namespace gs
         public int BooleanTriangles;
         /// <summary> the boolean's InsideOutCells: the components of the closed inputs that are inside-out (see ExactMeshBoolean.InsideOutCells) </summary>
         public int InsideOutCells;
+        /// <summary> the boolean's InsideOutUndecided: components whose inside-out test found no ray (not expected) </summary>
+        public int InsideOutUndecided;
         /// <summary> the boolean's Contacts and NonManifoldEdges (touching solids, see ExactMeshBoolean.Contacts); with MinThickness, ContactsBoolean counts what is left after the removal </summary>
         public int ContactsBoolean, NonManifoldEdgesBoolean;
         /// <summary>
@@ -553,6 +555,9 @@ namespace gs
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
             Report.InsideOutCells = op.InsideOutCells;
+            Report.InsideOutUndecided = op.InsideOutUndecided;
+            if (op.InsideOutUndecided > 0 && !AllowInsideOutInputs)
+                return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutCells + " component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); " +
                     "orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs", total);

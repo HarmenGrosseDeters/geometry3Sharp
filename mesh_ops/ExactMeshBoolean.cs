@@ -1,4 +1,4 @@
-﻿﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -37,7 +37,7 @@ namespace g3
     /// ByNesting, an input that is closed modulo 2 and embedded is oriented by nesting instead (the front of every triangle faces
     /// the even side; one exact ray per component, no area), also where it is consistently oriented, so an inside-out cube
     /// becomes a cube; it is refused with SelfIntersectingInconsistent if it self-intersects and is inconsistently oriented.
-    /// InsideOutCells reports, in every mode, the closed components that are inside-out (their solid is empty or reversed). Where solids touch along an edge, the result is
+    /// InsideOutCells (with CountInsideOutCells) reports the closed components that are inside-out (their solid is empty or reversed). Where solids touch along an edge, the result is
     /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
     /// into manifold pairs with copies of its vertices (NonManifoldEdges); Contacts counts the positions with two or more
     /// vertices, so that a caller that welds (eg writes STL) knows. Two different exact points that round to one double
@@ -255,9 +255,18 @@ namespace g3
         /// </summary>
         public int InsideOutCells;
         /// <summary>
+        /// with CountInsideOutCells: the components whose ray found no direction in 200 attempts (not expected), so that it is not
+        /// known whether they are inside-out; not part of InsideOutCells. SolidBooleanPipeline refuses them like inside-out ones
+        /// </summary>
+        public int InsideOutUndecided;
+        // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
+        // as a ray that finds no direction does)
+        internal Action<int> CountRayObserverForTests;
+        /// <summary>
         /// compute InsideOutCells (default false: it stays 0). It costs a welding of the closed inputs' vertices, an edge table and
-        /// a component traversal at their preparation, and one exact ray per component, about 10 to 15 percent of a boolean of
-        /// large inputs with few components. SolidBooleanPipeline turns it on for its InsideOutInput refusal
+        /// a component traversal at their preparation, and one exact ray per component: measured up to about 10 percent of a
+        /// boolean on the largest inputs tried (800k triangles), within noise below 200k; off, there is no cost. SolidBooleanPipeline
+        /// turns it on for its InsideOutInput refusal
         /// </summary>
         public bool CountInsideOutCells;
         /// <summary>
@@ -644,7 +653,7 @@ namespace g3
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             SplitBowtieVertices = 0;
-            ReorientedTriangles = Contacts = InsideOutCells = 0;
+            ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
@@ -988,18 +997,15 @@ namespace g3
 
         internal static PreparedInput prepare_input(DMesh3 mesh, NestingContext nest = null, bool components = false)
         {
-            var p = new PreparedInput() { Source = mesh, Finite = true };
-            foreach (int vid in mesh.VertexIndices()) {
-                Vector3d v = mesh.GetVertex(vid);
-                // (per coordinate: the sum of finite coordinates can overflow)
-                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false) {
-                    p.Finite = false;
-                    return p;
-                }
-            }
+            var p = new PreparedInput() { Source = mesh, Finite = all_finite(mesh) };
+            if (p.Finite == false)
+                return p;
             p.Input = mesh;
             int[] pos = null;       // (the vertices welded by position, computed when needed and shared)
             p.Closed = windingClosed(mesh, ref pos);
+            // (ByNesting: also a closed input goes through oriented, which decides by nesting if every edge has an even number of
+            // triangles; a winding-closed input always does, as the directions at an edge cancel only in pairs, so no closed input
+            // falls back to the area rule here)
             if (p.Closed == false || nest != null) {
                 if (pos == null)
                     pos = weld_vertices(mesh);
@@ -1015,6 +1021,17 @@ namespace g3
                 edge_components(p.Input, EdgeTable.Build(p.Input, pos), out p.ComponentTriangles, out p.ComponentStart);
             }
             return p;
+        }
+
+        // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
+        static bool all_finite(DMesh3 mesh)
+        {
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false)
+                    return false;
+            }
+            return true;
         }
 
         // the components of a mesh (orientation does not matter): triangles connected across edges with exactly two triangles
@@ -1113,7 +1130,7 @@ namespace g3
             public int SelfIntersectingPairs;
             /// <summary> triangles of components of a mesh that is not embedded that disagree with their component's orientation </summary>
             public int Inconsistent;
-            /// <summary> components of an embedded mesh that cannot be oriented consistently (not expected) </summary>
+            /// <summary> components of an embedded mesh that cannot be oriented consistently (a Moebius-like strip whose rim lies on edges with four triangles; not constructed in a test) </summary>
             public int Unorientable;
 
             public NestingContext(ExactMeshBoolean owner, DMesh3 mesh)
@@ -1210,9 +1227,13 @@ namespace g3
                             continue;
                         int chi;
                         try {
+                            CountRayObserverForTests?.Invoke(ti);
                             chi = front_of_triangle(m, ti);
                         } catch (InvalidOperationException) {
-                            break;      // (no ray found in 200 attempts: not counted; the report must not fail the boolean)
+                            // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
+                            // either; InsideOutUndecided)
+                            InsideOutUndecided++;
+                            break;
                         }
                         if (chi < 0 && (chi & 1) != 0)
                             count++;
@@ -1235,6 +1256,11 @@ namespace g3
                 if (observer != null)
                     observer(m);
                 // (a shared first mesh prepared without components is prepared again when the count is asked for)
+                // (ByNesting prepares each input in nest_input: here only the finiteness check)
+                if (Orientation == OrientationModes.ByNesting) {
+                    prepared[m] = new PreparedInput() { Source = inputs[m], Input = inputs[m], Finite = all_finite(inputs[m]) };
+                    return;
+                }
                 bool shared = m == 0 && first != null && first.Source == inputs[0] && (CountInsideOutCells == false || first.Closed == false || first.ComponentStart != null);
                 prepared[m] = shared ? first : prepare_input(inputs[m], null, CountInsideOutCells);
             });

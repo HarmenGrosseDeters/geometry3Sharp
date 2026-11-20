@@ -519,5 +519,85 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, winding.InsideOutCells);
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Invert_TakesTheFlipOfTheDecidingTriangleIntoAccount(bool given_inverted)
+        {
+            // Compute always decides at the first triangle of a component, whose flip is 0: a deciding triangle with a flip needs a
+            // component that starts with a degenerate triangle, which an embedded mesh cannot have (the long edge of a collinear
+            // triangle is matched by a triangle that then overlaps the short edges' triangles). So the rule is checked on its own:
+            // parity of the front as given, xor the triangle's flip relative to the component's start
+            DMesh3 cube = given_inverted ? Inverted(Box(0, 0, 0, 1, 1, 1)) : Box(0, 0, 0, 1, 1, 1);
+            var nest = new ExactMeshBoolean.NestingContext(new ExactMeshBoolean(cube, new DMesh3(), U), cube);
+            nest.Begin();
+            Assert.True(nest.Embedded);
+            List<int> component = cube.TriangleIndices().ToList();
+            var flipT = new bool[cube.MaxTriangleID];
+            // the front of a triangle of the given cube is outside (even) if outward: nothing to flip; inverted: flip the component
+            Assert.Equal(given_inverted, nest.Invert(component, flipT));
+            // the same triangle as propagated flipped: the other answer
+            flipT[component[0]] = true;
+            Assert.Equal(!given_inverted, nest.Invert(component, flipT));
+        }
+
+        [Fact]
+        public void ByNesting_StillRefusesNonFiniteInputs_WithoutPreparingTwice()
+        {
+            DMesh3 bad = Box(0, 0, 0, 1, 1, 1);
+            bad.SetVertex(0, new Vector3d(double.NaN, 0, 0));
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), bad, D) { Orientation = Nesting };
+            Assert.False(b.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InvalidInput, b.Status);
+            int prepared = 0;
+            var counted = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(3), D) { Orientation = Nesting, PrepareObserverForTests = m => System.Threading.Interlocked.Increment(ref prepared) };
+            Assert.True(counted.Compute(), counted.Error);
+            Assert.Equal(2, prepared);      // (the observer sees each input once: the finiteness pass; the nesting preparation is not parallel)
+        }
+
+        [Fact]
+        public void ARayThatFindsNoDirection_IsCountedAsUndecided_AndTheLibraryDoesNotFail()
+        {
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { CountInsideOutCells = true,
+                CountRayObserverForTests = ti => throw new InvalidOperationException("no ray") };
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(0, b.InsideOutCells);
+            Assert.Equal(2, b.InsideOutUndecided);          // (both inputs have one component)
+            // reset by the next Compute
+            b.CountRayObserverForTests = null;
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(0, b.InsideOutUndecided);
+            Assert.Equal(1, b.InsideOutCells);
+        }
+
+        [Fact]
+        public void Pipeline_RefusesAnUndecidedComponent_LikeAnInsideOutOne()
+        {
+            var parts = new List<DMesh3> { Box(-1, -1, -1, 2, 2, 2), Box(0, 0, 0, 1, 1, 1) };
+            Action<ExactMeshBoolean> noRay = op => op.CountRayObserverForTests = ti => throw new InvalidOperationException("no ray");
+            var p = new SolidBooleanPipeline(parts, D) { ConfigureBoolean = noRay };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
+            Assert.Equal(2, p.Report.InsideOutUndecided);
+            Assert.Contains("could not be tested", p.Error);
+            var allowed = new SolidBooleanPipeline(parts, D) { ConfigureBoolean = noRay, AllowInsideOutInputs = true };
+            Assert.True(allowed.Compute(), allowed.Error);
+        }
+
+        [Fact]
+        public void Pipeline_DefaultsRefuseAnInsideOutInput_AllowRestoresTheEmptyTool()
+        {
+            // pinned behaviour change: a consistently inverted closed tool was Success with an empty solid (27), now InsideOutInput
+            var parts = new List<DMesh3> { Box(-1, -1, -1, 2, 2, 2), Inverted(Box(0, 0, 0, 1, 1, 1)) };
+            var defaults = new SolidBooleanPipeline(parts, D);
+            Assert.False(defaults.AllowInsideOutInputs);
+            Assert.False(defaults.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, defaults.Status);
+            Assert.Null(defaults.Result);
+            var allowed = new SolidBooleanPipeline(parts, D) { AllowInsideOutInputs = true };
+            Assert.True(allowed.Compute(), allowed.Error);
+            Assert.Equal(27, Invariance.Volume(allowed.Result), 9);
+        }
+
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
     }}
