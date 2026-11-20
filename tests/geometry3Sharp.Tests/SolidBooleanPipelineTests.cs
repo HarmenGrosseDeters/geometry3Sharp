@@ -252,11 +252,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ClosedInputs_AreNeverRepaired_AlsoWithAFlippedTriangle()
         {
-            // the boolean reorients flipped triangles itself: the input counts as open for IsWindingClosed but needs no repair
+            // with Orientation = AreaMajority the boolean reorients flipped triangles itself: the input counts as open for
+            // IsWindingClosed but needs no repair
             DMesh3 flipped = Sphere(Vector3d.Zero, 1, 10);
             flipped.ReverseTriOrientation(flipped.TriangleIndices().First());
             Assert.False(ExactMeshBoolean.IsWindingClosed(flipped));
-            var p = new SolidBooleanPipeline(flipped, Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U) { TargetFraction = 0.5 };
+            var p = new SolidBooleanPipeline(flipped, Soup(Sphere(new Vector3d(1.2, 0, 0), 1, 10)), U) { TargetFraction = 0.5, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(p.Compute(), p.Error);
             AssertSolid(p);
             Assert.False(p.Report.InputClosed[0]);

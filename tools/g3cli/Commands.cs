@@ -537,6 +537,7 @@ namespace g3cli
             c.Params.Add(new Param("more", ParamType.String, "further input mesh files, separated by ';' (all inputs in one operation, in the order a, b, these)"));
             c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
             c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
+            c.Params.Add(new Param("orientation", ParamType.String, "a closed input with inconsistently oriented faces: refuse (fail with operation_failed, boolean_status inconsistent_orientation) or area_majority (orient each component by its larger part by area, as before)") { Default = "refuse", Enum = new[] { "refuse", "area_majority" } });
             c.Params.Add(SafeRounding());
             AddRoundingTolerances(c);
             c.Params.Add(SimplifyFlatRegions());
@@ -574,6 +575,7 @@ namespace g3cli
                     op = (meshes.Count == 2) ? new ExactMeshBoolean(meshes[0], meshes[1], ops[opName]) : new ExactMeshBoolean(meshes, ops[opName]);
                 }
                 op.AllowOpenMeshes = args.Bool("allow_open");
+                op.Orientation = args.String("orientation") == "area_majority" ? ExactMeshBoolean.OrientationModes.AreaMajority : ExactMeshBoolean.OrientationModes.Refuse;
                 op.SafeRounding = args.Bool("safe_rounding");
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
@@ -614,8 +616,10 @@ namespace g3cli
                 MeshFiles.CheckWritable(args.String("output"));
                 var warnings = new List<string>();
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
+                // (resolve is a repair of one mesh: an inconsistently oriented one is oriented by area, as ExactMeshBoolean.Resolve does)
                 var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = args.Bool("safe_rounding"), SimplifyFlatRegions = args.Bool("simplify_flat_regions"),
+                    Orientation = ExactMeshBoolean.OrientationModes.AreaMajority,
                 };
                 ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)

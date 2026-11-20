@@ -136,7 +136,7 @@ namespace geometry3Sharp.Tests
         static void UnionWithBox(DMesh3 a, string name, bool allowInconsistentResult = false)
         {
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.6, 0.4, 0.7)) }.Generate().MakeDMesh();
-            var eb = new ExactMeshBoolean(a, box, ExactMeshBoolean.Operations.Union);
+            var eb = new ExactMeshBoolean(a, box, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             bool ok = eb.Compute();
             Assert.True(ok == (eb.Status == ExactMeshBoolean.BooleanStatus.Success), name + ": status and return value disagree");
             Assert.True(ok, $"{name}: {eb.Status} {eb.Error}");
