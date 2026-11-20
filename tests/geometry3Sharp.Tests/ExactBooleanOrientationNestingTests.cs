@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
         // the boundary of the solid of one mesh, on the winding rule
         static ExactMeshBoolean Solid(DMesh3 m, ExactMeshBoolean.OrientationModes mode)
         {
-            return new ExactMeshBoolean(m, new DMesh3(), U) { Orientation = mode };
+            return new ExactMeshBoolean(m, new DMesh3(), U) { CountInsideOutCells = true, Orientation = mode };
         }
 
         static void AssertGoodResult(DMesh3 result, double volume)
@@ -81,7 +81,7 @@ namespace geometry3Sharp.Tests
         {
             // [-1,2]^3 minus the unit cube with k faces flipped: 26 for all k (also k = 6, a consistently inside-out tool),
             // the flips reported: the triangles of the faces that point inward, 2 per flipped face
-            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(k), D) { Orientation = Nesting };
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(k), D) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(2 * k, b.ReorientedTriangles);
             Assert.Equal(0, b.InsideOutCells);
@@ -95,7 +95,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 tool = FlippedCube(4);
             DMesh3 before = new DMesh3(tool);
-            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D) { Orientation = Nesting };
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(8, b.ReorientedTriangles);
             Assert.Equal("", Invariance.Difference(before, tool));
@@ -261,20 +261,42 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AConsistentlyInvertedCube_IsAnEmptyTool_WithInsideOutCellsReported()
         {
-            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D);
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { CountInsideOutCells = true };
             Assert.Equal(ExactMeshBoolean.OrientationModes.Refuse, b.Orientation);
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(1, b.InsideOutCells);
             Assert.Equal(0, b.ReorientedTriangles);
             AssertGoodResult(b.Result, 27);
             // reported in every mode, and by a boolean that fails nowhere else
-            var legacy = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var legacy = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { CountInsideOutCells = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(legacy.Compute(), legacy.Error);
             Assert.Equal(1, legacy.InsideOutCells);
             // a correctly oriented one: none
-            var fine = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(0), D);
+            var fine = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(0), D) { CountInsideOutCells = true };
             Assert.True(fine.Compute(), fine.Error);
             Assert.Equal(0, fine.InsideOutCells);
+        }
+
+        [Fact]
+        public void TheCountIsOptIn_OffItIsZeroAndNoComponentsAreBuilt()
+        {
+            // the default: nothing is counted and the preparation builds no components
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D);
+            Assert.False(b.CountInsideOutCells);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(0, b.InsideOutCells);
+            Assert.Null(ExactMeshBoolean.prepare_input(FlippedCube(6)).ComponentStart);
+            Assert.NotNull(ExactMeshBoolean.prepare_input(FlippedCube(6), null, true).ComponentStart);
+            // ByNesting alone does not count either (the value would be 0 for an embedded input)
+            var n = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { Orientation = Nesting };
+            Assert.True(n.Compute(), n.Error);
+            Assert.Equal(0, n.InsideOutCells);
+            // a first mesh prepared without components (DifferenceEach) is prepared again when the count is on
+            var statuses = new ExactMeshBoolean.BooleanStatus[1];
+            var seen = new List<ExactMeshBoolean>();
+            DMesh3[] r = ExactMeshBoolean.DifferenceEach(FlippedCube(6), new List<DMesh3> { Box(5, 5, 5, 6, 6, 6) }, op => { op.CountInsideOutCells = true; lock (seen) seen.Add(op); }, statuses);
+            Assert.NotNull(r[0]);
+            Assert.Equal(1, Assert.Single(seen).InsideOutCells);
         }
 
         [Fact]
@@ -283,10 +305,10 @@ namespace geometry3Sharp.Tests
             // three inverted cubes and two outward ones, in two meshes: 3
             DMesh3 a = Together(Inverted(Box(0, 0, 0, 1, 1, 1)), Box(3, 0, 0, 4, 1, 1), Inverted(Box(6, 0, 0, 7, 1, 1)));
             DMesh3 c = Together(Box(10, 0, 0, 11, 1, 1), Inverted(Box(13, 0, 0, 14, 1, 1)));
-            var b = new ExactMeshBoolean(a, c, U);
+            var b = new ExactMeshBoolean(a, c, U) { CountInsideOutCells = true };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(3, b.InsideOutCells);
-            var n = new ExactMeshBoolean(a, c, U) { Orientation = Nesting };
+            var n = new ExactMeshBoolean(a, c, U) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(n.Compute(), n.Error);
             Assert.Equal(0, n.InsideOutCells);
             Assert.Equal(36, n.ReorientedTriangles);
@@ -314,10 +336,10 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 open = Inverted(Box(0, 0, 0, 1, 1, 1));
             open.RemoveTriangle(open.TriangleIndices().First());
-            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { AllowOpenMeshes = false, Orientation = Nesting };
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { CountInsideOutCells = true, AllowOpenMeshes = false, Orientation = Nesting };
             Assert.False(b.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, b.Status);
-            var allowed = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { Orientation = Nesting };
+            var allowed = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(allowed.Compute(), allowed.Error);
             Assert.Equal(0, allowed.InsideOutCells);
             // (an open input is oriented by area, not by nesting: this consistent one is not changed)
@@ -392,9 +414,9 @@ namespace geometry3Sharp.Tests
                 (ThreeShells(true, true, false), new DMesh3(), U),
                 (Together(Inverted(Box(0, 0, 0, 1, 1, 1)), Box(1, 1, 0, 2, 2, 1)), new DMesh3(), U) };
             foreach (var (a, c, op) in inputs) {
-                var reference = new ExactMeshBoolean(a, c, op) { Orientation = Nesting };
+                var reference = new ExactMeshBoolean(a, c, op) { CountInsideOutCells = true, Orientation = Nesting };
                 Assert.True(reference.Compute(), reference.Error);
-                var b = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(c, s), op) { Orientation = Nesting };
+                var b = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(c, s), op) { CountInsideOutCells = true, Orientation = Nesting };
                 Assert.True(b.Compute(), b.Error);
                 Assert.Equal(reference.ReorientedTriangles, b.ReorientedTriangles);
                 Assert.Equal(reference.InsideOutCells, b.InsideOutCells);
@@ -416,9 +438,9 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(frame);
             var a = Together(Inverted(Box(0, 0, 0, 1, 1, 1)), Box(3, 0, 0, 4, 1, 1), Inverted(Box(6, 0, 0, 7, 1, 1)));
-            var reference = new ExactMeshBoolean(a, Box(10, 10, 10, 11, 11, 11), U);
+            var reference = new ExactMeshBoolean(a, Box(10, 10, 10, 11, 11, 11), U) { CountInsideOutCells = true };
             Assert.True(reference.Compute(), reference.Error);
-            var b = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(Box(10, 10, 10, 11, 11, 11), s), U);
+            var b = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(Box(10, 10, 10, 11, 11, 11), s), U) { CountInsideOutCells = true };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(2, reference.InsideOutCells);
             Assert.Equal(reference.InsideOutCells, b.InsideOutCells);
@@ -427,7 +449,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Reuse_ComputeTwice_AndAcrossModes_OnOneInstance()
         {
-            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(3), D) { Orientation = Nesting };
+            var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(3), D) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(b.Compute(), b.Error);
             DMesh3 first = b.Result;
             int flips = b.ReorientedTriangles;
@@ -442,7 +464,7 @@ namespace geometry3Sharp.Tests
             Assert.True(b.Compute(), b.Error);
             Assert.Equal("", Invariance.Difference(first, b.Result));
             // a refusal, then a success, resets the report
-            var inverted = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D);
+            var inverted = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), FlippedCube(6), D) { CountInsideOutCells = true };
             Assert.True(inverted.Compute(), inverted.Error);
             Assert.Equal(1, inverted.InsideOutCells);
             inverted.Orientation = Nesting;

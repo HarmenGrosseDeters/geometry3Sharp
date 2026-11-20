@@ -246,7 +246,7 @@ namespace g3
         /// as oriented for the boolean, that are inside-out: the winding number of their mesh just in front of a triangle of the
         /// component (the exact signed crossings of a ray from its centroid into its front side with the other triangles of the
         /// mesh) is odd and negative, so that the front of the surface is inside the solid it bounds (a consistently inverted cube:
-        /// 1, and its solid is empty). Reported in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
+        /// 1, and its solid is empty). Computed only with CountInsideOutCells (else 0), in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
         /// embedded input (the solid is then what the surface encloses). Exact, no tolerance; for an input that self-intersects
         /// it reads the one triangle of each component, so a component that is inside-out only in part is not seen. An
         /// overlapping or nested shell with the right orientation for the winding number (eg a cavity wall given outward: its
@@ -254,6 +254,12 @@ namespace g3
         /// Not counted for an open input
         /// </summary>
         public int InsideOutCells;
+        /// <summary>
+        /// compute InsideOutCells (default false: it stays 0). It costs a welding of the closed inputs' vertices, an edge table and
+        /// a component traversal at their preparation, and one exact ray per component, about 10 to 15 percent of a boolean of
+        /// large inputs with few components. SolidBooleanPipeline turns it on for its InsideOutInput refusal
+        /// </summary>
+        public bool CountInsideOutCells;
         /// <summary>
         /// remove new vertices (not input vertices) that lie exactly inside a flat region of the result or on a
         /// straight edge between two flat regions, and retriangulate there (ExactPlanarSimplify). Without it,
@@ -767,7 +773,8 @@ namespace g3
             clock.Lap("classification");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
-            InsideOutCells = count_inside_out(prepared);
+            if (CountInsideOutCells)
+                InsideOutCells = count_inside_out(prepared);
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
             // (the box trees are read by the winding queries of the classification only: about 80 bytes per input
@@ -975,11 +982,11 @@ namespace g3
             public int ReorientedInClosed;
             // the components of a closed input (triangles connected across edges with two triangles, by vertex position): the
             // triangle ids of component c are ComponentTriangles[ComponentStart[c] .. ComponentStart[c + 1]), in the order of a
-            // traversal from the component's lowest id; null for an open input (InsideOutCells counts closed inputs only)
+            // traversal from the component's lowest id; null for an open input (InsideOutCells counts closed inputs only) and without CountInsideOutCells
             public int[] ComponentTriangles, ComponentStart;
         }
 
-        internal static PreparedInput prepare_input(DMesh3 mesh, NestingContext nest = null)
+        internal static PreparedInput prepare_input(DMesh3 mesh, NestingContext nest = null, bool components = false)
         {
             var p = new PreparedInput() { Source = mesh, Finite = true };
             foreach (int vid in mesh.VertexIndices()) {
@@ -1002,7 +1009,7 @@ namespace g3
                     p.Closed = windingClosed(o, ref pos);
                 }
             }
-            if (p.Closed) {
+            if (p.Closed && components) {
                 if (pos == null)
                     pos = weld_vertices(p.Input);
                 edge_components(p.Input, EdgeTable.Build(p.Input, pos), out p.ComponentTriangles, out p.ComponentStart);
@@ -1056,7 +1063,7 @@ namespace g3
         {
             error = null;
             var nest = new NestingContext(this, mesh);
-            PreparedInput p = prepare_input(mesh, nest);
+            PreparedInput p = prepare_input(mesh, nest, CountInsideOutCells);
             if (nest.Stopped)
                 return BooleanStatus.Cancelled;
             if (nest.Inconsistent > 0) {
@@ -1227,7 +1234,9 @@ namespace g3
             gParallel.ForRange(inputs.Count, (m) => {
                 if (observer != null)
                     observer(m);
-                prepared[m] = (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
+                // (a shared first mesh prepared without components is prepared again when the count is asked for)
+                bool shared = m == 0 && first != null && first.Source == inputs[0] && (CountInsideOutCells == false || first.Closed == false || first.ComponentStart != null);
+                prepared[m] = shared ? first : prepare_input(inputs[m], null, CountInsideOutCells);
             });
             return prepared;
         }

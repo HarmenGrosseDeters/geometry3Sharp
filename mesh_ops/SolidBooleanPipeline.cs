@@ -806,6 +806,7 @@ namespace gs
         {
             var op = new ExactMeshBoolean(meshes, Operation);
             op.Orientation = Orientation;
+            op.CountInsideOutCells = true;      // (the InsideOutInput refusal and Report.InsideOutCells)
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
             op.AllowOpenMeshes = false;
