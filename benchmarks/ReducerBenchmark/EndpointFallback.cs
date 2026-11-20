@@ -32,7 +32,7 @@ static class EndpointFallback
     {
         var d = Variants[v];
         return new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = true, PreventSelfIntersections = pit,
-            FastCollapseEndpointFallback = d.on, FastCollapseFallbackFeatureOnly = d.featureOnly, FastCollapseFallbackFirstRoundOnly = d.firstRound };
+            FastCollapseEndpointFallback = d.on, FastCollapseFallbackBothEnds = !d.featureOnly, FastCollapseFallbackFirstRoundOnly = d.firstRound };
     }
 
     internal static void Run(Func<int, DMesh3> bumpy, Func<int, DMesh3> terrain, string[] args)

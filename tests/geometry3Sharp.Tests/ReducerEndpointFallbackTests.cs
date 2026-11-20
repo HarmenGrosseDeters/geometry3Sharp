@@ -130,11 +130,12 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 input = Spiky(16);
             double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
-            DMesh3 feature = Pass(input, eps, true, 0.05 * diag, out Reducer _, r => r.FastCollapseFallbackFeatureOnly = true);
-            DMesh3 both = Pass(input, eps, true, 0.05 * diag);
+            DMesh3 feature = Pass(input, eps, true, 0.05 * diag);
+            DMesh3 both = Pass(input, eps, true, 0.05 * diag, out Reducer _, r => r.FastCollapseFallbackBothEnds = true);
             Assert.Equal("250 24E50BFFEA470D4E", $"{feature.TriangleCount} {Digest(feature)}");
             Assert.Equal("246 998BEC30DF0A57AB", $"{both.TriangleCount} {Digest(both)}");
             AssertBounds(input, feature, eps, "feature end only");
+            AssertBounds(input, both, eps, "both ends");
         }
 
         /// <summary> (benchmark knob) the retry only in the first round: between the pass without and the one with the retry in every round </summary>
@@ -189,7 +190,7 @@ namespace geometry3Sharp.Tests
             DMesh3 input = Tower(12, 0.5, out int tip);
             double diag = input.CachedBounds.DiagonalLength, eps = 0.02;
             DMesh3 off = Pass(input, eps, false, 0.5);
-            DMesh3 on = Pass(input, eps, true, 0.5, out Reducer r, rr => rr.FastCollapseFallbackFeatureOnly = true);
+            DMesh3 on = Pass(input, eps, true, 0.5, out Reducer r);
             AssertBounds(input, on, eps, "tower, feature end only");
             Assert.True(on.GetVertex(tip) == new Vector3d(0.5, 0.5, 0.5), "the tip is kept in place");
             Assert.True(on.TriangleCount < off.TriangleCount, $"{on.TriangleCount} against {off.TriangleCount}");

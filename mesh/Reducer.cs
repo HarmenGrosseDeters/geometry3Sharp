@@ -132,18 +132,17 @@ namespace g3
         /// <summary>
         /// FastCollapsePass only. If true, an edge whose midpoint collapse is refused by the flip / fold-over test, by MaxDeviation
         /// (with MaxDeviationTwoSided) or by PreventSelfIntersections is tried again as a collapse onto one of its two end
-        /// vertices (the end that keeps the larger angle defect, ie the sharper feature, first, then the other end, unless
-        /// FastCollapseFallbackFeatureOnly). Every check applies to the end position exactly as to the midpoint (constraints,
+        /// vertices, the end of the larger angle defect (the sharper feature: a spike's tip stays where it is). Every check applies to the end position exactly as to the midpoint (constraints,
         /// flip and fold-over, MaxDeviation, MaxDeviationTwoSided, PreventSelfIntersections), so the guarantees of the options
         /// set hold for the result. It keeps features the midpoint pulls off tolerance (a spike's tip stays where it is) and
-        /// reaches fewer triangles; it costs time (about 1.4x to 2.5x, benchmarks/ReducerBenchmark README, "endpoint
+        /// reaches fewer triangles; it costs time (about 1.2x to 2.1x, median 1.5x, benchmarks/ReducerBenchmark README, "endpoint
         /// fallback"). Off by default; with it off the result is unchanged bit for bit. Deterministic (no randomness; the end
         /// order depends on the mesh only).
         /// </summary>
         public bool FastCollapseEndpointFallback = false;
 
-        /// <summary> (benchmarks) FastCollapseEndpointFallback tries the feature end only, not the other end after it </summary>
-        internal bool FastCollapseFallbackFeatureOnly = false;
+        /// <summary> (benchmarks) FastCollapseEndpointFallback also tries the other end when the feature end is refused (a little fewer triangles, more time) </summary>
+        internal bool FastCollapseFallbackBothEnds = false;
 
         /// <summary> (benchmarks) FastCollapseEndpointFallback retries only in the first round of FastCollapsePass </summary>
         internal bool FastCollapseFallbackFirstRoundOnly = false;
@@ -1830,7 +1829,7 @@ namespace g3
         }
 
         // the collapse of edge eid (just refused at its midpoint) onto one of its ends: the end of the larger angle defect first (ties: the
-        // first), then, unless FastCollapseFallbackFeatureOnly, the other. CollapseEdge repeats every check for the end position
+        // first), then, with FastCollapseFallbackBothEnds, the other. CollapseEdge repeats every check for the end position
         ProcessResult collapse_onto_end(int eid, Vector3d midpoint, out int vKept)
         {
             Index2i ev = mesh.GetEdgeV(eid);
@@ -1841,7 +1840,7 @@ namespace g3
             try {
                 forceKeep = first;
                 result = CollapseEdge(eid, midpoint, out vKept);
-                if (result != ProcessResult.Ok_Collapsed && result != ProcessResult.Failed_NotAnEdge && !FastCollapseFallbackFeatureOnly) {
+                if (result != ProcessResult.Ok_Collapsed && result != ProcessResult.Failed_NotAnEdge && FastCollapseFallbackBothEnds) {
                     forceKeep = second;
                     result = CollapseEdge(eid, midpoint, out vKept);
                 }

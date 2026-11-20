@@ -269,10 +269,11 @@ run (`twosided 3`, the same meshes, at eps 0.003 and 0.01 of the diagonal): A is
 
 `Reducer.FastCollapseEndpointFallback` (opt-in, off by default): in `FastCollapsePass`, an edge whose midpoint collapse is
 refused (flip / fold-over, `MaxDeviation`, the two-sided check, `PreventSelfIntersections`) is tried again as a collapse onto
-one of its ends, the end of the larger angle defect (the sharper feature) first, then the other one; every check applies to
-the end position, so the bounds hold. Measured with the same meshes as above (`fallback 3`, `FastCollapsePass(0.05 * diag, 5)`
-with `MaxDeviation` and `MaxDeviationTwoSided`, medians of 3 alternating rounds; Linux container, 4 cores, net10.0). The variants
-are internal knobs (`FastCollapseFallbackFeatureOnly`, `FastCollapseFallbackFirstRoundOnly`); "off" is today's pass.
+one of its ends, the end of the larger angle defect (the sharper feature) first; every check applies to the end position, so
+the bounds hold. Measured with the same meshes as above (`fallback 3`, `FastCollapsePass(0.05 * diag, 5)` with `MaxDeviation`
+and `MaxDeviationTwoSided`, medians of 3 alternating rounds; Linux container, 4 cores, net10.0). The variants are internal
+knobs (`FastCollapseFallbackBothEnds`: also the other end when the feature end is refused; `FastCollapseFallbackFirstRoundOnly`);
+"off" is today's pass.
 
 ```
 dotnet run -c Release --project benchmarks/ReducerBenchmark -- fallback 3 [mesh files...]
@@ -280,57 +281,56 @@ dotnet run -c Release --project benchmarks/ReducerBenchmark -- fallback 3 [mesh 
 
 | mesh | triangles | eps / diag | off: triangles, ms | feature end: triangles, ms | both ends, round 1: triangles, ms | feature end, round 1: triangles, ms | both ends: triangles, ms | h(M,S) / h(S,M) / eps, both ends |
 |---|---|---|---|---|---|---|---|---|
-| bumpy sphere 40 | 18252 | 0.003 | 934, 5847 | 768, 10285 | 706, 10608 | 784, 10105 | 688, 10855 | 1.010 / 1.009 |
-| bumpy sphere 40 | 18252 | 0.01 | 596, 5378 | 220, 8656 | 224, 9038 | 228, 8591 | 216, 9079 | 1.006 / 1.006 |
-| spiky sphere 60 | 41772 | 0.003 | 1184, 14813 | 642, 35341 | 624, 35783 | 646, 35540 | 622, 36098 | 1.009 / 1.009 |
-| spiky sphere 60 | 41772 | 0.01 | 834, 12406 | 258, 26526 | 242, 30375 | 270, 26084 | 236, 30696 | 1.007 / 1.009 |
-| terrain 80 | 12800 | 0.003 | 1498, 2110 | 1490, 3374 | 1356, 3328 | 1504, 3297 | 1354, 3619 | 1.009 / 1.006 |
-| terrain 80 | 12800 | 0.01 | 762, 2342 | 458, 5266 | 448, 5821 | 462, 5164 | 440, 5834 | 1.002 / 1.009 |
-| 1036464 | 7068 | 0.003 | 664, 3372 | 606, 3995 | 562, 4871 | 638, 4135 | 554, 4772 | 1.008 / 1.003 |
-| 1036464 | 7068 | 0.01 | 322, 1267 | 280, 1863 | 256, 1933 | 294, 1708 | 250, 1934 | 1.006 / 0.999 |
-| 1436278 | 18610 | 0.003 | 410, 7737 | 336, 14564 | 370, 16106 | 390, 14209 | 284, 16968 | 1.010 / 1.008 |
-| 1436278 | 18610 | 0.01 | 238, 3839 | 174, 7949 | 212, 7356 | 248, 7762 | 140, 7774 | 1.007 / 1.002 |
-| 472201 | 5572 | 0.003 | 326, 2567 | 266, 3341 | 266, 3452 | 272, 3420 | 254, 3499 | 1.007 / 0.997 |
-| 472201 | 5572 | 0.01 | 202, 875 | 170, 1190 | 172, 1361 | 188, 1136 | 154, 1331 | 0.998 / 1.006 |
-| 51011 | 8656 | 0.003 | 1634, 1342 | 1446, 1749 | 1378, 1878 | 1510, 1690 | 1338, 1969 | 1.009 / 1.008 |
-| 51011 | 8656 | 0.01 | 798, 839 | 662, 1068 | 678, 1345 | 704, 1126 | 650, 1328 | 1.004 / 1.003 |
-| 60516 | 14628 | 0.003 | 1502, 5656 | 1222, 8200 | 1108, 8747 | 1290, 8071 | 1082, 8888 | 1.010 / 1.006 |
-| 60516 | 14628 | 0.01 | 804, 2960 | 672, 4500 | 678, 4762 | 740, 4317 | 644, 4962 | 1.006 / 1.003 |
-| 894833 | 7952 | 0.003 | 1430, 1540 | 1248, 1883 | 1194, 2207 | 1290, 1951 | 1180, 2314 | 1.010 / 1.005 |
-| 894833 | 7952 | 0.01 | 542, 859 | 428, 1061 | 442, 1172 | 466, 1112 | 408, 1239 | 1.008 / 1.005 |
+| bumpy sphere 40 | 18252 | 0.003 | 934, 6838 | 696, 10559 | 706, 11655 | 720, 9733 | 688, 11901 | 1.010 / 1.009 |
+| bumpy sphere 40 | 18252 | 0.01 | 596, 5756 | 216, 8707 | 224, 10086 | 226, 8678 | 216, 9979 | 1.006 / 1.006 |
+| spiky sphere 60 | 41772 | 0.003 | 1184, 16664 | 652, 32366 | 624, 37839 | 658, 32319 | 622, 37240 | 1.009 / 1.009 |
+| spiky sphere 60 | 41772 | 0.01 | 834, 12332 | 254, 25290 | 242, 31286 | 268, 26582 | 236, 30755 | 1.007 / 1.009 |
+| terrain 80 | 12800 | 0.003 | 1498, 2038 | 1358, 3320 | 1356, 3527 | 1378, 3188 | 1354, 3698 | 1.009 / 1.006 |
+| terrain 80 | 12800 | 0.01 | 762, 2432 | 500, 4457 | 448, 6026 | 506, 4578 | 440, 6017 | 1.002 / 1.009 |
+| 1036464 | 7068 | 0.003 | 664, 3268 | 586, 4266 | 562, 4743 | 610, 4110 | 554, 4834 | 1.008 / 1.003 |
+| 1036464 | 7068 | 0.01 | 322, 1201 | 272, 1703 | 256, 1926 | 278, 1653 | 250, 1928 | 1.006 / 0.999 |
+| 1436278 | 18610 | 0.003 | 410, 7701 | 288, 14632 | 370, 16662 | 386, 14392 | 284, 17716 | 1.010 / 1.008 |
+| 1436278 | 18610 | 0.01 | 238, 4034 | 184, 7148 | 212, 7793 | 242, 6906 | 140, 7936 | 1.007 / 1.002 |
+| 472201 | 5572 | 0.003 | 326, 2645 | 266, 3038 | 266, 3498 | 272, 2998 | 254, 3591 | 1.007 / 0.997 |
+| 472201 | 5572 | 0.01 | 202, 918 | 158, 1254 | 172, 1276 | 180, 1218 | 154, 1349 | 0.998 / 1.006 |
+| 51011 | 8656 | 0.003 | 1634, 1477 | 1408, 1735 | 1378, 1895 | 1444, 1782 | 1338, 2096 | 1.009 / 1.008 |
+| 51011 | 8656 | 0.01 | 798, 862 | 656, 1224 | 678, 1319 | 682, 1216 | 650, 1344 | 1.004 / 1.003 |
+| 60516 | 14628 | 0.003 | 1502, 5839 | 1128, 8585 | 1108, 8975 | 1156, 8352 | 1082, 8708 | 1.010 / 1.006 |
+| 60516 | 14628 | 0.01 | 804, 2905 | 624, 4943 | 678, 4924 | 694, 4421 | 644, 4931 | 1.006 / 1.003 |
+| 894833 | 7952 | 0.003 | 1430, 1444 | 1190, 2097 | 1194, 2312 | 1232, 2113 | 1180, 2273 | 1.010 / 1.005 |
+| 894833 | 7952 | 0.01 | 542, 872 | 436, 1105 | 442, 1160 | 476, 1175 | 408, 1257 | 1.008 / 1.005 |
 
 | variant | triangles removed against off (sum over the rows) | extra time (sum, s) | triangles per extra second | share of the both-ends reduction | time against off (median of the rows) |
 |---|---|---|---|---|---|
-| feature end | 3334 | 65.1 | 51 | 80 % | 1.52x |
-| both ends, round 1 | 3764 | 74.4 | 51 | 90 % | 1.60x |
-| feature end, round 1 | 2756 | 63.7 | 43 | 66 % | 1.46x |
-| both ends | 4186 | 77.4 | 54 | 100 % | 1.68x |
+| feature end | 3808 | 57.2 | 67 | 91 % | 1.51x |
+| both ends, round 1 | 3764 | 77.7 | 48 | 90 % | 1.69x |
+| feature end, round 1 | 3272 | 56.2 | 58 | 78 % | 1.46x |
+| both ends | 4186 | 78.3 | 53 | 100 % | 1.70x |
 
 Rule for the shipped variant: the most triangles removed per extra second over the 18 rows, among the variants that keep at
-least 75 % of the reduction of the full retry. All four keep 66 % or more; the feature end alone (80 %), both ends in round 1
-(90 %) and both ends in every round (100 %) pass, and both ends in every round has the best ratio (54 against 51 triangles per
-extra second), so that is the variant shipped (the knobs default to false). Certified bounds of that variant (last column) are
-at most 1.010 eps in all 18 rows, as without the fallback. The result is the same on repeated runs (`ReducerEndpointFallbackTests`).
-The pass is 1.5 to 1.7x slower (median over the rows), the feature end alone is the cheaper choice (1.52x, 80 % of the
-reduction) where time matters more than triangles.
+least 75 % of the reduction of the full retry (both ends in every round). The feature end alone keeps 91 % of it at 67
+triangles per extra second (both ends: 53, both ends in round 1: 48, feature end in round 1: 58, 78 %), so the feature end alone
+is shipped (the other knobs default to false). Its time against off is 1.15x to 2.05x (median 1.51x) and its triangles 9 to 70 %
+fewer; the certified bounds of the both-ends variant (last column) are at most 1.010 eps in all 18 rows, and those of the
+shipped variant are checked by `ReducerEndpointFallbackTests`. The result is the same on repeated runs.
 
-With `PreventSelfIntersections` also on (`FB_PIT=1`, `fallback 1`, four meshes, 8 rows; the same ranking, both ends in every round again the
-best ratio, 95 triangles per extra second):
+With `PreventSelfIntersections` also on (`FB_PIT=1`, `fallback 1`, four meshes, 8 rows) the ranking is the same, the feature end
+alone again the best ratio (129 triangles per extra second, 92 % of the reduction):
 
 | mesh | triangles | eps / diag | off: triangles, ms | feature end: triangles, ms | both ends, round 1: triangles, ms | feature end, round 1: triangles, ms | both ends: triangles, ms | h(M,S) / h(S,M) / eps, both ends |
 |---|---|---|---|---|---|---|---|---|
-| bumpy sphere 40 | 18252 | 0.003 | 934, 6619 | 768, 11818 | 706, 11857 | 784, 11636 | 688, 12160 | 1.010 / 1.009 |
-| bumpy sphere 40 | 18252 | 0.01 | 596, 6240 | 220, 10225 | 224, 10892 | 228, 9701 | 216, 9949 | 1.006 / 1.006 |
-| terrain 80 | 12800 | 0.003 | 1498, 2314 | 1490, 3770 | 1356, 3789 | 1504, 3911 | 1354, 4076 | 1.009 / 1.006 |
-| terrain 80 | 12800 | 0.01 | 762, 2748 | 458, 5513 | 448, 6076 | 462, 5475 | 440, 6218 | 1.002 / 1.009 |
-| 472201 | 5572 | 0.003 | 326, 2861 | 266, 3588 | 266, 3741 | 272, 3563 | 254, 3726 | 1.007 / 0.997 |
-| 472201 | 5572 | 0.01 | 202, 1056 | 170, 1415 | 172, 1580 | 188, 1433 | 154, 1527 | 0.998 / 1.006 |
-| 894833 | 7952 | 0.003 | 1430, 1756 | 1248, 2209 | 1194, 2323 | 1290, 1954 | 1180, 2304 | 1.010 / 1.005 |
-| 894833 | 7952 | 0.01 | 542, 1038 | 430, 1398 | 442, 1387 | 466, 1304 | 408, 1518 | 1.008 / 1.005 |
+| bumpy sphere 40 | 18252 | 0.003 | 934, 6480 | 696, 10158 | 706, 11393 | 720, 10157 | 688, 11724 | 1.010 / 1.009 |
+| bumpy sphere 40 | 18252 | 0.01 | 596, 6534 | 216, 8900 | 224, 10149 | 226, 8797 | 216, 10920 | 1.006 / 1.006 |
+| terrain 80 | 12800 | 0.003 | 1498, 2477 | 1358, 3970 | 1356, 3814 | 1378, 3691 | 1354, 4429 | 1.009 / 1.006 |
+| terrain 80 | 12800 | 0.01 | 762, 2970 | 500, 5191 | 448, 6228 | 506, 4987 | 440, 6436 | 1.002 / 1.009 |
+| 472201 | 5572 | 0.003 | 326, 2922 | 266, 3510 | 266, 3674 | 272, 3102 | 254, 3774 | 1.007 / 0.997 |
+| 472201 | 5572 | 0.01 | 202, 1024 | 158, 1410 | 172, 1537 | 180, 1325 | 154, 1548 | 0.998 / 1.006 |
+| 894833 | 7952 | 0.003 | 1430, 1718 | 1190, 2181 | 1194, 2279 | 1232, 2192 | 1180, 2368 | 1.010 / 1.005 |
+| 894833 | 7952 | 0.01 | 542, 1165 | 436, 1355 | 442, 1393 | 476, 1324 | 408, 1505 | 1.008 / 1.005 |
 
 | variant | triangles removed against off (sum over the rows) | extra time (sum, s) | triangles per extra second | share of the both-ends reduction | time against off (median of the rows) |
 |---|---|---|---|---|---|
-| feature end | 1240 | 15.3 | 81 | 78 % | 1.63x |
-| both ends, round 1 | 1482 | 17.0 | 87 | 93 % | 1.64x |
-| feature end, round 1 | 1096 | 14.3 | 76 | 69 % | 1.55x |
-| both ends | 1596 | 16.8 | 95 | 100 % | 1.59x |
+| feature end | 1470 | 11.4 | 129 | 92 % | 1.38x |
+| both ends, round 1 | 1482 | 15.2 | 98 | 93 % | 1.54x |
+| feature end, round 1 | 1300 | 10.3 | 126 | 81 % | 1.35x |
+| both ends | 1596 | 17.4 | 92 | 100 % | 1.67x |
