@@ -193,7 +193,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PairPass_CopiesTheCountsOfThePairedResult()
         {
-            // the pair pass keeps the paired result: its report fields are those of a final check of the returned mesh
+            // the pair pass keeps the paired result: its report fields are those of a final check of the returned mesh (a
+            // consistency check; that the fields are copied is seen by SetFinalCheck_CopiesAllFourFields...)
             var inputs = new List<DMesh3> { SoupBox(Vector3d.Zero), SoupBox(new Vector3d(2, 2, 0)) };
             var p = new SolidBooleanPipeline(inputs, ExactMeshBoolean.Operations.Union) { PairContactsMode = SolidBooleanPipeline.PairContactsModes.Auto, TargetTriangleCount = 4 };
             Assert.True(p.Compute(), p.Error);
@@ -207,6 +208,59 @@ namespace geometry3Sharp.Tests
         }
 
         static DMesh3 SoupBox(Vector3d c) { return ReducerPairedContactsTests.Soup(ReducerPairedContactsTests.Box(c, 8)); }
+
+        // the fast count equals CrossingTriangles over all vertices
+        static void AssertSameCount(DMesh3 m, string what)
+        {
+            Assert.True(SolidBooleanPipeline.CrossingTriangles(m, m.VertexIndices()).SetEquals(SolidBooleanPipeline.CrossingTrianglesOfAll(m)), what);
+        }
+
+        static DMesh3 Sphere(int n, Vector3d at)
+        {
+            var m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
+            MeshTransforms.Translate(m, at);
+            return m;
+        }
+
+        [Fact]
+        public void CrossingTrianglesOfAll_IsTheSetOfCrossingTriangles()
+        {
+            AssertSameCount(EdgeTouching(), "edge contact");
+            AssertSameCount(EdgeTouchingAndCrossing(), "contact and crossing");
+            AssertSameCount(Together(Box(0, 0, 0, 1, 1, 1), Box(0.25, 0.25, 0.5, 0.5, 0.5, 1.5)), "crossing alone");
+            AssertSameCount(Together(Box(0, 0, 0, 1, 1, 1), Box(1, 0, 0, 2, 1, 1)), "face contact, unwelded");
+            AssertSameCount(Together(Box(0, 0, 0, 1, 1, 1), Box(0.25, 0.25, 1, 0.75, 0.75, 2)), "box on a face");
+            AssertSameCount(Together(Box(0, 0, 0, 1, 1, 1), Box(1, 1, 1, 2, 2, 2)), "vertex contact");
+            AssertSameCount(Together(Sphere(24, Vector3d.Zero), Sphere(24, new Vector3d(1.5, 0.2, 0.1))), "spheres crossing");
+            AssertSameCount(Together(Sphere(40, Vector3d.Zero), Box(1, -0.5, -0.5, 2, 0.5, 0.5), Box(0, 0, 3, 1, 1, 4), Box(1, 1, 4, 2, 2, 5)), "a large sphere with a contact and a box that touches it");
+            AssertSameCount(Sphere(40, Vector3d.Zero), "clean");
+            SolidBooleanReport r = Check(Together(Box(0, 0, 0, 1, 1, 1), Box(1, 0, 0, 2, 1, 1)));
+            Assert.True(r.SelfIntersectingTriangles > 0);      // (the conservative case: the face contact counts as crossing)
+        }
+
+        [Fact]
+        public void ANegativeZeroAndAPositiveZero_AreOnePosition()
+        {
+            // two boxes touching along an edge at x = 0, one with the contact vertices at -0.0, the other at +0.0
+            DMesh3 a = Box(-1, 0, 0, 0, 1, 1), b = Box(0, 1, 0, 1, 2, 1);
+            foreach (int v in a.VertexIndices()) {
+                Vector3d p = a.GetVertex(v);
+                if (p.x == 0)
+                    a.SetVertex(v, new Vector3d(-0.0, p.y, p.z));
+            }
+            foreach (int v in b.VertexIndices()) {
+                Vector3d p = b.GetVertex(v);
+                if (p.x == 0)
+                    b.SetVertex(v, new Vector3d(0.0, p.y, p.z));
+            }
+            DMesh3 m = Together(a, b);
+            SolidBooleanReport r = Check(m);
+            Assert.Equal("self-intersections", r.NotCleanReason);
+            Assert.True(r.ContactsResult > 0);
+            Assert.Equal(0, r.SelfIntersectingTriangles);
+            Assert.True(r.OnlyContacts);
+            AssertSameCount(m, "-0 and +0");
+        }
 
         [Fact]
         public void SetFinalCheck_CopiesAllFourFields_IncludingACleanSourceOverANotCleanTarget()
