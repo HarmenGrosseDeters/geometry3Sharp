@@ -260,6 +260,57 @@ namespace geometry3Sharp.Tests
             Assert.Equal(8, removed[0].Volume, 9);
         }
 
+        // a one-triangle probe at depth d below the wall x = X of the cube [X, X + 4]^3 (inside the cube)
+        static bool ProbeContained(double X, double d, out double depth)
+        {
+            DMesh3 outer = Box(X, X, X, X + 4, X + 4, X + 4);
+            var probe = new DMesh3();
+            double x = X + d;
+            depth = x - X;
+            int a = probe.AppendVertex(new Vector3d(x, X + 1, X + 1)), b = probe.AppendVertex(new Vector3d(x, X + 3, X + 1)), c = probe.AppendVertex(new Vector3d(x, X + 1, X + 3));
+            probe.AppendTriangle(a, b, c);
+            DMesh3 m = Shells((outer, false), (probe, false));
+            int[][] r = Ranges(outer, probe);
+            return SolidBooleanPipeline.ShellIndex.Contains(m, r[0], BoundsOf(m, r[0]), r[1]);
+        }
+
+        [Theory]
+        [InlineData(1e6)]
+        [InlineData(3.0e3)]
+        [InlineData(-7.7e5)]
+        public void Contains_AProbeWithinTheTouchDistanceIsSkipped_OneBeyondItDecides(double X)
+        {
+            // the tolerance is 256 eps M (M the largest coordinate of the shell's box): a probe at half of it from the wall is
+            // not decided (every vertex and the centroid are skipped: not contained), at twice of it the exact winding number
+            // decides (inside)
+            double touch = SolidBooleanPipeline.ShellIndex.Touch(Box(X, X, X, X + 4, X + 4, X + 4).GetBounds());
+            Assert.Equal(256 * 2.220446049250313e-16 * Math.Max(Math.Abs(X), Math.Abs(X + 4)), touch, 15);
+            double depth;
+            Assert.False(ProbeContained(X, 0.5 * touch, out depth));
+            Assert.True(depth > 0 && depth < touch);
+            Assert.True(ProbeContained(X, 2 * touch, out depth));
+            Assert.True(depth > touch);
+        }
+
+        [Fact]
+        public void BoxHolds_AllowsTheRoundingOfAMovedBox_NotMore()
+        {
+            // a cavity that touches the shell from inside has a box that sticks out of the shell's by the rounding of its
+            // coordinates (checked: the touch distance of the shell's box)
+            foreach (double X in new[] { 0.0, 1e6, -3.3e4 }) {
+                var shell = new AxisAlignedBox3d(new Vector3d(X, X, X), new Vector3d(X + 4, X + 4, X + 4));
+                double touch = SolidBooleanPipeline.ShellIndex.Touch(shell);
+                Assert.True(touch >= 0);
+                Assert.True(SolidBooleanPipeline.ShellIndex.BoxHolds(shell, new AxisAlignedBox3d(new Vector3d(X + 1, X + 1, X + 1), new Vector3d(X + 2, X + 2, X + 2))));
+                if (touch == 0)
+                    continue;
+                Assert.True(SolidBooleanPipeline.ShellIndex.BoxHolds(shell, new AxisAlignedBox3d(new Vector3d(X - 0.5 * touch, X + 1, X + 1), new Vector3d(X + 2, X + 2, X + 2))));
+                Assert.True(SolidBooleanPipeline.ShellIndex.BoxHolds(shell, new AxisAlignedBox3d(new Vector3d(X + 1, X + 1, X + 1), new Vector3d(X + 4 + 0.5 * touch, X + 2, X + 2))));
+                Assert.False(SolidBooleanPipeline.ShellIndex.BoxHolds(shell, new AxisAlignedBox3d(new Vector3d(X - 2 * touch, X + 1, X + 1), new Vector3d(X + 2, X + 2, X + 2))));
+                Assert.False(SolidBooleanPipeline.ShellIndex.BoxHolds(shell, new AxisAlignedBox3d(new Vector3d(X + 1, X + 1, X + 1), new Vector3d(X + 2, X + 2, X + 4 + 2 * touch))));
+            }
+        }
+
         [Fact]
         public void Contains_AnInvertedShellAroundAPoint_DoesNotContain()
         {

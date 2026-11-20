@@ -747,7 +747,7 @@ namespace gs
                 if (vol[c] > 0)
                     continue;
                 for (int o = 0; o < n; ++o) {
-                    if (!(vol[o] > 0) || (owner[c] >= 0 && vol[o] >= vol[owner[c]]) || !boxes[o].Contains(boxes[c]))
+                    if (!(vol[o] > 0) || (owner[c] >= 0 && vol[o] >= vol[owner[c]]) || !ShellIndex.BoxHolds(boxes[o], boxes[c]))
                         continue;
                     ShellIndex index;
                     if (!shellIndex.TryGetValue(o, out index))
@@ -844,6 +844,38 @@ namespace gs
                 return new ShellIndex(mesh, tris, box).ExactWinding(p, out winding, jitter);
             }
 
+            /// <summary>
+            /// the distance below which a point counts as on a shell with this box: 256 units of the rounding of the largest
+            /// coordinate M of the box (eps = 2^-52, so 256 eps M). A shell and a cavity that were moved or rotated in double
+            /// precision by the same transform (the same input doubles give the same output doubles, so the corners they share stay
+            /// shared; only a cavity vertex inside a wall triangle can come apart from it) end up apart by at most about
+            /// sqrt(3) (e_wall + e_cavity), where one coordinate of a rotation y = R x + t has an error of at most about
+            /// gamma3 sum |R_ij x_j| + u |y|, about 3 eps M, with u = eps / 2: so some 10 eps M, and 256 eps M is about 25 times
+            /// that. It is not a bound for every history: a chain whose intermediate coordinates are much larger than M (a
+            /// translation by 1e8 and back), single-precision or text-rounded coordinates, or two shells moved by different
+            /// transforms can be apart by more. Then the touching vertices are not skipped, and a vertex that is on the wrong side
+            /// of its wall by rounding decides: the failure is a wrong owner, not only an unowned cavity. A probe within this
+            /// distance of the shell is skipped, never decided, so the tolerance cannot turn an exact decision around, it
+            /// can only leave a cavity unowned (every probe within it: a wall thinner than 256 eps M)
+            /// </summary>
+            internal static double Touch(AxisAlignedBox3d box)
+            {
+                double magnitude = 0;
+                for (int k = 0; k < 3; ++k)
+                    magnitude = Math.Max(magnitude, Math.Max(Math.Abs(box.Min[k]), Math.Abs(box.Max[k])));
+                return 256 * 2.220446049250313e-16 * magnitude;
+            }
+
+            /// <summary>
+            /// does the box of a shell hold the box of a cavity, up to Touch: a cavity that touches the shell from inside has a box
+            /// that sticks out of the shell's by the rounding of a moved or rotated coordinate
+            /// </summary>
+            internal static bool BoxHolds(AxisAlignedBox3d shellBox, AxisAlignedBox3d cavityBox)
+            {
+                shellBox.Expand(Touch(shellBox));
+                return shellBox.Contains(cavityBox);
+            }
+
             readonly DMesh3 shell;
             readonly DMeshAABBTree3 tree;
             readonly AxisAlignedBox3d box;
@@ -854,12 +886,7 @@ namespace gs
                 shell = new DSubmesh3(mesh, tris).SubMesh;
                 tree = new DMeshAABBTree3(shell, true);
                 this.box = box;
-                // the distance below which a probe counts as touching the shell: a few hundred units of rounding of the largest
-                // coordinate (a mesh that was moved or rotated has its touching faces apart by that much)
-                double magnitude = 0;
-                for (int k = 0; k < 3; ++k)
-                    magnitude = Math.Max(magnitude, Math.Max(Math.Abs(box.Min[k]), Math.Abs(box.Max[k])));
-                touch = 256 * 2.220446049250313e-16 * magnitude;
+                touch = Touch(box);
             }
 
             // does p lie on the shell, or within the rounding of its coordinates of it?
@@ -950,7 +977,9 @@ namespace gs
                     if (lo < best) { best = lo; axis = k; side = -1; }
                     if (hi < best) { best = hi; axis = k; side = 1; }
                 }
-                double margin = 1e-3 * box.DiagonalLength + 1e-300;
+                // (at least the touch distance: a box much smaller than the rounding of its coordinates, far from the origin, would
+                // otherwise round the end of the segment back into it)
+                double margin = Math.Max(1e-3 * box.DiagonalLength, touch) + 1e-300;
                 var rng = new Random(20261119);
                 for (int attempt = 0; attempt < 64; ++attempt) {
                     var dir = jitter != null ? jitter(attempt) : new Vector3d(0.25 * (rng.NextDouble() - 0.5), 0.25 * (rng.NextDouble() - 0.5), 0.25 * (rng.NextDouble() - 0.5));
