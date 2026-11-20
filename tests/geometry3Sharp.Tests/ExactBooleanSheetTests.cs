@@ -866,5 +866,53 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Status.SheetRefused, op.Status);
             AssertNothingInsideOut(op, "two sheets");
         }
+
+        // ---- together with the orientation modes ---------------------------------------------------------------------------------------------
+
+        [Fact]
+        public void ClosedToolWithFlippedFaces_AndASheet_RefusedByDefault_OrientedByNestingOrAreaMajority()
+        {
+            // the tool box [0.5,1.5] x [0,1] x [-0.5,0.75] with its top face flipped (it is closed once the face is turned): Orientation is for the solids,
+            // the sheet is used as given and cuts as before (the cube minus the lower half minus the tool's part in the upper half: 0.5 - 0.5 * 0.25)
+            DMesh3 tool = Box(0.5, 0, -0.5, 1.5, 1, 0.75);
+            foreach (int t in tool.TriangleIndices().ToArray()) {
+                Index3i f = tool.GetTriangle(t);
+                if (tool.GetVertex(f.a).z == 0.75 && tool.GetVertex(f.b).z == 0.75 && tool.GetVertex(f.c).z == 0.75)
+                    tool.SetTriangle(t, new Index3i(f.a, f.c, f.b));
+            }
+            Func<ExactMeshBoolean.OrientationModes, ExactMeshBoolean> run = mode => {
+                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2), tool }, Ops.Difference) {
+                    Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Solid },
+                    Orientation = mode
+                };
+                op.Compute();
+                return op;
+            };
+            ExactMeshBoolean refused = run(ExactMeshBoolean.OrientationModes.Refuse);
+            Assert.Equal(Status.InconsistentOrientation, refused.Status);
+            Assert.Contains("input mesh 2", refused.Error);
+            Assert.Equal(Refusal.None, refused.SheetReason);
+            foreach (var mode in new[] { ExactMeshBoolean.OrientationModes.ByNesting, ExactMeshBoolean.OrientationModes.AreaMajority }) {
+                ExactMeshBoolean op = run(mode);
+                Assert.True(op.Status == Status.Success, mode + ": " + op.Status + " " + op.Error);
+                ResultChecks.AssertClosed(op.Result);
+                Assert.Equal(0.5 - 0.5 * 0.25, Volume(op.Result), 12);
+                Assert.Equal(2, op.ReorientedTriangles);        // (the flipped face's two triangles; none of the sheet's)
+            }
+        }
+
+        [Fact]
+        public void ASheetIsNeverOrientedByNesting_OrCountedInsideOut()
+        {
+            // a closed box with its normals inward as the sheet: with the role Sheet it is used as given (its inside is in front of it, outside the tool), not
+            // turned by nesting and not counted as inside-out
+            DMesh3 inner = Reversed(Box(0.25, 0.25, 0.25, 0.75, 0.75, 0.75));
+            foreach (var mode in new[] { ExactMeshBoolean.OrientationModes.Refuse, ExactMeshBoolean.OrientationModes.ByNesting }) {
+                ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), inner, ExactMeshBoolean.SheetUncutSides.Refuse, o => { o.Orientation = mode; o.CountInsideOutCells = true; });
+                Assert.True(op.Status == Status.Success || op.SheetReason == Refusal.FloatingComponent, mode + ": " + op.Status + " " + op.Error);
+                Assert.Equal(0, op.InsideOutCells);
+                Assert.Equal(0, op.ReorientedTriangles);
+            }
+        }
     }
 }

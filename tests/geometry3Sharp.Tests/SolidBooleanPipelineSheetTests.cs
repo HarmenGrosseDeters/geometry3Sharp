@@ -127,5 +127,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(32.0, Volume(p.Result), 12);
             Assert.True(p.Report.InputSnappedVertices > 0);
         }
+
+        [Theory]
+        [InlineData(ExactMeshBoolean.OrientationModes.Refuse)]
+        [InlineData(ExactMeshBoolean.OrientationModes.ByNesting)]
+        public void TheInsideOutCount_AndTheOrientationModes_DoNotTouchTheSheet(ExactMeshBoolean.OrientationModes mode)
+        {
+            // the pipeline counts inside-out components of its solids (and refuses them): a sheet is not one, even a closed one with inward normals; the cube
+            // [0,4]^3 is cut by the sheet z = 2 as before
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { InputRoles = SheetSecond(), Orientation = mode };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.Equal(0, p.Report.InsideOutCells);
+            Assert.Equal(32.0, Volume(p.Result), 9);
+            // a solid tool that is inside-out is still refused next to a sheet
+            DMesh3 tool = Cube(1);
+            MeshTransforms.Translate(tool, new Vector3d(1, 1, 1.5));
+            tool.ReverseOrientation(false);
+            var q = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5), tool }, D) {
+                InputRoles = new Roles { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Solid }, Orientation = mode
+            };
+            if (mode == ExactMeshBoolean.OrientationModes.Refuse) {
+                Assert.False(q.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, q.Status);
+                Assert.Equal(1, q.Report.InsideOutCells);
+            } else {
+                Assert.True(q.Compute(), q.Status + " " + q.Error);
+                Assert.Equal(0, q.Report.InsideOutCells);
+                Assert.Equal(32.0 - 0.5, Volume(q.Result), 9);
+            }
+        }
     }
 }

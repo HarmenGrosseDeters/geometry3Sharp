@@ -251,7 +251,7 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Soup(Sphere(5, Vector3d.Zero), t => t % 7 == 0, t => false);
             DMesh3 b = Sphere(5, new Vector3d(0.3, 0.2, 0.1));
             DMesh3 other = Soup(Sphere(5, Vector3d.Zero), t => false, t => false);
-            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, PreparedFirst = ExactMeshBoolean.prepare_input(other) };
+            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AllowOpenMeshes = true, PreparedFirst = ExactMeshBoolean.prepare_input(other) };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(ExactMeshBoolean.prepare_input(a).Reoriented, op.ReorientedTriangles);
             Assert.True(op.ReorientedTriangles > 0);
@@ -260,7 +260,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(DMesh3 a, DMesh3 b)
         {
-            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
+            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AllowOpenMeshes = true };
             Assert.True(op.Compute(), op.Error);
             return op;
         }
@@ -294,7 +294,7 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Soup(Sphere(6, Vector3d.Zero), t => t % 7 == 0, t => false);
             int one = ExactMeshBoolean.prepare_input(a).Reoriented;
             for (int i = 0; i < 5; ++i) {
-                var op = new ExactMeshBoolean(a, a, ExactMeshBoolean.Operations.Union);
+                var op = new ExactMeshBoolean(a, a, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
                 Assert.True(op.Compute(), op.Error);
                 Assert.Equal(2 * one, op.ReorientedTriangles);
             }
@@ -310,7 +310,7 @@ namespace geometry3Sharp.Tests
                 expected += ExactMeshBoolean.prepare_input(m).Reoriented;
                 meshes.Add(m);
             }
-            var op = new ExactMeshBoolean(meshes, w => w.Any(x => x > 0));
+            var op = new ExactMeshBoolean(meshes, w => w.Any(x => x > 0)) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(expected, op.ReorientedTriangles);
         }
@@ -322,13 +322,13 @@ namespace geometry3Sharp.Tests
             DMesh3 b = Soup(Sphere(5, new Vector3d(0.3, 0.2, 0.1)), t => t % 5 == 0, t => false);
             var inputs = new List<DMesh3> { a, b, a, b };
             var threads = new System.Collections.Concurrent.ConcurrentBag<int>();
-            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { PrepareObserverForTests = (m) => threads.Add(Environment.CurrentManagedThreadId) };
+            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, PrepareObserverForTests = (m) => threads.Add(Environment.CurrentManagedThreadId) };
             gParallel.SerialOnThisThread = true;
             ExactMeshBoolean.PreparedInput[] serial;
             try { serial = op.prepare_inputs(inputs); } finally { gParallel.SerialOnThisThread = false; }
             Assert.Equal(4, threads.Count);
             Assert.Equal(new[] { Environment.CurrentManagedThreadId }, threads.Distinct().ToArray());
-            ExactMeshBoolean.PreparedInput[] parallel = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union).prepare_inputs(inputs);
+            ExactMeshBoolean.PreparedInput[] parallel = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority }.prepare_inputs(inputs);
             for (int i = 0; i < inputs.Count; ++i) {
                 Assert.Equal(parallel[i].Reoriented, serial[i].Reoriented);
                 Assert.Equal(parallel[i].Closed, serial[i].Closed);
@@ -344,7 +344,7 @@ namespace geometry3Sharp.Tests
         {
             // (a null input: Compute rejects it before, the preparation itself throws a NullReferenceException)
             DMesh3 a = Sphere(4, Vector3d.Zero);
-            var op = new ExactMeshBoolean(a, a, ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(a, a, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             gParallel.SerialOnThisThread = serial;
             try { Assert.Throws<NullReferenceException>(() => op.prepare_inputs(new List<DMesh3> { a, null })); }
             finally { gParallel.SerialOnThisThread = false; }
@@ -356,7 +356,7 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Sphere(4, Vector3d.Zero);
             DMesh3 b = Sphere(4, Vector3d.Zero);
             b.SetVertex(3, new Vector3d(double.NaN, 0, 0));
-            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.False(op.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.InvalidInput, op.Status);
         }

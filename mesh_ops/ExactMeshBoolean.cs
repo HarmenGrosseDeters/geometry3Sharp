@@ -27,10 +27,17 @@ namespace g3
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
-    /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
-    /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
-    /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
-    /// cannot be oriented are left as they are. Where solids touch along an edge, the result is
+    /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) that is closed once
+    /// they are oriented consistently is refused by default (Orientation = Refuse, Status InconsistentOrientation): which
+    /// side is inside is not in the data, and the earlier rule (keep the orientation of the larger part by area) turned eg
+    /// a cube tool with three of its six faces flipped into an empty tool, silently (#1210). With Orientation =
+    /// AreaMajority (and always for a mesh that stays open, with AllowOpenMeshes) each component (triangles connected
+    /// across edges with two triangles, by vertex position) is oriented consistently, keeping the orientation of the
+    /// larger part by area (ReorientedTriangles); components that cannot be oriented are left as they are. With Orientation =
+    /// ByNesting, an input that is closed modulo 2 and embedded is oriented by nesting instead (the front of every triangle faces
+    /// the even side; one exact ray per component, no area), also where it is consistently oriented, so an inside-out cube
+    /// becomes a cube; it is refused with SelfIntersectingInconsistent if it self-intersects and is inconsistently oriented.
+    /// InsideOutCells (with CountInsideOutCells) reports the closed components that are inside-out (their solid is empty or reversed). Where solids touch along an edge, the result is
     /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
     /// into manifold pairs with copies of its vertices (NonManifoldEdges); Contacts counts the positions with two or more
     /// vertices, so that a caller that welds (eg writes STL) knows. Two different exact points that round to one double
@@ -59,6 +66,8 @@ namespace g3
     /// on the open Thingi10K cohort of docs/design/LEVY_CLASSIFICATION.md (21 models, 63 operations) that costs 4.3
     /// times the total time of the per-patch evaluation (classification 18 times; up to 10 times on single
     /// operations, about 100 s). Closed inputs are not affected.
+    /// Orientation (Refuse, AreaMajority, ByNesting) and CountInsideOutCells apply to the solid inputs only: a sheet is used as given, never reoriented, never oriented by
+    /// nesting and never counted as inside-out (its orientation is the caller's statement, checked by prepare_sheet).
     /// Roles: an input can be given the role Sheet (Roles): an open, oriented cutting surface that is the tool of a Difference. Its
     /// normals point away from the part that is cut off: the cells of the first mesh (closed) that the sheet divides are labelled
     /// from the sheet pieces around them, front 0 (kept) and back 1 (inside the tool), exactly; where that is not possible (a free
@@ -107,10 +116,23 @@ namespace g3
             /// <summary> Cancellation was cancelled during Compute(); Result is null </summary>
             Cancelled = 6,
             /// <summary>
+            /// Orientation = Refuse: a mesh is closed only after some of its triangles are flipped (inconsistently oriented
+            /// faces); Error names the mesh and how many triangles disagree with the orientation of the larger part. Result is null
+            /// </summary>
+            InconsistentOrientation = 7,
+            /// <summary>
+            /// Orientation = ByNesting: a mesh that is closed modulo 2 has triangles that meet beyond a common edge or vertex
+            /// (self-intersections, a vertex on another triangle's edge or face, coincident faces: SelfIntersectingPairs of its own
+            /// arrangement is not 0) and some of its components are inconsistently oriented. Which side of a triangle is inside
+            /// is then not decided by the parity of crossings (it alternates within the triangle), so the mesh cannot be
+            /// oriented by nesting; Error names the mesh and the numbers. Result is null
+            /// </summary>
+            SelfIntersectingInconsistent = 8,
+            /// <summary>
             /// an input with the role Sheet cannot be used as stated (see SheetReason, Error and the Sheet witness fields); Result is null.
             /// A sheet is never repaired, reoriented or classified by generalized winding numbers: it is an exact tool or it is refused
             /// </summary>
-            SheetRefused = 7
+            SheetRefused = 9
         }
 
         /// <summary> the role of an input mesh (see Roles) </summary>
@@ -175,6 +197,46 @@ namespace g3
             /// <summary> it is inside the tool: removed by the Difference </summary>
             Inside = 2
         }
+
+        /// <summary> what Compute() does with a mesh whose triangles are inconsistently oriented (Orientation) </summary>
+        public enum OrientationModes
+        {
+            /// <summary>
+            /// a mesh with a component that is closed by itself only after flipping some of its triangles fails with Status
+            /// InconsistentOrientation (default). A consistently oriented mesh is used as given (an inside-out one has an empty
+            /// solid); a component that stays open is oriented by AreaMajority (its rim does not close a side either way)
+            /// </summary>
+            Refuse = 0,
+            /// <summary>
+            /// each component is oriented consistently, keeping the orientation of the larger part by area (ties within a
+            /// relative 1e-9: of its first triangle); ReorientedTriangles counts the flips. A heuristic: with nearly equal
+            /// parts the larger area is not the outside (a cube with three of six faces flipped becomes inside-out, an empty
+            /// solid). For repairs of broken meshes, where any consistent orientation is wanted
+            /// </summary>
+            AreaMajority = 1,
+            /// <summary>
+            /// every input that is closed modulo 2 (each edge, by vertex position, has an even number of triangles) and embedded
+            /// (no two of its triangles meet except in a common edge or vertex, so no self-intersection and no coincident faces)
+            /// is oriented so that the front of every triangle faces the even side of the nesting: the depth of a point
+            /// is the parity of the crossings of a ray from it with the triangles of its mesh, and the solid is the odd region.
+            /// Each component (triangles connected across edges with two triangles, by vertex position) is decided by one exact ray
+            /// from a triangle of it, no area is compared, so nested shells come out right (a cavity wall faces the cavity, a solid
+            /// inside the cavity is solid again) and a consistently inside-out closed input becomes the solid it encloses.
+            /// ReorientedTriangles counts the flips. Overlapping shells of one mesh are read even-odd (a doubly covered region is
+            /// empty); such a mesh self-intersects, so it keeps its own orientation if it is oriented consistently (the winding
+            /// number decides, as with Refuse) and is refused with SelfIntersectingInconsistent otherwise. An input that is not
+            /// closed modulo 2 is oriented as with AreaMajority (and refused as open unless AllowOpenMeshes)
+            /// </summary>
+            ByNesting = 2
+        }
+
+        /// <summary>
+        /// what to do with a mesh whose triangles are inconsistently oriented and that is closed once they agree (default
+        /// Refuse: Status InconsistentOrientation). Meshes that stay open are oriented by AreaMajority in either mode (they
+        /// fail with OpenInput anyway unless AllowOpenMeshes)
+        /// </summary>
+        // (a mesh with the role Sheet is not subject to it: it is used as given)
+        public OrientationModes Orientation = OrientationModes.Refuse;
 
         /// <summary>
         /// budget: the largest number of pieces (triangles of the arrangement, Counts["pieces"]) that Compute() takes on;
@@ -277,9 +339,37 @@ namespace g3
         public int Patches;
         /// <summary>
         /// input triangles flipped to orient their component consistently (see Compute; 0 for consistently oriented
-        /// inputs)
+        /// inputs). Counted also when Compute() then fails with InconsistentOrientation (what AreaMajority would flip)
         /// </summary>
         public int ReorientedTriangles;
+        /// <summary>
+        /// the number of components (triangles connected across edges with two triangles, by vertex position) of the closed inputs,
+        /// as oriented for the boolean, that are inside-out: the winding number of their mesh just in front of a triangle of the
+        /// component (the exact signed crossings of a ray from its centroid into its front side with the other triangles of the
+        /// mesh) is odd and negative, so that the front of the surface is inside the solid it bounds (a consistently inverted cube:
+        /// 1, and its solid is empty). Computed only with CountInsideOutCells (else 0), in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
+        /// embedded input (the solid is then what the surface encloses). Exact, no tolerance; for an input that self-intersects
+        /// it reads the one triangle of each component, so a component that is inside-out only in part is not seen. An
+        /// overlapping or nested shell with the right orientation for the winding number (eg a cavity wall given outward: its
+        /// front is inside the solid, the winding number there is 1) is not counted: that is a union, not an inversion.
+        /// Not counted for an open input
+        /// </summary>
+        public int InsideOutCells;
+        /// <summary>
+        /// with CountInsideOutCells: the components whose ray found no direction in 200 attempts (not expected), so that it is not
+        /// known whether they are inside-out; not part of InsideOutCells. SolidBooleanPipeline refuses them like inside-out ones
+        /// </summary>
+        public int InsideOutUndecided;
+        // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
+        // as a ray that finds no direction does)
+        internal Action<int> CountRayObserverForTests;
+        /// <summary>
+        /// compute InsideOutCells (default false: it stays 0). It costs a welding of the closed inputs' vertices, an edge table and
+        /// a component traversal at their preparation, and one exact ray per component: measured up to about 10 percent of a
+        /// boolean on the largest inputs tried (800k triangles), within noise below 200k; off, there is no cost. SolidBooleanPipeline
+        /// turns it on for its InsideOutInput refusal
+        /// </summary>
+        public bool CountInsideOutCells;
         /// <summary>
         /// remove new vertices (not input vertices) that lie exactly inside a flat region of the result or on a
         /// straight edge between two flat regions, and retriangulate there (ExactPlanarSimplify). Without it,
@@ -637,6 +727,14 @@ namespace g3
 
         ExactMeshArrangement arr;
 
+        // the arrangement of Compute() with this instance's settings (also the one-mesh arrangement of nest_input)
+        ExactMeshArrangement new_arrangement(List<DMesh3> inputs)
+        {
+            return new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
+                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
+                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar };
+        }
+
         /// <summary>
         /// Compute the boolean into Result. Returns false (and sets Error and Status) if there is no input, an
         /// input is null, has non-finite coordinates, or is open while AllowOpenMeshes is false, or if the result is not
@@ -656,7 +754,7 @@ namespace g3
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             SplitBowtieVertices = 0;
-            ReorientedTriangles = Contacts = 0;
+            ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             SheetReason = SheetRefusal.None;
@@ -738,6 +836,19 @@ namespace g3
                     SheetWitnessTriangle = prepared[m].RefusalTriangle;
                     return refuse_sheet(prepared[m].Refusal, "input " + m + " (a sheet): " + prepared[m].RefusalText);
                 }
+            if (Orientation == OrientationModes.ByNesting) {
+                // (each input on its own: its nesting is that of its own triangles; the ray is exact, see nest_input)
+                for (int m = 0; m < inputs.Count; ++m) {
+                    if (sheet != null && sheet[m])
+                        continue;       // (a sheet is used as given: it is never oriented)
+                    string nestError;
+                    BooleanStatus nestStatus = nest_input(inputs[m], m, ref prepared[m], out nestError);
+                    if (nestStatus == BooleanStatus.Cancelled)
+                        return cancelled();
+                    if (nestStatus != BooleanStatus.Success)
+                        return fail(nestStatus, nestError);
+                }
+            }
             inputs = new List<DMesh3>(inputs);
             ExactWinding = new bool[inputs.Count];
             for (int m = 0; m < inputs.Count; ++m) {
@@ -745,6 +856,12 @@ namespace g3
                 ReorientedTriangles += prepared[m].Reoriented;
                 ExactWinding[m] = prepared[m].Closed && ForceGeneralizedWinding == false;
             }
+            // a component that is closed by itself only after flipping some of its triangles: its own orientation does not say
+            // which side is inside (decided per component: other, open components of the mesh do not switch this off)
+            for (int m = 0; m < inputs.Count; ++m)
+                if (Orientation == OrientationModes.Refuse && prepared[m].ReorientedInClosed > 0)
+                    return fail(BooleanStatus.InconsistentOrientation, "input mesh " + m + " is inconsistently oriented: " + prepared[m].ReorientedInClosed + " of its " +
+                        prepared[m].Source.TriangleCount + " triangles disagree with the orientation of the larger part of a closed component (Orientation = AreaMajority reorients by area)");
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
             if (sheet != null && ExactWinding[0] == false)
@@ -755,9 +872,7 @@ namespace g3
             inputClock.Lap("input");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
-            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
-                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
-                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar };
+            arr = new_arrangement(inputs);
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -812,6 +927,10 @@ namespace g3
                 CertificateFlip = (bool[])flip.Clone();
             }
             clock.Lap("classification");
+            if (Cancellation.IsCancellationRequested)
+                return cancelled();
+            if (CountInsideOutCells)
+                InsideOutCells = count_inside_out(prepared);
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
             // (the box trees are read by the winding queries of the classification only: about 80 bytes per input
@@ -907,12 +1026,25 @@ namespace g3
         /// </summary>
         /// <param name="mesh">the mesh</param>
         /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
+        /// <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
+        /// (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
         [MethodImpl(JitHints.Optimize)]
-        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped)
+        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped, out int flippedInClosed, NestingContext nest = null)
         {
             flipped = 0;
+            flippedInClosed = 0;
+            List<(List<int> component, int flips)> changed = null;
             // (vertices welded by position: pos; the triangles at each undirected edge, by welded vertices)
             EdgeTable edges = EdgeTable.Build(mesh, pos);
+            // (ByNesting: a mesh that is closed modulo 2, by the parity of its triangles at each edge; any other is oriented
+            // by area as before)
+            if (nest != null && edges.Even) {
+                nest.Begin();
+                if (nest.Stopped)
+                    return mesh;
+            }
+            else
+                nest = null;
             Index3i[] wtri = edges.Welded;
             int[] nbr = edges.Neighbour;
             int maxT = mesh.MaxTriangleID;
@@ -951,8 +1083,11 @@ namespace g3
                         stack.Push(o);
                     }
                 }
-                if (orientable == false)
+                if (orientable == false) {
+                    if (nest != null && nest.Embedded)
+                        nest.Unorientable++;
                     continue;
+                }
                 double flippedArea = 0, keptArea = 0;
                 foreach (int t in component) {
                     if (flipT[t]) flippedArea += mesh.GetTriArea(t); else keptArea += mesh.GetTriArea(t);
@@ -960,9 +1095,21 @@ namespace g3
                 // (nearly equal areas: the first triangle keeps its orientation, so that the choice does not depend on
                 // the rounding of the areas, eg under a rotation)
                 bool invert = flippedArea - keptArea > 1e-9 * (flippedArea + keptArea);
+                // (ByNesting of an embedded mesh: by the parity of the crossings of one ray, not by area; one that is not embedded
+                // keeps the area rule, which is only used to count the triangles that disagree: it flips none of a component
+                // that is oriented consistently, and nest.Inconsistent refuses the others)
+                if (nest != null && nest.Embedded)
+                    invert = nest.Invert(component, flipT);
+                int flips = 0;
                 foreach (int t in component)
-                    if (flipT[t] != invert)
+                    if (flipT[t] != invert) {
                         (toFlip ?? (toFlip = new List<int>())).Add(t);
+                        flips++;
+                    }
+                if (nest != null && nest.Embedded == false && flips > 0)
+                    nest.Inconsistent += flips;
+                if (flips > 0)
+                    (changed ?? (changed = new List<(List<int>, int)>())).Add((new List<int>(component), flips));
             }
             if (toFlip == null)
                 return mesh;
@@ -970,6 +1117,11 @@ namespace g3
             foreach (int t in toFlip)
                 copy.ReverseTriOrientation(t);
             flipped = toFlip.Count;
+            // (a component closed by itself: its flips decided which side is inside, whatever else the mesh has, eg a stray
+            // open triangle elsewhere)
+            foreach (var (comp, flips) in changed)
+                if (IsWindingClosed(new DSubmesh3(copy, comp.ToArray()).SubMesh))
+                    flippedInClosed += flips;
             return copy;
         }
 
@@ -982,6 +1134,12 @@ namespace g3
             public DMesh3 Source, Input;
             public bool Finite, Closed;
             public int Reoriented;
+            // of Reoriented, the triangles of components that are closed by themselves (oriented)
+            public int ReorientedInClosed;
+            // the components of a closed input (triangles connected across edges with two triangles, by vertex position): the
+            // triangle ids of component c are ComponentTriangles[ComponentStart[c] .. ComponentStart[c + 1]), in the order of a
+            // traversal from the component's lowest id; null for an open input (InsideOutCells counts closed inputs only) and without CountInsideOutCells
+            public int[] ComponentTriangles, ComponentStart;
             // a sheet: why it is not an oriented manifold surface, and a triangle of it
             public SheetRefusal Refusal;
             public int RefusalTriangle = -1;
@@ -1044,28 +1202,253 @@ namespace g3
             return p;
         }
 
-        internal static PreparedInput prepare_input(DMesh3 mesh)
+        internal static PreparedInput prepare_input(DMesh3 mesh, NestingContext nest = null, bool components = false)
         {
-            var p = new PreparedInput() { Source = mesh, Finite = true };
-            foreach (int vid in mesh.VertexIndices()) {
-                Vector3d v = mesh.GetVertex(vid);
-                // (per coordinate: the sum of finite coordinates can overflow)
-                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false) {
-                    p.Finite = false;
-                    return p;
-                }
-            }
+            var p = new PreparedInput() { Source = mesh, Finite = all_finite(mesh) };
+            if (p.Finite == false)
+                return p;
             p.Input = mesh;
             int[] pos = null;       // (the vertices welded by position, computed when needed and shared)
             p.Closed = windingClosed(mesh, ref pos);
-            if (p.Closed == false) {
-                DMesh3 o = oriented(mesh, pos, out p.Reoriented);
+            // (ByNesting: also a closed input goes through oriented, which decides by nesting if every edge has an even number of
+            // triangles; a winding-closed input always does, as the directions at an edge cancel only in pairs, so no closed input
+            // falls back to the area rule here)
+            if (p.Closed == false || nest != null) {
+                if (pos == null)
+                    pos = weld_vertices(mesh);
+                DMesh3 o = oriented(mesh, pos, out p.Reoriented, out p.ReorientedInClosed, nest);
                 if (o != mesh) {
                     p.Input = o;
                     p.Closed = windingClosed(o, ref pos);
                 }
             }
+            if (p.Closed && components) {
+                if (pos == null)
+                    pos = weld_vertices(p.Input);
+                edge_components(p.Input, EdgeTable.Build(p.Input, pos), out p.ComponentTriangles, out p.ComponentStart);
+            }
             return p;
+        }
+
+        // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
+        static bool all_finite(DMesh3 mesh)
+        {
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false)
+                    return false;
+            }
+            return true;
+        }
+
+        // the components of a mesh (orientation does not matter): triangles connected across edges with exactly two triangles
+        // (by welded vertices), the same components as oriented finds; each is listed from its lowest triangle id in the order
+        // of a breadth-first traversal
+        [MethodImpl(JitHints.Optimize)]
+        static void edge_components(DMesh3 mesh, EdgeTable edges, out int[] triangles, out int[] start)
+        {
+            Index3i[] wtri = edges.Welded;
+            int[] nbr = edges.Neighbour;
+            triangles = new int[mesh.TriangleCount];
+            var starts = new List<int>();
+            var seen = new bool[mesh.MaxTriangleID];
+            int count = 0;
+            foreach (int root in mesh.TriangleIndices()) {
+                if (seen[root])
+                    continue;
+                starts.Add(count);
+                int from = count;
+                seen[root] = true;
+                triangles[count++] = root;
+                for (int head = from; head < count; ++head) {
+                    int t = triangles[head];
+                    Index3i f = wtri[t];
+                    for (int k = 0; k < 3; ++k) {
+                        if (f[k] == f[(k + 1) % 3])
+                            continue;
+                        int o = nbr[3 * t + k];
+                        if (o < 0 || o == t || seen[o])
+                            continue;
+                        seen[o] = true;
+                        triangles[count++] = o;
+                    }
+                }
+            }
+            starts.Add(count);
+            start = starts.ToArray();
+        }
+
+        // ByNesting of one input (a mesh that is closed modulo 2 is oriented by the parity of crossings, see
+        // OrientationModes.ByNesting): the input as Compute uses it, or the status that refuses it with the reason in error
+        // (Cancelled, SelfIntersectingInconsistent, InconsistentOrientation); Success also for an input that is not closed
+        // modulo 2 (oriented by area, as without nesting)
+        [MethodImpl(JitHints.Optimize)]
+        BooleanStatus nest_input(DMesh3 mesh, int m, ref PreparedInput prepared, out string error)
+        {
+            error = null;
+            var nest = new NestingContext(this, mesh);
+            PreparedInput p = prepare_input(mesh, nest, CountInsideOutCells);
+            if (nest.Stopped)
+                return BooleanStatus.Cancelled;
+            if (nest.Inconsistent > 0) {
+                error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex: " +
+                    "self-intersections or coincident faces), and " + nest.Inconsistent + " of its triangles disagree with the orientation of the rest of their component: " +
+                    "the orientation cannot be derived by nesting there (fix the intersections or the orientation)";
+                return BooleanStatus.SelfIntersectingInconsistent;
+            }
+            if (nest.Unorientable > 0) {
+                error = "input mesh " + m + " is closed modulo 2 and embedded, but " + nest.Unorientable + " of its components cannot be oriented consistently";
+                return BooleanStatus.InconsistentOrientation;
+            }
+            prepared = p;
+            return BooleanStatus.Success;
+        }
+
+        // The orientation of the components of one input by nesting (nest_input): its own one-mesh arrangement tells whether it is
+        // embedded, and its box tree and front_crossings give, per component, one exact ray.
+        //
+        // Claim. Let M be closed modulo 2 (every edge, by position, has an even number of triangles) and embedded (no two
+        // triangles meet except in a common edge or vertex; SelfIntersectingPairs of the arrangement is 0: it counts, exactly,
+        // the pairs of triangles that meet beyond the corners they share, coincident faces and a vertex on another triangle
+        // included). The complement of M falls into cells; the number n(p) of triangles a ray from a point p off M crosses,
+        // taken mod 2, depends only on p: two rays differ by a closed mod-2 chain (the mod-2 sum of the two segments and an arc
+        // at infinity) whose intersection number with the mod-2 cycle M is 0. Two cells that share a triangle have different
+        // parity, as the triangle is crossed once. So the two sides of every triangle have different parity (also at an edge
+        // with 2k triangles, whose wedges alternate), and orienting every triangle so that its front faces the even side gives
+        // winding number n(p) mod 2 in {0, 1} (winding-closed). The parity is constant along a component, whose triangles
+        // are joined across edges with exactly two triangles (the two sides of the edge are the same two cells), so one
+        // triangle decides its component; the sign of the crossings is not used, only their parity (signed and unsigned counts
+        // have the same parity). The ray starts at the centroid of the triangle t, which lies in no other triangle (embedded)
+        // and is skipped itself, into the side that t's normal faces; a ray through an edge or vertex of another triangle (or in
+        // its plane) is replaced by another one (front_crossings). If M is not embedded, the sides of a triangle crossed by
+        // another alternate within it, no orientation of it is right, and nothing is derived (SelfIntersectingInconsistent where
+        // the orientation is inconsistent, else the given orientation stays).
+        internal sealed class NestingContext
+        {
+            readonly ExactMeshBoolean owner;
+            readonly DMesh3 mesh;
+            ExactMeshBoolean one;               // the instance whose arrangement is the one-mesh arrangement of mesh
+            int[] triangleOf;                   // per triangle id of mesh: its index in that arrangement
+            bool begun;
+            /// <summary> the arrangement of the mesh has no pair of triangles that meet beyond a common edge or vertex </summary>
+            public bool Embedded;
+            /// <summary> cancelled while the arrangement was computed </summary>
+            public bool Stopped;
+            public int SelfIntersectingPairs;
+            /// <summary> triangles of components of a mesh that is not embedded that disagree with their component's orientation </summary>
+            public int Inconsistent;
+            /// <summary> components of an embedded mesh that cannot be oriented consistently (a Moebius-like strip whose rim lies on edges with four triangles; not constructed in a test) </summary>
+            public int Unorientable;
+
+            public NestingContext(ExactMeshBoolean owner, DMesh3 mesh)
+            {
+                this.owner = owner;
+                this.mesh = mesh;
+            }
+
+            // the one-mesh arrangement (not triangulated: nothing is split where the mesh is embedded, and where it is not, the
+            // mesh is refused or keeps its orientation), once
+            public void Begin()
+            {
+                if (begun)
+                    return;
+                begun = true;
+                one = new ExactMeshBoolean(new List<DMesh3> { mesh }, Operations.Union) {
+                    Seed = owner.Seed, DisableFilters = owner.DisableFilters, CandidateBatchSize = owner.CandidateBatchSize,
+                    FixedWidthPoints = owner.FixedWidthPoints, LocalTriangulationFilters = owner.LocalTriangulationFilters,
+                    ArrangementHashSalt = owner.ArrangementHashSalt, ArrangementSingleShard = owner.ArrangementSingleShard,
+                    ArrangementPreDecideCoplanar = owner.ArrangementPreDecideCoplanar, Cancellation = owner.Cancellation };
+                ExactMeshArrangement a = one.new_arrangement(one.Meshes);
+                a.TriangulateMeshes = new[] { false };
+                a.Compute();
+                if (a.Stopped == ExactMeshArrangement.StopReason.Cancelled) {
+                    Stopped = true;
+                    return;
+                }
+                one.arr = a;
+                SelfIntersectingPairs = a.SelfIntersectingPairs;
+                Embedded = a.SelfIntersectingPairs == 0;
+                if (Embedded) {
+                    triangleOf = new int[mesh.MaxTriangleID];
+                    for (int t = 0; t < triangleOf.Length; ++t)
+                        triangleOf[t] = -1;
+                    foreach (int ti in a.MeshTriangles[0])
+                        triangleOf[a.Triangles[ti].Tid] = ti;
+                }
+            }
+
+            // whether the component, oriented as propagated (flipT: the triangles that are flipped relative to the component's
+            // first triangle, which is not), is flipped as a whole so that the fronts face the even side: the parity of the
+            // crossings in front of one triangle t as given is P; its front as propagated is that side if t is not flipped,
+            // the other side (parity P + 1) if it is; it has to face an even side
+            public bool Invert(List<int> component, bool[] flipT)
+            {
+                foreach (int t in component) {
+                    int ti = triangleOf[t];
+                    if (one.arr.Triangles[ti].Degenerate)       // (no area: no side; the next one)
+                        continue;
+                    bool odd = (one.front_of_triangle(0, ti) & 1) != 0;
+                    return odd != flipT[t];
+                }
+                return false;
+            }
+        }
+
+        // The winding number of mesh m just in front of its input triangle ti (on the side its normal points to): the signed
+        // crossings of a segment from the triangle's centroid to a far point on that side with the mesh's other triangles
+        // (front_crossings, exact; a ray through an edge or vertex is replaced). Not for a degenerate triangle
+        [MethodImpl(JitHints.Optimize)]
+        int front_of_triangle(int m, int ti)
+        {
+            ExactMeshArrangement.InputTriangle u = arr.Triangles[ti];
+            Index3i c = u.Corners;
+            var ot = new ExactMeshArrangement.OutputTriangle() { Mesh = m, Source = ti, A = c.a, B = c.b, C = c.c };
+            ExactPoint3 p = centroid_point(ot, true);
+            var center = new Center(p);
+            center.Input = arr.ToInputVector(p);
+            var rng = new Random(unchecked(Seed + 1000003 * u.Tid + 7919 * m + 1));
+            int far;
+            return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out far, 0, ti);
+        }
+
+        // InsideOutCells: per component of each closed input (its first triangle with an area), the winding number of the input in
+        // front of it; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of the
+        // arrangement are released
+        [MethodImpl(JitHints.Optimize)]
+        int count_inside_out(PreparedInput[] prepared)
+        {
+            int count = 0;
+            for (int m = 0; m < prepared.Length; ++m) {
+                PreparedInput p = prepared[m];
+                if (p.ComponentStart == null)
+                    continue;
+                var triangleOf = new int[p.Input.MaxTriangleID];
+                foreach (int ti in arr.MeshTriangles[m])
+                    triangleOf[arr.Triangles[ti].Tid] = ti;
+                for (int c = 0; c + 1 < p.ComponentStart.Length; ++c) {
+                    if (Cancellation.IsCancellationRequested)
+                        return count;
+                    for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                        int ti = triangleOf[p.ComponentTriangles[k]];
+                        if (arr.Triangles[ti].Degenerate)
+                            continue;
+                        int chi;
+                        try {
+                            CountRayObserverForTests?.Invoke(ti);
+                            chi = front_of_triangle(m, ti);
+                        } catch (InvalidOperationException) {
+                            // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
+                            // either; InsideOutUndecided)
+                            InsideOutUndecided++;
+                            break;
+                        }
+                        if (chi < 0 && (chi & 1) != 0)
+                            count++;
+                        break;
+                    }
+                }
+            }
+            return count;
         }
 
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
@@ -1079,8 +1462,19 @@ namespace g3
             gParallel.ForRange(inputs.Count, (m) => {
                 if (observer != null)
                     observer(m);
-                prepared[m] = (sheet != null && sheet[m]) ? prepare_sheet(inputs[m])
-                    : (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
+                // (a sheet is used as given, never oriented by nesting)
+                if (sheet != null && sheet[m]) {
+                    prepared[m] = prepare_sheet(inputs[m]);
+                    return;
+                }
+                // (a shared first mesh prepared without components is prepared again when the count is asked for)
+                // (ByNesting prepares each input in nest_input: here only the finiteness check)
+                if (Orientation == OrientationModes.ByNesting) {
+                    prepared[m] = new PreparedInput() { Source = inputs[m], Input = inputs[m], Finite = all_finite(inputs[m]) };
+                    return;
+                }
+                bool shared = m == 0 && first != null && first.Source == inputs[0] && (CountInsideOutCells == false || first.Closed == false || first.ComponentStart != null);
+                prepared[m] = shared ? first : prepare_input(inputs[m], null, CountInsideOutCells);
             });
             return prepared;
         }
@@ -1147,7 +1541,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
+            // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
             return op.Compute() ? op.Result : null;
         }
 
@@ -1242,6 +1637,7 @@ namespace g3
             public Index3i[] Welded;
             public int[] Neighbour;     // per triangle t and edge k (3 t + k): the other triangle at the edge, or -1
             public bool Balanced;
+            public bool Even;           // every edge has an even number of triangles (closed modulo 2)
 
             [MethodImpl(JitHints.Optimize)]
             public static EdgeTable Build(DMesh3 mesh, int[] pos)
@@ -1280,9 +1676,12 @@ namespace g3
                     }
                 }
                 e.Balanced = true;
+                e.Even = true;
                 for (int j = 0; j < cap; ++j) {
                     if (table[j].Sum != 0)
                         e.Balanced = false;
+                    if ((table[j].Count & 1) != 0)
+                        e.Even = false;
                     if (table[j].Count == 2) {
                         e.Neighbour[table[j].First] = table[j].Second / 3;
                         e.Neighbour[table[j].Second] = table[j].First / 3;
@@ -3874,13 +4273,14 @@ namespace g3
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         int front_crossings(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center, bool outsideBoxIsZero,
-            FarPoints far, out int farIndex, int firstAttempt = 0)
+            FarPoints far, out int farIndex, int firstAttempt = 0, int sourceTriangle = -1)
         {
             farIndex = -1;
             // (i < 0: the crossings at the point itself, a point on no triangle of the mesh: no source triangle to skip and
-            // no front side, t3a_cull)
-            int source = i >= 0 ? arr.Output[i].Source : -1;
-            bool hasSrc = i >= 0;
+            // no front side, t3a_cull; or, with sourceTriangle, the point is on that input triangle, which is skipped, and
+            // the ray starts into its front side: front_of_triangle)
+            int source = i >= 0 ? arr.Output[i].Source : sourceTriangle;
+            bool hasSrc = source >= 0;
             ExactMeshArrangement.InputTriangle src = hasSrc ? arr.Triangles[source] : default(ExactMeshArrangement.InputTriangle);
             List<int> tris = arr.MeshTriangles[mesh];
 

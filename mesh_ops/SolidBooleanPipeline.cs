@@ -91,6 +91,10 @@ namespace gs
         public List<SolidBooleanInputRepair> RepairedInputs = new List<SolidBooleanInputRepair>();
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
         public int BooleanTriangles;
+        /// <summary> the boolean's InsideOutCells: the components of the closed inputs that are inside-out (see ExactMeshBoolean.InsideOutCells) </summary>
+        public int InsideOutCells;
+        /// <summary> the boolean's InsideOutUndecided: components whose inside-out test found no ray (not expected) </summary>
+        public int InsideOutUndecided;
         /// <summary> the boolean's Contacts and NonManifoldEdges (touching solids, see ExactMeshBoolean.Contacts); with MinThickness, ContactsBoolean counts what is left after the removal </summary>
         public int ContactsBoolean, NonManifoldEdgesBoolean;
         /// <summary>
@@ -170,12 +174,13 @@ namespace gs
     /// them:
     /// <list type="number">
     /// <item><description>Every input is checked with ExactMeshBoolean.IsWindingClosed (cheap; unwelded copies of a vertex count as one,
-    /// so an STL-like soup of a closed solid is closed). An input that fails and that the boolean refuses as open (it
-    /// reorients flipped triangles itself) fails the run with Status OpenInput by default (InputRepair = Refuse): a missing
-    /// face is missing information, and no repair knows what the input means (a solid with a hole, or an open cutting
-    /// surface). Only on request is it repaired, on a copy: with InputRepair = AutoRepair by MeshAutoRepair, with
-    /// AutoRepairThenRobust also by MeshRobustRepair (which can resolve, solidify or wrap, so it changes the geometry more) as
-    /// the fallback. RepairedInputs of the report names each repaired input and the method.</description></item>
+    /// so an STL-like soup of a closed solid is closed). An input that fails and that the boolean refuses as open fails the
+    /// run with Status OpenInput by default (InputRepair = Refuse): a missing face is missing information, and no repair
+    /// knows what the input means (a solid with a hole, or an open cutting surface). An input that is closed once its
+    /// flipped triangles agree is not open: the boolean refuses it with InconsistentOrientation by default (see
+    /// Orientation). Only on request is an open input repaired, on a copy: with InputRepair = AutoRepair by MeshAutoRepair,
+    /// with AutoRepairThenRobust also by MeshRobustRepair (which can resolve, solidify or wrap, so it changes the geometry
+    /// more) as the fallback. RepairedInputs of the report names each repaired input and the method.</description></item>
     /// <item><description>ExactMeshBoolean of all inputs (Union, Intersection or Difference: first minus the others), with AllowOpenMeshes = false and
     /// StrictRounding = true (ConfigureBoolean runs before these two are forced): the result is exact up to the
     /// rounding of the new vertices, within the relative bound of StrictRounding, or the run fails with BooleanFailed. One
@@ -246,8 +251,32 @@ namespace gs
             /// <summary> Compute() was not called yet </summary>
             NotComputed = 5,
             /// <summary> an input is thinner than MinThickness and ThinInputs is Refuse (Report.ThinInputs lists them); Result is null </summary>
-            ThinInput = 6
+            ThinInput = 6,
+            /// <summary>
+            /// an input is closed only after flipping some of its triangles and Orientation is Refuse (see
+            /// ExactMeshBoolean.OrientationModes and Error); Result is null
+            /// </summary>
+            InconsistentOrientation = 7,
+            /// <summary>
+            /// a closed input is inside-out (the winding number in front of a component of it is odd and negative: its solid is
+            /// empty or reversed) and AllowInsideOutInputs is false (Report.InsideOutCells counts the components); Result is null
+            /// </summary>
+            InsideOutInput = 8
         }
+
+        /// <summary>
+        /// false (default): an input that is closed and consistently oriented but inside-out (eg a cube whose faces all point
+        /// inward, an empty solid for the boolean) fails the run with Status InsideOutInput instead of being taken as an empty
+        /// solid silently. true: such an input is used as it is (Report.InsideOutCells still counts it). Orientation = ByNesting
+        /// derives the solid the surface encloses instead (see ExactMeshBoolean.OrientationModes)
+        /// </summary>
+        public bool AllowInsideOutInputs = false;
+
+        /// <summary>
+        /// what the boolean does with an input whose triangles are inconsistently oriented (ExactMeshBoolean.Orientation; set
+        /// before ConfigureBoolean runs). Default Refuse: Status InconsistentOrientation
+        /// </summary>
+        public ExactMeshBoolean.OrientationModes Orientation = ExactMeshBoolean.OrientationModes.Refuse;
 
         /// <summary> what happens to an input thinner than MinThickness (Report.ThinInputs) </summary>
         public enum ThinInputModes
@@ -496,7 +525,7 @@ namespace gs
             if (Cancellation.IsCancellationRequested)
                 return fail(PipelineStatus.Cancelled, "cancelled", total);
 
-            // 2. the boolean; an input that fails the check is tried as it is first (the boolean reorients flipped triangles, which the
+            // 2. the boolean; an input that fails the check is tried as it is first (with Orientation = AreaMajority the boolean reorients flipped triangles, which the
             // check counts as open), and repaired only if the boolean refuses it
             List<DMesh3> used = given;
             if (active.Count < n) {
@@ -540,6 +569,8 @@ namespace gs
             }
             if (op.Status == ExactMeshBoolean.BooleanStatus.Cancelled)
                 return fail(PipelineStatus.Cancelled, "cancelled", total);
+            if (op.Status == ExactMeshBoolean.BooleanStatus.InconsistentOrientation || op.Status == ExactMeshBoolean.BooleanStatus.SelfIntersectingInconsistent)
+                return fail(PipelineStatus.InconsistentOrientation, op.Error, total);
             if (op.Status == ExactMeshBoolean.BooleanStatus.InvalidInput) {
                 return fail(PipelineStatus.InvalidInput, op.Error, total);
             }
@@ -551,6 +582,13 @@ namespace gs
                 SheetReason = op.SheetReason;
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
+            Report.InsideOutCells = op.InsideOutCells;
+            Report.InsideOutUndecided = op.InsideOutUndecided;
+            if (op.InsideOutUndecided > 0 && !AllowInsideOutInputs)
+                return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
+            if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
+                return fail(PipelineStatus.InsideOutInput, op.InsideOutCells + " component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); " +
+                    "orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs", total);
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
@@ -805,6 +843,8 @@ namespace gs
         ExactMeshBoolean runBoolean(List<DMesh3> meshes, List<int> active)
         {
             var op = new ExactMeshBoolean(meshes, Operation);
+            op.Orientation = Orientation;
+            op.CountInsideOutCells = true;      // (the InsideOutInput refusal and Report.InsideOutCells)
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
             // (the roles of the inputs the boolean gets, in its order)
