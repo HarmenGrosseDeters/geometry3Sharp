@@ -87,6 +87,7 @@ static class Program
             case "synth": return Synthetic.Write(args[1]);
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);
+            case "run-pipeline": return RunPipeline(args[1], args[2], args[3], args[4], args.Length > 5 ? args[5] : "default");
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
             case "eval": return Eval(args[1]);
             case "nary": return Nary.Run(args.Skip(1).ToArray());
@@ -271,6 +272,56 @@ static class Program
                 ["triangles_in"] = boolean.Counts.TryGetValue("pieces", out long pc) ? pc : -1,
             };
         }
+        Console.WriteLine(JsonSerializer.Serialize(r));
+        return 0;
+    }
+
+    // run-pipeline <A> <B> <op> <out.off> [default|cad]
+    // The operation through SolidBooleanPipeline (input checks, the exact boolean, the reduction to its defaults,
+    // the final check) instead of the bare ExactMeshBoolean of `run`. Variant default: the pipeline's defaults. Variant cad:
+    // the settings for faceted CAD inputs, InputGrid = 2^(floor(log2(largest box dimension of the inputs)) - 20), a grid
+    // relative to the size of the model (the exact snap of the inputs). The result is the pipeline's Result (closed,
+    // reduced); "ok" is Status Success, an empty result included.
+    static int RunPipeline(string fa, string fb, string op, string fout, string variant)
+    {
+        DMesh3 a = StandardMeshReader.ReadMesh(fa), b = StandardMeshReader.ReadMesh(fb);
+        var ops = new Dictionary<string, ExactMeshBoolean.Operations> {
+            ["union"] = ExactMeshBoolean.Operations.Union, ["intersection"] = ExactMeshBoolean.Operations.Intersection,
+            ["difference"] = ExactMeshBoolean.Operations.Difference };
+        if (variant != "default" && variant != "cad")
+            throw new ArgumentException("variant must be default or cad: " + variant);
+        // warm-up on a small problem (the time does not include the JIT compilation), as in run
+        DMesh3 w1 = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
+        DMesh3 w2 = new DMesh3(w1);
+        MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
+        foreach (var o in ops.Values)
+            new SolidBooleanPipeline(new List<DMesh3> { w1, w2 }, o).Compute();
+        var pipeline = new SolidBooleanPipeline(new List<DMesh3> { a, b }, ops[op]) { ConfigureBoolean = bo => Configure(bo) };
+        if (variant == "cad") {
+            AxisAlignedBox3d box = a.GetBounds();
+            box.Contain(b.GetBounds());
+            double size = Math.Max(box.MaxDim, double.Epsilon);
+            pipeline.InputGrid = Math.Pow(2, Math.Floor(Math.Log(size, 2)) - 20);
+        }
+        var sw = Stopwatch.StartNew();
+        bool ok = pipeline.Compute();
+        long ms = sw.ElapsedMilliseconds;
+        if (ok)
+            WriteOFF(pipeline.Result, fout);
+        SolidBooleanReport rep = pipeline.Report;
+        var r = new Dictionary<string, object> {
+            ["ms"] = ms, ["ok"] = ok, ["pipeline_status"] = pipeline.Status.ToString(), ["variant"] = variant,
+            ["input_grid"] = pipeline.InputGrid,
+            ["pipeline"] = new Dictionary<string, object> {
+                ["not_clean"] = rep.NotCleanReason, ["boolean_tris"] = rep.BooleanTriangles, ["result_tris"] = rep.ResultTriangles,
+                ["contacts_boolean"] = rep.ContactsBoolean, ["contacts_result"] = rep.ContactsResult,
+                ["thin_components_kept"] = rep.ThinComponentsKept, ["input_snapped_vertices"] = rep.InputSnappedVertices,
+                ["repaired_inputs"] = rep.RepairedInputs.Count,
+                ["boolean_ms"] = rep.BooleanMilliseconds, ["reduction_ms"] = rep.ReductionMilliseconds, ["total_ms"] = rep.TotalMilliseconds,
+            },
+        };
+        if (!ok)
+            r["error"] = pipeline.Error;
         Console.WriteLine(JsonSerializer.Serialize(r));
         return 0;
     }

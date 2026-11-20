@@ -43,6 +43,9 @@ def commands(method, op, a, b, out):
         return tool + ["imprint", a, b, method, op]
     if method == "ours":
         return tool + ["run", a, b, op, out + ".off"]
+    if method in ("pipeline", "pipeline_cad"):
+        # SolidBooleanPipeline (input repair, exact boolean, reduction, final check); pipeline_cad: InputGrid relative to the model size
+        return tool + ["run-pipeline", a, b, op, out + ".off", "cad" if method == "pipeline_cad" else "default"]
     if method in ("cgal_epick", "cgal_epeck"):
         return [os.environ["CGAL_BOOL"], method.split("_")[1], op, a, b, out + ".off"]
     if method == "geogram":
