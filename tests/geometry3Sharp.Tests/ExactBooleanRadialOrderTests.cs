@@ -282,6 +282,62 @@ namespace geometry3Sharp.Tests
             Assert.True(checkedExact >= 4, checkedExact.ToString());
         }
 
+        // pair_around_edge on a boolean instance whose arrangement is the one of the setup (the method reads only arr)
+        static List<KeyValuePair<int, int>> Pair(Setup s, List<int> list)
+        {
+            var b = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Box(2, 2, 2, 3, 3, 3), Ops.Union);
+            typeof(ExactMeshBoolean).GetField("arr", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(b, s.Arr);
+            return b.pair_around_edge(s.Tris, list, s.P0, s.P1);
+        }
+
+        [Fact]
+        public void Pairing_AdjacentPiecesOfTheSameWinding_AreNotPaired()
+        {
+            // four pages at 0, 90, 180, 270 degrees; pages 0 and 3 run e0 -> e1, pages 1 and 2 run e1 -> e0: the pages 1 and 2 are
+            // neighbours of one winding (a pair needs opposite windings), and 3, 0 are neighbours of one winding as well
+            double[] deg = { 0, 90, 180, 270 };
+            Setup s = Build(Similarity.Identity, Tilt0, Tilt1, Pages(Tilt0, Tilt1, deg), new[] { true, false, false, true });
+            var pairs = Pair(s, new List<int> { 0, 1, 2, 3 });
+            var o = ExactMeshBoolean.radial_order(s.Arr, s.Tris, new List<int> { 0, 1, 2, 3 }, s.P0, s.P1, false);
+            Assert.Single(pairs);
+            // the piece running low -> high is the key, its predecessor in the order the value
+            if (s.LowIsE0(o)) Assert.Equal(new KeyValuePair<int, int>(3, 2), pairs[0]);
+            else Assert.Equal(new KeyValuePair<int, int>(2, 3), pairs[0]);
+            // all four with the windings alternating: two pairs
+            Setup t = Build(Similarity.Identity, Tilt0, Tilt1, Pages(Tilt0, Tilt1, deg), new[] { true, false, true, false });
+            var two = Pair(t, new List<int> { 0, 1, 2, 3 });
+            Assert.Equal(2, two.Count);
+            Assert.Equal(new[] { 0, 1, 2, 3 }, two.SelectMany(x => new[] { x.Key, x.Value }).OrderBy(x => x).ToArray());
+            // three pieces of one winding: no pair
+            Setup u = Build(Similarity.Identity, Tilt0, Tilt1, Pages(Tilt0, Tilt1, new[] { 0.0, 120, 240 }), new[] { true, true, true });
+            Assert.Empty(Pair(u, new List<int> { 0, 1, 2 }));
+        }
+
+        [Fact]
+        public void Axis_FollowsComparePointsNotTheIds()
+        {
+            // an edge whose end with the larger id is the smaller point by ComparePoints
+            double[] deg = { 0, 100, 200, 300 };
+            Setup s = Build(Similarity.Identity, Tilt0, Tilt1, Pages(Tilt0, Tilt1, deg), new[] { true, false, true, false });
+            if (s.Arr.ComparePoints(s.P0, s.P1) < 0)
+                s = Build(Similarity.Identity, Tilt1, Tilt0, Pages(Tilt1, Tilt0, deg), new[] { true, false, true, false });
+            Assert.True(s.P0 < s.P1 && s.Arr.ComparePoints(s.P0, s.P1) > 0, "ids and ComparePoints disagree");
+            var list = new List<int> { 0, 1, 2, 3 };
+            foreach (var o in new[] { ExactMeshBoolean.radial_order(s.Arr, s.Tris, list, s.P0, s.P1, true), ExactMeshBoolean.radial_order(s.Arr, s.Tris, list, s.P1, s.P0, true) }) {
+                Assert.Equal(s.P1, o.Low);
+                Assert.Equal(s.P0, o.High);
+                // a page that runs P0 -> P1 runs High -> Low
+                for (int k = 0; k < 4; ++k) {
+                    Index3i f = s.Tris[o.Pieces[k]];
+                    bool runsP0P1 = (f.a == s.P0 && f.b == s.P1) || (f.b == s.P0 && f.c == s.P1) || (f.c == s.P0 && f.a == s.P1);
+                    Assert.Equal(runsP0P1 ? -1 : 1, o.Direction[k]);
+                }
+            }
+            // the order against the angles, seen from Low = P1
+            // (the points of the pages are those of the swapped setup: Low = P1 is the point at Tilt0 there)
+            Assert.Equal(ExpectedOrder(Tilt0, Tilt1, Pages(Tilt1, Tilt0, deg)), ExactMeshBoolean.radial_order(s.Arr, s.Tris, list, s.P0, s.P1, false).Pieces);
+        }
+
         // ---- the booleans that pair pieces around non-manifold edges: frozen results ----
 
         static string Print(DMesh3 m)
@@ -327,7 +383,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static string Union(Similarity f, DMesh3[] meshes)
+        static string Union(Similarity f, DMesh3[] meshes, Similarity back = null)
         {
             var framed = new List<DMesh3>();
             foreach (DMesh3 m in meshes) {
@@ -339,7 +395,13 @@ namespace geometry3Sharp.Tests
             var b = new ExactMeshBoolean(framed, Ops.Union);
             Assert.True(b.Compute(), b.Error);
             Assert.True(b.Result.IsClosed());
-            return Print(b.Result) + "/" + b.NonManifoldEdges;
+            DMesh3 res = b.Result;
+            if (back != null) {
+                res = new DMesh3(res);
+                foreach (int v in res.VertexIndices().ToArray())
+                    res.SetVertex(v, back.Inverse(res.GetVertex(v)));
+            }
+            return Print(res) + "/" + b.NonManifoldEdges;
         }
 
         // solids that meet in one line, with 4 to 8 pieces at it (two boxes at an edge, four quadrant boxes of different heights,
@@ -410,6 +472,19 @@ namespace geometry3Sharp.Tests
                 "69AE6EB7A7340401/1", "D027A15DCB406756/1", "57B999F1E9945A0B/1", "4BE73DE5BFBA4086/1",
             };
             Assert.Equal(string.Join("|", frozen), string.Join("|", prints));
+        }
+
+        [Fact]
+        public void BooleanResults_AreTheSameInTheExactFrames()
+        {
+            // mapped back, the results in the frames with exact coordinates (2^k scales, the translation) equal the identity's bit for bit
+            // (the box sets touch along edges only: no new vertex, so no rounding; the tetrahedra have non-dyadic coordinates, where a
+            // translation rounds the input, so only the per-frame fingerprints above cover them)
+            foreach (DMesh3[] solids in Solids().Take(3)) {
+                string baseline = Union(Similarity.Identity, solids, Similarity.Identity);
+                foreach (Similarity f in new[] { Similarity.Utm, Similarity.Pow2Small, Similarity.Pow2Large })
+                    Assert.Equal(baseline, Union(f, solids, f));
+            }
         }
 
         // The prints were taken from the library before radial_order was split out of pair_around_edge. The frames:

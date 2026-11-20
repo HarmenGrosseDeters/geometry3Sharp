@@ -5264,7 +5264,7 @@ namespace g3
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
         // triangle with the next one around the edge on its back (solid) side, which runs the other way
         [MethodImpl(JitHints.Optimize)]
-        List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
+        internal List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
         {
             var pairs = new List<KeyValuePair<int, int>>();
             if (list.Count < 2)
