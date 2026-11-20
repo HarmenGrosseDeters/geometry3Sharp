@@ -342,7 +342,7 @@ namespace geometry3Sharp.Tests
                 ["unused far vertex"] = "clean 4.729",
                 ["open"] = "not closed",
                 ["inside-out"] = "clean 1.344",
-                ["partly flipped"] = "clean 4.729",
+                ["partly flipped"] = "InconsistentOrientation",      // (#1210: refused, was reoriented by area)
                 ["duplicated triangles"] = "clean 4.729",
                 ["non-manifold fin"] = "clean 4.729",
                 ["flat"] = "clean 1.344",
@@ -355,7 +355,7 @@ namespace geometry3Sharp.Tests
                 ["random edits 5"] = "not closed",
                 ["random edits 6"] = "not closed",
                 ["random edits 7"] = "clean 4.723",
-                ["random edits 8"] = "not closed",
+                ["random edits 8"] = "InconsistentOrientation",      // (#1210: refused, was reoriented by area)
                 ["random edits 9"] = "not closed",
                 ["random edits 10"] = "not closed",
                 ["random edits 11"] = "not closed",
@@ -374,7 +374,7 @@ namespace geometry3Sharp.Tests
                 ["unused far vertex @ utm"] = "clean 4.729",
                 ["open @ utm"] = "not closed",
                 ["inside-out @ utm"] = "clean 1.344",
-                ["partly flipped @ utm"] = "clean 4.729",
+                ["partly flipped @ utm"] = "InconsistentOrientation",      // (#1210: refused, was reoriented by area)
                 ["duplicated triangles @ utm"] = "clean 4.729",
                 ["non-manifold fin @ utm"] = "clean 4.729",
                 ["flat @ utm"] = "clean 1.344",
@@ -387,7 +387,7 @@ namespace geometry3Sharp.Tests
                 ["random edits 5 @ utm"] = "not closed",
                 ["random edits 6 @ utm"] = "not closed",
                 ["random edits 7 @ utm"] = "clean 4.723",
-                ["random edits 8 @ utm"] = "not closed",
+                ["random edits 8 @ utm"] = "InconsistentOrientation",      // (#1210: refused, was reoriented by area)
                 ["random edits 9 @ utm"] = "not closed",
                 ["random edits 10 @ utm"] = "not closed",
                 ["random edits 11 @ utm"] = "not closed",
