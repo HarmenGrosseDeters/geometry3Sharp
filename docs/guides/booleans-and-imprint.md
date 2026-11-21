@@ -130,13 +130,15 @@ ExactMeshBoolean op = expr.ToBoolean();   // or expr.Round(out string error)
 
 ## Soup-to-Solid Pipeline (`SolidBooleanPipeline`)
 
-- **Namespace & classes:** `g3.SolidBooleanPipeline`, `g3.SolidBooleanReport`
+- **Namespace & classes:** `gs.SolidBooleanPipeline`, `gs.SolidBooleanReport`
 - **Input / mutability:** Read-only inputs (repaired on copies if requested); writes new `DMesh3` to `Result`.
 - **Guarantees & limits:** Combines exact boolean (`AllowOpenMeshes = false`, `StrictRounding = true`) with a guarded `Reducer` pass (`PreventSelfIntersections = true`, `MinTriangleQuality = 0.02`, optional certified `MaxDeviation`).
+- **Example:** [SolidBooleanPipelineExample.cs](../examples/SolidBooleanPipelineExample.cs)
 - **Further reading:** [SolidBooleanBenchmark README](../../benchmarks/SolidBooleanBenchmark/README.md)
 
 ```csharp
 using g3;
+using gs;
 
 var pipeline = new SolidBooleanPipeline(new[] { soupA, soupB }, ExactMeshBoolean.Operations.Union) {
     TargetFraction = 0.25
@@ -162,6 +164,7 @@ if (pipeline.Compute()) {
 - **Namespace & class:** `g3.ExactMeshImprint`
 - **Input / mutability:** Read-only target and cutter; writes split target into `Result` while preserving target vertex IDs, orientation, and topology.
 - **Guarantees & limits:** Computes exact intersection curves (including contact and coplanar overlaps) without classifying or deleting triangles. Rounds new vertices with `SafeRounding` (target vertices fixed, curve edges locked, verified by `RoundingClean`). Handles open targets and cutters; does not repair pre-existing self-intersections in the target.
+- **Example:** [SolidBooleanPipelineExample.cs](../examples/SolidBooleanPipelineExample.cs)
 - **Further reading:** [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md)
 
 Key outputs: `Result`, `SourceTriangle` (maps output triangles back to input target triangles), and `CurveEdges` (with optional `LabelCurves` numbering each curve).

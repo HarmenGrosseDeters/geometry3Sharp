@@ -45,6 +45,7 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
   - **Ambiguous faces & adaptive cells:** Inserts face vertices to fan polygons so every triangle stays inside a single cell; avoids degenerate quad splits along crease lines (`DegenerateSplitsAvoided`).
   - **`ResolveSelfIntersections` (default `true`):** Checks the output exactly for self-intersections and repairs if needed (`SelfIntersectionFree`).
 - **Further reading:** [DC_INTERSECTION_FREE.md](../design/DC_INTERSECTION_FREE.md), [DualContouringHermite README](../../benchmarks/DualContouringHermite/README.md), [DualContouringIntersections README](../../benchmarks/DualContouringIntersections/README.md)
+- **Example:** [DualContouringAndOffsetExample.cs](../examples/DualContouringAndOffsetExample.cs)
 
 ---
 
@@ -58,6 +59,7 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
   - Certified one-sided band: every output point is proven within `BandDeviation` of signed distance `Distance`, checked against `BandTolerance` (default half a cell) in `BandCertified`.
   - `MeshOffset.CertifyBand` can certify the distance band of *any* offset mesh (such as a `MarchingCubes` or `MeshAlphaWrap` result).
   - For open or broken inputs, repair first (`MeshRobustRepair`) or use `MeshAlphaWrap` (outward only).
+- **Example:** [DualContouringAndOffsetExample.cs](../examples/DualContouringAndOffsetExample.cs)
 - **Further reading:** [MESH_OFFSET.md](../design/MESH_OFFSET.md), [MeshOffsetBenchmark README](../../benchmarks/MeshOffsetBenchmark/README.md)
 
 ---
@@ -78,14 +80,16 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
 - **How branching & merging work:** Overlapping contours across consecutive slices are matched via exact constrained Delaunay overlay. One-to-one pairs form stage-1 bands; one-to-many branches and many-to-one merges are tiled through composite contours joined by zero-width bridges at an intermediate plane (`BranchFraction`, default `0.5`). Unmatched contours cap off (appear/vanish), and holes loft into tunnels.
 - **Saddle geometry:** By default, bridged branches produce a ridge/crease at the bridge plane height (Meyers, Skinner & Sloan 1992). Enable opt-in `LoweredSaddle` (for contained groups without holes) to build a lowered roof over the crotch region instead.
 - **Statuses:** `InvalidInput`, `CrossingContours`, `Unsupported` (island inside a hole in a branching/merging group, or a contour ending while its hole continues), `BridgeNotFound`, `NoAdmissibleBand`, `BandFailed`, `SelfIntersecting`, `CapFailed`, `InvalidCost`, `TooLarge`. Serial and deterministic.
+- **Example:** [ContourLoftExample.cs](../examples/ContourLoftExample.cs)
 - **Further reading:** [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md), [ContourLoftBenchmark README](../../benchmarks/ContourLoftBenchmark/README.md)
 
 ---
 
 ## TPMS Lattices (`TpmsLattice`)
 
-- **Namespace & class:** `gs.TpmsLattice`
+- **Namespace & class:** `g3.TpmsLattice`
 - **Input / mutability:** Generates a new closed, manifold `DMesh3` inside an axis-aligned box or closed mesh domain.
 - **Capabilities:** Supports gyroid, Schwarz P, Schwarz D, Neovius, I-WP, and Lidinoid surfaces as sheet or skeletal solids, sized by volume fraction or sheet wall thickness. Supports linear period grading, hybrid blending of two lattice types across a plane with a sigmoid transition, and dyadic enclosure grids.
 - **Guarantees:** Returns `Ok` only when the generated mesh is closed, manifold, and passes the exact self-intersection check (unless self-intersection verification is explicitly disabled).
+- **Example:** [TpmsLatticeExample.cs](../examples/TpmsLatticeExample.cs)
 - **Further reading:** [TPMS_LATTICE.md](../design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](../design/TPMS_GRADED_CELL.md)

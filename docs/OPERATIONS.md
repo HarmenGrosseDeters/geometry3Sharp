@@ -34,39 +34,39 @@ A task-oriented index of geometry3Sharp operations: which guide to read, which c
 | Read / write OBJ, STL, OFF, PLY, 3MF, glTF/GLB, XYZ | `StandardMeshReader`, `StandardMeshWriter`, `PLYReader`/`Writer`, `ThreeMFReader`/`Writer`, `GLTFReader`/`Writer` | [File Formats](guides/file-formats.md) | [MeshIOExample](examples/MeshIOExample.cs) |
 | Exact booleans (binary, n-ary, winding predicates, resolve) | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [Booleans](guides/booleans-and-imprint.md) | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Lazy exact boolean chains (single final rounding) | `ExactMesh` (`FromDMesh`, `Union`, `Difference`, `Intersection`, `Round`) | [Booleans](guides/booleans-and-imprint.md) | [LazyExactMeshExample](examples/LazyExactMeshExample.cs) |
-| Soup-to-solid boolean + reduction pipeline | `SolidBooleanPipeline`, `SolidBooleanReport` | [Booleans](guides/booleans-and-imprint.md) | — |
-| Exact surface imprinting (without classification) | `ExactMeshImprint` | [Booleans](guides/booleans-and-imprint.md) | — |
+| Soup-to-solid boolean + reduction pipeline | `SolidBooleanPipeline`, `SolidBooleanReport` | [Booleans](guides/booleans-and-imprint.md) | [SolidBooleanPipelineExample](examples/SolidBooleanPipelineExample.cs) |
+| Exact surface imprinting (without classification) | `ExactMeshImprint` | [Booleans](guides/booleans-and-imprint.md) | [SolidBooleanPipelineExample](examples/SolidBooleanPipelineExample.cs) |
 | Repair (topology-preserving or guaranteed clean) | `gs.MeshAutoRepair`, `gs.MeshPostRepairCleanup`, `gs.MeshRobustRepair` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [MeshRepairExample](examples/MeshRepairExample.cs) |
 | Fill boundary holes | `gs.MinimalHoleFill`, `gs.SmoothedHoleFill`, `gs.AutoHoleFill`, `PlanarHoleFiller`, `SimpleHoleFiller` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [HoleFillExample](examples/HoleFillExample.cs) |
 | Check mesh cleanliness & defects | `gs.MeshRepairMetrics`, `MeshRobustRepair.NotCleanReason`, `DMesh3.CheckValidity` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [RepairMetricsExample](examples/RepairMetricsExample.cs) |
 | Rebuild soup / broken mesh as closed solid | `gs.MeshWindingNumberSolidify`, `gs.MeshWindingNumberBoolean` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
-| Alpha wrapping & clearance-certified passage wrapping | `gs.MeshAlphaWrap`, `gs.PassageWrap` | [Repair & Wrapping](guides/repair-and-wrapping.md) | — |
+| Alpha wrapping & clearance-certified passage wrapping | `gs.MeshAlphaWrap`, `gs.PassageWrap` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [AlphaWrapExample](examples/AlphaWrapExample.cs) |
 | Isotropic triangle remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [Remeshing](guides/remeshing-and-deformation.md) | [RemeshExample](examples/RemeshExample.cs) |
 | Simplification with certified deviation & envelopes | `Reducer`, `gs.PartitionedReducer`, `gs.MeshEnvelope` | [Remeshing](guides/remeshing-and-deformation.md) | [SimplificationExample](examples/SimplificationExample.cs) |
-| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `DPolyMesh`, `PolyMeshIO` | [Remeshing](guides/remeshing-and-deformation.md) | — |
+| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `DPolyMesh`, `PolyMeshIO` | [Remeshing](guides/remeshing-and-deformation.md) | [QuadRemeshExample](examples/QuadRemeshExample.cs) |
 | Surface smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [Remeshing](guides/remeshing-and-deformation.md) | [SmoothingExample](examples/SmoothingExample.cs) |
-| Handle-based mesh deformation | `gs.ArapMeshDeformer`, `gs.BiharmonicMeshDeformer`, `LaplacianMeshDeformer` | [Remeshing](guides/remeshing-and-deformation.md) | — |
+| Handle-based mesh deformation | `ArapMeshDeformer`, `BiharmonicMeshDeformer`, `LaplacianMeshDeformer` | [Remeshing](guides/remeshing-and-deformation.md) | [DeformationExample](examples/DeformationExample.cs) |
 | Plane cut & cap | `MeshPlaneCut` | [Remeshing](guides/remeshing-and-deformation.md) | [PlaneCutExample](examples/PlaneCutExample.cs) |
-| 2D Delaunay, constrained & quality meshing | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `QualityMesh2`, `ConstrainedMesh2` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | — |
+| 2D Delaunay, constrained & quality meshing | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `QualityMesh2`, `ConstrainedMesh2` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | [Meshing2DExample](examples/Meshing2DExample.cs) |
 | 2D polygon booleans, offsets, Minkowski (optional add-on) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
-| 3D tetrahedral meshing | `gs.MeshTetrahedralization`, `gs.TetMeshMarkers`, `gs.TetMeshWriter` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | — |
-| Iso-surface contouring (MC & Dual Contouring) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro`, `MeshSignedDistanceGrid` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
-| Certified mesh offset / inset | `gs.MeshOffset` | [Contouring & Offsets](guides/contouring-and-offsets.md) | — |
-| Contour lofting (single pair & multi-slice stacks) | `ContourLoft`, `ContourLoftStack` | [Contouring & Offsets](guides/contouring-and-offsets.md) | — |
-| TPMS lattices (gyroid, Schwarz, Neovius, I-WP, Lidinoid) | `gs.TpmsLattice` | [Contouring & Offsets](guides/contouring-and-offsets.md) | — |
+| 3D tetrahedral meshing | `gs.MeshTetrahedralization`, `gs.TetMeshMarkers`, `gs.TetMeshWriter` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | [TetMeshExample](examples/TetMeshExample.cs) |
+| Iso-surface contouring (MC & Dual Contouring) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro`, `MeshSignedDistanceGrid` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs), [DualContouringAndOffsetExample](examples/DualContouringAndOffsetExample.cs) |
+| Certified mesh offset / inset | `gs.MeshOffset` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [DualContouringAndOffsetExample](examples/DualContouringAndOffsetExample.cs) |
+| Contour lofting (single pair & multi-slice stacks) | `ContourLoft`, `ContourLoftStack` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [ContourLoftExample](examples/ContourLoftExample.cs) |
+| TPMS lattices (gyroid, Schwarz, Neovius, I-WP, Lidinoid) | `TpmsLattice` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [TpmsLatticeExample](examples/TpmsLatticeExample.cs) |
 | Hausdorff & heat geodesic distances | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [Geodesics & UV](guides/geodesics-and-uv.md) | [DistancesExample](examples/DistancesExample.cs) |
 | Exact polyhedral geodesics & shortest paths | `gs.PolyhedralGeodesicDistance`, `gs.PolyhedralGeodesicPath` | [Geodesics & UV](guides/geodesics-and-uv.md) | — |
 | Intrinsic triangulations, geodesic paths & Bezier curves | `gs.IntrinsicTriangulation`, `gs.VectorHeatMethod`, `gs.MeshGeodesicPath`, `gs.MeshGeodesicBezier` | [Geodesics & UV](guides/geodesics-and-uv.md) | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | UV atlases, disc cuts, parameterizations & UV untangling | `UVAtlasGenerator`, `MeshDiscCut`, `BoundaryFirstFlattening`, `LSCM`/`ARAP`/`SLIM`/`FoldoverFreeParameterization` | [Geodesics & UV](guides/geodesics-and-uv.md) | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Volume, area, bounds, edge stats, genus | `MeshMeasurements`, `MeshQueries` | [Analysis & Queries](guides/analysis-and-queries.md) | [MeasurementsExample](examples/MeasurementsExample.cs) |
-| 3D spatial tree, ray hits, inside tests, batch queries | `DMeshAABBTree3`, `gs.MeshBatchQueries` | [Analysis & Queries](guides/analysis-and-queries.md) | [SpatialQueriesExample](examples/SpatialQueriesExample.cs) |
+| 3D spatial tree, ray hits, inside tests, batch queries | `DMeshAABBTree3`, `MeshBatchQueries` | [Analysis & Queries](guides/analysis-and-queries.md) | [SpatialQueriesExample](examples/SpatialQueriesExample.cs), [BatchQueriesAndCcdExample](examples/BatchQueriesAndCcdExample.cs) |
 | 3D nearest neighbors among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [Analysis & Queries](guides/analysis-and-queries.md) | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | 2D loose quadtrees & terrain height queries | `LooseQuadtree2d`, `PointQuadtree2d`, `SegmentQuadtree2d`, `TriangleQuadtree2d` | [Analysis & Queries](guides/analysis-and-queries.md) | [QuadtreeQueriesExample](examples/QuadtreeQueriesExample.cs) |
 | Mesh comparison, fidelity, curvature, quality & topology | `gs.MeshFidelityMetrics`, `gs.MeshCurvature`, `gs.TriangleQualityStatistics`, `gs.MeshTopologySummary` | [Analysis & Queries](guides/analysis-and-queries.md) | [FidelityMetricsExample](examples/FidelityMetricsExample.cs) |
-| Deviation maps, wall thickness, primitive fit, CCD | `gs.MeshDeviation`, `gs.MeshWallThickness`, `gs.PrimitiveFit3`, `gs.ContinuousCollision` | [Analysis & Queries](guides/analysis-and-queries.md) | — |
+| Deviation maps, wall thickness, primitive fit, CCD | `gs.MeshDeviation`, `gs.MeshWallThickness`, `PrimitiveFit3`, `ContinuousCollision` | [Analysis & Queries](guides/analysis-and-queries.md) | [AnalysisBuildingBlocksExample](examples/AnalysisBuildingBlocksExample.cs), [BatchQueriesAndCcdExample](examples/BatchQueriesAndCcdExample.cs) |
 | Certified terrain slope design | `gs.TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec`, `SlopeRamp` | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | [TerrainSlopeExample](examples/TerrainSlopeExample.cs) |
-| Height grids (DGM/DTM), certified TINs & cell volumes | `HeightGridReader`, `gs.TerrainGridTin`, `gs.TerrainCellVolumes`, `gs.ClothSimulationFilter` | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | — |
-| Point cloud normals & surface reconstruction | `gs.PointCloudNormals`, `gs.PointCloudSurface`, `gs.MeshAlphaWrap` | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | — |
+| Height grids (DGM/DTM), certified TINs & cell volumes | `HeightGridReader`, `gs.TerrainGridTin`, `gs.TerrainCellVolumes`, `gs.ClothSimulationFilter` | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | [TerrainToolsExample](examples/TerrainToolsExample.cs) |
+| Point cloud normals & surface reconstruction | `gs.PointCloudNormals`, `gs.PointCloudSurface`, `gs.MeshAlphaWrap` | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | [PointCloudExample](examples/PointCloudExample.cs) |
 
 ---
 

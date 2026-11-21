@@ -23,6 +23,7 @@ This guide covers exact 2D Delaunay and quality meshing (`DelaunayMesh2`, `Const
   - **Grid snapping:** With a snap tolerance, every vertex—including Steiner points added during refinement—lies on the snap grid.
   - **2.5D export (`ConstrainedMesh2.ToDMesh3()`):** Copies vertex and triangle IDs, interpolates vertex heights into `z` (or `0` without heights), and writes region labels as triangle groups.
 - **CLI:** `g3cli mesh2d` (JSON or Triangle `.poly` / `.node` / `.ele` files; see [g3cli README](../../tools/g3cli/README.md)).
+- **Example:** [Meshing2DExample.cs](../examples/Meshing2DExample.cs)
 
 ---
 
@@ -72,6 +73,7 @@ if (!free.Ok)
 - **Namespace & classes:** `gs.MeshTetrahedralization`, `gs.TetMeshMarkers`, `gs.TetMeshWriter`
 - **Input / mutability:** Takes any triangle mesh (including soups, open or self-intersecting meshes); builds a valid volumetric tetrahedral mesh via alpha wrap, 3D Delaunay refinement, flips, and smoothing.
 - **Guarantees & limits:** Exact validity check (`Valid`) on every tet. Reports target compliance (`Targets`) against `MinDihedral` (default `10°`) and `MaxRadiusEdge` (default `2.0`). Boundary triangles receive a marker (nearest input triangle's group ID if present, else triangle ID) and tets receive a connected-component region ID.
+- **Example:** [TetMeshExample.cs](../examples/TetMeshExample.cs)
 - **Further reading:** [TET_MESHING.md](../design/TET_MESHING.md), [TetMeshBenchmark README](../../benchmarks/TetMeshBenchmark/README.md)
 
 ### Opt-In Controls

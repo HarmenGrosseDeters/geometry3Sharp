@@ -63,12 +63,12 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 | Task | Classes | Output & key guarantees | Example |
 |---|---|---|---|
 | Certified Hausdorff distance | `gs.MeshHausdorffDistance` | Proven `LowerBound` and `UpperBound` within `Tolerance`; scale-free power-of-two internal frame | [DistancesExample.cs](../examples/DistancesExample.cs) |
-| Signed/unsigned deviation map | `gs.MeshDeviation`, `gs.DeviationStatistics` | Per-vertex signed distance (pseudo-normal or winding sign), area-weighted stats, optional certified Hausdorff bound | — |
+| Signed/unsigned deviation map | `gs.MeshDeviation`, `gs.DeviationStatistics` | Per-vertex signed distance (pseudo-normal or winding sign), area-weighted stats, optional certified Hausdorff bound | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
 | Multi-metric mesh fidelity comparison | `gs.MeshFidelityMetrics` | F-score, Chamfer, normal consistency & reversed share, sharp-edge Chamfer/recall, outer volume IoU, curvature fidelity, topology changes | [FidelityMetricsExample.cs](../examples/FidelityMetricsExample.cs) |
 | Discrete vertex curvature | `gs.MeshCurvature` | Mean (`H`) and Gaussian (`K`) curvature per vertex (Meyer et al. 2003: mixed Voronoi areas, cotan normal, angle deficit); no NaN/Inf output | — |
 | Triangle quality & topology summary | `gs.TriangleQualityStatistics`, `gs.MeshTopologySummary` | Verdict quality percentiles (min/max angle, aspect ratio, scaled Jacobian, condition), genus, Euler characteristic, components | [FidelityMetricsExample.cs](../examples/FidelityMetricsExample.cs) |
-| Wall thickness | `gs.MeshWallThickness` | Per-vertex / per-triangle thickness via inward watertight ray, shape diameter function (SDF), or largest inscribed ball | — |
-| Geometric primitive fitting | `gs.PrimitiveFit3` | Fits plane, sphere, cylinder, or cone to 3D points (optional normals) via deterministic RANSAC + Levenberg-Marquardt | — |
+| Wall thickness | `gs.MeshWallThickness` | Per-vertex / per-triangle thickness via inward watertight ray, shape diameter function (SDF), or largest inscribed ball | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
+| Geometric primitive fitting | `g3.PrimitiveFit3` | Fits plane, sphere, cylinder, or cone to 3D points (optional normals) via deterministic RANSAC + Levenberg-Marquardt | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
 
 ### Notes on Key Metrics
 
@@ -80,6 +80,7 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 
 ## Continuous Collision Detection (CCD)
 
-- **Namespace & classes:** `gs.ContinuousCollision`, `gs.MeshSweepCollision`
+- **Namespace & classes:** `g3.ContinuousCollision`, `g3.MeshSweepCollision`
 - **Purpose:** Exact/conservative continuous collision queries for moving triangles and rigid/linearly sweeping meshes (first time of impact without tunneling).
+- **Example:** [BatchQueriesAndCcdExample.cs](../examples/BatchQueriesAndCcdExample.cs)
 - **Further reading:** [CCD.md](../design/CCD.md)

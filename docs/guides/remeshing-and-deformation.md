@@ -10,9 +10,9 @@ This guide covers isotropic triangle remeshing (`Remesher`, `RemesherPro`), QEM 
 |---|---|---|---|
 | Isotropic triangle remeshing | `g3.Remesher`, `gs.RemesherPro`, `g3.RegionRemesher`, `g3.EdgeLoopRemesher` | In-place | [RemeshExample.cs](../examples/RemeshExample.cs) |
 | QEM simplification & certified deviation | `g3.Reducer`, `gs.PartitionedReducer`, `gs.MeshEnvelope` | In-place (`PartitionedReducer`: new mesh) | [SimplificationExample.cs](../examples/SimplificationExample.cs) |
-| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | — |
+| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs) |
 | Surface smoothing | `g3.MeshIterativeSmooth`, `g3.LaplacianMeshSmoother` | In-place | [SmoothingExample.cs](../examples/SmoothingExample.cs) |
-| Handle-based deformation | `gs.ArapMeshDeformer`, `gs.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | — |
+| Handle-based deformation | `g3.ArapMeshDeformer`, `g3.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | [DeformationExample.cs](../examples/DeformationExample.cs) |
 | Plane cut & cap | `g3.MeshPlaneCut` | In-place | [PlaneCutExample.cs](../examples/PlaneCutExample.cs) |
 
 ---
