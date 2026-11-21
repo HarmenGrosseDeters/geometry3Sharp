@@ -113,6 +113,7 @@ if (robust.Apply()) {
 - **Namespace & class:** `gs.MeshAlphaWrap`
 - **Input / mutability:** Accepts a `DMesh3` (triangles and/or vertices) or `IEnumerable<Vector3d>` (point cloud); writes a new `DMesh3` to `Result`.
 - **Guarantees & limits:** Produces a closed, oriented, 2-manifold, self-intersection-free surface strictly enclosing the input at approximately `Offset`, capturing concavities down to `Alpha` (Portaneri et al. 2022, built on exact `Delaunay3`). Supports custom spatially varying `AlphaField` (clamped to `[3 * offset, alpha]`).
+- **Example:** [AlphaWrapExample.cs](../examples/AlphaWrapExample.cs)
 - **Further reading:** [OpenSoupWrapBenchmark README](../../benchmarks/OpenSoupWrapBenchmark/README.md)
 
 ```csharp
@@ -139,6 +140,7 @@ Set `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off b
 - **Namespace & classes:** `gs.PassageWrap`, `gs.PassagePin`
 - **Input / mutability:** Read-only input; writes new `DMesh3` to `Result`.
 - **Guarantees & limits:** Wraps an input while guaranteeing specified bores, channels, or blind holes (`Pins`: polyline axis + radius) stay open. Computes the coarsest `Alpha` satisfying the analytical carving bound `sqrt((r - offset)^2 - alpha^2) >= pinRadius` from the certified input clearance `r`, wraps, simplifies, and verifies each pin's clearance interval `[ClearanceLow, ClearanceHigh]` and winding number (`PinResults`).
+- **Example:** [AlphaWrapExample.cs](../examples/AlphaWrapExample.cs)
 - **Further reading:** [PASSAGE_WRAP.md](../design/PASSAGE_WRAP.md)
 
 If verification fails, `PassageWrap` tightens `Alpha` (`×0.8`, up to 3 retries) and returns `PassageNotKept` rather than falsely claiming success. Other statuses: `PinBlockedByInput` (pin wider than input clearance), `BudgetExceeded` (exceeds `MaxTriangles`; never coarsens past the pin constraint), and `BoundPremisesHeld = false` (analytical premises did not apply; measurement still decides).

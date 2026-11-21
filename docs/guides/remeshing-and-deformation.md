@@ -10,9 +10,9 @@ This guide covers isotropic triangle remeshing (`Remesher`, `RemesherPro`), QEM 
 |---|---|---|---|
 | Isotropic triangle remeshing | `g3.Remesher`, `gs.RemesherPro`, `g3.RegionRemesher`, `g3.EdgeLoopRemesher` | In-place | [RemeshExample.cs](../examples/RemeshExample.cs) |
 | QEM simplification & certified deviation | `g3.Reducer`, `gs.PartitionedReducer`, `gs.MeshEnvelope` | In-place (`PartitionedReducer`: new mesh) | [SimplificationExample.cs](../examples/SimplificationExample.cs) |
-| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | — |
+| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs) |
 | Surface smoothing | `g3.MeshIterativeSmooth`, `g3.LaplacianMeshSmoother` | In-place | [SmoothingExample.cs](../examples/SmoothingExample.cs) |
-| Handle-based deformation | `gs.ArapMeshDeformer`, `gs.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | — |
+| Handle-based deformation | `g3.ArapMeshDeformer`, `g3.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | [DeformationExample.cs](../examples/DeformationExample.cs) |
 | Plane cut & cap | `g3.MeshPlaneCut` | In-place | [PlaneCutExample.cs](../examples/PlaneCutExample.cs) |
 
 ---
@@ -95,6 +95,7 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 - **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
 - **Input / mutability:** Read-only manifold triangle mesh (`DMesh3`); outputs a new `DPolyMesh` (with whole quad/polygon faces).
 - **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
+- **Example:** [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs)
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
 ### Pure-Quad Mode & I/O
@@ -115,10 +116,12 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ## Handle-Based Deformation
 
+- **Example:** [DeformationExample.cs](../examples/DeformationExample.cs)
+
 | Class | Energy / properties | Rotation invariance | Further reading |
 |---|---|---|---|
-| `gs.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
-| `gs.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
+| `g3.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
+| `g3.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
 | `g3.LaplacianMeshDeformer` | Basic uniform-weight Laplacian deformation via CG solve | No | — |
 
 Both `ArapMeshDeformer` and `BiharmonicMeshDeformer` report explicit `Status` and convergence residuals (`FixedPointResidual` / `StationarityResidual`).

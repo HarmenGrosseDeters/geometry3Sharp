@@ -11,7 +11,7 @@ This guide covers exact mesh booleans (`ExactMeshBoolean`), lazy boolean chains 
 | Exact union, intersection, difference, XOR, or n-ary winding predicate on meshes | `g3.ExactMeshBoolean` | New `DMesh3` in `Result`; exact arrangement, `SafeRounding` on by default |
 | Resolve self-intersections, nested shells, and duplicate faces in one mesh | `ExactMeshBoolean.Resolve(mesh)` | New clean `DMesh3`; reorients inconsistent components by area majority |
 | Chain several booleans with a single final rounding pass | `g3.ExactMesh` | Lazy expression evaluated in one exact n-ary pass (`Round`, `ToBoolean`) |
-| Exact boolean of closed triangle soups → small clean solid without manual pre-repair | `g3.SolidBooleanPipeline` | Closed solid + `SolidBooleanReport` (boolean + guarded `Reducer` pass) |
+| Exact boolean of closed triangle soups → small clean solid without manual pre-repair | `gs.SolidBooleanPipeline` | Closed solid + `SolidBooleanReport` (boolean + guarded `Reducer` pass) |
 | One body against many (`A ∩ Bi` or `A − Bi` per body) | `ExactMeshBoolean.IntersectEach` / `DifferenceEach` | Parallel per-body array; bit-identical to individual runs |
 | Cut intersection curves of a cutter into a target without removing anything | `g3.ExactMeshImprint` | Target mesh with split triangles, kept vertex IDs, `CurveEdges`, `SourceTriangle` |
 | Approximate boolean of heavily broken/open meshes | `gs.MeshWindingNumberBoolean` | Remeshed closed surface via adaptive octree winding numbers |
@@ -130,13 +130,15 @@ ExactMeshBoolean op = expr.ToBoolean();   // or expr.Round(out string error)
 
 ## Soup-to-Solid Pipeline (`SolidBooleanPipeline`)
 
-- **Namespace & classes:** `g3.SolidBooleanPipeline`, `g3.SolidBooleanReport`
+- **Namespace & classes:** `gs.SolidBooleanPipeline`, `gs.SolidBooleanReport`
 - **Input / mutability:** Read-only inputs (repaired on copies if requested); writes new `DMesh3` to `Result`.
 - **Guarantees & limits:** Combines exact boolean (`AllowOpenMeshes = false`, `StrictRounding = true`) with a guarded `Reducer` pass (`PreventSelfIntersections = true`, `MinTriangleQuality = 0.02`, optional certified `MaxDeviation`).
+- **Example:** [SolidBooleanPipelineExample.cs](../examples/SolidBooleanPipelineExample.cs)
 - **Further reading:** [SolidBooleanBenchmark README](../../benchmarks/SolidBooleanBenchmark/README.md)
 
 ```csharp
 using g3;
+using gs;
 
 var pipeline = new SolidBooleanPipeline(new[] { soupA, soupB }, ExactMeshBoolean.Operations.Union) {
     TargetFraction = 0.25
@@ -162,6 +164,7 @@ if (pipeline.Compute()) {
 - **Namespace & class:** `g3.ExactMeshImprint`
 - **Input / mutability:** Read-only target and cutter; writes split target into `Result` while preserving target vertex IDs, orientation, and topology.
 - **Guarantees & limits:** Computes exact intersection curves (including contact and coplanar overlaps) without classifying or deleting triangles. Rounds new vertices with `SafeRounding` (target vertices fixed, curve edges locked, verified by `RoundingClean`). Handles open targets and cutters; does not repair pre-existing self-intersections in the target.
+- **Example:** [SolidBooleanPipelineExample.cs](../examples/SolidBooleanPipelineExample.cs)
 - **Further reading:** [EXACT_IMPRINT.md](../design/EXACT_IMPRINT.md)
 
 Key outputs: `Result`, `SourceTriangle` (maps output triangles back to input target triangles), and `CurveEdges` (with optional `LabelCurves` numbering each curve).
