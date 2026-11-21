@@ -24,14 +24,15 @@ Owner chooses whether to park/drop P4(c) now that P4(a) and P4(b) exist, or inve
 | Option | Effect | Cost / risk |
 |---|---|---|
 | A. **Park / not now (leaning)** | Keep wrap + P4(a) local alpha + P4(b) creases as the tet mesher; revisit P4(c) only when a caller explicitly requires zero-offset exact boundary conformity (e.g. multi-material FEM assemblies with shared interfaces) | Zero cost now; CAD inputs keep a small offset (~diag/600) and rounded acute/3-plane corners |
-| B. **Stage 0 design study first (1-2 weeks, no code)** | Survey exact 3D CDT algorithms (Si & Gärtner 2011, Diazzi et al. 2023 MIT CDT, Shewchuk 2002) and check reuse of our `Delaunay3` + `ExactMeshArrangement` before committing 3-4 months | 1 L session for design doc; avoids committing blind |
+| B. **Stage 0 design study first (1-2 weeks, no code)** | Survey exact 3D CDT algorithms (Si & Gärtner 2011, Diazzi et al. 2023 paper only, Shewchuk 2002) and check reuse of our `Delaunay3` + `ExactMeshArrangement` before committing 3-4 months | 1 L session for design doc; avoids committing blind |
 | C. **Build P4(c) now as an opt-in path for clean closed manifold inputs** | Zero-offset boundary-conforming tet mesh on clean inputs (e.g. exact-boolean outputs), with fallback to wrap on dirty inputs | 3-4 months, tier L (exact arithmetic, new mutation shards, large review surface) |
 
 How others solve it: TetGen (Si, ACM TOMS 2015, AGPL — never read code) uses 3D CDT + Shewchuk/Si facet recovery with
-Steiner points; **Diazzi, Panozzo, Vaxman, Attene (ACM TOG 2023, "Constrained Delaunay Tetrahedrizations: A Robust and
-Practical Approach", MIT-licensed reference implementation)** computes exact 3D CDTs using indirect predicates (very
-close to our exact kernel); fTetWild (Hu et al. 2020, MPL-2.0) avoids exact conformity altogether via an envelope;
-CGAL `Mesh_3` (GPL/CGAL — paper only) uses restricted Delaunay with 1D protecting balls rather than exact input CDT.
+Steiner points; Diazzi, Panozzo, Vaxman, Attene (ACM TOG 2023, "Constrained Delaunay Tetrahedrizations: A Robust and
+Practical Approach", GPL/LGPL reference code — **paper only, never read code**) computes exact 3D CDTs using indirect
+predicates (very close to our exact kernel); fTetWild (Hu et al. 2020, MPL-2.0 — paper only) avoids exact conformity
+altogether via an envelope; CGAL `Mesh_3` (GPL — paper only) uses restricted Delaunay with 1D protecting balls rather
+than exact input CDT.
 
 ## Goal
 
@@ -59,13 +60,14 @@ precondition check `NotCleanReason` and status `InputNotClean` or opt-in fallbac
 
 1. Library: `comp_geom/Delaunay3.cs`, `mesh_ops/ExactMeshArrangement.cs`, `math/AdaptivePredicates.cs`,
    `math/FixedPoint3.cs`, `tools/PredicateCompiler`, `mesh_ops/TetFeatureSurface.cs` (P4(b) conforming flips).
-2. Literature: Diazzi, Panozzo, Vaxman, Attene (ACM TOG 2023, MIT); Si & Gärtner (2011, "3D boundary recovery by
-   constrained Delaunay tetrahedralization", IJNME); Shewchuk (2002, "Constrained Delaunay Tetrahedralizations and
-   Provably Good Boundary Recovery", IMR).
+2. Literature (papers only): Diazzi, Panozzo, Vaxman, Attene (ACM TOG 2023, GPL/LGPL code — paper only); Si & Gärtner
+   (2011, "3D boundary recovery by constrained Delaunay tetrahedralization", IJNME); Shewchuk (2002, "Constrained
+   Delaunay Tetrahedralizations and Provably Good Boundary Recovery", IMR).
 
 ## Steps (if B is chosen)
 
-1. Read Diazzi et al. (2023) paper and verify its MIT license + exact predicate requirements against our `math/Exact*`.
+1. Read Diazzi et al. (2023) paper only (never open the GPL/LGPL reference code) and map its exact predicate
+   requirements against our `math/Exact*`.
 2. Map input preconditions (clean closed manifold, exact-boolean output) and missing predicates / symbolic perturbation.
 3. Produce `docs/design/TET_CDT_DESIGN.md` with milestones, oracle acceptance strategy, and go/no-go gate for the owner.
 
@@ -78,8 +80,8 @@ precondition check `NotCleanReason` and status `InputNotClean` or opt-in fallbac
 
 ## Sources and licences
 
-Diazzi et al. (2023, MIT — verify exact license file before reading any code); Si & Gärtner (2011), Shewchuk (2002)
-papers only. Never TetGen (AGPL) or CGAL (GPL).
+Diazzi et al. (2023), Si & Gärtner (2011), Shewchuk (2002) — **papers only**. Never read or port Diazzi CDT
+(GPL/LGPL), TetGen (AGPL), or CGAL (GPL) code.
 
 ## Budget and stop rule
 
