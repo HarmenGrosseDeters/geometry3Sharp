@@ -244,5 +244,158 @@ namespace geometry3Sharp.Tests
             directCache.EvaluateFullRowX(double.MaxValue * 0.9, double.MaxValue * 0.5, 4, 0.2, 0.2, hits, leaves, diff, row);
             for (int i = 0; i < 4; ++i) Assert.False(float.IsNaN(row[i]) || float.IsInfinity(row[i]));
         }
+
+        static DMesh3 OpenWavyPatch(int n)
+        {
+            DMesh3 m = new DMesh3();
+            int[,] vid = new int[n + 1, n + 1];
+            for (int iy = 0; iy <= n; ++iy) {
+                double y = -1.0 + 2.0 * iy / n;
+                for (int ix = 0; ix <= n; ++ix) {
+                    double x = -1.0 + 2.0 * ix / n;
+                    double z = 0.3 * Math.Sin(1.5 * x) * Math.Cos(1.5 * y);
+                    vid[ix, iy] = m.AppendVertex(new Vector3d(x, y, z));
+                }
+            }
+            for (int iy = 0; iy < n; ++iy) {
+                for (int ix = 0; ix < n; ++ix) {
+                    int v00 = vid[ix, iy], v10 = vid[ix + 1, iy], v01 = vid[ix, iy + 1], v11 = vid[ix + 1, iy + 1];
+                    m.AppendTriangle(v00, v10, v11);
+                    m.AppendTriangle(v00, v11, v01);
+                }
+            }
+            return m;
+        }
+
+        [Fact]
+        public void BoundaryTree_CertifiedBoundsHoldAndThresholdsMatchExact100Percent()
+        {
+            // 160x160 patch has 640 exterior boundary edges (>= BoundaryTreeMinEdges = 500)
+            DMesh3 patch = OpenWavyPatch(160);
+            // Also duplicate a boundary triangle to create Weight == 2 heavy edges alongside the 640-edge loop
+            int firstTri = patch.TriangleIndices().First();
+            Vector3d ta = Vector3d.Zero, tb = Vector3d.Zero, tc = Vector3d.Zero;
+            patch.GetTriVertices(firstTri, ref ta, ref tb, ref tc);
+            patch.AppendTriangle(patch.AppendVertex(ta), patch.AppendVertex(tb), patch.AppendVertex(tc));
+
+            var tree = new DMeshAABBTree3(patch, true);
+            ExactWindingCache cache = tree.GetExactWindingCache();
+            Assert.True(cache.BoundaryCount >= ExactWindingCache.BoundaryTreeMinEdges);
+            cache.PrepareThresholdQueries();
+            Assert.True(cache.HasBoundaryTree);
+
+            var rnd = new Random(103);
+            int treeUsedCount = 0;
+            int farTightCount = 0;
+            double[] isos = new[] { -0.5, 0.0, 0.25, 0.5, 0.75, double.NaN, double.PositiveInfinity, double.NegativeInfinity };
+
+            // Mix of far-field, near-patch, near-boundary, +x-cone-aligned, and on-surface points
+            var points = new System.Collections.Generic.List<Vector3d>(650);
+            for (int i = 0; i < 400; ++i)
+                points.Add(new Vector3d(rnd.NextDouble() * 6.0 - 3.0, rnd.NextDouble() * 6.0 - 3.0, rnd.NextDouble() * 6.0 - 3.0));
+            for (int i = 0; i < 150; ++i)
+                points.Add(new Vector3d(rnd.NextDouble() * 2.2 - 1.1, rnd.NextDouble() * 2.2 - 1.1, rnd.NextDouble() * 0.6 - 0.3));
+            // Points with +x rays aimed directly at the boundary rim (exercises cone rejection)
+            for (int i = 0; i < 60; ++i)
+                points.Add(new Vector3d(-2.5, -1.0 + 2.0 * i / 59.0, 0.0));
+            // On-surface vertices and triangle centroids
+            for (int i = 0; i < 20; ++i)
+                points.Add(patch.GetVertex(i * 100));
+            points.Add((ta + tb + tc) / 3.0);
+
+            foreach (Vector3d p in points) {
+                double exact = cache.Evaluate(p);
+                // Verify exactness of EvaluateAbove / EvaluateAbsAbove for fixed isos AND near-exact isos (within 1e-15)
+                foreach (double iso in isos) {
+                    Assert.Equal(exact > iso, cache.EvaluateAbove(p, iso));
+                    Assert.Equal(Math.Abs(exact) > iso, cache.EvaluateAbsAbove(p, iso));
+                }
+                double epsIso = 1e-15 * Math.Max(1.0, Math.Abs(exact));
+                foreach (double nearIso in new[] { exact - epsIso, exact, exact + epsIso }) {
+                    Assert.Equal(exact > nearIso, cache.EvaluateAbove(p, nearIso));
+                }
+
+                // Directly verify the certified bound |w_tree - w_exact| <= bErr (far from surface where surfaceCorrection == 0)
+                if (Math.Abs(p.x) > 1.2 || Math.Abs(p.y) > 1.2 || Math.Abs(p.z) > 0.5) {
+                    if (cache.TryEvaluateTreeBoundarySumX(p, out double bSum, out double bErr)) {
+                        treeUsedCount++;
+                        if (bErr < 0.05)
+                            farTightCount++;
+                        double diff = Math.Abs((exact - Math.Round(exact - bSum)) - bSum);
+                        Assert.True(diff <= bErr + 1e-15 * Math.Max(1.0, Math.Abs(exact)),
+                            $"Bound violated at {p}: diff={diff:R} > bErr={bErr:R}");
+                    }
+                }
+            }
+            Assert.True(treeUsedCount > 300, $"Expected BoundaryTree to certify far queries, got {treeUsedCount}");
+            Assert.True(farTightCount > 250, $"Expected tight far-field bounds (bErr < 0.05), got {farTightCount}");
+
+            // Reversed orientation of the same open patch must match exact negated thresholds 100%
+            DMesh3 revPatch = new DMesh3(patch);
+            revPatch.ReverseOrientation(false);
+            ExactWindingCache revCache = new DMeshAABBTree3(revPatch, true).GetExactWindingCache();
+            revCache.PrepareThresholdQueries();
+            Assert.True(revCache.HasBoundaryTree);
+            for (int i = 0; i < 80; ++i) {
+                Vector3d p = points[i];
+                double exRev = revCache.Evaluate(p);
+                Assert.Equal(exRev > -0.25, revCache.EvaluateAbove(p, -0.25));
+                Assert.Equal(Math.Abs(exRev) > 0.25, revCache.EvaluateAbsAbove(p, 0.25));
+            }
+        }
+
+        [Fact]
+        public void BoundaryTree_ExtremeScalesLeafOnlyChainsAndConcurrentInit_SafeAndExact()
+        {
+            // Extreme scales (> 1e65 and < 1e-65) skip BoundaryTree and still match Evaluate(p) > iso
+            DMesh3 patch = OpenWavyPatch(160);
+            foreach (int exp in new[] { 250, -250 }) {
+                double sc = BitConverter.Int64BitsToDouble((long)(exp + 1023) << 52);
+                DMesh3 scaled = new DMesh3(patch);
+                MeshTransforms.Scale(scaled, sc);
+                ExactWindingCache scCache = new DMeshAABBTree3(scaled, true).GetExactWindingCache();
+                scCache.PrepareThresholdQueries();
+                Assert.False(scCache.HasBoundaryTree);
+                Vector3d qp = new Vector3d(0.2 * sc, -0.3 * sc, 0.4 * sc);
+                Assert.Equal(scCache.Evaluate(qp) > 0.5, scCache.EvaluateAbove(qp, 0.5));
+                Assert.Equal(Math.Abs(scCache.Evaluate(qp)) > 0.5, scCache.EvaluateAbsAbove(qp, 0.5));
+            }
+
+            // All-4-edge chains (140 1-quad holes in a 30x30 grid: 680 boundary edges across 141 chains -> 141*5 = 705 > 680) skip BoundaryTree
+            DMesh3 gridWithQuadHoles = OpenWavyPatch(30);
+            int removedQuads = 0;
+            for (int iy = 1; iy < 29 && removedQuads < 140; iy += 2) {
+                for (int ix = 1; ix < 29 && removedQuads < 140; ix += 2) {
+                    int baseTid = 2 * (iy * 30 + ix);
+                    gridWithQuadHoles.RemoveTriangle(baseTid, true, false);
+                    gridWithQuadHoles.RemoveTriangle(baseTid + 1, true, false);
+                    removedQuads++;
+                }
+            }
+            ExactWindingCache holeCache = new DMeshAABBTree3(gridWithQuadHoles, true).GetExactWindingCache();
+            Assert.False(holeCache.UseDirectSum);
+            Assert.True(holeCache.BoundaryCount >= ExactWindingCache.BoundaryTreeMinEdges);
+            holeCache.PrepareThresholdQueries();
+            Assert.False(holeCache.HasBoundaryTree);
+
+            // Concurrent first-call BoundaryTree initialization matches serial bit-for-bit
+            var tree = new DMeshAABBTree3(patch, true);
+            ExactWindingCache concCache = tree.GetExactWindingCache();
+            var rnd = new Random(17);
+            var pts = new Vector3d[128];
+            for (int i = 0; i < pts.Length; ++i)
+                pts[i] = new Vector3d(rnd.NextDouble() * 4.0 - 2.0, rnd.NextDouble() * 4.0 - 2.0, rnd.NextDouble() * 4.0 - 2.0);
+            var expected = new bool[pts.Length];
+            for (int i = 0; i < pts.Length; ++i)
+                expected[i] = concCache.Evaluate(pts[i]) > 0.25;
+
+            var actual = new bool[pts.Length];
+            System.Threading.Tasks.Parallel.For(0, pts.Length, i => {
+                actual[i] = concCache.EvaluateAbove(pts[i], 0.25);
+            });
+            Assert.True(concCache.HasBoundaryTree);
+            for (int i = 0; i < pts.Length; ++i)
+                Assert.Equal(expected[i], actual[i]);
+        }
     }
 }

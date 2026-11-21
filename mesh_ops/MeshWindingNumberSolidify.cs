@@ -58,6 +58,14 @@ namespace gs
         /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta); larger is more exact and slower </summary>
         public double FastWindingBeta = 1.5;
 
+        /// <summary>
+        /// If true, evaluate the exact ray-plus-boundary winding number (DMeshAABBTree3.WindingNumber and exact +x
+        /// row-ray MeshWindingNumberGrid) instead of FastWindingNumber. Faster and exact (zero dipole error) on
+        /// closed meshes (including unwelded closed soups) and open meshes with small boundaries; FastWindingNumber
+        /// remains faster on disconnected triangle soups.
+        /// </summary>
+        public bool UseExactWinding = false;
+
 
         /// <summary>
         /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
@@ -218,12 +226,13 @@ namespace gs
             MeshRepairMetrics.ScaleVertices(copy, s);
             var inner = new MeshWindingNumberSolidify(copy) {
                 Method = Method, CellSize = CellSize * s, GridResolution = GridResolution, WindingIso = WindingIso,
-                Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
-                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
-                CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
-                CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
-                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk,
-                CertificateBlocks = CertificateBlocks, CertificateGrowRounds = CertificateGrowRounds
+                Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, UseExactWinding = UseExactWinding,
+                MaxRefineLevels = MaxRefineLevels, MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement,
+                MaxEdgeHits = MaxEdgeHits, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
+                StopIfSelfIntersecting = StopIfSelfIntersecting, CancelF = CancelF, KeepRawContour = KeepRawContour,
+                ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
+                CertificateMinChunk = CertificateMinChunk, CertificateBlocks = CertificateBlocks,
+                CertificateGrowRounds = CertificateGrowRounds
             };
             bool ok = inner.compute_unit();
             CertificateBlocksTried = inner.CertificateBlocksTried; CertificateBlocksCertified = inner.CertificateBlocksCertified;
@@ -294,7 +303,7 @@ namespace gs
             bool knownFree = false;
             DMesh3 contour;
             if (Adaptive && Method == Methods.DualContouring) {
-                WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
+                WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta, UseExactWinding) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
                     ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
                     CertificateMinChunk = CertificateMinChunk, CertificateBlocks = CertificateBlocks, CertificateGrowRounds = CertificateGrowRounds
@@ -401,13 +410,15 @@ namespace gs
             Vector3d center = shifted.CachedBounds.Center;
             MeshTransforms.Translate(shifted, -center);
             shifted.AppendVertex(shifted.CachedBounds.Min - cellSize * new Vector3d(0.1371, 0.2713, 0.3891));
-            WindingContouring wc = new WindingContouring(new DMesh3[] { shifted }, null, FastWindingBeta) {
+            WindingContouring wc = new WindingContouring(new DMesh3[] { shifted }, null, FastWindingBeta, UseExactWinding) {
                 Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF
             };
 
             MeshWindingNumberGrid mwn = new MeshWindingNumberGrid(wc.Meshes[0], wc.Spatials[0], cellSize);
             mwn.WindingIsoValue = (float)WindingIso;
-            mwn.UseFastWindingNumber = true;
+            mwn.UseFastWindingNumber = !UseExactWinding;
+            if (UseExactWinding && wc.Spatials[0].GetExactWindingCache().BoundaryCount == 0)
+                mwn.ComputeMode = MeshWindingNumberGrid.ComputeModes.FullGrid;
             mwn.CancelF = CancelF;
             mwn.Compute();
             WindingEvaluations = mwn.WindingEvaluations;

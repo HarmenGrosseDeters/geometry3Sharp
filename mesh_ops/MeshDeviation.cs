@@ -21,6 +21,9 @@ namespace gs
     ///     (Jacobson et al. 2013, via FastWindingNumber; absolute, so that inside-out parts count as solid).
     ///     Robust to holes, self-intersections and inconsistent orientation of a (nearly) closed reference,
     ///     but undefined for open sheets.
+    ///   - ExactWindingNumber: inside where the absolute exact generalized winding number of the reference is > 0.5
+    ///     (DMeshAABBTree3.WindingNumber, via ExactWindingCache; faster than FastWindingNumber on closed and
+    ///     unwelded closed meshes and without dipole approximation error).
     ///   - Unsigned: the plain distance.
     ///
     /// The vertex values sample the deviation; the largest one is a lower bound of the one-sided Hausdorff
@@ -40,7 +43,7 @@ namespace gs
         /// </summary>
         public DMeshAABBTree3 ReferenceSpatial;
 
-        public enum Signs { PseudoNormal, WindingNumber, Unsigned }
+        public enum Signs { PseudoNormal, WindingNumber, Unsigned, ExactWindingNumber }
         public Signs Sign = Signs.PseudoNormal;
         /// <summary> PseudoNormal: take inside-out closed components and an inside-out reference as flipped </summary>
         public bool OrientInvertedParts = true;
@@ -224,6 +227,12 @@ namespace gs
                 compute_pseudonormals();
             else if (Sign == Signs.WindingNumber)
                 refSpatial.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
+            else if (Sign == Signs.ExactWindingNumber) {
+                if (refSpatial.GetType() == typeof(DMeshAABBTree3) && !refSpatial.ForceLegacyWindingCache)
+                    refSpatial.GetExactWindingCache().PrepareThresholdQueries();
+                else
+                    refSpatial.WindingNumber(Vector3d.Zero);         // cache before parallel use
+            }
 
             int NV = Mesh.MaxVertexID;
             VertexDeviation = new double[NV];
@@ -360,6 +369,11 @@ namespace gs
                     return d;
                 case Signs.WindingNumber:
                     return (Math.Abs(refSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
+                case Signs.ExactWindingNumber:
+                    bool insideExact = (refSpatial.GetType() == typeof(DMeshAABBTree3) && !refSpatial.ForceLegacyWindingCache)
+                        ? refSpatial.GetExactWindingCache().EvaluateAbsAbove(p, 0.5)
+                        : Math.Abs(refSpatial.WindingNumber(p)) > 0.5;
+                    return insideExact ? -d : d;
                 default:
                     Vector3d n = feature_normal(tid, tv, bary);
                     if (n == Vector3d.Zero)     // only degenerate triangles around: no direction to judge by

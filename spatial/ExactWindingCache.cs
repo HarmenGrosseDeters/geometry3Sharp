@@ -58,6 +58,9 @@ namespace g3
             public int Sign;
         }
 
+        internal const int BoundaryTreeMinEdges = 500;
+        internal int BoundaryTreeMinThreshold = BoundaryTreeMinEdges;
+
         readonly FlatBox[] boxes;
         readonly FlatTri[] tris;
         readonly BoundaryEdge[] boundary;
@@ -65,9 +68,16 @@ namespace g3
         readonly int triCount;
         readonly bool useDirectSum;
 
+        volatile BoundaryTree boundaryTree;
+        volatile bool boundaryTreeTried;
+        readonly object boundaryTreeLock = new object();
+
+        [ThreadStatic] static int[] boundaryTreeStack;
+
         internal int BoundaryCount { get { return boundary.Length; } }
         internal int TriangleCount { get { return triCount; } }
         internal bool UseDirectSum { get { return useDirectSum; } }
+        internal bool HasBoundaryTree { get { return boundaryTree != null; } }
 
         ExactWindingCache(FlatBox[] boxes, FlatTri[] tris, BoundaryEdge[] boundary, int rootIndex, int triCount, bool useDirectSum)
         {
@@ -293,6 +303,411 @@ namespace g3
             if (surfaceCorrection != 0.0)
                 w -= surfaceCorrection;
             return w;
+        }
+
+        /// <summary>
+        /// Build the hierarchical boundary tree once (when |∂M| >= BoundaryTreeMinThreshold and not in direct-sum mode)
+        /// before parallel threshold queries (MeshBatchQueries, MeshDeviation). Safe to call repeatedly.
+        /// </summary>
+        internal void PrepareThresholdQueries()
+        {
+            get_or_build_boundary_tree();
+        }
+
+        BoundaryTree get_or_build_boundary_tree()
+        {
+            if (useDirectSum || boundary.Length < BoundaryTreeMinThreshold)
+                return null;
+            if (boundaryTreeTried)
+                return boundaryTree;
+            lock (boundaryTreeLock) {
+                if (!boundaryTreeTried) {
+                    boundaryTree = BoundaryTree.Build(boundary);
+                    boundaryTreeTried = true;
+                }
+                return boundaryTree;
+            }
+        }
+
+        /// <summary>
+        /// Exact threshold query matching Evaluate(p) &gt; iso.
+        /// For open meshes with large boundaries (|∂M| >= BoundaryTreeMinThreshold), uses a certified
+        /// hierarchical dipole sum over boundary chains (EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md §3) and
+        /// falls back to the exact full boundary sum whenever |w_h - iso| &lt;= B_h + 1e-9 or p lies on the mesh.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal bool EvaluateAbove(Vector3d p, double iso)
+        {
+            if (triCount == 0 || !is_finite(p))
+                return 0.0 > iso;
+            if (useDirectSum)
+                return direct_sum(p) > iso;
+            if (!is_finite(iso))
+                return Evaluate(p) > iso;
+
+            BoundaryTree tree = get_or_build_boundary_tree();
+            if (tree == null)
+                return Evaluate(p) > iso;
+
+            double surfaceCorrection = 0.0;
+            int chi = signed_crossings_x(rootIndex, p.x, p.y, p.z, ref surfaceCorrection);
+            if (surfaceCorrection == 0.0 && try_tree_boundary_sum_x(tree, p, out double bSum, out double bErr)) {
+                double wH = (double)chi + bSum;
+                double margin = 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));
+                if (wH > iso && (wH - iso) > margin)
+                    return true;
+                if (wH < iso && (iso - wH) > margin)
+                    return false;
+            }
+            double w = (double)chi + boundary_sum_x(p) - surfaceCorrection;
+            return w > iso;
+        }
+
+        /// <summary>
+        /// Exact absolute-value threshold query matching Math.Abs(Evaluate(p)) &gt; iso.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal bool EvaluateAbsAbove(Vector3d p, double iso)
+        {
+            if (triCount == 0 || !is_finite(p))
+                return 0.0 > iso;
+            if (useDirectSum)
+                return Math.Abs(direct_sum(p)) > iso;
+            if (!is_finite(iso))
+                return Math.Abs(Evaluate(p)) > iso;
+
+            BoundaryTree tree = get_or_build_boundary_tree();
+            if (tree == null)
+                return Math.Abs(Evaluate(p)) > iso;
+
+            double surfaceCorrection = 0.0;
+            int chi = signed_crossings_x(rootIndex, p.x, p.y, p.z, ref surfaceCorrection);
+            if (surfaceCorrection == 0.0 && try_tree_boundary_sum_x(tree, p, out double bSum, out double bErr)) {
+                double wH = (double)chi + bSum;
+                double aw = Math.Abs(wH);
+                double margin = 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));
+                if (aw > iso && (aw - iso) > margin)
+                    return true;
+                if (aw < iso && (iso - aw) > margin)
+                    return false;
+            }
+            double w = (double)chi + boundary_sum_x(p) - surfaceCorrection;
+            return Math.Abs(w) > iso;
+        }
+
+        /// <summary>
+        /// Internal test/benchmark hook: evaluate the hierarchical boundary sum (in winding units) and its
+        /// certified error bound at point p. Returns false if no tree is active or the query falls outside
+        /// the certified range.
+        /// </summary>
+        internal bool TryEvaluateTreeBoundarySumX(Vector3d p, out double bSum, out double bErr)
+        {
+            bSum = 0.0;
+            bErr = double.PositiveInfinity;
+            if (triCount == 0 || !is_finite(p))
+                return false;
+            BoundaryTree tree = get_or_build_boundary_tree();
+            if (tree == null)
+                return false;
+            return try_tree_boundary_sum_x(tree, p, out bSum, out bErr);
+        }
+
+        // Certified hierarchical Antipodal boundary sum (in winding units, i.e. divided by 2*pi).
+        // For a chain node covering a_0 -> ... -> a_k inside ball B(c, r) with r < 0.25 * d and the +x ray
+        // strictly outside the cap of B(c, r) seen from p by angular margin eps,
+        //     sum_{j<k} edge(a_j, a_{j+1}) = edge(a_0, a_k) + 0.5 * va . (c - p) / d^3 + R,
+        // with |R| <= A_abs * r / (d - r)^3 (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md §3).
+        [MethodImpl(JitHints.Optimize)]
+        bool try_tree_boundary_sum_x(BoundaryTree tree, Vector3d p, out double bSum, out double bErr)
+        {
+            bSum = 0.0;
+            bErr = double.PositiveInfinity;
+            double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+            if (!(pm <= 1e70))
+                return false;
+
+            double sum = 0.0;
+            double err = 0.0;
+
+            BoundaryEdge[] heavy = tree.Heavy;
+            for (int i = 0; i < heavy.Length; ++i) {
+                ref BoundaryEdge e = ref heavy[i];
+                double wAbs = Math.Abs((double)e.Weight);
+                sum += e.Weight * boundary_edge_angle_x(p, e.A, e.B);
+                err += 1e-12 * wAbs;
+            }
+
+            int[] stack = boundaryTreeStack ?? (boundaryTreeStack = new int[128]);
+            int[] roots = tree.Roots;
+            int[] loArr = tree.Lo, hiArr = tree.Hi, leftArr = tree.Left, rightArr = tree.Right;
+            double[] cxArr = tree.Cx, cyArr = tree.Cy, czArr = tree.Cz, rArr = tree.R;
+            double[] vxArr = tree.Vx, vyArr = tree.Vy, vzArr = tree.Vz;
+            double[] aAbsArr = tree.AAbs, vaErrArr = tree.VaErr, m1Arr = tree.M1;
+            Vector3d[] verts = tree.Verts;
+
+            for (int ri = 0; ri < roots.Length; ++ri) {
+                int sp = 0;
+                stack[sp++] = roots[ri];
+                while (sp > 0) {
+                    int k = stack[--sp];
+                    int left = leftArr[k];
+                    if (left >= 0) {
+                        double dx = cxArr[k] - p.x;
+                        double dy = cyArr[k] - p.y;
+                        double dz = czArr[k] - p.z;
+                        double dd = dx * dx + dy * dy + dz * dz;
+                        if (dd > 1e140)
+                            return false;
+                        if (dd >= 1e-140) {
+                            double dn = Math.Sqrt(dd);
+                            double d = dn * (1.0 - 1e-15);
+                            double r = rArr[k];
+                            if (r < 0.25 * d) {
+                                double dr = d - r;
+                                double coordEps = 2.3e-16 * (pm + m1Arr[k]) / dr;
+                                if (coordEps < 1e-6) {
+                                    double rd = r / d;
+                                    double cosA = Math.Sqrt(1.0 - rd * rd);
+                                    double minusX1U = dx / dn;
+                                    double eps = 1e-9 + 16.0 * coordEps;
+                                    if (minusX1U < cosA - eps) {
+                                        Vector3d a0 = verts[loArr[k]];
+                                        Vector3d ak = verts[hiArr[k]];
+                                        double chord = (a0.x == ak.x && a0.y == ak.y && a0.z == ak.z)
+                                            ? 0.0
+                                            : boundary_edge_angle_x(p, a0, ak);
+                                        double invD3 = 1.0 / (dd * dn);
+                                        double vx = vxArr[k], vy = vyArr[k], vz = vzArr[k];
+                                        double halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;
+                                        double absDx = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dz);
+                                        double rem = aAbsArr[k] * r / (dr * dr * dr);
+                                        double vaErrTerm = 0.5 * vaErrArr[k] * absDx * invD3;
+                                        double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;
+                                        double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps;
+                                        if (!is_finite(chord) || !is_finite(halfOmega) || !is_finite(nodeErr))
+                                            return false;
+                                        sum += chord + halfOmega;
+                                        err += nodeErr;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        if (sp + 2 > stack.Length) {
+                            Array.Resize(ref stack, stack.Length * 2);
+                            boundaryTreeStack = stack;
+                        }
+                        stack[sp++] = rightArr[k];
+                        stack[sp++] = left;
+                    } else {
+                        int lo = loArr[k], hi = hiArr[k];
+                        for (int s = lo; s < hi; ++s) {
+                            sum += boundary_edge_angle_x(p, verts[s], verts[s + 1]);
+                            err += 1e-12;
+                        }
+                    }
+                }
+            }
+
+            // Summation-order error between tree order and boundary_sum_x order:
+            // each edge contributes <= pi * |Weight|, summed over N = boundary.Length edges -> 2 * N * u * pi * sum(|Weight|),
+            // scaled by 1.01 to cover rounding of err accumulation and division by TwoPI.
+            double sumOrderErr = 7.5e-16 * (double)boundary.Length * tree.TotalWeight;
+            bSum = sum / MathUtil.TwoPI;
+            bErr = 1.01 * (err + sumOrderErr) / MathUtil.TwoPI;
+            return is_finite(bSum) && is_finite(bErr);
+        }
+
+        // Balanced binary tree over head-to-tail directed unit-weight exterior boundary chains.
+        // Built deterministically once per large-boundary open mesh (no hash-iteration order dependence).
+        sealed class BoundaryTree
+        {
+            const int LeafSegments = 4;
+
+            public readonly Vector3d[] Verts;
+            public readonly BoundaryEdge[] Heavy;
+            public readonly double TotalWeight;
+            public readonly int[] Roots;
+            public readonly int[] Lo, Hi, Left, Right;
+            public readonly double[] Cx, Cy, Cz, R, Vx, Vy, Vz, AAbs, VaErr, M1;
+
+            BoundaryTree(
+                Vector3d[] verts, BoundaryEdge[] heavy, double totalWeight, int[] roots,
+                int[] lo, int[] hi, int[] left, int[] right,
+                double[] cx, double[] cy, double[] cz, double[] r,
+                double[] vx, double[] vy, double[] vz,
+                double[] aAbs, double[] vaErr, double[] m1)
+            {
+                Verts = verts; Heavy = heavy; TotalWeight = totalWeight; Roots = roots;
+                Lo = lo; Hi = hi; Left = left; Right = right;
+                Cx = cx; Cy = cy; Cz = cz; R = r;
+                Vx = vx; Vy = vy; Vz = vz;
+                AAbs = aAbs; VaErr = vaErr; M1 = m1;
+            }
+
+            public static BoundaryTree Build(BoundaryEdge[] edges)
+            {
+                int n = edges.Length;
+                if (n < 16)
+                    return null;
+
+                var unit = new List<BoundaryEdge>(n);
+                var heavy = new List<BoundaryEdge>();
+                double mMax = 0.0;
+                double totalWeight = 0.0;
+                for (int i = 0; i < n; ++i) {
+                    BoundaryEdge e = edges[i];
+                    totalWeight += Math.Abs((double)e.Weight);
+                    double ma = Math.Max(Math.Abs(e.A.x), Math.Max(Math.Abs(e.A.y), Math.Abs(e.A.z)));
+                    double mb = Math.Max(Math.Abs(e.B.x), Math.Max(Math.Abs(e.B.y), Math.Abs(e.B.z)));
+                    if (ma > mMax) mMax = ma;
+                    if (mb > mMax) mMax = mb;
+                    if (e.Weight == 1)
+                        unit.Add(e);
+                    else
+                        heavy.Add(e);
+                }
+                // Keep all build and query intermediates (dv.Length, cr.Length, dd, dr^3) strictly in normal range.
+                if (unit.Count < 16 || mMax > 1e65 || (mMax > 0.0 && mMax < 1e-65))
+                    return null;
+
+                int nu = unit.Count;
+                var starts = new Dictionary<PointKey, List<int>>(nu);
+                var indegree = new Dictionary<PointKey, int>(nu);
+                for (int s = 0; s < nu; ++s) {
+                    PointKey ka = new PointKey(unit[s].A);
+                    PointKey kb = new PointKey(unit[s].B);
+                    if (!starts.TryGetValue(ka, out List<int> list)) {
+                        list = new List<int>(2);
+                        starts[ka] = list;
+                    }
+                    list.Add(s);
+                    indegree.TryGetValue(kb, out int deg);
+                    indegree[kb] = deg + 1;
+                }
+
+                var used = new bool[nu];
+                var verts = new List<Vector3d>(nu + 32);
+                var chainLo = new List<int>();
+                var chainHi = new List<int>();
+                // Pass 0: open chains (start has indegree 0); Pass 1: closed boundary loops.
+                for (int pass = 0; pass < 2; ++pass) {
+                    for (int s0 = 0; s0 < nu; ++s0) {
+                        if (used[s0])
+                            continue;
+                        if (pass == 0 && indegree.ContainsKey(new PointKey(unit[s0].A)))
+                            continue;
+                        int vStart = verts.Count;
+                        verts.Add(unit[s0].A);
+                        int s = s0;
+                        while (s >= 0) {
+                            used[s] = true;
+                            verts.Add(unit[s].B);
+                            int next = -1;
+                            if (starts.TryGetValue(new PointKey(unit[s].B), out List<int> list)) {
+                                for (int j = 0; j < list.Count; ++j) {
+                                    int q = list[j];
+                                    if (!used[q]) {
+                                        next = q;
+                                        break;
+                                    }
+                                }
+                            }
+                            s = next;
+                        }
+                        chainLo.Add(vStart);
+                        chainHi.Add(verts.Count - 1);
+                    }
+                }
+
+                // If boundary is mostly leaf-only chains (average chain <= LeafSegments edges), skip tree overhead.
+                if (chainLo.Count == 0 || (long)chainLo.Count * (LeafSegments + 1) > nu)
+                    return null;
+
+                Vector3d[] vArr = verts.ToArray();
+                int estNodes = Math.Max(chainLo.Count, (nu / LeafSegments) * 2 + chainLo.Count);
+                var lo = new List<int>(estNodes);
+                var hi = new List<int>(estNodes);
+                var left = new List<int>(estNodes);
+                var right = new List<int>(estNodes);
+                var cx = new List<double>(estNodes);
+                var cy = new List<double>(estNodes);
+                var cz = new List<double>(estNodes);
+                var rr = new List<double>(estNodes);
+                var vx = new List<double>(estNodes);
+                var vy = new List<double>(estNodes);
+                var vz = new List<double>(estNodes);
+                var aa = new List<double>(estNodes);
+                var vaErr = new List<double>(estNodes);
+                var m1 = new List<double>(estNodes);
+
+                var roots = new int[chainLo.Count];
+                for (int c = 0; c < chainLo.Count; ++c)
+                    roots[c] = build_node(vArr, chainLo[c], chainHi[c], lo, hi, left, right, cx, cy, cz, rr, vx, vy, vz, aa, vaErr, m1);
+
+                return new BoundaryTree(
+                    vArr, heavy.ToArray(), totalWeight, roots,
+                    lo.ToArray(), hi.ToArray(), left.ToArray(), right.ToArray(),
+                    cx.ToArray(), cy.ToArray(), cz.ToArray(), rr.ToArray(),
+                    vx.ToArray(), vy.ToArray(), vz.ToArray(),
+                    aa.ToArray(), vaErr.ToArray(), m1.ToArray());
+            }
+
+            static int build_node(
+                Vector3d[] verts, int a, int b,
+                List<int> lo, List<int> hi, List<int> left, List<int> right,
+                List<double> cx, List<double> cy, List<double> cz, List<double> rr,
+                List<double> vx, List<double> vy, List<double> vz,
+                List<double> aa, List<double> vaErr, List<double> m1)
+            {
+                int k = lo.Count;
+                lo.Add(a); hi.Add(b); left.Add(-1); right.Add(-1);
+                int count = b - a + 1;
+                Vector3d sum = Vector3d.Zero;
+                for (int q = a; q <= b; ++q)
+                    sum += verts[q];
+                Vector3d c = sum / count;
+
+                double r = 0.0, l1 = 0.0, abs = 0.0, prods = 0.0;
+                Vector3d va = Vector3d.Zero;
+                for (int q = a; q <= b; ++q) {
+                    Vector3d v = verts[q];
+                    Vector3d w = (q < b) ? verts[q + 1] : verts[a];
+                    Vector3d dv = v - c;
+                    Vector3d dw = w - c;
+                    double lv = dv.Length;
+                    double lw = dw.Length;
+                    if (lv > r) r = lv;
+                    double vm1 = Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z);
+                    if (vm1 > l1) l1 = vm1;
+                    Vector3d cr = dv.Cross(dw);
+                    va += cr;
+                    abs += cr.Length;
+                    prods += lv * lw;
+                }
+
+                double rUp = r * (1.0 + 1e-14);
+                double vaError = 0.5 * prods * (count + 8) * 4.5e-16;
+                double aAbsVal = 0.5 * abs + vaError;
+                if (!is_finite(c) || !is_finite(rUp) || !is_finite(va) || !is_finite(vaError) || !is_finite(aAbsVal) || !is_finite(l1))
+                    rUp = double.PositiveInfinity;
+
+                cx.Add(c.x); cy.Add(c.y); cz.Add(c.z);
+                rr.Add(rUp);
+                vx.Add(0.5 * va.x); vy.Add(0.5 * va.y); vz.Add(0.5 * va.z);
+                aa.Add(aAbsVal);
+                vaErr.Add(vaError);
+                m1.Add(l1);
+
+                if (b - a > LeafSegments) {
+                    int mid = a + ((b - a) >> 1);
+                    int l = build_node(verts, a, mid, lo, hi, left, right, cx, cy, cz, rr, vx, vy, vz, aa, vaErr, m1);
+                    int rt = build_node(verts, mid, b, lo, hi, left, right, cx, cy, cz, rr, vx, vy, vz, aa, vaErr, m1);
+                    left[k] = l;
+                    right[k] = rt;
+                }
+                return k;
+            }
         }
 
         double direct_sum(Vector3d p)

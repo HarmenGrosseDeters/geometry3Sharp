@@ -42,6 +42,13 @@ namespace gs
         /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta) </summary>
         public double FastWindingBeta = 1.5;
 
+        /// <summary>
+        /// If true, evaluate the exact ray-plus-boundary winding number (DMeshAABBTree3.WindingNumber) instead of
+        /// FastWindingNumber. Faster and exact (zero dipole error) on closed meshes (including unwelded closed soups)
+        /// and open meshes with small boundaries; FastWindingNumber remains faster on disconnected triangle soups.
+        /// </summary>
+        public bool UseExactWinding = false;
+
 
         /// <summary>
         /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
@@ -129,8 +136,8 @@ namespace gs
             MeshRepairMetrics.ScaleVertices(b, s);
             var inner = new MeshWindingNumberBoolean(a, b, Operation) {
                 CellSize = scaledCell, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
-                FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels, MinRefineEdges = MinRefineEdges,
-                LocalRefinement = LocalRefinement, CancelF = CancelF
+                FastWindingBeta = FastWindingBeta, UseExactWinding = UseExactWinding, MaxRefineLevels = MaxRefineLevels,
+                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, CancelF = CancelF
             };
             bool ok = inner.compute_unit();
             Result = inner.Result;
@@ -232,7 +239,7 @@ namespace gs
                     return true;
                 }
             }
-            WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta) {
+            WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta, UseExactWinding) {
                 CancelF = CancelF, LocalRefinement = LocalRefinement
             };
             DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
