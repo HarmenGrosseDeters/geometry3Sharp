@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Numerics;
 
@@ -12,12 +12,13 @@ namespace g3
     /// <para>Call <see cref="Test"/> for a fast boolean hit test without computing contact geometry, or
     /// <see cref="Find"/> / <see cref="Compute"/> for full contact output (<see cref="Type"/>, <see cref="Points"/>,
     /// <see cref="PolygonPoints"/>). By default <see cref="ReportCoplanarIntersection"/> is <c>false</c>, so
-    /// coplanar triangles are <b>not</b> reported as intersecting unless it is set to <c>true</c>.</para>
+    /// <see cref="Find"/> / <see cref="Compute"/> do <b>not</b> report coplanar intersections unless it is set to
+    /// <c>true</c> (<see cref="Test"/> and <see cref="Intersects"/> always report intersecting coplanar triangles).</para>
     /// <para>A degenerate triangle (collinear or coincident vertices) is tested as a segment or point; for such input
     /// <see cref="Find"/> reports only whether the triangles touch (<see cref="IntersectionType.Unknown"/>, no contact
     /// points). Exactly coplanar, nearly parallel (sine of normal angle below 1e-4), sliver triangles (zero rounded
-    /// normal), and pairs within 1e-8 of <see cref="Triangle0"/>'s plane are decided exactly as closed triangles, so
-    /// <see cref="Test"/>, <see cref="Intersects"/>, and <see cref="Find"/> (with
+    /// normal), and <see cref="Triangle1"/> within 1e-8 of <see cref="Triangle0"/>'s plane are decided exactly as closed
+    /// triangles, so <see cref="Test"/>, <see cref="Intersects"/>, and <see cref="Find"/> (with
     /// <see cref="ReportCoplanarIntersection"/> enabled for coplanar pairs) agree there; contact crossing coordinates
     /// are rounded to double. Non-finite coordinates give no intersection.</para>
     /// </remarks>
@@ -38,8 +39,9 @@ namespace g3
         }
 
         /// <summary>
-        /// If <c>true</c>, detects and returns intersection polygons for coplanar triangles (more expensive).
-        /// Default is <c>false</c>: when <c>false</c>, coplanar intersections are <b>not</b> reported.
+        /// If <c>true</c>, <see cref="Find"/> / <see cref="Compute"/> detect and return intersection polygons for
+        /// coplanar triangles (more expensive). Default is <c>false</c>: when <c>false</c>, <see cref="Find"/> does
+        /// <b>not</b> report coplanar intersections (<see cref="Test"/> and <see cref="Intersects"/> still do).
         /// </summary>
         public bool ReportCoplanarIntersection = false;
 

@@ -795,18 +795,17 @@ namespace g3
             return true;
         }
 
-        /// <summary>
-        /// The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
-        /// position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
-        /// orientation of the larger part by area (ties within a relative 1e-9: of its first triangle); mesh itself if
-        /// nothing changes.
-        /// Components that cannot be oriented (Moebius strips) are left as they are.
-        /// </summary>
-        /// <param name="mesh">the mesh</param>
-        /// <param name="pos">vertex position-equivalence class id per vertex id</param>
-        /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
-        /// <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
-        /// (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
+        //  <summary>
+        //  The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
+        //  position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
+        //  orientation of the larger part by area (ties within a relative 1e-9: of its first triangle); mesh itself if
+        //  nothing changes.
+        //  Components that cannot be oriented (Moebius strips) are left as they are.
+        //  </summary>
+        //  <param name="mesh">the mesh</param>
+        //  <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
+        //  <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
+        //  (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
         [MethodImpl(JitHints.Optimize)]
         static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped, out int flippedInClosed)
         {
@@ -2628,7 +2627,7 @@ namespace g3
         /// coordinate of the exact one (R's too); a quotient n / d with n, d computed within dn = e_x + e_R + u |n|,
         /// dd = e_x + e_R + u |d| is within (dn + |n / d| dd) / (|d| - dd) + u |n / d| of the exact one, and the projected
         /// boxes are widened by 1.01 times that. A segment's box and the query's box then contain the exact projections,
-        /// so a segment whose box misses the query's cannot meet the hull. A point with |d| &lt;= 2 dd invalidates the
+        /// so a segment whose box misses the query's cannot meet the hull. Where |d| &lt;= 2 dd, it invalidates the
         /// projection (never in practice: R is 4000 extents away), and then every segment is a candidate
         /// </summary>
         internal sealed class SegmentProjection
@@ -2799,7 +2798,7 @@ namespace g3
         /// - a component of n = d1 x d2 is within dn = 2 (ε1 M2 + M1 ε2) + 7 u m1 m2 of the exact normal's: two products,
         ///   each within ε1 M2 + M1 ε2 of the exact one, and the roundings of the two products and the subtraction;
         /// - so for a point x, n . x - n . a is within err(x) = (|x|_1 + |a|_1) (dn + 7e-16 |n|_1) of N . (X - A): the
-        ///   normal's error against |x - a|_1, the points' errors against |N|_1 &lt;= |n|_1 + 3 dn (e_x + e_a &lt;=
+        ///   normal's error against |x - a|_1, the points' error on |N|_1 &lt;= |n|_1 + 3 dn (e_x + e_a &lt;=
         ///   2.3e-16 (|x|_1 + |a|_1)), and the roundings of the two dot products and their difference (at most 4.5e-16
         ///   |n|_1 (|x|_1 + |a|_1)); dn's own share of the points' term is in the factor 1.01.
         /// A point is outside a face if n . x - n . a exceeds 1.01 err(x) plus the margin 1e-9 S |n|_1 kept from before (S
@@ -3727,7 +3726,7 @@ namespace g3
             /// L2: the centroid in the frame of its input triangle, from its corners there (each the exact difference to the
             /// frame's origin, rounded once: error at most LocalFrame.PointError per coordinate), and a bound of its absolute
             /// error per coordinate: the exact centroid is (A + B + C) / 3 (centroid_point), so a third of the corners'
-            /// bounds, plus the rounding of the two sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 &lt;=
+            /// bounds, plus the rounding of both sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 &lt;=
             /// u m (1 + 3u) for m the sum of the corners' magnitudes (u = 2^-53), taken as 1.2e-16 m. NaN where a corner is
             /// (tiny coordinates)
             /// </summary>

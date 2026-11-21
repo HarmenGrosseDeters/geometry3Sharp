@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 
 #if G3_USING_UNITY
