@@ -95,6 +95,7 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 - **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
 - **Input / mutability:** Read-only manifold triangle mesh (`DMesh3`); outputs a new `DPolyMesh` (with whole quad/polygon faces).
 - **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
+- **Example:** [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs)
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
 ### Pure-Quad Mode & I/O
@@ -115,10 +116,12 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ## Handle-Based Deformation
 
+- **Example:** [DeformationExample.cs](../examples/DeformationExample.cs)
+
 | Class | Energy / properties | Rotation invariance | Further reading |
 |---|---|---|---|
-| `gs.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
-| `gs.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
+| `g3.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
+| `g3.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
 | `g3.LaplacianMeshDeformer` | Basic uniform-weight Laplacian deformation via CG solve | No | — |
 
 Both `ArapMeshDeformer` and `BiharmonicMeshDeformer` report explicit `Status` and convergence residuals (`FixedPointResidual` / `StationarityResidual`).

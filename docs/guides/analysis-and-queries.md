@@ -6,8 +6,8 @@ This guide covers mesh measurements, 3D spatial trees and batch queries (`DMeshA
 
 ## Core Measurements & 3D Spatial Queries
 
-- **Namespace & classes:** `g3.MeshMeasurements`, `g3.MeshQueries`, `g3.DMeshAABBTree3`, `g3.PointHashGrid3d<T>`, `g3.PointAABBTree3`, `gs.MeshBatchQueries`
-- **Examples:** [MeasurementsExample.cs](../examples/MeasurementsExample.cs), [SpatialQueriesExample.cs](../examples/SpatialQueriesExample.cs), [PointQueriesExample.cs](../examples/PointQueriesExample.cs)
+- **Namespace & classes:** `g3.MeshMeasurements`, `g3.MeshQueries`, `g3.DMeshAABBTree3`, `g3.PointHashGrid3d<T>`, `g3.PointAABBTree3`, `g3.MeshBatchQueries`
+- **Examples:** [MeasurementsExample.cs](../examples/MeasurementsExample.cs), [SpatialQueriesExample.cs](../examples/SpatialQueriesExample.cs), [PointQueriesExample.cs](../examples/PointQueriesExample.cs), [BatchQueriesAndCcdExample.cs](../examples/BatchQueriesAndCcdExample.cs)
 - **Further reading:** [BATCH_QUERIES.md](../design/BATCH_QUERIES.md)
 
 ```csharp

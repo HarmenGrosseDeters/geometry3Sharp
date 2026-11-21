@@ -4,8 +4,8 @@ using g3;
 namespace g3.Examples
 {
     /// <summary>
-    /// Exact 2D Delaunay triangulation (DelaunayMesh2), constrained Delaunay (ConstrainedDelaunayMesh2),
-    /// and Ruppert/Shewchuk quality refinement (QualityMesh2) with holes, regions, and 2.5D DMesh3 export.
+    /// Exact 2D Delaunay triangulation (DelaunayMesh2) and Ruppert/Shewchuk quality refinement
+    /// (QualityMesh2) with holes, constraint segments, regions, and 2.5D DMesh3 export.
     /// </summary>
     public static class Meshing2DExample
     {

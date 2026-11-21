@@ -8,7 +8,7 @@ namespace g3.Examples
     /// </summary>
     public static class BatchQueriesAndCcdExample
     {
-        /// <summary> Runs batch ray-intersection and inside queries against a unit cube. </summary>
+        /// <summary> Runs batch ray-intersection and inside queries against a 2x2x2 cube centered at the origin. </summary>
         public static BatchStatus RunBatchQueries(out RayHit[] hits, out InsideStatus[] inside)
         {
             DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();

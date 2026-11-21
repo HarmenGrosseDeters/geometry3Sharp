@@ -612,7 +612,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ExactMeshImprint.ImprintStatus.Success, imprint.Status);
             Assert.True(imprint.RoundingClean);
             Assert.NotNull(imprint.Result);
-            Assert.True(imprint.Result.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(imprint.Result));
             Assert.NotEmpty(imprint.CurveEdges);
             Assert.Equal(8.0, Volume(imprint.Result), 9);
         }
@@ -626,6 +626,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshTetrahedralization.TetStatus.Success, tet.Status);
             Assert.NotNull(tet.Result);
             Assert.True(tet.Result.Tets.Count > 0);
+            Assert.Null(TetMeshQuality.NotValidReason(tet.Result));
             Assert.NotNull(markers);
             Assert.Equal(1, markers.RegionCount);
             Assert.Contains("$MeshFormat", mshText);
@@ -643,6 +644,13 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(roundTripped);
             Assert.Equal(qr.Result.FaceCount, roundTripped.FaceCount);
             Assert.Equal(qr.Result.VertexCount, roundTripped.VertexCount);
+            PolyMeshMetrics metrics = PolyMeshMetrics.Compute(roundTripped);
+            Assert.True(metrics.IsManifold);
+            Assert.Equal(0, metrics.BoundaryVertices);
+            for (int v = 0; v < roundTripped.VertexCount; ++v) {
+                Vector3d p = roundTripped.GetVertex(v);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+            }
             int quadCount = 0;
             for (int f = 0; f < roundTripped.FaceCount; ++f)
                 if (roundTripped.FaceVertexCount(f) == 4) ++quadCount;
@@ -662,14 +670,23 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(mesh3d);
             Assert.True(mesh3d.CheckValidity(false, FailMode.ReturnOnly));
             Assert.True(mesh3d.HasTriangleGroups);
+            var groups = new HashSet<int>();
             // 10x6 rectangle (60) minus 2x2 square hole (4) = 56 in XY projection
             double xyArea = 0;
             foreach (int tid in mesh3d.TriangleIndices()) {
+                groups.Add(mesh3d.GetTriangleGroup(tid));
                 Index3i t = mesh3d.GetTriangle(tid);
                 Vector3d a = mesh3d.GetVertex(t.a), b = mesh3d.GetVertex(t.b), c = mesh3d.GetVertex(t.c);
                 xyArea += 0.5 * Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
             }
+            Assert.Contains(1, groups);
+            Assert.Contains(2, groups);
             Assert.Equal(56.0, xyArea, 6);
+            foreach (int vid in mesh3d.VertexIndices()) {
+                Vector3d p = mesh3d.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+                Assert.Equal(p.x + p.y, p.z, 9);
+            }
         }
 
         [Fact]
@@ -736,15 +753,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(BiharmonicMeshDeformer.Status.Success, biharmonic.Status);
             Assert.NotNull(arap.Mesh);
             Assert.NotNull(biharmonic.Mesh);
-            // verify handles at x = 0 stay at z = 0 and handles at x = 6 reach z = 1
+            Assert.True(arap.Mesh.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.True(biharmonic.Mesh.CheckValidity(false, FailMode.ReturnOnly));
             foreach (int vid in arap.Mesh.VertexIndices()) {
                 Vector3d pa = arap.Mesh.GetVertex(vid);
                 Vector3d pb = biharmonic.Mesh.GetVertex(vid);
                 Assert.True(MathUtil.IsFinite(pa.x) && MathUtil.IsFinite(pa.y) && MathUtil.IsFinite(pa.z));
                 Assert.True(MathUtil.IsFinite(pb.x) && MathUtil.IsFinite(pb.y) && MathUtil.IsFinite(pb.z));
             }
-            Assert.InRange(arap.Mesh.GetVertex(6).z, 0.999999, 1.000001);
-            Assert.InRange(biharmonic.Mesh.GetVertex(6).z, 0.999999, 1.000001);
+            // verify all pinned handles at x = 0 stay at z = 0 and all lifted handles at x = 6 reach z = 1
+            foreach (int pinned in new[] { 0, 7, 14 }) {
+                Assert.InRange(arap.Mesh.GetVertex(pinned).z, -1e-6, 1e-6);
+                Assert.InRange(biharmonic.Mesh.GetVertex(pinned).z, -1e-6, 1e-6);
+            }
+            foreach (int lifted in new[] { 6, 13, 20 }) {
+                Assert.InRange(arap.Mesh.GetVertex(lifted).z, 0.999999, 1.000001);
+                Assert.InRange(biharmonic.Mesh.GetVertex(lifted).z, 0.999999, 1.000001);
+            }
         }
 
         [Fact]
@@ -800,13 +825,19 @@ namespace geometry3Sharp.Tests
             TerrainGridTin tin = TerrainToolsExample.GridToCertifiedTin(0.05);
             Assert.Equal(TerrainGridTinStatus.Ok, tin.Status);
             Assert.NotNull(tin.Result);
+            Assert.True(tin.Result.CheckValidity(false, FailMode.ReturnOnly));
+            foreach (int vid in tin.Result.VertexIndices()) {
+                Vector3d p = tin.Result.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+            }
             Assert.True(tin.SurfaceError <= 0.05 + 1e-12);
             Assert.True(tin.Result.TriangleCount < 16 * 16 * 2);
 
             TerrainCellVolumes cv = TerrainToolsExample.CellCutFillVolumes();
-            Assert.True(cv.TotalCutVolume > 0);
-            Assert.True(cv.TotalFillVolume > 0);
-            Assert.Equal(cv.TotalCutVolume, cv.TotalFillVolume, 9);
+            Assert.Equal(50.0, cv.TotalCutVolume, 9);
+            Assert.Equal(50.0, cv.TotalFillVolume, 9);
+            Assert.NotNull(cv.CutVolume);
+            Assert.NotNull(cv.FillVolume);
             Assert.Equal(0.0, cv.OutsideCutVolume, 9);
             Assert.Equal(0.0, cv.OutsideFillVolume, 9);
 

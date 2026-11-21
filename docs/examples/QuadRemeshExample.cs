@@ -25,9 +25,14 @@ namespace g3.Examples
             }
 
             using (var sw = new StringWriter()) {
-                PolyMeshIO.WriteOBJ(sw, qr.Result);
-                using (var sr = new StringReader(sw.ToString()))
-                    PolyMeshIO.ReadOBJ(sr, ReadOptions.Defaults, out roundTripped);
+                IOWriteResult wr = PolyMeshIO.WriteOBJ(sw, qr.Result);
+                if (wr.code != IOCode.Ok)
+                    throw new IOException($"WriteOBJ failed: {wr.code} {wr.message}");
+                using (var sr = new StringReader(sw.ToString())) {
+                    IOReadResult rr = PolyMeshIO.ReadOBJ(sr, ReadOptions.Defaults, out roundTripped);
+                    if (rr.code != IOCode.Ok)
+                        throw new IOException($"ReadOBJ failed: {rr.code} {rr.message}");
+                }
             }
             return qr;
         }

@@ -7,6 +7,7 @@ This guide covers exact 2D Delaunay and quality meshing (`DelaunayMesh2`, `Const
 ## 2D Delaunay & Constrained Delaunay Triangulation
 
 - **Namespace & classes:** `g3.DelaunayMesh2`, `g3.ConstrainedDelaunayMesh2`, `g3.TriangulationMesh2`, `g3.ConstrainedMesh2`
+- **Example:** [Meshing2DExample.cs](../examples/Meshing2DExample.cs)
 - **Input / mutability:** Read-only points, segments, rings, holes, and regions; produces a `TriangulationMesh2` / `ConstrainedMesh2` (and `ConstrainedMesh2.ToDMesh3()` for a 2.5D `DMesh3`).
 - **Guarantees & limits:** Uses exact orientation and in-circle predicates (`ExactPredicates`), producing a valid triangulation on the output `double` coordinates. Coordinates up to `1e70` are supported. Crossing segments are split (noding); intersection points are rounded to nearest `double` (so pieces can sit a few ULPs off the exact line), vertices within `2^-41 * max(|coord|, extent)` of a segment are snapped onto it, and only exact duplicate points are merged.
 - **Further reading:** [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md)

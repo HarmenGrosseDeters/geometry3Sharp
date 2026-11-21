@@ -11,7 +11,6 @@ namespace g3.Examples
     {
         sealed class BoxImplicit : BoundedImplicitFunction3d
         {
-            readonly AxisAlignedBox3d box = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
             public AxisAlignedBox3d Bounds() { return new AxisAlignedBox3d(new Vector3d(-1.5, -1.5, -1.5), new Vector3d(1.5, 1.5, 1.5)); }
             public double Value(ref Vector3d pt)
             {
@@ -22,7 +21,7 @@ namespace g3.Examples
             }
         }
 
-        /// <summary> Extracts a sharp-edged cube from its exact signed distance field using DualContouring. </summary>
+        /// <summary> Extracts a sharp-edged 2x2x2 cube from its exact signed distance field using DualContouring. </summary>
         public static DualContouring ContourSharpBox()
         {
             var implicitBox = new BoxImplicit();
@@ -38,7 +37,7 @@ namespace g3.Examples
         }
 
         /// <summary>
-        /// Computes a certified outward offset of a unit cube using MeshOffset (dual contouring of the exact
+        /// Computes a certified outward offset of a 2x2x2 cube using MeshOffset (dual contouring of the exact
         /// distance field with certified one-sided band deviation and exact self-intersection verification).
         /// </summary>
         public static MeshOffset CertifiedOffset(double distance)

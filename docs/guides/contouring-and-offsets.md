@@ -14,7 +14,7 @@ This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContour
 | Certified offset or inset of a closed, clean mesh | `gs.MeshOffset` | Dual contouring of exact distance field, proven band (`BandCertified`), sharp creases, exact self-intersection check |
 | Simple voxelized SDF offset of a mesh | `g3.MeshSignedDistanceGrid` + `g3.MarchingCubes` | Regular-grid offset ([OffsetSurfaceExample.cs](../examples/OffsetSurfaceExample.cs)); no certified enclosure |
 | Triangulated loft between two or more planar slice contours | `g3.ContourLoft`, `g3.ContourLoftStack` | Optimal triangulated bands, optional slope admissibility, branching/merging stacks, exact self-intersection check |
-| TPMS lattice (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) | `gs.TpmsLattice` | Sheet or skeletal solid in a box or closed mesh domain, graded/hybrid cells, certified clean |
+| TPMS lattice (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) | `g3.TpmsLattice` | Sheet or skeletal solid in a box or closed mesh domain, graded/hybrid cells, certified clean |
 
 ---
 

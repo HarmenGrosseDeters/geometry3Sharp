@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using g3;
 using gs;
@@ -11,7 +12,7 @@ namespace g3.Examples
     public static class AlphaWrapExample
     {
         /// <summary>
-        /// Wraps an open triangle soup (two overlapping open shells) into a closed, clean manifold surface.
+        /// Wraps an open triangle soup (a sphere with one cap removed) into a closed, clean manifold surface.
         /// RelativeAlpha sets detail (diagonal / 12) and RelativeOffset sets outward offset (diagonal / 200).
         /// </summary>
         public static DMesh3 WrapOpenSoup(out MeshAlphaWrap.WrapStatus status)
@@ -40,7 +41,8 @@ namespace g3.Examples
             DMesh3 outer = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(2, 2, 2)) }.Generate().MakeDMesh();
             DMesh3 bore = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 3)) }.Generate().MakeDMesh();
             var diff = new ExactMeshBoolean(outer, bore, ExactMeshBoolean.Operations.Difference);
-            diff.Compute();
+            if (!diff.Compute())
+                throw new InvalidOperationException($"ExactMeshBoolean difference failed: {diff.Status}");
 
             var pin = new PassagePin(new[] { new Vector3d(0, 0, -2.5), new Vector3d(0, 0, 2.5) }, radius: 0.35);
             var pw = new PassageWrap(diff.Result) {

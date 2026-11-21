@@ -33,7 +33,7 @@ namespace g3.Examples
             return loft.Compute(lower, upper);
         }
 
-        /// <summary> Lofts a 3-slice stack where one lower oval branches into two upper circles. </summary>
+        /// <summary> Lofts a 3-slice stack where one lower circle branches into two upper circles. </summary>
         public static ContourLoftStackResult LoftBranchingStack()
         {
             var slice0 = new List<IList<Vector3d>> { Circle(0, 0, 0, 3.0, 24) };

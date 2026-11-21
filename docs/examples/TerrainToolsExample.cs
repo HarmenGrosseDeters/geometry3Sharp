@@ -31,7 +31,7 @@ namespace g3.Examples
 
         /// <summary>
         /// Computes exact cut and fill volumes per cell of a 2x2 lattice between a flat ground at z = 10
-        /// and a modified terrain lowered to z = 8 on x &lt; 5 and raised to z = 11 on x &gt; 5.
+        /// and a linear ramp from z = 8 at x = 0 through z = 10 at x = 5 to z = 12 at x = 10.
         /// </summary>
         public static TerrainCellVolumes CellCutFillVolumes()
         {
