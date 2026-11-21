@@ -70,6 +70,19 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Boolean_ByNesting_OrientsByTheEnclosedSolid_AndCountsInsideOutOnRequest()
+        {
+            var (exit, r) = Run("boolean", m.Flipped, m.Cube, m.Path_("n.stl"), "--op", "union", "--orientation", "by_nesting", "--count-inside-out", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(39, I(r["boolean"]["reoriented_triangles"]));
+            Assert.Equal(0, I(r["boolean"]["inside_out_cells"]));
+            // not computed unless asked for
+            var (exit2, r2) = Run("boolean", m.Flipped, m.Cube, m.Path_("n2.stl"), "--op", "union", "--orientation", "by_nesting", "--compact");
+            Assert.Equal(0, exit2);
+            Assert.Null(r2["boolean"]["inside_out_cells"]);
+        }
+
+        [Fact]
         public void Boolean_Failure_CarriesTheStatusAndTheLibraryText()
         {
             var (exit, r) = Run("boolean", m.Open, m.Cube, m.Path_("f.stl"), "--op", "union", "--allow-open=false", "--compact");
