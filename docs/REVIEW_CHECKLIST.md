@@ -277,12 +277,12 @@ needs checking only when that condition holds for the diff; a bullet without it 
 ## 11. Compatibility and documentation (#92, #94)
 
 **Trigger:** a public type or member is added, removed or changed (`public` in a library file), `CompatibilitySuppressions.xml`, the result of an existing method changes, a new operation, a roadmap item changes status, or test code that runs on net48.
-<!-- trigger: path=CompatibilitySuppressions.xml docs/ROADMAP.md docs/roadmap/* docs/UPSTREAM_CHANGES.md docs/OPERATIONS.md; add=\.IsFinite|\bIsFinite\(; ladd=^\s*public\s|^\s*protected\s -->
+<!-- trigger: path=CompatibilitySuppressions.xml docs/ROADMAP.md docs/roadmap/* docs/UPSTREAM_CHANGES.md docs/OPERATIONS.md docs/guides/* docs/sources/*; add=\.IsFinite|\bIsFinite\(; ladd=^\s*public\s|^\s*protected\s -->
 
 - Public API unchanged against 1.0.324 (pack runs the package validation; an accepted break goes into
   `CompatibilitySuppressions.xml` with a reason).
 - A changed result of an existing method goes into [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
-- Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
+- Limits of a new operation are documented at the class, in the matching topic guide under `docs/guides/` (indexed in [OPERATIONS.md](OPERATIONS.md)); citations go into the matching [docs/sources/](sources/README.md) catalog; new design docs are listed in [docs/design/README.md](design/README.md); run `python3 tools/check_docs.py`.
 - *(when: a roadmap item starts, finishes or changes)* A PR that starts, finishes or changes a roadmap item updates it ([ROADMAP.md](ROADMAP.md) "Now" and the `docs/roadmap/` or
   `docs/design/` page of the item: status, date, PR numbers), see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 6.
 
