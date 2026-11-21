@@ -97,8 +97,10 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 - **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
-### Pure-Quad Mode & I/O
+### Size Adaptation, User Sizing & Pure-Quad Mode
 
+- **`SizeAdaptation` (opt-in: `Off`, `Scale`, `ScaleAndRotation`):** Solves `IntegrableFrames` for a smooth spacing field (and optional small cross-field rotation) that lowers lattice curl and cuts irregular vertices on curved surfaces. On open meshes, boundary rotations are eliminated from the normal equations and `IntegrableFrames.BoundarySpacingWeight` (default `0.05`) keeps boundary spacing bounded without changing closed meshes.
+- **`SizeFunction` (opt-in, default `null`):** Supplies a desired local edge length in mesh units (`Func<Vector3d, double>`, compatible with `RemeshSizing.FromWallThickness`). Solved through `IntegrableFrames` with weight `SizeWeight` (default `1.0`); when active, omits the mean-log-spacing = 0 gauge so absolute sizes are preserved and skips the `SizeAdaptationMinGain` curl gate. Invalid samples (`NaN`, `<= 0`, infinity) are ignored and counted in `IntegrableFrames.InvalidSizeSamples`. Cannot be combined with `PureQuads`.
 - **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction. Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
 - **Saving quad meshes:** Use `PolyMeshIO` to write `.obj` (4-vertex `f` lines) or `.ply` (ASCII/binary). Triangle-only formats (STL, OFF, 3MF, glTF) cannot store quads.
 

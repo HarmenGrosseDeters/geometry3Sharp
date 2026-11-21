@@ -100,8 +100,17 @@ namespace gs
         /// </summary>
         public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;       // not together with PureQuads (InvalidInput)
         /// <summary>
-        /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, ...); the remesher sets its Mesh, Field, TargetEdgeLength and
-        /// UseRotation (from SizeAdaptation) and computes it, so after Compute() it holds the spacing, the rotation and the curl
+        /// optional: desired local edge length in mesh units at each point (null = off; default output is bit-identical to without this option).
+        /// Solved through IntegrableFrames (see IntegrableFrames.SizeFunction; compatible with RemeshSizing.FromWallThickness).
+        /// Applied whenever IntegrableFrames succeeds with at least one valid sample (and SizeWeight &gt; 0), without requiring the
+        /// SizeAdaptationMinGain curl reduction. When SizeAdaptation is Off, solves for spacing only (no rotation); when SizeAdaptation is
+        /// ScaleAndRotation, also allows rotation. Cannot be combined with PureQuads (InvalidInput).
+        /// </summary>
+        public Func<Vector3d, double> SizeFunction;
+        /// <summary>
+        /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, BoundarySpacingWeight, SizeWeight, ...); the remesher sets
+        /// its Mesh, Field, TargetEdgeLength, UseRotation (from SizeAdaptation) and SizeFunction and computes it, so after Compute() it holds
+        /// the spacing, the rotation and the curl
         /// </summary>
         public IntegrableFrames Frames;
         /// <summary> the size field is applied only if the curl (IntegrableFrames.CurlAfter) is at most (1 - this) times CurlBefore </summary>
@@ -161,15 +170,18 @@ namespace gs
             sw.Restart();
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
-            if (SizeAdaptation != SizeAdaptationMode.Off) {
-                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
-                if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
+            if (SizeAdaptation != SizeAdaptationMode.Off || SizeFunction != null) {
+                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and SizeFunction cannot be combined with PureQuads (the pure-quad flow assumes a uniform spacing)");
+                if (SizeAdaptation != SizeAdaptationMode.Off && SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
                 IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
-                fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
+                fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength;
+                fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
+                fr.SizeFunction = SizeFunction;
                 if (fr.Compute() == IntegrableFramesStatus.InvalidInput) return Fail(QuadRemeshStatus.InvalidInput, fr.Error);
                 SizeSeconds = fr.Seconds;
                 CurlBefore = fr.CurlBefore; CurlAfter = fr.CurlAfter;
-                if (fr.Success && fr.CurlBefore > 0 && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore) {
+                bool apply = fr.Success && (fr.SizeTargetApplied || (SizeAdaptation != SizeAdaptationMode.Off && fr.CurlBefore > 0 && fr.CurlAfter <= (1 - SizeAdaptationMinGain) * fr.CurlBefore));
+                if (apply) {
                     pf.SpacingFactors = fr.Spacing; pf.RotationAngles = fr.Rotation;
                     SizeAdaptationApplied = true; MinSpacing = fr.MinSpacing; MaxSpacing = fr.MaxSpacing;
                 }

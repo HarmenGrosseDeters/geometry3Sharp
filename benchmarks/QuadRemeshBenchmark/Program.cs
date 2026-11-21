@@ -5,7 +5,7 @@
 // with the stage 2 gate numbers: quads %, faces above 6 sides (always 0: MaxFaceSides), irregular vertices against the field's
 // singularities, corner deviation p95, one-sided Hausdorff (output to input) over s, manifold, and the times of the stages.
 //
-//   dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [big=<n>] [align=<s>] [adapt=0|1|2] [digest=1]
+//   dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [big=<n>] [align=<s>] [adapt=0|1|2] [bndw=<x>] [digest=1]
 //
 // align is CrossField.CurvatureAlignment (default 0: the smoothest field); scale multiplies every s; serial=1 runs the position field without parallel loops; big=<n> adds a sphere of about n input vertices
 // (the speed gate: at most 5 s of position field and extraction per 100k input vertices on 4 cores).
@@ -97,12 +97,13 @@ static class Program
 
             var qr = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, Sweeps = sweeps, Parallel = !serial, Cleanup = cleanup, MismatchLimit = mm, MiddleRegularization = eps, SizeAdaptation = (SizeAdaptationMode)adapt };
             if (collapse >= 0) qr.CollapseLength = collapse;
-            if (adapt != 0 && (A.ContainsKey("iters") || A.ContainsKey("tol") || A.ContainsKey("maxratio") || A.ContainsKey("damp"))) {
+            if (adapt != 0 && (A.ContainsKey("iters") || A.ContainsKey("tol") || A.ContainsKey("maxratio") || A.ContainsKey("damp") || A.ContainsKey("bndw"))) {
                 var frames = new IntegrableFrames(null, null);
                 if (A.ContainsKey("iters")) frames.Iterations = int.Parse(A["iters"]);
                 if (A.ContainsKey("tol")) frames.StopTolerance = double.Parse(A["tol"], CultureInfo.InvariantCulture);
                 if (A.ContainsKey("maxratio")) frames.MaxSpacingRatio = double.Parse(A["maxratio"], CultureInfo.InvariantCulture);
                 if (A.ContainsKey("damp")) frames.Damping = double.Parse(A["damp"], CultureInfo.InvariantCulture);
+                if (A.ContainsKey("bndw")) frames.BoundarySpacingWeight = double.Parse(A["bndw"], CultureInfo.InvariantCulture);
                 qr.Frames = frames;
             }
             qr.Compute();
