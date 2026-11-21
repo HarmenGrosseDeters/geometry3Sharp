@@ -97,8 +97,9 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 - **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
-### Pure-Quad Mode & I/O
+### Sharp Features, Pure-Quad Mode & I/O
 
+- **`PreserveCreases` (opt-in, default `false`):** Treats interior sharp creases (dihedral angle above `CreaseAngleDegrees`, default `30°`) as lattice lines and crease corners/junctions as fixed lattice points in `PositionField` (and enables `CrossField.AlignCreases` automatically when `Field` is `null`), preserving sharp CAD edges and corners.
 - **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction. Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
 - **Saving quad meshes:** Use `PolyMeshIO` to write `.obj` (4-vertex `f` lines) or `.ply` (ASCII/binary). Triangle-only formats (STL, OFF, 3MF, glTF) cannot store quads.
 
