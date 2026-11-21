@@ -100,7 +100,7 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ### Pure-Quad Mode & I/O
 
-- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction. Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
+- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction (can be combined with `SizeAdaptation` for local spacing and frame rotation). Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
 - **Saving quad meshes:** Use `PolyMeshIO` to write `.obj` (4-vertex `f` lines) or `.ply` (ASCII/binary). Triangle-only formats (STL, OFF, 3MF, glTF) cannot store quads.
 
 ---

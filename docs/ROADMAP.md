@@ -98,7 +98,9 @@ the future" list, ordered by priority; this section names only what is in flight
   missed gates (irregular vertices 6 to 12 x the singularities, quads below 95 % on 4 of 8 shapes) recorded open; the irregular gate is restated
   relative to the curl of the field (owner 2026-11-19, [QUAD_REMESHING.md 4.5](design/QUAD_REMESHING.md)) and an opt-in size field (`SizeAdaptation`) halves
   the irregular vertices of closed smooth shapes; stage 3B (opt-in `QuadRemesher.PureQuads`, the
-  integer-map repair; fallback to the stage 2 mesh with a `PureQuadStatus`, #1153) is merged. `g3cli quad` and its MCP tool `quad` (OBJ / PLY output, `--pure-quads`,
+  integer-map repair; fallback to the stage 2 mesh with a `PureQuadStatus`, #1153) is merged. Follow-up stage 3B improvements (geometric sign
+  reference, cost-guided fixed-edge balancing, and `SizeAdaptation` support) lift `QuadFlow3BGate` from 25/54 to 43/54 uniform and 48/54 with
+  `ScaleAndRotation` (0 undetected bad). `g3cli quad` and its MCP tool `quad` (OBJ / PLY output, `--pure-quads`,
   fallback reported in the result, library defaults kept; the edge length has no library default, the CLI takes the larger of 1/30 of the diagonal and twice the mean edge) are done.
   [QUAD_REMESHING.md](design/QUAD_REMESHING.md)
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the

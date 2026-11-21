@@ -13,21 +13,23 @@ namespace gs
     ///
     /// Every triangle carries the three integer offsets of its edges in the lattice frame of its first vertex; the frames of
     /// neighbours differ by a quarter turn (the transition). A lattice that is regular needs the three offsets of every triangle to
-    /// sum to zero. The steps: (1) the offsets from the position field; (2) the equations "sum = 0" per triangle and component, with
-    /// the frame rotations absorbed by a breadth-first rotation of the equations, which makes every edge between two triangles a
-    /// +1 / -1 variable of a network (the edges whose cycle has a holonomy stay fixed variables, adjusted greedily so that every
-    /// connected component of the network is balanced); (3) the min-cost flow of the integer corrections (MinCostFlow, successive
-    /// shortest paths per source with early termination; Ahuja, Magnanti, Orlin, Network Flows, 9.7), with the capacity of the
-    /// variables growing from 2 by 2 until the flow is full; the unit cost of a step is the increase of |d - r| over the real
-    /// offset r of the position field (two tiers, +1), times 100 when the step grows |d| against the sign of r (the sign-aware
-    /// cost, it softens the orientation constraints of Bommes et al., "Integer-Grid Maps for Reliable Quad Meshing", TOG 32(4)
-    /// 2013); (4) the subdivision of every edge with |d|inf above 1 (largest first, by a priority queue with lazy invalidation, key
-    /// (|d|inf descending, triangle, slot)); (5) the greedy move of vertices that lowers the area of the inverted triangles; (6) the
-    /// local repair of the remaining inverted triangles by SAT over rings 1 to 6 of triangles around a seed (GroupSatSolver, the
-    /// implication encoding of the triangle constraints, a decision budget for the whole repair: counted, never timed); (7) the
-    /// position of one point per cluster of the d = 0 edges (least squares of the offsets, SparseCholesky) projected onto the
-    /// input; (8) the extraction: d = 0 edges collapse, the triangles are paired over their hypotenuses, pairs of triangles that
-    /// have the same three clusters (2-gons) cancel.
+    /// sum to zero. The steps: (1) the offsets from the position field (uniform or per-vertex spacing from SizeAdaptation); (2) the
+    /// equations "sum = 0" per triangle and component, with the frame rotations absorbed by a breadth-first rotation of the equations,
+    /// which makes every edge between two triangles a +1 / -1 variable of a network (the edges whose cycle has a holonomy stay fixed
+    /// variables, balanced greedily by lowest step cost so that every connected component of the network is balanced without piling
+    /// adjustments onto a single edge); (3) the min-cost flow of the integer corrections (MinCostFlow, successive shortest paths per
+    /// source with early termination; Ahuja, Magnanti, Orlin, Network Flows, 9.7), with the capacity of the variables growing from 2
+    /// by 2 until the flow is full; the unit cost of a step is the increase of |d - r| over the real offset r of the position field
+    /// (two tiers, +1), times 100 when the step grows |d| against the sign of the geometric edge projection in the averaged cross
+    /// frame (the sign-aware cost, it softens the orientation constraints of Bommes et al., "Integer-Grid Maps for Reliable Quad
+    /// Meshing", TOG 32(4) 2013, without being misled by near-zero smoothing noise on collapsed d = 0 edges); (4) the subdivision of
+    /// every edge with |d|inf above 1 (largest first, by a priority queue with lazy invalidation, key (|d|inf descending, triangle,
+    /// slot)); (5) the greedy move of vertices that lowers the area of the inverted triangles; (6) the local repair of the remaining
+    /// inverted triangles by SAT over rings 1 to 6 of triangles around a seed (GroupSatSolver, the implication encoding of the
+    /// triangle constraints, a decision budget for the whole repair: counted, never timed); (7) the position of one point per cluster
+    /// of the d = 0 edges (least squares of the local-spacing offsets, SparseCholesky) projected onto the input; (8) the extraction:
+    /// d = 0 edges collapse, the triangles are paired over their hypotenuses, pairs of triangles that have the same three clusters
+    /// (2-gons) cancel, and both unprojected and projected quad orientations are checked against the surface.
     ///
     /// The detection is exact: after the repair every offset is a small integer, det(D0, D1) of a triangle is an int, and the
     /// number of triangles with det &lt; 0 is InvertedTriangles; a map with such a triangle is not used. Deterministic: everything
@@ -62,19 +64,19 @@ namespace gs
         // the profile and counters of the last run (benchmarks, tests)
         public double SetupSeconds, FlowPrepSeconds, FlowNetSeconds, SubdivisionSeconds, GreedySeconds, SatSeconds, PositionSeconds, ExtractSeconds;
         public int Triangles, Splits, FlowArcs, FlowNodes, FlowCapacity, FlowSearches, SatAttempts, SatSolved, SatFailed, GreedyMoves, Cancelled, UnpairedTriangles, BadTriangles, Quads;
-        public long FlowSettled, SatDecisions;
+        public long FlowSettled, SatDecisions, BalancingWork;
         public bool SatBudgetExhausted;
 
         // ------------------------------------------------------------------------------------------ data
 
-        const double SignTolerance = 0;     // |r| above which a step against the sign of r is penalized
+        const double SignTolerance = 0;     // |rGeo| above which a step against the geometric edge direction is penalized
         const int SignPenaltyFactor = 100;
 
 
         readonly DMesh3 mesh; readonly CrossField cf; readonly PositionField pf; readonly double s;
         int maxV;
         Vector3d[] P, Nrm, Q, T;
-        int[] gA; Off[] dA; (double, double)[] rA;
+        int[] gA; Off[] dA; (double, double)[] rA, rGeoA;
         bool setupFailed;
 
         struct Off
@@ -98,6 +100,7 @@ namespace gs
         sealed class Tri
         {
             public (double, double)[] Dr = new (double, double)[3];
+            public (double, double)[] Dg = new (double, double)[3];
             public int[] V = new int[3];
             public Off[] D = new Off[3];        // slot s: vertex s -> s+1, in the frame of this triangle
             public int[] Nb = { -1, -1, -1 };   // neighbour across slot s
@@ -107,7 +110,9 @@ namespace gs
             public int Fa;                      // frame vertex (an original mesh vertex)
         }
 
-        sealed class Edge { public int F0, S0, F1 = -1, S1, M; public Off Dv; public (double, double) Rr; }
+        sealed class Edge { public int F0, S0, F1 = -1, S1, M; public Off Dv; public (double, double) Rr, Rg; }
+        struct BalMove { public int K, J, Dir, C0, C1, D0, D1; }
+        struct BalItem { public long Score, Gain; public int Move, Ver; }
 
         readonly List<Tri> tris = new List<Tri>();
         readonly List<Vector3d> VP = new List<Vector3d>(), VN = new List<Vector3d>();
@@ -172,16 +177,20 @@ namespace gs
 
         void BuildOffsets()
         {
-            maxV = mesh.MaxVertexID; gA = new int[mesh.MaxEdgeID]; dA = new Off[mesh.MaxEdgeID]; rA = new (double, double)[mesh.MaxEdgeID];
+            maxV = mesh.MaxVertexID; gA = new int[mesh.MaxEdgeID]; dA = new Off[mesh.MaxEdgeID]; rA = new (double, double)[mesh.MaxEdgeID]; rGeoA = new (double, double)[mesh.MaxEdgeID];
             P = new Vector3d[maxV]; Nrm = new Vector3d[maxV]; Q = new Vector3d[maxV]; T = new Vector3d[maxV];
             foreach (int v in mesh.VertexIndices()) {
                 if (!pf.HasPosition(v)) continue;
                 P[v] = mesh.GetVertex(v); Nrm[v] = cf.VertexNormal(v); Q[v] = pf.Orientation(v); T[v] = Nrm[v].Cross(Q[v]);
             }
+            double[] spc = pf.SpacingFactors;
             foreach (int e in mesh.EdgeIndices()) {
                 Index2i ev = mesh.GetEdgeV(e);
                 int u = Math.Min(ev.a, ev.b), v = Math.Max(ev.a, ev.b);
                 if (!pf.HasPosition(u) || !pf.HasPosition(v)) { setupFailed = true; return; }
+                double su = spc == null ? s : s * spc[u];
+                double sv = spc == null ? s : s * spc[v];
+                if (!(su > 0) || double.IsInfinity(su) || !(sv > 0) || double.IsInfinity(sv)) { setupFailed = true; return; }
                 Vector3d x = PositionField.MiddlePoint(P[u], Nrm[u], P[v], Nrm[v], pf.MiddleRegularization);
                 // the compatible representative of v's cross: b = R^m q_v
                 Vector3d tv = T[v];
@@ -192,19 +201,26 @@ namespace gs
                 Vector3d tb = Nrm[v].Cross(b);
                 Vector3d qi = Q[u], ti = T[u], oi = pf.Origin(u), oj = pf.Origin(v);
                 Vector3d d = x - oi;
-                double cq0 = Math.Round(qi.Dot(d) / s), ct0 = Math.Round(ti.Dot(d) / s);
+                double cq0 = Math.Round(qi.Dot(d) / su), ct0 = Math.Round(ti.Dot(d) / su);
                 if (!(Math.Abs(cq0) < 1e9) || !(Math.Abs(ct0) < 1e9)) { setupFailed = true; return; }
                 int kq0 = (int)cq0, kt0 = (int)ct0;
-                Vector3d a = oi + s * (kq0 * qi + kt0 * ti);
+                Vector3d a = oi + su * (kq0 * qi + kt0 * ti);
                 Vector3d d2 = a - oj;
-                double cq1 = Math.Round(b.Dot(d2) / s), ct1 = Math.Round(tb.Dot(d2) / s);
+                double cq1 = Math.Round(b.Dot(d2) / sv), ct1 = Math.Round(tb.Dot(d2) / sv);
                 if (!(Math.Abs(cq1) < 1e9) || !(Math.Abs(ct1) < 1e9)) { setupFailed = true; return; }
                 int kq1 = (int)cq1, kt1 = (int)ct1;
                 gA[e] = (4 - m) % 4;
                 dA[e] = new Off(kq0 - kq1, kt0 - kt1);
                 // the real offset: the coordinates of x relative to o_u minus those relative to o_v (in the compatible basis)
                 Vector3d dv = x - oj;
-                rA[e] = (qi.Dot(d) / s - b.Dot(dv) / s, ti.Dot(d) / s - tb.Dot(dv) / s);
+                double r0 = qi.Dot(d) / su - b.Dot(dv) / sv, r1 = ti.Dot(d) / su - tb.Dot(dv) / sv;
+                // the geometric edge vector (P[v] - P[u]) projected into the averaged compatible cross frame (sign reference for flow)
+                Vector3d ev3 = P[v] - P[u];
+                double g0 = 0.5 * (qi.Dot(ev3) / su + b.Dot(ev3) / sv), g1 = 0.5 * (ti.Dot(ev3) / su + tb.Dot(ev3) / sv);
+                if (double.IsNaN(r0) || double.IsInfinity(r0) || double.IsNaN(r1) || double.IsInfinity(r1)
+                    || double.IsNaN(g0) || double.IsInfinity(g0) || double.IsNaN(g1) || double.IsInfinity(g1)) { setupFailed = true; return; }
+                rA[e] = (r0, r1);
+                rGeoA[e] = (g0, g1);
             }
         }
 
@@ -213,6 +229,11 @@ namespace gs
         {
             if (u < w) return rA[e];
             var d = rA[e]; var r = RotD(d, -gA[e]); return (-r.Item1, -r.Item2);
+        }
+        (double, double) DirGeo(int u, int w, int e)
+        {
+            if (u < w) return rGeoA[e];
+            var d = rGeoA[e]; var r = RotD(d, -gA[e]); return (-r.Item1, -r.Item2);
         }
         int Ge(int u, int w, int e) { if (u == w) return 0; return u < w ? gA[e] : (4 - gA[e]) % 4; }
         Off Dire(int u, int w, int e) { if (u < w) return dA[e]; return -Off.Rot(dA[e], -gA[e]); }
@@ -231,6 +252,7 @@ namespace gs
                 tr.D[1] = Off.Rot(Dire(b, c, te.b), gab);
                 tr.D[2] = Off.Rot(Dire(c, a, te.c), gac);
                 tr.Dr[0] = DirRe(a, b, te.a); tr.Dr[1] = RotD(DirRe(b, c, te.b), gab); tr.Dr[2] = RotD(DirRe(c, a, te.c), gac);
+                tr.Dg[0] = DirGeo(a, b, te.a); tr.Dg[1] = RotD(DirGeo(b, c, te.b), gab); tr.Dg[2] = RotD(DirGeo(c, a, te.c), gac);
                 tidToF[t] = tris.Count;
                 tris.Add(tr);
             }
@@ -271,13 +293,20 @@ namespace gs
             }
         }
 
-        // integer cost of a unit step from a to b for the real value r: 100 * (|b - r| - |a - r| + 1), >= 0
-        static int MarginalCost(int a, int b, double r) { return (int)Math.Round(100 * (Math.Abs(b - r) - Math.Abs(a - r) + 1)); }
+        // integer cost of a unit step from a to b for the real value r: 100 * (|b - r| - |a - r| + 1), in [0, 200]
+        static int MarginalCost(int a, int b, double r)
+        {
+            if (double.IsNaN(r) || double.IsInfinity(r)) return 100;
+            double d = Math.Abs(b - r) - Math.Abs(a - r) + 1;
+            if (double.IsNaN(d) || double.IsInfinity(d) || d <= 0) return 0;
+            return d >= 2 ? 200 : (int)Math.Round(100 * d);
+        }
 
-        int StepCost(int a, int b, double r)
+        internal int StepCost(int a, int b, double r, double rGeo)
         {
             int c = MarginalCost(a, b, r);
-            if (SignPenalty && Math.Abs(b) > Math.Abs(a) && b * r < 0 && Math.Abs(r) > SignTolerance) c = (int)Math.Round((double)c * SignPenaltyFactor);
+            if (SignPenalty && Math.Abs(b) > Math.Abs(a) && b * rGeo < 0 && Math.Abs(rGeo) > SignTolerance)
+                c = Math.Max(c, 5) * SignPenaltyFactor;
             return c;
         }
 
@@ -293,7 +322,7 @@ namespace gs
                 for (int sl = 0; sl < 3; ++sl) {
                     int nb = tris[f].Nb[sl];
                     if (nb >= 0 && nb < f) continue;
-                    var e = new Edge { F0 = f, S0 = sl, Dv = tris[f].D[sl], Rr = tris[f].Dr[sl] };
+                    var e = new Edge { F0 = f, S0 = sl, Dv = tris[f].D[sl], Rr = tris[f].Dr[sl], Rg = tris[f].Dg[sl] };
                     if (nb >= 0) { e.F1 = nb; e.S1 = tris[f].NbS[sl]; e.M = tris[f].Rot[sl]; }
                     edges.Add(e);
                 }
@@ -331,9 +360,11 @@ namespace gs
                 if (e.F1 >= 0) ex[e.F1 * 3 + e.S1] = (e.M + 2 + rho[e.F1]) % 4;
             }
             var balanced = new bool[E];
+            var unbalEdges = new List<int>();
             for (int k = 0; k < E; ++k) {
                 var e = edges[k];
                 balanced[k] = e.F1 >= 0 && (((ex[e.F0 * 3 + e.S0] - ex[e.F1 * 3 + e.S1] - 2) % 4) + 4) % 4 == 0;
+                if (!balanced[k]) unbalEdges.Add(k);
             }
             // clamp the initial values to [-2, 2]
             const int H0 = 2;
@@ -372,34 +403,123 @@ namespace gs
             Recompute();
             long[] Bc = CompSums();
             long tot = 0; for (int i = 0; i < NN; ++i) tot += Math.Abs(Bc[i]);
-            // feasibility: B = 0 for every component; the fixed variables change greedily (the first that lowers the total imbalance)
+            // feasibility: B = 0 for every component; each round adjusts the lowest-cost unbalanced edge that lowers total imbalance.
+            // Precompute component incidence and maintain active improving moves in a lazy min-heap (exact-equivalent to full scan,
+            // O((U + tot) log U) because a move's gain only changes when an incident component's [-2, 2]-clamped sum changes).
             long work = 0;
-            for (int round = 0; round < 100000 && tot > 0 && work < GreedyWorkLimit; ++round) {
-                bool improved = false;
-                work += E;
-                for (int k = 0; k < E && !improved; ++k) {
-                    if (balanced[k]) continue;
+            if (tot > 0 && GreedyWorkLimit > 0 && unbalEdges.Count > 0) {
+                var moves = new List<BalMove>(unbalEdges.Count * 4);
+                for (int ui = 0; ui < unbalEdges.Count; ++ui) {
+                    int k = unbalEdges[ui];
                     var e = edges[k];
-                    for (int j = 0; j < 2 && !improved; ++j)
-                        for (int dir = -1; dir <= 1 && !improved; dir += 2) {
-                            RowOf(ex[e.F0 * 3 + e.S0], j, out int row0, out int sg0);
-                            int c0 = FindRoot(uf, 2 * e.F0 + row0); long d0 = sg0 * dir;
-                            int c1 = -1; long d1 = 0;
-                            if (e.F1 >= 0) { RowOf(ex[e.F1 * 3 + e.S1], j, out int row1, out int sg1); c1 = FindRoot(uf, 2 * e.F1 + row1); d1 = sg1 * dir; }
-                            long before, after;
-                            if (c1 == c0) { d0 += d1; c1 = -1; }
-                            before = Math.Abs(Bc[c0]); after = Math.Abs(Bc[c0] + d0);
-                            if (c1 >= 0) { before += Math.Abs(Bc[c1]); after += Math.Abs(Bc[c1] + d1); }
-                            if (after < before) {
-                                Bc[c0] += d0; if (c1 >= 0) Bc[c1] += d1;
-                                tot -= before - after;
-                                e.Dv = j == 0 ? new Off(e.Dv.X + dir, e.Dv.Y) : new Off(e.Dv.X, e.Dv.Y + dir);
-                                improved = true;
-                            }
-                        }
+                    for (int j = 0; j < 2; ++j) {
+                        RowOf(ex[e.F0 * 3 + e.S0], j, out int row0, out int sg0);
+                        int c0 = FindRoot(uf, 2 * e.F0 + row0), s0 = sg0;
+                        int c1 = -1, s1 = 0;
+                        if (e.F1 >= 0) { RowOf(ex[e.F1 * 3 + e.S1], j, out int row1, out int sg1); c1 = FindRoot(uf, 2 * e.F1 + row1); s1 = sg1; }
+                        if (c1 == c0) { s0 += s1; c1 = -1; s1 = 0; }
+                        if (s0 == 0 && c1 < 0) continue;
+                        moves.Add(new BalMove { K = k, J = j, Dir = -1, C0 = c0, C1 = c1, D0 = -s0, D1 = -s1 });
+                        moves.Add(new BalMove { K = k, J = j, Dir = 1, C0 = c0, C1 = c1, D0 = s0, D1 = s1 });
+                    }
                 }
-                if (!improved) break;
+                int M = moves.Count;
+                var compStart = new int[NN + 1];
+                for (int m = 0; m < M; ++m) { compStart[moves[m].C0 + 1]++; if (moves[m].C1 >= 0) compStart[moves[m].C1 + 1]++; }
+                for (int c = 0; c < NN; ++c) compStart[c + 1] += compStart[c];
+                var compList = new int[compStart[NN]];
+                var compFill = new int[NN];
+                for (int m = 0; m < M; ++m) {
+                    compList[compStart[moves[m].C0] + compFill[moves[m].C0]++] = m;
+                    if (moves[m].C1 >= 0) compList[compStart[moves[m].C1] + compFill[moves[m].C1]++] = m;
+                }
+                var ver = new int[M];
+                var heap = new List<BalItem>(M);
+                bool Better(BalItem a, BalItem b) => a.Score != b.Score ? a.Score < b.Score : (a.Gain != b.Gain ? a.Gain > b.Gain : a.Move < b.Move);
+                void HeapPush(BalItem x)
+                {
+                    int idx = heap.Count;
+                    heap.Add(x);
+                    while (idx > 0) {
+                        int p = (idx - 1) >> 1;
+                        if (!Better(x, heap[p])) break;
+                        heap[idx] = heap[p];
+                        idx = p;
+                    }
+                    heap[idx] = x;
+                }
+                BalItem HeapPop()
+                {
+                    BalItem top = heap[0];
+                    int last = heap.Count - 1;
+                    BalItem x = heap[last];
+                    heap.RemoveAt(last);
+                    if (last > 0) {
+                        int idx = 0;
+                        while (true) {
+                            int l = (idx << 1) + 1;
+                            if (l >= last) break;
+                            int r = l + 1;
+                            int best = (r < last && Better(heap[r], heap[l])) ? r : l;
+                            if (!Better(heap[best], x)) break;
+                            heap[idx] = heap[best];
+                            idx = best;
+                        }
+                        heap[idx] = x;
+                    }
+                    return top;
+                }
+                int Clamp2(long x) => x < -2 ? -2 : (x > 2 ? 2 : (int)x);
+                void PushMove(int m)
+                {
+                    BalMove mv = moves[m];
+                    long before = Math.Abs(Bc[mv.C0]), after = Math.Abs(Bc[mv.C0] + mv.D0);
+                    if (mv.C1 >= 0) { before += Math.Abs(Bc[mv.C1]); after += Math.Abs(Bc[mv.C1] + mv.D1); }
+                    if (after >= before) return;
+                    var e = edges[mv.K];
+                    int cur = mv.J == 0 ? e.Dv.X : e.Dv.Y;
+                    double r = mv.J == 0 ? e.Rr.Item1 : e.Rr.Item2;
+                    double rg = mv.J == 0 ? e.Rg.Item1 : e.Rg.Item2;
+                    int nxt = cur + mv.Dir;
+                    long sc = StepCost(cur, nxt, r, rg) + (Math.Abs(nxt) > 1 ? 1000000L * Math.Abs(nxt) : 0L);
+                    long gain = before - after;
+                    long normSc = (sc * 2) / gain;
+                    HeapPush(new BalItem { Score = normSc, Gain = gain, Move = m, Ver = ver[m] });
+                }
+                for (int m = 0; m < M && work < GreedyWorkLimit; ++m) { PushMove(m); work++; }
+                int rounds = 0;
+                while (rounds < 100000 && tot > 0 && heap.Count > 0 && work < GreedyWorkLimit) {
+                    BalItem top = HeapPop();
+                    work++;
+                    if (top.Ver != ver[top.Move]) continue;
+                    rounds++;
+                    BalMove mv = moves[top.Move];
+                    int oldS0 = Clamp2(Bc[mv.C0]), oldS1 = mv.C1 >= 0 ? Clamp2(Bc[mv.C1]) : 0;
+                    Bc[mv.C0] += mv.D0; if (mv.C1 >= 0) Bc[mv.C1] += mv.D1;
+                    tot -= top.Gain;
+                    var be = edges[mv.K];
+                    be.Dv = mv.J == 0 ? new Off(be.Dv.X + mv.Dir, be.Dv.Y) : new Off(be.Dv.X, be.Dv.Y + mv.Dir);
+                    int m0 = top.Move & ~1;
+                    ver[m0]++; PushMove(m0);
+                    ver[m0 + 1]++; PushMove(m0 + 1);
+                    work += 2;
+                    if (Clamp2(Bc[mv.C0]) != oldS0) {
+                        for (int p = compStart[mv.C0]; p < compStart[mv.C0 + 1]; ++p) {
+                            int im = compList[p];
+                            if ((im & ~1) == m0) continue;
+                            ver[im]++; PushMove(im); work++;
+                        }
+                    }
+                    if (mv.C1 >= 0 && Clamp2(Bc[mv.C1]) != oldS1) {
+                        for (int p = compStart[mv.C1]; p < compStart[mv.C1 + 1]; ++p) {
+                            int im = compList[p];
+                            if ((im & ~1) == m0) continue;
+                            ver[im]++; PushMove(im); work++;
+                        }
+                    }
+                }
             }
+            BalancingWork = work;
             if (tot > 0) {
                 // d = 0 on every fixed variable
                 for (int k = 0; k < E; ++k) if (!balanced[k]) edges[k].Dv = new Off(0, 0);
@@ -425,19 +545,20 @@ namespace gs
                         int v = j == 0 ? e.Dv.X : e.Dv.Y;
                         int capF = Math.Max(0, H - v), capB = Math.Max(0, H + v);
                         double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2;
+                        double rg = j == 0 ? e.Rg.Item1 : e.Rg.Item2;
                         int idx = 2 * k + j;
                         // one arc per run of unit steps of the same cost
                         int run = 0, pc = 0;
                         fF[idx] = net.ArcCount * 2; nF[idx] = 0;
                         for (int st = 1; st <= capF; ++st) {
-                            int c = StepCost(v + st - 1, v + st, r);
+                            int c = StepCost(v + st - 1, v + st, r, rg);
                             if (run > 0 && c == pc) run++; else { if (run > 0) { net.AddArc(tail, head, run, pc); nF[idx]++; } pc = c; run = 1; }
                         }
                         if (run > 0) { net.AddArc(tail, head, run, pc); nF[idx]++; }
                         run = 0;
                         fB[idx] = net.ArcCount * 2; nB[idx] = 0;
                         for (int st = 1; st <= capB; ++st) {
-                            int c = StepCost(v - st + 1, v - st, r);
+                            int c = StepCost(v - st + 1, v - st, r, rg);
                             if (run > 0 && c == pc) run++; else { if (run > 0) { net.AddArc(head, tail, run, pc); nB[idx]++; } pc = c; run = 1; }
                         }
                         if (run > 0) { net.AddArc(head, tail, run, pc); nB[idx]++; }
@@ -788,8 +909,9 @@ namespace gs
         // ------------------------------------------------------------------------------------------ step 7: positions
 
         /// <summary>
-        /// one 3D point per cluster of the d = 0 edges: least squares of P_b - P_a = s (dx q + dy t) over the other edges (the frame of
-        /// the first vertex of the triangle), with a weak anchor to the mean of the cluster's vertices
+        /// one 3D point per cluster of the d = 0 edges: least squares of P_b - P_a = sf * (dx q + dy t) over the other edges (the frame and
+        /// local spacing sf = s * spc[t.Fa] of the first vertex of the triangle, or s when uniform), with a weak anchor to the mean of the
+        /// cluster's vertices
         /// </summary>
         Vector3d[] SolvePositions()
         {
@@ -808,18 +930,27 @@ namespace gs
             for (int c = 0; c < nc; ++c) mean[c] /= cnt[c];
             var ch = new SparseCholesky(nc, 1); var rx = new double[nc]; var ry = new double[nc]; var rz = new double[nc];
             for (int c = 0; c < nc; ++c) { ch.Add(c, c, anchor); rx[c] += anchor * mean[c].x; ry[c] += anchor * mean[c].y; rz[c] += anchor * mean[c].z; }
-            foreach (var t in tris)
+            double[] spc = pf.SpacingFactors;
+            foreach (var t in tris) {
+                double sf = spc == null ? s : s * spc[t.Fa];
                 for (int sl = 0; sl < 3; ++sl) {
                     int a = cid[FindRoot(ufc, t.V[sl])], b = cid[FindRoot(ufc, t.V[(sl + 1) % 3])]; if (a == b) continue;
-                    Vector3d tg = s * (t.D[sl].X * Q[t.Fa] + t.D[sl].Y * T[t.Fa]);
+                    Vector3d tg = sf * (t.D[sl].X * Q[t.Fa] + t.D[sl].Y * T[t.Fa]);
                     ch.Add(a, a, 1); ch.Add(b, b, 1); if (a > b) ch.Add(a, b, -1); else ch.Add(b, a, -1);
                     rx[b] += tg.x; ry[b] += tg.y; rz[b] += tg.z; rx[a] -= tg.x; ry[a] -= tg.y; rz[a] -= tg.z;
                 }
+            }
             var pos = new Vector3d[nv];
             if (ch.Factorize()) {
                 var X = new double[nc]; var Y = new double[nc]; var Z = new double[nc];
                 ch.Solve(rx, X); ch.Solve(ry, Y); ch.Solve(rz, Z);
-                for (int i = 0; i < nv; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int c = cid[FindRoot(ufc, i)]; pos[i] = new Vector3d(X[c], Y[c], Z[c]); }
+                for (int i = 0; i < nv; ++i) {
+                    if (i < maxV && !mesh.IsVertex(i)) continue;
+                    int c = cid[FindRoot(ufc, i)];
+                    var p = new Vector3d(X[c], Y[c], Z[c]);
+                    if (!p.IsFinite) return null;
+                    pos[i] = p;
+                }
             } else return null;       // not expected (the matrix is positive definite)
             return pos;
         }
@@ -869,11 +1000,25 @@ namespace gs
             foreach (var key in hypKeys) {
                 var l = new List<(int a, int b, int c)>(hyp[key]);
                 if (PairQuad(l, ref Cancelled, out int A, out int B, out int C1, out int C2)) {
-                    outMesh.AppendFace(new List<int> { Vid(A), Vid(C2), Vid(B), Vid(C1) }, 0);
-                    // geometric check: the normal of the quad against the sum of the normals of its clusters
+                    int va = Vid(A), vc2 = Vid(C2), vb = Vid(B), vc1 = Vid(C1);
+                    outMesh.AppendFace(new List<int> { va, vc2, vb, vc1 }, 0);
+                    // geometric check (self-scaled by exact powers of two and NaN-safe): unprojected and projected quad normals against
+                    // cluster normals and the nearest input triangle (ignoring genuinely zero-area input triangles)
                     Vector3d pa = sum[A] / cnt[A], pc2 = sum[C2] / cnt[C2], pb = sum[B] / cnt[B], pc1 = sum[C1] / cnt[C1];
-                    Vector3d fn = (pb - pa).Cross(pc1 - pc2); Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
-                    Quads++; if (fn.Dot(sn) <= 0) FlippedQuads++;
+                    Vector3d fn = SafeCross(SafeDiff(pb, pa), SafeDiff(pc1, pc2));
+                    Vector3d sn = ScaleUnit(nsum[A] + nsum[B] + nsum[C1] + nsum[C2]);
+                    Vector3d qa = outMesh.GetVertex(va), qc2 = outMesh.GetVertex(vc2), qb = outMesh.GetVertex(vb), qc1 = outMesh.GetVertex(vc1);
+                    Vector3d pfn = SafeCross(SafeDiff(qb, qa), SafeDiff(qc1, qc2));
+                    int ntMid = tree.FindNearestTriangle(0.25 * qa + 0.25 * qb + 0.25 * qc1 + 0.25 * qc2);
+                    bool nearFlip = ntMid < 0;
+                    if (!nearFlip) {
+                        Index3i tv = mesh.GetTriangle(ntMid);
+                        Vector3d ta = mesh.GetVertex(tv.a);
+                        Vector3d tn = SafeCross(SafeDiff(mesh.GetVertex(tv.b), ta), SafeDiff(mesh.GetVertex(tv.c), ta));
+                        if (!tn.IsFinite) nearFlip = true;
+                        else if (tn.x != 0 || tn.y != 0 || tn.z != 0) nearFlip = !(pfn.Dot(tn) > 0);
+                    }
+                    Quads++; if (!(fn.Dot(sn) > 0) || !(pfn.Dot(sn) > 0) || nearFlip) FlippedQuads++;
                 } else {
                     foreach (var tr in l) leftover.Add(new[] { tr.a, tr.b, tr.c });
                     UnpairedTriangles += l.Count;
@@ -883,6 +1028,26 @@ namespace gs
             // the second gate, on the extracted mesh
             Status = CheckExtracted(outMesh, BadTriangles, UnpairedTriangles, FlippedQuads);
             if (Status == PureQuadStatus.Success) Result = outMesh;
+        }
+
+        static Vector3d SafeDiff(Vector3d b, Vector3d a)
+        {
+            Vector3d d = b - a;
+            if (!d.IsFinite && a.IsFinite && b.IsFinite) d = 0.5 * b - 0.5 * a;
+            return d;
+        }
+
+        static Vector3d ScaleUnit(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return v;
+            int e = (int)Math.Floor(Math.Log(m, 2));
+            return new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
+        }
+
+        static Vector3d SafeCross(Vector3d a, Vector3d b)
+        {
+            return ScaleUnit(ScaleUnit(a).Cross(ScaleUnit(b)));
         }
 
         /// <summary>
@@ -901,12 +1066,14 @@ namespace gs
         }
 
         /// <summary>
-        /// the checks of the extracted mesh, in order: NotManifold (no face, an unpaired or malformed triangle, a face that is not a quad, a
-        /// non-manifold or inconsistently oriented edge or vertex), then FlippedFaces (a quad facing away from the surface); else Success
+        /// the checks of the extracted mesh, in order: NotManifold (no face, non-finite vertex, an unpaired or malformed triangle, a face that
+        /// is not a quad, a non-manifold or inconsistently oriented edge or vertex), then FlippedFaces (a quad facing away from the surface);
+        /// else Success
         /// </summary>
         internal static PureQuadStatus CheckExtracted(DPolyMesh mesh, int badTriangles, int unpairedTriangles, int flippedQuads)
         {
             if (mesh == null || mesh.FaceCount == 0 || badTriangles > 0 || unpairedTriangles > 0) return PureQuadStatus.NotManifold;
+            for (int v = 0; v < mesh.VertexCount; ++v) if (!mesh.GetVertex(v).IsFinite) return PureQuadStatus.NotManifold;
             PolyMeshMetrics m = PolyMeshMetrics.Compute(mesh);
             if (!m.IsManifold || m.QuadFraction < 1 || m.BoundaryVertices > 0) return PureQuadStatus.NotManifold;   // closed meshes only
             return flippedQuads > 0 ? PureQuadStatus.FlippedFaces : PureQuadStatus.Success;
