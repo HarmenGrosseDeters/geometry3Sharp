@@ -39,14 +39,16 @@ namespace g3
         readonly int N, B;
         readonly int[] aColPtr, aRow;
         readonly bool conj;
+        readonly CholeskyOrdering ordering;
 
         /// <summary>
         /// The analysis of the symmetric matrix with the lower triangle (original indices, by column, every diagonal entry
         /// present) given by aColPtr and aRow, ordered in blocks of blockSize unknowns.
         /// </summary>
-        public CholeskyAnalysis(int n, int blockSize, int[] aColPtr, int[] aRow, bool conjugateFlag)
+        public CholeskyAnalysis(int n, int blockSize, int[] aColPtr, int[] aRow, bool conjugateFlag,
+            CholeskyOrdering ordering = CholeskyOrdering.MinimumDegree)
         {
-            N = n; B = blockSize; this.aColPtr = aColPtr; this.aRow = aRow; conj = conjugateFlag;
+            N = n; B = blockSize; this.aColPtr = aColPtr; this.aRow = aRow; conj = conjugateFlag; this.ordering = ordering;
             order();
             permutedPattern();
             // postorder the elimination tree: same fill, but the columns of each subtree (and chains) are
@@ -68,6 +70,16 @@ namespace g3
         void order()
         {
             int nb = N / B;
+            if (ordering == CholeskyOrdering.NestedDissection) {
+                int[] ndOrder = CholeskyNestedDissection.Order(N, B, aColPtr, aRow);
+                Perm = new int[N]; IPerm = new int[N];
+                for (int k = 0; k < nb; ++k)
+                    for (int s = 0; s < B; ++s) {
+                        Perm[k * B + s] = ndOrder[k] * B + s;
+                        IPerm[ndOrder[k] * B + s] = k * B + s;
+                    }
+                return;
+            }
             // block adjacency without duplicates
             List<int>[] adj = new List<int>[nb];
             for (int i = 0; i < nb; ++i)
