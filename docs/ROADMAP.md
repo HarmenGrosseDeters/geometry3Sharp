@@ -99,7 +99,7 @@ the future" list, ordered by priority; this section names only what is in flight
   relative to the curl of the field (owner 2026-11-19, [QUAD_REMESHING.md 4.5](design/QUAD_REMESHING.md)) and an opt-in size field (`SizeAdaptation`) halves
   the irregular vertices of closed smooth shapes; stage 3B (opt-in `QuadRemesher.PureQuads`, the
   integer-map repair; fallback to the stage 2 mesh with a `PureQuadStatus`, #1153) is merged. `g3cli quad` and its MCP tool `quad` (OBJ / PLY output, `--pure-quads`,
-  fallback reported in the result, library defaults kept; the edge length has no library default, the CLI takes the larger of 1/30 of the diagonal and twice the mean edge) are done.
+  fallback reported in the result, library defaults kept; the edge length has no library default, the CLI takes the larger of 1/30 of the diagonal and twice the mean edge) are done. Stage 4 (opt-in `PositionField.PreserveCreases` / `QuadRemesher.PreserveCreases` with `CreaseAngleDegrees`, default `false` bit-identical; meets all sharp CAD feature gates on `sharp-box`, `sharp-cylinder`, `l-profile`, `gear`) is built ([QUAD_REMESHING.md 4.6](design/QUAD_REMESHING.md)).
   [QUAD_REMESHING.md](design/QUAD_REMESHING.md)
 - **Repair:** FinishHoles coverage merged (#1069); `PullPinchPoints` stays opt-in (#1045, owner 2026-11-17); the
   scale-free repair study (hard problem 9, #1095) is merged: no-go for a larger effort. Owner 2026-11-17: F1 go, done (#1101,

@@ -9,7 +9,7 @@ namespace gs
     public enum QuadRemeshStatus
     {
         Success = 0,
-        /// <summary> no mesh, or a TargetEdgeLength that is not positive and finite </summary>
+        /// <summary> no mesh, a TargetEdgeLength that is not positive and finite, invalid CreaseAngleDegrees, or incompatible options </summary>
         InvalidInput = 1,
         /// <summary> the cross field failed (see FieldStatus: InvalidMesh, NotManifold, SolverFailed) </summary>
         FieldFailed = 2,
@@ -59,12 +59,13 @@ namespace gs
     /// mesh), neighbours with lattice points one step apart become an edge of the polygon graph, and the faces are traced in the
     /// tangent planes. See Cleanup for the repairs that follow.
     ///
-    /// Input: a manifold triangle mesh (open boundaries are lattice constraints, see PositionField) and TargetEdgeLength, the
-    /// edge length of the quads. Field: a CrossField of the mesh that was computed successfully; if null, the smoothest field
-    /// (default settings) is computed. The mesh is not modified. Result: a DPolyMesh (outward as the input's orientation; vertices
-    /// are on the tangent planes of the input, not projected). Deterministic: the same input gives the same output bit for bit,
-    /// serial or parallel; power of two scalings of the mesh and of TargetEdgeLength give the same polygon mesh up to the scaling.
-    /// Compute() can be called again.
+    /// Input: a manifold triangle mesh (open boundaries — and, when PreserveCreases is true, sharp interior creases above
+    /// CreaseAngleDegrees — are lattice constraints, see PositionField) and TargetEdgeLength, the edge length of the quads.
+    /// Field: a CrossField of the mesh that was computed successfully; if null, the smoothest field (default settings, with
+    /// AlignCreases enabled when PreserveCreases is true) is computed. The mesh is not modified. Result: a DPolyMesh (outward as
+    /// the input's orientation; vertices are on the tangent planes of the input, not projected). Deterministic: the same input
+    /// gives the same output bit for bit, serial or parallel; power of two scalings of the mesh and of TargetEdgeLength give the
+    /// same polygon mesh up to the scaling. Compute() can be called again.
     ///
     /// Pure quads (opt-in, PureQuads = true): after the extraction the integer offsets of the position field are repaired (a flow
     /// for the regularity, subdivision, local SAT; QuadFlowRepair, QUAD_REMESHING.md stage 3B) and a mesh of quads only is
@@ -89,6 +90,15 @@ namespace gs
         public double MismatchLimit = 0.5;
         /// <summary> see PositionField.MiddleRegularization </summary>
         public double MiddleRegularization = 0.05;
+        /// <summary>
+        /// optional (default false: bit-identical to without this option): preserve sharp creases (dihedral angle above
+        /// CreaseAngleDegrees) as quad edges and corners. When Field is null, enables CrossField.AlignCreases with CreaseAngleDegrees;
+        /// forwards PreserveCreases and CreaseAngleDegrees to PositionField so crease curves become lattice lines and crease corners
+        /// become fixed lattice points.
+        /// </summary>
+        public bool PreserveCreases = false;
+        /// <summary> dihedral angle threshold in degrees for detecting sharp creases when PreserveCreases is true (must be in [0, 180]) </summary>
+        public double CreaseAngleDegrees = 30;
 
         /// <summary>
         /// Off (default): the quads have the edge length TargetEdgeLength everywhere. Scale or ScaleAndRotation: a size field (and a rotation
@@ -150,17 +160,27 @@ namespace gs
         public QuadRemeshStatus Compute()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+            FieldSeconds = PositionSeconds = ExtractSeconds = 0; CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
             PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
-            FieldSeconds = PositionSeconds = ExtractSeconds = 0;
+            if (!(CreaseAngleDegrees >= 0 && CreaseAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CreaseAngleDegrees must be in [0, 180]");
             var sw = System.Diagnostics.Stopwatch.StartNew();
             CrossField cf = Field;
-            if (cf == null) { cf = new CrossField(Mesh); cf.Compute(); FieldSeconds = sw.Elapsed.TotalSeconds; }
+            if (cf == null) {
+                cf = new CrossField(Mesh);
+                if (PreserveCreases) { cf.AlignCreases = true; cf.CreaseAngleDegrees = CreaseAngleDegrees; }
+                cf.Compute();
+                FieldSeconds = sw.Elapsed.TotalSeconds;
+            }
             sw.Restart();
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
-            var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
+            var pf = new PositionField(Mesh, cf) {
+                TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel,
+                MiddleRegularization = MiddleRegularization, PreserveCreases = PreserveCreases,
+                CreaseAngleDegrees = CreaseAngleDegrees, ChunkSize = ChunkSize
+            };
             if (SizeAdaptation != SizeAdaptationMode.Off) {
                 if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
                 if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
@@ -200,7 +220,7 @@ namespace gs
             public List<Vector3d> Pos = new List<Vector3d>();
             public List<Vector3d> Nrm = new List<Vector3d>();
             public List<List<int>> Adj = new List<List<int>>();
-            public List<byte> Kind = new List<byte>();      // 0 interior, 1 boundary, 2 corner of the boundary
+            public List<byte> Kind = new List<byte>();      // 0 interior, 1 boundary or crease, 2 corner
             public List<double> Spc = new List<double>();   // the lattice spacing factor of the vertex (1: uniform spacing; the size field of SizeAdaptation)
             public int Add(Vector3d p, Vector3d n, byte kind) { Pos.Add(p); Nrm.Add(n); Adj.Add(new List<int>()); Kind.Add(kind); Spc.Add(1.0); return Pos.Count - 1; }
             public bool Has(int a, int b) { return Adj[a].Contains(b); }
@@ -239,11 +259,12 @@ namespace gs
                     if (pass == 0) {
                         if (id[r] < 0) { id[r] = sumP.Count; sumP.Add(Vector3d.Zero); sumN.Add(Vector3d.Zero); cnt.Add(0); kinds.Add(0); sumSpc.Add(0); }
                         int c0 = id[r];
-                        sumN[c0] += L.Nrm[i];
+                        if (!PreserveCreases) sumN[c0] += L.Nrm[i];
                         if (L.Kind[i] > kinds[c0]) kinds[c0] = L.Kind[i];
                     } else {
                         int c = id[r];
                         if (L.Kind[i] != kinds[c]) continue;
+                        if (PreserveCreases) sumN[c] += L.Nrm[i];
                         sumP[c] += pf.Origins[i]; cnt[c]++; sumSpc[c] += L.Sc == null ? 1.0 : L.Sc[i];
                     }
                 }
@@ -257,7 +278,7 @@ namespace gs
                 if (a != b) g.Link(a, b);
             }
             CollapsedEdges = 0; RemovedValence2 = 0;
-            if (Cleanup) CleanupGraph(g, pf.TargetEdgeLength, CollapseLength, out CollapsedEdges, out RemovedValence2);
+            if (Cleanup) CleanupGraph(g, pf.TargetEdgeLength, CollapseLength, out CollapsedEdges, out RemovedValence2, PreserveCreases);
             int dropped;
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
             DroppedFaces = dropped;
@@ -295,7 +316,7 @@ namespace gs
         // The paper's cleanup: collapse of near-coincident points (edges shorter than CollapseLength s, shortest first; a corner
         // of the boundary keeps its position), removal of valence 2 vertices that are not on the boundary (the two edges become
         // one), and the dangling edges that these leave; repeated while something changes.
-        internal static void CleanupGraph(PolyGraph g, double s, double collapseLength, out int collapsedEdges, out int removedValence2)
+        internal static void CleanupGraph(PolyGraph g, double s, double collapseLength, out int collapsedEdges, out int removedValence2, bool preserveCreases = false)
         {
             collapsedEdges = 0; removedValence2 = 0;
             double lim0 = collapseLength * s;       // the limit is relative to the local spacing (a factor 1 without a size field)
@@ -311,11 +332,13 @@ namespace gs
                     if (!g.Has(a, b) || (g.Pos[a] - g.Pos[b]).Length >= lim0 * Math.Min(g.Spc[a], g.Spc[b])) continue;
                     if (g.Kind[a] == 2 && g.Kind[b] == 2) continue;
                     if (g.Kind[b] > g.Kind[a]) { int t = a; a = b; b = t; }
-                    // the vertex of the higher kind keeps its place (a boundary vertex stays on its lattice line, a corner on its point)
+                    // the vertex of the higher kind keeps its place (a boundary/crease vertex stays on its lattice line, a corner on its point)
                     Vector3d p = g.Kind[a] > g.Kind[b] ? g.Pos[a] : 0.5 * (g.Pos[a] + g.Pos[b]);
                     g.Pos[a] = p;
                     g.Spc[a] = 0.5 * (g.Spc[a] + g.Spc[b]);
-                    Vector3d nn = g.Nrm[a] + g.Nrm[b]; double nl = nn.Length; if (nl > 0) g.Nrm[a] = nn / nl;
+                    if (!(preserveCreases && g.Kind[a] > g.Kind[b])) {
+                        Vector3d nn = g.Nrm[a] + g.Nrm[b]; double nl = nn.Length; if (nl > 0) g.Nrm[a] = nn / nl;
+                    }
                     foreach (int x in g.Adj[b].ToArray()) { g.Unlink(b, x); if (x != a) g.Link(a, x); }
                     collapsedEdges++; changed = true;
                 }

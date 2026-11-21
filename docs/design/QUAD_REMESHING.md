@@ -534,6 +534,24 @@ field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOf
 
 Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
 
+### 4.6 Stage 4 built (2026-11-21): sharp feature / crease preservation, opt-in
+
+Built as `PositionField.PreserveCreases` and `QuadRemesher.PreserveCreases` (default `false`: output is bit for bit identical to without the option) with `CreaseAngleDegrees` (default `30`):
+
+- **Detection & classification (`PositionField.BuildFinest`):** interior sharp edges above `CreaseAngleDegrees` from `MeshTopology.CreaseEdges` (matching `CrossField.AlignCreases`) are marked as feature edges alongside boundary edges. Smooth crease vertices (crease degree 2, turn `<= CornerAngleDegrees`, not on an open boundary) get `Kind = 1` (lattice line along the crease tangent `D`, perpendicular removed via `Cb = N x D`); crease junctions (degree != 2), sharp crease corners (turn `> CornerAngleDegrees`), and boundary-crease junctions get `Kind = 2` (fixed lattice points).
+- **Hierarchy & extraction:** in `Coarsen()`, `Kind = 1` vertices merge only along feature edges (`AB`) and `Kind = 2` corners never merge. During prolongation, `Kind = 1` vertices project onto `Cb` as well as `N`. In `QuadRemesher.Extract`, crease/corner clusters take both position and normal from their highest-kind members (so interior faces do not skew crease vertex normals in `BuildFaces`), and `CleanupGraph` keeps higher-kind corner and crease positions and normals fixed against interior collapses. When `QuadRemesher.Field` is `null` and `PreserveCreases` is `true`, `CrossField` is computed with `AlignCreases = true` and `CreaseAngleDegrees`.
+
+Measured against the stage 4 feature gates (`> 95 %` feature length coverage within `0.1 s` and `10 deg`, feature angle p95 `<= 10 deg`, feature Hausdorff `<= 0.1 s`, manifold) via `dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- sharp=1 creases=0|1` (net10.0 Release; procedural CAD shapes isotropically remeshed at `h = 0.5 s` with `PreventNormalFlips = true, MinTriangleQuality = 0.2, PreserveBoundaryAndFeatures`):
+
+| shape | s | creases=0: cov % / ang p95 / feat Haus / surf Haus / quads % | creases=1: cov % / ang p95 / feat Haus / surf Haus / quads % | manifold |
+|---|---|---|---|---|
+| sharp-box | 0.1 | 1.4 / 22.8 / 0.565 s / 0.40 s / 97.3 | **100.0 / 0.0 / 0.000 s / 0.03 s / 99.5** | yes |
+| sharp-cylinder | 0.1 | 14.6 / 21.9 / 0.505 s / 0.30 s / 92.9 | **99.5 / 1.7 / 0.052 s / 0.08 s / 92.3** | yes |
+| l-profile | 0.08 | 57.1 / 2.4 / 0.520 s / 0.31 s / 95.9 | **100.0 / 0.0 / 0.000 s / 0.02 s / 98.5** | yes |
+| gear | 0.06 | 17.4 / 6.6 / 0.596 s / 0.42 s / 91.7 | **100.0 / 0.0 / 0.000 s / 0.04 s / 91.8** | yes |
+
+All four shapes meet every stage 4 gate at both `scale=1` and `scale=0.5` (`sharp-box` 100.0 % / 0.0 deg / 0.000 s; `sharp-cylinder` 99.2 % / 1.3 deg / 0.049 s; `l-profile` 100.0 % / 0.0 deg / 0.010 s; `gear` 100.0 % / 0.0 deg / 0.000 s, 95.2 % quads). Tests: `QuadCreasePreservationTests` (all four CAD shapes, exact 8 box corners, 120-deg sharp ridge prism, open L-bent sheet with boundary-crease junctions, degree-1 endpoint / degree-2 sharp turn / degree-4 junction classification, `PositionField` multi-level zero-sweep constraint check, explicit `Field`, threshold/smooth bit-identity, `SizeAdaptation` `Scale` and `ScaleAndRotation` composition with `SizeAdaptationApplied == true`, `Similarity.All()`, determinism, reuse).
+
 ## 5. Limits and recommendation
 
 Limits:
