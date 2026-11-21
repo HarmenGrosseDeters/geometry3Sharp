@@ -113,11 +113,28 @@ namespace gs
         /// <summary> MeshRobustRepair.NotCleanReason of the returned mesh (self-intersection check on): "" if clean </summary>
         public string NotCleanReason = "";
         /// <summary>
+        /// only with NotCleanReason "self-intersections" (0 otherwise, nothing is computed): the triangles of the returned mesh
+        /// that cross another triangle beyond what they share, exact (the set of CrossingTriangles over all vertices; vertices at
+        /// one position count as one: a touch at a contact is not a crossing, a triangle that passes through another one is).
+        /// Conservative in two cases of touching, which count as crossings: coincident, oppositely oriented triangles of a face
+        /// contact without welded vertices (three shared positions, the far corners coincide), and a touch at a vertex or an
+        /// edge without a duplicated vertex (eg a box standing on the face of another one). So the count is an upper bound of
+        /// the true crossings and 0 means there is none. NotCleanReason reports degenerate triangles before self-intersections,
+        /// so none is degenerate here
+        /// </summary>
+        public int SelfIntersectingTriangles;
+        /// <summary>
+        /// true if NotCleanReason is "self-intersections" only because of contacts: ContactsResult &gt; 0 and
+        /// SelfIntersectingTriangles == 0 (no triangle crosses another beyond what they share, with the two conservative cases of SelfIntersectingTriangles counted as crossings). False if the result is clean,
+        /// has another NotCleanReason, or has a real crossing (a crossing next to a contact is told from a contact alone by this)
+        /// </summary>
+        public bool OnlyContacts;
+        /// <summary>
         /// the returned mesh is clean (NotCleanReason == ""). A result with contacts is valid (manifold, with duplicated
         /// vertices where the solids touch) but NotCleanReason reports it as "self-intersections" at the touching points:
-        /// with ContactsResult &gt; 0 look at that count before treating "self-intersections" as a defect (it is the last check of
-        /// NotCleanReason, so closed, bowties, degenerate triangles and orientation have passed; a real self-intersection
-        /// next to a contact is not told apart). An empty result is Status Success with NotCleanReason "empty" and Clean false
+        /// with ContactsResult &gt; 0 look at OnlyContacts and SelfIntersectingTriangles before treating "self-intersections" as a
+        /// defect (it is the last check of NotCleanReason, so closed, bowties, degenerate triangles and orientation have passed;
+        /// OnlyContacts tells a contact alone from a real crossing, with or without a contact next to it). An empty result is Status Success with NotCleanReason "empty" and Clean false
         /// </summary>
         public bool Clean { get { return NotCleanReason.Length == 0; } }
         /// <summary> why the reduction stopped (see SolidBooleanStopReason) </summary>
@@ -154,6 +171,15 @@ namespace gs
                 BlockedByGuard = BlockedByGuard, BlockedByDeviation = BlockedByDeviation, BlockedByQuality = BlockedByQuality,
                 BlockedByTopology = BlockedByTopology, BlockedAtContacts = BlockedAtContacts
             };
+        }
+
+        // the four fields of the final check (FinalCheck), taken over from the report of another check
+        internal void SetFinalCheck(SolidBooleanReport from)
+        {
+            ContactsResult = from.ContactsResult;
+            NotCleanReason = from.NotCleanReason;
+            SelfIntersectingTriangles = from.SelfIntersectingTriangles;
+            OnlyContacts = from.OnlyContacts;
         }
 
         internal void SetReductionState(SolidBooleanReport s)
@@ -575,8 +601,7 @@ namespace gs
             // 4. the final check
             clock.Restart();
             Report.ResultTriangles = result.TriangleCount;
-            Report.ContactsResult = countContacts(result, null);
-            Report.NotCleanReason = MeshRobustRepair.NotCleanReason(result);
+            FinalCheck(result, Report);
             Report.FinalCheckMilliseconds = clock.ElapsedMilliseconds;
 
             // 5. Auto: a result that keeps contacts and is not clean is reduced a second time with pairing
@@ -591,15 +616,14 @@ namespace gs
                 if (Cancellation.IsCancellationRequested)
                     return fail(PipelineStatus.Cancelled, "cancelled", total);
                 DMesh3 paired = new DMesh3(spare, true);
-                int contacts2 = countContacts(paired, null);
-                string reason2 = MeshRobustRepair.NotCleanReason(paired);
-                if ((reason2.Length == 0 || reason2 == Report.NotCleanReason)
-                    && (paired.TriangleCount < result.TriangleCount || (paired.TriangleCount == result.TriangleCount && contacts2 < Report.ContactsResult))) {
+                var check2 = new SolidBooleanReport();
+                FinalCheck(paired, check2);
+                if ((check2.NotCleanReason.Length == 0 || check2.NotCleanReason == Report.NotCleanReason)
+                    && (paired.TriangleCount < result.TriangleCount || (paired.TriangleCount == result.TriangleCount && check2.ContactsResult < Report.ContactsResult))) {
                     result = paired;
                     Report.PairPassKept = true;
                     Report.ResultTriangles = paired.TriangleCount;
-                    Report.ContactsResult = contacts2;
-                    Report.NotCleanReason = reason2;
+                    Report.SetFinalCheck(check2);
                 } else
                     Report.SetReductionState(first);
                 Report.PairPassMilliseconds = clock.ElapsedMilliseconds;
@@ -609,6 +633,68 @@ namespace gs
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
+        }
+
+        /// <summary>
+        /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
+        /// at one position count as one (so a touch at a contact, a position with several vertices, is not a crossing, but a
+        /// triangle that passes through another one is; ExactTriangleIntersection.IntersectsBeyondShared, exact), or that are
+        /// degenerate, or that share a position with a degenerate triangle (conservative: IntersectsBeyondShared needs
+        /// non-degenerate triangles there). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
+        /// built (null: one is built)
+        /// </summary>
+        internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices, DMeshAABBTree3 tree = null, double pad = 0)
+        {
+            var canon = new Dictionary<Vector3d, int>();
+            Func<int, int> id = (v) => {
+                Vector3d p = mesh.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);
+                int c;
+                if (!canon.TryGetValue(key, out c))
+                    canon[key] = c = v;
+                return c;
+            };
+            if (tree == null)
+                tree = new DMeshAABBTree3(mesh, true);
+            var mine = new HashSet<int>();
+            foreach (int v in vertices)
+                foreach (int t in mesh.VtxTrianglesItr(v))
+                    mine.Add(t);
+            var crossing = new HashSet<int>();
+            foreach (int t in mine) {
+                var A = new Triangle3d();
+                mesh.GetTriVertices(t, ref A.V0, ref A.V1, ref A.V2);
+                if (ExactTriangleIntersection.IsDegenerate(ref A)) {
+                    crossing.Add(t);
+                    continue;
+                }
+                Index3i ta = mesh.GetTriangle(t);
+                var ia = new Index3i(id(ta.a), id(ta.b), id(ta.c));
+                var box = new AxisAlignedBox3d(A.V0);
+                box.Contain(A.V1); box.Contain(A.V2);
+                box.Expand(pad);
+                bool hit = false;
+                var trav = new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (b, depth) => !hit && b.Intersects(box),
+                    NextTriangleF = (u) => {
+                        if (hit || u == t)
+                            return;
+                        var B = new Triangle3d();
+                        mesh.GetTriVertices(u, ref B.V0, ref B.V1, ref B.V2);
+                        Index3i tb = mesh.GetTriangle(u);
+                        var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
+                        bool shares = ia.a == ib.a || ia.a == ib.b || ia.a == ib.c || ia.b == ib.a || ia.b == ib.b || ia.b == ib.c || ia.c == ib.a || ia.c == ib.b || ia.c == ib.c;
+                        if (shares && ExactTriangleIntersection.IsDegenerate(ref B))
+                            hit = true;     // (conservative: a degenerate neighbour cannot be judged by IntersectsBeyondShared)
+                        else if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
+                            hit = true;
+                    }
+                };
+                tree.DoTraversal(trav);
+                if (hit)
+                    crossing.Add(t);
+            }
+            return crossing;
         }
 
         // a normal positive power of two: its stored significand bits are all zero (a subnormal power of two has one of them
@@ -944,6 +1030,63 @@ namespace gs
                     return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// the final check of a result into the report: ContactsResult, NotCleanReason, and for "self-intersections" the exact
+        /// SelfIntersectingTriangles (CrossingTriangles over all vertices) and OnlyContacts; the three others are reset
+        /// </summary>
+        internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report)
+        {
+            report.ContactsResult = countContacts(mesh, null);
+            report.NotCleanReason = MeshRobustRepair.NotCleanReason(mesh);
+            report.SelfIntersectingTriangles = 0;
+            report.OnlyContacts = false;
+            if (report.NotCleanReason == "self-intersections") {
+                report.SelfIntersectingTriangles = CrossingTrianglesOfAll(mesh).Count;
+                report.OnlyContacts = report.ContactsResult > 0 && report.SelfIntersectingTriangles == 0;
+            }
+        }
+
+        /// <summary>
+        /// The same set as CrossingTriangles(mesh, all vertices) for a mesh without degenerate triangles (the final check has
+        /// passed those), at a cost proportional to the intersecting pairs instead of to every candidate pair of every triangle:
+        /// the intersecting pairs come from MeshRepairMetrics.SelfIntersectionPairs (exact, parallel, raw ids, a touch at
+        /// coincident positions included), and only those get the test with canonical ids (IntersectsBeyondShared, vertices at one
+        /// position count as one); a pair that intersects only at shared positions is a contact and counts for neither triangle.
+        /// A triangle that crosses another beyond what they share intersects it, so every such pair is among the candidates
+        /// </summary>
+        internal static HashSet<int> CrossingTrianglesOfAll(DMesh3 mesh)
+        {
+            var crossing = new HashSet<int>();
+            List<Index2i> pairs = MeshRepairMetrics.SelfIntersectionPairs(mesh);
+            if (pairs.Count == 0)
+                return crossing;
+            var canon = new Dictionary<Vector3d, int>();
+            Func<int, int> id = (v) => {
+                Vector3d p = mesh.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);
+                int c;
+                if (!canon.TryGetValue(key, out c))
+                    canon[key] = c = v;
+                return c;
+            };
+            foreach (Index2i pr in pairs) {
+                if (crossing.Contains(pr.a) && crossing.Contains(pr.b))
+                    continue;
+                var A = new Triangle3d();
+                var B = new Triangle3d();
+                mesh.GetTriVertices(pr.a, ref A.V0, ref A.V1, ref A.V2);
+                mesh.GetTriVertices(pr.b, ref B.V0, ref B.V1, ref B.V2);
+                Index3i ta = mesh.GetTriangle(pr.a), tb = mesh.GetTriangle(pr.b);
+                var ia = new Index3i(id(ta.a), id(ta.b), id(ta.c));
+                var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
+                if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) {
+                    crossing.Add(pr.a);
+                    crossing.Add(pr.b);
+                }
+            }
+            return crossing;
         }
 
         // the number of positions with two or more vertices (the vertices of those, if a set is given)
