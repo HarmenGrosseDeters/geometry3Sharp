@@ -34,9 +34,12 @@ namespace gs
     /// idea, no code; docs/SOURCES.md).
     ///
     /// Input: a successful CrossField of Mesh and TargetEdgeLength. Output: Spacing and Rotation per vertex id, for
-    /// PositionField.SpacingFactors / RotationAngles (QuadRemesher.SizeAdaptation does that). Boundary vertices keep rotation 0 and
-    /// the triangles at singularities are left out. Serial and deterministic: the same input gives the same output bit for bit; power of
-    /// two scalings of the mesh with the same scaling of TargetEdgeLength give the same output bit for bit. Compute() can be called again.
+    /// PositionField.SpacingFactors / RotationAngles (QuadRemesher.SizeAdaptation / SizeFunction do that). Boundary vertices keep
+    /// rotation 0 (eliminated from the normal equations), open-boundary spacing is regularized by BoundarySpacingWeight, and the
+    /// triangles at singularities are left out. An optional SizeFunction supplies desired local edge lengths (with weight SizeWeight;
+    /// when active, the mean-log-spacing = 0 gauge is omitted so the user's absolute scale is preserved). Serial and deterministic:
+    /// the same input gives the same output bit for bit; power of two scalings of the mesh with the same scaling of TargetEdgeLength
+    /// (and of SizeFunction) give the same output bit for bit. Compute() can be called again.
     /// </summary>
     public class IntegrableFrames
     {
@@ -60,6 +63,23 @@ namespace gs
         public double MaxRotationDegrees = 45;
         /// <summary> every step is clamped to [1 / MaxSpacingRatio, MaxSpacingRatio]; the shift to mean log spacing 0 can widen that, so the largest spacing is at most MaxSpacingRatio^2 times the smallest </summary>
         public double MaxSpacingRatio = 2.5;
+        /// <summary>
+        /// regularization weight pulling boundary vertices' log spacing toward 0 (uniform spacing 1) on open meshes, preventing
+        /// boundary quads from expanding to MaxSpacingRatio on curved open rims (eg sphere-cap). 0 disables it; has no effect on closed meshes
+        /// or on boundary vertices that have an explicit SizeFunction target.
+        /// </summary>
+        public double BoundarySpacingWeight = 0.05;
+        /// <summary>
+        /// optional: desired local edge length in mesh units at each vertex (null = off, uniform mean TargetEdgeLength).
+        /// Evaluated serially at each vertex with a field, so it need not be thread-safe (must be deterministic for a deterministic result).
+        /// Values that are NaN, not positive, or infinite mean "no size constraint at this vertex" and are counted in InvalidSizeSamples.
+        /// Valid values are converted to log(h / TargetEdgeLength), clamped to [-log(MaxSpacingRatio), log(MaxSpacingRatio)], and pulled
+        /// with weight SizeWeight. When at least one used vertex has a valid sample (and SizeWeight &gt; 0), the mean-log-spacing = 0 gauge
+        /// is omitted so the user's absolute sizing scale is preserved.
+        /// </summary>
+        public Func<Vector3d, double> SizeFunction;
+        /// <summary> weight of the user SizeFunction target term 0.5 * SizeWeight * (sigma_i - target_i)^2 per vertex with a valid sample (dimensionless; must be finite and &gt;= 0; 0 disables the target term) </summary>
+        public double SizeWeight = 1.0;
 
         // test hook: the first trial step is this multiple of the Gauss-Newton step (an overshoot that the backtracking has to halve)
         internal double InitialStepFactor = 1;
@@ -67,6 +87,8 @@ namespace gs
         internal bool ForceTwoUnknowns;
         // test hook: unknowns per vertex of the last Compute() (1: sigma only, 2: sigma and phi)
         internal int UnknownsPerVertex;
+        // true when SizeFunction had at least one valid sample on a used vertex and SizeWeight > 0
+        internal bool SizeTargetApplied;
 
         public IntegrableFramesStatus Status = IntegrableFramesStatus.Success;
         public string Error;
@@ -76,6 +98,8 @@ namespace gs
         public double CurlBefore, CurlAfter;
         /// <summary> triangles used, Gauss-Newton steps taken, the smallest and largest spacing factor </summary>
         public int TrianglesUsed, StepsTaken;
+        /// <summary> vertices with a field where SizeFunction returned a valid (positive, finite) or invalid (NaN, non-positive, infinite) value; both 0 when SizeFunction is null; reset by Compute() </summary>
+        public int ValidSizeSamples, InvalidSizeSamples;
         public double MinSpacing = 1, MaxSpacing = 1;
         /// <summary> the largest rotation in degrees </summary>
         public double MaxRotationUsedDegrees;
@@ -90,11 +114,13 @@ namespace gs
         public IntegrableFramesStatus Compute()
         {
             Status = IntegrableFramesStatus.Success; Error = null; Spacing = null; Rotation = null;
-            CurlBefore = CurlAfter = 0; UnknownsPerVertex = 0; TrianglesUsed = 0; StepsTaken = 0; MinSpacing = MaxSpacing = 1; MaxRotationUsedDegrees = 0; Seconds = 0;
+            CurlBefore = CurlAfter = 0; UnknownsPerVertex = 0; SizeTargetApplied = false; TrianglesUsed = 0; StepsTaken = 0; ValidSizeSamples = InvalidSizeSamples = 0; MinSpacing = MaxSpacing = 1; MaxRotationUsedDegrees = 0; Seconds = 0;
             if (Mesh == null || Field == null || !Field.Success) return Fail(IntegrableFramesStatus.InvalidInput, "a successful cross field is required");
             double s = TargetEdgeLength;
             if (!(s > 0) || double.IsInfinity(s)) return Fail(IntegrableFramesStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
-            if (Iterations < 1 || RefactorEvery < 1 || !(Damping > 0) || !(MaxRotationDegrees >= 0) || !(MaxSpacingRatio >= 1) || !(StopTolerance >= 0))
+            if (Iterations < 1 || RefactorEvery < 1 || !(Damping > 0) || double.IsInfinity(Damping) || !(MaxRotationDegrees >= 0) || double.IsInfinity(MaxRotationDegrees)
+                || !(MaxSpacingRatio >= 1) || double.IsInfinity(MaxSpacingRatio) || !(StopTolerance >= 0) || double.IsInfinity(StopTolerance)
+                || !(BoundarySpacingWeight >= 0) || double.IsInfinity(BoundarySpacingWeight) || !(SizeWeight >= 0) || double.IsInfinity(SizeWeight))
                 return Fail(IntegrableFramesStatus.InvalidInput, "invalid settings");
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -134,23 +160,49 @@ namespace gs
             }
             int m = tri.Count;
             TrianglesUsed = m;
-            var used = new bool[n]; int nUsed = 0;
-            foreach (int[] c in tri) foreach (int i in c) if (!used[i]) { used[i] = true; nUsed++; }
+            var used = new bool[n]; int nUsed = 0; int nUsedBnd = 0;
+            foreach (int[] c in tri) foreach (int i in c) if (!used[i]) { used[i] = true; nUsed++; if (bnd[i]) nUsedBnd++; }
             if (m == 0) return Fail(IntegrableFramesStatus.NoSolution, "no triangle without a singularity of the field");
 
             var sig = new double[n]; var phi = new double[n];
             double maxPhi = MaxRotationDegrees * Math.PI / 180, maxSig = Math.Log(MaxSpacingRatio);
             bool useRot = UseRotation && maxPhi > 0;
-            double cost = Cost(tri, edgeVec, sig, phi, useRot, out CurlBefore);
+
+            double[] targetSig = null; bool[] hasTarget = null;
+            int validUsedTargets = 0;
+            if (SizeFunction != null) {
+                targetSig = new double[n]; hasTarget = new bool[n];
+                for (int i = 0; i < n; ++i) {
+                    double h = SizeFunction(V[i]);
+                    if (h > 0 && !double.IsInfinity(h)) {
+                        targetSig[i] = Math.Max(-maxSig, Math.Min(maxSig, Math.Log(h / s)));
+                        hasTarget[i] = true;
+                        ValidSizeSamples++;
+                        if (used[i]) validUsedTargets++;
+                    } else InvalidSizeSamples++;
+                }
+            }
+            double ws = (hasTarget != null && validUsedTargets > 0) ? SizeWeight : 0;
+            SizeTargetApplied = ws > 0;
+            double wb = nUsedBnd > 0 ? BoundarySpacingWeight : 0;
+
+            // CurlBefore is always the curl of the uniform lattice at TargetEdgeLength (ws = 0 here so large SizeWeight cannot overflow before sig = targetSig)
+            double cost = Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, 0, useRot, out CurlBefore);
             CurlAfter = CurlBefore;
             if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the edge vectors are not finite in units of TargetEdgeLength"); }
+            if (ws > 0) {
+                for (int i = 0; i < n; ++i) if (hasTarget[i]) sig[i] = targetSig[i];
+                cost = Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
+                if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the sized edge vectors are not finite in units of TargetEdgeLength"); }
+            }
             // unknowns per vertex: sigma, and phi only if the rotation is solved for (a scale-only solve has no use for phi: half the unknowns)
             int u = useRot || ForceTwoUnknowns ? 2 : 1;
             UnknownsPerVertex = u;
-            SparseCholesky chol = null; bool refactor = true;
+            SparseCholesky chol = null; bool refactor = true; bool factorFailed = false;
+            double[] gaugeVec = null; double gaugeDenom = 0;
             var w = new Vector2d[m]; var B = new double[m][];
-            for (int step = 0; step < Iterations; ++step) {
-                Linearize(tri, edgeVec, sig, phi, useRot, w, B);
+            for (int step = 0; step < Iterations && cost > 0; ++step) {
+                Linearize(tri, edgeVec, sig, phi, bnd, useRot, w, B);
                 var rhs = new double[u * n];
                 for (int t = 0; t < m; ++t)
                     for (int k = 0; k < 3; ++k) {
@@ -158,6 +210,12 @@ namespace gs
                         rhs[u * v] -= b[4 * k + 0] * w[t].x + b[4 * k + 2] * w[t].y;
                         if (u == 2) rhs[2 * v + 1] -= b[4 * k + 1] * w[t].x + b[4 * k + 3] * w[t].y;
                     }
+                if (ws > 0)
+                    for (int i = 0; i < n; ++i)
+                        if (used[i] && hasTarget[i]) rhs[u * i] -= ws * (sig[i] - targetSig[i]);
+                if (wb > 0)
+                    for (int i = 0; i < n; ++i)
+                        if (used[i] && bnd[i] && (ws == 0 || !hasTarget[i])) rhs[u * i] -= wb * sig[i];
                 bool fresh = false;
                 if (chol == null || refactor) {
                     fresh = true;
@@ -172,14 +230,51 @@ namespace gs
                                         chol.Add(u * tri[t][k] + ca, u * tri[t][l] + cb, b[4 * k + ca] * b[4 * l + cb] + b[4 * k + 2 + ca] * b[4 * l + 2 + cb]);
                                     }
                     }
+                    if (ws > 0)
+                        for (int i = 0; i < n; ++i)
+                            if (used[i] && hasTarget[i]) chol.Add(u * i, u * i, ws);
+                    if (wb > 0)
+                        for (int i = 0; i < n; ++i)
+                            if (used[i] && bnd[i] && (ws == 0 || !hasTarget[i])) chol.Add(u * i, u * i, wb);
                     for (int i = 0; i < u * n; ++i) chol.Add(i, i, Damping);
-                    if (!chol.Factorize()) break;
+                    if (!chol.Factorize()) { factorFailed = true; break; }
+                    if (ws == 0 && wb > 0) {
+                        // KKT projection direction v = H^-1 1 for the exact gauge constraint sum_{used} d_sigma = 0
+                        var ones = new double[u * n];
+                        for (int i = 0; i < n; ++i) if (used[i]) ones[u * i] = 1;
+                        gaugeVec = new double[u * n];
+                        chol.Solve(ones, gaugeVec);
+                        gaugeDenom = 0;
+                        for (int i = 0; i < n; ++i) if (used[i]) gaugeDenom += gaugeVec[u * i];
+                    }
                     refactor = false;
                 }
                 var d = new double[u * n];
                 chol.Solve(rhs, d);
-                double dm = 0; for (int i = 0; i < n; ++i) if (used[i]) dm += d[u * i]; dm /= nUsed;
-                for (int i = 0; i < n; ++i) d[u * i] = used[i] ? d[u * i] - dm : 0;      // vertices of no used triangle keep spacing 1
+                if (ws > 0) {
+                    // user SizeFunction anchors the absolute spacing scale: keep unused vertices fixed and do not shift mean(sigma)
+                    for (int i = 0; i < n; ++i) {
+                        if (!used[i]) d[u * i] = 0;
+                        if (u == 2 && (!used[i] || bnd[i])) d[2 * i + 1] = 0;
+                    }
+                } else {
+                    bool kktApplied = false;
+                    if (wb > 0 && gaugeDenom > 0 && !double.IsInfinity(gaugeDenom)) {
+                        double sumD = 0; for (int i = 0; i < n; ++i) if (used[i]) sumD += d[u * i];
+                        double lam = sumD / gaugeDenom;
+                        if (!double.IsNaN(lam) && !double.IsInfinity(lam)) {
+                            for (int i = 0; i < n; ++i) {
+                                d[u * i] = used[i] ? d[u * i] - lam * gaugeVec[u * i] : 0;
+                                if (u == 2) d[2 * i + 1] = used[i] && !bnd[i] ? d[2 * i + 1] - lam * gaugeVec[2 * i + 1] : 0;
+                            }
+                            kktApplied = true;
+                        }
+                    }
+                    if (!kktApplied) {
+                        double dm = 0; for (int i = 0; i < n; ++i) if (used[i]) dm += d[u * i]; dm /= nUsed;
+                        for (int i = 0; i < n; ++i) d[u * i] = used[i] ? d[u * i] - dm : 0;      // vertices of no used triangle keep spacing 1
+                    }
+                }
                 // backtracking: halve a step that does not lower the cost
                 double alpha = InitialStepFactor, newCost = cost, newCurl = CurlAfter; bool accepted = false;
                 var sig2 = new double[n]; var phi2 = new double[n];
@@ -188,21 +283,28 @@ namespace gs
                         sig2[i] = Math.Max(-maxSig, Math.Min(maxSig, sig[i] + alpha * d[u * i]));
                         phi2[i] = (bnd[i] || !useRot || u != 2) ? 0 : Math.Max(-maxPhi, Math.Min(maxPhi, phi[i] + alpha * d[2 * i + 1]));
                     }
-                    newCost = Cost(tri, edgeVec, sig2, phi2, useRot, out newCurl);
+                    newCost = Cost(tri, edgeVec, sig2, phi2, used, bnd, wb, hasTarget, targetSig, ws, useRot, out newCurl);
                     if (newCost < cost) { accepted = true; break; }
                     alpha *= 0.5;
                 }
                 if (!accepted) { if (fresh) break; refactor = true; continue; }       // old factors: try again with new ones
-                double gain = (cost - newCost) / cost;
+                double gain = cost > 0 ? (cost - newCost) / cost : 0;
                 Array.Copy(sig2, sig, n); Array.Copy(phi2, phi, n);
                 if (alpha != InitialStepFactor || (step + 1) % RefactorEvery == 0) refactor = true;
                 cost = newCost; CurlAfter = newCurl; StepsTaken++;
                 if (gain < StopTolerance) break;
             }
-            // the gauge: mean log spacing 0 (a step keeps the mean, a clamp may not)
-            double mean = 0; for (int i = 0; i < n; ++i) if (used[i]) mean += sig[i]; mean /= nUsed;
-            for (int i = 0; i < n; ++i) if (used[i]) sig[i] -= mean;
-            Cost(tri, edgeVec, sig, phi, useRot, out CurlAfter);
+            if (factorFailed && StepsTaken == 0) {
+                SizeTargetApplied = false; CurlAfter = CurlBefore;
+                Seconds = sw.Elapsed.TotalSeconds;
+                return Fail(IntegrableFramesStatus.NoSolution, "the normal equations could not be factorized: " + chol.Error);
+            }
+            // without a user size field, enforce the gauge mean log spacing = 0 (a step keeps the mean, a clamp may not)
+            if (ws == 0) {
+                double mean = 0; for (int i = 0; i < n; ++i) if (used[i]) mean += sig[i]; mean /= nUsed;
+                for (int i = 0; i < n; ++i) if (used[i]) sig[i] -= mean;
+                Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
+            }
             double smin = double.MaxValue, smax = double.MinValue, pmax = 0;
             for (int i = 0; i < n; ++i) {
                 int v = toVertex[i];
@@ -215,15 +317,21 @@ namespace gs
             return Status;
         }
 
-        // the cost 1/2 sum |w|^2 (returned) and the sum of |w| (curl)
-        static double Cost(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool useRot, out double curl)
+        // the cost 1/2 sum |w|^2 (+ 1/2 ws sum_{target} (sig - target)^2 + 1/2 wb sum_{unconstrained bnd} sig^2) and the pure curl sum |w|
+        static double Cost(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool[] used, bool[] bnd, double wb, bool[] hasTarget, double[] targetSig, double ws, bool useRot, out double curl)
         {
             double cost = 0; curl = 0;
             for (int t = 0; t < tri.Count; ++t) {
-                int[] c = tri[t]; Vector2d ws = Vector2d.Zero;
-                for (int e = 0; e < 3; ++e) ws += EdgeTerm(a[t][e], sig, phi, c[e], c[(e + 1) % 3], useRot);
-                cost += 0.5 * ws.LengthSquared; curl += ws.Length;
+                int[] c = tri[t]; Vector2d ws0 = Vector2d.Zero;
+                for (int e = 0; e < 3; ++e) ws0 += EdgeTerm(a[t][e], sig, phi, c[e], c[(e + 1) % 3], useRot);
+                cost += 0.5 * ws0.LengthSquared; curl += ws0.Length;
             }
+            if (ws > 0)
+                for (int i = 0; i < sig.Length; ++i)
+                    if (used[i] && hasTarget[i]) { double diff = sig[i] - targetSig[i]; cost += 0.5 * ws * diff * diff; }
+            if (wb > 0)
+                for (int i = 0; i < sig.Length; ++i)
+                    if (used[i] && bnd[i] && (ws == 0 || !hasTarget[i])) cost += 0.5 * wb * sig[i] * sig[i];
             return cost;
         }
 
@@ -236,7 +344,8 @@ namespace gs
         }
 
         // the residual w per triangle and the 2 x 2 blocks of the Jacobian per vertex slot: [dwx/dsigma, dwx/dphi, dwy/dsigma, dwy/dphi]
-        static void Linearize(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool useRot, Vector2d[] w, double[][] B)
+        // boundary vertices keep phi = 0, so their phi Jacobian columns are zeroed out and decoupled in the normal equations
+        static void Linearize(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool[] bnd, bool useRot, Vector2d[] w, double[][] B)
         {
             for (int t = 0; t < tri.Count; ++t) {
                 int[] c = tri[t]; var ce = new Vector2d[3]; Vector2d ws = Vector2d.Zero;
@@ -248,7 +357,7 @@ namespace gs
                     Vector2d e1 = ce[k], e2 = ce[(k + 2) % 3];
                     b[4 * k + 0] = -0.5 * (e1.x + e2.x);
                     b[4 * k + 2] = -0.5 * (e1.y + e2.y);
-                    if (useRot) { b[4 * k + 1] = 0.5 * (e1.y + e2.y); b[4 * k + 3] = -0.5 * (e1.x + e2.x); }
+                    if (useRot && !bnd[c[k]]) { b[4 * k + 1] = 0.5 * (e1.y + e2.y); b[4 * k + 3] = -0.5 * (e1.x + e2.x); }
                 }
                 B[t] = b;
             }
