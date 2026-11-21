@@ -704,5 +704,99 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, op.InsideOutCells);
         }
 
+        // the crossing cubes (a mesh that is not embedded) with one more component, which is the thing under test
+        static DMesh3 CrossingCubesAnd(DMesh3 part) { return Together(part, Box(0, 0, 0, 2, 2, 2), Box(1, 1, 1, 3, 3, 3)); }
+
+        static ExactMeshBoolean.BooleanStatus NestStatus(DMesh3 mesh)
+        {
+            var b = Solid(mesh, Nesting);
+            b.Compute();
+            return b.Status;
+        }
+
+        [Fact]
+        public void NotEmbedded_TheNegativeVolumeDecision_IsMadeOnlyAboveTheRoundingOfTheSum()
+        {
+            // the refusal needs v6 < -(32 + n) u S (S the sum of the norm products of the triples, see negative_volume): a slab
+            // far above that is refused, one far below it (its volume is zero within the rounding of its extent) is used as given
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-9)))));
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-3)))));
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-17)))));
+            // the same slabs outward are never refused
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, NestStatus(CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-9))));
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, NestStatus(CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-3))));
+        }
+
+        // v6 (the sum of the triple products relative to the first vertex) and the bound (32 + n) u S of one component, as negative_volume's comment states
+        static void Measure(DMesh3 m, out double v6, out double bound)
+        {
+            Vector3d o = m.GetVertex(m.GetTriangle(m.TriangleIndices().First()).a);
+            v6 = 0;
+            double s = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d x = a - o, y = b - o, z = c - o;
+                v6 += x.Dot(y.Cross(z));
+                s += x.Length * y.Length * z.Length;
+            }
+            bound = (32.0 + m.TriangleCount) * Math.Pow(2, -53) * s;
+        }
+
+        [Fact]
+        public void NotEmbedded_TheNegativeVolumeBound_IsTheStatedOne()
+        {
+            // an inverted slab whose |v6| is twice the bound is refused, at half the bound it is not (a mutant of the factor
+            // (32 + n), of u or of S moves the bound by more than that)
+            double v6, bound;
+            Measure(Inverted(Box(10, 10, 0, 20, 20, 1e-6)), out v6, out bound);
+            Assert.True(v6 < 0);
+            double k = -v6 / 1e-6;
+            double hRefused = 2 * bound / k, hKept = 0.5 * bound / k;
+            Measure(Inverted(Box(10, 10, 0, 20, 20, hRefused)), out v6, out bound);
+            Assert.True(-v6 > 1.5 * bound && -v6 < 2.5 * bound);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, hRefused)))));
+            Measure(Inverted(Box(10, 10, 0, 20, 20, hKept)), out v6, out bound);
+            Assert.True(-v6 > 0.3 * bound && -v6 < 0.7 * bound);
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, hKept)))));
+        }
+
+        [Fact]
+        public void NotEmbedded_AFlatComponent_IsNotRefused()
+        {
+            // a flat closed component (a square with two triangles on each side, the diagonals crossed): its volume is zero, whatever
+            // the rounding of the sum says; the plane z = x + 2y is exact in doubles
+            var flat = new DMesh3();
+            int a = flat.AppendVertex(new Vector3d(10, 10, 30)), b = flat.AppendVertex(new Vector3d(12.5, 10, 32.5)),
+                c = flat.AppendVertex(new Vector3d(12.5, 13.25, 39)), d = flat.AppendVertex(new Vector3d(10, 13.25, 36.5));
+            flat.AppendTriangle(a, b, c); flat.AppendTriangle(a, c, d);
+            flat.AppendTriangle(b, a, d); flat.AppendTriangle(b, d, c);
+            var op = Solid(CrossingCubesAnd(flat), Nesting);
+            op.Compute();
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, op.Status);
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.SelfIntersectingInconsistent, op.Status);
+        }
+
+        [Theory]
+        [MemberData(nameof(FrameNames))]
+        public void NotEmbedded_TheNegativeVolumeRefusal_IsInvariantUnderSimilarities(string frame)
+        {
+            Similarity s = Similarity.ByName(frame);
+            DMesh3 refused = CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-3)));
+            var reference = Solid(refused, Nesting);
+            Assert.False(reference.Compute());
+            var moved = Solid(Invariance.Transformed(refused, s), Nesting);
+            Assert.False(moved.Compute());
+            Assert.Equal(reference.Status, moved.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, moved.Status);
+            if (s.IsExact)
+                Assert.Equal(reference.Error, moved.Error);
+            // outward: used as given in every frame
+            DMesh3 fine = CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-3));
+            var ok = Solid(Invariance.Transformed(fine, s), Nesting);
+            Assert.True(ok.Compute(), ok.Error);
+            Assert.Equal(0, ok.ReorientedTriangles);
+        }
+
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
     }}

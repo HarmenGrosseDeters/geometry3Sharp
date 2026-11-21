@@ -1034,20 +1034,37 @@ namespace g3
             return p;
         }
 
-        // the signed volume of the triangles of one component is negative (as oriented; relative to a vertex of the component, so
-        // far from the origin it is as exact as the coordinates; a flat component, whose volume is rounding noise, is not negative)
+        // The signed volume of the triangles of one component is certainly negative (as oriented).
+        //
+        // The volume is v6 / 6 with v6 = sum over the n triangles of the triple product (a - o) . ((b - o) x (c - o)), o a vertex of
+        // the component (so that the terms are small far from the origin). It is computed in doubles; the sign is only used if
+        // it is certain, by this bound on the rounding. u = 2^-53. Write x = a - o, y = b - o, z = c - o, and T = |x| |y| |z|
+        // (Euclidean norms). Each coordinate of a difference has a relative error of at most u. A component of the cross
+        // product y x z is a difference of two products, with a relative error of at most 3u on each (the two input
+        // errors and the rounding of the product) and u for the subtraction, so its error is at most about 5u (|y_i z_j| + |y_j z_i|)
+        // <= 5u |y| |z| (Cauchy-Schwarz), and the error of the vector at most 5 sqrt(3) u |y| |z| < 9u |y| |z|. The dot product with x
+        // adds this error times |x| (<= 9u T), the rounding of x's own components (<= u T) and of three products and two
+        // sums (<= 5u |x| |w| <= 5u T, with |w| <= |y| |z| up to the same error): at most 15u T for one term, so |term error| <= 32u T
+        // holds with a margin of 2 (second-order terms included). The sum of n terms adds at most (n - 1) u times the sum of
+        // the absolute terms, which is at most the sum of the T (Hadamard: |term| <= T). So |v6 computed - v6 true| <= (32 + n) u S,
+        // S = the sum of the T. The sign is certain, and negative, if v6 < -(32 + n) u S. Below that the component is not refused:
+        // its volume is zero within the rounding of its own size (a flat component, or a solid thinner than about (32 + n) u of
+        // its extent), so it is used as given, by the winding rule, exactly as a mesh that is not embedded is used otherwise.
+        // That is safe: such a solid has no volume to speak of in the result, and a flat one has none at all. S is computed in
+        // doubles too; its relative error (a few u) is far inside the margin of 2. The count n and S are for the component,
+        // not for the mesh.
         static bool negative_volume(DMesh3 mesh, List<int> component)
         {
             Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
-            double v6 = 0, magnitude = 0;
+            double v6 = 0, norms = 0;
             foreach (int t in component) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
-                double term = (a - o).Dot((b - o).Cross(c - o));
-                v6 += term;
-                magnitude += Math.Abs(term);
+                Vector3d x = a - o, y = b - o, z = c - o;
+                v6 += x.Dot(y.Cross(z));
+                norms += x.Length * y.Length * z.Length;
             }
-            return v6 < -1e-9 * magnitude;
+            return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;
         }
 
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
