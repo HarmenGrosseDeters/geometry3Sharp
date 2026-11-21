@@ -83,7 +83,17 @@ python3 -m unittest discover -s tools -p 'test_trx_durations.py'
 python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
 python3 -m unittest discover -s tools -p 'test_gate_check.py'
 python3 -m unittest discover -s tools -p 'test_review_triggers.py'
+python3 -m unittest discover -s tools -p 'test_check_docs.py'
+python3 tools/check_docs.py
 ```
+
+Where documentation changes go (enforced by `tools/check_docs.py` — avoid growing monolith files or dumping ad-hoc files into `docs/` root):
+- User-facing operation docs & contracts: `docs/guides/<topic>.md` (+ link in `docs/OPERATIONS.md`, compiled example in `docs/examples/`). Keep table rows `<= 500` chars; put details in subsections.
+- CLI / MCP commands: `tools/g3cli/docs/<domain>.md` (+ one-line index row in `tools/g3cli/README.md`).
+- Design specs & studies: `docs/design/<NAME>.md` (+ entry in `docs/design/README.md`).
+- Academic papers & third-party licenses: matching domain file in `docs/sources/<domain>.md`.
+- QA policy & test-tier rules: matching page in `docs/qa/<topic>.md`.
+- Open topics & status tracking: `docs/OPEN_TOPICS.md` and `docs/roadmap/<domain>.md`.
 
 A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
 the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workflow checks it (run from `tests/mutation`):
