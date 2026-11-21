@@ -944,14 +944,9 @@ namespace gs
             if (ch.Factorize()) {
                 var X = new double[nc]; var Y = new double[nc]; var Z = new double[nc];
                 ch.Solve(rx, X); ch.Solve(ry, Y); ch.Solve(rz, Z);
-                for (int i = 0; i < nv; ++i) {
-                    if (i < maxV && !mesh.IsVertex(i)) continue;
-                    int c = cid[FindRoot(ufc, i)];
-                    var p = new Vector3d(X[c], Y[c], Z[c]);
-                    if (!p.IsFinite) return null;
-                    pos[i] = p;
-                }
+                for (int i = 0; i < nv; ++i) { if (i < maxV && !mesh.IsVertex(i)) continue; int c = cid[FindRoot(ufc, i)]; pos[i] = new Vector3d(X[c], Y[c], Z[c]); }
             } else return null;       // not expected (the matrix is positive definite)
+            for (int i = 0; i < nv; ++i) if ((i >= maxV || mesh.IsVertex(i)) && !pos[i].IsFinite) return null;
             return pos;
         }
 
