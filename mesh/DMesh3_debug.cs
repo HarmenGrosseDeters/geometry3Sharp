@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Text;
 using System.Collections.Generic;
@@ -152,8 +152,8 @@ namespace g3
 
 
         /// <summary>
-        // This function checks that the mesh is well-formed, ie all internal data
-        // structures are consistent
+        /// This function checks that the mesh is well-formed, ie all internal data
+        /// structures are consistent
         /// </summary>
         public bool CheckValidity(bool bAllowNonManifoldVertices = false, FailMode eFailMode = FailMode.Throw ) {
 

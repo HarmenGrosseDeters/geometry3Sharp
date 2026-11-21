@@ -21,6 +21,9 @@ dotnet_diagnostic.G3D0006.severity = none
 dotnet_diagnostic.G3D0007.severity = none
 dotnet_diagnostic.G3D0008.severity = none
 dotnet_diagnostic.G3D0009.severity = none
+# Missing XML comments stay off by default (trivial POD/math types need no boilerplate) and are enabled below for
+# documented non-trivial fork modules.
+dotnet_diagnostic.CS1591.severity = none
 
 # ... and errors in the exact-arithmetic code: the predicates (also the generated ones), the exact points (also in fixed width), the exact
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection,
@@ -54,3 +57,9 @@ dotnet_diagnostic.G3D0006.severity = error
 dotnet_diagnostic.G3D0007.severity = error
 dotnet_diagnostic.G3D0008.severity = error
 dotnet_diagnostic.G3D0009.severity = error
+
+# XML documentation ratchet (CS1591): keep documented non-trivial fork modules at 100% public-member XML coverage
+# without forcing boilerplate comments onto trivial POD/math or legacy upstream types.
+[{comp_geom/ConstrainedDelaunayMesh2.cs,comp_geom/DelaunayKernel2*.cs,comp_geom/DelaunayMesh2.cs,comp_geom/PairKeys.cs,comp_geom/QualityMesh2.cs,comp_geom/SnapRounding2.cs,comp_geom/Triangulation2Result.cs,comp_geom/TriangulationMesh2.cs,io/ExactDecimal.cs,io/GLTFReader.cs,io/GLTFWriter.cs,io/HeightGridWriter.cs,io/MeshIOUtil.cs,io/MiniJson.cs,io/OFFReader.cs,io/PLYReader.cs,io/ShortestDecimal.cs,io/StandardMeshWriter.cs,io/ThreeMFReader.cs,io/ThreeMFWriter.cs,mesh_ops/AlphaSizeField.cs,mesh_ops/AlphaWrapEstimate.cs,mesh_ops/AlphaWrapFeaturePass.cs,mesh_ops/AlphaWrapOracle.cs,mesh_ops/AlphaWrapQualityPass.cs,mesh_ops/AutoHoleFill.cs,mesh_ops/ContouringTopologyCertificate.cs,mesh_ops/ExactMeshEdgeGroups.cs,mesh_ops/ExactMeshGeodesicDistance.cs,mesh_ops/ExactMeshResultBuilder.cs,mesh_ops/ExactPlanarSimplify.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/LazyExactMesh.cs,mesh_ops/MeshBoolean.cs,mesh_ops/MeshCurvature.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshHausdorffDistance.cs,mesh_ops/MeshPostRepairCleanup.cs,mesh_ops/MeshPrincipalCurvature.cs,mesh_ops/MeshRobustRepairLostParts.cs,mesh_ops/MeshRobustRepairPassThrough.cs,mesh_ops/MeshScaleTolerance.cs,mesh_ops/MinimalHoleFill.cs,mesh_ops/PartitionedReducer.cs,mesh_ops/PartitionedReduction.cs,mesh_ops/PolyhedralEnvelope.cs,mesh_ops/QuadFlowRepair.cs,mesh_ops/RemeshSizing.cs,mesh_ops/TerrainInputRange.cs,mesh_ops/TerrainSlopeCatchLineBound.cs,mesh_ops/TerrainSlopeComposite.cs,mesh_ops/TerrainSlopeMap.cs,mesh_ops/TerrainSlopeRamps.cs,mesh_ops/TetFeatureSurface.cs,mesh_ops/TetMeshImprover.cs,mesh_ops/VolumeSampleCells.cs,mesh_ops/WindingContouring.cs}]
+dotnet_diagnostic.CS1591.severity = warning
+

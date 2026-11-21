@@ -299,6 +299,7 @@ namespace gs
         /// can add vertices off the grid). Not a power of two, negative or not finite: InvalidInput
         /// </summary>
         public double InputGrid = 0;
+        /// <summary>
         /// Default 0 (off). Otherwise a length: every solid of the boolean result (an outer shell with the cavities inside it)
         /// whose thickness 2 Volume / Area is below it is removed before the reduction and listed in Report.RemovedThinSolids.
         /// For a flat slab or wall the measure is its thickness; compact solids measure less than their size (a cube of edge

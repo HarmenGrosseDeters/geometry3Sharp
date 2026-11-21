@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
@@ -121,7 +121,7 @@ namespace g3
 
 
 		/// <summary>
-		/// count 6-nbrs of each voxel, discard if count <= minNbrs
+		/// count 6-nbrs of each voxel, discard if count &lt;= minNbrs
 		/// </summary>
 		public void Filter(int nMinNbrs) {
 			AxisAlignedBox3i bounds = GridBounds;

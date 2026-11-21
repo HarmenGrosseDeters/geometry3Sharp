@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -31,6 +31,7 @@ namespace g3
 
         public Circle2d Result;
 
+        /// <param name="pointsIn">Input 2D points to enclose.</param>
         /// <param name="epsilon">Dimensionless (it was an absolute squared length in upstream): three points are treated as
         /// collinear if the sine of their triangle's largest angle is at most this, and the circle over their longest edge
         /// is used. Below about 0.866 this takes only obtuse triangles, for which that circle is the minimal one. From about

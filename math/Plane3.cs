@@ -1,9 +1,15 @@
-﻿using System;
+using System;
 
 namespace g3
 {
-    //3D plane, based on WildMagic5 Wm5Plane3 class
-
+    /// <summary>
+    /// Double-precision 3D plane defined by <c>Dot(Normal, P) - Constant = 0</c> (ported from WildMagic5 Wm5Plane3).
+    /// </summary>
+    /// <remarks>
+    /// Note the sign convention: <see cref="Constant"/> equals <c>+Dot(Normal, P0)</c> (opposite sign to
+    /// <c>ax + by + cz + d = 0</c>). <see cref="DistanceTo"/> returns signed Euclidean distance only when
+    /// <see cref="Normal"/> has unit length.
+    /// </remarks>
     public struct Plane3d
     {
         public Vector3d Normal;
@@ -33,20 +39,19 @@ namespace g3
         }
 
 
-        // Compute d = Dot(N,P)-c where N is the plane normal and c is the plane
-        // constant.  This is a signed distance.  The sign of the return value is
-        // positive if the point is on the positive side of the plane, negative if
-        // the point is on the negative side, and zero if the point is on the
-        // plane.
+        /// <summary>
+        /// Signed distance <c>Dot(Normal, p) - Constant</c> (Euclidean when <see cref="Normal"/> is unit-length):
+        /// positive on the normal side, negative on the opposite side, zero on the plane.
+        /// </summary>
         public double DistanceTo(Vector3d p)
         {
             return Normal.Dot(p) - Constant;
         }
 
-        // The "positive side" of the plane is the half space to which the plane
-        // normal points.  The "negative side" is the other half space.  The
-        // function returns +1 when P is on the positive side, -1 when P is on the
-        // the negative side, or 0 when P is on the plane.
+        /// <summary>
+        /// Returns <c>+1</c> if <paramref name="p"/> is on the positive (<see cref="Normal"/>) side,
+        /// <c>-1</c> on the negative side, or <c>0</c> on the plane.
+        /// </summary>
         public int WhichSide (Vector3d p)
         {
             double distance = DistanceTo(p);
@@ -63,6 +68,14 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Single-precision 3D plane defined by <c>Dot(Normal, P) - Constant = 0</c> (ported from WildMagic5 Wm5Plane3).
+    /// </summary>
+    /// <remarks>
+    /// Note the sign convention: <see cref="Constant"/> equals <c>+Dot(Normal, P0)</c> (opposite sign to
+    /// <c>ax + by + cz + d = 0</c>). <see cref="DistanceTo"/> returns signed Euclidean distance only when
+    /// <see cref="Normal"/> has unit length.
+    /// </remarks>
     public struct Plane3f
     {
         public Vector3f Normal;
@@ -92,20 +105,19 @@ namespace g3
         }
 
 
-        // Compute d = Dot(N,P)-c where N is the plane normal and c is the plane
-        // constant.  This is a signed distance.  The sign of the return value is
-        // positive if the point is on the positive side of the plane, negative if
-        // the point is on the negative side, and zero if the point is on the
-        // plane.
+        /// <summary>
+        /// Signed distance <c>Dot(Normal, p) - Constant</c> (Euclidean when <see cref="Normal"/> is unit-length):
+        /// positive on the normal side, negative on the opposite side, zero on the plane.
+        /// </summary>
         public float DistanceTo(Vector3f p)
         {
             return Normal.Dot(p) - Constant;
         }
 
-        // The "positive side" of the plane is the half space to which the plane
-        // normal points.  The "negative side" is the other half space.  The
-        // function returns +1 when P is on the positive side, -1 when P is on the
-        // the negative side, or 0 when P is on the plane.
+        /// <summary>
+        /// Returns <c>+1</c> if <paramref name="p"/> is on the positive (<see cref="Normal"/>) side,
+        /// <c>-1</c> on the negative side, or <c>0</c> on the plane.
+        /// </summary>
         public int WhichSide (Vector3f p)
         {
             float distance = DistanceTo(p);

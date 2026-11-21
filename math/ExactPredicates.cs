@@ -42,7 +42,7 @@ namespace g3
         /// x86 (a microcode assist of about 50 ns per filter call, benchmarks/PredicateComparison/README.md, "Filter underflow term").
         /// Why the result is the same: the filters decide only where permanent > UnderflowLimit (1e-200 > 2^-665),
         /// and every bound constant is at least 2^-51, so relative >= 2^-716 (rounding is monotone and 2^-716 is a
-        /// double) and half an ulp of it is at least 2^-769. For sum < 2^256, sum * 2^-1066 < 2^-810 is below that
+        /// double) and half an ulp of it is at least 2^-769. For sum &lt; 2^256, sum * 2^-1066 &lt; 2^-810 is below that
         /// half ulp and non-negative, so relative + sum * 2^-1066 rounds to relative. NaN and infinite sums take the
         /// full expression (the comparison is false), as before.
         /// </summary>

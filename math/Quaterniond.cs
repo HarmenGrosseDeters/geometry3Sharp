@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 
 #if G3_USING_UNITY
@@ -8,7 +8,14 @@ using UnityEngine;
 
 namespace g3
 {
-    // mostly ported from WildMagic5 Wm5Quaternion, from geometrictools.com
+    /// <summary>
+    /// Double-precision quaternion stored in <c>(x, y, z, w)</c> order (unlike WildMagic5's <c>(w, x, y, z)</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>default(Quaterniond)</c> is <see cref="Zero"/>, not a valid rotation; initialize with
+    /// <see cref="Identity"/>. <c>q * v</c> rotates a vector right-handedly and assumes <c>q</c> is unit-length.
+    /// The <c>(Vector3d axis, double AngleDeg)</c> constructor takes degrees.
+    /// </remarks>
     public struct Quaterniond
     {
         // note: in Wm5 version, this is a 4-element array stored in order (w,x,y,z).

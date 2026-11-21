@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -534,8 +534,8 @@ namespace g3
         public enum FailMode { DebugAssert, gDevAssert, Throw, ReturnOnly }
 
         /// <summary>
-        // This function checks that the graph is well-formed, ie all internal data
-        // structures are consistent
+        /// This function checks that the graph is well-formed, ie all internal data
+        /// structures are consistent
         /// </summary>
         public virtual bool CheckValidity(FailMode eFailMode = FailMode.Throw)
         {

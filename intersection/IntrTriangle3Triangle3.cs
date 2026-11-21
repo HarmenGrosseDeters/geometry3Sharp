@@ -1,24 +1,26 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Numerics;
 
 namespace g3
 {
-    // ported from WildMagic5 IntrTriangle3Triangle3
-    // use Test() for fast boolean query, does not compute intersection info
-    // use Find() to compute full information
-    // By default fully-contained co-planar triangles are not reported as intersecting.
-    // set ReportCoplanarIntersection=true to handle this case (more expensive)
-    // A degenerate triangle (collinear or coincident vertices) is tested as a segment or point. For such
-    // input Find() only reports whether the triangles touch, with Type Unknown and no intersection points.
-    // Exactly coplanar, nearly parallel (the sine of the angle of the normals below 1e-4) and sliver triangles (a
-    // rounded normal of zero), and triangle1 within the epsilon (1e-8) of triangle0's plane, are decided exactly
-    // (ExactTriangleIntersection, closed triangles): Test(), Intersects() and Find() (with ReportCoplanarIntersection,
-    // for exactly coplanar ones) agree there. Other pairs keep the floating-point tests. Non-finite coordinates give
-    // no intersection. Find() then gives the contact from exactly decided pieces (corners inside the other triangle, proper
-    // crossings of edges, edges through the other triangle's plane), with only the crossing points rounded: at least
-    // one point whenever the triangles intersect, the polygon A n B for coplanar ones (Type Polygon, PolygonPoints,
-    // in order), else the segment or point (Type Segment or Point, Points).
+    /// <summary>
+    /// 3D triangle-triangle intersection (ported from WildMagic5, with exact decisions on coplanar, nearly parallel,
+    /// and sliver pairs via <see cref="ExactTriangleIntersection"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>Call <see cref="Test"/> for a fast boolean hit test without computing contact geometry, or
+    /// <see cref="Find"/> / <see cref="Compute"/> for full contact output (<see cref="Type"/>, <see cref="Points"/>,
+    /// <see cref="PolygonPoints"/>). By default <see cref="ReportCoplanarIntersection"/> is <c>false</c>, so
+    /// coplanar triangles are <b>not</b> reported as intersecting unless it is set to <c>true</c>.</para>
+    /// <para>A degenerate triangle (collinear or coincident vertices) is tested as a segment or point; for such input
+    /// <see cref="Find"/> reports only whether the triangles touch (<see cref="IntersectionType.Unknown"/>, no contact
+    /// points). Exactly coplanar, nearly parallel (sine of normal angle below 1e-4), sliver triangles (zero rounded
+    /// normal), and pairs within 1e-8 of <see cref="Triangle0"/>'s plane are decided exactly as closed triangles, so
+    /// <see cref="Test"/>, <see cref="Intersects"/>, and <see cref="Find"/> (with
+    /// <see cref="ReportCoplanarIntersection"/> enabled for coplanar pairs) agree there; contact crossing coordinates
+    /// are rounded to double. Non-finite coordinates give no intersection.</para>
+    /// </remarks>
     public class IntrTriangle3Triangle3
     {
         Triangle3d triangle0;
@@ -35,9 +37,10 @@ namespace g3
             set { triangle1 = value; Result = IntersectionResult.NotComputed; }
         }
 
-        // If true, will return intersection polygons for co-planar triangles.
-        // This is somewhat expensive, default is false.
-        // Note that when false, co-planar intersections will **NOT** be reported as intersections
+        /// <summary>
+        /// If <c>true</c>, detects and returns intersection polygons for coplanar triangles (more expensive).
+        /// Default is <c>false</c>: when <c>false</c>, coplanar intersections are <b>not</b> reported.
+        /// </summary>
         public bool ReportCoplanarIntersection = false;
 
         // result flags

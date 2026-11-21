@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 
 #if G3_USING_UNITY
@@ -7,11 +7,24 @@ using UnityEngine;
 
 namespace g3
 {
+    /// <summary>
+    /// Single-precision axis-aligned 3D bounding box <c>[Min, Max]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>default(AxisAlignedBox3f)</c> is the point box <c>[0, 0, 0]</c> (contains the origin); always start
+    /// bounding-box accumulators from <see cref="Empty"/> before calling <c>Contain(...)</c>.
+    /// The <c>(Vector3f vCenter, float fHalfWidth, float fHalfHeight, float fHalfDepth)</c> constructors take
+    /// <b>half</b>-extents.
+    /// </remarks>
     public struct AxisAlignedBox3f : IComparable<AxisAlignedBox3f>, IEquatable<AxisAlignedBox3f>
     {
         public Vector3f Min;
         public Vector3f Max;
 
+        /// <summary>
+        /// Inverted empty-box sentinel (<c>Min = +MaxValue</c>, <c>Max = -MaxValue</c>) for initializing
+        /// <c>Contain(...)</c> accumulators.
+        /// </summary>
         public static readonly AxisAlignedBox3f Empty = new AxisAlignedBox3f(false);
         public static readonly AxisAlignedBox3f Zero = new AxisAlignedBox3f(0);
         public static readonly AxisAlignedBox3f UnitPositive = new AxisAlignedBox3f(1);

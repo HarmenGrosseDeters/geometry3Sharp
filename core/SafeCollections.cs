@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,7 +8,7 @@ namespace g3
 {
 
     /// <summary>
-    /// A simple wrapper around a List<T> that supports multi-threaded construction.
+    /// A simple wrapper around a List&lt;T&gt; that supports multi-threaded construction.
     /// Basically intended for use within things like a Parallel.ForEach
     /// </summary>
     public class SafeListBuilder<T>
