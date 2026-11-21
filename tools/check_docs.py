@@ -3,10 +3,10 @@
 
 Checks:
 1. Unresolved git merge conflict markers in all *.md files.
-2. Broken relative file links in all *.md files.
+2. Broken relative file links (and out-of-repo paths) in all *.md files.
 3. Broken #anchor links in user-facing and navigation Markdown files.
-4. Index completeness across docs/, benchmarks/, and tools/ README indexes.
-5. Table row length limit (<= 500 chars) in user-facing docs (README, OPERATIONS, UPSTREAM_CHANGES, docs/guides/, tools/g3cli/).
+4. Index completeness across docs/, benchmarks/, and tools/ README indexes (fails closed if an index is missing).
+5. Table row length limit (<= 500 chars) in user-facing docs (README, docs/README, OPERATIONS, UPSTREAM_CHANGES, docs/guides/, tools/g3cli/).
 6. Root docs/*.md allowlist to keep new docs in their domain subdirectories.
 
 Usage:
@@ -35,21 +35,60 @@ DOCS_ROOT_ALLOWLIST = frozenset({
     "UPSTREAM_CHANGES.md",
 })
 
-SKIP_DIRS = frozenset({".git", "bin", "obj", "artifacts", "node_modules", "TestResults"})
+SKIP_DIRS = frozenset({".git", "bin", "obj", "artifacts", "node_modules", "TestResults", "test-results"})
 
 TABLE_LINE_LIMIT = 500
 
-CONFLICT_RE = re.compile(r"^(<{7}|>{7}) ")
+CONFLICT_RE = re.compile(r"^(?:<{7}|>{7})(?:\s|$)|^\|{7} ")
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
-FENCED_CODE_RE = re.compile(r"```.*?```", re.S)
+INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)*?\1")
+FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def iter_non_fenced_lines(lines):
+    """Yield (1-based line_no, line) for lines outside fenced code blocks (supports indented ``` and ~~~ fences)."""
+    fence_char = None
+    fence_len = 0
+    for idx, line in enumerate(lines, 1):
+        m = FENCE_OPEN_RE.match(line)
+        if fence_char is None:
+            if m:
+                marker = m.group(1)
+                fence_char = marker[0]
+                fence_len = len(marker)
+                continue
+            yield idx, line
+        else:
+            stripped = line.strip()
+            if stripped and all(ch == fence_char for ch in stripped) and len(stripped) >= fence_len:
+                fence_char = None
+                fence_len = 0
+
+
+def parse_link_destination(raw):
+    """Extract destination from Markdown (...) link target, stripping optional angle brackets and title."""
+    s = raw.strip()
+    if not s:
+        return ""
+    if s.startswith("<"):
+        end = s.find(">")
+        if end != -1:
+            return s[1:end].strip()
+    # Optional title separated by whitespace (e.g. `file.md "title"` or `file.md 'title'`)
+    m = re.match(r"^(\S+)(?:\s+[\"'(].*)?$", s)
+    if m:
+        return m.group(1)
+    return s
 
 
 def slugify_gfm(heading):
     """GitHub Flavored Markdown heading slugifier."""
-    h = heading.strip().lower()
+    h = heading.strip()
+    # Strip optional closing ATX hashes (`## Heading ##`)
+    h = re.sub(r"\s+#+\s*$", "", h).strip().lower()
     h = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", h)
     h = h.replace("`", "")
-    h = re.sub(r"[^a-z0-9 _-]", "", h)
+    h = re.sub(r"[^\w _-]", "", h, flags=re.UNICODE)
     h = h.replace(" ", "-")
     return h
 
@@ -65,25 +104,20 @@ def collect_markdown_files(root):
 
 
 def get_anchors(abs_path, cache):
-    if abs_path not in cache:
+    key = os.path.normpath(abs_path)
+    if key not in cache:
         anchors = set()
         seen = {}
-        in_code = False
-        with open(abs_path, encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("```"):
-                    in_code = not in_code
-                    continue
-                if in_code:
-                    continue
+        with open(key, encoding="utf-8") as fh:
+            for _, line in iter_non_fenced_lines(fh):
                 m = re.match(r"^#{1,6}\s+(.*)$", line)
                 if m:
                     s = slugify_gfm(m.group(1))
                     cnt = seen.get(s, 0)
                     seen[s] = cnt + 1
                     anchors.add(s if cnt == 0 else f"{s}-{cnt}")
-        cache[abs_path] = anchors
-    return cache[abs_path]
+        cache[key] = anchors
+    return cache[key]
 
 
 def check_conflict_markers(root, md_files):
@@ -129,33 +163,43 @@ def anchor_checked_files(root):
 
 def check_links(root, md_files):
     errors = []
+    root_real = os.path.normpath(os.path.abspath(root))
     anchor_files = anchor_checked_files(root)
     anchor_cache = {}
     for rel in md_files:
-        path = os.path.join(root, rel)
+        path = os.path.normpath(os.path.join(root_real, rel))
         with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-        no_code = FENCED_CODE_RE.sub("", text)
+            lines = fh.readlines()
         base = os.path.dirname(path)
         check_anchor = rel in anchor_files
-        for m in LINK_RE.finditer(no_code):
-            link = m.group(1).strip()
-            if not link or link.startswith(("http://", "https://", "mailto:")):
-                continue
-            if "#" in link:
-                rel_target, anchor = link.split("#", 1)
-            else:
-                rel_target, anchor = link, None
-            if rel_target and " " in rel_target:
-                continue
-            target = path if not rel_target else os.path.normpath(os.path.join(base, rel_target))
-            if not os.path.exists(target):
-                rel_disp = os.path.relpath(target, root).replace("\\", "/")
-                errors.append(f"{rel}: broken link '{link}' (missing '{rel_disp}')")
-            elif check_anchor and anchor and os.path.isfile(target) and target.endswith(".md"):
-                if anchor not in get_anchors(target, anchor_cache):
-                    rel_disp = os.path.relpath(target, root).replace("\\", "/")
-                    errors.append(f"{rel}: broken anchor '{link}' (missing #{anchor} in '{rel_disp}')")
+        for _, line in iter_non_fenced_lines(lines):
+            scrubbed = INLINE_CODE_RE.sub("", line)
+            for m in LINK_RE.finditer(scrubbed):
+                dest = parse_link_destination(m.group(1))
+                if not dest or dest.startswith(("http://", "https://", "mailto:")):
+                    continue
+                if "#" in dest:
+                    rel_target, anchor = dest.split("#", 1)
+                else:
+                    rel_target, anchor = dest, None
+                if rel_target.startswith("/"):
+                    errors.append(f"{rel}: absolute filesystem link '{dest}' (use a repository-relative path)")
+                    continue
+                target = path if not rel_target else os.path.normpath(os.path.join(base, rel_target))
+                try:
+                    in_repo = os.path.commonpath([root_real, target]) == root_real
+                except ValueError:
+                    in_repo = False
+                if not in_repo:
+                    errors.append(f"{rel}: link escapes repository root '{dest}'")
+                    continue
+                if not os.path.exists(target):
+                    rel_disp = os.path.relpath(target, root_real).replace("\\", "/")
+                    errors.append(f"{rel}: broken link '{dest}' (missing '{rel_disp}')")
+                elif check_anchor and anchor and os.path.isfile(target) and target.endswith(".md"):
+                    if anchor not in get_anchors(target, anchor_cache):
+                        rel_disp = os.path.relpath(target, root_real).replace("\\", "/")
+                        errors.append(f"{rel}: broken anchor '{dest}' (missing #{anchor} in '{rel_disp}')")
     return errors
 
 
@@ -163,6 +207,7 @@ def check_table_row_lengths(root):
     errors = []
     targets = [
         "README.md",
+        "docs/README.md",
         "docs/OPERATIONS.md",
         "docs/UPSTREAM_CHANGES.md",
         "tools/g3cli/README.md",
@@ -174,33 +219,35 @@ def check_table_row_lengths(root):
         path = os.path.join(root, rel)
         if not os.path.isfile(path):
             continue
-        in_code = False
         with open(path, encoding="utf-8") as fh:
-            for idx, line in enumerate(fh, 1):
-                if line.startswith("```"):
-                    in_code = not in_code
-                    continue
-                if in_code:
-                    continue
+            for idx, line in iter_non_fenced_lines(fh):
                 stripped = line.rstrip("\r\n")
-                if stripped.startswith("|") and len(stripped) > TABLE_LINE_LIMIT:
+                if stripped.lstrip().startswith("|") and len(stripped) > TABLE_LINE_LIMIT:
                     errors.append(
                         f"{rel}:{idx}: table row is {len(stripped)} chars (limit {TABLE_LINE_LIMIT}); move detail to a subsection"
                     )
     return errors
 
 
+def _contains_index_entry(text, item):
+    pattern = r"(?:^|[^A-Za-z0-9_/-])" + re.escape(item) + r"(?:$|[^A-Za-z0-9_.-])"
+    return re.search(pattern, text) is not None
+
+
 def check_index_completeness(root):
     errors = []
 
     def require_indexed(index_rel, expected_items):
+        if not expected_items:
+            return
         idx_path = os.path.join(root, index_rel)
         if not os.path.isfile(idx_path):
+            errors.append(f"{index_rel}: missing index file (expected {len(expected_items)} entries)")
             return
         with open(idx_path, encoding="utf-8") as fh:
             txt = fh.read()
         for item in sorted(expected_items):
-            if item not in txt:
+            if not _contains_index_entry(txt, item):
                 errors.append(f"{index_rel}: missing index entry for '{item}'")
 
     # Subdirectory README indexes listing sibling *.md files
@@ -216,13 +263,17 @@ def check_index_completeness(root):
         items = [f for f in os.listdir(design_dir) if f != "README.md" and os.path.isfile(os.path.join(design_dir, f))]
         require_indexed("docs/design/README.md", items)
 
-    # docs/archive/README.md lists every archived *.md under docs/archive/*/
+    # docs/archive/README.md lists every archived *.md under docs/archive/ (at any depth)
     archive_dir = os.path.join(root, "docs/archive")
     if os.path.isdir(archive_dir):
-        items = [
-            os.path.relpath(p, archive_dir).replace("\\", "/")
-            for p in glob.glob(os.path.join(archive_dir, "*", "*.md"))
-        ]
+        items = []
+        for dirpath, dirnames, filenames in os.walk(archive_dir):
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+            for fn in sorted(filenames):
+                if fn.endswith(".md"):
+                    rel = os.path.relpath(os.path.join(dirpath, fn), archive_dir).replace("\\", "/")
+                    if rel != "README.md":
+                        items.append(rel)
         require_indexed("docs/archive/README.md", items)
 
     # docs/guides/*.md listed in docs/OPERATIONS.md (except upstream-history-and-tutorials.md, indexed in docs/README.md)

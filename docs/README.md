@@ -9,7 +9,7 @@ Welcome to the documentation for **geometry3Sharp** (`HarmenGrosseDeters/geometr
 | Document | Purpose |
 |---|---|
 | [../README.md](../README.md) | Overview, quickstart, build targets, file formats, and feature summary |
-| [OPERATIONS.md](OPERATIONS.md) | Master task-to-class index linking all 10 topic guides and all 22 compiled examples |
+| [OPERATIONS.md](OPERATIONS.md) | Master task-to-class index linking all 10 topic guides and all compiled examples |
 | [guides/getting-started.md](guides/getting-started.md) | Project file (`geometry3Sharp_netstandard.csproj`), targets, `g3` vs. `gs`, `DMesh3` conventions |
 | [examples/](examples/) | Compiled, test-verified C# examples (`DocExamplesTests.cs`) for the main operations |
 | [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md) | Categorized behavioral changes and bug fixes compared to upstream `geometry3Sharp 1.0.324` |
