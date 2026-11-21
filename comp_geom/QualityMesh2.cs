@@ -160,7 +160,7 @@ namespace g3
 
             /// <summary> benchmarks only: off-centres on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? OffCentresForBenchmarks;
-            /// <summary> tests only: the rule that keeps chains from coinciding (<see cref="MakesChainsCoincide"/>) on or off (null: the
+            /// <summary> tests only: the rule that keeps chains from coinciding (<see cref="ValidGridSplit"/>) on or off (null: the
             /// default, on); off gives the refinement of before the fix, whose outputs the oracle's tests of rule (ii') need </summary>
             [ThreadStatic] internal static bool? KeepChainsApartForTests;
             readonly bool keepChainsApart;

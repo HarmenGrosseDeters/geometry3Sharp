@@ -12,7 +12,7 @@ namespace g3
 
 
     /// <summary>
-    /// Just wraps a func<bool> as an ICancelSource
+    /// Just wraps a func&lt;bool&gt; as an ICancelSource
     /// </summary>
     public class CancelFunction : ICancelSource
     {
