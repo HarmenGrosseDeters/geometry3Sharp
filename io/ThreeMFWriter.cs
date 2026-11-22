@@ -17,6 +17,11 @@ namespace g3
     /// Vertex values are written as given (no scaling), and the model is labelled with Unit (default millimeter).
     /// Only geometry is written: no normals, colors, UVs or materials.
     /// StandardMeshWriter always uses the default Unit; create a ThreeMFWriter to use another one.
+    ///
+    /// The package is byte-reproducible: every zip entry carries one fixed time (1980-01-01 00:00:00, the first a zip
+    /// time stamp can hold) instead of the time of the write, so two writes of the same meshes with the same options
+    /// give the same bytes on one runtime and operating system (between them the compressed bytes and the platform
+    /// fields of the zip headers may differ).
     /// </summary>
     public class ThreeMFWriter
     {
@@ -24,6 +29,13 @@ namespace g3
         /// 3MF unit: micron, millimeter, centimeter, inch, foot or meter
         /// </summary>
         public string Unit = "millimeter";
+
+        /// <summary>
+        /// The last-write time of every zip entry of the package: 1980-01-01 00:00:00, the first time a zip (DOS) time stamp can
+        /// hold. The zip format stores the date and time fields as given, without a time zone, so the stored fields are the same
+        /// on every machine (the offset of this value plays no role; it is UTC only to have one).
+        /// </summary>
+        internal static readonly DateTimeOffset EntryTime = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
 
         /// <summary>
@@ -46,6 +58,7 @@ namespace g3
                     "</Relationships>\n");
 
                 ZipArchiveEntry model = zip.CreateEntry("3D/3dmodel.model", CompressionLevel.Optimal);
+                model.LastWriteTime = EntryTime;
                 using (Stream s = model.Open()) {
                     XmlWriterSettings settings = new XmlWriterSettings() { Indent = true, Encoding = new UTF8Encoding(false) };
                     using (XmlWriter xml = XmlWriter.Create(s, settings))
@@ -59,6 +72,7 @@ namespace g3
         static void write_text_entry(ZipArchive zip, string name, string text)
         {
             ZipArchiveEntry entry = zip.CreateEntry(name, CompressionLevel.Optimal);
+            entry.LastWriteTime = EntryTime;
             using (Stream s = entry.Open()) {
                 byte[] bytes = new UTF8Encoding(false).GetBytes(text);
                 s.Write(bytes, 0, bytes.Length);
