@@ -126,7 +126,8 @@ namespace g3
                 || mesh.VertexCount != mesh.MaxVertexID || mesh.TriangleCount != mesh.MaxTriangleID) {
                 RunFailure = SheetCertificateRunFailure.NoRecord; return;
             }
-            if (rec.VariableHalfWidth || !(rec.HalfWidth > 0) || double.IsInfinity(rec.HalfWidth)) { RunFailure = SheetCertificateRunFailure.VariableHalfWidth; return; }
+            // a half width that was a function is recorded as NaN
+            if (!(rec.HalfWidth > 0) || double.IsInfinity(rec.HalfWidth)) { RunFailure = SheetCertificateRunFailure.VariableHalfWidth; return; }
             nx = rec.Nodes.x - 1; ny = rec.Nodes.y - 1; nz = rec.Nodes.z - 1;
             n1x = rec.Nodes.x; n1y = rec.Nodes.y;
             X = new double[3][];
@@ -198,7 +199,8 @@ namespace g3
             return e;
         }
 
-        static bool mayBeZero(ExactInterval f) { return !(f.Lo > 0) && !(f.Hi < 0); }
+        /// <summary> can the interval hold 0? True unless a bound certifies a sign (so also for NaN bounds and for a bound of exactly 0) </summary>
+        internal static bool MayBeZero(ExactInterval f) { return !(f.Lo > 0) && !(f.Hi < 0); }
 
         // breakpoint j of m between the nodes i and i + 1 of an axis: non-decreasing in j, the ends are the node coordinates
         double breakpoint(int axis, int i, int j, int m)
@@ -232,7 +234,11 @@ namespace g3
         int flagSign(int i, int j, int k) { return (rec.NodeFlags[nodeId(i, j, k)] >> level & 1) != 0 ? -1 : 1; }
 
         // (S0) / (B0) at a node: the sign is certified and is the mesher's
-        bool nodeOk(int i, int j, int k) { int s = pointSign(i, j, k); return s != 2 && s == flagSign(i, j, k); }
+        bool nodeOk(int i, int j, int k) { return pointSign(i, j, k) == flagSign(i, j, k); }
+
+        /// <summary> (S1) for one grid edge and (S2) for one grid face of the run of the last Compute: for tests of the two conditions on their own </summary>
+        internal bool EdgePasses(int forLevel, int axis, int i, int j, int k) { level = forLevel; edgeOk = new Dictionary<long, bool>(); return edge(axis, i, j, k); }
+        internal bool FacePasses(int forLevel, int axis, int i, int j, int k) { level = forLevel; faceOk = new Dictionary<long, bool>(); return face(axis, i, j, k); }
 
         // ---- cubes ----
 
@@ -250,11 +256,10 @@ namespace g3
                     (c & 1) == 0 ? hi : si - hi, (c & 2) == 0 ? hj : sj - hj, (c & 4) == 0 ? hk : sk - hk);
         }
 
-        // a box of cubes without a zero, of sign s: its nodes are certified with that sign; a cube with a node where the mesher
-        // has the other sign is refused (the mesh has a crossing where the level set has none)
+        // a box of cubes without a zero, of sign s: a cube with a node where the mesher has the other sign is refused (the mesh
+        // has a crossing where the level set has none)
         void zeroFree(int i, int j, int k, int si, int sj, int sk, int s)
         {
-            for (int c = k; c <= k + sk; ++c) for (int b = j; b <= j + sj; ++b) for (int a = i; a <= i + si; ++a) nodeSign[nodeId(a, b, c)] = (sbyte)s;
             for (int c = k; c < k + sk; ++c) for (int b = j; b < j + sj; ++b) for (int a = i; a < i + si; ++a) {
                 bool same = true;
                 for (int q = 0; q < 8; ++q) if (flagSign(a + (q & 1), b + (q >> 1 & 1), c + (q >> 2 & 1)) != s) same = false;
@@ -274,11 +279,11 @@ namespace g3
         {
             // zero-free on sub-boxes
             for (int t = 1; t <= MaxTightening; ++t) {
+                // a continuous level without a zero in the cube has one sign on it: the sign of any sub-box
                 int m = 1 << t, sign = 0; bool free = true;
                 for (int a = 0; a < m && free; ++a) for (int b = 0; b < m && free; ++b) for (int c = 0; c < m && free; ++c) {
-                    int s = CertifiedSign(enclose(span(0, i, a, m), span(1, j, b, m), span(2, k, c, m)).F);
-                    if (s == 0 || (sign != 0 && s != sign)) free = false;
-                    sign = s;
+                    sign = CertifiedSign(enclose(span(0, i, a, m), span(1, j, b, m), span(2, k, c, m)).F);
+                    if (sign == 0) free = false;
                 }
                 if (free) { zeroFree(i, j, k, 1, 1, 1, sign); return; }
             }
@@ -373,8 +378,9 @@ namespace g3
             return false;
         }
 
-        // (S1) for the grid edge from node (i, j, k) along axis: on the run of pieces that may hold a zero the derivative along
-        // the edge has one certified sign, and the run is one run (pieces without a zero do not interrupt it)
+        // (S1) for the grid edge from node (i, j, k) along axis: on all the pieces that may hold a zero the derivative along the
+        // edge has one certified sign. Then the level has one zero at most on the edge: it is strictly monotone on each such
+        // piece, all in one direction, and keeps its sign on the pieces between them.
         bool edge(int axis, int i, int j, int k)
         {
             bool r;
@@ -383,15 +389,13 @@ namespace g3
             r = false;
             int[] n = { i, j, k };
             for (int t = 0; t <= MaxTightening && !r; ++t) {
-                int m = 1 << t, sign = 0, state = 0;        // state: 0 before the run, 1 in it, 2 after it
+                int m = 1 << t, sign = 0;
                 bool ok = true;
                 for (int a = 0; a < m && ok; ++a) {
                     ExactInterval[] x = new ExactInterval[3];
                     for (int ax = 0; ax < 3; ++ax) x[ax] = ax == axis ? span(ax, n[ax], a, m) : point(ax, n[ax]);
                     IntervalEnclosure e = enclose(x[0], x[1], x[2]);
-                    if (!mayBeZero(e.F)) { if (state == 1) state = 2; continue; }
-                    if (state == 2) { ok = false; break; }
-                    state = 1;
+                    if (!MayBeZero(e.F)) continue;
                     int s = CertifiedSign(axis == 0 ? e.Gx : axis == 1 ? e.Gy : e.Gz);
                     if (s == 0 || (sign != 0 && s != sign)) ok = false;
                     sign = s;
@@ -424,7 +428,7 @@ namespace g3
                     ExactInterval[] x = new ExactInterval[3];
                     x[axis] = point(axis, n[axis]); x[u] = span(u, n[u], a, m); x[v] = span(v, n[v], c, m);
                     IntervalEnclosure e = enclose(x[0], x[1], x[2]);
-                    if (mayBeZero(e.F)) list.Add(e);
+                    if (MayBeZero(e.F)) list.Add(e);
                 }
                 bool ok = list.Count == 0 || hasDirection(list, axis);
                 if (ok && alternating) {
@@ -434,7 +438,7 @@ namespace g3
                         x[axis] = point(axis, n[axis]);
                         x[u] = span(u, n[u], p, pieces);
                         x[v] = span(v, n[v], lowIsEven ? p : pieces - 1 - p, pieces);
-                        if (mayBeZero(enclose(x[0], x[1], x[2]).F)) ok = false;
+                        if (MayBeZero(enclose(x[0], x[1], x[2]).F)) ok = false;
                     }
                 }
                 r = ok;
@@ -453,7 +457,7 @@ namespace g3
             int m = 1 << MaxTightening;
             for (int a = 0; a < m; ++a) for (int b = 0; b < m; ++b) for (int d = 0; d < m; ++d) {
                 IntervalEnclosure e = enclose(span(0, i, a, m), span(1, j, b, m), span(2, k, d, m));
-                if (mayBeZero(e.F)) list.Add(e);
+                if (MayBeZero(e.F)) list.Add(e);
             }
             cellPieces[c] = list;
             return list;

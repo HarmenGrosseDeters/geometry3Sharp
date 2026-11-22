@@ -386,6 +386,177 @@ namespace geometry3Sharp.Tests
             Assert.Contains(c.UncertifiedCells, u => u.Reason == SheetCertificateReason.MeshInBlock);
         }
 
+        // ---- (S1) and (S2) on their own ----
+
+        const double H = 2.2 / 16;
+        static double Node(int axis, int i) { return Shift[axis] + H * i; }
+
+        // An x-edge that a sphere cuts twice, with a short chord (inside one piece of the edge, where the derivative has no
+        // sign) and a long one (in different pieces, with certified opposite signs): refused. An edge it crosses once, and an
+        // edge it does not meet: accepted.
+        [Theory]
+        [InlineData(0.05)]
+        [InlineData(0.3)]
+        public void AnEdgeCrossedTwice_Fails_S1(double halfChordInCells)
+        {
+            const double w = 0.05 * H;
+            double d = 3 * H, c = halfChordInCells * H;
+            var centre = new Vector3d(Node(0, 8) + H / 2, Node(1, 6) + d, Node(2, 7));
+            var f = new Sphere(centre, Math.Sqrt(d * d + c * c) - w);          // the level g = w is the sphere of radius sqrt(d^2 + c^2)
+            TwoLevelMarchingTetrahedra gen = Mesh(f, w, Shift, 2.2, 16);
+            TwoLevelSheetCertificate cert = Certify(f, gen);
+            // the edge from node (8, 6, 7) along x: both ends outside, the chord around its middle
+            Vector3d a = new Vector3d(Node(0, 8), Node(1, 6), Node(2, 7)), mid = a + new Vector3d(H / 2, 0, 0);
+            Assert.True(f.Value(ref a) - w > 0 && f.Value(ref mid) - w < 0);
+            Assert.False(cert.EdgePasses(0, 0, 8, 6, 7));
+            // the edge from node (8, 6, 7) along y is crossed once
+            Vector3d b = a + new Vector3d(0, H, 0);
+            Assert.True(f.Value(ref a) - w > 0 && f.Value(ref b) - w < 0);
+            Assert.True(cert.EdgePasses(0, 1, 8, 6, 7));
+            // far away: no zero
+            Assert.True(cert.EdgePasses(0, 0, 2, 2, 2));
+            Assert.True(cert.EdgePasses(0, 2, 2, 2, 2));
+            // the other level (the sphere of radius below d) does not reach the first edge
+            Assert.True(cert.EdgePasses(1, 0, 8, 6, 7));
+            // the four cubes at the edge are certified in a block, not on their own, and the run is certified
+            Assert.True(cert.Certified, Summary(cert));
+            foreach (int j in new[] { 5, 6 }) foreach (int k in new[] { 6, 7 }) Assert.Equal(3, cert.CellStates[0][8 + 16 * (j + 16 * k)]);
+            Assert.Equal(0, OracleViolations(f, gen, cert));
+        }
+
+        // The top of a sphere a hundredth of a cell above a grid plane: the level set meets one face in a small closed curve.
+        // The face is refused (no direction in its plane; the direction along its normal does not count), and the two cubes
+        // at it are certified in a block.
+        [Fact]
+        public void AClosedCurveInAFace_Fails_S2()
+        {
+            const double w = 0.05 * H, radius = 5 * H;
+            var centre = new Vector3d(Node(0, 8) + H / 2, Node(1, 8) + H / 2, Node(2, 12) + 0.01 * H - radius);
+            var f = new Sphere(centre, radius - w);
+            TwoLevelMarchingTetrahedra gen = Mesh(f, w, Shift, 2.2, 16);
+            TwoLevelSheetCertificate cert = Certify(f, gen);
+            Assert.False(cert.FacePasses(0, 2, 8, 8, 12));
+            // a face of the same plane without a zero, and a face two layers below that the sphere crosses once
+            Assert.True(cert.FacePasses(0, 2, 2, 2, 12));
+            Assert.True(cert.FacePasses(0, 2, 12, 8, 10));
+            Assert.True(cert.FacePasses(0, 0, 13, 8, 9) || cert.FacePasses(0, 0, 12, 8, 9));
+            Assert.True(cert.Certified, Summary(cert));
+            Assert.Equal(3, cert.CellStates[0][8 + 16 * (8 + 16 * 11)]);
+            Assert.Equal(3, cert.CellStates[0][8 + 16 * (8 + 16 * 12)]);
+            Assert.Equal("c=2;g=0+0", Signature(gen.Mesh));
+        }
+
+        /// <summary>
+        /// h (eps (u + v) + 0.5 - (u - v)^2) + kappa (z - z0) with u = (x - x0) / h, v = (y - y0) / h: on the unit face at
+        /// (x0, y0, z0) the corner signs alternate (positive at u = v), and the function grows strictly along (1, 1, 0).
+        /// </summary>
+        sealed class Saddle : TestField
+        {
+            readonly Vector3d o; readonly double h, eps, kappa;
+            public Saddle(Vector3d corner, double h, double eps, double kappa) { o = corner; this.h = h; this.eps = eps; this.kappa = kappa; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                ExactInterval u = (x - C(o.x)) / C(h), v = (y - C(o.y)) / C(h), s = u - v;
+                return new IntervalEnclosure { F = C(h) * (C(eps) * (u + v) + C(0.5) - ExactInterval.Square(s)) + C(kappa) * (z - C(o.z)),
+                    Gx = C(eps) - C(2) * s, Gy = C(eps) + C(2) * s, Gz = C(kappa), Smooth = true };
+            }
+            public override double Value(ref Vector3d p)
+            {
+                double u = (p.x - o.x) / h, v = (p.y - o.y) / h;
+                return h * (eps * (u + v) + 0.5 - (u - v) * (u - v)) + kappa * (p.z - o.z);
+            }
+        }
+
+        // A face with alternating signs whose level set runs beside the diagonal between its two outside corners. Where that
+        // is the diagonal of the mesher's split (the face's lowest node has an even index sum) the mesh pairs the crossings
+        // as the level set does and the face passes; one node further the split has the other diagonal, the level set
+        // crosses it, and the face is refused.
+        [Theory]
+        [InlineData(4, true)]
+        [InlineData(5, false)]
+        public void AFaceWithAlternatingSigns_PassesOnlyWithTheSplitsDiagonal(int i, bool passes)
+        {
+            const double h = 2.2 / 8, w = 0.01 * h;
+            var corner = new Vector3d(Shift.x + h * i, Shift.y + h * 4, Shift.z + h * 4);
+            var f = new Saddle(corner, h, 0.4, 0.3);
+            TwoLevelMarchingTetrahedra gen = Mesh(f, w, Shift, 2.2, 8);
+            var r = gen.Certificate;
+            Func<int, int, int> inside = (di, dj) => r.NodeFlags[(i + di) + 9 * ((4 + dj) + 9 * 4)] & 1;
+            Assert.True(inside(0, 0) == 0 && inside(1, 1) == 0 && inside(1, 0) == 1 && inside(0, 1) == 1);
+            var cert = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxTightening = 4, MaxBlockSide = 1 };
+            cert.Compute();
+            Assert.Equal(passes, cert.FacePasses(0, 2, i, 4, 4));
+            // with less tightening the direction along the diagonal is not certified, and the face fails in both positions
+            var coarse = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxTightening = 1, MaxBlockSide = 1 };
+            coarse.Compute();
+            Assert.False(coarse.FacePasses(0, 2, i, 4, 4));
+            // neither cube at a refused face is certified on its own
+            if (!passes) {
+                Assert.NotEqual(1, cert.CellStates[0][i + 8 * (4 + 8 * 4)]);
+                Assert.NotEqual(1, cert.CellStates[0][i + 8 * (4 + 8 * 3)]);
+            }
+        }
+
+        /// <summary> x - c, with a gradient enclosure of the whole line on boxes that lie beyond x = c + margin (a valid, useless enclosure where the level has no zero) </summary>
+        sealed class PlaneWithUselessGradientsBeyond : TestField
+        {
+            readonly double c, margin;
+            public PlaneWithUselessGradientsBeyond(double c, double margin) { this.c = c; this.margin = margin; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                var whole = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
+                bool beyond = x.Lo > c + margin;
+                return new IntervalEnclosure { F = x - C(c), Gx = beyond ? whole : C(1), Gy = beyond ? whole : C(0), Gz = beyond ? whole : C(0), Smooth = !beyond };
+            }
+            public override double Value(ref Vector3d p) { return p.x - c; }
+        }
+
+        // The direction is asked only of the sub-boxes that may hold a zero (remark 9 of the note): a cube that the level set
+        // crosses passes although the gradient is not known on its far part.
+        [Fact]
+        public void TheDirection_IsAskedOnlyWhereTheLevelMayBeZero()
+        {
+            const double w = 0.02 * H;
+            var f = new PlaneWithUselessGradientsBeyond(Node(0, 8) + 0.2 * H, 0.3 * H);
+            TwoLevelMarchingTetrahedra gen = Mesh(f, w, Shift, 2.2, 16);
+            TwoLevelSheetCertificate cert = Certify(f, gen);
+            // the planes x = c + w and x = c - w cross the cubes of column 8; they leave the grid, so the run is not certified,
+            // but every inner cube of the column is certified on its own, on both levels
+            Assert.False(cert.Certified);
+            Assert.True((cert.RunFailure & SheetCertificateRunFailure.OuterLayer) != 0);
+            for (int level = 0; level < 2; ++level)
+                for (int k = 1; k < 15; ++k) for (int j = 1; j < 15; ++j) Assert.Equal(1, cert.CellStates[level][8 + 16 * (j + 16 * k)]);
+            Assert.All(cert.UncertifiedCells, u => Assert.Equal(SheetCertificateReason.OuterLayer, u.Reason));
+        }
+
+        [Fact]
+        public void MayBeZero_IsTrueUnlessASignIsCertified()
+        {
+            Func<double, double, ExactInterval> I = (lo, hi) => new ExactInterval(lo, hi);
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(-1, 1)));
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(0, 1)));
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(-1, 0)));
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(0, 0)));
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(double.NaN, double.NaN)));
+            Assert.True(TwoLevelSheetCertificate.MayBeZero(I(double.NegativeInfinity, double.PositiveInfinity)));
+            Assert.False(TwoLevelSheetCertificate.MayBeZero(I(double.Epsilon, 1)));
+            Assert.False(TwoLevelSheetCertificate.MayBeZero(I(-1, -double.Epsilon)));
+        }
+
+        // A grid whose coordinates do not separate the nodes (cubes below the rounding unit of the origin): refused as a run.
+        [Fact]
+        public void AGridWithoutIncreasingCoordinates_IsRefused()
+        {
+            var f = new Sphere(new Vector3d(1e17, 1e17, 1e17), 8);
+            var gen = new TwoLevelMarchingTetrahedra { Field = f, HalfWidth = 1, CellSize = 3, Bounds = new AxisAlignedBox3d(new Vector3d(1e17 - 30, 1e17 - 30, 1e17 - 30), new Vector3d(1e17 + 30, 1e17 + 30, 1e17 + 30)),
+                RecordCertificateData = true };
+            gen.Generate();
+            Assert.NotNull(gen.Certificate);
+            TwoLevelSheetCertificate cert = Certify(f, gen);
+            Assert.False(cert.Certified);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, cert.RunFailure);
+        }
+
         // ---- the counts on the record ----
 
         static TwoLevelMarchingTetrahedra.CertificateRecord Flags(int nodesPerAxis, Func<int, int, int, bool> inside)
@@ -417,6 +588,14 @@ namespace geometry3Sharp.Tests
                 }
                 Assert.Equal(new[] { 2, 168, 76, 8, 2, 0 }, histogram);
             }
+            // the two inside nodes of a face on a diagonal: joined by the mesh where that is the split's diagonal (both nodes
+            // have an even index sum), apart where it is the other one
+            var even = Flags(3, (i, j, k) => k == 0 && ((i == 0 && j == 0) || (i == 1 && j == 1)));
+            Assert.Equal(1, TwoLevelSheetCertificate.Circles(even, 1, new[] { 0, 0, 0, 1, 1, 1 }));
+            Assert.True(TwoLevelSheetCertificate.MeshIsDisks(even, 1, new[] { 0, 0, 0, 1, 1, 1 }, 1));
+            var odd = Flags(3, (i, j, k) => k == 0 && ((i == 1 && j == 0) || (i == 2 && j == 1)));
+            Assert.Equal(2, TwoLevelSheetCertificate.Circles(odd, 1, new[] { 1, 0, 0, 2, 1, 1 }));
+            Assert.False(TwoLevelSheetCertificate.MeshIsDisks(odd, 1, new[] { 1, 0, 0, 2, 1, 1 }, 1));
         }
 
         [Fact]

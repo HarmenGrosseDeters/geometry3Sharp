@@ -380,10 +380,12 @@ namespace geometry3Sharp.Tests
             gen.HalfWidthF = p => w * (1 + 0.2 * Math.Sin(3 * p.x));
             gen.Generate();
             Assert.True(gen.Certificate.VariableHalfWidth);
+            Assert.True(double.IsNaN(gen.Certificate.HalfWidth));
             CheckRecord(gen);
             gen.HalfWidthF = null;
             gen.Generate();
             Assert.False(gen.Certificate.VariableHalfWidth);
+            Assert.Equal(w, gen.Certificate.HalfWidth);
 
             var rng = new Random(2704);
             double[] choices = { -1, -1, 1, 1, 0, -0.5, 0.25 };
