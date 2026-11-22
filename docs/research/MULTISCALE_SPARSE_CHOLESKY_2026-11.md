@@ -12,28 +12,31 @@ direct `SparseCholesky` in time or memory at our sizes, with results that are bi
 
 ## 1. Result in short
 
-- **No system of the library gains time from the multiscale methods at 50k to 1M unknowns.** On surface meshes the exact
-  factor with the opt-in nested dissection (#1300) is small (46 to 65 entries per unknown for the Laplacian), and one direct
-  solve costs about as much as 10 to 20 products with A. A preconditioned iteration cannot go below that, so only setup time
-  and memory are left to win.
+- **None of the methods of the papers gains time on a system of the library at the sizes measured** (Poisson to 1M
+  unknowns, heat to 219k, bi-Laplacian to 205k, connection Laplacian to 438k). On surface meshes the exact factor with the
+  opt-in nested dissection (#1300) is small (46 to 65 entries per unknown for the Laplacian), and one direct solve on 4
+  cores costs about as much as 10 to 20 serial products with A. Only setup time and memory are left to win.
 - **The KL-minimisation closed form does not apply to our problem.** It needs entries of the *inverse* of the matrix it
-  factors (a covariance or Green's matrix). For a given sparse A it becomes FSAI, which the probe measures as 1.3 to 2.1
-  times the iterations of an incomplete Cholesky on the same pattern.
-- **The multiscale incomplete Cholesky (Chen et al. 2021) loses on every surface system**: at the pattern width that
-  gives few iterations (rho = 8) its factor is larger than our exact factor, its setup is slower and its solve is 10 to
-  270 times slower. On the bi-Laplacian it breaks down (diagonal shifts, no convergence in 3000 iterations at 205k).
-  The kill criterion of the survey (2x on the cold biharmonic case) is missed by a wide margin.
-- **Approximate elimination (Kyng and Sachdeva 2016) is the only arm with a measurable gain, and the gain is memory**: 7 to
-  10 times fewer entries than the exact factor on the Poisson system, with a cold time (setup + one solve) between 0.7 and
-  2 times that of the direct solver. It only applies to Laplace-type systems, not to the bi-Laplacian, the connection
-  Laplacian or the frames systems.
-- **The heat system `M / t + L` is so well conditioned that plain IC(0) solves it in 13 iterations**: 5 to 13 times
-  faster cold than a factorisation. That is a small opt-in option, independent of the multiscale papers.
-- Leaning: **no build** from the papers of this spike. Details and options in sections 6 and 7.
+  factors (a covariance or Green's matrix); that is the argument. For a given sparse A it becomes FSAI. As a side check the
+  probe ran FSAI on the pattern of the multiscale incomplete factor (not the wider pattern the theory gives for an inverse
+  factor): 1.3 to 2.1 times the iterations of the incomplete Cholesky on that pattern.
+- **The multiscale incomplete Cholesky (Chen et al. 2021) loses on every surface system.** On the Poisson, heat and
+  connection systems, at the pattern width that gives few iterations (rho = 8), its factor is larger than our exact factor
+  and its setup is 5 to 8 times slower than the whole direct factorisation. Its solve in the prototype is 50 to 270 times
+  slower than the direct solve on Poisson and connection (9 times on heat); that number is the prototype's (section 5.1),
+  the factor size is not. On the bi-Laplacian the prototype needs diagonal shifts and does not converge in 3000 iterations
+  at 205k. The kill criterion of the survey (2x on the cold biharmonic case) is missed by a wide margin.
+- **Approximate elimination (Kyng and Sachdeva 2016) is the only arm from the papers with a measurable gain, and the gain
+  is memory**: 7 to 10 times fewer entries than the exact factor on the Poisson system, at a cold time (setup + one solve)
+  of 1.6 to 2.1 times that of the direct solver. It only applies to Laplace-type systems, not to the bi-Laplacian, the
+  connection Laplacian or the frames systems.
+- **The heat system `M / t + L` at t = h² is so well conditioned that plain IC(0) solves it in 13 iterations**: 4 to 5
+  times faster cold than a factorisation. That is a small opt-in option, independent of the multiscale papers.
+- Leaning: **no build** from the papers of this spike. Details and options in sections 6 to 8.
 
 ## 2. The methods, in our words
 
-Papers read in the text only; no code of any of them was read (licences in section 8).
+Papers read in the text only; no code of any of them was read (licences in section 9).
 
 **A. KL minimisation (Schäfer, Katzfuss, Owhadi 2021).** Given a dense positive definite matrix Θ (a kernel matrix, ie the
 Green's matrix of an elliptic operator) and a sparsity pattern, the sparse triangular factor L that minimises the
@@ -112,79 +115,87 @@ Constraints:
 - Multigrid on surfaces (Liu et al. 2021; Wiersma et al. 2023, Gravo MG) is the published alternative for one or few
   solves. Gravo MG reports, for a Poisson problem at tolerance 1e-4: 152k vertices 0.14 + 0.19 s (setup + solve) against
   0.58 + 0.04 s for Pardiso; 1M vertices 0.89 + 0.94 s against 4.54 + 0.22 s. The same paper: "A direct solver is often
-  preferable in settings where high accuracy is required." Our direct solver with nested dissection is at 0.37 s (54k) and
-  4.1 s (1M) on 4 cores, so against it the published multigrid gain is a factor of about 2 on one cold solve, at their looser tolerance.
+  preferable in settings where high accuracy is required." Our direct solver with nested dissection is at 0.15 s (54k) and
+  4.2 s (1M) cold on 4 cores; the two sets of numbers are from different machines and tolerances, so this only says that
+  multigrid is the candidate with a published gain of this kind, not how large it would be here.
 - Hierarchical sparsification (Krishnan, Fattal, Szeliski 2013) and approximate elimination (E) are for M-matrices only.
 - Not verified in this spike: the numbers of Botsch, Bommes, Kobbelt 2005 (direct against multigrid on meshes); the hosts
   were not reachable.
 
-## 5. Measured upper bound
+## 5. Measurements
 
 Prototype: [benchmarks/MultiscaleCholeskyProbe](../../benchmarks/MultiscaleCholeskyProbe/README.md) (all tables and the
 commands are there). Procedural systems on a bumpy cube sphere and a 3D grid; 4 cores; the direct solver uses them, the
-preconditioners are serial. "Cold" is setup plus one solve to a relative residual of 1e-8; "entries" are the stored numbers
-of the factor or preconditioner. Direct is `SparseCholesky` with nested dissection.
+preconditioned arms are serial (except the FSAI setup). "Cold" is setup plus one solve to a relative residual of 1e-8;
+"entries" are the stored numbers of the factor or preconditioner. "Direct" is `SparseCholesky` with the opt-in nested
+dissection (the default minimum degree ordering is 1.9 to 3.7 times slower to factor on these inputs). Timings of a shared
+machine: ratios below 1.5 mean nothing. For the approximate elimination and IC(0) arms the numbers are an upper bound of
+what a tuned implementation would need; for the multiscale arm see section 5.1.
 
 **Poisson (cotan Laplacian, one pinned vertex)**
 
 | n | method | setup (s) | entries | iterations | solve (ms) | cold (s) |
 |---|---|---|---|---|---|---|
-| 54k | direct | 0.37 | 2.51M | 1 | 4.5 | 0.37 |
-| 54k | IC(0) | 0.01 | 0.22M | 286 | 530 | 0.54 |
-| 54k | multiscale IC rho=4 | 0.23 | 0.95M | 139 | 483 | 0.71 |
-| 54k | multiscale IC rho=8 | 0.93 | 3.68M | 31 | 276 | 1.21 |
-| 54k | multiscale FSAI rho=4 | 0.29 | 0.95M | 297 | 1046 | 1.34 |
-| 54k | approximate elimination | 0.17 | 0.37M | 38 | 85 | 0.26 |
-| 219k | direct | 1.04 | 12.17M | 1 | 29 | 1.07 |
-| 219k | IC(0) | 0.03 | 0.88M | 582 | 4251 | 4.28 |
-| 219k | multiscale IC rho=8 | 4.23 | 15.04M | 59 | 4187 | 8.42 |
-| 219k | approximate elimination | 0.76 | 1.49M | 43 | 418 | 1.18 |
+| 54k | direct | 0.14 | 2.51M | 1 | 6.4 | 0.15 |
+| 54k | IC(0) | 0.01 | 0.22M | 286 | 529 | 0.54 |
+| 54k | multiscale IC rho=4 | 0.24 | 0.95M | 139 | 661 | 0.90 |
+| 54k | multiscale IC rho=8 | 0.96 | 3.68M | 31 | 315 | 1.28 |
+| 54k | multiscale FSAI rho=4 | 0.32 | 0.95M | 297 | 1222 | 1.54 |
+| 54k | approximate elimination | 0.15 | 0.37M | 38 | 87 | 0.24 |
+| 219k | direct | 0.56 | 12.17M | 1 | 29 | 0.59 |
+| 219k | IC(0) | 0.03 | 0.88M | 582 | 4127 | 4.16 |
+| 219k | multiscale IC rho=8 | 4.24 | 15.04M | 59 | 4356 | 8.60 |
+| 219k | approximate elimination | 0.80 | 1.49M | 43 | 458 | 1.26 |
 | 999k | direct | 4.07 | 65.46M | 1 | 149 | 4.22 |
 | 999k | multiscale IC rho=8 | 20.13 | 68.49M | 127 | 40341 | 60.5 |
 | 999k | approximate elimination | 5.22 | 6.82M | 51 | 3154 | 8.37 |
 
-The multiscale incomplete Cholesky needs rho = 8 for a small iteration count, as the paper says for 2D; there its factor
-has more entries than the exact one, and the iteration count still grows with n (31, 59, 127). Part of that growth is the
-prototype (section 5.1), but the size of the factor is not: the paper's own table has about 450 entries per unknown.
+At rho = 8 the multiscale factor has more entries than the exact one. That part does not depend on the prototype: the
+paper's own table has about 450 entries per unknown for 2D Poisson. The iteration count of the prototype doubles per
+refinement (31, 59, 127), like IC(0) (286, 582, 1164); a multiscale factor of sufficient width should be nearly
+independent of n, so the prototype is below that width (section 5.1).
 
-**Heat (`M / h² + L`)**
+**Heat (`M / h² + L`, the library default `TimeFactor` = 1)**
 
 | n | method | setup (s) | entries | iterations | solve (ms) | cold (s) |
 |---|---|---|---|---|---|---|
-| 54k | direct | 0.41 | 2.52M | 1 | 4.8 | 0.41 |
-| 54k | Jacobi | 0 | 0.05M | 42 | 34 | 0.03 |
-| 54k | IC(0) | 0.01 | 0.22M | 13 | 22 | 0.03 |
-| 219k | direct | 0.69 | 12.07M | 1 | 27 | 0.72 |
-| 219k | IC(0) | 0.03 | 0.88M | 13 | 97 | 0.13 |
-| 219k | multiscale IC rho=4 | 0.96 | 3.84M | 8 | 140 | 1.10 |
+| 54k | direct | 0.15 | 2.52M | 1 | 6.3 | 0.16 |
+| 54k | Jacobi | 0 | 0.05M | 42 | 43 | 0.04 |
+| 54k | IC(0) | 0.01 | 0.22M | 13 | 24 | 0.03 |
+| 54k | multiscale IC rho=4 | 0.22 | 0.95M | 8 | 32 | 0.25 |
+| 219k | direct | 0.57 | 12.07M | 1 | 31 | 0.60 |
+| 219k | IC(0) | 0.03 | 0.88M | 13 | 109 | 0.14 |
+| 219k | multiscale IC rho=4 | 1.04 | 3.84M | 8 | 153 | 1.19 |
 
-The iteration count of IC(0) does not grow with n here (the time step scales with h²). The multiscale pattern buys nothing.
-The probe uses t = h²; a larger `TimeFactor` makes the system worse conditioned and was not measured.
+The iteration count of IC(0) does not grow with n here (the time step scales with h²). The multiscale pattern buys nothing
+over IC(0). A larger `TimeFactor` makes the system worse conditioned and was not measured.
 
 **Bi-Laplacian (`L M⁻¹ L`, fixed caps)**
 
 | n | method | setup (s) | entries | iterations | solve (ms) |
 |---|---|---|---|---|---|
-| 51k | direct | 0.35 | 6.76M | 1 | 13.9 |
+| 51k | direct | 0.34 | 6.76M | 1 | 17.9 |
 | 51k | IC(0), shift 0.064 | 0.02 | 0.51M | not in 3000 | - |
-| 51k | multiscale IC rho=8, shift 0.004 | 1.80 | 3.42M | 2550 | 22932 |
-| 205k | direct | 1.69 | 34.29M | 1 | 86 |
-| 205k | multiscale IC rho=8, shift 0.016 | 8.60 | 14.06M | not in 3000 | - |
+| 51k | multiscale IC rho=8, shift 0.004 | 1.79 | 3.42M | 2550 | 27352 |
+| 205k | direct | 1.72 | 34.29M | 1 | 71 |
+| 205k | multiscale IC rho=8, shift 0.016 | 8.74 | 14.06M | not in 3000 | - |
 
-Every incomplete factorisation of this matrix needed a diagonal shift, and no arm converges in useful time. The condition
-number is the square of the Laplacian's. Approximate elimination does not apply: 24 % of the off-diagonal weight is
-positive. The one measured gain for this system is the one already merged: nested dissection against minimum degree
-(0.78 s to 0.35 s at 51k, 4.99 s to 1.69 s at 205k).
+Here the incomplete factors are smaller than the exact one, but every one of them needed a diagonal shift under the
+prototype's rule (relative shift 0.001, times 4 until no pivot fails, so the needed shift may be up to 4 times smaller than
+the one reported), and the FSAI arm, which needs no shift, does not converge in 3000 iterations either. The condition
+number is the square of the Laplacian's (at about 9k unknowns all arms still converge, in about 1000 iterations). Approximate
+elimination does not apply: 24 % of the off-diagonal weight is positive. The one measured gain for this system is the one
+already merged: nested dissection against minimum degree (0.74 s to 0.34 s at 51k, 4.63 s to 1.72 s at 205k).
 
 **Connection Laplacian (two real unknowns per vertex, the cross-field system)**
 
 | n | method | setup (s) | entries | iterations | solve (ms) |
 |---|---|---|---|---|---|
-| 108k | direct | 0.39 | 10.01M | 1 | 26 |
-| 108k | IC(0) | 0.02 | 0.81M | 225 | 1064 |
-| 108k | multiscale IC rho=8 | 3.02 | 14.68M | 23 | 1513 |
-| 438k | direct | 2.12 | 48.02M | 1 | 100 |
-| 438k | multiscale IC rho=8 | 13.07 | 59.92M | 46 | 13518 |
+| 108k | direct | 0.42 | 10.01M | 1 | 30 |
+| 108k | IC(0) | 0.02 | 0.81M | 225 | 1073 |
+| 108k | multiscale IC rho=8 | 3.03 | 14.68M | 23 | 1590 |
+| 438k | direct | 2.26 | 48.02M | 1 | 105 |
+| 438k | multiscale IC rho=8 | 12.57 | 59.92M | 46 | 13716 |
 
 With 6 to 34 solves per factor in `CrossField`, the direct solver wins by one to two orders of magnitude.
 
@@ -192,10 +203,10 @@ With 6 to 34 solves per factor in `CrossField`, the direct solver wins by one to
 
 | n | method | setup (s) | entries | iterations | solve (ms) | cold (s) |
 |---|---|---|---|---|---|---|
-| 111k | direct | 2.73 | 39.05M | 1 | 189 | 2.92 |
-| 111k | IC(0) | 0.01 | 0.44M | 58 | 219 | 0.23 |
-| 111k | approximate elimination | 0.49 | 0.95M | 25 | 142 | 0.63 |
-| 111k | multiscale IC rho=4 | 2.57 | 7.67M | 20 | 621 | 3.19 |
+| 111k | direct | 2.63 | 39.05M | 1 | 193 | 2.82 |
+| 111k | IC(0) | 0.01 | 0.44M | 58 | 207 | 0.22 |
+| 111k | approximate elimination | 0.52 | 0.95M | 25 | 178 | 0.70 |
+| 111k | multiscale IC rho=4 | 2.62 | 7.67M | 20 | 811 | 3.43 |
 
 This is where iterative methods win (the exact factor has 350 entries per unknown and grows faster than n), and it is the
 setting of the papers. The library has no volumetric user of `SparseCholesky` today. Even here the plain IC(0) is the
@@ -207,22 +218,28 @@ connection results there is no reason to expect a gain.
 
 ### 5.1 Caveats of the prototype
 
-- The coarse-to-fine sampling is a level-wise stand-in for the maximin ordering, and its length scale is a lower bound of
-  the spacing, so a given rho is narrower in effect than in the paper. A true maximin ordering would lower the iteration
-  counts at equal rho, at more entries per row.
+- **The multiscale arm is not an upper bound of the method's solve time.** The coarse-to-fine sampling is a level-wise
+  stand-in for the maximin ordering, and its length scale is up to 2 times below the true spacing, so rho = 8 here is 4 to
+  8 in the paper's terms, at or below its 2D range; the growth of the iterations with n shows it. A true maximin ordering
+  at the paper's rho would need fewer iterations and more entries per row. The verdict on this arm therefore rests on the
+  part that does not depend on the prototype: by the paper's own table the factor is several times larger than our exact
+  nested dissection factor on a surface, and one application of it per iteration cannot be cheaper than one exact solve.
+- The FSAI arm runs on the pattern of the incomplete factor, not on the wider pattern (larger of the two length scales,
+  O(N log N rho^d) entries) that the theory gives for a factor of the inverse. It is a side check, not a test of method A.
 - No supernodes, no parallel triangular solves: the solve times of the preconditioned arms could drop by a factor of 2 to
-  4 with engineering. The gap to the direct solve on the Poisson and connection systems is 60x and more, and the entries do not change.
+  4 with engineering. For the multiscale arm the gap to the direct solve is 50x and more. For approximate elimination it
+  is 14x to 21x per solve, so such a gain would matter there for the cold time, not for many solves per factor.
 - Approximate elimination: one seed, no tuning (the papers split edges or keep several samples to trade entries for
   iterations); its setup time grows faster than n in the prototype (priority queue and adjacency lists with poor locality).
-- A shared cloud machine: timings to about 20 %.
+- Setups and iterations are timed once, on a shared machine (see the README of the probe).
 
 ## 6. Answer per system
 
 | system | answer |
 |---|---|
-| Laplacian / Poisson | Time: no (direct wins or ties to 1M). Memory: approximate elimination, 7 to 10 times less. |
-| Heat `M / t + L` | Yes, but with plain IC(0) or Jacobi, not with a multiscale factor: 5 to 13 times faster cold at t = h². |
-| Bi-Laplacian | No. All arms break down or do not converge. |
+| Laplacian / Poisson | Time: no (direct is 1.6 to 2.1 times faster cold than the best arm, to 1M). Memory: approximate elimination, 7 to 10 times fewer entries. |
+| Heat `M / t + L` | Yes at t = h², but with plain IC(0) or Jacobi, not with a multiscale factor: 4 to 5 times faster cold. |
+| Bi-Laplacian | No. No arm converges in useful time. |
 | Cross field (connection Laplacian) | No. Many solves per factor; iterations lose by 10x to 100x. |
 | Frames (`JᵀJ`) | Not measured; no reason to expect a gain. |
 
@@ -231,19 +248,19 @@ connection results there is no reason to expect a gain.
 | # | option | effort | risk | measured gain |
 |---|---|---|---|---|
 | 1 | No build. Keep the direct solver; the probe and this note stay as the record. | none | none | - |
-| 2 | Opt-in IC(0)-preconditioned CG for the heat step (`M / t + L`) of the heat method, for cold single-source queries. | small (an IC(0) of about 150 lines, `SparseSymmetricCG` exists; tests for determinism and tolerance) | Result bits differ from the direct path, so opt-in only. `SolveLog` and cached multi-source use still need the factor. Conditioning at the real `TimeFactor` must be measured first. The Poisson solve of the same query stays direct, so a cold query saves about half of its factor time at most. | 0.03 s against 0.41 s (54k), 0.13 s against 0.72 s (219k) for the heat solve alone |
-| 3 | Approximate elimination as an opt-in low-memory solver for Laplace-type systems. | medium (about 400 lines, seeded, serial; an invariance and a determinism test; a guard for non-Delaunay input) | Randomised quality (seeded, so reproducible, but no worst-case bound we can test); positive cotan weights must be dropped or the mesh made intrinsic Delaunay first; no time gain to 1M. | 7 to 10 times fewer entries (55 MB against 524 MB at 1M); cold time 0.7x to 2x of direct |
-| 4 | Multiscale incomplete Cholesky (paper C) with supernodes and a true maximin ordering. | large (weeks: ordering, pattern search, supernodal incomplete factor, parallel schedule) | Loses on every surface system measured, also by the paper's own factor sizes; breaks down on the bi-Laplacian. | none on our systems; only on 3D volumes, where IC(0) is as good at our sizes |
-| 5 | KL-minimisation inverse factor (paper A) of the solution operator. | large | Needs entries of A⁻¹, ie a solver; on the entries of A it is FSAI, measured worse than IC on the same pattern. | none |
+| 2 | Opt-in IC(0)-preconditioned CG for the heat step (`M / t + L`) of the heat method, for cold single-source queries. | small (an IC(0) of about 150 lines, `SparseSymmetricCG` exists; tests for determinism and tolerance) | Result bits differ from the direct path, so opt-in only. `SolveLog` and cached multi-source use still need the factor. Conditioning at a larger `TimeFactor` must be measured first. The Poisson solve of the same query stays direct, so a cold query saves less than half of its factor time. | 0.03 s against 0.16 s (54k), 0.14 s against 0.60 s (219k) for the heat solve alone |
+| 3 | Approximate elimination as an opt-in low-memory solver for Laplace-type systems. | medium (about 400 lines, seeded, serial; an invariance and a determinism test; a guard for non-Delaunay input) | Randomised quality (seeded, so reproducible, but no worst-case bound we can test); positive cotan weights must be dropped or the mesh made intrinsic Delaunay first; slower than direct at every size measured. | 7 to 10 times fewer factor entries (6.8M against 65.5M at 1M; peak memory of the setup not measured); cold time 1.6x to 2.1x of direct |
+| 4 | Multiscale incomplete Cholesky (paper C) with supernodes and a true maximin ordering. | large (weeks: ordering, pattern search, supernodal incomplete factor, parallel schedule) | Factor larger than the exact one on surfaces by the paper's own numbers; needs shifts on the bi-Laplacian. | none on our systems; only on 3D volumes, where IC(0) is as good at our sizes |
+| 5 | KL-minimisation inverse factor (paper A) of the solution operator. | large | Needs entries of A⁻¹, ie a solver; on the entries of A it is FSAI on a pattern with O(N log N rho^d) entries. | none |
 
 ## 8. Leaning
 
 Option 1: **no build.** The premise of the survey item (direct Cholesky "stalls on fill-in" for our systems) does not hold
-for surface meshes at our sizes once nested dissection is on: the exact factor is about as large as the approximate one
-that gives few iterations. The cold biharmonic latency (#980, #976), which motivated the item, is not helped by any arm;
-the lever there remains the ordering and the factorisation itself.
+for surface meshes at our sizes once nested dissection is on: for the Laplace-type and connection systems the exact factor
+is no larger than the multiscale one that gives few iterations. The cold biharmonic latency (#980, #976), which motivated
+the item, is not helped by any arm; the lever there remains the ordering and the factorisation itself.
 
-Option 2 is cheap and its gain is real, but it changes one of two factorisations of one use case and the result bits;
+Option 2 is cheap, but its gain is 0.1 to 0.5 s on one of two factorisations of one use case, at different result bits;
 worth a go only if cold single-source geodesic queries on large meshes become a stated need. Option 3 is worth a second
 look when a user with several million unknowns or a 3D volumetric system (tet Laplacian) appears; multigrid (section 4)
 would then be the alternative to compare against. Options 4 and 5 are no-go.
