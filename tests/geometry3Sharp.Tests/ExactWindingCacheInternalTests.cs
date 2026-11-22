@@ -142,7 +142,8 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 400; ++i) {
                 Vector3d P() { return new Vector3d(rng.Next(-32, 33) / 8.0, rng.Next(-32, 33) / 8.0, rng.Next(-32, 33) / 8.0); }
                 Vector3d p = P(), a = P(), b = P();
-                if (a.y == p.y && a.z == p.z || b.y == p.y && b.z == p.z || a.Equals(b)) continue;   // (the special-case paths: their own tests)
+                if (a.y == p.y && a.z == p.z || b.y == p.y && b.z == p.z || a.Equals(b)) continue;
+                if (ExactPredicates.Orient2d(new Vector2d(p.y, p.z), new Vector2d(a.y, a.z), new Vector2d(b.y, b.z)) == 0) continue;   // (p behind the edge or on it: the limit paths, their own tests)   // (the special-case paths: their own tests)
                 double expected = EdgeAngleOracle(p, a, b);
                 if (Math.Abs(expected) > 3.1415 || double.IsNaN(expected)) continue;                // (near the branch cut the oracle is not exact)
                 double baseAngle = ExactWindingCache.boundary_edge_angle_x(p, a, b);
@@ -165,8 +166,9 @@ namespace geometry3Sharp.Tests
         public void BoundaryEdgeAngleX_BranchCutWithRoundingNoise_TakesTheSignOfTheExactOrientation()
         {
             // p behind the middle of the edge in the yz plane: |angle| is close to pi and its sign is the exact sign of
-            // (a - p) x (b - p) in yz. With decimal inputs (0.1, 0.3, ...) the rounded num is noise of the size 1e-17, which
-            // the error bounds numErr / denErr must recognise: without them atan2 takes the sign of the noise.
+            // (a - p) x (b - p) in yz. With decimal inputs (0.1, 0.3, ...) the rounded num is 0 or noise of the size 1e-17,
+            // which the error bounds must route to the exact orientation (num == 0 always does; the rounded differences are
+            // exact here, the next tests cover them).
             // Every 2^k scaling must give the same exact sign (k = +-60 take the fast path, the others the rescaling path).
             var rng = new Random(77);
             int[] ks = { 0, 60, -60, 400, -400 };
@@ -192,7 +194,7 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(tested > 200, $"only {tested} cases");
-            Assert.True(noisy >= 5, $"only {noisy} samples where the rounded num has the wrong sign");
+            Assert.True(noisy >= 5, $"only {noisy} samples where the rounded num is 0 or has the wrong sign");
         }
 
 
