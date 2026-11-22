@@ -13,6 +13,7 @@ internal static class Program
 {
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "twolevel") { TwoLevel(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 4); return; }
         int[] periods = args.Length > 0 ? Array.ConvertAll(args[0].Split(','), int.Parse) : new[] { 2, 4, 6 };
         int divisions = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 16;
         Console.WriteLine("cores " + Environment.ProcessorCount + ", divisions " + divisions);
@@ -29,6 +30,35 @@ internal static class Program
         // the two-type hybrid (gyroid / I-WP across the plane x = periods / 2, width 0.5): both fields at every node plus the weight
         foreach (int p in periods)
             Run(TpmsType.Gyroid, TpmsStyle.Sheet, p, divisions, true, false, true);
+    }
+
+    // TpmsLattice.TwoLevelSheet against the default (marching cubes), gyroid sheet in a box of periods^3 periods: wall thickness in cubes
+    // from well resolved to far below a cube. Status of the certificate (with the exact self-intersection check), connected components
+    // (a gyroid sheet in a box is one piece), triangles, the mean wall thickness of the result over the asked one, ms of Compute (best of 3).
+    static void TwoLevel(int periods)
+    {
+        Console.WriteLine("cores " + Environment.ProcessorCount + ", gyroid sheet, " + periods + "^3 periods");
+        Console.WriteLine("divisions, wall (cubes), method, status, components, triangles, mean wall / asked, compute ms");
+        new TpmsLattice { CellSize = 1, Divisions = 8, WallThickness = 0.1, TwoLevelSheet = true }.Compute();      // warm-up (JIT)
+        new TpmsLattice { CellSize = 1, Divisions = 8, WallThickness = 0.3 }.Compute();
+        foreach (int divisions in new[] { 8, 16 })
+            foreach (double wall in new[] { 3.0, 2.0, 1.0, 0.5, 0.25, 0.1 })
+                foreach (bool two in new[] { false, true }) {
+                    double best = double.MaxValue; TpmsLattice lattice = null;
+                    for (int rep = 0; rep < 3; ++rep) {
+                        lattice = new TpmsLattice {
+                            Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = 1, Divisions = divisions, WallThickness = wall / divisions,
+                            Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(periods, periods, periods)), TwoLevelSheet = two
+                        };
+                        var sw = Stopwatch.StartNew();
+                        lattice.Compute();
+                        best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+                    }
+                    bool ok = lattice.Status == TpmsStatus.Ok;
+                    Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7:F0}", divisions, wall, two ? "two-level" : "marching cubes",
+                        lattice.Status + (ok ? "" : " (" + lattice.Message + ")"), ok ? MeshTopologySummary.Compute(lattice.Mesh).Components.ToString() : "-",
+                        ok ? lattice.Mesh.TriangleCount.ToString() : "-", ok ? (lattice.MeanWallThickness / (wall / divisions)).ToString("F2", CultureInfo.InvariantCulture) : "-", best));
+                }
     }
 
     static void Run(TpmsType type, TpmsStyle style, int periods, int divisions, bool print, bool graded = false, bool hybrid = false)

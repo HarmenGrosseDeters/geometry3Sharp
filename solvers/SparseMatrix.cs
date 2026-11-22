@@ -94,26 +94,26 @@ namespace g3
             PackedSparseMatrix M = new PackedSparseMatrix(this);
             M.Sort();
 
-            // Parallel variant is vastly faster, uses spinlock to control access to R
+            // Parallel variant is vastly faster. Each row computes its entries, in the order of their columns, into its
+            // own slot, and the rows are inserted into R in order: so R lists its entries in the order of the serial
+            // variant, whatever the schedule (they were inserted under a lock, in the order the loop ran its rows, and
+            // Multiply adds the terms of a product in the order of R: issue 1314, same kind).
             if (bParallel) {
 
-                // goddamn SpinLock is in .Net 4
-                //SpinLock spin = new SpinLock();
+                List<KeyValuePair<Index2i, double>>[] found = new List<KeyValuePair<Index2i, double>>[N];
                 gParallel.ForEach(Interval1i.Range(N), (r1i) => {
+                    List<KeyValuePair<Index2i, double>> row = new List<KeyValuePair<Index2i, double>>();
                     for (int c2i = r1i; c2i < N; c2i++) {
                         double v = M.DotRowColumn(r1i, c2i, M);
-                        if (Math.Abs(v) > MathUtil.ZeroTolerance) {
-                            //bool taken = false;
-                            //spin.Enter(ref taken);
-                            //Debug.Assert(taken);
-                            //R[r1i, c2i] = v;
-                            //spin.Exit();
-                            lock(R) {
-                                R[r1i, c2i] = v;
-                            }
-                        }
+                        if (Math.Abs(v) > MathUtil.ZeroTolerance)
+                            row.Add(new KeyValuePair<Index2i, double>(new Index2i(r1i, c2i), v));
                     }
+                    found[r1i] = row;
                 });
+                for (int r1i = 0; r1i < N; r1i++) {
+                    foreach (var e in found[r1i])
+                        R[e.Key.a, e.Key.b] = e.Value;
+                }
 
             } else {
                 for (int r1i = 0; r1i < N; r1i++) {
@@ -194,31 +194,30 @@ namespace g3
                 return Math.Abs(v - vT) <= MathUtil.ZeroTolerance * Math.Max(1, Math.Max(Math.Abs(v), Math.Abs(vT)));
             };
 
-            // Parallel variant is vastly faster, uses spinlock to control access to R
+            // Parallel variant is vastly faster. Each row computes its entries, in the order of their columns, into its
+            // own slot, and the rows are inserted into R in order: so R lists its entries in the order of the serial
+            // variant, whatever the schedule (they were inserted under a lock, in the order the loop ran its rows, and
+            // Multiply adds the terms of a product in the order of R: issue 1314, same kind).
             if (bParallel) {
 
-                // goddamn SpinLock is in .Net 4
-                //SpinLock spin = new SpinLock();
+                List<KeyValuePair<Index2i, double>>[] found = new List<KeyValuePair<Index2i, double>>[N];
                 gParallel.ForEach(Interval1i.Range(N), (r1i) => {
+                    List<KeyValuePair<Index2i, double>> row = new List<KeyValuePair<Index2i, double>>();
                     for (int c2i = r1i; c2i < N; c2i++) {
                         double v = M.DotRowColumn(r1i, c2i, M2);
                         if (c2i != r1i && symmetric_entry(r1i, c2i, v) == false)
                             is_symmetric = false;
-                        if (Math.Abs(v) > MathUtil.ZeroTolerance) {
-                            //bool taken = false;
-                            //spin.Enter(ref taken);
-                            //Debug.Assert(taken);
-                            //R[r1i, c2i] = v;
-                            //spin.Exit();
-                            lock(R) {
-                                R[r1i, c2i] = v;
-                            }
-                        }
+                        if (Math.Abs(v) > MathUtil.ZeroTolerance)
+                            row.Add(new KeyValuePair<Index2i, double>(new Index2i(r1i, c2i), v));
                     }
+                    found[r1i] = row;
                 });
+                for (int r1i = 0; r1i < N; r1i++) {
+                    foreach (var e in found[r1i])
+                        R[e.Key.a, e.Key.b] = e.Value;
+                }
 
             } else {
-
                 for (int r1i = 0; r1i < N; r1i++) {
                     for (int c2i = r1i; c2i < N; c2i++) {
                         double v = M.DotRowColumn(r1i, c2i, M2);

@@ -40,6 +40,13 @@ end on the other side, triangle splits instead).
 - **Oracle** (`SpansSmallInputAngle`): after the exact rule, an end of one constraint inside the tube of the other (twice the mesher's
   tolerance) is the apex; such excuses are counted as `NearMeetAngleExcused`. Self-checks: an exact end, an end 1e-13 off (in the tube),
   an end 1e-6 off (judged). Owner decision 2026-11-12: accepted, shipped together with the mesher part (the O11 exemptions are an owner decision of 2026-11-02).
+- **Oracle report, below the floor of Miller, Pav and Walkington** (HP 6 option 1, `OracleReport.BelowMpwFloorExcused`, shown in
+  `ExcusedSummary`; a report, no rule): of the triangles excused by `SpansSmallInputAngle` (both kinds), those whose smallest angle is below
+  `arctan(sin phi / (2 - cos phi))` for the pair of constraints that excused them (the first pair that does). The excuse requires an acute
+  apex angle, so `cos phi > 0`. Exact, `Exact.BelowMpwFloor(s, S)` with `s` the triangle's smallest sine squared and `S` the pair's:
+  `sin^2` of the floor is `S / (5 - 4 cos phi)`, so below the floor is `4 s cos phi > 5 s - S`: true where `5 s < S`, else
+  `16 s^2 (1 - S) > (5 s - S)^2`, no root. Tested against the classifier of `Hp6.cs` (column `below_mpw_floor` of `perf/hp6-net10.csv`:
+  boxwedge and fan5, both mesher modes).
 - Measured: the rotated fan stops at 4 659 vertices (identity: 4 515), oracle-valid (`QualityMesh2NearTJunctionTests`).
 
 ## 1. Diagnosis (measured, master 14d744f0)

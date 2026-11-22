@@ -32,6 +32,7 @@ class Program
     static int Main(string[] args)
     {
         if (args.Length >= 2 && args[0] == "bound") return Bound.Run(args);
+        if (args.Length >= 2 && args[0] == "varifold") return Varifold.Run(args);
         if (args.Length < 2) { Console.Error.WriteLine("usage: SharpFeatureProbe <out.jsonl> <input>... [-- variants]"); return 2; }
         string outFile = args[0];
         var inputs = new List<string>();

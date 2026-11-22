@@ -39,6 +39,12 @@ var geodesic = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
 geodesic.Compute(new[] { source });             // distances reported at input mesh vertices
 
 IntrinsicCommonSubdivision overlay = T.ExtractCommonSubdivision();
+
+// opt-in: integer coordinates, for a common subdivision without tracing (before the first flip)
+var Ti = new IntrinsicTriangulation(mesh);
+Ti.EnableIntegerCoordinates();
+Ti.DelaunayRefine(0);                           // flips and boundary splits keep them
+IntrinsicCommonSubdivision exact = Ti.ExtractCommonSubdivision();
 ```
 
 ### Refinement Status & Common Subdivision
@@ -48,7 +54,21 @@ IntrinsicCommonSubdivision overlay = T.ExtractCommonSubdivision();
   - `InsertionLimitReached` — valid and Delaunay, though some triangles remain below `minAngle`.
   - `Incomplete` — a circumcenter landed on an existing vertex.
   - `NonManifoldInput` — bowtie vertices prevented refinement (flips only).
-- **Common subdivision (`ExtractCommonSubdivision`):** Traces every intrinsic edge across input triangles and validates that output polygons tile both meshes (area checked to `1e-6`). Reports `Status = Inconsistent` with `Error` rather than emitting corrupt faces if floating-point tracing disagrees. That includes a false crossing, which the areas do not show: a trace that crosses an input edge of its own tail or head vertex just outside the snap tolerance (it would add a subdivision vertex with three edges; #1313), and faces lost where crossings coincide up to rounding (edges of the result with a face on one side only; #1326: the boundary of every input triangle must be a cycle of the arrangement of the traces on its own). A `Success` is checked by the areas and by these rules, not proven: the connectivity comes from floating-point traces (see the [integer coordinates study](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md)).
+- **Common subdivision (`ExtractCommonSubdivision`):** Traces every intrinsic edge across input triangles and validates that output polygons tile both meshes (area checked to `1e-6`). Reports `Status = Inconsistent` with `Error` rather than emitting corrupt faces if floating-point tracing disagrees. That includes a false crossing, which the areas do not show: a trace that crosses an input edge of its own tail or head vertex just outside the snap tolerance (it would add a subdivision vertex with three edges; #1313), and faces lost where crossings coincide up to rounding (edges of the result with a face on one side only; #1326: the boundary of every input triangle must be a cycle of the arrangement of the traces on its own). An intrinsic triangle left without a face is reported too (#1335: the zero-area sliver between a vertex inserted within the snap tolerance, a barycentric 1e-9, of an input boundary edge and that edge passes the area check with none). `Faces` is empty unless `Status` is `Success`. A `Success` is checked by the areas and by these rules, not proven: the connectivity comes from floating-point traces (see the [integer coordinates study](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md)).
+- **Integer coordinates (`EnableIntegerCoordinates`, opt-in):** see [Integer coordinates](#integer-coordinates) below.
+
+### Integer coordinates
+
+`IntrinsicTriangulation.EnableIntegerCoordinates()` switches on the normal coordinates and roundabouts of Gillespie, Sharp and Crane 2021: two integers per halfedge that count how the input edges cross the intrinsic edges. `ExtractCommonSubdivision` then takes the connectivity of the subdivision from these integers and does not trace.
+
+- **When to call:** before the first flip or insertion. Later it returns `false` and changes nothing.
+- **What keeps them:** `FlipEdge`, `FlipToDelaunay`, a `SplitEdge` of a boundary edge, and `DelaunayRefine(0)` (flips plus the splits of boundary edges opposite obtuse angles).
+- **Known limit:** `InsertVertex`, a `SplitEdge` of an interior edge and the circumcenter insertions of `DelaunayRefine(minAngle > 0)` are not covered. They switch the integers off for good (`HasIntegerCoordinates` is `false`), and the extraction traces as without them. A flip whose new edge would be crossed more than `int.MaxValue` times does the same.
+- **What is exact:** the connectivity (which input edge crosses which intrinsic edge, in which order) for the triangulation at hand. The Delaunay test, the edge lengths and the positions of the crossings stay floating point.
+- **Positions:** a crossing lies on its input edge at the parameter the unfolded edge gives, clamped to the order of the crossings along that edge. Where rounding puts two crossings at the same place, a face can have the area 0.
+- **Status:** `Success` means the integers are consistent (every input edge ends at the vertex its roundabouts name, every crossing is used once) and the faces tile every input triangle (to `1e-6`; `Face.Area` is never negative). On `Inconsistent`, `Faces` is empty and `Points` is not complete. `MaxIntrinsicAreaError` is reported but does not fail the result unless it is not finite (lengths whose squares leave the double range): relative to the area of a needle triangle the rounding of the lengths can exceed `1e-6` (measured `1.1e-5` on a ring sphere with vertices `2.6e-7` apart and `6.1e-5` on a grid stretched by `10^6`, both meshes on which tracing reports `Inconsistent`). So with the integers on, the intrinsic area error is reported and not gated; without them it is gated at `1e-6` as before. A caller that needs the positions and not only the connectivity should require `MaxIntrinsicAreaError <= 1e-6` itself.
+- **Size limit:** more than 2^27 crossings (about 134 million) are reported as `Inconsistent` ("too many crossings"), not attempted.
+- **Cost and gain** (`benchmarks/IntrinsicIntegerCoordinates`, stage `library`): 8 bytes per halfedge; flips 5 to 30 % slower with the layer on (20 and 24 % on the two meshes of 32 000 vertices); the extraction 6 to 28 times faster than tracing. On 27 adversarial meshes in 4 placements the result is valid in 108 of 108 runs, after flips and after `DelaunayRefine(0)`; tracing succeeds in 101, with the same subdivision.
 
 ---
 
