@@ -8,20 +8,22 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// False crossings in IntrinsicTriangulation.ExtractCommonSubdivision (#1313): a trace that crosses an input edge of
-    /// its own end vertex, just outside the snap tolerance, was taken as running along that edge from the crossing
-    /// on. The result was Success with a subdivision vertex of three edges (the areas still sum up). Found by
-    /// benchmarks/IntrinsicIntegerCoordinates; the cases here are its sheared stretched grid, small, with random
-    /// vertices inserted through the public API. Mesh and points use only + and *, so the inputs are the same
-    /// bits on every platform.
+    /// Wrong Success results of IntrinsicTriangulation.ExtractCommonSubdivision that the area checks do not show.
+    /// #1313, false crossings: a trace that crosses an input edge of its own end vertex, just outside the snap
+    /// tolerance, was taken as running along that edge from the crossing on (a subdivision vertex of three edges).
+    /// #1326, lost faces: where crossings coincide up to rounding, the outer cycle of an input triangle took sliver
+    /// faces with it (edges of the result with a face on one side only). Both found with
+    /// benchmarks/IntrinsicIntegerCoordinates and the reviews; the cases here are its sheared stretched grid, small,
+    /// with vertices inserted through the public API. Mesh and points use only +, * and a division by 8, so the
+    /// inputs are the same bits on every platform.
     /// </summary>
-    public class IntrinsicCommonSubdivisionFalseCrossingTests
+    public class IntrinsicCommonSubdivisionConsistencyTests
     {
         const int GridCells = 3;
 
         // (GridCells + 1)^2 vertices at (a * (i + shear * j), j): cells stretched by a and sheared, so the Delaunay
         // flips make long thin intrinsic triangles
-        static DMesh3 ShearedGrid(double a, double shear, Similarity sim)
+        static DMesh3 ShearedGrid(double a, double shear, Similarity sim, bool reverseTriangles = false)
         {
             var mesh = new DMesh3();
             int n = GridCells;
@@ -29,12 +31,145 @@ namespace geometry3Sharp.Tests
             for (int j = 0; j <= n; ++j)
                 for (int i = 0; i <= n; ++i)
                     vid[i, j] = mesh.AppendVertex(sim.Apply(new Vector3d(a * (i + shear * j), j, 0)));
+            var tris = new List<Index3i>();
             for (int j = 0; j < n; ++j)
                 for (int i = 0; i < n; ++i) {
-                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
-                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                    tris.Add(new Index3i(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]));
+                    tris.Add(new Index3i(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]));
                 }
+            if (reverseTriangles) tris.Reverse();
+            foreach (Index3i t in tris) mesh.AppendTriangle(t);
             return mesh;
+        }
+
+        // One vertex inserted into triangle t of the unflipped grid, at the barycentric distance d from its edge
+        // from corner 2 to corner 0 (parameter s along it), then flipped to Delaunay: the vertex counts as on the
+        // input edge (snap 1e-9) or lies just beside it
+        static IntrinsicTriangulation BuildNearEdge(double a, double shear, bool reverseTriangles, int t, double d, double s,
+            Similarity sim, out DMesh3 mesh)
+        {
+            mesh = ShearedGrid(a, shear, sim, reverseTriangles);
+            var T = new IntrinsicTriangulation(mesh);
+            T.GetTriangleLayout(t, out Vector2d q0, out Vector2d q1, out Vector2d q2);
+            Assert.True(T.InsertVertex(t, (1 - d) * ((1 - s) * q2 + s * q0) + d * q1) >= 0);
+            Assert.True(T.FlipToDelaunay() > 0);
+            Assert.True(T.CheckConsistency(out string err), err);
+            return T;
+        }
+
+        // #1326: the inserted vertex lies 1.4e-9 beside an input edge, and two traces cross that edge 2e-16 apart
+        // next to it. The order of the arrangement edges around these coincident points joined the outer cycle of
+        // the input triangle with sliver faces: Success without them (four edges of the result with a face on one
+        // side only, 16 one-sided edges where the input has 12), the areas agreeing to 8e-10. Found by the review
+        // of #1313.
+        static IntrinsicTriangulation BuildUnmatched(Similarity sim, out DMesh3 mesh) =>
+            BuildNearEdge(2.0, -1.25, true, 6, 1.4229630544726813e-09, 0.566618744836477, sim, out mesh);
+
+        // (a, shear, reversed triangle order, triangle, d, s): Success with one-sided edges inside before the fix
+        public static IEnumerable<object[]> MissingFaceCases() => new[] {
+            new object[] { 2.0, -1.25, true, 6, 1.4229630544726813e-09, 0.566618744836477 },
+            new object[] { 1.0, 1.625, true, 6, 1.173030251315181E-09, 0.6282472738033802 },
+            new object[] { 0.0625, 1.375, false, 17, 3.739849251355159E-09, 0.8715104458657218 } };
+
+        [Theory]
+        [MemberData(nameof(MissingFaceCases))]
+        public void FacesMissingAtCoincidentCrossings_AreReportedAsInconsistent(double a, double shear, bool rev, int t, double d, double s)
+        {
+            var T = BuildNearEdge(a, shear, rev, t, d, s, Similarity.Identity, out DMesh3 mesh);
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("not a cycle of the arrangement", cs.Error);
+            Assert.Empty(cs.Faces);
+        }
+
+        // an inside cycle of the arrangement with area exactly 0 (two coincident crossings and a vertex): not a face.
+        // Inconsistent before the fix too (as a second outer cycle); pinned for the rule that tells the outer cycle
+        // by its darts and no longer by its area
+        [Theory]
+        [InlineData(0.125, -1.25, false, 2, 3.453532734510681E-09, 0.13303328999507147)]
+        [InlineData(16.0, 0.25, true, 7, 2.340538376399827E-09, 0.7759003422941299)]
+        [InlineData(1.0, 1.25, false, 10, 1.044115342241211E-09, 0.8114711726090286)]
+        public void FaceWithoutArea_IsReportedAsInconsistent(double a, double shear, bool rev, int t, double d, double s)
+        {
+            var T = BuildNearEdge(a, shear, rev, t, d, s, Similarity.Identity, out DMesh3 mesh);
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("face without area", cs.Error);
+        }
+
+        [Fact]
+        public void FacesMissingAtCoincidentCrossings_Invariance_OverSimilarities()
+        {
+            var cs0 = BuildUnmatched(Similarity.Identity, out DMesh3 mesh0).ExtractCommonSubdivision();
+            foreach (Similarity sim in Similarity.All()) {
+                var T = BuildUnmatched(sim, out DMesh3 mesh);
+                var cs = T.ExtractCommonSubdivision();
+                // reported, or a correct complex (rotations and translations change the rounding)
+                if (cs.Status == CommonSubdivisionStatus.Success) {
+                    string defect = ComplexDefect(mesh, T, cs);
+                    Assert.True(defect == null, $"{sim}: Success, but {defect}");
+                } else
+                    Assert.False(string.IsNullOrEmpty(cs.Error), sim.Name);
+                if (sim.IsExact == false) continue;
+                Assert.Equal(cs0.Status, cs.Status);
+                Assert.Equal(cs0.Error, cs.Error);
+                Assert.Equal(cs0.Points.Count, cs.Points.Count);
+                for (int i = 0; i < cs.Points.Count; ++i)
+                    Assert.Equal(sim.Apply(cs0.Points[i]), cs.Points[i]);
+            }
+        }
+
+        [Fact]
+        public void FacesMissingAtCoincidentCrossings_Reuse()
+        {
+            var T = BuildUnmatched(Similarity.Identity, out DMesh3 mesh);
+            var a = T.ExtractCommonSubdivision();
+            var b = T.ExtractCommonSubdivision();
+            Assert.Equal(a.Status, b.Status);
+            Assert.Equal(a.Error, b.Error);
+            Assert.Equal(a.Points, b.Points);
+        }
+
+        [Fact]
+        public void NearEdgeInsertions_SuccessIsACellComplex()
+        {
+            // vertices inserted 1e-12 to 6e-9 beside the input edge from corner 2 to corner 0 of a triangle (the kind
+            // of input on which the tail side of #1313 and #1326 were found; these 600 contain no #1326 case, so this
+            // is the contract on near-edge input, not a regression test): every result is reported as Inconsistent or
+            // passes ComplexDefect; both occur. (A vertex within the snap of an input boundary edge is not covered:
+            // none of these succeeds, and the boundary count of ComplexDefect assumes none.)
+            ulong x = 20261122UL;
+            Func<double> rnd = () => {
+                x = unchecked(x * 6364136223846793005UL + 1442695040888963407UL);
+                return (x >> 11) * (1.0 / 9007199254740992.0);
+            };
+            double[] deltas = { 1e-12, 1e-11, 1e-10, 3e-10, 9e-10, 1.5e-9, 3e-9 };
+            double[] stretches = { 0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16 };
+            int success = 0, reported = 0;
+            for (int trial = 0; trial < 600; ++trial) {
+                double a = stretches[(int)(rnd() * stretches.Length)];
+                double shear = ((int)(rnd() * 33) - 16) / 8.0;              // -2 .. 2 in eighths
+                double d = deltas[(int)(rnd() * deltas.Length)] * (1 + rnd());
+                double s = 0.0625 + 0.875 * rnd();
+                int t = (int)(rnd() * 18);
+                bool rev = rnd() < 0.5;
+                DMesh3 mesh = ShearedGrid(a, shear, Similarity.Identity, rev);
+                var T = new IntrinsicTriangulation(mesh);
+                T.GetTriangleLayout(t, out Vector2d q0, out Vector2d q1, out Vector2d q2);
+                if (T.InsertVertex(t, (1 - d) * ((1 - s) * q2 + s * q0) + d * q1) < 0) continue;
+                T.FlipToDelaunay();
+                var cs = T.ExtractCommonSubdivision();
+                if (cs.Status == CommonSubdivisionStatus.Success) {
+                    success++;
+                    string defect = ComplexDefect(mesh, T, cs);
+                    Assert.True(defect == null, $"trial {trial} (a {a}, shear {shear}, d {d:R}, s {s:R}, t {t}, rev {rev}): Success, but {defect}");
+                } else {
+                    reported++;
+                    Assert.False(string.IsNullOrEmpty(cs.Error));
+                }
+            }
+            Assert.True(success >= 100, $"only {success} of 600 inputs succeed");
+            Assert.True(reported >= 300, $"only {reported} of 600 inputs are reported");
         }
 
         // flips, V / 2 pseudo-random vertices (a linear congruential generator) inside pseudo-random triangles, flips

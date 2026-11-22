@@ -92,8 +92,10 @@ namespace gs
         /// every intrinsic edge is traced over the input (TraceEdge); within each input triangle the traced
         /// segments, which cannot cross, cut it into convex faces, and each face is assigned the intrinsic
         /// triangle on its side of the segments. The result is checked: every input triangle and every
-        /// intrinsic triangle must be tiled by its faces (areas to a relative 1e-6), and no trace may cross an
-        /// input edge of its own end vertex (a false crossing: the areas do not show it); otherwise Status is
+        /// intrinsic triangle must be tiled by its faces (areas to a relative 1e-6), no trace may cross an
+        /// input edge of its own end vertex (a false crossing: the areas do not show it), and in every input
+        /// triangle the outer boundary must be a cycle of the arrangement on its own, so that every edge of
+        /// the result has a face on both sides (or one, on the input boundary); otherwise Status is
         /// Inconsistent. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021) would make the
         /// combinatorics exact; here they come from the traces, which are exact up to rounding.
         /// </summary>
@@ -287,9 +289,10 @@ namespace gs
                 var darts = new Dictionary<int, List<int>>();       // node -> outgoing dart ids
                 var dFrom = new List<int>(); var dTo = new List<int>();
                 var dLabel = new List<Label?>(); var dPiece = new List<(int, int, int)>(); var dFwd = new List<bool>();
+                var dOutside = new List<bool>();
                 Action<int, int, Label?, (int, int, int), bool> addDart = (a, b, lab, piece, fwdc) => {
                     int id = dFrom.Count;
-                    dFrom.Add(a); dTo.Add(b); dLabel.Add(lab); dPiece.Add(piece); dFwd.Add(fwdc);
+                    dFrom.Add(a); dTo.Add(b); dLabel.Add(lab); dPiece.Add(piece); dFwd.Add(fwdc); dOutside.Add(false);
                     List<int> l;
                     if (darts.TryGetValue(a, out l) == false) darts[a] = l = new List<int>();
                     l.Add(id);
@@ -303,6 +306,7 @@ namespace gs
                         var key = pieceKey(c, seq[m], seq[m + 1]);
                         addDart(seq[m], seq[m + 1], null, key, fwd);
                         addDart(seq[m + 1], seq[m], null, noPiece, false);       // outside
+                        dOutside[dOutside.Count - 1] = true;
                     }
                 }
                 foreach (int[] ch in chordList) {
@@ -343,7 +347,24 @@ namespace gs
                     var poly = new Vector2d[cyc.Count];
                     for (int m = 0; m < cyc.Count; ++m) poly[m] = pos[dFrom[cyc[m]]];
                     for (int m = 0; m < poly.Length; ++m) area += 0.5 * cross(poly[m], poly[(m + 1) % poly.Length]);
-                    if (area <= 0) { outer++; continue; }
+                    // The outer cycle is the one of the outside darts (the reverses of the boundary pieces) and
+                    // nothing else; if they form several cycles, outer is not 1 below. Then (the darts being distinct: no
+                    // two traced segments join the same two points) every other dart lies
+                    // on a face: each traced segment has a face of this triangle on both sides and each boundary
+                    // piece one on its inside (and, across an input edge, the neighbouring triangle has the same
+                    // pieces), so every edge of the result is matched on both sides. The area alone does not tell:
+                    // where two points of the arrangement coincide up to rounding, the order of the darts around
+                    // them can join the outer cycle with sliver faces, which then are missing from the result
+                    // without a visible area error (#1326).
+                    int outside = 0;
+                    foreach (int x in cyc) if (dOutside[x]) outside++;
+                    if (outside > 0) {
+                        if (outside != cyc.Count)
+                            return fail("the boundary of input triangle " + inTid[t] + " is not a cycle of the arrangement (coincident crossings)");
+                        outer++;
+                        continue;
+                    }
+                    if (area <= 0) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
                     int fid = faceTri.Count;
                     int ft = -1;
                     foreach (int x in cyc) {
