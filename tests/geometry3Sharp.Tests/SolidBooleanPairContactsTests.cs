@@ -169,6 +169,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Auto_KeptPairPass_ReportsTheFinalCheckOfTheReturnedMesh()
+        {
+            var auto = RunMode(EdgeTouch(16), Auto, x => x.TargetFraction = 0.1);
+            Assert.True(auto.Report.PairPassKept);
+            Assert.True(auto.Report.OnlyContacts, auto.Report.NotCleanReason + " " + auto.Report.ContactsResult);     // (so the copy of the fields is seen)
+            var again = new SolidBooleanReport();
+            SolidBooleanPipeline.FinalCheck(auto.Result, again);
+            Assert.Equal(again.NotCleanReason, auto.Report.NotCleanReason);
+            Assert.Equal(again.ContactsResult, auto.Report.ContactsResult);
+            Assert.Equal(again.SelfIntersectingTriangles, auto.Report.SelfIntersectingTriangles);
+            Assert.Equal(again.OnlyContacts, auto.Report.OnlyContacts);
+        }
+
+        [Fact]
         public void Auto_AsManyTrianglesAndFewerContacts_IsKept()
         {
             // fine boxes at 10 %: both reductions reach the target (the same triangle count), the paired one keeps fewer contacts

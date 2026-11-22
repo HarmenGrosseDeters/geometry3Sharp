@@ -119,6 +119,7 @@ on:
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinSolidTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineCavityOwnerTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinInputTests.cs'
+      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineFinalCheckTests.cs'
       # UV parameterization (tests/mutation/stryker-mesh-uv-*.json: seven shards of parameterization/*.cs, README "UV parameterization")
       - 'parameterization/UVAtlasGenerator.cs'
       - 'parameterization/MeshChartSegmentation.cs'
