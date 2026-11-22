@@ -1,0 +1,564 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using g3;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// IntrLine3Box3, IntrRay3Box3, IntrSegment3Box3, IntrLine3AxisAlignedBox3, IntrRay3AxisAlignedBox3: the decision is the exact closed
+    /// contact of the component with the box (the slabs |dot(x - Center, Axis_i)| &lt;= Extent_i, or lo &lt;= x &lt;= hi), compared with an exact
+    /// rational oracle that does not use the library's own arithmetic.
+    /// </summary>
+    public class IntrBox3ExactTests
+    {
+        // ---- the oracle: fractions of BigIntegers ----
+        readonly struct Q
+        {
+            public readonly BigInteger N, D;
+            public Q(BigInteger n, BigInteger d) { if (d.Sign < 0) { n = -n; d = -d; } N = n; D = d; }
+            public static Q From(double x)
+            {
+                if (x == 0) return new Q(0, 1);
+                long bits = BitConverter.DoubleToInt64Bits(x);
+                bool neg = bits < 0; int e = (int)((bits >> 52) & 0x7FF); long m = bits & 0xFFFFFFFFFFFFFL;
+                if (e == 0) e = 1; else m |= 1L << 52;
+                e -= 1075;
+                BigInteger n = m; if (neg) n = -n;
+                return e >= 0 ? new Q(n << e, 1) : new Q(n, BigInteger.One << -e);
+            }
+            public static Q operator +(Q a, Q b) => new Q(a.N * b.D + b.N * a.D, a.D * b.D);
+            public static Q operator -(Q a, Q b) => new Q(a.N * b.D - b.N * a.D, a.D * b.D);
+            public static Q operator *(Q a, Q b) => new Q(a.N * b.N, a.D * b.D);
+            public static Q operator /(Q a, Q b) => new Q(a.N * b.D, a.D * b.N);
+            public int Sign => N.Sign;
+            public int CompareTo(Q o) => (N * o.D).CompareTo(o.N * D);
+            public double ToDouble()
+            {
+                if (N.IsZero) return 0;
+                // 70 bits of the quotient are enough for an error measure
+                BigInteger a = BigInteger.Abs(N);
+                int shift = 70 + (int)(BigInteger.Abs(D).GetBitLengthPortable()) - (int)a.GetBitLengthPortable();
+                BigInteger q = shift >= 0 ? (a << shift) / D : a / (D << -shift);
+                double r = (double)q * Math.Pow(2, -shift);
+                return N.Sign < 0 ? -r : r;
+            }
+        }
+
+        /// <summary> L &lt;= P + t Q &lt;= H </summary>
+        readonly struct SlabQ { public readonly Q P, Qd, L, H; public SlabQ(Q p, Q q, Q l, Q h) { P = p; Qd = q; L = l; H = h; } }
+
+        static Q Dot(Vector3d u, Vector3d v) => Q.From(u.x) * Q.From(v.x) + Q.From(u.y) * Q.From(v.y) + Q.From(u.z) * Q.From(v.z);
+
+        static SlabQ[] Slabs(AxisAlignedBox3d b, Vector3d o, Vector3d d, double expand = 0)
+        {
+            var r = new SlabQ[3];
+            for (int i = 0; i < 3; i++)
+                r[i] = new SlabQ(Q.From(o[i]), Q.From(d[i]), Q.From(b.Min[i] - expand), Q.From(b.Max[i] + expand));
+            return r;
+        }
+
+        static SlabQ[] Slabs(Box3d b, Vector3d o, Vector3d d, double expand = 0)
+        {
+            var r = new SlabQ[3];
+            for (int i = 0; i < 3; i++) {
+                Vector3d u = b.Axis(i);
+                Q p = Q.From(u.x) * (Q.From(o.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(o.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(o.z) - Q.From(b.Center.z));
+                Q e = Q.From(b.Extent[i] + expand);
+                r[i] = new SlabQ(p, Dot(u, d), new Q(-e.N, e.D), e);
+            }
+            return r;
+        }
+
+        // the exact contact: kind 0 none, 1 point, 2 segment, with the ends as t fractions
+        static (int kind, Q t0, Q t1) Contact(SlabQ[] s, Q? tmin, Q? tmax)
+        {
+            Q? lo = tmin, hi = tmax;
+            foreach (var sl in s) {
+                if (sl.Qd.Sign == 0) {
+                    if (sl.P.CompareTo(sl.L) < 0 || sl.P.CompareTo(sl.H) > 0) return (0, default, default);
+                    continue;
+                }
+                Q a = (sl.L - sl.P) / sl.Qd, b = (sl.H - sl.P) / sl.Qd;
+                if (a.CompareTo(b) > 0) { var t = a; a = b; b = t; }
+                if (lo == null || a.CompareTo(lo.Value) > 0) lo = a;
+                if (hi == null || b.CompareTo(hi.Value) < 0) hi = b;
+            }
+            int c = lo.Value.CompareTo(hi.Value);
+            if (c > 0) return (0, default, default);
+            return (c == 0 ? 1 : 2, lo.Value, hi.Value);
+        }
+
+        static double Up(double x) => x == 0 ? double.Epsilon : BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + (x > 0 ? 1 : -1));
+        static double Down(double x) => -Up(-x);
+        static double Ulp(double x) { x = Math.Abs(x); return Math.Max(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x, double.Epsilon); }
+
+        // a point is within a few ulp of the exact o + t d (an error measured against the size of the coordinates involved)
+        static void CheckPoint(Vector3d got, Vector3d o, Vector3d d, Q t, double ulps, string what)
+        {
+            for (int k = 0; k < 3; k++) {
+                Q exact = Q.From(o[k]) + t * Q.From(d[k]);
+                double ex = exact.ToDouble();
+                double err = Math.Abs((Q.From(got[k]) - exact).ToDouble());
+                double unit = Ulp(Math.Max(Math.Abs(ex), Math.Max(Math.Abs(o[k]), Math.Abs(got[k]))));
+                Assert.True(err <= ulps * unit, $"{what}: coordinate {k} {got[k]:R} against {ex:R} ({err / unit:F2} ulp)");
+            }
+        }
+
+        // ---- the inputs: lattice points (touching contacts) and random doubles ----
+        static IEnumerable<(Vector3d o, Vector3d d, Vector3d lo, Vector3d hi)> Cases(int count, int seed, double scale = 1, double offset = 0)
+        {
+            var r = new Random(seed);
+            int L(int g) => r.Next(-g, g + 1);
+            for (int i = 0; i < count; i++) {
+                Vector3d lo = new Vector3d(L(2) - 1, L(2) - 1, L(2) - 1), size = new Vector3d(r.Next(1, 4), r.Next(1, 4), r.Next(1, 4));
+                Vector3d hi = lo + size;
+                Vector3d o, q;
+                int flavor = i % 4;
+                if (flavor == 0) { o = new Vector3d(r.NextDouble() * 10 - 5, r.NextDouble() * 10 - 5, r.NextDouble() * 10 - 5); q = new Vector3d(r.NextDouble() * 10 - 5, r.NextDouble() * 10 - 5, r.NextDouble() * 10 - 5); }
+                else {
+                    o = new Vector3d(L(4), L(4), L(4)); q = new Vector3d(L(4), L(4), L(4));
+                    Vector3d corner() => new Vector3d(r.Next(2) == 0 ? lo.x : hi.x, r.Next(2) == 0 ? lo.y : hi.y, r.Next(2) == 0 ? lo.z : hi.z);
+                    if (flavor >= 2) {
+                        int m = r.Next(4);
+                        if (m == 0) q = corner(); else if (m == 1) o = corner();
+                        else if (m == 2) q = new Vector3d(lo.x + size.x * (r.Next(0, 5) / 4.0), hi.y, lo.z + size.z * (r.Next(0, 5) / 4.0));
+                        else { o = corner(); q = corner(); }
+                    }
+                    if (r.Next(3) == 0) { int ax = r.Next(3); q[ax] = Up(q[ax]); }       // one ulp off the lattice
+                }
+                if ((q - o).LengthSquared == 0) continue;
+                Vector3d d = (q - o).Normalized;
+                Vector3d sh = new Vector3d(offset, offset * 0.5, -offset * 0.25);
+                yield return (o * scale + sh, d, lo * scale + sh, hi * scale + sh);
+            }
+        }
+
+        static bool Normalized(Vector3d d) => d.IsNormalized;
+
+        // ---- Line / Ray against AxisAlignedBox3d and Box3d ----
+        public static IEnumerable<object[]> Frames() => new[] { new object[] { 1.0, 0.0 }, new object[] { 1.0 / 1024, 0.0 }, new object[] { 1024.0, 0.0 }, new object[] { 1.0, 1e6 }, new object[] { 1e-3, 0.0 } };
+
+        [Theory]
+        [MemberData(nameof(Frames))]
+        public void LineAndRay_AxisAligned_AgreeWithTheOracle(double scale, double offset)
+        {
+            int kinds = 0;
+            foreach (var (o, d, lo, hi) in Cases(1500, 11, scale, offset)) {
+                if (Normalized(d) == false) continue;
+                var box = new AxisAlignedBox3d(lo, hi);
+                var line = new Line3d(o, d); var ray = new Ray3d(o, d);
+                var s = Slabs(box, o, d);
+                var el = Contact(s, null, null); var er = Contact(s, new Q(0, 1), null);
+                var il = new IntrLine3AxisAlignedBox3(line, box); bool hl = il.Find();
+                var ir = new IntrRay3AxisAlignedBox3(ray, box); bool hr = ir.Find();
+                Assert.Equal(el.kind != 0, hl); Assert.Equal(er.kind != 0, hr);
+                Assert.Equal(hl, il.Test()); Assert.Equal(hr, ir.Test());
+                Assert.Equal(hr, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref box));
+                double t; Assert.Equal(hr, IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out t));
+                if (hr) { Assert.True(Math.Abs((Q.From(t) - er.t0).ToDouble()) <= 4 * Ulp(t) || t == er.t0.ToDouble(), "entry t " + t); }
+                if (hl) { Check(il.Type, il.Quantity, il.Point0, il.Point1, el, o, d, "line"); kinds |= el.kind; }
+                if (hr) Check(ir.Type, ir.Quantity, ir.Point0, ir.Point1, er, o, d, "ray");
+            }
+            Assert.Equal(3, kinds);
+        }
+
+        static void Check(IntersectionType type, int quantity, Vector3d p0, Vector3d p1, (int kind, Q t0, Q t1) e, Vector3d o, Vector3d d, string what)
+        {
+            Assert.Equal(e.kind == 1 ? IntersectionType.Point : IntersectionType.Segment, type);
+            Assert.Equal(e.kind == 1 ? 1 : 2, quantity);
+            CheckPoint(p0, o, d, e.t0, 3, what + " p0");
+            if (e.kind == 2) CheckPoint(p1, o, d, e.t1, 3, what + " p1");
+        }
+
+        // the axes of an oriented box: the identity, or permutations and sign flips (exactly orthonormal), or a rotation about z by the 3-4-5 triangle
+        static Box3d Oriented(Vector3d lo, Vector3d hi, int variant)
+        {
+            Vector3d c = 0.5 * (lo + hi), e = 0.5 * (hi - lo);
+            switch (variant % 3) {
+                case 0: return new Box3d(c, e);
+                case 1: return new Box3d(c, new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(0, 0, 1), new Vector3d(e.y, e.x, e.z));
+                default: return new Box3d(c, new Vector3d(0.6, 0.8, 0), new Vector3d(-0.8, 0.6, 0), new Vector3d(0, 0, 1), e);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Frames))]
+        public void LineAndRay_Oriented_AgreeWithTheOracle(double scale, double offset)
+        {
+            int n = 0;
+            foreach (var (o, d, lo, hi) in Cases(1200, 12, scale, offset)) {
+                if (Normalized(d) == false) continue;
+                var box = Oriented(lo, hi, n++);
+                var line = new Line3d(o, d); var ray = new Ray3d(o, d);
+                var s = Slabs(box, o, d);
+                var el = Contact(s, null, null); var er = Contact(s, new Q(0, 1), null);
+                var il = new IntrLine3Box3(line, box); bool hl = il.Find();
+                var ir = new IntrRay3Box3(ray, box); bool hr = ir.Find();
+                Assert.Equal(el.kind != 0, hl); Assert.Equal(er.kind != 0, hr);
+                Assert.Equal(hl, il.Test()); Assert.Equal(hr, ir.Test());
+                Assert.Equal(hr, IntrRay3Box3.Intersects(ref ray, ref box));
+                if (hl) Check(il.Type, il.Quantity, il.Point0, il.Point1, el, o, d, "line");
+                if (hr) Check(ir.Type, ir.Quantity, ir.Point0, ir.Point1, er, o, d, "ray");
+            }
+        }
+
+        [Fact]
+        public void Segment_Oriented_AgreesWithTheOracle_OnItsRoundedEnds()
+        {
+            int n = 0, hits = 0;
+            foreach (var (o, d, lo, hi) in Cases(2000, 13)) {
+                if (Normalized(d) == false) continue;
+                var seg = new Segment3d(o, o + d * 3.25);
+                Vector3d p0 = seg.P0, p1 = seg.P1;
+                var box = Oriented(lo, hi, n++);
+                var s = Slabs(box, p0, p1 - p0);
+                // (the exact difference: the slab constants use the double p1 - p0 only through Q.From of an exact subtraction, so use rationals)
+                var sq = new SlabQ[3];
+                for (int i = 0; i < 3; i++) {
+                    Vector3d u = box.Axis(i);
+                    Q dq = Q.From(u.x) * (Q.From(p1.x) - Q.From(p0.x)) + Q.From(u.y) * (Q.From(p1.y) - Q.From(p0.y)) + Q.From(u.z) * (Q.From(p1.z) - Q.From(p0.z));
+                    sq[i] = new SlabQ(s[i].P, dq, s[i].L, s[i].H);
+                }
+                var e = Contact(sq, new Q(0, 1), new Q(1, 1));
+                var it = new IntrSegment3Box3(seg, box, true);
+                bool hit = it.Find();
+                Assert.True(e.kind != 0 == hit, $"case {n - 1}: oracle {e.kind}, library {hit} | p0 {p0.x:R},{p0.y:R},{p0.z:R} p1 {p1.x:R},{p1.y:R},{p1.z:R} box {box.Center} {box.Extent} variant {(n - 1) % 3}");
+                Assert.Equal(hit, it.Test());
+                if (hit) {
+                    hits++;
+                    Assert.Equal(e.kind == 1 ? IntersectionType.Point : IntersectionType.Segment, it.Type);
+                    Vector3d dd = p1 - p0;
+                    // the point from the exact fraction (the difference p1 - p0 rounded here: allow the few ulp)
+                    CheckPointOnSegment(it.Point0, p0, p1, e.t0, "p0");
+                    if (e.kind == 2) CheckPointOnSegment(it.Point1, p0, p1, e.t1, "p1");
+                    Assert.InRange(it.SegmentParam0, -seg.Extent, seg.Extent);
+                    Assert.InRange(it.SegmentParam1, -seg.Extent, seg.Extent);
+                    Assert.True(it.SegmentParam0 <= it.SegmentParam1);
+                }
+            }
+            Assert.True(hits > 300, "hits " + hits);
+        }
+
+        static void CheckPointOnSegment(Vector3d got, Vector3d p0, Vector3d p1, Q t, string what)
+        {
+            for (int k = 0; k < 3; k++) {
+                Q exact = Q.From(p0[k]) + t * (Q.From(p1[k]) - Q.From(p0[k]));
+                double ex = exact.ToDouble();
+                double err = Math.Abs((Q.From(got[k]) - exact).ToDouble());
+                double unit = Ulp(Math.Max(Math.Abs(ex), Math.Max(Math.Abs(p0[k]), Math.Abs(p1[k]))));
+                Assert.True(err <= 3 * unit, $"{what}: coordinate {k} {got[k]:R} against {ex:R} ({err / unit:F2} ulp)");
+            }
+        }
+
+        // ---- the semantics ----
+        [Fact]
+        public void TouchingContacts_AreHits_WithExactPoints()
+        {
+            var box = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
+            // a ray along an edge's extension that touches only the corner (1, 1, 1)
+            var ray = new Ray3d(new Vector3d(2, 2, 2), new Vector3d(-1, -1, -1).Normalized);
+            var f = new IntrRay3AxisAlignedBox3(ray, box);
+            Assert.True(f.Find());
+            // the diagonal enters at the corner (1,1,1) and leaves at (0,0,0): a segment
+            Assert.Equal(IntersectionType.Segment, f.Type);
+            Assert.Equal(new Vector3d(1, 1, 1), f.Point0);
+            Assert.Equal(new Vector3d(0, 0, 0), f.Point1);
+            // a line that passes exactly through the edge (1,1,z): a single point? no: through the corner only
+            var line = new Line3d(new Vector3d(2, 0, 1), new Vector3d(-1, 1, 0).Normalized);
+            var g = new IntrLine3AxisAlignedBox3(line, box);
+            Assert.True(g.Find());
+            Assert.Equal(IntersectionType.Point, g.Type);
+            Assert.Equal(1, g.Quantity);
+            Assert.Equal(new Vector3d(1, 1, 1), g.Point0);
+            // a line one ulp outside the touching position misses
+            var line2 = new Line3d(new Vector3d(Up(2.0), 0, 1), new Vector3d(-1, 1, 0).Normalized);
+            Assert.False(new IntrLine3AxisAlignedBox3(line2, box).Find());
+            // no tolerance: 1e-9 away misses (the old routine counted it as a hit)
+            var line3 = new Line3d(new Vector3d(0, 0, 1 + 1e-9), new Vector3d(1, 0, 0));
+            Assert.False(new IntrLine3AxisAlignedBox3(line3, box).Find());
+        }
+
+        [Fact]
+        public void EdgeContact_IsAPoint_RoundedOnce()
+        {
+            // a line that meets the box only at a point of the edge x = 1, y = 0 (it passes the corner of the square in x and y): the two slabs end at the same t exactly (a tie), the exact route
+            // decides, and the coordinate along the edge is the correctly rounded value
+            var r = new Random(23);
+            var box = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
+            var obox = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5));
+            int points = 0;
+            for (int i = 0; i < 400; i++) {
+                double z0 = r.NextDouble() * 0.9 + 0.05, slope = (r.NextDouble() - 0.5) * 0.2;
+                Vector3d o = new Vector3d(2, 1, z0), d = new Vector3d(-1, -1, slope).Normalized;
+                var f = new IntrLine3AxisAlignedBox3(new Line3d(o, d), box);
+                var g = new IntrLine3Box3(new Line3d(o, d), obox);
+                var e = Contact(Slabs(box, o, d), null, null);
+                Assert.Equal(e.kind != 0, f.Find());
+                Assert.Equal(e.kind != 0, g.Find());
+                if (e.kind != 1) continue;
+                points++;
+                Assert.Equal(IntersectionType.Point, f.Type); Assert.Equal(IntersectionType.Point, g.Type);
+                CheckPoint(f.Point0, o, d, e.t0, 0.5, "aabb"); CheckPoint(g.Point0, o, d, e.t0, 0.5, "oriented");
+                Assert.Equal(1.0, f.Point0.x); Assert.Equal(0.0, f.Point0.y);
+            }
+            Assert.True(points > 100, "points " + points);
+        }
+
+        [Fact]
+        public void ParallelRay_JustOutsideAFace_Misses_AndOnItOrInside_Hits()
+        {
+            var aab = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
+            var obox = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5));
+            foreach (var dir in new[] { Vector3d.AxisZ, -Vector3d.AxisZ, Vector3d.AxisX, -Vector3d.AxisY }) {
+                // the origin in the plane of the axis the ray is parallel to, at the ends of the slab
+                foreach (double off in new[] { 1.0, 0.0 }) {
+                    int axis = dir.x != 0 ? 1 : 0;                       // a slab the ray is parallel to
+                    // the origin on the face (hit), one ulp outside (miss), 1e-12 outside (miss)
+                    double[] coords = off == 1.0 ? new[] { 1.0, Up(1.0), 1.0 + 1e-12 } : new[] { 0.0, Down(0.0), -1e-12 };
+                    for (int ci = 0; ci < 3; ci++) {
+                        double delta = ci;
+                        Vector3d o = new Vector3d(0.5, 0.5, 0.5);
+                        if (dir.z != 0) o.z = dir.z > 0 ? -2 : 3;
+                        else if (dir.x != 0) o.x = dir.x > 0 ? -2 : 3;
+                        else o.y = dir.y > 0 ? -2 : 3;
+                        o[axis] = coords[ci];
+                        var ray = new Ray3d(o, dir);
+                        bool expected = ci == 0;
+                        Assert.Equal(expected, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+                        Assert.Equal(expected, new IntrRay3AxisAlignedBox3(ray, aab).Find());
+                        Assert.Equal(expected, IntrRay3Box3.Intersects(ref ray, ref obox));
+                        Assert.Equal(expected, new IntrRay3Box3(ray, obox).Find());
+                        Assert.Equal(expected, new IntrLine3Box3(new Line3d(o, dir), obox).Find());
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void RayPointingAway_Misses_RayPointingToward_Hits_ForOrientedBoxes()
+        {
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var rot = new Box3d(Vector3d.Zero, new Vector3d(0.6, 0.8, 0), new Vector3d(-0.8, 0.6, 0), new Vector3d(0, 0, 1), new Vector3d(1, 1, 1));
+            foreach (var box in new[] { obox, rot }) {
+                var b = box;
+                var towards = new Ray3d(new Vector3d(5, 0, 0), new Vector3d(-1, 0, 0));
+                var away = new Ray3d(new Vector3d(5, 0, 0), new Vector3d(1, 0, 0));
+                var towardsY = new Ray3d(new Vector3d(0, -5, 0), new Vector3d(0, 1, 0));
+                var awayY = new Ray3d(new Vector3d(0, -5, 0), new Vector3d(0, -1, 0));
+                Assert.True(IntrRay3Box3.Intersects(ref towards, ref b)); Assert.False(IntrRay3Box3.Intersects(ref away, ref b));
+                Assert.True(IntrRay3Box3.Intersects(ref towardsY, ref b)); Assert.False(IntrRay3Box3.Intersects(ref awayY, ref b));
+                var behind = new Ray3d(new Vector3d(-5, 0, 0), new Vector3d(-1, 0, 0));
+                Assert.False(IntrRay3Box3.Intersects(ref behind, ref b));
+            }
+        }
+
+        [Fact]
+        public void ExpandExtents_AtATouchingCorner_DecidesExactly()
+        {
+            // the ray passes the corner (1.25, 1.25) of the expanded box in x and y exactly: a tie, decided on the expanded faces
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            Vector3d dir = new Vector3d(-1, 1, 0).Normalized;
+            var touching = new Ray3d(new Vector3d(2.25, 0.25, 0), dir);
+            Assert.True(IntrRay3AxisAlignedBox3.Intersects(ref touching, ref aab, 0.25));
+            Assert.True(IntrRay3Box3.Intersects(ref touching, ref obox, 0.25));
+            var beside = new Ray3d(new Vector3d(Up(2.25), 0.25, 0), dir);
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref beside, ref aab, 0.25));
+            Assert.False(IntrRay3Box3.Intersects(ref beside, ref obox, 0.25));
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref touching, ref aab, 0.25 - 1e-9));
+        }
+
+        [Fact]
+        public void NearlyParallelDirections_WithHugeParameters_AreDecidedExactly()
+        {
+            // a direction component of 1e-300: the slab bounds in t are beyond 1e290, where the double route does not decide
+            var aab = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
+            var obox = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5));
+            Vector3d d = new Vector3d(1, 0, 1e-300);
+            var inside = new Ray3d(new Vector3d(-1, 0.5, 0.5), d);     // z stays in the slab for 1e300: a hit
+            var outside = new Ray3d(new Vector3d(-1, 0.5, 5), d);       // z = 5 for any t < 1e300: far beyond the box: a miss
+            var rising = new Ray3d(new Vector3d(-1, 0.5, 5), new Vector3d(1, 0, -1e-300));       // reaches z = 1 only at t = 4e300
+            Assert.True(new IntrRay3AxisAlignedBox3(inside, aab).Find());
+            Assert.True(new IntrRay3Box3(inside, obox).Find());
+            Assert.False(new IntrRay3AxisAlignedBox3(outside, aab).Find());
+            Assert.False(new IntrRay3Box3(outside, obox).Find());
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref outside, ref aab));
+            Assert.False(IntrRay3Box3.Intersects(ref outside, ref obox));
+            // the slab of z is reached at t = 4e300 and left at 5e300, while x leaves at t = 2: no contact
+            Assert.False(new IntrRay3AxisAlignedBox3(rising, aab).Find());
+            Assert.False(IntrRay3Box3.Intersects(ref rising, ref obox));
+        }
+
+        [Fact]
+        public void HugeExpansion_StillSeparatesAnOriginBeyondTheSlab()
+        {
+            // an extent expanded by 1e308 (DCurve3BoxTree starts its search with a distance of double.MaxValue): the bounds in t are beyond
+            // reach, and an origin beyond the slab that moves away from it must still miss
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5));
+            var away = new Ray3d(new Vector3d(0, 0, 1.5e308), Vector3d.AxisZ);
+            var toward = new Ray3d(new Vector3d(0, 0, 1.5e308), -Vector3d.AxisZ);
+            var inside = new Ray3d(new Vector3d(0, 0, 0), Vector3d.AxisZ);
+            Assert.False(IntrRay3Box3.Intersects(ref away, ref obox, 1e308));
+            Assert.True(IntrRay3Box3.Intersects(ref toward, ref obox, 1e308));
+            Assert.True(IntrRay3Box3.Intersects(ref inside, ref obox, 1e308));
+            Assert.True(IntrRay3Box3.Intersects(ref inside, ref obox, double.MaxValue));
+            // a line whose origin is beyond a slab of half-width 1e308 (its t interval there is about 1e308, the other slabs end near t = 1)
+            var tall = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 1e308));
+            var line = new Line3d(new Vector3d(-1, 0, 1.5e308), new Vector3d(0.6, 0, 0.8));
+            Assert.False(new IntrLine3Box3(line, tall).Find());
+            var tallAabb = new AxisAlignedBox3d(new Vector3d(-0.5, -0.5, -1e308), new Vector3d(0.5, 0.5, 1e308));
+            Assert.False(new IntrLine3AxisAlignedBox3(line, tallAabb).Find());
+            var aab = new AxisAlignedBox3d(new Vector3d(-0.5, -0.5, -0.5), new Vector3d(0.5, 0.5, 0.5));
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref away, ref aab, 1e308));
+            Assert.True(IntrRay3AxisAlignedBox3.Intersects(ref toward, ref aab, 1e308));
+        }
+
+        [Fact]
+        public void ZeroLengthSegment_IsAPoint()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var seg = new Segment3d(Vector3d.Zero, Vector3d.AxisX, 0);
+            var f = new IntrSegment3Box3(seg, box, true);
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Point, f.Type);
+            Assert.Equal(1, f.Quantity);
+            var out1 = new Segment3d(new Vector3d(2, 0, 0), Vector3d.AxisX, 0);
+            Assert.False(new IntrSegment3Box3(out1, box, true).Find());
+        }
+
+        [Fact]
+        public void NonSolidSegment_NeedsTheSurface()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var inside = new Segment3d(new Vector3d(-0.5, 0, 0), new Vector3d(0.5, 0, 0));
+            Assert.True(new IntrSegment3Box3(inside, box, true).Find());
+            Assert.False(new IntrSegment3Box3(inside, box, false).Find());           // fully inside the open box: no surface contact
+            var touching = new Segment3d(new Vector3d(-0.5, 0, 0), new Vector3d(1, 0, 0));
+            Assert.True(new IntrSegment3Box3(touching, box, false).Find());          // an end on a face
+            var crossing = new Segment3d(new Vector3d(-2, 0, 0), new Vector3d(0, 0, 0));
+            var c = new IntrSegment3Box3(crossing, box, false);
+            Assert.True(c.Find());
+            Assert.Equal(IntersectionType.Segment, c.Type);
+        }
+
+        [Fact]
+        public void NonFiniteInput_IsAnInvalidQuery_NeverAHit()
+        {
+            var box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                var ray = new Ray3d(new Vector3d(bad, 0.5, 0.5), Vector3d.AxisX);
+                var f = new IntrRay3AxisAlignedBox3(ray, box);
+                Assert.False(f.Find()); Assert.Equal(IntersectionResult.InvalidQuery, f.Result);
+                Assert.False(f.Test());
+                double t; Assert.False(IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out t));
+                var bbox = new AxisAlignedBox3d(new Vector3d(0, bad, 0), new Vector3d(1, 1, 1));
+                var ray2 = new Ray3d(new Vector3d(-1, 0.5, 0.5), Vector3d.AxisX);
+                Assert.False(new IntrRay3AxisAlignedBox3(ray2, bbox).Find());
+                Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray2, ref bbox));
+                var ob = new Box3d(new Vector3d(bad, 0, 0), new Vector3d(1, 1, 1));
+                var ray3 = new Ray3d(new Vector3d(-1, 0.5, 0.5), Vector3d.AxisX);
+                Assert.False(IntrRay3Box3.Intersects(ref ray3, ref ob));
+                Assert.False(new IntrLine3Box3(new Line3d(new Vector3d(-1, 0, 0), Vector3d.AxisX), ob).Find());
+                Assert.False(new IntrSegment3Box3(new Segment3d(new Vector3d(bad, 0, 0), new Vector3d(1, 0, 0)), new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), true).Find());
+            }
+        }
+
+        [Fact]
+        public void ExpandExtents_MovesTheFacesOut_ExactlyAtTheBoundary()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var ray = new Ray3d(new Vector3d(-3, 1.25, 0), Vector3d.AxisX);
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref box));
+            Assert.True(IntrRay3Box3.Intersects(ref ray, ref box, 0.25));           // exactly on the expanded face
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref box, 0.25 - 1e-12));
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            Assert.True(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab, 0.25));
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab, 0.25 - 1e-12));
+        }
+
+        [Fact]
+        public void ReusedInstances_FollowTheirSetters()
+        {
+            var box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var f = new IntrRay3AxisAlignedBox3(new Ray3d(new Vector3d(-1, 0.5, 0.5), Vector3d.AxisX), box);
+            Assert.True(f.Find());
+            Assert.Equal(new Vector3d(0, 0.5, 0.5), f.Point0);
+            f.Ray = new Ray3d(new Vector3d(-1, 2, 0.5), Vector3d.AxisX);
+            Assert.False(f.Find());
+            f.Box = new AxisAlignedBox3d(new Vector3d(0, 1, 0), new Vector3d(1, 3, 1));
+            Assert.True(f.Find());
+            var ob = new IntrRay3Box3(new Ray3d(new Vector3d(-2, 0, 0), Vector3d.AxisX), new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)));
+            Assert.True(ob.Find()); Assert.Equal(new Vector3d(-1, 0, 0), ob.Point0); Assert.Equal(new Vector3d(1, 0, 0), ob.Point1);
+            ob.Ray = new Ray3d(new Vector3d(-2, 5, 0), Vector3d.AxisX);
+            Assert.False(ob.Find());
+            var lb = new IntrLine3Box3(new Line3d(new Vector3d(0, 5, 0), Vector3d.AxisX), new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)));
+            Assert.False(lb.Find());
+            lb.Line = new Line3d(new Vector3d(0, 1, 0), Vector3d.AxisX);
+            Assert.True(lb.Find());                                  // on the face
+            var sb = new IntrSegment3Box3(new Segment3d(new Vector3d(-3, 0, 0), new Vector3d(-2, 0, 0)), new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), true);
+            Assert.False(sb.Find());
+            sb.Segment = new Segment3d(new Vector3d(-3, 0, 0), new Vector3d(0, 0, 0));
+            Assert.True(sb.Find());
+            sb.Solid = false;
+            Assert.True(sb.Find());
+        }
+
+        [Fact]
+        public void PublicClippingEntryPoints_KeepTheirShape()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            double t0 = 0, t1 = double.MaxValue; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            Assert.True(IntrLine3Box3.DoClipping(ref t0, ref t1, new Vector3d(-3, 0, 0), Vector3d.AxisX, box, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(2.0, t0); Assert.Equal(4.0, t1); Assert.Equal(2, quantity); Assert.Equal(IntersectionType.Segment, type);
+            Assert.Equal(new Vector3d(-1, 0, 0), p0); Assert.Equal(new Vector3d(1, 0, 0), p1);
+            t0 = -double.MaxValue; t1 = double.MaxValue; var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            Vector3d o = new Vector3d(0, 0, 0), dir = Vector3d.AxisY;
+            Assert.True(IntrLine3AxisAlignedBox3.DoClipping(ref t0, ref t1, ref o, ref dir, ref aab, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(-1.0, t0); Assert.Equal(1.0, t1);
+        }
+
+        // ---- invariance: scaling by a power of two gives the same result bit for bit ----
+        [Theory]
+        [InlineData(-20)]
+        [InlineData(-3)]
+        [InlineData(10)]
+        [InlineData(40)]
+        public void PowerOfTwoScales_GiveTheSameResult(int k)
+        {
+            double sc = Math.Pow(2, k);
+            int compared = 0;
+            int n = 0;
+            foreach (var (o, d, lo, hi) in Cases(600, 17)) {
+                if (Normalized(d) == false) continue;
+                var aab = new AxisAlignedBox3d(lo, hi); var aab2 = new AxisAlignedBox3d(lo * sc, hi * sc);
+                var ray = new Ray3d(o, d); var ray2 = new Ray3d(o * sc, d);
+                var a = new IntrRay3AxisAlignedBox3(ray, aab); var b = new IntrRay3AxisAlignedBox3(ray2, aab2);
+                Assert.Equal(a.Find(), b.Find());
+                Assert.Equal(a.Type, b.Type); Assert.Equal(a.Quantity, b.Quantity); Assert.Equal(a.Result, b.Result);
+                if (a.Result == IntersectionResult.Intersects) {
+                    Assert.Equal(a.RayParam0 * sc, b.RayParam0); Assert.Equal(a.RayParam1 * sc, b.RayParam1);
+                    Assert.Equal(a.Point0 * sc, b.Point0); if (a.Quantity == 2) Assert.Equal(a.Point1 * sc, b.Point1);
+                    compared++;
+                }
+                var ob = Oriented(lo, hi, n++); var ob2 = Oriented(lo * sc, hi * sc, n - 1);
+                var c = new IntrLine3Box3(new Line3d(o, d), ob); var e = new IntrLine3Box3(new Line3d(o * sc, d), ob2);
+                Assert.Equal(c.Find(), e.Find()); Assert.Equal(c.Type, e.Type);
+                if (c.Result == IntersectionResult.Intersects) { Assert.Equal(c.Point0 * sc, e.Point0); Assert.Equal(c.LineParam0 * sc, e.LineParam0); }
+            }
+            Assert.True(compared > 100);
+        }
+    }
+
+    static class BigIntegerExt
+    {
+        public static long GetBitLengthPortable(this BigInteger v)
+        {
+            v = BigInteger.Abs(v);
+            long n = 0; while (!v.IsZero) { v >>= 1; n++; }
+            return n;
+        }
+    }
+}
