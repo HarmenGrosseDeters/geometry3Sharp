@@ -440,9 +440,6 @@ namespace g3
             int[] stack = boundaryTreeStack ?? (boundaryTreeStack = new int[128]);
             int[] roots = tree.Roots;
             int[] loArr = tree.Lo, hiArr = tree.Hi, leftArr = tree.Left, rightArr = tree.Right;
-            double[] cxArr = tree.Cx, cyArr = tree.Cy, czArr = tree.Cz, rArr = tree.R;
-            double[] vxArr = tree.Vx, vyArr = tree.Vy, vzArr = tree.Vz;
-            double[] aAbsArr = tree.AAbs, vaErrArr = tree.VaErr, m1Arr = tree.M1;
             Vector3d[] verts = tree.Verts;
 
             for (int ri = 0; ri < roots.Length; ++ri) {
@@ -452,51 +449,13 @@ namespace g3
                     int k = stack[--sp];
                     int left = leftArr[k];
                     if (left >= 0) {
-                        double dx = cxArr[k] - p.x;
-                        double dy = cyArr[k] - p.y;
-                        double dz = czArr[k] - p.z;
-                        double dd = dx * dx + dy * dy + dz * dz;
-                        if (dd > 1e140)
+                        int st = node_query(tree, k, p, pm, out NodeQuery nq);
+                        if (st < 0)
                             return false;
-                        if (dd >= 1e-140) {
-                            double dn = Math.Sqrt(dd);
-                            double d = dn * (1.0 - 1e-15);
-                            double r = rArr[k];
-                            if (r < 0.25 * d) {
-                                double dr = d - r;
-                                double coordEps = 2.3e-16 * (pm + m1Arr[k]) / dr;
-                                if (coordEps < 1e-6) {
-                                    double rd = r / d;
-                                    double cosA = Math.Sqrt(1.0 - rd * rd);
-                                    double minusX1U = dx / dn;
-                                    double eps = 1e-9 + 16.0 * coordEps;
-                                    if (minusX1U < cosA - eps) {
-                                        Vector3d a0 = verts[loArr[k]];
-                                        Vector3d ak = verts[hiArr[k]];
-                                        double chord = (a0.x == ak.x && a0.y == ak.y && a0.z == ak.z)
-                                            ? 0.0
-                                            : boundary_edge_angle_x(p, a0, ak);
-                                        double invD3 = 1.0 / (dd * dn);
-                                        double vx = vxArr[k], vy = vyArr[k], vz = vzArr[k];
-                                        double halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;
-                                        double absDx = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dz);
-                                        double rem = aAbsArr[k] * r / (dr * dr * dr);
-                                        double vaErrTerm = 0.5 * vaErrArr[k] * absDx * invD3;
-                                        double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;
-                                        // the full sum charges 1e-12 per edge for its own evaluation error (the leaf rule below); the
-                                        // k = hi - lo edges that the node replaces are charged the same, so that the node's bound covers the
-                                        // full sum's evaluation error and not only its own: it grows with the chain, not with Len/dr (the
-                                        // curve's points and p are exact doubles here, so there is no Biot-Savart displacement term)
-                                        double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps
-                                            + 1e-12 * (double)(hiArr[k] - loArr[k]);
-                                        if (!is_finite(chord) || !is_finite(halfOmega) || !is_finite(nodeErr))
-                                            return false;
-                                        sum += chord + halfOmega;
-                                        err += nodeErr;
-                                        continue;
-                                    }
-                                }
-                            }
+                        if (st > 0) {
+                            sum += nq.Chord + nq.HalfOmega;
+                            err += nq.NodeErr;
+                            continue;
                         }
                         if (sp + 2 > stack.Length) {
                             Array.Resize(ref stack, stack.Length * 2);
@@ -521,6 +480,104 @@ namespace g3
             bSum = sum / MathUtil.TwoPI;
             bErr = 1.01 * (err + sumOrderErr) / MathUtil.TwoPI;
             return is_finite(bSum) && is_finite(bErr);
+        }
+
+        /// <summary> The terms of one tree node seen from p (the shared source of the query and of the test hook) </summary>
+        internal struct NodeQuery
+        {
+            public bool Accepted;
+            public double D, Dr, CoordEps, Eps, CosA, MinusX1U;                     // the cap test: Accepted needs R &lt; 0.25 D, MinusX1U &lt; CosA - Eps
+            public double Chord, HalfOmega;
+            public double Rem, VaErrTerm, DipScale, NodeErr;                          // the node's error and its clauses
+        }
+
+        /// <summary>
+        /// One node of the tree for the query point p: 1 = accepted (Chord + HalfOmega replace the node's edges, NodeErr covers
+        /// them), 0 = descend, -1 = the query is outside the certified range (the caller falls back on the full sum).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int node_query(BoundaryTree tree, int k, Vector3d p, double pm, out NodeQuery q)
+        {
+            q = default(NodeQuery);
+            double dx = tree.Cx[k] - p.x;
+            double dy = tree.Cy[k] - p.y;
+            double dz = tree.Cz[k] - p.z;
+            double dd = dx * dx + dy * dy + dz * dz;
+            if (dd > 1e140)
+                return -1;
+            if (dd < 1e-140)
+                return 0;
+            double dn = Math.Sqrt(dd);
+            double d = dn * (1.0 - 1e-15);
+            double r = tree.R[k];
+            q.D = d;
+            if (!(r < 0.25 * d))
+                return 0;
+            double dr = d - r;
+            double coordEps = 2.3e-16 * (pm + tree.M1[k]) / dr;
+            q.Dr = dr; q.CoordEps = coordEps;
+            if (!(coordEps < 1e-6))
+                return 0;
+            double rd = r / d;
+            double cosA = Math.Sqrt(1.0 - rd * rd);
+            double minusX1U = dx / dn;
+            double eps = 1e-9 + 16.0 * coordEps;
+            q.CosA = cosA; q.MinusX1U = minusX1U; q.Eps = eps;
+            if (!(minusX1U < cosA - eps))
+                return 0;
+            Vector3d a0 = tree.Verts[tree.Lo[k]];
+            Vector3d ak = tree.Verts[tree.Hi[k]];
+            double chord = (a0.x == ak.x && a0.y == ak.y && a0.z == ak.z)
+                ? 0.0
+                : boundary_edge_angle_x(p, a0, ak);
+            double invD3 = 1.0 / (dd * dn);
+            double vx = tree.Vx[k], vy = tree.Vy[k], vz = tree.Vz[k];
+            double halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;
+            double absDx = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dz);
+            double rem = tree.AAbs[k] * r / (dr * dr * dr);
+            double vaErrTerm = 0.5 * tree.VaErr[k] * absDx * invD3;
+            double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;
+            // The bound has to cover |chord + dipole - (the computed full sum over the node's edges)|, so it holds the
+            // approximation error (rem, the rounding of va: vaErrTerm, of the dipole: dipScale, of dx: coordEps) and the
+            // evaluation error of the full sum itself, which carries 1e-12 per edge (the leaf rule): the k = hi - lo edges
+            // that the node replaces are charged the same. It grows with the chain, not with Len / dr: the vertices and p are
+            // exact doubles here and the reference sum uses the same ones, so there is no displacement term as in the
+            // grid-based tree of ExactMeshBoolean (design note 4b, which describes that tree).
+            double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps
+                + 1e-12 * (double)(tree.Hi[k] - tree.Lo[k]);
+            q.Chord = chord; q.HalfOmega = halfOmega; q.Rem = rem; q.VaErrTerm = vaErrTerm; q.DipScale = dipScale; q.NodeErr = nodeErr;
+            if (!is_finite(chord) || !is_finite(halfOmega) || !is_finite(nodeErr))
+                return -1;
+            q.Accepted = true;
+            return 1;
+        }
+
+        /// <summary> Test hook: the node k (0 = the root of the first chain) seen from p, with its stored data. Null without a tree. </summary>
+        internal sealed class NodeInfo
+        {
+            public NodeQuery Query;
+            public int Status;
+            public Vector3d Center;
+            public double R, VaErr, AAbs;
+            public Vector3d HalfVa;                     // the stored 0.5 * va
+            public Vector3d[] Vertices;                 // the node's chain points, lo .. hi
+        }
+
+        internal NodeInfo DescribeBoundaryNode(int k, Vector3d p)
+        {
+            BoundaryTree tree = get_or_build_boundary_tree();
+            if (tree == null || k < 0 || k >= tree.Lo.Length)
+                return null;
+            var info = new NodeInfo();
+            double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+            info.Status = node_query(tree, k, p, pm, out info.Query);
+            info.Center = new Vector3d(tree.Cx[k], tree.Cy[k], tree.Cz[k]);
+            info.R = tree.R[k]; info.VaErr = tree.VaErr[k]; info.AAbs = tree.AAbs[k];
+            info.HalfVa = new Vector3d(tree.Vx[k], tree.Vy[k], tree.Vz[k]);
+            int lo = tree.Lo[k], hi = tree.Hi[k];
+            info.Vertices = new Vector3d[hi - lo + 1];
+            Array.Copy(tree.Verts, lo, info.Vertices, 0, info.Vertices.Length);
+            return info;
         }
 
         // Balanced binary tree over head-to-tail directed unit-weight exterior boundary chains.

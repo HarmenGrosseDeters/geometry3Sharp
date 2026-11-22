@@ -220,6 +220,19 @@ sum is cheap and the tree did not pay: 124526 and 112798 have 134 and 164 segmen
 
 ## 4b. The bounds as implemented (for the review)
 
+> **Which tree.** This section describes the tree of `ExactMeshBoolean` (`AntipodalTree`, grid points of `FarPoints.Segments`).
+> The `BoundaryTree` of `spatial/ExactWindingCache.cs` (the exterior boundary of the exact winding cache; `node_query`) has
+> the same node identity (chord + dipole + remainder, with R, AAbs, VaErr, M1) but a different error budget, because its
+> reference is different: it must cover |chord + dipole - the computed full sum `boundary_sum_x` over the node's k = hi - lo
+> edges|, and the vertices and p are the exact doubles of that full sum. So (1) there is **no** `(2 2.3e-16 M1 + δ) Len / dr²`
+> displacement term: nothing is moved onto a grid; (2) the evaluation error of the full sum is charged `1e-12` per edge, for the
+> k replaced edges as for leaf edges (`1e-12 * (hi - lo)`), so it grows with the chain, not with Len/dr; (3) the order in which
+> the tree and the full sum add up differs: `7.5e-16 N sum|w|` (2 N u pi sum|w| with margin); (4) the cap margin is
+> `eps = 1e-9 + 16 coordEps` (the `2 sqrt(2 tolNode)` term of the grid tree stands for a ray-through-segment test that
+> `boundary_edge_angle_x` does not have: it decides the branch cut exactly). Each clause has a test in
+> `ExactWindingCacheInternalTests` (the eps window, va's true rounding error in exact integers against `vaErrTerm`, the
+> summation-order and per-edge pin on a 40006-edge boundary).
+
 Notation: u = 2^-53 ≈ 1.1e-16. Every quantity is in the mesh's scaled grid units, the units of `FarPoints.Segments`.
 The names are those of the code: `AntipodalTree`, `antipodal_tree_value`, `tree_term`, `tree_decides`.
 

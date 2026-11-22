@@ -387,6 +387,129 @@ namespace geometry3Sharp.Tests
             Assert.True(used > 100, $"only {used} queries took the tree");
         }
 
+
+        // ---- the clauses of the node bound, one test each (docs/REVIEW_CHECKLIST.md 10a) ----
+
+        static ExactWindingCache OffsetGridCache(Vector3d offset, int n, out DMesh3 mesh)
+        {
+            mesh = ExactWindingAdoptionTests.LargeBoundaryOpenGrid(n);
+            var rnd = new Random(3);
+            foreach (int v in mesh.VertexIndices()) {
+                // (jitter and offset: the rounded differences and cross products of the node build lose bits)
+                Vector3d q = mesh.GetVertex(v) + offset + new Vector3d(rnd.NextDouble() * 1e-3, rnd.NextDouble() * 1e-3, rnd.NextDouble() * 1e-3);
+                mesh.SetVertex(v, q);
+            }
+            ExactWindingCache cache = new DMeshAABBTree3(mesh, true).GetExactWindingCache();
+            cache.PrepareThresholdQueries();
+            Assert.True(cache.HasBoundaryTree);
+            return cache;
+        }
+
+        [Fact]
+        public void BoundaryTree_ConeTest_NodeInsideTheEpsWindowOfTheCapIsNotAccepted()
+        {
+            // The ray (+x from p) must lie outside the cap of the node's ball by the margin eps = 1e-9 + 16 coordEps: a point whose
+            // direction to the node centre is inside that margin (but still outside the cap itself) must descend, and one beyond
+            // the margin accepts. Without eps the first would be accepted on the edge of the cap, where the remainder bound is
+            // not valid.
+            ExactWindingCache cache = OffsetGridCache(Vector3d.Zero, 160, out _);
+            ExactWindingCache.NodeInfo root = cache.DescribeBoundaryNode(0, new Vector3d(100, 100, 100));
+            Assert.NotNull(root);
+            Vector3d c = root.Center;
+            double r = root.R;
+            double d = 40 * r;
+            double cosA = Math.Sqrt(1 - (r / d) * (r / d) * (1 + 1e-14));      // (the tree rounds d down by 1e-15 relative: close enough for the window)
+            int inWindowDescended = 0, outsideAccepted = 0;
+            foreach (double gap in new[] { 0.2e-9, 0.5e-9, 0.8e-9 }) {
+                // minusX1U = dx / dn = cosA - gap: the +x ray misses the cap by the angle gap, less than eps
+                double m = cosA - gap;
+                Vector3d p = c - d * new Vector3d(m, Math.Sqrt(1 - m * m), 0);
+                ExactWindingCache.NodeInfo info = cache.DescribeBoundaryNode(0, p);
+                Assert.True(info.Query.MinusX1U > info.Query.CosA - info.Query.Eps && info.Query.MinusX1U < info.Query.CosA + 1e-12,
+                    $"gap {gap}: not in the window: {info.Query.MinusX1U:R} vs cosA {info.Query.CosA:R} eps {info.Query.Eps:R}");
+                Assert.Equal(0, info.Status);
+                Assert.False(info.Query.Accepted);
+                ++inWindowDescended;
+            }
+            foreach (double gap in new[] { 3e-9, 1e-6 }) {
+                double m = cosA - gap;
+                Vector3d p = c - d * new Vector3d(m, Math.Sqrt(1 - m * m), 0);
+                ExactWindingCache.NodeInfo info = cache.DescribeBoundaryNode(0, p);
+                Assert.Equal(1, info.Status);
+                Assert.True(info.Query.Accepted);
+                ++outsideAccepted;
+            }
+            Assert.Equal(3, inWindowDescended);
+            Assert.Equal(2, outsideAccepted);
+        }
+
+        // exact arithmetic on doubles: every double is an integer multiple of 2^-1074
+        static System.Numerics.BigInteger Scaled(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            bool neg = bits < 0;
+            int e = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (e == 0) e = 1; else m |= 1L << 52;
+            var v = new System.Numerics.BigInteger(m) << (e - 1);          // x * 2^1074
+            return neg ? -v : v;
+        }
+
+        [Fact]
+        public void BoundaryTree_VaErrTerm_CoversTheTrueRoundingErrorOfTheDipoleMoment()
+        {
+            // va = sum (v - c) x (w - c) over the node's chain is computed in doubles. Its true value, in exact integers over the
+            // grid 2^-1074, differs from it by rounding; the dipole term 0.5 va . (c - p) / d^3 is then off by at most
+            // 0.5 |dva| . |dx| / d^3 <= vaErrTerm. Large coordinates and jitter make the rounding visible; without the clause
+            // (vaErrTerm = 0) the true error stays above it.
+            ExactWindingCache cache = OffsetGridCache(new Vector3d(1e5, -2e5, 3e4), 160, out _);
+            var rnd = new Random(8);
+            int checkedNodes = 0, visibleError = 0;
+            for (int k = 0; k < 40; ++k) {
+                ExactWindingCache.NodeInfo info = cache.DescribeBoundaryNode(k, Vector3d.Zero);
+                if (info == null) break;
+                Vector3d c = info.Center;
+                Vector3d[] v = info.Vertices;
+                System.Numerics.BigInteger cx = Scaled(c.x), cy = Scaled(c.y), cz = Scaled(c.z);
+                System.Numerics.BigInteger sx = 0, sy = 0, sz = 0;
+                for (int q = 0; q < v.Length; ++q) {
+                    Vector3d w = (q < v.Length - 1) ? v[q + 1] : v[0];
+                    System.Numerics.BigInteger ux = Scaled(v[q].x) - cx, uy = Scaled(v[q].y) - cy, uz = Scaled(v[q].z) - cz;
+                    System.Numerics.BigInteger wx = Scaled(w.x) - cx, wy = Scaled(w.y) - cy, wz = Scaled(w.z) - cz;
+                    sx += uy * wz - uz * wy;
+                    sy += uz * wx - ux * wz;
+                    sz += ux * wy - uy * wx;
+                }
+                // the stored half va, as exact integers over 2^-2148 (the cross products carry two factors 2^1074)
+                System.Numerics.BigInteger Stored(double halfVa) => Scaled(halfVa) << 1074;
+                // true half va = s / 2: dhv = 0.5 * s - stored
+                double Err(System.Numerics.BigInteger s2, double stored)
+                {
+                    System.Numerics.BigInteger diff = (s2 >> 1) - Stored(stored);
+                    return Math.ScaleB((double)(diff >> 1900), 1900 - 2148);
+                }
+                double ex = Err(sx, info.HalfVa.x), ey = Err(sy, info.HalfVa.y), ez = Err(sz, info.HalfVa.z);
+                // (VaErr bounds the error of each component of the stored half va; the dipole is halfOmega = 0.5 * halfVa . dx / d^3)
+                for (int t = 0; t < 12; ++t) {
+                    Vector3d p = c + 8 * info.R * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                    ExactWindingCache.NodeInfo q = cache.DescribeBoundaryNode(k, p);
+                    if (q.Status != 1) continue;
+                    double dx = c.x - p.x, dy = c.y - p.y, dz = c.z - p.z;
+                    double dd = dx * dx + dy * dy + dz * dz;
+                    double invD3 = 1.0 / (dd * Math.Sqrt(dd));
+                    // the dipole's error from the error of the stored half va (its exact error times dx)
+                    double dipoleErr = 0.5 * Math.Abs(ex * dx + ey * dy + ez * dz) * invD3;
+                    ++checkedNodes;
+                    if (dipoleErr > 0) ++visibleError;
+                    Assert.True(dipoleErr <= q.Query.VaErrTerm * (1 + 1e-9),
+                        $"node {k}: the true error of the dipole from va's rounding, {dipoleErr:E3}, exceeds the clause {q.Query.VaErrTerm:E3}");
+                    Assert.True(q.Query.VaErrTerm > 0);
+                }
+            }
+            Assert.True(checkedNodes > 100, $"only {checkedNodes} nodes were accepted");
+            Assert.True(visibleError > checkedNodes / 2, $"the rounding of va was visible in only {visibleError} of {checkedNodes} checks");
+        }
+
         [Fact]
         public void BoundaryTree_ExtremeScalesLeafOnlyChainsAndConcurrentInit_SafeAndExact()
         {
