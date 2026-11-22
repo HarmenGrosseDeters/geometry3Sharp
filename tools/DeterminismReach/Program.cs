@@ -324,7 +324,8 @@ namespace DeterminismReach
         {
             if (args.Length >= 1 && args[0] == "self-test") return SelfTest.Run();
             if (args.Length >= 2 && args[0] == "report") return Report(args);
-            Console.Error.WriteLine("usage: report <library.dll> [--docs <dir or file> ...] [--harness <harness.dll>] [--tsv <file>] [--why <Type> <source>] | self-test");
+            if (args.Length >= 2 && args[0] == "tier") return Tier(args);
+            Console.Error.WriteLine("usage: report <library.dll> [--docs <dir or file> ...] [--harness <harness.dll>] [--tsv <file>] [--why <Type> <source>] | tier <library.dll> --docs <dir or file> ... --baseline <file> [--tests <dir>] [--update] | self-test");
             return 2;
         }
 
@@ -339,6 +340,68 @@ namespace DeterminismReach
             for (TypeDefinition c = t; c != null; c = c.DeclaringType) if (c.Namespace == "g3.CoreMathPort") return true;
             return false;
         }
+
+        // the tier rule (TierRule.cs): the documented public types and whether they reach the platform libm on the cha edges
+        static int Tier(string[] args)
+        {
+            var docs = new List<string>(); string baselinePath = null, tests = null; bool update = false;
+            for (int i = 2; i < args.Length; ++i) {
+                if (args[i] == "--docs" && i + 1 < args.Length) docs.Add(args[++i]);
+                else if (args[i] == "--baseline" && i + 1 < args.Length) baselinePath = args[++i];
+                else if (args[i] == "--tests" && i + 1 < args.Length) tests = args[++i];
+                else if (args[i] == "--update") update = true;
+                else { Console.Error.WriteLine("unknown argument " + args[i]); return 2; }
+            }
+            if (baselinePath == null || docs.Count == 0) { Console.Error.WriteLine("tier needs --docs and --baseline"); return 2; }
+            if (!File.Exists(args[1])) { Console.Error.WriteLine("no library " + args[1]); return 2; }
+            if (!update && !File.Exists(baselinePath)) { Console.Error.WriteLine("no baseline " + baselinePath + " (--update writes it)"); return 2; }
+            foreach (string d in docs) if (!Directory.Exists(d) && !File.Exists(d)) { Console.Error.WriteLine("no documentation " + d); return 2; }
+            ModuleDefinition module = ModuleDefinition.ReadModule(args[1]);
+            var graph = new Graph(module, IsCoreMath);
+            var documentedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string d in docs)
+                foreach (string file in Directory.Exists(d) ? Directory.GetFiles(d, "*.md") : new[] { d })
+                    foreach (Match m in Regex.Matches(File.ReadAllText(file), "`([A-Z][A-Za-z0-9_]*)[`(.<]")) documentedNames.Add(m.Groups[1].Value);
+            var documented = new SortedDictionary<string, bool>(StringComparer.Ordinal);
+            foreach (TypeDefinition t in Graph.AllTypes(module).Where(t => IsPublic(t) && !IsCoreMath(t) && Graph.PublicMethods(t).Any() && documentedNames.Contains(SimpleName(t)))) {
+                bool libm = graph.Reach(Graph.PublicMethods(t).ToList(), true).ContainsKey(Sources.Libm);
+                // (two types of one simple name: libm if either)
+                documented[SimpleName(t)] = libm || (documented.TryGetValue(SimpleName(t), out bool before) && before);
+            }
+            TierBaseline baseline = File.Exists(baselinePath) ? TierBaseline.Parse(File.ReadAllText(baselinePath)) : new TierBaseline();
+            // (`--update` keeps the arguments of the types that are still documented; it drops a listed type that now reaches libm
+            // without an argument, and a stale one: the diff of the list is the review)
+            if (update) {
+                TierBaseline updated = TierRule.Update(documented, baseline);
+                File.WriteAllText(baselinePath, updated.Format(TierHeader), new UTF8Encoding(false));
+                Console.WriteLine($"tier 1: {updated.Tier1.Count} types written to {baselinePath}");
+                return 0;
+            }
+            TierRule.Result r = TierRule.Check(documented, baseline);
+            Console.WriteLine($"tier 1: {baseline.Tier1.Count} listed types, {documented.Count} documented public types, {documented.Count(k => !k.Value)} of them without a libm edge (cha)");
+            foreach (string v in r.Violations) Console.WriteLine("VIOLATION: " + v + " is tier 1 and now reaches the platform libm: `DeterminismReach report <library.dll> --why " + v + " libm` prints the path");
+            foreach (string s in r.Stale) Console.WriteLine("STALE: " + s + " is listed but is no longer a documented public type (renamed or removed): --update");
+            // the argument of a type that reaches libm names its test: a class of that name has to exist under --tests
+            int missingTests = 0;
+            if (tests != null) {
+                string source = string.Join("\n", Directory.GetFiles(tests, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+                foreach (var kv in baseline.Tier1.Where(kv => kv.Value.Length > 0 && documented.ContainsKey(kv.Key))) {
+                    string[] names = Regex.Matches(kv.Value.Substring("argument:".Length), "[A-Z][A-Za-z0-9_]*(?:Tests|Test)[A-Za-z0-9_]*").Cast<Match>().Select(m => m.Value).ToArray();
+                    if (!names.Any(n => Regex.IsMatch(source, "class\\s+" + n + "\\b"))) { missingTests++; Console.WriteLine("NO TEST: the argument of " + kv.Key + " names no test class that exists under " + tests); }
+                }
+            }
+            foreach (string a in r.ArgumentsNotNeeded) Console.WriteLine("note: " + a + " has an argument but reaches no libm any more: the argument can go");
+            if (r.Candidates.Count > 0) Console.WriteLine("note: " + r.Candidates.Count + " documented types without a libm edge are not listed (--update adds them): " + string.Join(", ", r.Candidates));
+            return r.Ok && missingTests == 0 ? 0 : 1;
+        }
+
+        // (Cecil names a generic type `Name`1`; the documentation says `Name<`)
+        static string SimpleName(TypeDefinition t) { int k = t.Name.IndexOf('`'); return k < 0 ? t.Name : t.Name.Substring(0, k); }
+
+        const string TierHeader = "# Tier 1 of the golden-master policy (docs/design/DETERMINISM.md, \"Golden masters, two tiers\"): documented operations whose\n"
+            + "# reachable set (the upper bound `cha` of tools/DeterminismReach) has no platform libm. `DeterminismReach tier` fails when a listed\n"
+            + "# type gains a libm edge. A line `Type<TAB>argument: ...` is a type that reaches libm and is tier 1 by an argument and a test.\n"
+            + "# Regenerate with `DeterminismReach tier <library.dll> --docs docs/OPERATIONS.md --docs docs/guides --baseline tools/DeterminismReach/tier1.txt --update`.\n";
 
         static int Report(string[] args)
         {

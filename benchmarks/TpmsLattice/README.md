@@ -58,3 +58,55 @@ Reading (workload: gyroid / P / Neovius, 2 to 6 periods, 16 cubes per period; ot
   about 1 s per million triangles. The wall time includes GC: the large gyroid / Neovius runs show several gen1/gen2
   collections (allocation of the mesh and the hash), the P runs almost none. This was not separated further.
 - The exact self-intersection check costs about as much as the rest (0.3-1.4 s for 40 k to 1.1 M triangles), so it is on by default but can be switched off (`VerifySelfIntersections`).
+
+## `TwoLevelSheet` against marching cubes (thin walls)
+
+```
+dotnet run --project benchmarks/TpmsLattice -c Release -f net10.0 -- twolevel 4
+```
+
+Gyroid sheet in a box of 4^3 periods, `WallThickness` in cubes from resolved to a tenth of a cube; the default (marching cubes on
+`|f| - t`) against `TwoLevelSheet = true` (`TwoLevelMarchingTetrahedra` on the two levels `f = +t`, `f = -t`). Both with the whole
+certificate (`NotCleanReason` with the exact self-intersection check). "mean wall / asked" is `MeanWallThickness` (2 V / A of the result)
+over the `WallThickness` asked for: about 1 where the wall is there, well below 1 where parts of it are lost. Compute ms: best of 3,
+a 4-core Linux container, net10.0, 2026-11-22.
+
+| divisions | wall (cubes) | method | status | components | triangles | mean wall / asked | compute ms |
+|---|---|---|---|---|---|---|---|
+| 8 | 2 | marching cubes | Ok | 3 | 58 780 | 1.34 | 300 |
+| 8 | 2 | two-level | Ok | 1 | 152 956 | 1.31 | 252 |
+| 8 | 1 | marching cubes | Ok | 1 | 94 884 | 0.58 | 196 |
+| 8 | 1 | two-level | Ok | 2 | 216 512 | 1.08 | 641 |
+| 8 | 0.5 | marching cubes | ContouringFailed (empty) | - | - | - | 7 |
+| 8 | 0.5 | two-level | Ok | 1 | 199 044 | 1.05 | 342 |
+| 8 | 0.25 | marching cubes | ContouringFailed (empty) | - | - | - | 9 |
+| 8 | 0.25 | two-level | Ok | 1 | 199 044 | 1.04 | 371 |
+| 8 | 0.1 | marching cubes | ContouringFailed (empty) | - | - | - | 7 |
+| 8 | 0.1 | two-level | Ok | 1 | 198 276 | 1.04 | 396 |
+| 16 | 3 | marching cubes | Ok | 3 | 279 964 | 1.07 | 972 |
+| 16 | 3 | two-level | Ok | 3 | 756 796 | 1.05 | 2471 |
+| 16 | 2 | marching cubes | Ok | 3 | 298 396 | 1.03 | 935 |
+| 16 | 2 | two-level | Ok | 3 | 760 828 | 1.02 | 2369 |
+| 16 | 1 | marching cubes | Ok | 1 | 368 292 | 0.67 | 800 |
+| 16 | 1 | two-level | Ok | 2 | 815 552 | 1.01 | 2552 |
+| 16 | 0.5 | marching cubes | Ok | 9 216 | 147 456 | 0.33 | 304 |
+| 16 | 0.5 | two-level | Ok | 1 | 780 420 | 0.99 | 1657 |
+| 16 | 0.25 | marching cubes | Ok | 6 144 | 49 152 | 0.20 | 114 |
+| 16 | 0.25 | two-level | Ok | 1 | 774 276 | 1.01 | 1653 |
+| 16 | 0.1 | marching cubes | ContouringFailed (empty) | - | - | - | 29 |
+| 16 | 0.1 | two-level | Ok | 1 | 761 220 | 1.09 | 1573 |
+
+(8 divisions, 3 cubes: both `InvalidOptions`, the wall is too thick for the first-order map of `WallThickness`.)
+
+Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; other types and domains are covered by tests, not here):
+
+- From a wall of one cube down, marching cubes loses the wall: at one cube the mean wall is 0.58 to 0.67 of the one asked for, at half a
+  cube and below the result is thousands of fragments reported as `Ok` (16 divisions) or empty. The two-level result keeps the wall asked
+  for (0.99 to 1.09) down to a tenth of a cube, in one or two components, and passes the same certificate.
+- Where both resolve the wall (2 and 3 cubes at 16 divisions) they agree: the same number of components and the mean wall within 2 %.
+- Cost: 2.5 to 2.7 times the triangles of marching cubes (five tetrahedra per cube) and 2.5 times the time of `Compute` at 16
+  divisions where both give the wall (2 and 3 cubes; the exact self-intersection check and the rest of the certificate scale with the
+  triangles; not separated here). The times at 8 divisions are small and uneven (252 against 300 ms at 2 cubes, 641 ms at 1 cube with the
+  same grid; not investigated).
+- The component counts differ in places (8 divisions, 2 cubes: 3 against 1; 1 cube: 1 against 2). At thick walls the extra components are
+  small pieces that the box cuts off; this benchmark does not check the counts against a reference.

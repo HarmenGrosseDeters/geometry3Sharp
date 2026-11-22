@@ -313,19 +313,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void HousingRib_Thin_PinnedFailure_TheRepairThinsTheRib()
+        public void HousingRib_Thin_CleanInput_TheRepairPassesItThrough()
         {
-            // Today's result: a rib of 0.1 (1e-3 of the housing, a clean welded soup) is thinned to about 0.025 by MeshRobustRepair's Repair path (it
-            // moves the rib's faces together); it stays connected and the volume passes. The pipeline (no repair of a closed input) keeps 0.1.
-            // The first failing step of the library chain is the repair; the later steps carry it on.
+            // A rib of 0.1 (1e-3 of the housing, a clean welded soup) was thinned to about 0.025 by MeshRobustRepair's Repair path (it moved the rib's
+            // faces together). A clean input of one component is now returned as it is (#1337), so the library chain keeps the rib as the pipeline does.
             ReferencePart part = Parts.HousingRib(DefectSet.None(), PartFrame.Identity, 0.1);
             ChainResult lib = Chains.RunLibraryChain(part);
-            Assert.Equal("repair", lib.FirstFailingName());
-            Assert.Equal("repair", lib.FirstFailingName("ribThickness"));
-            Assert.Equal("-", lib.FirstFailingName("ribConnected"));
-            Assert.Equal("-", lib.FirstFailingName("volume"));
-            Assert.InRange(lib.FirstFailingStep("ribThickness").Check("ribThickness").Value, 0.02, 0.03);
-            Assert.False(Last(lib, "ribThickness").Pass);
+            Assert.Null(lib.FirstFailingStep());
+            Assert.True(Last(lib, "ribThickness").Pass);
             Assert.Null(Chains.RunPipelineChain(part).FirstFailingStep());
         }
 

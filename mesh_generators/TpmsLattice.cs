@@ -71,7 +71,7 @@ namespace g3
     /// (closed, manifold, finite, oriented, no degenerate triangles) and, with VerifySelfIntersections, the exact
     /// self-intersection check of the returned coordinates. With Enclosure the solid contains the exact lattice
     /// (never a wall thinner than designed), at the price of a larger volume. No topology guarantee for walls thinner than
-    /// about two cubes (CellSize / Divisions).
+    /// about two cubes (CellSize / Divisions) with marching cubes; for thinner sheet walls see TwoLevelSheet.
     ///
     /// The lattice lives in a local frame (Origin, Rotation): phase zero at the origin, the Box in local coordinates,
     /// the grid anchored at multiples of the cube size. The result is mapped to world coordinates at the end, so the
@@ -131,6 +131,14 @@ namespace g3
         public bool VerifySelfIntersections = true;
         /// <summary> The solid contains {F &lt;= 0} of the exact lattice (box domain, constant fraction, dyadic grid only). </summary>
         public bool Enclosure = false;
+        /// <summary>
+        /// Sheet style only, opt-in (default off: marching cubes as before). The two sides of the wall are contoured as the two levels
+        /// f = +t and f = -t of the surface function with <see cref="TwoLevelMarchingTetrahedra"/> instead of one level of |f| - t with
+        /// marching cubes: a wall thinner than two cubes, down to a small fraction of a cube, keeps both sides and stays connected
+        /// as the grid resolves the surface itself, and the mesh has no self-intersections by construction. About 2.5 times the
+        /// triangles of marching cubes. Not with Enclosure and not with a hybrid (SecondType). See docs/design/TPMS_LATTICE.md section 10.
+        /// </summary>
+        public bool TwoLevelSheet = false;
         /// <summary> Slab-parallel field evaluation (id-identical to serial). </summary>
         public bool ParallelCompute = true;
         /// <summary> Upper limit of grid nodes, checked before any allocation. </summary>
@@ -369,6 +377,30 @@ namespace g3
                 return SliverGuard(v, Iso, Snap);
             }
 
+            // The parts of the sheet field for TwoLevelSheet: F = max((|f| - c) / Lw, d) as g = f / Lw, w = c / Lw and d.
+            public double SheetValue(ref Vector3d p)
+            {
+                double px, py, pz;
+                if (PhaseMap != null) {
+                    Vector3d ph = PhaseMap(p);
+                    px = 2 * Math.PI * ph.x; py = 2 * Math.PI * ph.y; pz = 2 * Math.PI * ph.z;
+                } else {
+                    px = K * p.x; py = K * p.y; pz = K * p.z;
+                }
+                return Evaluate(Type, px, py, pz) * InvLipschitz;
+            }
+
+            public double SheetHalfWidth(Vector3d p) { return (LevelAt != null ? LevelAt(p) : Level) * InvLipschitz; }
+
+            public double DomainValue(ref Vector3d p)
+            {
+                if (UseBox) {
+                    double dx = Math.Abs(p.x - Center.x) - Half.x, dy = Math.Abs(p.y - Center.y) - Half.y, dz = Math.Abs(p.z - Center.z) - Half.z;
+                    return Math.Max(dx, Math.Max(dy, dz));
+                }
+                return DomainDistance(p);
+            }
+
             double Raw(ref Vector3d p)
             {
                 double px, py, pz;
@@ -419,6 +451,14 @@ namespace g3
             }
         }
 
+        sealed class PartFunction : ImplicitFunction3d
+        {
+            public delegate double Part(ref Vector3d p);
+            readonly Part part;
+            public PartFunction(Part part) { this.part = part; }
+            public double Value(ref Vector3d p) { return part(ref p); }
+        }
+
         // ================= Compute =================
 
         void Fail(TpmsStatus status, string message)
@@ -445,6 +485,9 @@ namespace g3
             if (PhaseMap != null && WallThickness > 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness assumes a constant period: not with a PhaseMap"); return; }
             if (PhaseMap != null && Grade != null) { Fail(TpmsStatus.InvalidOptions, "set either PhaseMap or Grade, not both"); return; }
             if (Grade != null && WallThickness > 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness assumes a constant period: not with a Grade"); return; }
+            if (TwoLevelSheet && Style != TpmsStyle.Sheet) { Fail(TpmsStatus.InvalidOptions, "TwoLevelSheet is defined for Sheet only"); return; }
+            if (TwoLevelSheet && Enclosure) { Fail(TpmsStatus.InvalidOptions, "TwoLevelSheet does not give an Enclosure"); return; }
+            if (TwoLevelSheet && SecondType != null) { Fail(TpmsStatus.InvalidOptions, "TwoLevelSheet is not defined for a hybrid (SecondType)"); return; }
             if (Enclosure && PhaseMap != null) { Fail(TpmsStatus.InvalidOptions, "Enclosure with a graded cell size needs a Grade (a library-derived Jacobian bound), not a general PhaseMap"); return; }
             if (Enclosure && (VolumeFractionAt != null || DomainMesh != null)) { Fail(TpmsStatus.InvalidOptions, "Enclosure needs a box domain and a constant volume fraction"); return; }
             if (MaxCells < 1) { Fail(TpmsStatus.InvalidOptions, "MaxCells must be positive"); return; }
@@ -633,7 +676,7 @@ namespace g3
             // ---- contouring, with grid shifts when a sample lies on the level or a sliver appears ----
             // The first grid is moved by half a cube so that the planes of an aligned box fall between nodes.
             DMesh3 result = null;
-            MarchingCubes mc = null;
+            Vector3i gridCells = Vector3i.Zero;
             string last = "";
             string reason = "";
             for (int attempt = 0; attempt < GridShifts.Length; ++attempt) {
@@ -648,20 +691,30 @@ namespace g3
                 if (RejectAttempt != null && RejectAttempt(attempt)) { last = "attempt rejected"; result = null; continue; }
                 LastGridMin = min;
                 var max = new Vector3d(min.x + h * (cells[0] - 0.5), min.y + h * (cells[1] - 0.5), min.z + h * (cells[2] - 0.5));
-                mc = new MarchingCubes {
-                    Implicit = field, Bounds = new AxisAlignedBox3d(min, max), CubeSize = h, IsoValue = isoValue,
-                    RootMode = MarchingCubes.RootfindingModes.LinearEdges, ParallelCompute = ParallelCompute, CancelF = CancelF
-                };
                 try {
-                    mc.Generate();
+                    if (TwoLevelSheet) {
+                        var two = new TwoLevelMarchingTetrahedra {
+                            Field = new PartFunction(field.SheetValue), HalfWidthF = field.SheetHalfWidth, Domain = new PartFunction(field.DomainValue),
+                            Bounds = new AxisAlignedBox3d(min, max), CellSize = h, SliverGuard = SliverGuardCubeFraction > 0 ? 1.0 / 256 : 0,
+                            ParallelCompute = ParallelCompute, CancelF = CancelF, MaxGridNodes = Math.Max(MaxCells, 1)
+                        };
+                        two.Generate();
+                        result = two.Mesh; gridCells = two.CellDimensions;
+                    } else {
+                        var mc = new MarchingCubes {
+                            Implicit = field, Bounds = new AxisAlignedBox3d(min, max), CubeSize = h, IsoValue = isoValue,
+                            RootMode = MarchingCubes.RootfindingModes.LinearEdges, ParallelCompute = ParallelCompute, CancelF = CancelF
+                        };
+                        mc.Generate();
+                        result = mc.Mesh; gridCells = mc.CellDimensions;
+                    }
                 } catch (InvalidOperationException e) {
                     last = e.Message; result = null; continue;
                 } catch (ArgumentException e) {
                     Fail(TpmsStatus.ContouringFailed, e.Message); return;
                 }
-                if (CancelF()) { Fail(TpmsStatus.Cancelled, "cancelled"); return; }
+                if (CancelF() || result == null) { Fail(TpmsStatus.Cancelled, "cancelled"); return; }
                 if (field.WeightNaN) { Fail(TpmsStatus.ContouringFailed, "the blend weight returned NaN"); return; }
-                result = mc.Mesh;
                 if (result.TriangleCount == 0) { Fail(TpmsStatus.ContouringFailed, "the lattice is empty in this domain"); return; }
                 // ---- certificate of the result ----
                 reason = MeshRobustRepair.NotCleanReason(result, VerifySelfIntersections);
@@ -671,7 +724,7 @@ namespace g3
                 break;
             }
             if (result == null) { Fail(TpmsStatus.ContouringFailed, "no grid shift gave a valid contouring: " + last); return; }
-            CellsEvaluated = MathUtil.ToLongSaturating((mc.CellDimensions.x + 1.0) * (mc.CellDimensions.y + 1.0) * (mc.CellDimensions.z + 1.0));
+            CellsEvaluated = MathUtil.ToLongSaturating((gridCells.x + 1.0) * (gridCells.y + 1.0) * (gridCells.z + 1.0));
             if (reason != "") {
                 NotCleanReason = reason;
                 if (reason.Contains("self-intersection")) {

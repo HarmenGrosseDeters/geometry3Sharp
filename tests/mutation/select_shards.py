@@ -407,8 +407,47 @@ def select(changed, configs, run_all=False, only=None, moved=()):
     return modes["config"], mesh
 
 
+def skip_on_pr(arithmetic, mesh, configs, changed):
+    """(arithmetic, mesh, skipped) for a pull request (NO_FULL, run_stryker.sh): a shard that would run in full and is not
+    gated (gate_shard: it mutates no changed exact-code file, and is not the representative shard of changed scripts) makes no
+    full run on a PR, so it is not started and shows as skipped, not as a green run. `skipped`: the shard names (as in --only).
+    Which shards run Stryker does not change: run_stryker.sh skipped exactly these in the job (gated() asks gate_shard too)"""
+    changed = set(changed)
+    skipped = []
+    if arithmetic == "full" and not gate_shard(configs["config"], changed, "config"):
+        skipped.append("arithmetic")
+        arithmetic = "none"
+    kept = []
+    for entry in mesh:
+        name = "mesh-" + entry["shard"]
+        if entry["mode"] == "full" and not gate_shard(configs[name], changed, name):
+            skipped.append(entry["shard"])
+        else:
+            kept.append(entry)
+    return arithmetic, kept, skipped
+
+
+SKIP_WHY = "its config or the tools changed"
+
+
+def skip_notice(shard):
+    return f"::notice::{shard}: NOT RUN on this PR, full run on master ({SKIP_WHY}; the PR changes no exact-code file of this shard)"
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if args[:1] == ["report"]:
+        # report <json list of skipped shards> [--summary]: the notices (or the job summary) for the shards skipped on a PR
+        shards = json.loads(args[1])
+        if "--summary" in args:
+            if shards:
+                print("### Shards with no full run on this PR (NOT RUN)\n")
+                for sh in shards:
+                    print(f"- `{sh}`: full run on master ({SKIP_WHY}). The scheduled run on master measures it in full and seeds its baseline (tests/mutation/README.md).")
+        else:
+            for sh in shards:
+                print(skip_notice(sh))
+        sys.exit(0)
     if args[:1] == ["gate"]:
         # gate <config path>: changed paths on stdin; prints `gate` if the PR changes an exact-arithmetic file of that config
         name = os.path.basename(args[1])[len("stryker-"):-len(".json")]
@@ -425,6 +464,7 @@ if __name__ == "__main__":
         value = args[args.index("--only") + 1].strip()
         only = None if value in ("", "all") else expand_only(value, {shard_name(n) for n in load_configs()})
     paths = [] if run_all else [line.strip() for line in sys.stdin if line.strip()]
+    all_paths = list(paths)
     base, head = os.environ.get("BASE"), os.environ.get("HEAD")
     if WORKFLOW in paths and base and head:
         # (a failed git diff raises: an empty diff must not count as harmless)
@@ -449,6 +489,12 @@ if __name__ == "__main__":
                 paths.remove(path)
                 moved.add(os.path.basename(path)[len("stryker-"):-len(".json")])
                 print(f"{path}: only the spans of mutate moved, the shard runs incrementally", file=sys.stderr)
-    arithmetic, mesh = select(paths, load_configs(), run_all, only, moved)
+    configs = load_configs()
+    arithmetic, mesh = select(paths, configs, run_all, only, moved)
+    skipped = []
+    if "--pr" in args and not run_all:
+        arithmetic, mesh, skipped = skip_on_pr(arithmetic, mesh, configs, all_paths)
     print("arithmetic=" + arithmetic)
     print("mesh=" + json.dumps(mesh))
+    if "--pr" in args:
+        print("skipped=" + json.dumps(skipped))
