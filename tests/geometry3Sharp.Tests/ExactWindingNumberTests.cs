@@ -591,7 +591,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public async Task ConcurrentFirstCallInitialization_ClosedAndOpen_MatchesSerial()
+        public void ConcurrentFirstCallInitialization_ClosedAndOpen_MatchesSerial()
         {
             foreach (DMesh3 m in new[] { Sphere(1.0, 12), OpenSphere(1.0, 12, 0.35) }) {
                 Vector3d[] pts = RandomQueries(100, 67, 1.6);
@@ -605,7 +605,11 @@ namespace geometry3Sharp.Tests
                         res[i] = concurrentTree.WindingNumber(pts[i]);
                     return res;
                 })).ToArray();
-                double[][] all = await Task.WhenAll(tasks);
+                // Block on the pool tasks instead of awaiting them (issue #698): the continuation of an await goes back to
+                // xUnit's MaxConcurrencySyncContext, whose worker threads run the other test classes, so it resumed only at
+                // the end of the full run (410-544 s on CI, 0.01 s alone). The tasks themselves run on the thread pool.
+                Task.WaitAll(tasks);
+                double[][] all = tasks.Select(t => t.Result).ToArray();
 
                 foreach (double[] res in all)
                     for (int i = 0; i < pts.Length; ++i)

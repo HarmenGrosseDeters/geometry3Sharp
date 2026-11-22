@@ -128,6 +128,16 @@ scratch copy: the adversary then reports no difference). The callers of `Symmetr
 `LaplacianMeshSmoother`, `LaplacianMeshDeformer` and `LaplacianCurveDeformer`. Inherited from upstream; not covered by the
 harness before because no case used these classes. The adversary lists the case as `KNOWN` until it is fixed.
 
+**F1b. Siblings of F1 (checked 2026-11-22).** `SymmetricSparseMatrix.Square` and `Multiply` (`solvers/SparseMatrix.cs`) had the
+same defect (level L0): the parallel loop inserted into the dictionary `R` under `lock(R)` in the order the loop ran its rows;
+the values are order independent, but the dictionary enumerates in insertion order and `Multiply(double[], double[])` adds the
+terms of each row in that order (`SymmetricSparseSquareDeterminismTests`: the product vector differs in the last bits under loop
+order -1; `SparseSquareBenchmark`: 8 distinct hashes in 8 runs). Fixed: rows are computed into their own slots and inserted in order,
+which is the order of the serial variant. `PackedSparseMatrix.square_nonsymmetric` is not a defect: it is serial, and the order of
+its columns is the enumeration order of a `HashSet<int>` (insertion order in practice, after `Clear` too), a function of the input
+only; the test pins that it is repeatable and equals the product. It relies on unspecified BCL behaviour, so it stays on the list
+of fragile spots (sorting the columns would change the summation order of its users once).
+
 **F2. The exact Boolean calls the platform libm.** `ExactMeshBoolean.antipodal_tree_value` (the hierarchical evaluation
 of the winding number of open inputs, since Exact Boolean 3.0) computes `gamma = Math.Acos(...)`, `alpha = Math.Asin(...)`
 and two `Math.Cos` for `fullBound`, an upper bound of the error the full sum would have; `tree_decides` admits a tree
@@ -358,7 +368,7 @@ although they are floating-point code, because their paths use only `+ - * /` an
 is confined to transcendental functions whose value reaches a coordinate (eight example cases, section 3.4). So the boundary is not "exact against floating point" but
 "reaches a platform libm value or not", and that is checkable by a tool (section 4) instead of by judgement.
 
-**Recommended policy** (for `ACCEPTANCE_STRATEGY.md` section 4 and `docs/QA.md`, after the owner's decision):
+**Recommended policy** (adopted by the owner on 2026-11-22: [DETERMINISM.md](../design/DETERMINISM.md) section 6b, the check `DeterminismReach tier` with `tools/DeterminismReach/tier1.txt`, a step of the `linux` job of `determinism.yml`):
 
 | tier | which operation | what the golden master pins | who decides the tier |
 |---|---|---|---|
