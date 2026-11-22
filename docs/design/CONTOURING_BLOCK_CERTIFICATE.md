@@ -462,21 +462,27 @@ Remarks.
    (remark 7 of section 1), or the face inside a block.
 5. **Scope.** One level, no `Domain`. With a constant `HalfWidth` the level's field is g - w; a `HalfWidthF` needs an
    interval form of its own. The two levels together stay per level (point 3 below).
-6. **What the mesher has to record** (it keeps none of this today): the node values it used, per level, for (T1) and
-   for the comparison with the certified signs of the field (for the level -g - w the certified sign of g + w,
-   negated); for every vertex its tetrahedron edge, for (T2); the level of every triangle; and for (T3) two counters
-   that must be 0, the polygon vertices found outside the other level and the triangles left out. The first counter
+6. **What the mesher records** (built 2026-11-22: `TwoLevelMarchingTetrahedra.CertificateRecord`, internal, kept by a
+   `Generate` with `RecordCertificateData` and without a `Domain`): the signs of the node values it used and whether
+   one is exactly 0, per level, for (T1) and for the comparison with the certified signs of the field (for the level
+   -g - w the certified sign of g + w, negated); the values themselves are not kept, only signs enter the pattern,
+   and a node whose sign `SliverGuard` changed is not marked: the certificate finds it by that comparison. For every
+   vertex its tetrahedron edge, for (T2); the level of every triangle; whether the half width was a function (remark
+   5); and for (T3) two counters that must be 0, the polygon vertices found outside the other level
+   (`ClippedPolygonVertices`) and the triangles the mesh refused (a copy of `NonManifoldTriangles`). The first counter
    is needed: on an edge that both levels cross, the mesher orders the two crossings by two separately rounded
    quotients, and although the other level is inside at the crossing in exact arithmetic, a reversal by rounding is
-   not excluded by proof (none was found in 6e6 random trials of values as the mesher computes them; for values a few
-   units apart a reversal exists). A reversal clips a polygon. The mesher has three more places where a polygon
+   not excluded by proof (none was found in 6e6 random trials of values as the mesher computes them by the referee of
+   this lemma, and none in 12 million more for the build; for stored values a few units apart a reversal exists). A reversal clips a polygon. The mesher has three more places where a polygon
    could vanish, before any vertex is made: it skips a cube, and returns early from a tetrahedron, if one of its
    functions is negative at none of the nodes, and it skips a triangle with two equal vertices. Without a `Domain`
    none of them can drop a polygon of a level: where the stored g - w is not negative, g >= w, so the stored -g - w
    is at most -2 w < 0, and the guard only lowers values; so at every node one of the two functions is negative, and
    a cube or tetrahedron that a level crosses has a node where that level is not negative, hence the other one is.
    And the vertices of a polygon are on different tetrahedron edges, so no two are equal. These three need no
-   counter; "triangles left out" is the count of triangles the mesh refused.
+   counter. (The tests of both counters set node values directly: the sampling produced no reversal, and a refused
+   triangle was found only for values it cannot produce, where both levels are outside at a node and polygons are
+   cut.)
 7. **Theorem 8 (c) for this mesher**: with Lemma 9 in the place of Theorem 2 and remark 3 in the place of Lemma 6.4;
    (T0) in the place of what (H1) gives for the boundary of the grid.
 

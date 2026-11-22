@@ -106,9 +106,9 @@ namespace g3
             double best = double.PositiveInfinity; int bestCorner = -1, bestE = -1, bestSide = -1, bestOrigin = -1; double bestSx = 0, bestSy = 0, bestPx = 0, bestPy = 0;
             for (int k = 0; k < 3; ++k) {
                 int v = tri[k];
-                double dv = Distance[v];                        // NaN beyond MaxDistance (dist[] holds tentative values there)
+                double dv = (dist[v] <= maxDistU && dist[v] < double.PositiveInfinity) ? dist[v] : double.NaN;                        // NaN beyond MaxDistance (dist[] holds tentative values there)
                 if (!(dv < double.PositiveInfinity)) continue;
-                double c = dv + p.Distance(Mesh.GetVertex(v));
+                double c = dv + Down(p - Mesh.GetVertex(v)).Length;
                 if (c < best) { best = c; bestCorner = v; bestE = -1; }
             }
             Index3i te = Mesh.GetTriEdges(triangle);
@@ -116,7 +116,7 @@ namespace g3
             for (int k = 0; k < 3; ++k) {
                 int e = te[k]; int side = SideOf(e, triangle);
                 Index2i ev = Mesh.GetEdgeV(e); double L = elen[e];
-                PlacePoint(ev.a, ev.b, p, L, out double px, out double py);
+                PlacePoint(ev.a, ev.b, Down(p), L, out double px, out double py);
                 for (int c = head[side]; c >= 0; c = Next(c)) {
                     ref Window w = ref W(c);
                     if (!(w.B1 > w.B0)) continue;
@@ -127,8 +127,8 @@ namespace g3
                     if (cand < best) { best = cand; bestCorner = -1; bestE = e; bestSide = side; bestOrigin = w.Origin; bestSx = w.Sx; bestSy = w.Sy; bestPx = px; bestPy = py; }
                 }
             }
-            if (!(best <= MaxDistance)) { res.Status = PolyhedralGeodesicPathStatus.Unreached; return res; }
-            res.Distance = best;
+            if (!(best <= maxDistU)) { res.Status = PolyhedralGeodesicPathStatus.Unreached; return res; }
+            res.Distance = Up(best);
             var target = new SurfacePathPoint { Position = p, Vertex = -1, Edge = -1, T = 0, Face = triangle };
             var pts = new List<SurfacePathPoint> { target }; var fcs = new List<int>();
             int steps = 0; bool ok; int via;
@@ -152,7 +152,8 @@ namespace g3
             pts.Reverse(); fcs.Reverse();
             res.Source = pts[0].Vertex;                      // the vertex the walk ended at (a source); equals the root of the run except at near ties
             double len = 0;
-            for (int i = 0; i + 1 < pts.Count; ++i) len += pts[i].Position.Distance(pts[i + 1].Position);
+            for (int i = 0; i + 1 < pts.Count; ++i) len += Down(pts[i].Position - pts[i + 1].Position).Length;
+            len = Up(len);
             res.Status = PolyhedralGeodesicPathStatus.Ok; res.Points = pts; res.Faces = fcs; res.Length = len;
             return res;
         }

@@ -506,7 +506,7 @@ Ordered by expected value for the library.
      solid that SafeRounding removes on the generated sets, and its global form needs at least 16 to 258 times the
      triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid thin slabs SafeRounding drops when rotated (pipeline audit,
      #1304) stay clean and unchanged when its removal rule is switched off: a rule decision, not a rounding one (the
-     small cube of that audit is lost to the degenerate-area test instead). Leaning: no build; the owner's decisions on the options are open.
+     small cube of that audit is lost to the degenerate-area test instead). Leaning: no build. Stopped (owner 2026-11-22): SafeRounding stays, the per-result certificate documented.
    - Study 2026-11-22 of #1216 and plan #1259 ([ROUNDING_THIN_SOLIDS_2026-11.md](../research/ROUNDING_THIN_SOLIDS_2026-11.md),
      no library code): SafeRounding removes a closed component that is thinner than 1e-5 of the diagonal and has an
      edit anywhere (2976 of 2976 such components on 3 529 procedural cases, 0 of 732 without an edit); the issue's
@@ -659,7 +659,7 @@ Ordered by expected value for the library.
      the 21 procedural inputs all reach 10° (the wrap's boundary angles do not follow the input's creases); a lattice mesher
      (isosurface stuffing) proves 9.31° on every input (10.78° per tet, validity then checked per run) but rounds features and,
      uniform, is at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering (SIGGRAPH 2026)
-     bounds face angles only. Leaning: stop, keep P5(a); owner decision open.
+     bounds face angles only. Leaning: stop, keep P5(a). Stopped (owner 2026-11-22, option A).
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -710,7 +710,7 @@ Ordered by expected value for the library.
     - **Spike 2026-11-22** ([research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md),
       `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
       1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
-      for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
+      for the paper's algorithm as the `Reducer`'s check; stopped (owner 2026-11-22). Side finding:
       `MaxDeviation` took 76 s on a flat-faced cube of 4332 triangles; fixed in #1317 (patch bound in the check, also along
       boundaries and creases: 5.8 s, the same meshes at the benchmark tolerances; 0.9-4.3x on the curved benchmark cases).
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for

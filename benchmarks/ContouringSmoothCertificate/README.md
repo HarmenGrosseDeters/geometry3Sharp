@@ -66,3 +66,28 @@ Reading:
   periods: 89 ms contouring, 211 ms serial, 72 ms parallel). An interval evaluation of a trigonometric field costs
   about ten times a double evaluation, and a cell that needs tightening costs 9 or 73 enclosures instead of one: the
   Lidinoid runs take 16 to 72 times the contouring in the serial path.
+
+## The certificate record of `TwoLevelMarchingTetrahedra` (mode `record`)
+
+```
+dotnet run -c Release --project benchmarks/ContouringSmoothCertificate -- record > benchmarks/ContouringSmoothCertificate/results/record.csv
+```
+The cost of the internal record that a certificate of the mesher's result reads
+([CONTOURING_BLOCK_CERTIFICATE.md](../../docs/design/CONTOURING_BLOCK_CERTIFICATE.md), Lemma 9, remark 6): `Generate`
+with and without it, 9 runs each in alternation (median, smallest and largest in the file), serial, one machine, on walls
+around two capped TPMS at 64, 128 and 192 cells across, half a cell and two cells thick. `results/record.csv`,
+2026-11-22:
+
+| | Range over the 12 cases |
+|---|---|
+| time of `Generate` with the record against without (medians) | +2.2 % to +12.4 %, median +5.2 % |
+| bytes allocated by `Generate` | +6.5 % to +9.5 % |
+| payload of the record against the mesh's vertex and triangle arrays | 35 to 39 % at 64 cells, 47 to 54 % at 128, 59 to 69 % at 192 |
+
+- The time difference is small against the spread of the runs of one case (the largest run is 10 to 109 % above the
+  smallest), but it has the same sign in all 12 cases: about 5 %.
+- The payload is one byte per grid node, nine bytes per vertex and one per triangle. The byte per node is what grows
+  against the mesh (nodes grow with the cube of the resolution, the mesh with its square): at 192 cells it is 7.2 of the
+  10.8 to 11.7 million bytes. Against the mesher's own working arrays (two doubles per node) it is one sixteenth. The
+  record's lists grow by doubling and are not trimmed, so the instance can hold up to twice their part.
+- Off by default; the mesh is the same with and without it.

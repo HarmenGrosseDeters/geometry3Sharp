@@ -638,7 +638,7 @@ namespace gs
                 List<Vector3d> pts = T.TraceEdge(h);
                 // the walk from the tail of h must arrive at its head
                 Vector3d head = T.VertexPosition(T.Head(h));
-                if (!(pts[pts.Count - 1].Distance(head) <= trace_tolerance(T.Length(h), head))) traced = false;
+                if (!(T.DistanceBetween(pts[pts.Count - 1], head) <= trace_tolerance(T.Length(h), head))) traced = false;
                 if (s < 0) pts.Reverse();
                 // the joints are vertices: exact positions instead of the ends of the walks
                 pts[0] = T.VertexPosition(seg_tail(s));
@@ -650,7 +650,7 @@ namespace gs
                 // position
                 double dup = 1e-9 * T.Length(h);
                 for (int j = start; j < pts.Count; ++j) {
-                    if (Path.Count > 0 && Path[Path.Count - 1].Distance(pts[j]) <= dup) {
+                    if (Path.Count > 0 && T.DistanceBetween(Path[Path.Count - 1], pts[j]) <= dup) {
                         if (j == pts.Count - 1) Path[Path.Count - 1] = pts[j];
                         continue;
                     }
