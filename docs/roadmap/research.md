@@ -172,6 +172,14 @@ Part of the [roadmap](../ROADMAP.md).
      wrong; the certificate 25-28 % of the contouring at / 128 (22-24 % before), 33-37 % at / 64 (24-30 %). Not built, by the stop rule: refinement for the thin features (upper bound one run, at 3-15 times the
      contouring time, section 4.8) and growth across transitions (upper bound 0: only a wrong run has such cells). Issue #944
      closed 2026-11-17.
+     Class S (option B), 2026-11-22: an internal certificate for contours of smooth fields
+     (`ContouringSmoothCertificate`, #1392, with a proved margin for the cell shape) and the proof for box-shaped
+     blocks (Theorem 8, [CONTOURING_BLOCK_CERTIFICATE.md](../design/CONTOURING_BLOCK_CERTIFICATE.md)). Measured
+     (its section 3a): blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period, a third at best
+     for a TPMS clipped by a ball. Decision (owner 2026-11-22): build Theorem 8 for levels of a smooth field only,
+     with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. **Open limit, not built:** a
+     lattice clipped to a domain; the refusals follow the rim of the cut, and it would need blocks that follow a
+     curve or a statement for two crossing surfaces.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator

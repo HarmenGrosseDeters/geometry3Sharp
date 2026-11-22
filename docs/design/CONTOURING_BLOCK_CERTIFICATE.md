@@ -276,6 +276,10 @@ certified. 42 runs, axis-aligned and rotated, one machine.
 - The thin controls stay refused, as they must.
 - Not measured: wrong contours (the contour's side is not in the prototype), and the cost against a contouring.
 
+**Decision (owner, 2026-11-22):** Theorem 8 is built for levels of a smooth field only. The route to a lattice clipped
+to a domain is not built; it stays an open limit of the contouring certificates (also in
+[roadmap/research.md](../roadmap/research.md)).
+
 **What follows.** For a level of a smooth field (a lattice with a smooth cap, a level g = +-w of
 `TwoLevelMarchingTetrahedra` without a domain) Theorem 8 is worth building: it turns "2 to 15 % of the cells refused
 at every resolution" into complete runs at 32 cells per period. For a lattice clipped to a domain it is not the route:
@@ -314,13 +318,7 @@ tetrahedra per cube. Against this note:
 
 **Open, to be proved or decided before the build.**
 
-1. *Lemma for the mesh side (marching tetrahedra).* To write down: with every vertex strictly inside its tetrahedron
-   edge (exact comparisons; the mesher's guards exist for this), the level surface of the piecewise linear interpolant
-   is a closed PL surface compatible with K, with the sign-changing cube edges and the diagonal's pairing as pattern:
-   (E) and (F) from the construction (one planar piece per tetrahedron, pieces of neighbours meeting in the common
-   segment), (C) from the finite check. No self-intersection test is needed, by the mesher's construction. With a
-   block, the count P - A + Z of Lemma 6.4 is replaced by the Euler characteristic and the components of that cell
-   complex in the block (Lemma 6.2 as it is).
+1. *Lemma for the mesh side (marching tetrahedra).* Written: Lemma 9, section 4a.
 2. *Node values moved by `SliverGuard` and `RimGuard`.* Only signs and "strictly inside the edge" enter the pattern.
    The certificate compares the certified sign of g - w (g + w) at a node with the sign of the value the mesher used;
    a node whose sign a guard changed is refused with its cells. No bound on the size of the change is needed.
@@ -335,6 +333,100 @@ tetrahedra per cube. Against this note:
    far, the per-level statement stands.
 5. *Tangencies.* (S1) and (S2) refuse them at every resolution; blocks (Theorem 8) are the answer, and they are not
    measured (section 3).
+
+## 4a. Lemma 9: the marching-tetrahedra mesh of one level is compatible with the cube grid
+
+Owner decision 2026-11-22, after the measurement of section 3a: Theorem 8 is built for levels of a smooth field only,
+which includes the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. This is its mesh side. A
+lattice clipped to a domain is not built (section 3a; an open limit).
+
+**Setting.** K is the grid of cubes of `TwoLevelMarchingTetrahedra` (boxes between the node coordinates
+`origin + h * i`), each split into five tetrahedra, the split mirrored with the parity of the cube, so that the two
+cubes at a face use the same diagonal of it. A *level* is one of the mesher's functions (g - w, or -g - w) without a
+`Domain`: a value a_n at every node, as the mesher used it (after `SliverGuard`). A node is *inside* if a_n < 0. A
+tetrahedron edge is *crossed* if exactly one of its ends is inside; it is an edge of a cube or a diagonal of a face
+of a cube (the split has no diagonal through the interior of a cube). M is the part of the output mesh that belongs
+to the level: one vertex v_e per crossed tetrahedron edge e, and per tetrahedron with inside and outside nodes the
+polygon through the vertices of its crossed edges (a triangle if one node is alone on its side, else a
+quadrilateral cut into two triangles from one of its vertices), in the order in which neighbours lie in one face of
+the tetrahedron.
+
+Hypotheses:
+
+- (T1) no a_n is 0 (so "inside" is the sign of a_n);
+- (T2) every vertex on a cube edge lies strictly between the two nodes of the edge and has their other two
+  coordinates; every vertex on a face diagonal has the face's constant coordinate and lies strictly inside the face's
+  rectangle (exact comparisons of doubles; the vertex need not be exactly on the diagonal);
+- (T3) M is exactly the triangles described above: no polygon is clipped, dropped or reduced (an implementation fact
+  of the mesher without a domain, to be recorded by it and asserted in tests: the other level never cuts a polygon, no
+  triangle is left out as non-manifold, none has two equal vertices);
+- (T4) two triangles of M meet only in a common vertex or a common edge (the exact self-intersection test).
+
+**Lemma 9.** Under (T1) to (T4), M is a closed surface compatible with K wherever it does not reach the boundary of
+the grid. Its pattern is: the crossed cube edges; and on a face with four crossed edges, the pairing that joins the two
+edges at each corner that is not on the face's diagonal.
+
+*Proof.* A cube is convex, and so are its faces and edges, which are faces of it as a convex set: a convex
+combination of points of the cube lies in a face (an edge) of the cube only if every point with a positive weight
+does. Call this (X). A triangle of M that belongs to a tetrahedron of the cube c has its vertices on tetrahedron
+edges of c, so in c by (T2), and lies in c.
+
+*Which vertices lie where.* By (T2) a vertex v_e lies in a face f of c exactly if e does (e is an edge of f or its
+diagonal), and on a cube edge exactly if e is that edge. A tetrahedron of the split meets the plane of a face of its
+cube in one of its own faces, edges or nodes. The crossed edges of a tetrahedron are never all in one of its faces
+(three edges at one node are not in a face; the four edges between two pairs of nodes are not), and no three vertices
+of a quadrilateral's triangle are (a face of the tetrahedron holds two of the four crossed edges at most). So no
+triangle of M has its three vertices in one face of c.
+
+*(E).* By (X), a triangle meets a cube edge e' in the hull of its vertices on e', and the only vertex on e' is
+v_(e'), for a crossed e'. So M meets e' in v_(e'), an interior point by (T2), or not at all; no node is on M.
+
+*(F).* By (X), a triangle of c meets a face f of c in the hull of its vertices in f: nothing, a vertex, or one of
+its sides (not the triangle, by the above). A side of a triangle with both ends in f joins the vertices of two
+crossed edges of one face of a tetrahedron, and that face lies in f: it is one of the two triangles the diagonal
+cuts f into. In such a half face with inside and outside corners exactly two of its three sides are crossed, and
+the polygon of the tetrahedron behind it has those two vertices as neighbours, so M has the segment between them
+(the same segment for the tetrahedron of the cube on the other side of f, which has the same half face). So M meets
+f in one segment per half face with inside and outside corners. If the diagonal is crossed, both halves have such a
+segment, each from the diagonal's vertex to a vertex on a cube edge: one arc with two crossed cube edges. If it is
+not, its ends have one sign, and each half has a segment or none: none, one arc, or two arcs, the last exactly if
+the two corners off the diagonal have the other sign, which is the face with four crossed edges; each of the two
+arcs then joins the two edges at one of these corners, and the two arcs are disjoint (each lies in its closed half
+with its ends inside cube edges, so off the diagonal). The arcs end in the interiors of cube edges, and their other
+points are in the interior of f by (X) for the rectangle. Two segments of one arc meet only in the diagonal's vertex
+by (T4). No closed curve, no isolated point.
+
+*(C).* M meets c in the triangles of the tetrahedra of c (a triangle of another cube lies in that cube and meets c
+in a common face only, in sides that are sides of triangles of c as well). As a cell complex (vertices; one segment
+per tetrahedron face with inside and outside nodes; one polygon per such tetrahedron) this depends on the signs at
+the eight corners only, and for each of the 256 sign patterns every component of it has Euler characteristic 1 and
+there are as many components as closed curves of segments on the faces of c (the enumeration of section 4, for one
+parity; the other is its mirror image): each component is a disk with one boundary circle. By (T4) the triangles
+realize this complex without further contacts, so M meets c in disjoint disks. Their boundaries are the arcs on the
+faces of c; an open triangle and an open side that is not in a face lie in the interior of c by (X); the vertices
+all lie on the arcs. So the interior of each disk is in the interior of c.
+
+Every point of M has a disk neighbourhood in M (inside a cube by (C); on a face or an edge the disks of the two or
+four cubes fit along the arcs), so M is a closed surface where it does not reach the grid's boundary. ∎
+
+Remarks.
+
+1. **What the rounding changes, and what it does not.** In exact arithmetic M is the zero set of the piecewise linear
+   interpolant, and (T4) holds by construction. The vertices are rounded doubles: on a cube edge the two fixed
+   coordinates are exact (the mesher computes a + t (b - a) with b - a = 0 there), on a diagonal only the face's
+   coordinate is. The proof therefore uses only (T2) and never that a vertex is on its diagonal or that a polygon is
+   planar, and it takes (T4) from the exact test instead of the construction.
+2. **A value of exactly 0** counts as outside for the mesher and puts a vertex on a node: (T1) and (T2) refuse it.
+   With `SliverGuard` on, no value is 0. A crossing parameter that rounds to 0 or 1 is refused by (T2) as well.
+3. **In a block** (Theorem 8 (c) for this mesher). The count P - A + Z of Lemma 6.4 becomes: the cell complex above
+   over the cubes of the block (polygons, minus the segments on tetrahedron faces inside the block, plus the vertices
+   on tetrahedron edges inside the block), its components, and whether each has a segment on the block's boundary;
+   Lemma 6.2 as it is. All from the signs.
+4. **The pattern against the level set's.** On a face with four crossed edges the mesh pairs across the diagonal that
+   the split gives the face. Theorem 8 needs the level set to pair the same way, by a certified sign on that diagonal
+   (remark 7 of section 1), or the face inside a block.
+5. **Scope.** One level, no `Domain`. With a constant `HalfWidth` the level's field is g - w; a `HalfWidthF` needs an
+   interval form of its own. The two levels together stay per level (point 3 below).
 
 ## 5. Review
 
