@@ -386,7 +386,7 @@ namespace gs
                         outer++;
                         continue;
                     }
-                    if (area <= 0) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
+                    if (!(area > 0)) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
                     int fid = faceTri.Count;
                     int ft = -1;
                     foreach (int x in cyc) {
@@ -421,7 +421,7 @@ namespace gs
                 if (outer != 1) return fail("input triangle " + inTid[t] + " is cut into " + outer + " outer cycles (crossing traces)");
                 double err = Math.Abs(sumArea - triArea) / Math.Max(triArea, 1e-300);
                 R.MaxInputAreaError = Math.Max(R.MaxInputAreaError, err);
-                if (err > 1e-6) return fail("faces of input triangle " + inTid[t] + " do not sum to its area (crossing traces)");
+                if (!(err <= 1e-6)) return fail("faces of input triangle " + inTid[t] + " do not sum to its area (crossing traces)");
             }
             // faces without an intrinsic edge on their border: across unlabelled input edge pieces the
             // intrinsic triangle does not change
@@ -455,7 +455,7 @@ namespace gs
                 double err = Math.Abs(itArea[it] - a) / Math.Max(a, 1e-300);
                 R.MaxIntrinsicAreaError = Math.Max(R.MaxIntrinsicAreaError, err);
             }
-            if (R.MaxIntrinsicAreaError > 1e-6) return fail("faces do not sum to the intrinsic triangle areas (relative error " + R.MaxIntrinsicAreaError + ")");
+            if (!(R.MaxIntrinsicAreaError <= 1e-6)) return fail("faces do not sum to the intrinsic triangle areas (relative error " + R.MaxIntrinsicAreaError + ")");
             // An intrinsic triangle whose lengths give the area 0 passes the area check without any face: eg the
             // sliver between a vertex that counts as on an input boundary edge (inserted within the snap of it) and
             // that edge, whose three sides all run along the edge (#1335).
