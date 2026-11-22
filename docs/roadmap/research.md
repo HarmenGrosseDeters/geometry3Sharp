@@ -551,6 +551,15 @@ Ordered by expected value for the library.
      variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
      triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
      (d) the tree and the setup over all triangles where few are rounded.
+   - Study 2026-11-22 (owner go; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md); options with the
+     owner, nothing built): re-measured on `57623890`, the rounding is 3-77 % of a boolean on the 33 operations (median
+     22 %, 26 % of the sum). Upper bounds end to end: first search −5.5 % (−31 % on a procedural thin-triangle set),
+     `near` −8.9 %, tree and setup −1.5 %. (b) is two thirds to four fifths pair tests on box hits, not their
+     enumeration; the separating axes of section 5.3 computed once per triangle give −3.5 % of 48 operations (−8.9 % on
+     the thin set), hashes the same; split-clipped sub-boxes lose (+3.5 %), k-DOPs are weaker. On 102375 the Morton
+     tree visits five times the nodes of a median split (probe: −5 to −26 % on its booleans; not diagnosed). (c) the
+     linear list of `near` is its largest part; keeping its boxes gives −17.7 % of the rounding on the 24 operations
+     with many evaluations, hashes the same. (d) is lever 1a, below 2 %.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:
@@ -673,7 +682,8 @@ Ordered by expected value for the library.
       `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
       1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
       for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
-      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
+      `MaxDeviation` took 76 s on a flat-faced cube of 4332 triangles; fixed in #1317 (patch bound in the check, also along
+      boundaries and creases: 5.8 s, the same meshes at the benchmark tolerances; 0.9-4.3x on the curved benchmark cases).
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner
