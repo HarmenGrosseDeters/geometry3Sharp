@@ -16,6 +16,7 @@ Implemented from the paper, no code taken over.
 | Metamorphic relations as the test oracle of the bug hunt (docs/research/METAMORPHIC_BUG_HUNT_2026-11.md, `benchmarks/MetamorphicBugHunt`) | the metamorphic testing rows of this file (Chen, Cheung, Yiu 1998 and the surveys), as in docs/research/METAMORPHIC_TESTING.md; no further source |
 | Analytic box reference, exact dyadic volumes and areas, representation changes (`BooleanOracle`) | own construction (docs/design/BOOLEAN_PROPERTY_TESTS.md) |
 | Certifying checker of the exact boolean (`BooleanCertificate`): output plus witness checked by a simpler program; local consistency plus one anchor per connected set; winding-number jumps across patches and the radial order around an edge; partition check by matching facets | R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 5(2), 2011; K. Mehlhorn et al., *Checking geometric programs or verification of geometric structures*, CGTA 12, 1999; Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh arrangements for solid geometry*, ACM TOG 35(4), 2016; L. Palios, *Verification of partitions of 2d and 3d objects*; the design in docs/research/BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md section 3 (from the papers, no code read) |
+| Embedding check of the arrangement (`BooleanCertificate.CheckEmbedding`, C2: no two pieces meet beyond what they share; box tree of its own, pair test by orientation signs of exact points only, no filter) | O. Devillers, P. Guigue, *Faster Triangle-Triangle Intersection Tests*, INRIA RR-4488, 2002 (the principle: orientation signs only; the case analysis for "meets only where they share" is derived here and checked against `ExactTriangleIntersection.IntersectsBeyondShared`); the design in docs/research/BOOLEAN_CERTIFIED_MODE_2026-11.md section 3 (papers only, no code read) |
 | Exact squared distance of a point to a triangle (`BooleanCertificate`, in rationals) | C. Ericson, *Real-Time Collision Detection*, 2005, section 5.1.5 (the Voronoi regions of the triangle) |
 
 Test-only package: **CsCheck 4.9.1** (Apache-2.0, https://github.com/AnthonyLloyd/CsCheck, NuGet metadata checked),
@@ -117,6 +118,18 @@ Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime 
 ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
+
+## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
+
+Implemented from the papers and the book, no code taken over; Python standard library only. The audit:
+[docs/research/ERROR_BOUND_AUDIT_2026-11.md](../research/ERROR_BOUND_AUDIT_2026-11.md).
+
+| Part | Source |
+|---|---|
+| The standard model of rounding, gamma_n, recursive summation, the underflow term (`fpbound.py`) | N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002, sections 2.2, 2.8, 3.1, 4.2 |
+| The sharp relative error u / (1 + u) of one rounding | C.-P. Jeannerod, S. M. Rump, *On relative errors of floating-point operations: optimal bounds and applications*, Mathematics of Computation 87, 2018 |
+| The error stated in the computed permanent, the last rounding of a sign filter, the constants of stages A to C | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, Discrete & Computational Geometry 18, 1997 |
+| Rewriting an error into terms that a rule bounds (the approach only; no code of Gappa read or run) | F. de Dinechin, C. Lauter, G. Melquiond, *Certifying the floating-point implementation of an elementary function using Gappa*, IEEE Transactions on Computers 60(2), 2011; M. Daumas, G. Melquiond, *Certification of bounds on expressions involving rounded operators*, ACM TOMS 37(1), 2010 |
 
 ## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
 

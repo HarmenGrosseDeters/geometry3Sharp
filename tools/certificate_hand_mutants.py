@@ -4,7 +4,7 @@
 The checker (tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs) is test code, which Stryker does not mutate. This
 script switches off or reverses each of its conditions and signs in turn, runs BooleanCertificateTests (without the
 Nightly test), and reports whether the tests fail (KILLED) or not (SURVIVED). The file is restored afterwards, also on
-an error. Every mutant must be killed. About 25 minutes (one build and test run per mutant).
+an error. Every mutant must be killed. About 45 minutes (one build and test run per mutant).
 
 Usage (from the repository root, with the .NET 10 SDK): python3 tools/certificate_hand_mutants.py [name ...]
 """
@@ -54,6 +54,20 @@ M=[
 ("orientation check off", "if (consistentBefore[Root(t)]) return", "if (false) return"),
 ("exempt all components", "if (ex == false) continue;", ";"),
 ("classified rule", "classified[i] = s.Min() == src;", "classified[i] = true;"),
+("C2 coplanar pairs skipped", "if (pos == 0 && neg == 0) { Coplanar++; return CoplanarMeet(p, q); }", "if (pos == 0 && neg == 0) { Coplanar++; return false; }"),
+("C2 crossing of a plane off", "if (Mixed(O3(a, b, q[0], q[1]), O3(a, b, q[1], q[2]), O3(a, b, q[2], q[0])) == false) return true;", "if (false) return true;"),
+("C2 end on the plane off", "if (Has(q, a) == false && InTriangle(a, q, b)) return true;", "if (false) return true;"),
+("C2 fold off", "if (O2(a, b, p[(i + 2) % 3]) * O2(a, b, qc) > 0) return true;", "if (false) return true;"),
+("C2 coplanar proper crossing off", "if (o[j] * o[(j + 1) % 3] < 0 && o2(c, d, a) * o2(c, d, b) < 0) return true;", "if (false) return true;"),
+("C2 q's edges against p off", "return EdgesMeet(p, sp, q) || EdgesMeet(q, sq, p);", "return EdgesMeet(p, sp, q);"),
+("C2 pairs not tested", "if (test.MeetBeyondShared(pieceV[i], pieceV[j])) {", "if (false) {"),
+("C2 copies are paired", "int[] part = Enumerable.Range(0, PieceCorners.Length).Where(i => classified[i]).ToArray();", "int[] part = Enumerable.Range(0, PieceCorners.Length).ToArray();"),
+("C2 not in Check", "r = embedding ? CheckEmbedding() : \"\";", "r = \"\";"),
+("C2 long determinant sign", "return Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));", "return -Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));"),
+("C2 straddle off", "&& StraddlesInPlane(PieceCorners[i], triCorners[u]))", "&& false)"),
+("C2 straddle: inside rule", "if (inside) return false;", "if (inside) return true;"),
+("C2 straddle: separation rule", "if (pOut || uOut) return false;", "if (pOut) return false;"),
+("removed parts not reported", "if (RemovedParts.Count > 0)", "if (false)"),
 ]
 
 

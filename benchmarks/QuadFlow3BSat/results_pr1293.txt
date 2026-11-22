@@ -1,0 +1,113 @@
+| shape | scale / ratio | library status | ended by | folds after greedy | library: attempts / sat / unsat / budget (decisions) | replay = library | budget instances: sat / unsat / undecided | learning: instances sat / unsat / undecided | seeds solved / obstructed | folds left | conflicts sum / max | completed status | class |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| sphere | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| torus | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| torus | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| bumpy | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| bumpy | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| bumpy | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| bumpy | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| bumpy | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| bumpy | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| capsule | 1 / 0.5 | BudgetExceeded | SAT decisions | 26 | 19 / 2 / 14 / 3 (300001) | yes | 0 / 3 / 0 | 3 / 124 / 0 | 3 / 19 | 19 | 87849 / 52174 | - | problem (obstructed seeds) |
+| capsule | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| capsule | 1.25 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capsule | 1.5 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capsule | 1 / 0.35 | BudgetExceeded | SAT decisions | 4 | 6 / 0 / 4 / 2 (300001) | yes | 0 / 2 / 0 | 1 / 16 / 0 | 1 / 2 | 0 | 5712 / 2278 | FlippedFaces | search (fold-free with learning) |
+| capsule | 1 / 0.7 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| genus2 | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| genus2 | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| capped-cylinder | 1 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capped-cylinder | 0.8 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capped-cylinder | 1.25 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capped-cylinder | 1.5 / 0.5 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+| capped-cylinder | 1 / 0.35 | BudgetExceeded | SAT decisions | 18 | 8 / 0 / 5 / 3 (300001) | yes | 0 / 3 / 0 | 2 / 102 / 0 | 2 / 16 | 16 | 120200 / 33221 | - | problem (obstructed seeds) |
+| capped-cylinder | 1 / 0.7 | FlippedFaces | not the repair | 0 | | | | | | | | | not the repair |
+
+runs 54: library clean 43, fallback 11; library status: BudgetExceeded 3, FlippedFaces 8, Success 43
+fallbacks ended by: not the repair 8, SAT decisions 3
+library trajectory replayed with the library's counters: 3 runs, mismatches 0
+instances the library's DPLL left at its budget: satisfiable 0, unsatisfiable 8, undecided 0
+learning trajectory: instances satisfiable 6, unsatisfiable 181 (+ 61 refuted while built), undecided 0; seeds solved 6, obstructed 37
+seeds solved at ring: 3: 1, 4: 3, 5: 1, 6: 1
+fallback classes: not the repair 8, problem (obstructed seeds) 2, search (fold-free with learning) 1
+best case: 1 of 11 fallbacks become fold-free; 0 of them complete to Success with the independent checks (clean would be 43 of 54)
+effort of the clause-learning solver (both trajectories): conflicts 290130, decisions 357838, most conflicts on one instance 52174
+checks: unsatisfiable answers with a valid RUP proof 189, invalid 0; models or repaired regions that fail 0; against the library's DPLL within 20000 decisions: agree 135, disagree 0, DPLL undecided 60
+obstructed seeds: 37; with a singular vertex in the region of the largest ring 11, at a singular vertex 0; folds in that region: 1 (the seed alone) 2, 2 to 5 29, 6 or more 6; sum of det over that region: negative 29, zero 3, positive 5
+refuted by the area alone (the region of the largest ring is a disk with no singular vertex, every triangle closes, the sum of det is negative): 24 of 37 obstructed seeds (0 regions are not a disk); of the unsatisfiable instances the library's DPLL left at its budget: 5 of 8
+instances the library's DPLL left at its budget, by ring: 5: 4, 6: 4
+DIMACS files written: 173
+obstructed seeds with a negative sum: the first larger ring (the search stops at ring 20) whose region has a sum of det >= 0 is 1 or 2 rings larger 7, 3 to 6 rings larger 10, larger up to ring 20 12, none up to ring 20 0
+
+obstructed seeds (learning trajectory): verdict per ring from 1 (U unsatisfiable, T refuted while built, ? undecided); the region is that of the largest ring
+| shape | scale / ratio | seed triangle | det | rings | region triangles | mutable edges | folds in region | sum of det | disk | refuted by the area | singular vertices in region | seed at a singular vertex |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| capsule | 1 / 0.5 | 2346 | -1 | U U U U U U | 67 | 87 | 1 | -1 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 5510 | -1 | U U U U U U | 69 | 90 | 1 | 4 | yes | no | 0 | no |
+| capsule | 1 / 0.5 | 5658 | -1 | U T U U U U | 69 | 92 | 2 | 0 | yes | no | 3 | no |
+| capsule | 1 / 0.5 | 6449 | -1 | T U U U U U | 67 | 87 | 4 | 2 | yes | no | 0 | no |
+| capsule | 1 / 0.5 | 7144 | -1 | U U U U U U | 71 | 91 | 5 | -3 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 7338 | -1 | U T U U U U | 65 | 82 | 3 | -2 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 7869 | -1 | T U U U U U | 61 | 78 | 6 | -4 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 8433 | -1 | T U U U U T | 66 | 86 | 6 | -1 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 11044 | -1 | T U U U U U | 55 | 71 | 2 | 1 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11101 | -1 | U U U U U U | 60 | 79 | 2 | -2 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 11142 | -1 | T U U U U U | 55 | 72 | 2 | -2 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11166 | -1 | U T U U U U | 63 | 81 | 2 | -2 | yes | no | 4 | no |
+| capsule | 1 / 0.5 | 11188 | -1 | T U U U U U | 56 | 71 | 2 | 1 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11227 | -1 | T T U U U U | 64 | 82 | 3 | 0 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11245 | -1 | T U U U U U | 62 | 79 | 5 | -5 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 11259 | -1 | T U U U U U | 58 | 72 | 6 | -5 | yes | yes | 0 | no |
+| capsule | 1 / 0.5 | 11317 | -1 | T U U U U U | 58 | 75 | 2 | -2 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11339 | -1 | T U T U U U | 62 | 79 | 3 | 1 | yes | no | 1 | no |
+| capsule | 1 / 0.5 | 11361 | -1 | U U U U U U | 54 | 68 | 2 | -2 | yes | yes | 0 | no |
+| capsule | 1 / 0.35 | 11088 | -1 | U T T T U U | 64 | 84 | 4 | -3 | yes | no | 3 | no |
+| capsule | 1 / 0.35 | 11832 | -1 | T T T U U U | 60 | 75 | 4 | 0 | yes | no | 3 | no |
+| capped-cylinder | 1 / 0.35 | 6304 | -1 | T T U U U T | 66 | 84 | 6 | -6 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 8208 | -1 | U T U U U U | 67 | 85 | 2 | -2 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 8221 | -1 | U T U U U U | 67 | 86 | 2 | -2 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 9028 | -1 | U T U U U U | 66 | 85 | 2 | -2 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 9230 | -1 | U T U U U U | 65 | 84 | 2 | -2 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 10397 | -1 | T U U U U T | 65 | 83 | 3 | -3 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 10398 | -1 | T U U U U U | 67 | 87 | 2 | -2 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 11416 | -1 | T U U T U T | 67 | 85 | 6 | -6 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 11582 | -1 | T T T U U U | 68 | 86 | 5 | -5 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 12420 | -1 | T T U U U U | 63 | 83 | 5 | -3 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 12421 | -1 | U T U T U U | 60 | 77 | 5 | -5 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 15939 | -1 | T U T T U U | 62 | 81 | 5 | -5 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 19224 | -1 | T T T U U T | 71 | 93 | 6 | -3 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 26729 | -1 | T U U U T U | 62 | 80 | 5 | -4 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 26738 | -1 | T T T U U U | 57 | 72 | 5 | -5 | yes | yes | 0 | no |
+| capped-cylinder | 1 / 0.35 | 26835 | -1 | T T U U U U | 58 | 73 | 5 | -4 | yes | yes | 0 | no |

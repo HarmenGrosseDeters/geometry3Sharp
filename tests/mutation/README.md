@@ -106,7 +106,11 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
 
 - **No full shard run on a pull request.** A shard that would run in full there (its config or the tools changed, split
   offsets moved, or no baseline in the cache fits) runs nothing; its job summary says "full run on master" and why, and the job
-  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). An
+  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). Where
+  the selection already knows it (the config or the tools changed, and no changed exact-code file of the shard: `select_shards.py
+  --pr`, `skip_on_pr`), the shard is not started at all: its job shows as skipped, and the `changes` job's notice and summary name
+  it ("NOT RUN on this PR, full run on master"). Only a shard that finds out in the job (no baseline fits) still ends green, with
+  "NOT RUN" in its notice and summary. Which shards run Stryker is the same either way. An
   incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
   no baseline.
 - **The exact-code gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact code. Without a

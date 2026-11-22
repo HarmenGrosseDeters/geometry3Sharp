@@ -110,6 +110,25 @@ For workflows that feed boolean outputs into downstream solid tools, check resul
 5. **Thin slabs are valid pieces of the exact solid:** Slabs down to `1e-8` of input size are preserved accurately. `SafeRounding` removes a closed component only if it retains degenerate triangles and is thinner than `RoundingMaxDisplacement` (`Rounding.RemovedComponents`); thin components holding real volume for their area are kept (`Rounding.ScaleDisparity`, `RoundingClean = false`). Filter tiny pieces by volume yourself if they are unwanted.
 6. **Do not repair an open boolean result and validate volume against the open mesh:** An open mesh has no exact interior volume (its signed volume depends on the coordinate origin). Close inputs before the boolean rather than wrapping an open boolean result.
 7. **Unreferenced or unwelded vertices do not affect the geometry:** Closed triangle soups give the same boolean solid as welded meshes.
+8. **Check the result itself with `MeshRobustRepair.NotCleanReason(result)`:** this is the check you have today, and it is cheap, about 0.1-0.6 times the boolean (`NotCleanReasons` / `FindDefects` list every failed check). See "What `NotCleanReason(result)` covers" below for what it says and what it does not.
+
+### What `NotCleanReason(result)` covers
+
+`NotCleanReason(result) == ""` says that the result mesh, as stored, is:
+
+- not empty, closed, and manifold (no bowtie vertices);
+- free of degenerate triangles (area below `1e-12` of the squared diagonal of the triangle bounds);
+- consistently oriented, with no inside-out components;
+- free of self-intersections: an **exact** search (`ExactTriangleIntersection`) on the doubles of the result, so it holds for the coordinates you will write or hand on, not only up to a tolerance.
+
+What it does **not** say:
+
+- **Nothing about the point set.** It looks at the result alone, not at the inputs. It does not say that the result is the union, intersection or difference of the inputs, nor that it lies within the rounding bound of the exact result. A solid that is missing (see the next point), moved, or wrongly selected still gives `""` if what is left is a clean mesh.
+- **A removed component is not reported by it.** `SafeRounding` removes closed components that are tiny or thin and keep a sliver (`Rounding.RemovedComponents`, a documented decision; the audit case is a cube of edge 2^-9 next to a box of edge 1024). The result is then clean but misses that part. Read `Rounding.RemovedComponents` for it.
+- **Touching solids (edge or vertex contact) report "self-intersections".** The result stores the contact as manifold pairs of vertices that coincide in position (`Contacts`, `NonManifoldEdges`; see above), and the exact search counts those as intersections. A contact is not a defect of the boolean; compare with `Contacts` before you read it as one. Face contacts merge and do not show this.
+- **Open inputs:** with `AllowOpenMeshes` the result is not a solid, and "closed" can fail by design.
+
+`NotCleanReason` is a check of the result, not a certificate of the boolean. A test-only checker that recomputes the claim from the inputs exists for the test suite (`tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs`, [QA 2.4a](../qa/testing-and-invariance.md)); it costs several times the boolean and is not part of the library. Measurements: [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) sections 4.1-4.4.
 
 ---
 
