@@ -125,6 +125,8 @@ namespace gs
         /// Applied whenever IntegrableFrames succeeds with at least one valid sample (and SizeWeight &gt; 0), without requiring the
         /// SizeAdaptationMinGain curl reduction. When SizeAdaptation is Off, solves for spacing only (no rotation); when SizeAdaptation is
         /// ScaleAndRotation, also allows rotation. Can be combined with PureQuads (the repair uses the local spacing).
+        /// Not applied (Status stays Success, SizeAdaptationApplied is false) when SizeWeight is 0, when no valid sample falls on a vertex of a usable triangle, or when
+        /// IntegrableFrames finds no solution; the sample counts (including the clamped ones) are on Frames after Compute().
         /// </summary>
         public Func<Vector3d, double> SizeFunction;
         /// <summary>
