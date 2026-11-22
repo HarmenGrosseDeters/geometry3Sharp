@@ -7,6 +7,7 @@
 //   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
 //   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
 //   ... -- maxdih <mesh|proc> <relativeAlpha> <floor> <G> [nohdr]   (stage 2 with and without MaxDihedralDegrees, MaxDihedral.cs)
+//   ... -- tieorder <mesh|proc> <relativeAlpha> <relativeOffset> <floor> [orders] [trace.csv] [nohdr]   (stage 2 under relabelings of the stage-1 mesh, TieOrder.cs)
 //   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]   (stage 1; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
@@ -31,7 +32,8 @@ static class Program
         } else if (mode == "wrap") {
             double ra = args.Length > 1 ? double.Parse(args[1], Inv) : 20, ro = args.Length > 2 ? double.Parse(args[2], Inv) : 600;
             Header();
-            foreach (var kv in Procedural()) Wrap(kv.Key, kv.Value, ra, ro);
+            // a 4th argument "hard": the inputs with acute creases, thin parts and near contacts of the dihedral-floor spike instead
+            foreach (var kv in args.Length > 3 && args[3] == "hard" ? Stuffing.HardInputs() : Procedural()) Wrap(kv.Key, kv.Value, ra, ro);
         } else if (mode == "file") {
             double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
             var mesh = StandardMeshReader.ReadMesh(args[1]);
@@ -58,6 +60,12 @@ static class Program
             Console.WriteLine(TetFiles.Header);
             // the wrap is serial (one thread); the evaluation is not timed
             Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
+        } else if (mode == "tieorder") {        // tieorder <file|proc> <alpha> <offset> <floor> [orders] [trace.csv] [nohdr] | tieorder check: the improver under relabelings (TieOrder.cs)
+            return TieOrder.Run(args, Procedural());
+        } else if (mode == "floor") {           // floor [relativeCell ...]: the dihedral-floor spike (Stuffing.cs): a lattice mesher next to MeshTetrahedralization
+            return Stuffing.Main(args, Procedural());
+        } else if (mode == "floornoise") {      // floornoise [seeds]: the lattice mesher's angle bound on random labels and cut points
+            return Stuffing.Noise(args);
         } else if (mode == "maxdih") {          // maxdih <file|proc> <alpha> <floor> <G> [nohdr]: stage 2 with and without MaxDihedralDegrees (MaxDihedral.cs)
             return MaxDihedralSample.Run(args, Procedural());
         } else if (mode == "refine") {          // refine [file|proc] [relativeAlpha] [relativeOffset]: stage 1 (MeshTetrahedralization), same row as eval

@@ -1234,6 +1234,27 @@ The result files of base and new are byte-identical for all four cells (`cmp`), 
 open stage (-8 to -19 %), below the 5 % bound of the whole operation, as expected; it is not enough for the 10 % bar and was approved as an
 exception by the owner (2026-11-18).
 
+## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
+
+Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)
+(measurement only; all tables and their reading are there). `seam-levers` ([SeamLevers.cs](SeamLevers.cs)) builds two procedural
+closed tubes that cross in a seam of fixed size, with the operand size set by `--half`, and prints one JSON line per
+measurement; with `--cases <file>` it runs the same parts on pairs of case directories (A.off / B.off, eg the T6 set):
+
+| part | what it measures |
+|---|---|
+| `boolean` | `ExactMeshBoolean` with its phase timers; the contact count by dictionary against a flat table; with `--local-rounding` the candidate pairs of the rounding's first search with a tree of all result triangles (today) against a tree of the new triangles only (the numbers of pairs are compared) |
+| `arrangement` | `ExactMeshArrangement` with and without the operand self-join, for the pair and for each operand |
+| `traversal` | the box-tree work alone: build, self-join traversal, queries of A in B |
+| `near` | the triangles whose box meets a box of the other operand, and the time to find them |
+| `stamp` | hashing an operand's vertices and triangles (64-bit mix, SHA-256) |
+| `drop` | (only when named) a box united with a disjoint cube of edge 2^-k: whether SafeRounding's removal of tiny components drops the untouched cube |
+
+Tables: `python3 perf/seam_levers_report.py phases|seam|selfjoin|tree|local <rows>...` (tests: `test_seam_levers.py`).
+Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22/](perf/seam_levers_2026-11-22/). Lever 3x and the lazy first pair search, measured on a prototype that was not merged (0 on seam unions): [perf/lazy_first_search_2026-11-22/](perf/lazy_first_search_2026-11-22/README.md). Headline: a union
+of two tubes of 634k triangles in all, with 806 of them split, takes 2.47 s at 1 thread and 1.37 s at 4 on the 4-vCPU
+container; the same seam between tubes of 40k triangles 0.25 s and 0.09 s.
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
@@ -1340,3 +1361,26 @@ one-shot measurement); total 9 693 ms and 9 454 ms.
 (`docs/perf/BOOLEAN_COPLANAR_PREDECISION.md`: the change, its argument and the numbers). A/B on ABC chains (`chain-ab`, method `ours_ab`, ABBA order, 4 reps, `data/coplanar_ab.py summary`; GitHub runner, 12 chains per variant, run 44541072964):
 step 1 -1.5 %, step 2 -0.2 % (noise), **step 3 -16.9 % (median chain -26.9 %)**, steps 1 to 3 **-11.6 %**; result hashes equal in all chains.
 A first run with one fixed random order showed step 1 +9.3 %; that was a position effect of the fixed order (see the page), `G3_AB_NULL=1` is the null test.
+
+## Certifying checker cost and the coplanar clip (`certify`, `coplanar-clip`; spike 2026-11-22)
+
+Prototypes of the research note [BOOLEAN_CERTIFIED_MODE_2026-11.md](../../docs/research/BOOLEAN_CERTIFIED_MODE_2026-11.md) (plan #1256); no
+library code. `Certify.cs` holds an independent exact recheck of the arrangement's embedding (C2a: its own box tree, one orientation
+predicate with BigInteger, filtered and float-only variants) and times it against the boolean, `NotCleanReason` and the stages 1-2 checker
+of the tests (`BooleanCertificate.cs`, linked into this project) on the procedural inputs of `SolidBooleanBenchmark` and a size series.
+`CoplanarClip.cs` compares `IntrTriangle2Triangle2.Find` and the coplanar route of `IntrTriangle3Triangle3.Find` with an exact rational
+clip.
+
+```
+dotnet run -c Release -- certify selftest          # the pair test against ExactTriangleIntersection, and injected missed intersections
+dotnet run -c Release -- certify cost 5            # 17 cases, with the stages 1-2 checker  -> perf/certify_cost.txt
+dotnet run -c Release -- certify scale-c2a 5       # size series, C2a only                  -> perf/certify_scale.txt
+python3 certify_summary.py perf/certify_cost.txt perf/certify_scale.txt                    # -> perf/certify_summary.txt
+dotnet run -c Release -- certify removed           # two cases where the rounding removes a solid -> perf/certify_removed.txt
+dotnet run -c Release -- coplanar-clip 20000       # -> perf/coplanar_clip.txt
+```
+
+Headline (4 cores, the checker serial, shared container; ratios to the boolean): C2a filtered 0.4-8.5 (one case 14.6), float floor
+0.4-2.7 (3.4-8.4 with many coplanar input triangles), BigInteger 14-100; the stages 1-2 checker as built 16-570; `NotCleanReason` on the
+result 0.1-0.6. Coplanar clip: `IntrTriangle3Triangle3.Find` equals the rounded exact polygon in 120 000 pairs; `IntrTriangle2Triangle2`
+is off by up to 4e9 ulps on nearly parallel edges. The tables and their reading are in the note.

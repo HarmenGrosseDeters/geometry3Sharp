@@ -93,3 +93,20 @@ Procedural solids (6): 6/6 clean, 0 crossings, 0.36x triangles, concave within 1
 deg, the same operation counts as the study's probe on every solid. What it cannot do (the study): creases of features smaller
 than alpha, corners (three planes).
 
+## Mode `bound`: upper bound for provable sharp-feature recovery (2026-11-22, HP 4)
+
+`Bound.cs`, for [PROVABLE_SHARP_WRAP_STUDY.md](../../docs/research/PROVABLE_SHARP_WRAP_STUDY.md) (plan #1280). No library change.
+
+```
+dotnet run -c Release --project benchmarks/SharpFeatureProbe -- bound out.jsonl <case>... [-- A,K,KC,KCK,KO,KOC,O]
+python3 benchmarks/SharpFeatureProbe/bound_tables.py out.jsonl
+```
+
+Cases: `[soup:]<solid>[@rot|@far|@rotfar]` or `twobox[@...]`; solids: the six above, `gear`, `finegear`, `microgear`, `fillet`,
+`wedge:<deg>`, `ridge:<deg>`, `notch:<alphas>`. The oracle `O` is the mitered offset of the clean reference, built by moving its
+vertices; its sharp edges and corners are the network every variant is measured against. `KC` adds a corner step through the
+pass's own checked move, `KO` gives the pass the clean reference of a dirty input.
+
+Result (65 cases, master ed93ef26, tables in [results/bound_tables.md](results/bound_tables.md)): all 270 wrap-based results valid;
+clean solids, crease length within 0.25 offsets of a sharp result edge: A 0.001, K 0.945, KC 0.954, O 1; corners A / K 0, KC 0.86;
+soups K 0.00 (no shared edges; KO equals the clean K), two overlapping boxes K 0.80-0.82, KO 0.94-0.96; O valid on 64 / 65 (not on a slot one offset wide) with 4-8 times fewer triangles than K.

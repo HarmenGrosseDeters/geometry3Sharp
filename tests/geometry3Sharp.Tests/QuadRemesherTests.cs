@@ -452,6 +452,171 @@ namespace geometry3Sharp.Tests
             Assert.Equal(given.Result.FaceCount, qr.Result.FaceCount);
         }
 
+        [Fact]
+        public void FieldAndCornerOptions_ForwardToCrossFieldAndPositionField()
+        {
+            // CornerAngleDegrees forwarded to PositionField: on OpenPatch (four 90-degree corners), 30 pins all 4 corners while 100 pins none
+            DMesh3 patch = Shape("patch");
+            var qr30 = new QuadRemesher(patch) { Field = FieldOf("patch"), TargetEdgeLength = 0.08, CornerAngleDegrees = 30 };
+            Assert.Equal(QuadRemeshStatus.Success, qr30.Compute());
+            CheckResult(qr30.Result, "patch corner 30");
+            Assert.Equal(30, qr30.Positions.CornerAngleDegrees);
+            Assert.Equal(4, qr30.Positions.L0.Kind.Count(k => k == 2));
+
+            var qr100 = new QuadRemesher(patch) { Field = FieldOf("patch"), TargetEdgeLength = 0.08, CornerAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, qr100.Compute());
+            CheckResult(qr100.Result, "patch corner 100");
+            Assert.Equal(100, qr100.Positions.CornerAngleDegrees);
+            Assert.Equal(0, qr100.Positions.L0.Kind.Count(k => k == 2));
+
+            // CurvatureAlignment forwarded when Field is null: matches an explicit CrossField bit-for-bit and differs from default 0
+            DMesh3 torus = Shape("torus");
+            var cfCurv = new CrossField(torus) { CurvatureAlignment = 3 };
+            Assert.Equal(CrossFieldStatus.Success, cfCurv.Compute());
+            var qrExplicitCurv = new QuadRemesher(torus) { Field = cfCurv, TargetEdgeLength = S };
+            Assert.Equal(QuadRemeshStatus.Success, qrExplicitCurv.Compute());
+
+            var qrFwdCurv = new QuadRemesher(torus) { TargetEdgeLength = S, CurvatureAlignment = 3 };
+            Assert.Equal(QuadRemeshStatus.Success, qrFwdCurv.Compute());
+            CheckResult(qrFwdCurv.Result, "torus curvature aligned");
+            AssertSame(qrExplicitCurv.Result, qrFwdCurv.Result);
+            Assert.Null(qrFwdCurv.Field);   // internal field must not stick onto Field (reuse)
+
+            var qrSmooth = Run("torus");
+            Assert.NotEqual(qrSmooth.Result.VertexCount, qrFwdCurv.Result.VertexCount);
+
+            // Explicit Field takes precedence over CurvatureAlignment
+            var qrOverride = new QuadRemesher(torus) { Field = FieldOf("torus"), TargetEdgeLength = S, CurvatureAlignment = 3 };
+            Assert.Equal(QuadRemeshStatus.Success, qrOverride.Compute());
+            AssertSame(qrSmooth.Result, qrOverride.Result);
+
+            // AlignCreases + CreaseAngleDegrees forwarded when Field is null on SharpBox (90-degree creases)
+            DMesh3 sharp = CrossFieldShapes.SharpBox();
+            var cfCrease = new CrossField(sharp) { AlignCreases = true, CreaseAngleDegrees = 30 };
+            Assert.Equal(CrossFieldStatus.Success, cfCrease.Compute());
+            var qrExplicitCrease = new QuadRemesher(sharp) { Field = cfCrease, TargetEdgeLength = 0.25 };
+            Assert.Equal(QuadRemeshStatus.Success, qrExplicitCrease.Compute());
+
+            var qrFwdCrease = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 30 };
+            Assert.Equal(QuadRemeshStatus.Success, qrFwdCrease.Compute());
+            CheckResult(qrFwdCrease.Result, "sharp box align creases");
+            AssertSame(qrExplicitCrease.Result, qrFwdCrease.Result);
+
+            var qrNoCrease = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, AlignCreases = false };
+            Assert.Equal(QuadRemeshStatus.Success, qrNoCrease.Compute());
+            Assert.NotEqual(qrNoCrease.Result.VertexCount, qrFwdCrease.Result.VertexCount);   // AlignCreases actually changes the result
+            var qrHighThreshold = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, qrHighThreshold.Compute());
+            AssertSame(qrNoCrease.Result, qrHighThreshold.Result);
+
+            // Boundary angles 0 and 180 are valid (accepted, not rejected by strict inequalities)
+            var qrZero = new QuadRemesher(patch) { Field = FieldOf("patch"), TargetEdgeLength = 0.08, CornerAngleDegrees = 0, CreaseAngleDegrees = 0 };
+            Assert.Equal(QuadRemeshStatus.Success, qrZero.Compute());
+            CheckResult(qrZero.Result, "patch angle 0");
+            var qr180 = new QuadRemesher(patch) { Field = FieldOf("patch"), TargetEdgeLength = 0.08, CornerAngleDegrees = 180, CreaseAngleDegrees = 180 };
+            Assert.Equal(QuadRemeshStatus.Success, qr180.Compute());
+            CheckResult(qr180.Result, "patch angle 180");
+        }
+
+        [Fact]
+        public void FieldAndCornerOptions_InvalidSettings_ReturnInvalidInputAndResetTimings()
+        {
+            // Run with CollapseLength large enough that CollapsedEdges / DroppedFaces are non-zero before testing InvalidInput reset
+            DMesh3 m = Shape("sphere");
+            var qr = new QuadRemesher(m) { TargetEdgeLength = S, CollapseLength = 0.9 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.FieldSeconds > 0);
+            Assert.True(qr.CollapsedEdges > 0 || qr.DroppedFaces > 0 || qr.RemovedValence2 > 0);
+
+            foreach (double bad in new[] { -1, 181, double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                qr.CornerAngleDegrees = bad;
+                Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+                Assert.Null(qr.Result);
+                Assert.NotNull(qr.Error);
+                Assert.Equal(0, qr.FieldSeconds);
+                Assert.Equal(0, qr.PositionSeconds);
+                Assert.Equal(0, qr.ExtractSeconds);
+                Assert.Equal(0, qr.CollapsedEdges);
+                Assert.Equal(0, qr.RemovedValence2);
+                Assert.Equal(0, qr.DroppedFaces);
+                qr.CornerAngleDegrees = 30;
+
+                qr.CreaseAngleDegrees = bad;
+                Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+                Assert.Null(qr.Result);
+                Assert.NotNull(qr.Error);
+                qr.CreaseAngleDegrees = 30;
+            }
+            foreach (double bad in new[] { -0.1, double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                qr.CurvatureAlignment = bad;
+                Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+                Assert.Null(qr.Result);
+                Assert.NotNull(qr.Error);
+                qr.CurvatureAlignment = 0;
+            }
+        }
+
+        [Fact]
+        public void FieldAndCornerOptions_ReuseAndDeterminism()
+        {
+            DMesh3 sharp = CrossFieldShapes.SharpBox();
+            var qr = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, CurvatureAlignment = 0, AlignCreases = false };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            DPolyMesh plain = qr.Result;
+
+            qr.AlignCreases = true; qr.CreaseAngleDegrees = 30; qr.CurvatureAlignment = 1;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            DPolyMesh aligned = qr.Result;
+            CheckResult(aligned, "sharp box aligned reuse");
+
+            // Fresh serial and parallel instances match bit-for-bit
+            var serial = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 30, CurvatureAlignment = 1, Parallel = false, ChunkSize = 8 };
+            Assert.Equal(QuadRemeshStatus.Success, serial.Compute());
+            AssertSame(serial.Result, aligned);
+
+            // Resetting options on the same instance reproduces the original result bit-for-bit
+            qr.AlignCreases = false; qr.CurvatureAlignment = 0;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            AssertSame(plain, qr.Result);
+        }
+
+        [Theory, MemberData(nameof(Frames))]
+        public void FieldAndCornerOptions_AreInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m = Shape("torus");
+            var baseQr = new QuadRemesher(m) { TargetEdgeLength = S, CurvatureAlignment = 3 };
+            Assert.Equal(QuadRemeshStatus.Success, baseQr.Compute());
+
+            DMesh3 t = Invariance.Transformed(m, sim);
+            var qr = new QuadRemesher(t) { TargetEdgeLength = sim.Scale * S, CurvatureAlignment = 3 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            if (sim.IsExact) {
+                AssertSame(baseQr.Result, qr.Result, sim.Scale);
+                // also verify AlignCreases + CreaseAngleDegrees and CornerAngleDegrees bit-exact under 2^k scales
+                DMesh3 sharp = CrossFieldShapes.SharpBox();
+                var baseSharp = new QuadRemesher(sharp) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 30 };
+                Assert.Equal(QuadRemeshStatus.Success, baseSharp.Compute());
+                DMesh3 tSharp = Invariance.Transformed(sharp, sim);
+                var qrSharp = new QuadRemesher(tSharp) { TargetEdgeLength = sim.Scale * 0.25, AlignCreases = true, CreaseAngleDegrees = 30 };
+                Assert.Equal(QuadRemeshStatus.Success, qrSharp.Compute());
+                AssertSame(baseSharp.Result, qrSharp.Result, sim.Scale);
+
+                DMesh3 patch = Shape("patch");
+                var basePatch = new QuadRemesher(patch) { TargetEdgeLength = 0.08, CornerAngleDegrees = 100 };
+                Assert.Equal(QuadRemeshStatus.Success, basePatch.Compute());
+                DMesh3 tPatch = Invariance.Transformed(patch, sim);
+                var qrPatch = new QuadRemesher(tPatch) { TargetEdgeLength = sim.Scale * 0.08, CornerAngleDegrees = 100 };
+                Assert.Equal(QuadRemeshStatus.Success, qrPatch.Compute());
+                AssertSame(basePatch.Result, qrPatch.Result, sim.Scale);
+            } else {
+                PolyMeshMetrics a = CheckResult(baseQr.Result, "base torus"), b = CheckResult(qr.Result, name + " torus");
+                Assert.InRange(b.Faces, 0.9 * a.Faces, 1.1 * a.Faces);
+                Assert.True(Math.Abs(b.QuadFraction - a.QuadFraction) <= 0.05, name + ": quads " + b.QuadFraction + " vs base " + a.QuadFraction);
+                Assert.True(OneSidedHausdorff(qr.Result, t) <= 0.5 * sim.Scale * S, name + ": Hausdorff");
+            }
+        }
+
         // ---------------------------------------------------------------- reuse, determinism, invariance
 
         static void AssertSame(DPolyMesh a, DPolyMesh b, double scale = 1)
