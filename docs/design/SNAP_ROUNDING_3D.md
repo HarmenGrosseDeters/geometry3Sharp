@@ -116,6 +116,11 @@ would still take 9-12 s.
 
 ### 4.3 Clean large results: the first search is box neighbours
 
+Re-measured on master `57623890` (2026-11-22), with procedural cases and candidates for parts (b) to (d):
+[ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md). The hit counts below still hold; in time the first
+search is 19-37 % enumeration and the rest pair tests on the hits, and the axes of section 5.3 pay once they are
+computed per triangle instead of per pair (−3.5 % of 48 operations, hashes the same).
+
 `summarize.py search` (the first full search repeated serially; "apart" = the two triangles share no corner):
 
 | case | queries | box hits per query | pairs apart | traversal | pair tests apart | pair tests with a shared corner | search in parallel | tree + setup |

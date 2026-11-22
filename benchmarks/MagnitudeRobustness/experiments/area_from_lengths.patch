@@ -1,0 +1,21 @@
+diff --git a/mesh_ops/IntrinsicTriangulation.cs b/mesh_ops/IntrinsicTriangulation.cs
+index 85601e5a..b34dcd96 100644
+--- a/mesh_ops/IntrinsicTriangulation.cs
++++ b/mesh_ops/IntrinsicTriangulation.cs
+@@ -906,6 +906,16 @@ namespace gs
+             if (a < b) { double t = a; a = b; b = t; }
+             if (b < c) { double t = b; b = c; c = t; }
+             if (a < b) { double t = a; a = b; b = t; }
++            // the product of four lengths leaves the normal doubles when the longest side is outside about 2^-255 .. 2^255:
++            // there the same formula on the sides times a power of two (exact), and the area scaled back
++            if (!(a > 5.5e-76 && a < 1.8e75) && a > 0 && !double.IsInfinity(a)) {
++                long bits = BitConverter.DoubleToInt64Bits(a);
++                int k = (int)((bits >> 52) & 0x7FF) - 1023;
++                if (k == -1023) k = -1074 + 63 - System.Numerics.BitOperations.LeadingZeroCount((ulong)(bits & 0xFFFFFFFFFFFFFL));
++                a = ExactPoint3.ScaleB(a, -k); b = ExactPoint3.ScaleB(b, -k); c = ExactPoint3.ScaleB(c, -k);
++                double q = (a + (b + c)) * (c - (a - b)) * (c + (a - b)) * (a + (b - c));
++                return q > 0 ? ExactPoint3.ScaleB(0.25 * Math.Sqrt(q), 2 * k) : 0;
++            }
+             double p = (a + (b + c)) * (c - (a - b)) * (c + (a - b)) * (a + (b - c));
+             return p > 0 ? 0.25 * Math.Sqrt(p) : 0;
+         }

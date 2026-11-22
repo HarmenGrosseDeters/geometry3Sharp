@@ -650,5 +650,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
 8. Local self-intersection untangling before the wrap (SIGGRAPH 2025 / 2026): spike done 2026-11-22
    ([research/SELF_INTERSECTION_UNTANGLING_2026-11.md](../research/SELF_INTERSECTION_UNTANGLING_2026-11.md)), no-go for
    untangling the input: the repair ends in the exact resolve on 84 of 84 procedural runs, and a prototype (40 of 42 clean)
-   deviates more than the wrap. Open as owner options: a real-mesh run on the solidify contours that lead to the wrap
-   (3 of 3 procedural ones untangle with moves below 1e-10 of the diagonal), and a standalone connectivity-preserving operation.
+   deviates more than the wrap. The real-mesh run on the solidify contours that lead to the wrap is done (2026-11-22, #1391,
+   run 45021072749): of 36 Thingi10K meshes 7 still wrap, 5 with a raw self-intersecting contour; the prototype makes 3
+   finish clean, but that solidify lies 1.5 to 16 % of the diagonal from the input against 0.25 to 0.27 % for the wrap:
+   leaning no-go for a step before the wrap as well (owner's decision). Left as an owner option only: a standalone
+   connectivity-preserving operation.

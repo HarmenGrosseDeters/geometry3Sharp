@@ -28,6 +28,7 @@ sealed class UntangleOptions
     public double Step = 0.25;          // signed push per round, as a fraction of the triangle's shortest edge
     public double Margin = 1e-3;        // clearance of the local push, as a fraction of the mean edge length
     public bool PullBack = true;
+    public long MaxMilliseconds = 0;    // stop the rounds and the pull-back after this time (0: no limit); the state reached is judged as always
     public string Name { get { return (Signed ? "signed" : "local") + "+d" + Diffusion; } }
 }
 
@@ -60,7 +61,7 @@ static class Untangler
             if (round == 0) r.PairsStart = pairs.Count;
             r.PairsEnd = pairs.Count; r.Rounds = round;
             if (pairs.Count < best) { best = pairs.Count; bestRound = round; }
-            if (pairs.Count == 0 || round >= o.MaxRounds || round - bestRound >= o.StallRounds)
+            if (pairs.Count == 0 || round >= o.MaxRounds || round - bestRound >= o.StallRounds || (o.MaxMilliseconds > 0 && sw.ElapsedMilliseconds > o.MaxMilliseconds))
                 break;
             var D = new Vector3d[m.MaxVertexID];
             var W = new int[m.MaxVertexID];
@@ -104,7 +105,7 @@ static class Untangler
         if (r.Clean && o.PullBack && r.PairsStart > 0) {
             double lo = 0, hi = 1;      // hi is clean, lo is not (the input)
             DMesh3 bestMesh = m;
-            for (int it = 0; it < 24; ++it) {
+            for (int it = 0; it < 24 && !(o.MaxMilliseconds > 0 && sw.ElapsedMilliseconds > 2 * o.MaxMilliseconds); ++it) {
                 double t = 0.5 * (lo + hi);
                 var c = new DMesh3(input, false, MeshComponents.None);
                 foreach (int v in c.VertexIndices())

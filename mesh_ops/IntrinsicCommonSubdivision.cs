@@ -9,12 +9,17 @@ namespace gs
     /// <summary> outcome of IntrinsicTriangulation.ExtractCommonSubdivision </summary>
     public enum CommonSubdivisionStatus
     {
-        /// <summary> the faces tile every input triangle and every intrinsic triangle (areas checked) </summary>
+        /// <summary>
+        /// the faces tile every input triangle and every intrinsic triangle (areas checked). From integer
+        /// coordinates (IntrinsicTriangulation.EnableIntegerCoordinates): the coordinates are consistent and the
+        /// faces tile every input triangle; MaxIntrinsicAreaError is reported and not checked against a tolerance
+        /// (it only fails the result if it is not finite).
+        /// </summary>
         Success,
         /// <summary>
         /// the traced intrinsic edges are not consistent (eg two crossings of an input edge in the wrong
         /// order, a trace ending in the wrong input triangle, or a trace that crosses an input edge of its
-        /// own end vertex: a false crossing); Error says where. The faces are not reliable.
+        /// own end vertex: a false crossing), or the integer coordinates are; Error says where. No faces.
         /// </summary>
         Inconsistent
     }
@@ -46,11 +51,18 @@ namespace gs
         public string Error;
         /// <summary> the faces; empty unless Status is Success </summary>
         public List<Face> Faces = new List<Face>();
-        /// <summary> positions of the subdivision vertices: the triangulation vertices first (by vertex index), then the edge crossings </summary>
+        /// <summary> positions of the subdivision vertices: the triangulation vertices first (by vertex index), then the edge crossings; complete only if Status is Success </summary>
         public List<Vector3d> Points = new List<Vector3d>();
         /// <summary> largest relative difference between an input triangle area and the sum of its faces </summary>
         public double MaxInputAreaError;
-        /// <summary> largest relative difference between an intrinsic triangle area and the sum of its faces </summary>
+        /// <summary> largest relative difference between an intrinsic triangle area and the sum of its faces (at most 1e-6 on Success, except from integer coordinates: reported only, see ExtractCommonSubdivision) </summary>
+        /// <remarks>
+        /// From integer coordinates (IntrinsicTriangulation.EnableIntegerCoordinates) this value is not checked
+        /// against a tolerance, and it is the only sign of bad positions: the faces tile the input triangles by
+        /// construction, and a crossing whose unfolded position is wrong is clamped to the order along its input
+        /// edge (faces of area 0). A caller that needs the positions, not only the connectivity, should require
+        /// MaxIntrinsicAreaError of at most 1e-6 (the tolerance of the traced extraction) itself.
+        /// </remarks>
         public double MaxIntrinsicAreaError;
 
         /// <summary>
@@ -98,11 +110,18 @@ namespace gs
         /// triangle the outer boundary must be a cycle of the arrangement on its own, so that every edge of
         /// the result has a face on both sides (or one, on the input boundary), and every intrinsic triangle must
         /// have a face (one without area passes the area check with none); otherwise Status is Inconsistent and
-        /// Faces is empty. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021) would make the
-        /// combinatorics exact; here they come from the traces, which are exact up to rounding.
+        /// Faces is empty. Here the combinatorics come from the traces, which are exact up to rounding. With integer
+        /// coordinates (EnableIntegerCoordinates, while HasIntegerCoordinates) nothing is traced: the
+        /// combinatorics come from the integers, exact for this triangulation, the crossings lie on their input
+        /// edges in the order the integers give (a face can have the area 0 where two coincide up to rounding),
+        /// the faces must tile every input triangle (to a relative 1e-6), and MaxIntrinsicAreaError is reported
+        /// but not checked against a tolerance: relative to the area of a needle triangle the rounding of the
+        /// lengths shows (measured up to 1.1e-5 and 6.1e-5 on meshes where tracing fails). Only an error that is
+        /// not finite makes the result Inconsistent.
         /// </summary>
         public IntrinsicCommonSubdivision ExtractCommonSubdivision()
         {
+            if (hN != null) return extract_from_integers();
             var R = new IntrinsicCommonSubdivision();
             for (int v = 0; v < N; ++v) R.Points.Add(VertexPosition(v));
             var edgePts = new Dictionary<int, List<SubPoint>>();        // canonical input halfedge -> points on it

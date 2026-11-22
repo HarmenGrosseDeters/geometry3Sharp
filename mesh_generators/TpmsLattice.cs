@@ -362,6 +362,7 @@ namespace g3
             public bool UseBox; public Vector3d Center, Half;
             public Func<Vector3d, double> LevelAt;    // grading: local position -> level
             public volatile bool WeightNaN;
+            public volatile bool LevelNaN;     // VolumeFractionAt returned NaN somewhere (a NaN node counts as outside and would go unseen)
             public bool Hybrid; public TpmsType Type2; public double Level2; public Func<Vector3d, double> Weight;   // two-type hybrid (section 9)
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
 
@@ -422,6 +423,7 @@ namespace g3
                 } else {
                     double f = Evaluate(Type, px, py, pz);
                     double c = LevelAt != null ? LevelAt(p) : Level;
+                    if (double.IsNaN(c)) LevelNaN = true;
                     g = (StyleValue(Style, f) - c) * InvLipschitz;
                 }
                 if (UseBox) {
@@ -512,7 +514,7 @@ namespace g3
                 }
                 var local = new DMesh3(DomainMesh, true);
                 foreach (int vid in local.VertexIndices())
-                    local.SetVertex(vid, toLocal * (DomainMesh.GetVertex(vid) - Origin));
+                    local.SetVertex(vid, toLocal * (local.GetVertex(vid) - Origin));    // (the copy is compact: its ids are not DomainMesh's)
                 Vector2d va = MeshMeasurements.VolumeArea(local, local.TriangleIndices(), local.GetVertex);
                 if (!(va.x > 0)) { Fail(TpmsStatus.InvalidDomain, "DomainMesh must enclose a positive volume with outward normals"); return; }
                 domainVolume = va.x;
@@ -715,6 +717,7 @@ namespace g3
                 }
                 if (CancelF() || result == null) { Fail(TpmsStatus.Cancelled, "cancelled"); return; }
                 if (field.WeightNaN) { Fail(TpmsStatus.ContouringFailed, "the blend weight returned NaN"); return; }
+                if (field.LevelNaN) { Fail(TpmsStatus.ContouringFailed, "VolumeFractionAt returned NaN"); return; }
                 if (result.TriangleCount == 0) { Fail(TpmsStatus.ContouringFailed, "the lattice is empty in this domain"); return; }
                 // ---- certificate of the result ----
                 reason = MeshRobustRepair.NotCleanReason(result, VerifySelfIntersections);

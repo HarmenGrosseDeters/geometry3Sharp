@@ -1,0 +1,21 @@
+oracle self-check: 481 checks passed
+runtime .NET 10.0.15, 4 cores
+family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,used_vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_used_vertex,delaunay_ms,snap_ms,snap_rounds,snapped_points,verdict
+soup,500,27238,0,5.5,0,Success,28238,28238,56455,54976,479.6,387.0,129.4,16.99,38.7,,,,VALID (10.7 s)
+soup,2000,464454,0,68.5,0,Success,468454,468454,936883,930908,7425.8,7035.0,2154.4,15.85,716.5,,,,not judged
+bundle,250,14371,0,1.1,0,Success,14654,14654,28806,28664,794.1,645.4,71.8,54.19,40.4,,,,VALID (4.0 s)
+bundle,1000,249766,0,17.8,0,Success,250479,250479,498956,498588,129832.8,123175.6,1242.3,518.34,1701.3,,,,not judged
+pencil-exact,1000,499500,0,18.5,0,Success,2001,2001,2000,2000,237.9,216.7,5.7,118.87,2.2,,,,VALID (0.8 s)
+pencil-exact,16000,127992000,0,3366.7,0,Success,32001,32001,51464,32000,51933.4,51853.4,188.9,1622.87,29.8,,,,VALID (87.4 s)
+pencil-near,1000,499500,0,18.1,0,Success,2001,2001,2000,2000,165.9,160.4,5.7,82.90,1.7,,,,VALID (1.6 s)
+pencil-near,16000,127992000,0,3230.3,0,Success,32327,32327,55180,32373,26975.0,25926.5,290.8,834.44,43.8,,,,VALID (94.3 s)
+junction-ulp,9940,5004,6,1.4,0,Success,19880,5041,10056,9940,51.7,47.6,24.9,10.26,7.3,,,,VALID (3.3 s)
+junction-ulp,99904,49901,61,13.5,0,Success,199808,50176,100318,99904,592.5,564.0,248.5,11.81,61.4,,,,not judged
+junction-tiny,9940,4960,0,2.3,0,Success,24835,24835,49641,19857,138.7,104.7,59.7,5.58,40.5,,,,VALID (3.4 s)
+junction-tiny,99904,49702,0,13.0,0,Success,249455,249455,498868,199321,1423.0,1368.4,586.5,5.70,391.7,,,,not judged
+overlap-exact,1984,114414,41442,14.2,0,Success,4224,4223,8423,4447,83.8,67.7,23.9,19.84,6.6,,,,VALID (1.2 s)
+overlap-exact,16000,7091539,2656519,974.7,0,Failed,0,0,0,0,1063.4,825.3,227.5,,0.0,,,,Failed: NodingLimit: noding did not settle: 25 vertices made in 3173601 steps
+overlap-near,1984,128267,12,12.4,0,Success,4224,4223,8426,4447,92.7,68.1,24.1,21.96,4.6,,,,VALID (2.9 s)
+overlap-near,16000,7994530,724,679.4,0,Failed,0,0,0,0,739.7,718.4,227.2,,0.0,,,,Failed: NodingLimit: noding did not settle: 25 vertices made in 3173601 steps
+tchain,10001,4992,0,18.6,0,Success,20002,20002,39971,20001,123.7,119.5,38.2,6.19,47.0,,,,VALID (4.4 s)
+tchain,100001,50055,0,1392.8,0,Success,200002,200002,399934,200001,1355.6,1318.4,384.5,6.78,487.7,,,,not judged
