@@ -179,11 +179,19 @@ Each first firing was read against the class comments before it counted, as in t
 3. **Triangles the certificate cannot cover within Delta** (1871 in the Nightly seeds, all in `ulp`, `slab` and
    `rotated`). The certificate's class comment says so: "a triangle not covered after the splits is only counted". Slivers
    thinner than Delta are the cause. The checker counts them and fails only on a violation (C0 to C5).
-4. **The certificate's "removed parts" verdict** (`not clean: the rounding removed N part(s) of the exact result (all else
-   holds)`; 220 in the Nightly seeds, all in `ulp`, `slab` and `rotated`). Stage 3 of the certificate (#1359) reports
-   the documented removal of tiny and thin components this way; it reached master while this spike ran, and the PR's CI, which
-   tests the merge, showed it on `slab` seeds 0 and 1. Counted in the three sliver families, a failure in the others
-   (`RemovedPartsVerdict_IsTheCertificatesText`).
+4. **SafeRounding removes thin solids (#1216), reported by the certificate** as `not clean: the rounding removed N part(s) of
+   the exact result (all else holds)`; 220 in the Nightly seeds, all in `ulp`, `slab` and `rotated`. Stage 3 of the certificate
+   (#1359) gives this verdict only if every other check holds and every removed part is tiny or thin by the rule's own bound
+   (2 |V| below `MaxDisplacement` times the diagonal times the area); a removed part outside the bound fails the coverage check
+   instead. It reached master while this spike ran, and the PR's CI, which tests the merge, showed it on both runtimes (it is not
+   a difference between net48 and net10.0; the cases and results are the same). The two smoke cases, kept here as the finding:
+   - `slab` seed 0: the box `[0,2] x [0,2] x [0,3]` minus a slab of thickness 2^-30 just under its top face, sheared by 2^-28 in x
+     and 1/32 in y: the rounding removes a sliver of 4 triangles, area 7.6e-9, in the box `[0, 0, 3]` to `[0.25, 3e-8, 3]`.
+   - `slab` seed 1: the box `[0,1] x [0,3] x [0,3]` minus a slab of thickness 2^-43 on its top face, rotated by 3.8e-6 rad: the
+     rounding removes a plate of 12 triangles with **area 1** (in `[0, 0, 3]` to `[1, 0.75, 3]`), thinner than the bound.
+   The second is the case to look at for the threshold of #1216: the removed part is a quarter of the box's top face, however
+   thin. The threshold is the owner's decision; nothing is changed here. Counted in the three families built to give thin parts,
+   a failure in the others (`RemovedPartsVerdict_IsTheCertificatesText`).
 5. **Two mistakes of the generator**, found by the relations and fixed: a zero moved by one of its own units in the last place
    (2^-1074) is outside the supported range of the rounding (2^-200 to 2^200); the Boolean said so (`OutsideRange`), and the
    2^-10 copy underflowed to another input. A cavity with a face in the outer wall is the boundary of its solid only while

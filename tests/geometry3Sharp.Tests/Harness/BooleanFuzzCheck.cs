@@ -360,8 +360,11 @@ namespace geometry3Sharp.Tests
                         CertificateUncovered += uncovered = c.Uncovered;
                     } catch (Exception e) { cert = "the certificate threw " + e.GetType().Name + ": " + e.Message; }
                     // (closed inputs, Intersection without the early-out: the certificate always applies; "n/a" would hide the check)
-                    // "not clean: the rounding removed N part(s) ... (all else holds)" is the certificate's report of the documented
-                    // removal of tiny and thin components: counted in the families built to give them, a failure elsewhere
+                    // "not clean: the rounding removed N part(s) ... (all else holds)" is the certificate's report of SafeRounding's
+                    // removal of thin solids (#1216; MeshRoundingRepair.RemovedComponents). The certificate gives it only if every
+                    // other check holds and every removed part is tiny or thin by the rule's own bound (ThinOrTinyTriangles: 2 |V|
+                    // below MaxDisplacement times the diagonal times the area); a removed part outside the bound fails its coverage
+                    // (C5) instead. A known outcome in the families built to give thin parts, a failure elsewhere
                     if (DegenerateAllowed && cert.StartsWith(BooleanFuzzCheck.RemovedPartsVerdict, StringComparison.Ordinal)) { ++CertificateRemovedParts; ++Relations; }
                     else Expect(n + " has a valid certificate", cert);
                     // outside the families built to give slivers, every triangle must be covered, as in BooleanCertificate.CheckBoolean
