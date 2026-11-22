@@ -13,7 +13,7 @@ namespace MagnitudeRobustness
     /// and DualContouring return for an input scaled by 2^e, which expression leaves the double range first, and what a
     /// power-of-two prescaling of the input (option a of the note) gives and costs. No library change: the prescaling is a
     /// wrapper in this project.
-    /// Stages: roots, sweep, prescale, dc, dcbig, cost, formula. Run: dotnet run -c Release -- [stage ...] (all without arguments).
+    /// Stages: roots, sweep, prescale, dc, dcbig, cost, formula, dchash. Run: dotnet run -c Release -- [stage ...] (all without arguments).
     /// </summary>
     public static class Program
     {
@@ -23,7 +23,7 @@ namespace MagnitudeRobustness
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             var stages = new Dictionary<string, Action> {
                 { "roots", Roots }, { "sweep", () => Sweep(false) }, { "prescale", () => Sweep(true) }, { "dc", DcStage.Run }, { "dcbig", DcStage.Big },
-                { "cost", Cost }, { "formula", Formula },
+                { "cost", Cost }, { "formula", Formula }, { "dchash", DcStage.Hashes },
             };
             foreach (string s in args.Length == 0 ? stages.Keys.ToArray() : args) {
                 if (!stages.TryGetValue(s, out Action run)) { Console.WriteLine("unknown stage " + s + " (stages: " + string.Join(", ", stages.Keys) + ")"); continue; }

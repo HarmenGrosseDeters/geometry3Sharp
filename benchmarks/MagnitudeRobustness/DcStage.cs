@@ -178,5 +178,60 @@ namespace MagnitudeRobustness
                 Console.WriteLine($"DualContouring above 2^100, {name}\n  field and geometry x 2^e\n    {Program.Runs(both)}\n  geometry x 2^e, values of order 1\n    {Program.Runs(geo)}\n  values x 2^e, geometry of order 1\n    {Program.Runs(val)}");
             }
         }
+
+        // ---------------------------------------------------------------- dchash: one line per case, to compare two builds of the library
+
+        static string Hash(DMesh3 m)
+        {
+            ulong h = 1469598103934665603UL;
+            void Mix(long x) { unchecked { for (int i = 0; i < 8; ++i) { h ^= (byte)(x >> (8 * i)); h *= 1099511628211UL; } } }
+            foreach (int v in m.VertexIndices()) { Vector3d p = m.GetVertex(v); Mix(BitConverter.DoubleToInt64Bits(p.x)); Mix(BitConverter.DoubleToInt64Bits(p.y)); Mix(BitConverter.DoubleToInt64Bits(p.z)); }
+            foreach (int t in m.TriangleIndices()) { Index3i i = m.GetTriangle(t); Mix(i.a); Mix(i.b); Mix(i.c); }
+            return $"{m.VertexCount} vertices, {m.TriangleCount} triangles, closed {(m.TriangleCount > 0 && m.IsClosed())}, volume {Volume(m):F6}, hash {h:X16}";
+        }
+
+        /// <summary>
+        /// The contour of a fixed list of cases as "name | counts, volume, hash". Run it on two builds of the library (eg master and
+        /// master with experiments/dual_contouring_relative.patch) and compare the lines.
+        /// </summary>
+        public static void Hashes()
+        {
+            var big = new AxisAlignedBox3d(new Vector3d(-2.5, -2.5, -2.5), new Vector3d(2.5, 2.5, 2.5));
+            Func<Vector3d, double> gauss = p => -Math.Exp(-40 * p.LengthSquared);
+            var fields = new (string, Func<Vector3d, double>, AxisAlignedBox3d, double)[] {
+                ("sphere distance", Ops.Sdf, Ops.UnitBox, 0.125),
+                ("1000 x sphere distance", p => 1000 * Ops.Sdf(p), Ops.UnitBox, 0.125),
+                ("box distance", p => Math.Max(Math.Abs(p.x) - 0.7, Math.Max(Math.Abs(p.y) - 0.9, Math.Abs(p.z) - 1.1)), Ops.UnitBox, 0.125),
+                ("torus distance", p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 0.9; return Math.Sqrt(q * q + p.z * p.z) - 0.35; }, Ops.UnitBox, 0.0625),
+                ("quartic blob", p => p.x * p.x * p.x * p.x + p.y * p.y * p.y * p.y + p.z * p.z * p.z * p.z - 1, Ops.UnitBox, 0.125),
+                ("two spheres (min)", p => Math.Min((p - new Vector3d(0.5, 0, 0)).Length - 0.7, (p + new Vector3d(0.5, 0.1, 0)).Length - 0.6), Ops.UnitBox, 0.125),
+                ("plateau: max(sphere distance, 0) - 1e-3 clipped field", p => Math.Max(Ops.Sdf(p), -0.25), Ops.UnitBox, 0.125),
+            };
+            foreach (var (name, f, box, cell) in fields)
+                foreach (var (cn, set) in Configs)
+                    Console.WriteLine($"ordinary | {name}, {cn} | {Hash(Ops.Dc(f, box, cell, set).Mesh)}");
+            foreach (var (cn, set) in Configs) {
+                foreach (int e in new[] { -20, -40, -48, -52, -60, -100, -140, -200, 100, 200 }) {
+                    double c = Math.ScaleB(1.0, e);
+                    Console.WriteLine($"values x 2^{e} | sphere distance, {cn} | {Hash(Ops.Dc(p => c * Ops.Sdf(p), Ops.UnitBox, 0.125, set).Mesh)}");
+                }
+                foreach (int e in new[] { -60, 60, 100, 200 }) {
+                    double s = Math.ScaleB(1.0, e);
+                    DMesh3 m = Ops.Dc(p => Ops.Sdf(p / s), new AxisAlignedBox3d(Ops.UnitBox.Min * s, Ops.UnitBox.Max * s), 0.125 * s, set).Mesh;
+                    foreach (int v in m.VertexIndices()) { Vector3d p = m.GetVertex(v); m.SetVertex(v, new Vector3d(Math.ScaleB(p.x, -e), Math.ScaleB(p.y, -e), Math.ScaleB(p.z, -e))); }
+                    Console.WriteLine($"geometry x 2^{e}, values of order 1 (scaled back) | sphere distance, {cn} | {Hash(m)}");
+                }
+                foreach (int e in new[] { -100, -60, -48, 262, 300, 400 }) {
+                    double s = Math.ScaleB(1.0, e);
+                    DMesh3 m = Ops.Dc(p => s * Ops.Sdf(p / s), new AxisAlignedBox3d(Ops.UnitBox.Min * s, Ops.UnitBox.Max * s), 0.125 * s, set).Mesh;
+                    foreach (int v in m.VertexIndices()) { Vector3d p = m.GetVertex(v); m.SetVertex(v, new Vector3d(Math.ScaleB(p.x, -e), Math.ScaleB(p.y, -e), Math.ScaleB(p.z, -e))); }
+                    Console.WriteLine($"field and geometry x 2^{e} (scaled back) | sphere distance, {cn} | {Hash(m)}");
+                }
+                foreach (double level in new[] { 1e-5, 1e-10, 1e-16, 1e-20, 1e-30, 1e-40 }) {
+                    double r = Math.Sqrt(-Math.Log(level) / 40);
+                    Console.WriteLine($"level {level:E0} of exp(-40 r^2) (analytic volume {4.0 / 3 * Math.PI * r * r * r:F4}) | {cn} | {Hash(Ops.Dc(gauss, big, 0.125, dc => { dc.IsoValue = -level; set?.Invoke(dc); }).Mesh)}");
+                }
+            }
+        }
     }
 }
