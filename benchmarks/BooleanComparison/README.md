@@ -1340,3 +1340,25 @@ one-shot measurement); total 9 693 ms and 9 454 ms.
 (`docs/perf/BOOLEAN_COPLANAR_PREDECISION.md`: the change, its argument and the numbers). A/B on ABC chains (`chain-ab`, method `ours_ab`, ABBA order, 4 reps, `data/coplanar_ab.py summary`; GitHub runner, 12 chains per variant, run 44541072964):
 step 1 -1.5 %, step 2 -0.2 % (noise), **step 3 -16.9 % (median chain -26.9 %)**, steps 1 to 3 **-11.6 %**; result hashes equal in all chains.
 A first run with one fixed random order showed step 1 +9.3 %; that was a position effect of the fixed order (see the page), `G3_AB_NULL=1` is the null test.
+
+## Certifying checker cost and the coplanar clip (`certify`, `coplanar-clip`; spike 2026-11-22)
+
+Prototypes of the research note [BOOLEAN_CERTIFIED_MODE_2026-11.md](../../docs/research/BOOLEAN_CERTIFIED_MODE_2026-11.md) (plan #1256); no
+library code. `Certify.cs` holds an independent exact recheck of the arrangement's embedding (C2a: its own box tree, one orientation
+predicate with BigInteger, filtered and float-only variants) and times it against the boolean, `NotCleanReason` and the stages 1-2 checker
+of the tests (`BooleanCertificate.cs`, linked into this project) on the procedural inputs of `SolidBooleanBenchmark` and a size series.
+`CoplanarClip.cs` compares `IntrTriangle2Triangle2.Find` and the coplanar route of `IntrTriangle3Triangle3.Find` with an exact rational
+clip.
+
+```
+dotnet run -c Release -- certify selftest          # the pair test against ExactTriangleIntersection, and injected missed intersections
+dotnet run -c Release -- certify cost 5            # 17 cases, with the stages 1-2 checker  -> perf/certify_cost.txt
+dotnet run -c Release -- certify scale-c2a 5       # size series, C2a only                  -> perf/certify_scale.txt
+python3 certify_summary.py perf/certify_cost.txt perf/certify_scale.txt                    # -> perf/certify_summary.txt
+dotnet run -c Release -- coplanar-clip 20000       # -> perf/coplanar_clip.txt
+```
+
+Headline (4 cores, the checker serial, shared container; ratios to the boolean): C2a filtered 0.4-8.5 (one case 14.6), float floor
+0.4-2.7 (3.4-8.4 with many coplanar input triangles), BigInteger 14-100; the stages 1-2 checker as built 16-570; `NotCleanReason` on the
+result 0.1-0.6. Coplanar clip: `IntrTriangle3Triangle3.Find` equals the rounded exact polygon in 120 000 pairs; `IntrTriangle2Triangle2`
+is off by up to 4e9 ulps on nearly parallel edges. The tables and their reading are in the note.

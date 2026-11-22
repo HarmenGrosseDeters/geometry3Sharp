@@ -5,6 +5,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | Study | Topic & Summary |
 |---|---|
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
+| [BOOLEAN_CERTIFIED_MODE_2026-11.md](BOOLEAN_CERTIFIED_MODE_2026-11.md) | Spike for plan #1256: measured cost of a certifying checker of `ExactMeshBoolean` (stage 3, the embedding), a certified user mode, and the state of exact coplanar clip coordinates |
 | [BOOLEAN_TRIAGE_2026-11.md](BOOLEAN_TRIAGE_2026-11.md) | Diagnosis and triage of boolean robustness findings collected across corpora |
 | [CROSS_FIELD_GEOMETRY.md](CROSS_FIELD_GEOMETRY.md) | Cross-disciplinary survey of hard computational geometry problems and candidate methods |
 | [GEOGRAM_BOOLEAN_COMPARISON_2026-11.md](GEOGRAM_BOOLEAN_COMPARISON_2026-11.md) | Head-to-head comparison of `ExactMeshBoolean` against Geogram's exact mesh booleans |
