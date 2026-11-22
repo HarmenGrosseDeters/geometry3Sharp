@@ -186,6 +186,35 @@ namespace geometry3Sharp.Tests
             Assert.True(bad.PureQuadRepair.SatDecisions > 0);
         }
 
+        [Fact]
+        public void ForcedFold_OnTheTorus_WithoutTheSignPenalty_FallsBackToStage2()
+        {
+            // the torus at 0.3 folds with the plain marginal cost (2 inverted triangles) and is fold free with the sign penalty
+            QuadRemesher good = Run("torus", 0.3);
+            QuadRemesher bad = Run("torus", 0.3, 0, true, q => q.SignPenalty = false);
+            QuadRemesher stage2 = Run("torus", 0.3, 0, false);
+            Assert.Equal(PureQuadStatus.Success, good.PureQuadStatus);
+            AssertFallback(bad, stage2, "torus");
+            Assert.True(bad.InvertedTriangles > 0);
+            Assert.Equal(bad.InvertedTriangles, CheckMap(bad, true));
+            Assert.Equal(bad.PureQuadRepair.SatBudgetExhausted ? PureQuadStatus.BudgetExceeded : PureQuadStatus.OrientationFolds, bad.PureQuadStatus);
+        }
+
+        [Theory]
+        [InlineData(0.2)]
+        [InlineData(0.29)]
+        public void CappedCylinder_FallsBackNaturally_WithoutAnyHook(double s)
+        {
+            // a closed mesh with the default options (no test hook) whose pure-quad attempt ends in the geometric gate: the stage 2 mesh comes back
+            QuadRemesher qr = Run("cylinder", s);
+            QuadRemesher stage2 = Run("cylinder", s, 0, false);
+            AssertFallback(qr, stage2, "cylinder " + s);
+            Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.True(qr.FlippedQuads > 0);
+            Assert.True(qr.Result.Validate().IsValid);
+        }
+
         [Theory]
         [InlineData(0.18)]
         [InlineData(0.22)]
@@ -528,7 +557,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Compute_CanBeCalledAgain_WithPureQuads()
         {
-            foreach (string name in new[] { "sphere", "box" }) {
+            foreach (string name in new[] { "sphere" }) {   // one shape: the shared fields and a second shape cost about 1.5 s of the 5 s budget
                 var c = Cases[name];
                 var qr = new QuadRemesher(Shape(name)) { Field = FieldOf(name), TargetEdgeLength = c.s, PureQuads = true };
                 qr.Compute();

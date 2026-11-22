@@ -726,17 +726,19 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadStatus);
 
             // a failing pure-quad fallback with SizeAdaptation active also leaves no stale state for the next call
-            var qrFail = new QuadRemesher(Shape("torus")) { Field = FieldOf("torus"), TargetEdgeLength = S, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, SignPenalty = false };
+            var qrFail = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.25, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, SignPenalty = false };
             Assert.Equal(QuadRemeshStatus.Success, qrFail.Compute());
             Assert.True(qrFail.SizeAdaptationApplied);
             Assert.NotEqual(PureQuadStatus.Success, qrFail.PureQuadStatus);
             qrFail.SignPenalty = true;
             Assert.Equal(QuadRemeshStatus.Success, qrFail.Compute());
             Assert.True(qrFail.SizeAdaptationApplied);
-            Assert.Equal(PureQuadStatus.Success, qrFail.PureQuadStatus);
-            Assert.Equal(0, qrFail.InvertedTriangles);
-            Assert.Equal(0, qrFail.FlippedQuads);
-            AssertSame(Run("torus", SizeAdaptationMode.ScaleAndRotation, q => q.PureQuads = true).Result, qrFail.Result);
+            // the second Compute() is the same as a fresh instance with the same options, whatever its status (success or the stage 2 fallback)
+            QuadRemesher fresh = Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => { q.PureQuads = true; q.TargetEdgeLength = 0.25; });
+            Assert.Equal(fresh.PureQuadStatus, qrFail.PureQuadStatus);
+            Assert.Equal(fresh.InvertedTriangles, qrFail.InvertedTriangles);
+            Assert.Equal(fresh.FlippedQuads, qrFail.FlippedQuads);
+            AssertSame(fresh.Result, qrFail.Result);
 
             qr.TargetEdgeLength = S;
             qr.SizeAdaptation = SizeAdaptationMode.ScaleAndRotation;

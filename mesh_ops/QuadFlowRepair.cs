@@ -52,7 +52,7 @@ namespace gs
         public int MaxFlowCapacity = 40;
         /// <summary> SAT attempts (also those that fail at once and cost no decision) and seeds tried; exhausted: the SAT budget is exhausted </summary>
         public int SatMaxAttempts = 20000;
-        /// <summary> edge visits of the greedy balancing of the fixed variables (a count, not a clock); then every fixed variable is set to 0 </summary>
+        /// <summary> heap operations of the greedy balancing of the fixed variables (initial pushes and pops plus re-pushes after a move; a count, not a clock; before the heap, edge visits); when it is reached, every fixed variable is set to 0 </summary>
         public long GreedyWorkLimit = 400000000;
 
         public PureQuadStatus Status = PureQuadStatus.NotRequested;
@@ -404,8 +404,9 @@ namespace gs
             long[] Bc = CompSums();
             long tot = 0; for (int i = 0; i < NN; ++i) tot += Math.Abs(Bc[i]);
             // feasibility: B = 0 for every component; each round adjusts the lowest-cost unbalanced edge that lowers total imbalance.
-            // Precompute component incidence and maintain active improving moves in a lazy min-heap (exact-equivalent to full scan,
-            // O((U + tot) log U) because a move's gain only changes when an incident component's [-2, 2]-clamped sum changes).
+            // Precompute component incidence and maintain active improving moves in a lazy min-heap, O((U + tot) log U) because a
+            // move's gain only changes when an incident component's [-2, 2]-clamped sum changes. The selection is the lowest-cost improving
+            // move (not the first improving move in edge order as before, so the result differs from the old full scan).
             long work = 0;
             if (tot > 0 && GreedyWorkLimit > 0 && unbalEdges.Count > 0) {
                 var moves = new List<BalMove>(unbalEdges.Count * 4);
@@ -1003,6 +1004,8 @@ namespace gs
                     Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
                     Vector3d qa = outMesh.GetVertex(va), qc2 = outMesh.GetVertex(vc2), qb = outMesh.GetVertex(vb), qc1 = outMesh.GetVertex(vc1);
                     Vector3d pfn = SafeCross(SafeDiff(qb, qa), SafeDiff(qc1, qc2));
+                    // the nearest-triangle check is conservative on walls thinner than the edge length: the nearest triangle to the quad
+                    // midpoint may be on the opposite side of the wall, so a sound quad there can count as flipped (a fallback, never a wrong success)
                     int ntMid = tree.FindNearestTriangle(0.25 * qa + 0.25 * qb + 0.25 * qc1 + 0.25 * qc2);
                     bool nearFlip = ntMid < 0;
                     if (!nearFlip) {

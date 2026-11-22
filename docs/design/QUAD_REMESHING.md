@@ -470,6 +470,8 @@ Measured (`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=0`
 | updated (`adapt=1`, `Scale`) | **43 / 11 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / 0 | **43 / 43** | **43 / 43** | **42 / 43** | 26 / 43 | 1.6 / 3.0 | **0.05** |
 | updated (`adapt=2`, `ScaleAndRotation`) | **48 / 6 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / **5** | **48 / 48** | **48 / 48** | 42 / 48 | **29 / 48** | **1.4 / 2.0** | **0.08** |
 
+Notes on the balancing and the flip check: `GreedyWorkLimit` counts heap operations (initial pushes, pops and re-pushes after a move; before the heap it counted edge visits), and the selection is the lowest-cost improving move, not the first one in edge order. The nearest-triangle flip check in `Extract()` is conservative on walls thinner than the edge length (the nearest input triangle to a quad midpoint can lie on the far side of the wall): such a quad counts as flipped and the result falls back to stage 2, never a wrong success.
+
 Remaining limit (`capsule`, 1/6): with `CurvatureAlignment = 0`, all four `+1/4` singularities sit tightly clustered at each hemispherical cap (`unbal = 25..107`) with no cut edges crossing the barrel; by Stokes' theorem the barrel circumference integral is locked to the small sum of fixed cap edges, causing the flow to collapse the barrel regardless of flow costs. On `capped-cylinder`, `ScaleAndRotation` resolves the cap/barrel spacing mismatch (`0.45..1.58 s`) and raises clean runs from `0/6` to `5/6`.
 
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
