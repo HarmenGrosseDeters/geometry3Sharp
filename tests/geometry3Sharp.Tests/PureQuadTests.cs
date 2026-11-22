@@ -543,10 +543,10 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatio));
                 Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatioAfterFlow), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatioAfterFlow));
             } else {
-                Assert.InRange(qr.PureQuadAreaRatio, 0.5, 1.5);
                 // rotations, translations and other scales change the rounding: the same kind of mesh, the same size (or the attempt fails
                 // on the changed rounding, and then Result is a valid stage 2 mesh)
                 if (qr.PureQuadStatus != PureQuadStatus.Success) { Assert.True(qr.Result.Validate().IsValid); Assert.True(qr.InvertedTriangles > 0 || qr.PureQuadStatus != PureQuadStatus.OrientationFolds); return; }
+                Assert.InRange(qr.PureQuadAreaRatio, 0.5, 1.5);        // a successful run: a map that covers the surface about once
                 PolyMeshMetrics a = PolyMeshMetrics.Compute(baseRun.Result), b = PolyMeshMetrics.Compute(qr.Result);
                 Assert.Equal(1.0, b.QuadFraction);
                 Assert.True(b.IsManifold);
@@ -867,7 +867,7 @@ namespace geometry3Sharp.Tests
             // a diagnostic: the result is the one of the earlier checks (all quads, manifold, no fold, no flipped quad)
             Assert.Equal(0, qr.InvertedTriangles); Assert.Equal(0, qr.FlippedQuads);
             Assert.Equal(1.0, PolyMeshMetrics.Compute(qr.Result).QuadFraction);
-            // the failing runs report it too, and never as a reason: the status is the old one
+            // the runs that fail after the flow report it too (the ones that end before the flow have NaN), and never as a reason: the status is the old one
             QuadRemesher bad = RunCase("sphere", true, q => q.SignPenalty = false);
             Assert.NotEqual(PureQuadStatus.Success, bad.PureQuadStatus);
             Assert.True(!double.IsNaN(bad.PureQuadAreaRatio) && !double.IsNaN(bad.PureQuadAreaRatioAfterFlow));

@@ -157,7 +157,7 @@ namespace gs
         /// <summary> the outcome of the pure-quad attempt of the last Compute(): NotRequested when PureQuads is false </summary>
         public PureQuadStatus PureQuadStatus = PureQuadStatus.NotRequested;
         /// <summary>
-        /// DIAGNOSTIC ONLY, of the last Compute() with PureQuads = true (NaN otherwise, and when the attempt ended before the flow): the lattice area of the integer
+        /// DIAGNOSTIC ONLY, of the last Compute() with PureQuads = true (NaN otherwise, and when the attempt ended before or in the flow: an invalid input, a boundary, a failed setup, a flow without a solution): the lattice area of the integer
         /// map of the pure-quad repair over the geometric area of the input (QuadFlowRepair.AreaRatio): about 1 for a map that covers the surface once, lower for a map
         /// that lost lattice cells. It is not a fallback reason and does not change PureQuadStatus or Result; the value right after the flow is PureQuadAreaRatioAfterFlow
         /// </summary>
