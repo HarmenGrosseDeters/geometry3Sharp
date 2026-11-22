@@ -73,21 +73,25 @@ stage without changing the library: it runs the repair as it is and, if the soli
 (`MeshRobustRepair.Solidify.StoppedOnSelfIntersections`, the raw contour in `Solidify.Result`), tries on that contour
 the existing contact separation (`MeshRobustRepair.SeparateTouchingVertices`) and the signed prototype, each judged by
 `NotCleanReason`. It then runs the solidify's skipped cleanup and reduction (`FinishPostProcess`) on the raw, the
-separated and the untangled contour and judges again: a clean finished contour is what the repair would return instead
-of the wrap. Columns (tab-separated, one row per input): the repair's path and time, the contour's triangles, defects
+separated and the untangled contour and judges again: a clean finished contour is the solidify result the repair would
+go on with instead of the wrap (its later checks, eg for lost parts, are not run here; and the finish runs on the
+contour mapped back from the repair's working frame, the same computation up to a power-of-two scale, not bit for
+bit). The prototype's rounds are capped at 150 s per contour. Columns (tab-separated, one row per input): the repair's path and time, the contour's triangles, defects
 and intersecting pairs, the cell size, the two attempts with the largest vertex move per diagonal and per cell, the
-three finished results, and the distance result → input of the wrap and of the finished untangled solidify.
+three finished results, and the distance result → input of the wrap and of the finished untangled solidify (upper
+bounds to 1e-4 of the diagonal; with clean parts passed through, the diagonal is still the whole input's).
 
 - `contour-probe` ([results/contour_probe.txt](results/contour_probe.txt), about 10 minutes): 19 thin or open procedural
   inputs in 2 frames at solidify resolutions 24, 48 and 96, the repair stage and the exact resolve switched off so that
   the repair reaches its solidify. The repair stops its (adaptive) solidify on 2 of 114 runs (12 thin shards, a triangle
-  missing in each). Both contours are untangled clean (1 and 2 rounds, largest move 4e-11 and 1.2e-4 of the diagonal,
-  8e-9 and 0.05 of a cell) and their finished solidify is clean; the contact separation moves no vertex. Without any
-  change the finished solidify is clean for the first (the contact goes away in the cleanup) and not for the second. The
-  finished solidify lies 5.2 % of the diagonal from the open input, the wrap 0.38 %: for an open input the solidify is
-  the coarser repair even when it is clean.
+  missing in each). Both contours are untangled clean (2 rounds and 1 round, largest move 4e-11 and 1.2e-4 of the
+  diagonal, 8e-9 and 0.05 of a cell) and their finished solidify is clean; the contact separation moves no vertex. Without
+  any change the finished solidify is clean for the first (the contact goes away in the cleanup) and not for the second.
+  The finished solidify lies 5.1 % of the diagonal from the open input, the wrap 0.37 %: for an open input the solidify
+  is the coarser repair even when it is clean.
 - **Real meshes:** `.github/workflows/untangle-contours.yml` (manual, GitHub-hosted) fetches the 36 Thingi10K models of
   [thingi_wrap_ids.txt](thingi_wrap_ids.txt) at run time (the meshes that reached the wrap in
   `../MeshRepairBenchmark/cases/robust_stages_2026-10-25.csv` and in the later runs of its README; no mesh is
-  committed or uploaded), runs `contour` with one process per mesh and a timeout, and writes the table of
-  `contour_summary.py` to the step summary. Results: pending the first run.
+  committed or uploaded), runs `contour` with one process per mesh and a timeout (600 s by default: about 1 runner hour
+  expected, at most 6), and writes the table of `contour_summary.py`, with the ids that got no row, to the step summary.
+  Results: pending the first run.
