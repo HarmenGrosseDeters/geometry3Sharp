@@ -2832,8 +2832,8 @@ namespace Meshing2Acceptance
             static readonly Q[] EighthPoints = Enumerable.Range(1, 7).Select(k => new Q(k, 8)).ToArray();
 
             /// <summary>
-            /// The other direction of rule O-G: points of the input boundary (the quarter points of its edges) lie within the grid tube of an
-            /// output boundary edge, or are collapsed or merged: within the tube of another input edge (a feature narrower than a pixel
+            /// The other direction of rule O-G: points of the input boundary (the eighth points of its edges) lie within the grid tube of an
+            /// output boundary edge, or are collapsed or merged: within two tubes of another input edge (a feature narrower than a pixel
             /// vanishes in snap rounding, Q17, which also drops the other edge's boundary)
             /// </summary>
             void InputBoundaryNearOutput(List<(Pt a, Pt b)> inputEdges, Q tube2Grid)
@@ -2859,11 +2859,18 @@ namespace Meshing2Acceptance
                         var p = new Pt(ed.a.Qx + (ed.b.Qx - ed.a.Qx) * f, ed.a.Qy + (ed.b.Qy - ed.a.Qy) * f);
                         if (NearOutput(p)) continue;
                         // a part of a ring edge outside the domain (a hole reaching beyond the outer ring, D5) bounds nothing: the domain has
-                        // no interior just beside p on either side
-                        Q eps = new Q(1, 1 << 20);
+                        // no interior just beside p on either side. Nor does a part with the domain on both sides: a border that two outer
+                        // rings share, or a ring edge inside another outer ring, is no boundary of the domain, and the mesh has triangles on
+                        // both sides of it (#1318: jittered parcels on the grid were rejected from 2 x 2 rings on). The chain of such an
+                        // edge is still judged as a source, by Segments
+                        // (the two side points are 2^-20 of the edge away, and at most a quarter of the tube: on a long edge 2^-20 of
+                        // it could reach across a hole or a gap wider than the two tubes that count as collapsed, and both sides would
+                        // read as inside)
+                        Q eps = new Q(1, 1 << 20), length2 = Exact.Len2(ed.a, ed.b);
+                        while (eps * eps * length2 * 16 > tube2Grid) eps = eps * new Q(1, 2);
                         var side = new Pt(p.Qx - (ed.b.Qy - ed.a.Qy) * eps, p.Qy + (ed.b.Qx - ed.a.Qx) * eps);
                         var other2 = new Pt(p.Qx + (ed.b.Qy - ed.a.Qy) * eps, p.Qy - (ed.b.Qx - ed.a.Qx) * eps);
-                        if (domain.Classify(side) != Where.Inside && domain.Classify(other2) != Where.Inside) continue;
+                        if ((domain.Classify(side) == Where.Inside) == (domain.Classify(other2) == Where.Inside)) continue;
                         // collapsed or merged: another input edge within two tubes of p (also a neighbour at an acute corner: a wedge up to two
                         // pixels wide collapses onto it; the area tolerance, measured on the output boundary, bounds what that can hide)
                         bool collapsed = false;
