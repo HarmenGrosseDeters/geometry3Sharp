@@ -77,6 +77,7 @@ namespace g3
         internal static int BoundaryTreeStackStart = 128;
         internal static void ResetBoundaryTreeStack() { boundaryTreeStack = null; }
         internal static int BoundaryTreeStackLength { get { return boundaryTreeStack == null ? 0 : boundaryTreeStack.Length; } }
+        internal static int[] BoundaryTreeStackArray { get { return boundaryTreeStack; } }
 
         internal int BoundaryCount { get { return boundary.Length; } }
         internal int TriangleCount { get { return triCount; } }

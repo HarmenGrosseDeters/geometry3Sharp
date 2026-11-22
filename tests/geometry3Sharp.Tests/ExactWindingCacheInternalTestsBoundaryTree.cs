@@ -16,14 +16,13 @@ namespace geometry3Sharp.Tests
     /// bound is never "equivalent by margin": each reason below is about the values the code computes, not about a slack):
     ///  - EvaluateAbove / EvaluateAbsAbove / TryEvaluate guards `triCount == 0 || !is_finite(p)` (`&amp;&amp;`): the early return is
     ///    the same 0.0 that Evaluate returns for an empty tree or a point that is not finite, so the value does not change.
-    ///  - `!is_finite(iso)` branch (`Evaluate(p) &gt; iso` against `&gt;=`, and un-negated): for iso = +-infinity or NaN and a finite
-    ///    Evaluate(p), `&gt;` and `&gt;=` agree; for a finite iso the branch would only skip the tree, and the full sum decides
-    ///    the same (the branch saves work, not a decision).
+    ///  - `Evaluate(p) &gt;= iso` / `Math.Abs(Evaluate(p)) &gt;= iso` in the non-finite-iso branch: for iso = +-infinity or NaN and a finite
+    ///    Evaluate(p), `&gt;` and `&gt;=` agree. (The un-negated `!is_finite(iso)` is killed: the tree is built for a finite iso only.)
     ///  - `decided &gt;= 0` for `decided &gt; 0`: inside `if (decided != 0)`, decided is never 0.
     ///  - decide_above `w &gt;= iso` / `w &lt;= iso`: at w == iso the distance is 0 and the margin is at least 1.01e-9, so the
     ///    second clause already fails.
-    ///  - `?? new int[..]` (remove left): allocation only (the stack is reused per thread); `sp + 2 &gt;= stack.Length`: grows
-    ///    one slot earlier, the same values; the growth itself is tested with a start size of 1 to 4.
+    ///  - (the `?? new int[..]` and `sp + 2 &gt;= stack.Length` mutants are killed by `TreeTraversal_StackGrowsExactlyWhenItIsFull_...`: the
+    ///    stack is reused, and it grows only when full.)
     ///  - `left &gt; 0` for `left &gt;= 0`: a child node is never node 0 (node 0 is the first root).
     ///  - `is_finite(bSum) || is_finite(bErr)` and the `!is_finite(chord / halfOmega / nodeErr)` guards and their -1 results,
     ///    and the `!is_finite(c, rUp, va, vaError, aAbsVal, l1)` guard of the build: unreachable, because the build rejects a mesh
@@ -731,6 +730,88 @@ namespace geometry3Sharp.Tests
             Assert.Equal(80, cache.BoundaryCount);
             Assert.True(cache.HasBoundaryTree);
             Assert.Equal(2, cache.BoundaryTreeRoots.Length);
+        }
+
+        // the least stack length the traversal needs at p: the stack after a pop plus the two children, at every expansion
+        static int RequiredStack(ExactWindingCache cache, Vector3d p)
+        {
+            int required = 0;
+            var stack = new Stack<int>();
+            foreach (int root in cache.BoundaryTreeRoots) {
+                stack.Push(root);
+                while (stack.Count > 0) {
+                    int k = stack.Pop();
+                    ExactWindingCache.NodeInfo node = cache.DescribeBoundaryNode(k, p);
+                    if (node.Left < 0 || node.Status > 0) continue;
+                    required = Math.Max(required, stack.Count + 2);
+                    stack.Push(node.Right);
+                    stack.Push(node.Left);
+                }
+            }
+            return required;
+        }
+
+        [Fact]
+        public void TreeTraversal_StackGrowsExactlyWhenItIsFull_AndIsReusedBetweenQueries()
+        {
+            ExactWindingCache cache = Cache(Grid(160));
+            var p = new Vector3d(0.23, -1.004, 0.05);                          // close to the rim: the traversal goes deep
+            int required = RequiredStack(cache, p);
+            Assert.True(required >= 6, $"required {required}");
+            int saved = ExactWindingCache.BoundaryTreeStackStart;
+            try {
+                // a start size equal to what the traversal needs: no growth (a mutant that grows when sp + 2 == Length doubles it)
+                ExactWindingCache.BoundaryTreeStackStart = required;
+                ExactWindingCache.ResetBoundaryTreeStack();
+                Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out _, out _));
+                Assert.Equal(required, ExactWindingCache.BoundaryTreeStackLength);
+                // one less: it doubles once (start 2 (required - 1) >= required for required >= 2)
+                ExactWindingCache.BoundaryTreeStackStart = required - 1;
+                ExactWindingCache.ResetBoundaryTreeStack();
+                Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out _, out _));
+                Assert.Equal(2 * (required - 1), ExactWindingCache.BoundaryTreeStackLength);
+                // the stack of the thread is reused by the next query (the same array, not a new one)
+                int[] first = ExactWindingCache.BoundaryTreeStackArray;
+                Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out _, out _));
+                Assert.Same(first, ExactWindingCache.BoundaryTreeStackArray);
+            } finally {
+                ExactWindingCache.BoundaryTreeStackStart = saved;
+                ExactWindingCache.ResetBoundaryTreeStack();
+            }
+        }
+
+        [Fact]
+        public void ThresholdQueries_BuildTheTreeForAFiniteIso_NotForANonFiniteOne()
+        {
+            var p = new Vector3d(0.1, 0.2, 0.3);
+            ExactWindingCache a = new DMeshAABBTree3(Grid(160), true).GetExactWindingCache();
+            Assert.False(a.HasBoundaryTree);
+            a.EvaluateAbove(p, 0.5);
+            Assert.True(a.HasBoundaryTree);                    // a finite iso takes the tree (a mutant would answer from the full sum)
+            ExactWindingCache b = new DMeshAABBTree3(Grid(160), true).GetExactWindingCache();
+            b.EvaluateAbsAbove(p, 0.5);
+            Assert.True(b.HasBoundaryTree);
+            ExactWindingCache c = new DMeshAABBTree3(Grid(160), true).GetExactWindingCache();
+            c.EvaluateAbove(p, double.PositiveInfinity);
+            c.EvaluateAbsAbove(p, double.NaN);
+            Assert.False(c.HasBoundaryTree);                   // a non-finite iso is answered by the exact value, without the tree
+        }
+
+        [Fact]
+        public void EdgeAngle_OfAnEdgeAlongX_AndOfADegenerateEdge_IsExactlyZero()
+        {
+            // the facts behind the chord shortcut of node_query: an edge whose end points agree in y and z (along x), and an edge
+            // with equal end points, have the angle +0.0 exactly (num = 0 and den > 0)
+            var rnd = new Random(8);
+            for (int i = 0; i < 300; ++i) {
+                var p = new Vector3d(rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2);
+                var a = new Vector3d(rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2);
+                if (a.y == p.y && a.z == p.z) continue;
+                var b = new Vector3d(a.x + rnd.NextDouble() * 3 - 1.5, a.y, a.z);
+                Assert.Equal(0.0, ExactWindingCache.boundary_edge_angle_x(p, a, b));
+                Assert.Equal(0.0, ExactWindingCache.boundary_edge_angle_x(p, a, a));
+                Assert.False(double.IsNegative(ExactWindingCache.boundary_edge_angle_x(p, a, b)));
+            }
         }
     }
 }
