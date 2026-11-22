@@ -89,6 +89,10 @@ namespace DeterminismHarness
             list.Add(new Case("geodesic.bezier", serial => GeodesicBezier(serial)));
             list.Add(new Case("geodesic.exact", serial => GeodesicExact(serial)));
             list.Add(new Case("geodesic.polyhedral", serial => GeodesicPolyhedral(serial)));
+            // ---- the documented operations (the compiled examples of docs/OPERATIONS.md) and the mesh generators (Examples.cs)
+            Examples.AddTo(list);
+            // ---- paths the cases above do not reach, and probes of the JIT and the BCL (CrossRuntime.cs)
+            CrossRuntime.AddTo(list);
             return list;
         }
 
