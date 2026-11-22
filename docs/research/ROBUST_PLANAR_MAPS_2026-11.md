@@ -222,7 +222,7 @@ Reading:
 None of these is a gap against the paper. They are what its class of input (long curves, many crossings, near-degenerate bundles) shows
 in ours.
 
-### 4.1 `NodingLimit` on heavy collinear overlap (a limit; valid input, status `Failed`)
+### 4.1 `NodingLimit` on heavy collinear overlap (a limit; valid input, status `Failed`; #1400)
 
 `overlap-exact` at tolerance 0: 1 984 and 4 000 segments succeed and are judged valid; 5 984 (187 intervals on each of 32 lines), 8 000
 and 16 000 fail with `Triangulation2FailureKind.NodingLimit` after 0.3 to 1.1 s ("noding did not settle: 195 vertices made in
@@ -241,7 +241,7 @@ against a number of pieces of the order of 32 k²; the two meet at a k of a few 
 Nothing wrong is returned, and inputs of this kind (hundreds of constraints on one line, each overlapping most others) are not what the
 GIS gates contain. But the documented meaning of `NodingLimit` is "did not settle", and this noding would settle.
 
-### 4.2 Near-parallel bundle: superlinear edge recovery (speed, automatic tolerance)
+### 4.2 Near-parallel bundle: superlinear edge recovery (speed, automatic tolerance; #1401)
 
 `bundle` at 125 / 250 / 500 / 1 000 segments (see `perf/planarmap-scaling-net10.txt`): the output grows about 4x per step, the time 4x, then
 13x and 14x (0.19 s, 0.71 to 0.79 s, 9.2 s, 130 s).
@@ -258,7 +258,7 @@ re-queues most of them several times (its own guard allows 64 (k + 4)² steps fo
 and of flips was not measured; that count comes before any work on it. 130 s on one input is above the 20 s rule of CLAUDE.md, so this
 gets an issue.
 
-### 4.3 Snap rounding on long segments with many hot pixels (speed, explicit tolerance)
+### 4.3 Snap rounding on long segments with many hot pixels (speed, explicit tolerance; #1402)
 
 Soup of 500 segments at 2^-20: 14.5 s in `SnapRounding2` alone (16.2 s the whole run), against 0.48 s for the exact noding of the same input with nearly the same
 output (28 232 against 28 238 vertices). A profile of n = 250 (one run): of `SnapRounding2.Compute`, `RouteAll` is 60 %, `Critical`
@@ -285,7 +285,7 @@ changes, not the decisions): on the rows above 10 s the snap rounding alone take
 about 1 s, some 15 to 20x. That floor is an assumption, not a measurement. The Herne runs of the benchmark README are not this regime (their
 constraints are short and refinement dominates); that is a reading of their inputs, not measured here.
 
-### 4.4 Subsegment markers under snap rounding (mesher against oracle; cause not isolated)
+### 4.4 Subsegment markers under snap rounding (mesher against oracle; cause not isolated; #1403)
 
 Soup with markers (segment i has marker i mod 7): at 2^-10 the oracle reports `SubsegmentMarker` on 5 subsegments at 40 segments, 114
 at 125 and 200 at 250; at 2^-20 on none at 40 and 125, 1 at 250 (`perf/planarmap-markers-net10.txt`) and 4 at 500
@@ -321,16 +321,20 @@ How others solve the four findings (prior-art check, papers and documentation on
 | option | what | gain | cost and risk | leaning |
 |---|---|---|---|---|
 | A | Close the paper: no build, this note as the record | | none | **yes** |
-| B1 | Issue for 4.1 (`NodingLimit` on collinear overlap), with the repro command | a valid input class stops failing | a probe to confirm the step count, then the limit counts what collinear splits need; `comp_geom`, not exact code; tests with a procedural overlap | **yes, as an issue**; small |
-| B2 | Issue for 4.4 (marker rule of oracle and mesher under snap), with the 40-segment repro | one rule, checked | a spec reading (R8, D7) before any code; the answer may be an oracle change, which is a gate file | **yes, as an issue**; decision on the rule is the owner's |
-| B3 | Speed spike for 4.3: hot pixels indexed at their own density, so routing and the critical-pixel scan visit only pixels near the segment; bit-identical output | an estimate of 15 to 20x on dense long-segment inputs with a snap tolerance; nothing expected on GIS tiles | internal to `SnapRounding2`; the determinism proof names its orders (R11), so the review must show the visiting order does not enter the result | only when a workload needs it; the issue of the 20 s rule records it |
-| B4 | Speed spike for 4.2: first the count of crossed edges and flips; if the hypothesis holds, edge recovery by cavity retriangulation (Shewchuk and Brown 2015) | if it holds, the bundle towards the soup's rate (130 s to seconds at n = 1 000); an estimate | changes the core of `DelaunayKernel2`; the constrained Delaunay result is unique up to the tie rule, so golden rows should hold, but that has to be shown | not now; the issue of the 20 s rule records it |
-| B5 | Pencils (n² pairs through one point, 27 to 52 s at 16 000) | | inherent to any pairwise noding; `detect` alone is 3.2 to 3.4 s | no |
+| B1 | Issue #1400 for 4.1 (`NodingLimit` on collinear overlap), with the repro command | a valid input class stops failing | a probe to confirm the step count, then the limit counts what collinear splits need; `comp_geom`, not exact code; tests with a procedural overlap | **yes, as an issue**; small |
+| B2 | Issue #1403 for 4.4 (marker rule of oracle and mesher under snap), with the 40-segment repro | one rule, checked | a spec reading (R8, D7) before any code; the answer may be an oracle change, which is a gate file | **yes, as an issue**; decision on the rule is the owner's |
+| B3 | Speed spike for 4.3: hot pixels indexed at their own density, so routing and the critical-pixel scan visit only pixels near the segment; bit-identical output | an estimate of 15 to 20x on dense long-segment inputs with a snap tolerance; nothing expected on GIS tiles | internal to `SnapRounding2`; the determinism proof names its orders (R11), so the review must show the visiting order does not enter the result | only when a workload needs it; #1402 records it |
+| B4 | Speed spike for 4.2: first the count of crossed edges and flips; if the hypothesis holds, edge recovery by cavity retriangulation (Shewchuk and Brown 2015) | if it holds, the bundle towards the soup's rate (130 s to seconds at n = 1 000); an estimate | changes the core of `DelaunayKernel2`; the constrained Delaunay result is unique up to the tie rule, so golden rows should hold, but that has to be shown | not now; #1401 records it |
+| B5 | Pencils (n² pairs through one point, 27 to 52 s at 16 000) | | inherent to any pairwise noding; `detect` alone is 3.2 to 3.4 s | no; recorded in #1401 |
 
 Six rows are above 20 s on one input: `bundle` 1 000 at tolerance 0 (130 s), `pencil-exact` and `pencil-near` 16 000 (52 s, 27 s), and
 with snap rounding `bundle` 250 at 2^-20 (43 s), `overlap-near` 1 984 at 2^-20 (21 s) and `soup` 500 at 2^-10 (29 s). By the test-time
-rule of CLAUDE.md each is a potential defect and gets an issue with a diagnosis: one for 4.2, one for 4.3, the pencils recorded there as
-n² pairs. The issues are not filed yet; they are proposed to the coordinator with this note.
+rule of CLAUDE.md each is a potential defect and gets an issue with a diagnosis.
+
+Issues (filed 2026-11-22 on the coordinator's decision): #1400 for 4.1 (a library bug, a clean failure; the fix goes to the next
+`comp_geom` PR), #1401 for 4.2 (with the pencils recorded as inherent n² pairs) and #1402 for 4.3 (both wait for the owner's speed go;
+no speed work now), #1403 for 4.4 (the spec reading of R8 and D7 first; an oracle change is a gate-file change, a rule change is the
+owner's).
 
 ## 6. Commands
 
