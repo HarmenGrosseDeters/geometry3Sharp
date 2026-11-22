@@ -481,4 +481,33 @@ sums above, not those. The profile of the largest checks is in section 7.9.
 See the PR for the commands. Raw output: `benchmarks/Meshing2HardProblems/perf/hp7-net10.txt` (before: master 0f35a98c with #1325 is the
 older numbers of the spike; the before column below was measured in the same container immediately before the change).
 
-TIMES_TABLE
+| case | oracle before ms | oracle after ms | speedup | verdict before | after |
+|---|---|---|---|---|---|
+| parcels30 q20 default | 3357 | 1948 | 1.7x | ok | ok |
+| parcels30 q30 default | 3505 | 1676 | 2.1x | ok | ok |
+| parcels60 q20 default | 19252 | 9829 | 2.0x | ok | ok |
+| parcels60 q30 default | 19108 | 10891 | 1.8x | ok | ok |
+| coast2000 q20 default | 5989 | 1692 | 3.5x | ok | ok |
+| coast8000 q20 default | 192781 | 29007 | 6.6x | ok | ok |
+| comb40 phi1 q20 default | 24 | 12 | 2.0x | ok | ok |
+| fan12 phi2 q20 default | 14 | 6.58 | 2.1x | ok | ok |
+| parcels30 q20 cq | 3264 | 1578 | 2.1x | ok | ok |
+| parcels30 q30 cq | 3326 | 1564 | 2.1x | ok | ok |
+| parcels60 q20 cq | 18997 | 9226 | 2.1x | ok | ok |
+| parcels60 q30 cq | 20027 | 9987 | 2.0x | ok | ok |
+| coast2000 q20 cq | 2452 | 723 | 3.4x | ok | ok |
+| coast8000 q20 cq | 45159 | 8173 | 5.5x | ok | ok |
+| comb40 phi1 q20 cq | 25 | 15 | 1.7x | ok | ok |
+| fan12 phi2 q20 cq | 14 | 8.74 | 1.6x | ok | ok |
+| parcels2 q20 snap 1/64 | 8.18 | 5.12 | 1.6x | BoundaryOutsideTube | ok |
+| parcels10 q20 snap 1/64 | 515 | 227 | 2.3x | BoundaryOutsideTube | ok |
+| parcels30 q20 snap 1/64 | 16378 | 12552 | 1.3x | BoundaryOutsideTube | ok |
+| wide exponents q20 default | 102 | 45 | 2.3x | ok | ok |
+
+`Meshing2HardProblems hp7 --size large`, 4 cores, net10.0, the oracle's second (timed) run of each case; before: master before this step,
+with the snap rows measured before #1325 (the three snap rows change to ok with #1325, not with this step). Verdicts of the 17 other rows
+are unchanged. **coast8000 q20 goes from 193 s to 29 s (6.6x), not under the 20 s target.** What is left there (isolated run, 30 s):
+`conformity: edge-crossings` 5.5 s and `point-triangle` 2.6 s (the certified STR-tree searches), `coverage` 5.4 s (the point-in-ring test
+per centroid, the boundary probes), `quality` 3.9 s, `segments` 3.6 s, the global Delaunay witness 3.4 s. Each is a flat share below 20 %;
+the next levers are a per-cell classification of the point-in-ring test for single-ring domains and the STR-tree walk's own orientation
+tests. parcels60 stays at 10 s: its `Domain` constructor (the slab sweep's rational heights, 5 s) and `Segments` (4 s).
