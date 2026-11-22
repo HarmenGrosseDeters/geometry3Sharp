@@ -16,6 +16,8 @@ namespace geometry3Sharp.Tests
     /// bound is never "equivalent by margin": each reason below is about the values the code computes, not about a slack):
     ///  - (the early return `triCount == 0 || !is_finite(p)` of the two threshold queries is NOT equivalent under `&amp;&amp;`: a non-finite point
     ///    of a mesh with triangles would take the direct sum, which is NaN; killed by `ThresholdQueries_EmptyNonFiniteAndSoup`.)
+    ///  - the hook `TryEvaluateTreeBoundarySumX` guard `triCount == 0 || !is_finite(p)` (`&amp;&amp;`): a non-finite p fails `pm &lt;= 1e70` (NaN) and
+    ///    returns false there; an empty tree has no boundary tree and returns false below: the same false.
     ///  - `Evaluate(p) &gt;= iso` / `Math.Abs(Evaluate(p)) &gt;= iso` in the non-finite-iso branch: for iso = +-infinity or NaN and a finite
     ///    Evaluate(p), `&gt;` and `&gt;=` agree. (The un-negated `!is_finite(iso)` is killed: the tree is built for a finite iso only.)
     ///  - `decided &gt;= 0` for `decided &gt; 0`: inside `if (decided != 0)`, decided is never 0.
@@ -550,8 +552,10 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 40; ++i)
                 pts.Add(new Vector3d(rnd.NextDouble() * 2.2 - 1.1, (i % 2 == 0 ? -1 : 1) * (1.0 + 0.01 * rnd.NextDouble()), 0.2 * rnd.NextDouble()));
             var reference = new List<double>();
+            Assert.True(cache.TryEvaluateTreeBoundarySumX(pts[0], out _, out _));
+            Assert.True(ExactWindingCache.BoundaryTreeStackLength > 0);          // (a query leaves the thread's stack behind)
             ExactWindingCache.ResetBoundaryTreeStack();
-            Assert.Equal(0, ExactWindingCache.BoundaryTreeStackLength);           // (the reset really drops the thread's stack)
+            Assert.Equal(0, ExactWindingCache.BoundaryTreeStackLength);           // (the reset really drops it)
             foreach (Vector3d p in pts) { Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out double s, out double e)); reference.Add(s); reference.Add(e); }
             int saved = ExactWindingCache.BoundaryTreeStackStart;
             try {
