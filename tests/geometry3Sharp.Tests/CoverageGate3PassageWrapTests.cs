@@ -8,8 +8,8 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// PassageWrap when the underlying alpha wrap refuses the input: the pin checks and the bound pass (the wrap supports
-    /// coordinates only within [2^-128, 2^128], PassageWrap itself up to 1e100), so the wrap fails and the run ends with
-    /// WrapFailed, the reason of the wrap, no result and no pin results claiming a pass.
+    /// coordinates only within [2^-128, 2^128]; PassageWrap refuses input outside it at once as InvalidInput, with the
+    /// wrap's wording, no result and no pin results claiming a pass.
     /// </summary>
     public class CoverageGate3PassageWrapTests
     {
@@ -34,17 +34,41 @@ namespace geometry3Sharp.Tests
             return w;
         }
 
-        [Fact]
-        public void AnInputOutsideTheWrapsSupportedRange_EndsWithWrapFailed_AndTheWrapsReason()
+        [Theory]
+        [InlineData(140)] [InlineData(130)] [InlineData(-130)] [InlineData(-200)]
+        public void AnInputOutsideTheWrapsSupportedRange_IsInvalidInputAtOnce(int exponent)
         {
-            var w = Run(Math.Pow(2, 140), out bool ok);
+            var w = Run(Math.Pow(2, exponent), out bool ok);
             Assert.False(ok);
-            Assert.Equal(PassageWrap.PassageStatus.WrapFailed, w.Status);
-            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, w.WrapStatus);
+            Assert.Equal(PassageWrap.PassageStatus.InvalidInput, w.Status);
             Assert.Contains("supported range", w.Error);
             Assert.Null(w.Result);
             Assert.Equal(0, w.FallbackSteps);
             Assert.False(w.AllPassed);
+        }
+
+        // the largest coordinate is 0.5 * scale: exactly 2^128 is inside, the next double above is outside; the same at 2^-128
+        [Theory]
+        [InlineData(129)] [InlineData(-127)]
+        public void TheLimitsThemselves_AreInside(int exponent)
+        {
+            var w = Run(Math.Pow(2, exponent), out _);
+            Assert.NotEqual(PassageWrap.PassageStatus.InvalidInput, w.Status);
+            Assert.NotEqual(PassageWrap.PassageStatus.WrapFailed, w.Status);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.WrapStatus);
+            Assert.NotNull(w.Result);
+        }
+
+        [Theory]
+        [InlineData(129)] [InlineData(-127)]
+        public void JustOutsideTheLimits_IsInvalidInput(int exponent)
+        {
+            double scale = Math.Pow(2, exponent);
+            // one double step beyond the limit on the large side, a halving on the small one (0.5 * scale = 2^-128 is inside)
+            double outside = exponent > 0 ? BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(scale) + 1) : scale / 2;
+            var w = Run(outside, out bool ok);
+            Assert.False(ok);
+            Assert.Equal(PassageWrap.PassageStatus.InvalidInput, w.Status);
         }
 
         [Fact]
