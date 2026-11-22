@@ -160,6 +160,98 @@ namespace geometry3Sharp.Tests
             Assert.True(tested > 1500, $"only {tested} cases");
         }
 
+
+        [Fact]
+        public void BoundaryEdgeAngleX_BranchCutWithRoundingNoise_TakesTheSignOfTheExactOrientation()
+        {
+            // p behind the middle of the edge in the yz plane: |angle| is close to pi and its sign is the exact sign of
+            // (a - p) x (b - p) in yz. With decimal inputs (0.1, 0.3, ...) the rounded num is noise of the size 1e-17, which
+            // the error bounds numErr / denErr must recognise: without them atan2 takes the sign of the noise.
+            // Every 2^k scaling must give the same exact sign (k = +-60 take the fast path, the others the rescaling path).
+            var rng = new Random(77);
+            int[] ks = { 0, 60, -60, 400, -400 };
+            int tested = 0, noisy = 0;
+            for (int i = 0; i < 300; ++i) {
+                double dy = rng.Next(1, 20) / 10.0, dz = rng.Next(1, 20) / 10.0, t = rng.Next(1, 20) / 10.0, u = rng.Next(1, 20) / 10.0;
+                double w = 1.0 + rng.Next(0, 3) / 10.0;
+                // the x coordinates differ, so that the denominator is not dominated by the yz part for every sample
+                // (b.z is moved by up to 3 ulps, so that the exact orientation and the rounding noise disagree in some samples)
+                double bz = -u * dz;
+                bz = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(bz) + rng.Next(-3, 4));
+                var a = new Vector3d(w, t * dy, t * dz);
+                var b = new Vector3d(w + 0.1, -u * dy, bz);
+                int oyz = ExactPredicates.Orient2d(new Vector2d(0, 0), new Vector2d(a.y, a.z), new Vector2d(b.y, b.z));
+                if (oyz == 0) continue;
+                if ((a.z * b.y - a.y * b.z > 0) != (oyz < 0)) ++noisy;
+                foreach (int k in ks) {
+                    double s = BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+                    double angle = ExactWindingCache.boundary_edge_angle_x(Vector3d.Zero, Scaled(a, s), Scaled(b, s));
+                    Assert.True(Math.Abs(angle) > 3.0, $"k {k}, a {a}, b {b}: {angle:R}");
+                    Assert.True(angle > 0 == oyz < 0, $"k {k}, a {a}, b {b}: angle {angle:R}, exact orientation {oyz}");
+                    ++tested;
+                }
+            }
+            Assert.True(tested > 200, $"only {tested} cases");
+            Assert.True(noisy >= 5, $"only {noisy} samples where the rounded num has the wrong sign");
+        }
+
+
+        [Fact]
+        public void BoundaryEdgeAngleX_PointOnTheOpenEdgeWithRoundingNoise_IsDecidedExactly()
+        {
+            // p on the open segment (a, b) in the plane x = 0: den = da*db + dotYZ cancels exactly in exact arithmetic, and its
+            // rounded value has either sign (the error bound denErr has to cover it). The exact limit is the half angle of
+            // the edge seen from p on it, |angle| = pi/2 for a.z != b.z with a.x == b.x, never 0.
+            var rng = new Random(5);
+            int[] ks = { 0, 60, -60, 400, -400 };
+            int tested = 0, noisy = 0;
+            for (int i = 0; i < 300; ++i) {
+                double y1 = rng.Next(1, 40) / 10.0, y2 = rng.Next(1, 40) / 10.0;
+                var a = new Vector3d(0, y1, 2 * y1);
+                var b = new Vector3d(0, -y2, -2 * y2);
+                double la = Math.Sqrt(a.y * a.y + a.z * a.z), lb = Math.Sqrt(b.y * b.y + b.z * b.z);
+                if (la * lb + (a.y * b.y + a.z * b.z) > 0) ++noisy;       // (the rounded den is > 0 though the exact one is 0)
+                foreach (int k in ks) {
+                    double s = BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+                    double angle = ExactWindingCache.boundary_edge_angle_x(Vector3d.Zero, Scaled(a, s), Scaled(b, s));
+                    Assert.True(Math.Abs(Math.Abs(angle) - 0.5 * Math.PI) < 1e-12, $"k {k}, y1 {y1}, y2 {y2}: {angle:R}");
+                    Assert.Equal(-angle, ExactWindingCache.boundary_edge_angle_x(Vector3d.Zero, Scaled(b, s), Scaled(a, s)));
+                    ++tested;
+                }
+            }
+            Assert.True(tested > 1000);
+            Assert.True(noisy >= 20, $"only {noisy} samples with a positive rounded den");
+        }
+
+
+        [Fact]
+        public void BoundaryEdgeAngleX_PointOnTheOpenEdge_RoundedDifferencesDoNotMoveTheAngle()
+        {
+            // p, a, b exactly collinear in 3D (z = 1.5 y, x = 0), p between a and b, but p is tiny against a and b, so
+            // a - p and b - p round and their cross product num is not 0 in floating point (about half of the samples):
+            // numErr must still send them to the exact predicates, whose answer is the open-edge limit |angle| = pi/2.
+            var rng = new Random(11);
+            int[] ks = { 0, 60, -60, 400, -400 };
+            int tested = 0, noisy = 0;
+            for (int i = 0; i < 300; ++i) {
+                double ya = rng.Next(1, 1 << 20) * Math.Pow(2, -20), yb = -rng.Next(1, 1 << 20) * Math.Pow(2, -20);
+                double c = rng.Next(1, 50) * Math.Pow(2, -55);
+                var p = new Vector3d(0, c, 1.5 * c);
+                var a = new Vector3d(0, ya, 1.5 * ya);
+                var b = new Vector3d(0, yb, 1.5 * yb);
+                if ((a.z - p.z) * (b.y - p.y) - (a.y - p.y) * (b.z - p.z) != 0) ++noisy;
+                foreach (int k in ks) {
+                    double s = BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+                    double angle = ExactWindingCache.boundary_edge_angle_x(Scaled(p, s), Scaled(a, s), Scaled(b, s));
+                    Assert.True(Math.Abs(Math.Abs(angle) - 0.5 * Math.PI) < 1e-12, $"k {k}, p {p}, a {a}, b {b}: {angle:R}");
+                    Assert.Equal(-angle, ExactWindingCache.boundary_edge_angle_x(Scaled(p, s), Scaled(b, s), Scaled(a, s)));
+                    ++tested;
+                }
+            }
+            Assert.True(tested > 1000);
+            Assert.True(noisy >= 50, $"only {noisy} samples with a rounded cross product that is not 0");
+        }
+
         [Fact]
         public void BoundaryEdgeAngleX_MixedExponentsAndUnderflow_ExactAndAntisymmetric()
         {
