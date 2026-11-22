@@ -203,6 +203,21 @@ not the input's. Keeping such a solid as it is needs a degenerate test relative 
 names (its 4.5) and this study did not measure. The cube of 2^-9 is the borderline: the repair collapses it to a
 tetrahedron of 1.85 times its volume, which (c) and (d1) keep.
 
+### 4.5 Two cases from the Boolean fuzz harness
+
+The fuzz harness of PR #1382 reported two differences of a box and a thin slab at its top whose result loses a part
+(its CI log of `6f055e0a`, net48). They are the set `fuzz` here, the coordinates taken over as bits
+(`thin fuzz:0 fuzz:1`, `trace/results/thin_2026-11-22/fuzz.jsonl.gz`); they are not in the counts of this note.
+
+| case | the removed component | thickness | why it goes today | (c), (d1) | no removal |
+|---|---|---|---|---|---|
+| `fuzz:0` (slab 2^-30, sheared) | 4 triangles, area 7.6e-9, volume 1.2e-18 | 3.1e-10, 6.9e5 ulps | tiny, and one of its own triangles is degenerate; no edit | removed (still defective) | "degenerate triangles" |
+| `fuzz:1` (slab 2^-43, turned by 3.8e-6 rad) | 12 triangles, area 1, volume 4.6e-7 | 9.2e-7, 2.1e9 ulps | thin, and two contractions with a drift of 2.2e-12 | kept, volume unchanged to 1e-10 | clean |
+
+The first is the mechanism of 4.4, the second that of 4.1. Both components are removed on net10.0 on Linux as
+well: the rule's outcome is the same on both runtimes on these inputs, so the net48-only failure of that test is not
+a difference of the rule (net48 itself was not run here).
+
 ## 5. Candidate rules
 
 ### 5.1 Definitions

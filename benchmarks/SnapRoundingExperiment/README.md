@@ -69,6 +69,7 @@ boolean's own result (`replica`; it does on all 3474 non-empty results).
 - `thin.py run <dir> [<set>...]` runs the sets `issue` (the rows of the issue), `sheet` (its repro scaled: thickness,
   size, offset, six frames), `plate`, `drop`, `copies` (A minus a nearly coincident copy, 1 to 2^36 ulps apart) and the
   generated sets below, one compressed file per set; a rerun gives the same files bit for bit.
+- The set `fuzz` (not in the tables): the two cases the Boolean fuzz harness of PR #1382 reported, as bits.
 - `thin.py tables <dir>` prints the tables of the note; `thin.py selftest` checks its classification.
 - `thin dump <case>` prints the operands and the plainly rounded exact result; `thin cost <case>` times the one pass a
   candidate adds against the boolean and its rounding.

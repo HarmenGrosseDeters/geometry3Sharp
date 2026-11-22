@@ -17,6 +17,7 @@
 //       rz and gen with B's sides shifted, so that no edge of B passes over a corner of A). off: the
 //       translation (0.25275, 0.56342, 1e-5) 10 L off (off = 1e5 at L = 100 is the issue's (2527500, 5634200, 100))
 //   issue:<t>:<near|far>          the three rows of the issue's table, t as a decimal
+//   fuzz:<0|1>                    the two cases of the Boolean fuzz harness (PR #1382), see FuzzBits
 //   plate:<k>:<L>:<off>:<frame>   the cube [0,L]^3 united with the plate [1.5 L, 2.5 L]^2 x [0, t] beside it (an
 //       untouched thin input solid)
 //   copies:<shape>:<mode>:<e>:<L>:<off>:<seed>   A minus a nearly coincident copy A': shape box (generic rotation) or
@@ -80,6 +81,10 @@ static class ThinSolids
                     foreach (string where in new[] { "near", "far" })
                         yield return $"issue:{t}:{where}";
                 break;
+            case "fuzz":
+                yield return "fuzz:0";
+                yield return "fuzz:1";
+                break;
             case "sheet":
                 foreach (string frame in new[] { "axis", "rz", "issue", "gen", "rza", "gena" })
                     foreach (string L in new[] { "1", "100", "1e4", "1e5" })
@@ -113,6 +118,10 @@ static class ThinSolids
     {
         string[] p = name.Split(':');
         switch (p[0]) {
+            case "fuzz": {
+                int n = int.Parse(p[1]);
+                return (FromBits(FuzzBits[2 * n]), FromBits(FuzzBits[2 * n + 1]), Ops.Difference);
+            }
             case "issue": {
                 double t = double.Parse(p[1], ci);
                 var (a, b) = Sheet(100, t, "issue");
@@ -161,6 +170,26 @@ static class ThinSolids
             }
         }
         return Program.Input(name);
+    }
+
+    // the family "fuzz": the two cases the Boolean fuzz harness of PR #1382 reported on net48 (its CI log of 6f055e0a,
+    // ExactBooleanFuzzTests.Smoke "slab", seeds 0 and 1): a box minus a thin slab at its top, the coordinates as bits.
+    //   fuzz:0   slab of thickness 2^-30 at z = 3 - 2^-29, sheared;  fuzz:1   slab of thickness 2^-43 at z = 3, turned by 3.8e-6 rad
+    static readonly ulong[][] FuzzBits = {
+        new ulong[] { 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4000000000000000, 0x0000000000000000, 0x4000000000000000, 0x4000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4008000000000000, 0x4000000000000000, 0x0000000000000000, 0x4008000000000000, 0x0000000000000000, 0x4000000000000000, 0x4008000000000000, 0x4000000000000000, 0x4000000000000000, 0x4008000000000000 },
+        new ulong[] { 0xBFF0000000000000, 0xBFF0000000000000, 0x4007BFFFFF400000, 0x4014000000000000, 0xBFF0000000000000, 0x4007C00002400000, 0xBFF0000000000000, 0x4014000000000000, 0x40093FFFFF400000, 0x4014000000000000, 0x4014000000000000, 0x4009400002400000, 0xBFF0000000000000, 0xBFF0000000000000, 0x4007BFFFFF600000, 0x4014000000000000, 0xBFF0000000000000, 0x4007C00002600000, 0xBFF0000000000000, 0x4014000000000000, 0x40093FFFFF600000, 0x4014000000000000, 0x4014000000000000, 0x4009400002600000 },
+        new ulong[] { 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x3FF0000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4008000000000000, 0x0000000000000000, 0x3FF0000000000000, 0x4008000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4008000000000000, 0x3FF0000000000000, 0x0000000000000000, 0x4008000000000000, 0x0000000000000000, 0x4008000000000000, 0x4008000000000000, 0x3FF0000000000000, 0x4008000000000000, 0x4008000000000000 },
+        new ulong[] { 0xBFF0000000002667, 0xBFEFFFFFFFFF6666, 0x4007FFFEA88A3ABB, 0x4013FFFFFFFFD000, 0xBFEFFFFFFFFD0000, 0x4007FFF94AB325A7, 0xBFEFFFFFFFFDE668, 0x4013FFFFFFFF799A, 0x40080009643864E3, 0x4014000000001CCD, 0x4013FFFFFFFFC667, 0x4008000406614FCF, 0xBFF0000000002667, 0xBFEFFFFFFFFF6666, 0x4007FFFEA88A3BBB, 0x4013FFFFFFFFD000, 0xBFEFFFFFFFFD0000, 0x4007FFF94AB326A7, 0xBFEFFFFFFFFDE668, 0x4013FFFFFFFF799A, 0x40080009643865E3, 0x4014000000001CCD, 0x4013FFFFFFFFC667, 0x40080004066150CF },
+    };
+    static readonly int[] FuzzTriangles = { 0, 4, 6, 0, 6, 2, 1, 3, 7, 1, 7, 5, 0, 1, 5, 0, 5, 4, 2, 6, 7, 2, 7, 3, 0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6 };
+
+    static DMesh3 FromBits(ulong[] bits)
+    {
+        var m = new DMesh3();
+        for (int i = 0; i < bits.Length; i += 3)
+            m.AppendVertex(new Vector3d(BitConverter.Int64BitsToDouble((long)bits[i]), BitConverter.Int64BitsToDouble((long)bits[i + 1]), BitConverter.Int64BitsToDouble((long)bits[i + 2])));
+        for (int i = 0; i < FuzzTriangles.Length; i += 3) m.AppendTriangle(FuzzTriangles[i], FuzzTriangles[i + 1], FuzzTriangles[i + 2]);
+        return m;
     }
 
     static readonly Quaterniond Generic = Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23);
