@@ -173,7 +173,9 @@ namespace g3
             /// <summary>
             /// a cell of the first mesh is in front of a piece of the sheet and behind another (or both sides of one): SheetWitnessTriangle is the piece it is in front of, SheetWitnessTriangle2 the one it is behind.
             /// Also the reason for a free edge of a piece that belongs to another tool or another sheet, not to the sheet that is checked: that edge only shows as the two sides of the cell
-            /// being one, while a free edge of the checked sheet itself is RimInsideWorkpiece
+            /// being one, while a free edge of the checked sheet itself is RimInsideWorkpiece. Also: the first mesh has two shells whose boxes nest (a cavity may lie in a shell) and
+            /// the sheet marks cells of them with both labels: two cells of different shells are joined by no edge, so the cut cannot be checked without the nesting of the shells and
+            /// is refused, also where it is consistent (a legitimate cut through a hollow body); shells with disjoint boxes are independent
             /// </summary>
             SidesInconsistent = 9,
             /// <summary> a part of the first mesh that no piece of the sheet touches, and UncutSide does not say where it is (or the first mesh has more than one shell, where this version cannot tell a separate part from a cavity) </summary>

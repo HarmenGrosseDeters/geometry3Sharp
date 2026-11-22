@@ -33,8 +33,24 @@ namespace g3
         /// <summary> the shell (connected set of the pieces flagged as boundary of the workpiece, across shared edges) of each piece flagged so, else -1 </summary>
         public int[] Shell;
         public int ShellCount;
+        /// <summary>
+        /// the box of each shell (the input doubles of its corners, rounded outwards by <see cref="NestingPad"/>: a cavity must lie inside the box of
+        /// its outer shell, so a box that does not hold another shell's box is no outer shell of it)
+        /// </summary>
+        public AxisAlignedBox3d[] ShellBox;
         /// <summary> the flags that Build was given (per piece): no wall, and a piece of the workpiece's boundary </summary>
         internal bool[] Transparent, Boundary;
+
+        /// <summary> the relative padding of the shell boxes (the input doubles of the corners are the arrangement's points rounded: the true box lies within a few ulps of it); the test errs towards "may nest" </summary>
+        internal const double NestingPad = 1e-9;
+
+        /// <summary> can shell a lie inside shell b, or b inside a (the box of one holds the box of the other)? </summary>
+        internal bool MayNest(int a, int b)
+        {
+            if (ShellBox == null)
+                return true;        // (no geometry known: err towards "may nest")
+            return ShellBox[a].Contains(ShellBox[b]) || ShellBox[b].Contains(ShellBox[a]);
+        }
 
         static int corner(Index3i t, int e)
         {
@@ -190,6 +206,20 @@ namespace g3
                     sid[r] = cells.ShellCount++;
                 cells.Shell[i] = sid[r];
             }
+            cells.ShellBox = new AxisAlignedBox3d[cells.ShellCount];
+            for (int sh = 0; sh < cells.ShellCount; ++sh)
+                cells.ShellBox[sh] = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < k; ++i)
+                if (cells.Shell[i] >= 0)
+                    for (int e = 0; e < 3; ++e)
+                        cells.ShellBox[cells.Shell[i]].Contain(arr.ToInputVector(arr.Exact(corner(tris[i], e))));
+            for (int sh = 0; sh < cells.ShellCount; ++sh) {
+                AxisAlignedBox3d box = cells.ShellBox[sh];
+                double size = Math.Max(box.Extents.x, Math.Max(box.Extents.y, box.Extents.z));
+                double big = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)), Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z))));
+                box.Expand(NestingPad * (size + big));
+                cells.ShellBox[sh] = box;
+            }
             return cells;
         }
 
@@ -268,6 +298,41 @@ namespace g3
             // (a cell with a mark that has no piece of the workpiece's surface: a component of the sheet with no edge in common with the walls, in one
             // cell of the workpiece. Cells are joined only across shared edges, so this cell may be the same region as another cell with the other
             // mark, which only the nesting of the shells could tell: refused, whatever UncutSide says)
+            // (shells that may nest: two cells of different shells are joined by no edge, so they may be one region of material (a cavity inside the
+            // first input), and a 0 mark on one and a 1 mark on the other may be a contradiction that only the nesting of the shells could show: refused,
+            // as an uncut cell is, when the box of one shell holds the box of the other and both labels occur on the two. Shells that cannot nest
+            // (disjoint boxes) are independent. A legitimate cut through a hollow body, with both labels on the nested shells, is refused too)
+            if (cells.ShellCount > 1) {
+                var shell0 = new bool[cells.ShellCount];
+                var shell1 = new bool[cells.ShellCount];
+                var shell0Cell = new int[cells.ShellCount];
+                var shell1Cell = new int[cells.ShellCount];
+                for (int sh = 0; sh < cells.ShellCount; ++sh)
+                    shell0Cell[sh] = shell1Cell[sh] = -1;
+                for (int node = 0; node < cells.Cell.Length; ++node) {
+                    if (cells.Boundary[node / 2] == false || interior[node] == false)
+                        continue;
+                    int sh = cells.Shell[node / 2], c = cells.Cell[node];
+                    if (first0[c] >= 0) { shell0[sh] = true; if (shell0Cell[sh] < 0) shell0Cell[sh] = c; }
+                    if (first1[c] >= 0) { shell1[sh] = true; if (shell1Cell[sh] < 0) shell1Cell[sh] = c; }
+                }
+                for (int sa = 0; sa < cells.ShellCount; ++sa)
+                    for (int sb = sa + 1; sb < cells.ShellCount; ++sb) {
+                        if (cells.MayNest(sa, sb) == false)
+                            continue;
+                        int c0 = shell0[sa] ? shell0Cell[sa] : shell0[sb] ? shell0Cell[sb] : -1;
+                        int c1 = shell1[sa] ? shell1Cell[sa] : shell1[sb] ? shell1Cell[sb] : -1;
+                        if (c0 < 0 || c1 < 0)
+                            continue;
+                        result.ConflictingCells = 1;
+                        result.Piece = first0[c0] / 2;
+                        result.Piece2 = first1[c1] / 2;
+                        result.MarkTriangle0 = mark0[first0[c0]];
+                        result.MarkTriangle1 = mark1[first1[c1]];
+                        result.Reason = ExactMeshBoolean.SheetRefusal.SidesInconsistent;
+                        return result;
+                    }
+            }
             for (int c = 0; c < nc; ++c) {
                 if (seen[c] && wall[c] == false && (first0[c] >= 0 || first1[c] >= 0)) {
                     if (result.FloatingCells++ == 0) {

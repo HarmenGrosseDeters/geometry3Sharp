@@ -451,6 +451,128 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0, Volume(both.Result), 12);
         }
 
+        // a hollow block (the cube [0,10]^3 and a cavity [4,6]^3 with inward normals) and a sheet of two components that mark its material from both
+        // sides: a plate z = 2 through the block (the material above it is in front, label 0: the cells of the outer shell) and a cap on the cavity's
+        // top face (a pyramid in the material above it, the rim on that face, its normals pointing down into the pocket: the material outside the cap
+        // is behind it, label 1: the cells of the cavity's shell). The two shells are not joined by an edge, so these are two cells of one region of
+        // material with different labels: the nesting of the shells would be needed to see it. The boxes of the shells nest, so a sheet that puts both
+        // labels on them is refused (SidesInconsistent), also where it is consistent; shells that cannot nest (disjoint boxes) are independent
+        static DMesh3 HollowBlock() { return Joined(Box(0, 0, 0, 10, 10, 10), Reversed(Box(4, 4, 4, 6, 6, 6))); }
+
+        static DMesh3 CapOnTheCavity(bool intoThePocket)
+        {
+            var m = new DMesh3();
+            int b0 = m.AppendVertex(new Vector3d(4.5, 4.5, 6)), b1 = m.AppendVertex(new Vector3d(5.5, 4.5, 6)), b2 = m.AppendVertex(new Vector3d(5.5, 5.5, 6)),
+                b3 = m.AppendVertex(new Vector3d(4.5, 5.5, 6)), a = m.AppendVertex(new Vector3d(5, 5, 7));
+            m.AppendTriangle(b0, b1, a); m.AppendTriangle(b1, b2, a); m.AppendTriangle(b2, b3, a); m.AppendTriangle(b3, b0, a);      // (normals away from the pocket)
+            return intoThePocket ? Reversed(m) : m;
+        }
+
+        [Fact]
+        public void HollowBlock_BothLabelsOnNestedShells_IsRefused_NotAGarbledResult()
+        {
+            DMesh3 plate = Plate(2, -1, 11, -1, 11);
+            // the contradiction: the material outside the cap is behind the cap (label 1) and in front of the plate (label 0)
+            ExactMeshBoolean bad = Run(HollowBlock(), Joined(plate, CapOnTheCavity(true)));
+            AssertRefused(bad, Refusal.SidesInconsistent, "plate and a cap that points into the pocket");
+            Assert.Equal(1, bad.SheetConflictingCells);
+            // the cap the other way (the material outside it in front, label 0, as in front of the plate): consistent, but both labels occur on the
+            // outer shell (the plate cuts it) and the cavity's shell may be inside it: refused, conservatively (the documented limit)
+            AssertRefused(Run(HollowBlock(), Joined(plate, CapOnTheCavity(false))), Refusal.SidesInconsistent, "plate and a cap that points away: the limit");
+            // a plane through the block and the cavity (a legitimate cut of a hollow body): also refused, for the same reason
+            AssertRefused(Run(HollowBlock(), Plate(5, -1, 11, -1, 11)), Refusal.SidesInconsistent, "a plate through the cavity: the limit");
+        }
+
+        [Fact]
+        public void HollowBlock_TheCavityShellFirst_IsRefusedAsWell()
+        {
+            // (the outer shell is the later one: the nesting test holds in both directions)
+            DMesh3 block = Joined(Reversed(Box(4, 4, 4, 6, 6, 6)), Box(0, 0, 0, 10, 10, 10));
+            AssertRefused(Run(block, Joined(Plate(2, -1, 11, -1, 11), CapOnTheCavity(true))), Refusal.SidesInconsistent, "cavity shell first");
+        }
+
+        [Fact]
+        public void TwoShells_WhoseBoxesDoNotNest_AreIndependent_AndBothLabelsAreFine()
+        {
+            // two cubes with disjoint boxes, both cut by one plate: both labels occur on the two shells, which cannot nest: fine (the hollow block
+            // above, whose shells nest, is refused)
+            DMesh3 two = TwoCubes(new Vector3d(0, 0, 0), new Vector3d(5, 0, 0));
+            ExactMeshBoolean both = Run(two, Plate(0.5, -1, 7, -1, 2));
+            Assert.True(both.Status == Status.Success, both.Status + " " + both.SheetReason + " " + both.Error);
+            Assert.Equal(1.0, Volume(both.Result), 12);
+        }
+
+        // a page: the quad with the edge a0-a1 on the line, extending to b1-b0, normal on the given side
+        static DMesh3 Page(Vector3d a0, Vector3d a1, Vector3d b1, Vector3d b0, Vector3d normal)
+        {
+            var s = new Soup();
+            Vector3d n = (a1 - a0).Cross(b1 - a0);
+            if (n.Dot(normal) > 0)
+                s.Quad(a0, a1, b1, b0);
+            else
+                s.Quad(a0, b0, b1, a1);
+            return s.Mesh;
+        }
+
+        // four half-planes from the line y = z = 0.5 (along x from -1 to 2) with alternating labels: a checkerboard of the four quarters
+        // (+y, +z, -y, -z pages: the normals +z, +y, -z, -y), each line edge cut at other points of x
+        static DMesh3 HalfPlane(double[] cuts, Vector3d dir, Vector3d normal)
+        {
+            var xs = new List<double> { -1 };
+            xs.AddRange(cuts);
+            xs.Add(2);
+            DMesh3 m = null;
+            for (int i = 0; i + 1 < xs.Count; ++i) {
+                var a0 = new Vector3d(xs[i], 0.5, 0.5);
+                var a1 = new Vector3d(xs[i + 1], 0.5, 0.5);
+                DMesh3 q = Page(a0, a1, a1 + dir * 2, a0 + dir * 2, normal);
+                m = m == null ? q : Joined(m, q);
+            }
+            return m;
+        }
+
+        static DMesh3 Cross(double[] cutsPy, double[] cutsPz, double[] cutsMy, double[] cutsMz)
+        {
+            DMesh3 result = HalfPlane(cutsPy, new Vector3d(0, 1, 0), new Vector3d(0, 0, 1));
+            result = Joined(result, HalfPlane(cutsPz, new Vector3d(0, 0, 1), new Vector3d(0, 1, 0)));
+            result = Joined(result, HalfPlane(cutsMy, new Vector3d(0, -1, 0), new Vector3d(0, 0, -1)));
+            return Joined(result, HalfPlane(cutsMz, new Vector3d(0, 0, -1), new Vector3d(0, -1, 0)));
+        }
+
+        [Fact]
+        public void FourPagesAtOneLine_SameEdgeKeys_NotSurface_DifferentSubdivision_IsTheCheckerboard()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            var none = new double[0];
+            // (the four pages with the same edge: four triangles at one edge: not a surface)
+            AssertRefused(Run(cube, Cross(none, none, none, none)), Refusal.NotSurface, "four pages, one edge key");
+            // each page's line edge cut at other places: the pages meet along a line subdivided differently. After the arrangement four pieces meet at
+            // every piece of the line, and their sides alternate (0, 1, 0, 1): the labelling is consistent, the result is the exact point set: two
+            // opposite quarters of the cube (the ones the normals point into): volume 1/2, closed, with the quarters touching along the line
+            ExactMeshBoolean op = Run(cube, Cross(new[] { 0.5 }, new[] { 0.25, 1.25 }, none, new[] { 0.75 }));
+            Assert.True(op.Status == Status.Success, op.Status + " " + op.SheetReason + " " + op.Error);
+            Assert.Equal(0.5, Volume(op.Result), 12);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(op.Result));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result).Replace("self-intersections", ""));
+        }
+
+        [Fact]
+        public void ASheetOutsideTheWorkpiece_TouchingItAtAnEdgeOrAVertex_CutsNothing()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            // plates in the plane of the top face, outside the cube, touching it along the edge x = 1 and at the corner (1, 1, 1): no piece of
+            // them is inside the cube, so the sheet marks nothing: refused as an uncut part by default, the stated side decides
+            foreach (DMesh3 plate in new[] { Plate(1, 1, 3, 0, 1), Plate(1, 1, 3, 1, 3) }) {
+                AssertRefused(Run(cube, plate), Refusal.UncutComponents, "outside, touching");
+                ExactMeshBoolean outside = Run(cube, plate, ExactMeshBoolean.SheetUncutSides.Outside);
+                Assert.True(outside.Status == Status.Success, outside.Status + " " + outside.SheetReason + " " + outside.Error);
+                Assert.Equal(1.0, Volume(outside.Result), 12);
+                ExactMeshBoolean inside = Run(cube, plate, ExactMeshBoolean.SheetUncutSides.Inside);
+                Assert.True(inside.Status == Status.Success, inside.Status + " " + inside.SheetReason + " " + inside.Error);
+                Assert.Equal(0, inside.Result.TriangleCount);
+            }
+        }
+
         static DMesh3 TwoCubes(Vector3d a, Vector3d b)
         {
             var m = Box(a.x, a.y, a.z, a.x + 1, a.y + 1, a.z + 1);
