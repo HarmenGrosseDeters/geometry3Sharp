@@ -46,6 +46,26 @@ What the numbers show:
 - On these pairs the exact path is 4-40 times slower, most for `Find()`: its contact points come from BigInteger determinants.
 - In general position the new route test costs about 0.1-0.2 µs per pair: the normals, the distances to the plane, and rarely an `Orient3d`.
 
+### Exact decision for every pair (2026-11-22)
+
+`IntrTriangle3Triangle3` decides every non-degenerate pair with `ExactTriangleIntersection` (the `TriangleTriangleFilter` in
+front where `nearly_planar`), no longer only coplanar, nearly parallel and near-plane ones; `Find()` of a general crossing
+computes its two end points from the crossing edges in floating point after exact sign tests. Run 22 November 2026, 4 cores,
+`dotnet run -c Release -- triangles`, master `1c7f093a` (before) against the branch (after), two runs each, ns per pair
+`Test()` / `Intersects()` / `Find()`:
+
+| family | before (2 runs) | after (2 runs) |
+|---|---|---|
+| slivers, shared vertex | 612 / 308 / 5711, 624 / 307 / 5699 | 603 / 345 / 5958, 584 / 235 / 5959 |
+| slivers, shared edge | 507 / 259 / 3224, 493 / 258 / 3406 | 477 / 203 / 3426, 477 / 195 / 3417 |
+| half-integer lattice | 576 / 333 / 6013, 579 / 507 / 5956 | 530 / 302 / 6036, 540 / 307 / 6089 |
+| oblique planes | 988 / 518 / 5847, 723 / 512 / 5755 | 690 / 489 / 5839, 671 / 491 / 5994 |
+| tilted within 1e-8 | 432 / 358 / 4375, 438 / 360 / 4425 | 374 / 321 / 4466, 390 / 337 / 4644 |
+| general position | 321 / 249 / 499, 328 / 246 / 499 | 186 / 133 / 280, 231 / 167 / 298 |
+
+The general-position row is the common case of the AABB tree queries: 30-45 % faster (the exact test is cheaper than the
+floating-point separating axes plus the route test they needed); the other families are within the noise (about 5 %).
+
 ### With `TriangleTriangleFilter` in the exact route
 
 The exact route's closed test (`exact_intersects`) runs `TriangleTriangleFilter` (an axis projection decided with the
