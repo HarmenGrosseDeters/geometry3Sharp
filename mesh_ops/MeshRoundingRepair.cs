@@ -726,6 +726,7 @@ namespace g3
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             RemovedComponentInfos = new List<RemovedComponentInfo>();
             RemovedResolvable = 0;
+            MeasuredBefore = -1;
             beforeOfVertex = null;
             befores = null;
             LockedContractions = RuleLockedContractions = 0;
@@ -3245,6 +3246,9 @@ namespace g3
         // inside them, none of the 3474 procedural results of the study did, so the branch NotMeasured is reached there
         // with 0: nothing is measured)
         internal double MeasureWindow = 2;
+        // how many components the last Apply measured before its edits; -1: it did not measure (nothing to repair and no
+        // coarse coordinates, so no edit can follow: the pass over the components is saved)
+        internal int MeasuredBefore = -1;
         // per vertex: the index in befores of the measured component it was in, -1 none, -2 more than one (a vertex where two
         // closed components touch)
         int[] beforeOfVertex;
@@ -3317,6 +3321,7 @@ namespace g3
                 }
                 befores.Add(b);
             }
+            MeasuredBefore = befores.Count;
         }
 
         // the measurement of the component before the edits, or null: not measured, or its vertices do not name one

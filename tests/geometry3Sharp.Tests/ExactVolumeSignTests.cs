@@ -495,6 +495,22 @@ namespace geometry3Sharp.Tests
             Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, BigInteger.Zero, 0, 1));
             Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.Zero, 0, big, 0, 1));
             Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.Zero, 0, BigInteger.Zero, 5, 1));
+            // (the first sum at the larger exponent, small: 1 x 2^4 against 20 is a factor 1.25; shifted the wrong way it were 0)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.One, 4, 20, 0, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(20, 0, BigInteger.One, 4, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.One, 4, 33, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(33, 0, BigInteger.One, 4, 1));
+        }
+
+        /// <summary> one triangle is a sum (zero: it is taken relative to its own first corner); fewer than three corners are none </summary>
+        [Fact]
+        public void VolumeSum6Exact_OneTriangle_IsZero_NoTriangle_IsNotComputed()
+        {
+            double[] xyz = { 1, 2, 3, 4, 6, 5, 7, 1, 9 };
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, new[] { 0, 1, 2 }, out BigInteger total, out int exponent));
+            Assert.True(total.IsZero);
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, new[] { 0, 1 }, out total, out exponent));
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, null, out total, out exponent));
         }
     }
 }

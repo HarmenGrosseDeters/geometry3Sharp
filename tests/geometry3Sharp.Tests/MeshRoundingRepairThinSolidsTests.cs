@@ -178,6 +178,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);
             Assert.Null(strict.Result);
             Assert.Contains("1 components removed that their coordinates resolve", strict.Error);
+            Assert.DoesNotContain("effort limit", strict.Error);
         }
 
         /// <summary>
@@ -929,6 +930,36 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(lost.Report.RoundingRemoved);
             Assert.Equal(Reasons.VolumeChanged, info.Reason);
             Assert.True(info.Resolvable);
+        }
+        /// <summary>
+        /// the measurement before the edits runs only where an edit can follow: not on a mesh with nothing to repair (the pass over
+        /// its components is saved), and also where the only defects are contacts the rounding made
+        /// </summary>
+        [Fact]
+        public void Measurement_RunsOnlyWhereAnEditCanFollow()
+        {
+            DMesh3 clean = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            new MeshEditor(clean).AppendMesh(new TrivialBox3Generator() { Box = new Box3d(new Vector3d(3, 0, 0), new Vector3d(0.5, 0.5, 1e-5)) }.Generate().MakeDMesh());
+            var r = new MeshRoundingRepair(clean);
+            r.Apply();
+            Assert.Equal(0, r.InitialIntersections + r.InitialDegenerate + r.InitialFalseContacts);
+            Assert.Equal(-1, r.MeasuredBefore);
+
+            // (one thin slab with a needle: measured, one component within the window)
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            new MeshEditor(m).AppendMesh(CubeWithNeedle(new Vector3d(3, 0, 0), new Vector3d(0.5, 0.5, 1e-5)));
+            r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.Equal(1, r.MeasuredBefore);
+            r.Apply();
+            Assert.Equal(-1, r.MeasuredBefore);
+
+            // (contacts made by the rounding as the only defect: measured)
+            var b = new ExactMeshBoolean(ExactBooleanRoundingContactsTests.A(), ExactBooleanRoundingContactsTests.SkewB(), Ops.Difference);
+            Assert.True(b.Compute(), b.Error);
+            Assert.True(b.Rounding.InitialFalseContacts > 0);
+            Assert.Equal(0, b.Rounding.InitialIntersections + b.Rounding.InitialDegenerate);
+            Assert.True(b.Rounding.MeasuredBefore >= 0);
         }
     }
 }
