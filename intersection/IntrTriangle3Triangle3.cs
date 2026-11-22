@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Numerics;
 
 namespace g3
@@ -186,11 +185,16 @@ namespace g3
         bool find_transversal()
         {
             Triangle3d A = triangle0, B = triangle1;
-            // nearly parallel planes: the crossing points are ill conditioned in floating point (heuristic choice of the
-            // route, the exact one decides anything it does not take)
+            // the crossing points are computed from the floating-point normals and distances: only for well
+            // conditioned triangles (no sliver: |n|^2 above 1e-12 of the squared edge lengths) whose planes are not nearly
+            // parallel (sin^2 of the angle above 1e-8: an error of 1e-16 in a distance is then 1e-12 of the edge). A
+            // heuristic choice of the route; the exact one decides anything it does not take.
             Vector3d nA = (A.V1 - A.V0).Cross(A.V2 - A.V0), nB = (B.V1 - B.V0).Cross(B.V2 - B.V0);
-            if (nA.Cross(nB).LengthSquared < 1e-12 * nA.LengthSquared * nB.LengthSquared)
-                return false;
+            double lA = nA.LengthSquared, lB = nB.LengthSquared;
+            if ((lA > 1e-12 * (A.V1 - A.V0).LengthSquared * (A.V2 - A.V0).LengthSquared
+                && lB > 1e-12 * (B.V1 - B.V0).LengthSquared * (B.V2 - B.V0).LengthSquared
+                && nA.Cross(nB).LengthSquared >= 1e-8 * lA * lB) == false)
+                return false;       // (also for overflow or NaN: the comparisons are false)
             int oa = odd_vertex(ref A, ref B), ob = odd_vertex(ref B, ref A);
             if (oa < 0 || ob < 0)
                 return false;
@@ -211,7 +215,7 @@ namespace g3
             double ulo = Math.Max(0, uLo), uhi = Math.Min(dd, uHi);
             // (ulo < uhi also excludes equal points: the parameter of a point is computed from its coordinates alone, so equal
             // points have equal parameters; a1 and a2 have 0 and dd exactly)
-            if ((ulo < uhi) == false)
+            if ((ulo < uhi) == false || lo.IsFinite == false || hi.IsFinite == false)
                 return false;
             Points[0] = lo;
             Points[1] = hi;

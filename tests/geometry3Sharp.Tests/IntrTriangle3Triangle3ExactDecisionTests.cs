@@ -16,13 +16,22 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class IntrTriangle3Triangle3ExactDecisionTests
     {
+        // the next double up / down, for finite x (Math.BitIncrement / BitDecrement are missing on net48)
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+
         static double Perturb(Random r, double v)
         {
             if (v == 0)     // (not subnormal: a 2^k scale would lose it)
                 return (r.Next(2) == 0 ? 1 : -1) * Math.Pow(2, -r.Next(30, 53));
             switch (r.Next(1, 6)) {
-                case 1: return Math.BitIncrement(v);
-                case 2: return Math.BitDecrement(v);
+                case 1: return BitIncrement(v);
+                case 2: return BitDecrement(v);
                 case 3: return v + (r.NextDouble() - 0.5) * 1e-9;
                 case 4: return v + (r.NextDouble() - 0.5) * 1e-12;
                 default: return v + (r.NextDouble() - 0.5) * 1e-6;
@@ -96,6 +105,7 @@ namespace geometry3Sharp.Tests
                 if (truth && f.Type == IntersectionType.Point) touches++;
             }
             Assert.InRange(hits, 100, 590);     // the generator makes both outcomes common
+            Assert.True(touches > 10, "touching contacts " + touches);
         }
 
         [Fact]
@@ -129,7 +139,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Find_GenericCrossing_IsASegmentOfPositiveLength()
         {
-            // two triangles crossing like a plus sign: exactly the segment x in [-1, 1], y = 0, z = 0 ... clipped by both
+            // two triangles crossing: the contact is the segment y = 0, z = 0, x in [-2/3, 2/3] (A's slice at y = 0 is
+            // [-1.5, 1.5], B's is [-2/3, 2/3])
             var a = new Triangle3d(new Vector3d(-2, -1, 0), new Vector3d(2, -1, 0), new Vector3d(0, 3, 0));
             var b = new Triangle3d(new Vector3d(-1, 0, -1), new Vector3d(1, 0, -1), new Vector3d(0, 0, 2));
             var f = new IntrTriangle3Triangle3(a, b);
@@ -137,7 +148,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(IntersectionType.Segment, f.Type);
             Assert.Equal(2, f.Quantity);
             double len = f.Points[0].Distance(f.Points[1]);
-            Assert.InRange(len, 1.2, 2.0);
+            Assert.InRange(len, 4.0 / 3 - 1e-12, 4.0 / 3 + 1e-12);
+            Assert.InRange(Math.Min(f.Points[0].x, f.Points[1].x), -2.0 / 3 - 1e-12, -2.0 / 3 + 1e-12);
+            Assert.InRange(Math.Max(f.Points[0].x, f.Points[1].x), 2.0 / 3 - 1e-12, 2.0 / 3 + 1e-12);
             Assert.All(new[] { f.Points[0], f.Points[1] }, p => Assert.True(Math.Abs(p.y) < 1e-14 && Math.Abs(p.z) < 1e-14));
         }
 
@@ -316,7 +329,7 @@ namespace geometry3Sharp.Tests
                 Vector3d V() => new Vector3d(r.NextDouble() * 2 - 1, r.NextDouble() * 2 - 1, r.NextDouble() * 2 - 1);
                 Vector3d u = V(), w = V(), a3 = V(), b3 = V();
                 Vector3d w2 = w; int ax = r.Next(3);
-                w2[ax] = r.Next(2) == 0 ? Math.BitIncrement(w2[ax]) : Math.BitDecrement(w2[ax]);
+                w2[ax] = r.Next(2) == 0 ? BitIncrement(w2[ax]) : BitDecrement(w2[ax]);
                 var A = new Triangle3d(-u, u, a3); var B = new Triangle3d(-w, w2, b3);
                 if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B)) continue;
                 bool truth = ExactTriangleIntersection.Intersects(ref A, ref B);
@@ -365,6 +378,103 @@ namespace geometry3Sharp.Tests
                 } else misses++;
             }
             Assert.True(hits > 100 && misses > 100, "hits " + hits + ", misses " + misses);
+        }
+
+        static Triangle3d Shift(Triangle3d t, double dx) => new Triangle3d(t.V0 + new Vector3d(dx, 0, 0), t.V1 + new Vector3d(dx, 0, 0), t.V2 + new Vector3d(dx, 0, 0));
+
+        [Fact]
+        public void Find_GenericCrossing_ClipsOneSliceAgainstTheOther()
+        {
+            var a = new Triangle3d(new Vector3d(-2, -1, 0), new Vector3d(2, -1, 0), new Vector3d(0, 3, 0));      // slice at y = 0: x in [-1.5, 1.5]
+            var b = new Triangle3d(new Vector3d(-1, 0, -1), new Vector3d(1, 0, -1), new Vector3d(0, 0, 2));       // slice at z = 0: x in [-2/3, 2/3]
+            // (expected lo, hi) of the overlap for B shifted in x: B inside A, overlapping at the end of A, B outside A, A inside B
+            foreach (var (dx, lo, hi) in new[] { (0.0, -2.0 / 3, 2.0 / 3), (1.0, 1.0 / 3, 1.5), (-1.0, -1.5, -1.0 / 3), (0.25, -5.0 / 12, 11.0 / 12) }) {
+                var bs = Shift(b, dx);
+                foreach (bool swap in new[] { false, true }) {
+                    var f = swap ? new IntrTriangle3Triangle3(bs, a) : new IntrTriangle3Triangle3(a, bs);
+                    Assert.True(f.Find(), "dx " + dx);
+                    Assert.Equal(IntersectionType.Segment, f.Type);
+                    double x0 = Math.Min(f.Points[0].x, f.Points[1].x), x1 = Math.Max(f.Points[0].x, f.Points[1].x);
+                    Assert.InRange(x0, lo - 1e-12, lo + 1e-12);
+                    Assert.InRange(x1, hi - 1e-12, hi + 1e-12);
+                    Assert.All(new[] { f.Points[0], f.Points[1] }, p => Assert.True(Math.Abs(p.y) < 1e-12 && Math.Abs(p.z) < 1e-12));
+                }
+            }
+            // B beyond the end of A's slice: no contact
+            Assert.False(new IntrTriangle3Triangle3(a, Shift(b, 2.5)).Find());
+        }
+
+        [Fact]
+        public void Find_NearlyParallelPlanes_GiveTheContactToRoundingOnce()
+        {
+            // planes 3e-6 rad apart (sin^2 below the limit of the floating-point route): A in z = 0, B in z = 3e-6 y
+            var a = new Triangle3d(new Vector3d(-2, -2, 0), new Vector3d(2, -2, 0), new Vector3d(0, 2, 0));         // slice at y = 0: x in [-1, 1]
+            double e = 3e-6;
+            var b = new Triangle3d(new Vector3d(-1, -1, -e), new Vector3d(1, -1, -e), new Vector3d(0, 1, e));      // slice at y = 0: x in [-0.5, 0.5]
+            var f = new IntrTriangle3Triangle3(a, b);
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Segment, f.Type);
+            double x0 = Math.Min(f.Points[0].x, f.Points[1].x), x1 = Math.Max(f.Points[0].x, f.Points[1].x);
+            Assert.Equal(-0.5, x0, 15);
+            Assert.Equal(0.5, x1, 15);
+            Assert.All(new[] { f.Points[0], f.Points[1] }, p => Assert.True(Math.Abs(p.y) < 1e-15 && Math.Abs(p.z) < 1e-15));
+        }
+
+        [Fact]
+        public void Find_SliverTriangle_GivesAContactOnIt()
+        {
+            // A: corners nearly collinear (not exactly: not degenerate), its rounded normal is useless
+            var a = new Triangle3d(new Vector3d(-1, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.1, 1e-15, 0));
+            var b = new Triangle3d(new Vector3d(0, -1, -1), new Vector3d(0, 1, -1), new Vector3d(0, 0, 1));
+            Assert.False(ExactTriangleIntersection.IsDegenerate(ref a));
+            var f = new IntrTriangle3Triangle3(a, b);
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Segment, f.Type);
+            double y0 = Math.Min(f.Points[0].y, f.Points[1].y), y1 = Math.Max(f.Points[0].y, f.Points[1].y);
+            Assert.Equal(0.0, y0, 17);
+            Assert.Equal(1e-15 * 1.0 / 1.1, y1, 17);       // the edge (-1, 0)-(0.1, 1e-15) at x = 0
+            Assert.All(new[] { f.Points[0], f.Points[1] }, p => Assert.True(p.x == 0 && p.z == 0));
+        }
+
+        [Fact]
+        public void Find_AtHugeScale_GivesTheScaledContact()
+        {
+            var a = new Triangle3d(new Vector3d(-2, -1, 0), new Vector3d(2, -1, 0), new Vector3d(0, 3, 0));
+            var b = new Triangle3d(new Vector3d(-1, 0, -1), new Vector3d(1, 0, -1), new Vector3d(0, 0, 2));
+            double s = Math.Pow(2, 700);        // the cross products overflow: the exact route
+            Triangle3d Big(Triangle3d t) => new Triangle3d(t.V0 * s, t.V1 * s, t.V2 * s);
+            var f = new IntrTriangle3Triangle3(Big(a), Big(b));
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Segment, f.Type);
+            double x0 = Math.Min(f.Points[0].x, f.Points[1].x) / s, x1 = Math.Max(f.Points[0].x, f.Points[1].x) / s;
+            Assert.Equal(-2.0 / 3, x0, 12);
+            Assert.Equal(2.0 / 3, x1, 12);
+            double t2 = Math.Pow(2, -700);      // and tiny
+            Triangle3d Small(Triangle3d t) => new Triangle3d(t.V0 * t2, t.V1 * t2, t.V2 * t2);
+            var g = new IntrTriangle3Triangle3(Small(a), Small(b));
+            Assert.True(g.Find());
+            Assert.Equal(-2.0 / 3, Math.Min(g.Points[0].x, g.Points[1].x) / t2, 12);
+        }
+
+        [Fact]
+        public void Compute_OnOneInstance_FollowsTheSettersAcrossTypes()
+        {
+            var a = new Triangle3d(new Vector3d(-2, -1, 0), new Vector3d(2, -1, 0), new Vector3d(0, 3, 0));
+            var segment = new Triangle3d(new Vector3d(-1, 0, -1), new Vector3d(1, 0, -1), new Vector3d(0, 0, 2));
+            var up = new Triangle3d(new Vector3d(0, -1, 0.5), new Vector3d(0, -1, 3), new Vector3d(-1, -2, 3));       // plane x = 0 ... touches nothing
+            var point = new Triangle3d(new Vector3d(0, -1, 0), new Vector3d(0, -1, 2), new Vector3d(-1, -2, 2));      // touches A's edge y = -1 at (0, -1, 0)
+            var coplanar = new Triangle3d(new Vector3d(-1, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+            var f = new IntrTriangle3Triangle3(a, up) { ReportCoplanarIntersection = true };
+            Assert.False(f.Compute().Result == IntersectionResult.Intersects);
+            f.Triangle1 = segment;
+            Assert.True(f.Find()); Assert.Equal(IntersectionType.Segment, f.Type); Assert.Equal(2, f.Quantity);
+            f.Triangle1 = point;
+            Assert.True(f.Find()); Assert.Equal(IntersectionType.Point, f.Type); Assert.Equal(1, f.Quantity);
+            Assert.Equal(new Vector3d(0, -1, 0), f.Points[0]);
+            f.Triangle1 = coplanar;
+            Assert.True(f.Find()); Assert.Equal(IntersectionType.Polygon, f.Type); Assert.Equal(f.PolygonPoints.Length, f.Quantity);
+            f.Triangle1 = segment;
+            Assert.True(f.Find()); Assert.Equal(IntersectionType.Segment, f.Type); Assert.Equal(2, f.Quantity);
         }
 
         [Fact]
