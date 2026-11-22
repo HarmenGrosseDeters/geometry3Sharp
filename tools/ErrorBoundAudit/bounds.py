@@ -814,7 +814,7 @@ def boundary_lengths(c, r):
 
 
 @entry('RC-5 far_term', BOOL,
-       ['double q = 4 * Math.PI * d * d;', 'return Math.Min(length / q, count / (2 * Math.PI * d));',
+       ['double q = 4 * Math.PI * d * d;', 'return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));',
         'return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;', 'return g * (1 + 1e-12);',
         'cost = g * (1 + 1e-12) * diam;'],
        'the computed term against min(length / (4 pi d^2), count / (2 pi d))',
