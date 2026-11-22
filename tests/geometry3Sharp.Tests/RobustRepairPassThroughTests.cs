@@ -177,6 +177,50 @@ namespace geometry3Sharp.Tests
             Assert.True(ran >= 4, "similarities run: " + ran);
         }
 
+        // a box with a cavity: two clean parts whose boxes meet, with a needle in the outer one. The whole is clean, so the input is returned as it is (#1337)
+        static DMesh3 BoxWithCavity()
+        {
+            DMesh3 outer = Scaled(BoxWithSplitEdge(1e-3), 2);
+            DMesh3 cavity = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            cavity.ReverseOrientation();
+            return Union(outer, cavity);
+        }
+
+        [Fact]
+        public void CleanWholeInput_PartsWhoseBoxesMeet_ReturnedUnchanged()
+        {
+            DMesh3 input = BoxWithCavity();
+            Assert.Equal("", MeshRobustRepair.NotCleanReasons(input));
+            var r = new MeshRobustRepair(new DMesh3(input));
+            Assert.True(r.Apply());
+            Assert.Equal("", r.ResultReason);
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            Assert.Equal(input.TriangleCount, r.PassedThroughTriangles);
+            Assert.True(Vertices(input).SetEquals(Vertices(r.Mesh)));
+            Assert.Equal(ResultChecks.Volume(input), ResultChecks.Volume(r.Mesh), 12);
+            // under the similarities (2^k scales map back bit for bit); a second Apply() on the instance
+            int ran = 0;
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 t = Invariance.Transformed(input, sim);
+                if (MeshRobustRepair.NotCleanReason(t) != "")
+                    continue;
+                var rs = new MeshRobustRepair(new DMesh3(t));
+                Assert.True(rs.Apply(), sim.Name);
+                Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, rs.ResultPath);
+                Assert.True(Vertices(t).SetEquals(Vertices(rs.Mesh)), sim.Name);
+                if (sim.IsExact)
+                    Assert.True(Vertices(input).SetEquals(Vertices(Invariance.MappedBack(rs.Mesh, sim))), sim.Name);
+                ++ran;
+            }
+            Assert.True(ran >= 4, "similarities run: " + ran);
+            Assert.True(r.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            // with ConfigureRepair or PassThroughCleanParts off the repair runs
+            var off = new MeshRobustRepair(new DMesh3(input)) { PassThroughCleanParts = false };
+            Assert.True(off.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, off.ResultPath);
+        }
+
         // ConfigureRepair asks for a change of a clean mesh (eg a tolerance): the repair runs; RepairF too; PassThroughCleanParts off too
         [Fact]
         public void CleanSingleComponent_ConfigureRepairOrOff_RunsTheRepair()
@@ -233,13 +277,19 @@ namespace geometry3Sharp.Tests
             Assert.True(Vertices(box).SetEquals(Vertices(r.Mesh)));
         }
 
-        // more than 64 components are pieces, not parts: nothing passes
+        // more than 64 components are pieces, not parts: no part passes through on its own; a whole input that is clean still is returned as it is (#1337)
         [Fact]
-        public void ManyComponents_NoPassThrough()
+        public void ManyComponents_NoPartPassThrough_CleanWholeIsUnchanged()
         {
             var parts = new List<DMesh3>();
             for (int i = 0; i < 70; ++i)
                 parts.Add(new TrivialBox3Generator() { Box = new Box3d(new Vector3d(10 * i, 0, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh());
+            DMesh3 clean = Union(parts.ToArray());
+            var all = new MeshRobustRepair(new DMesh3(clean));
+            Assert.True(all.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, all.ResultPath);
+            Assert.Equal(clean.TriangleCount, all.PassedThroughTriangles);
+            parts[0] = WithHole(parts[0]);
             var r = new MeshRobustRepair(Union(parts.ToArray()));
             r.Apply();
             Assert.Equal(0, r.PassedThroughTriangles);

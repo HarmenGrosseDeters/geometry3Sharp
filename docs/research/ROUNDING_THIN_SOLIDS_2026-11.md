@@ -18,7 +18,7 @@ Not repeated here: the guarantee side of a grid rounding
 ([SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](SNAP_ROUNDING_3D_GUARANTEE_2026-11.md), which found that the lost slabs are a
 matter of the removal rule), the audit that found the drop
 ([SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md](SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) F1 and 4.5), and the cost of the
-rounding (the rounding cost study, PR #1390, `ROUNDING_COST_2026-11.md` on its branch).
+rounding (the rounding cost study, PR #1390, [ROUNDING_COST_2026-11.md](ROUNDING_COST_2026-11.md)).
 
 ## 1. Result in short
 
