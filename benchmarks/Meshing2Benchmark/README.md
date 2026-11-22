@@ -552,3 +552,17 @@ is not the hash (snap rounding itself, 1.5 s at 56 000 triangles in the profile)
 meshes the cases with `QualityMesh2` (default and constrained quality) and integrates I = ∫ 1/lfs² (Ruppert's local feature
 size) over the output; it prints the triangles per unit of I for ours and for the reference counts of MESHING2D_GRADING.md.
 Results and reading: [GEOGRAM_MEASUREMENTS_2026-11.md](../../docs/research/GEOGRAM_MEASUREMENTS_2026-11.md), item 2.
+
+## The planar-map stress measurement (2026-11-22)
+
+`dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- planarmap [--kinds soup,bundle,pencil-exact,pencil-near,junction-ulp,junction-tiny,overlap-exact,overlap-near,tchain] [--sizes small,large|<n>] [--tolerances 0,9.5367431640625e-07] [--repeats 3] [--judge [--judge-limit 40000]]`
+runs `ConstrainedDelaunayMesh2` as an exact planar map on procedural segment sets that are near-degenerate in the ways projected 3D
+curves are (`PlanarMapStress.cs`): a random soup as the reference, bundles of near-parallel segments, many segments through one point,
+ends that almost meet, collinear overlaps, a chain of T-junctions. Per row: the crossing and contact pairs and the time to find them
+alone (`detect`, a grid and the filtered exact `Orient2d`: the floor of any arrangement method), status, output size, median time,
+allocation, the Delaunay triangulation of the output's vertices alone, with a snap tolerance the time of `SnapRounding2.Apply` alone
+with its rounds and points, and with `--judge` the oracle's verdict (every kind of violation with its count). A measurement, not a gate;
+exit code 1 if a row fails or is judged invalid. Raw output: `perf/planarmap-*-net10.txt`. Results, reading and the four findings (a
+`NodingLimit` on heavy collinear overlap, superlinear edge recovery on near-parallel bundles, the cost of snap rounding on long
+segments with many hot pixels, a marker disagreement of mesher and oracle under snap rounding):
+[ROBUST_PLANAR_MAPS_2026-11.md](../../docs/research/ROBUST_PLANAR_MAPS_2026-11.md).

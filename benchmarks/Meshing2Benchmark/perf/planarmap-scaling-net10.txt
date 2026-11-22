@@ -1,0 +1,12 @@
+oracle self-check: 481 checks passed
+runtime .NET 10.0.15, 4 cores
+family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_vertex,delaunay_ms,snap_ms,snap_rounds,hot_pixels,verdict
+bundle,125,3856,0,0.4,0,Success,4016,7780,7701,223.9,174.1,21.8,55.75,18.7,,,,not judged
+bundle,250,14371,0,1.2,0,Success,14654,28806,28664,701.9,633.5,70.3,47.90,36.6,,,,not judged
+bundle,500,62555,0,4.9,0,Success,62987,124972,124752,9678.7,9287.6,304.1,153.66,328.2,,,,not judged
+overlap-exact,1984,114414,41442,21.9,0,Success,4224,8423,4447,345.7,294.2,24.3,81.85,13.1,,,,VALID (2.4 s)
+overlap-exact,4000,458412,167282,89.2,0,Success,8256,16486,8478,305.4,301.6,70.1,36.99,9.8,,,,VALID (4.4 s)
+overlap-exact,5984,1027536,375352,177.5,0,Failed,0,0,0,279.1,277.4,91.7,,0.0,,,,INVALID: StatusInconsistent x1; first: StatusInconsistent: Failed on an input with a required result: NodingLimit (0.4 s)
+overlap-exact,8000,1786330,665969,261.4,0,Failed,0,0,0,416.0,305.4,117.7,,0.0,,,,INVALID: StatusInconsistent x1; first: StatusInconsistent: Failed on an input with a required result: NodingLimit (0.4 s)
+pencil-exact,1000,499500,0,23.7,0,Success,2001,2000,2000,334.9,307.9,5.7,167.38,5.9,,,,not judged
+pencil-exact,4000,7998000,0,189.2,0,Success,8001,8904,8000,2868.9,2596.1,30.3,358.57,6.6,,,,not judged

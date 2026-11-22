@@ -1,0 +1,6 @@
+oracle self-check: 481 checks passed
+runtime .NET 10.0.15, 4 cores
+family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_vertex,delaunay_ms,snap_ms,snap_rounds,hot_pixels,verdict
+soup,40,140,0,0.2,0.0009765625,Success,219,425,319,18.2,18.2,7.4,82.89,9.1,18.3,2,219,INVALID: SubsegmentMarker x5; first: SubsegmentMarker: subsegment 39-218 has marker 5; expected 0 (0.3 s)
+soup,125,1752,0,4.4,0.0009765625,Success,1930,3846,3467,473.0,473.0,164.3,245.07,11.4,418.1,2,1930,INVALID: SubsegmentMarker x114; first: SubsegmentMarker: subsegment 1884-1882 has marker 5; expected 0 (4.0 s)
+soup,250,6944,0,7.4,9.5367431640625E-07,Success,7444,14871,14138,1357.1,1357.1,507.4,182.31,20.1,942.7,1,7444,INVALID: SubsegmentMarker x1; first: SubsegmentMarker: subsegment 1092-1093 has marker 6; expected 0 (24.6 s)

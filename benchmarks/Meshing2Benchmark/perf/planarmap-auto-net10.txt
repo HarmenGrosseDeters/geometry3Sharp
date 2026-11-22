@@ -1,0 +1,21 @@
+oracle self-check: 481 checks passed
+runtime .NET 10.0.15, 4 cores
+family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_vertex,delaunay_ms,snap_ms,snap_rounds,hot_pixels,verdict
+soup,500,27238,0,10.7,0,Success,28238,56455,54976,367.7,364.9,129.4,13.02,44.2,,,,VALID (10.6 s)
+soup,2000,464454,0,72.2,0,Success,468454,936883,930908,6989.7,6916.2,2154.4,14.92,655.9,,,,not judged
+bundle,250,14371,0,0.9,0,Success,14654,28806,28664,783.7,660.7,71.8,53.48,39.2,,,,VALID (3.8 s)
+bundle,1000,249766,0,13.6,0,Success,250479,498956,498588,129281.7,126828.1,1242.3,516.14,1750.2,,,,not judged
+pencil-exact,1000,499500,0,18.7,0,Success,2001,2000,2000,148.2,147.5,5.7,74.06,1.7,,,,VALID (0.8 s)
+pencil-exact,16000,127992000,0,3221.1,0,Success,32001,51464,32000,54391.3,53190.2,188.9,1699.67,37.9,,,,VALID (95.1 s)
+pencil-near,1000,499500,0,11.6,0,Success,2001,2000,2000,253.0,159.2,5.7,126.43,2.3,,,,VALID (1.5 s)
+pencil-near,16000,127992000,0,3070.0,0,Success,32327,55180,32373,28196.1,28172.3,290.8,872.21,35.6,,,,VALID (95.0 s)
+junction-ulp,9940,5004,6,1.4,0,Success,19880,10056,9940,71.2,42.1,24.9,3.58,23.8,,,,VALID (2.8 s)
+junction-ulp,99904,49901,61,17.9,0,Success,199808,100318,99904,588.7,540.8,248.5,2.95,266.5,,,,not judged
+junction-tiny,9940,4960,0,1.9,0,Success,24835,49641,19857,144.7,142.2,59.7,5.83,39.9,,,,VALID (3.5 s)
+junction-tiny,99904,49702,0,17.7,0,Success,249455,498868,199321,1469.3,1407.4,586.5,5.89,296.2,,,,not judged
+overlap-exact,1984,114414,41442,15.0,0,Success,4224,8423,4447,60.4,60.2,23.9,14.30,4.5,,,,VALID (1.1 s)
+overlap-exact,16000,7091539,2656519,929.2,0,Failed,0,0,0,676.0,661.2,227.5,,0.0,,,,INVALID: StatusInconsistent: Failed on an input with a required result: NodingLimit (0.7 s)
+overlap-near,1984,128267,12,8.8,0,Success,4224,8426,4447,63.0,62.2,24.1,14.90,4.7,,,,VALID (2.4 s)
+overlap-near,16000,7994530,724,629.1,0,Failed,0,0,0,735.6,675.6,227.2,,0.0,,,,INVALID: StatusInconsistent: Failed on an input with a required result: NodingLimit (0.8 s)
+tchain,10001,4992,0,14.2,0,Success,20002,39971,20001,78.3,78.1,38.2,3.91,36.5,,,,VALID (4.1 s)
+tchain,100001,50055,0,1221.1,0,Success,200002,399934,200001,1460.6,1338.7,384.5,7.30,481.9,,,,not judged

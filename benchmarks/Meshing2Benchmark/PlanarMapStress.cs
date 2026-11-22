@@ -223,7 +223,9 @@ namespace Meshing2Acceptance
                             var m2 = MeshCommand.FromTriangle(input); m2.SnapTolerance = tol;
                             var sw = Stopwatch.StartNew();
                             var judged = MeshCommand.Run(MeshCommand.FromInput(m2, kind + "-" + I(n), Milestone.M2));
-                            verdict = (judged.Report.Ok ? "VALID" : "INVALID: " + judged.Report.Violations[0].ToString().Replace(',', ';')) + " (" + F(sw.Elapsed.TotalSeconds) + " s)";
+                            // every kind of violation with its count, then the first one in full
+                            verdict = (judged.Report.Ok ? "VALID" : "INVALID: " + string.Join(" ", judged.Report.Violations.GroupBy(x => x.Kind).Select(g => g.Key + " x" + I(g.Count())))
+                                + "; first: " + judged.Report.Violations[0].ToString().Replace(',', ';')) + " (" + F(sw.Elapsed.TotalSeconds) + " s)";
                             if (!judged.Report.Ok) ++failures;
                         }
                         Console.WriteLine(string.Join(",", head, run.result.Status.ToString(), I(vertices), I(mesh?.TriangleCount ?? 0), I(mesh?.Subsegments.Count ?? 0),
