@@ -477,6 +477,11 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Spike 2026-11-22 (owner go; [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)):
+     Devillers et al. 2018 read in full and its upper bounds measured on generated inputs, nothing built. The scheme
+     proves an intersection-free complex, not a clean closed surface (sheets closer than a cell are merged), keeps no
+     solid that SafeRounding removes on the measured sets, and its global form needs at least 16 to 258 times the
+     triangles on ordinary results (growing like √n). Leaning: no build; the owner's decision on the options is open.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
