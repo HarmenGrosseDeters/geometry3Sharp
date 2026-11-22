@@ -49,7 +49,9 @@ winding number is 0 or 1, the mesh itself must be the boundary of its solid: `�
 
 ### 2.2 Generators (`BooleanFuzzCases`)
 
-A case is a family name and a seed; nothing is read from a file. All solids have 4 to about 100 triangles.
+A case is a family name and a seed; nothing is read from a file. The closed solids have 4 to about 100 triangles, the open
+meshes 1 to 12. `shells` draws from 5 x 5 fixed kinds (a fifth with a random box), so its cases repeat; the other families give
+at least 36 different cases in 40 seeds.
 
 | Family | What it builds | The tie it sits on |
 |---|---|---|
@@ -78,23 +80,28 @@ About 80 Boolean runs per closed case.
 | Reordering, Seed | vertices and triangles permuted and corners rotated; another `Seed` | fingerprints |
 | Internal paths | another hash salt with one shard; without the coplanar pre-decision and the early-out (`CullOutsideA`); without `SimplifyFlatRegions`; the operation as a `WindingPredicate` | fingerprints |
 | `Similarity.All()` | 2^-10 and 2^10: the default mode's mesh bit for bit. The five that round (UTM, 1e-3, 1e3, rotated, rotated + 1e-3 + UTM): the transformed inputs are other inputs, so inclusion-exclusion is checked on them again exactly, the volumes agree with the untransformed ones within the resolution of the transformed coordinates, and the default mode's result is a closed surface | bits / fingerprints / tolerance |
-| Result contract | default mode (`SafeRounding`): closed, every directed edge once with its reverse; valid `DMesh3`; clean (`BooleanOracle.CleanReason`: manifold, oriented, no self-intersections by `MeshRepairMetrics`' exact triangle tests, contacts at duplicated positions allowed) where `RoundingClean` says so; the exact volume within the rounding bound; a second `Compute()` gives the same mesh. Exact mode: closed, and every vertex is its exact point rounded | independent code |
-| Differential | `BooleanCertificate` (the certifying checker); solid-angle winding numbers of result and inputs at 48 random points per operation; `SolidBooleanPipeline` on the same inputs (closed, the volume of the Boolean) | independent code |
-| Open inputs | every operation in both orders succeeds with a finite, valid mesh; `ExactWinding` reports the open input; a second `Compute()`, the scale 2^10 and another `Seed` give the same mesh | bits |
+| Result contract | default mode (`SafeRounding`): closed, every directed edge once with its reverse; valid `DMesh3`; clean (`BooleanOracle.CleanReason`: manifold, oriented, no self-intersections by `MeshRepairMetrics`' exact triangle tests, contacts at duplicated positions allowed) where `RoundingClean` says so; the exact volume within the rounding bound (4 times the bound the run applied, `MeshRoundingRepair.MaxLength`, times the inputs' area: it sees a moved or lost large part, not a lost component smaller than that, which is the certificate's job); a second `Compute()` gives the same mesh. Exact mode: closed, exact winding numbers reported for every input, and every vertex is its exact point rounded | independent code |
+| Differential | `BooleanCertificate` (the certifying checker; it must apply, and outside `ulp`, `slab` and `rotated` cover every triangle); solid-angle winding numbers of result and inputs at 48 random points per operation; `SolidBooleanPipeline` on the same inputs (closed, the volume of the Boolean; outside the three sliver families it must succeed) | independent code |
+| Open inputs | every operation in both orders succeeds with a finite, valid mesh; `ExactWinding` reports the open input; a second `Compute()` and the scale 2^10 give the same mesh, another `Seed` the same surface | bits; the fingerprint of the doubles for the Seed |
 
 The brief names `ExactMeshSelfIntersection`; the library has no class of that name. The self-intersection check used is
 `MeshRepairMetrics.SelfIntersectionPairs` (exact, `ExactTriangleIntersection`) through `MeshRobustRepair.FindDefects`.
 
 ### 2.4 The checker is checked
 
-`Checker_SeesAWrongResult` replaces the result of one run by a wrong one (a vertex moved by 1/8, the surface reversed, a
-triangle removed, an empty or a foreign result, a vertex that is not its exact point) and requires that the relation of that
-run fails: 29 faults over all groups, each also run without the fault. The fingerprint, the bit comparison and the
-closed-surface check have their own tests (a difference of one unit in the last place of one coordinate shows). The two
-exemptions of the checker are functions with their own tests, each with a known-wrong case just outside it
+`Checker_SeesAWrongResult` replaces the result of one run by a wrong one (a vertex moved by 1/8, a result stretched by 1.5, the
+surface reversed, a triangle removed, a crossing box added, an empty or a foreign result, a vertex that is not its exact point,
+an input reported as open) and requires that the relation of that run fails: 37 faults over all groups;
+`Checker_OpenCase_SeesAWrongResult` does the same for the six relations of the open case, `Checker_SeesAWrongPipelineResult` for
+the pipeline's two, and `Checker_WithoutAFault_EveryGroupHolds` runs every group without a fault. Not mutated here: the
+certificate's verdict (its clauses have their own mutation tests in `BooleanCertificateTests`). The fingerprint, the bit
+comparison and the closed-surface check have their own tests (a difference of one unit in the last place of one coordinate
+shows; a triangle and its translate within its plane differ by the first moment alone). The exemptions of the checker are
+functions with their own tests, each with a known-wrong case just outside it
 (`CleanCheck_ExemptsOnlyThinInsideOutComponents`: a reversed plate 4 times the bound thick fails;
-`PipelineRefusals_OnlyTheDocumentedOnesPass`). Slivers in a result are allowed only for `ulp`, `slab` and `rotated`, whose
-inputs are built to give them; the other families must give results without degenerate triangles, and do.
+`PipelineRefusals_OnlyTheDocumentedOnesPass`). Slivers in a result, triangles the certificate cannot cover and pipeline refusals
+are allowed only for `ulp`, `slab` and `rotated`, whose inputs are built to give them; in the other families each is a failure,
+and none occurs.
 
 ## 3. Runs
 
@@ -175,9 +182,15 @@ Each first firing was read against the class comments before it counted, as in t
    (2^-1074) is outside the supported range of the rounding (2^-200 to 2^200); the Boolean said so (`OutsideRange`), and the
    2^-10 copy underflowed to another input. A cavity with a face in the outer wall is the boundary of its solid only while
    the two faces coincide exactly; rotated, they cross and `∂(A ∪ A) = A` does not hold, correctly.
+5. **Found by the review of the harness, fixed**: the checker threw on a non-finite result of the open case instead of
+   reporting it, printed repro code that did not compile for negative coordinates, and skipped a certificate that answered
+   "not applicable" without a trace (now a failure: closed inputs always have one).
 
 ## 6. What the campaign does not cover, and where a further hunt could pay
 
+- **Input classes of the class comment that are not generated**: inside-out inputs, flipped faces and the `Orientation`
+  modes, degenerate input triangles, inputs with non-manifold edges, `StrictRounding` (only through the pipeline), and the
+  value of `Contacts`. `ExactBooleanOrientationTests`, `ExactBooleanByDesignTests` and the issue cases cover them with fixed inputs.
 - **Size.** All inputs are small. Paths that need many triangles (the shards of the arrangement, the crossing grid, the box
   tree, the per-patch carry of the classification) run with trivial sizes; `ExactBooleanMetamorphicTests`, the certificate
   corpus and `benchmarks/BooleanComparison` cover them with other oracles.

@@ -34,11 +34,13 @@ namespace geometry3Sharp.Tests
         public readonly List<string> Failures = new List<string>();
         public Groups Run = Groups.All;
         /// <summary> Boolean runs and relations checked, and how often a documented exception applied </summary>
-        public int Booleans, Relations, ReportedNotClean, ComplementInexact, CertificateNotApplicable, CertificateUncovered, PipelineRefused, SamplesUsed, ThinInsideOut;
+        public int Booleans, Relations, ReportedNotClean, ComplementInexact, CertificateUncovered, PipelineRefused, SamplesUsed, ThinInsideOut;
         /// <summary> of ReportedNotClean, by what MeshRoundingRepair reports (a result can count in several) </summary>
         public int NotCleanIntersections, NotCleanDegenerate, NotCleanFalseContacts, NotCleanScaleDisparity;
         /// <summary> for the tests of the checker: replaces the result of a run (name of the run, the Boolean) before it is checked </summary>
         public Action<string, ExactMeshBoolean> Tamper;
+        /// <summary> the same for the pipeline's result ("pipeline Union", ...) </summary>
+        public Action<string, SolidBooleanPipeline> TamperPipeline;
 
         readonly Random rand;
 
@@ -82,19 +84,26 @@ namespace geometry3Sharp.Tests
             configure?.Invoke(b);
             if (!Compute(name, b)) return null;
             Tamper?.Invoke(name, b);
-            if (b.ResultExactVertices == null) { Fail(name, "no ResultExactVertices"); return null; }
+            if (b.ResultExactVertices == null || b.ResultExactVertices.Length < b.Result.MaxVertexID) { Fail(name, "no ResultExactVertices for every vertex"); return null; }
+            // closed inputs have exact winding numbers: an input taken as open would switch the classification to the generalized path
+            ++Relations;
+            if (b.ExactWinding == null || Array.IndexOf(b.ExactWinding, false) >= 0) { Fail(name, "a closed input is not reported with exact winding numbers"); return null; }
             ++Relations;
             string closed = ClosedOriented(b.Result);
             if (closed != "") { Fail(name + " exact result", closed); return null; }
             var run = new ExactRun { Boolean = b, Result = b.Result, Representable = true };
             ++Relations;
+            // (the unit of the largest coordinate: a vertex that splits an edge where solids touch is the midpoint of the rounded
+            // ends, which is documented to differ from its rounded exact point by units of the ends, not of the midpoint)
+            double unit = 0;
+            foreach (Vector3d p in b.Result.Vertices()) unit = Math.Max(unit, UlpOf(p.MaxAbs));
             foreach (int v in b.Result.VertexIndices()) {
                 Vector3d p = b.Result.GetVertex(v), q = b.ResultExactVertices[v].ToVector3d();
                 Rat[] e = SurfaceFingerprint.Exact(b.ResultExactVertices[v]), d = SurfaceFingerprint.Exact(p);
                 if (!(e[0] == d[0] && e[1] == d[1] && e[2] == d[2])) run.Representable = false;
                 // documented: the coordinates are the exact ones rounded (the conversion is within one unit in the last place)
                 for (int k = 0; k < 3; ++k)
-                    if (Math.Abs(p[k] - q[k]) > 2 * UlpOf(q[k])) { Fail(name + " exact vertices", $"vertex {v} is {p}, its exact point rounds to {q}"); return null; }
+                    if (Math.Abs(p[k] - q[k]) > 2 * unit) { Fail(name + " exact vertices", $"vertex {v} is {p}, its exact point rounds to {q}"); return null; }
             }
             run.Print = SurfaceFingerprint.Of(b.Result, b.ResultExactVertices);
             return run;
@@ -186,6 +195,9 @@ namespace geometry3Sharp.Tests
         /// place, thin slabs, and their rotated copies); every other family must give a result without degenerate triangles
         /// </summary>
         bool DegenerateAllowed => Case.Family == "ulp" || Case.Family == "slab" || Case.Family == "rotated";
+
+        /// <summary> the bound of a default-mode run on how far the rounding moves the surface: the one it applied, at least the relative one </summary>
+        static double RoundingBound(ExactMeshBoolean x, double diag) => Math.Max(x.RoundingMaxDisplacement * diag, x.Rounding != null ? x.Rounding.MaxLength : 0);
 
         /// <summary> CleanWhereClaimed as a function: the reason, and the thin inside-out components it let through </summary>
         public static string CleanExceptThinInsideOut(DMesh3 r, double maxDisplacement, double ulpFactor, bool allowDegenerate, out int thin)
@@ -295,8 +307,8 @@ namespace geometry3Sharp.Tests
             Same("U as a third operand: U n (A u B)", u, Exact("universe predicate", new[] { universe, a, b }, Ops.Union, w => w[0] > 0 && (w[1] > 0 || w[2] > 0)));
             ExactRun ca = Exact("U - A", new[] { universe, a }, Ops.Difference), cb = Exact("U - B", new[] { universe, b }, Ops.Difference);
             if (ca == null || cb == null) return;
-            if (!cb.Representable) ++ComplementInexact;
-            else Same("A n (U - B) = A - B", d, Exact("A n (U - B)", new[] { a, cb.Result }, Ops.Intersection));
+            if (cb.Representable) Same("A n (U - B) = A - B", d, Exact("A n (U - B)", new[] { a, cb.Result }, Ops.Intersection));
+            // (one count per case whose chain stops at a result that doubles cannot hold)
             if (!ca.Representable || !cb.Representable) { ++ComplementInexact; return; }
             ExactRun both = Exact("(U - A) n (U - B)", new[] { ca.Result, cb.Result }, Ops.Intersection);
             if (both == null) return;
@@ -322,7 +334,7 @@ namespace geometry3Sharp.Tests
                 else CountNotClean(x);
                 if ((Run & Groups.DefaultMode) != 0) {
                     // SafeRounding moves the surface by at most 1e-5 of the diagonal (and removes components thinner than that)
-                    double ve = exact[op].Print.Volume(), vr = BooleanOracle.Volume(r), tol = 4 * x.RoundingMaxDisplacement * diag * areas + 1e-9 * diag * diag * diag;
+                    double ve = exact[op].Print.Volume(), vr = BooleanOracle.Volume(r), tol = 4 * RoundingBound(x, diag) * areas + 1e-9 * diag * diag * diag;
                     Expect(n + " has the exact volume within the rounding bound", Math.Abs(ve - vr) <= tol ? "" : FormattableString.Invariant($"exact {ve:R}, rounded {vr:R}, bound {tol:R}"));
                     DMesh3 first = new DMesh3(r);
                     if (Compute(n + " again", x)) { Tamper?.Invoke(n + " again", x); Expect(n + ": a second Compute() gives the same mesh", SameBits(first, x.Result)); }
@@ -337,15 +349,17 @@ namespace geometry3Sharp.Tests
                     Expect(n + " has the inputs' winding numbers", WindingSamples(r, a, b, op, box));
                     // the certificate's violations are failures; triangles it cannot cover within Delta after its splits are
                     // counted only, as its class comment says (slivers thinner than Delta, which the near-coincident families are full of)
-                    string cert;
+                    string cert; int uncovered = 0;
                     try {
                         BooleanCertificate c = BooleanCertificate.Run(new DMesh3(a), new DMesh3(b), op, out _, y => { if (op == Ops.Intersection) y.CullOutsideA = false; });
                         ++Booleans;
                         cert = c.Check();
-                        CertificateUncovered += c.Uncovered;
+                        CertificateUncovered += uncovered = c.Uncovered;
                     } catch (Exception e) { cert = "the certificate threw " + e.GetType().Name + ": " + e.Message; }
-                    if (cert.StartsWith("n/a:", StringComparison.Ordinal)) ++CertificateNotApplicable;
-                    else Expect(n + " has a valid certificate", cert);
+                    // (closed inputs, Intersection without the early-out: the certificate always applies; "n/a" would hide the check)
+                    Expect(n + " has a valid certificate", cert);
+                    // outside the families built to give slivers, every triangle must be covered, as in BooleanCertificate.CheckBoolean
+                    if (!DegenerateAllowed) Expect(n + " is covered by its certificate", uncovered == 0 ? "" : uncovered + " triangles not covered within Delta");
                     var pipeline = new SolidBooleanPipeline(new DMesh3(a), new DMesh3(b), op);
                     bool ok;
                     try { ok = pipeline.Compute(); ++Booleans; }
@@ -355,12 +369,14 @@ namespace geometry3Sharp.Tests
                         // (the pipeline runs the Boolean with StrictRounding, within the relative bound only: RoundingNotClean is its
                         // documented answer, also where the default mode, with its ulp term, reports a clean result)
                         bool documented = PipelineRefusalIsDocumented(pipeline.Status, pipeline.BooleanStatus);
-                        if (documented) ++PipelineRefused;
+                        // (a refusal needs a reason in the inputs: outside the sliver families there is none)
+                        if (documented && DegenerateAllowed) ++PipelineRefused;
                         else Fail("pipeline " + op, pipeline.Status + ", Boolean " + pipeline.BooleanStatus + ": " + pipeline.Error);
                         continue;
                     }
+                    TamperPipeline?.Invoke("pipeline " + op, pipeline);
                     Expect("pipeline " + op + " is a closed surface", ClosedOriented(pipeline.Result));
-                    double vp = BooleanOracle.Volume(pipeline.Result), vr2 = BooleanOracle.Volume(r), tol2 = 8 * x.RoundingMaxDisplacement * diag * areas + 1e-9 * diag * diag * diag;
+                    double vp = BooleanOracle.Volume(pipeline.Result), vr2 = BooleanOracle.Volume(r), tol2 = 8 * RoundingBound(x, diag) * areas + 1e-9 * diag * diag * diag;
                     Expect("pipeline " + op + " has the volume of the Boolean", Math.Abs(vp - vr2) <= tol2 ? "" : FormattableString.Invariant($"pipeline {vp:R}, Boolean {vr2:R}, bound {tol2:R}"));
                 }
             }
@@ -434,6 +450,7 @@ namespace geometry3Sharp.Tests
                 Ops dop = AllOps[rand.Next(3)];
                 ExactMeshBoolean x = Make(tab, dop, null);
                 if (Compute("default " + dop + ", " + s, x)) {
+                    Tamper?.Invoke("default, " + s, x);
                     Expect("default " + dop + ", " + s + " is a closed surface", ClosedOriented(x.Result));
                     if (x.RoundingClean) Expect("default " + dop + ", " + s + " is clean where RoundingClean says so", CleanWhereClaimed(x.Result, x));
                     else CountNotClean(x);
@@ -445,8 +462,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// A case with an open input: the generalized-winding contract only. Every operation in both orders succeeds with a
-        /// finite, valid mesh; the open input is reported (ExactWinding false), the closed one exact; a second Compute(), a
-        /// power-of-two scale and another Seed give the same mesh bit for bit; no triangle of the result is degenerate.
+        /// finite, valid mesh; the open input is reported (ExactWinding false), the closed one exact; a second Compute() and a
+        /// power-of-two scale give the same mesh bit for bit, another Seed the same surface (the fingerprint of the doubles).
         /// </summary>
         public List<string> CheckOpen()
         {
@@ -456,17 +473,23 @@ namespace geometry3Sharp.Tests
                     string n = (swap ? "B " : "A ") + op + (swap ? " A" : " B");
                     ExactMeshBoolean x = Make(new[] { a, b }, op, null);
                     if (!Compute(n, x)) continue;
+                    Tamper?.Invoke(n, x);
                     DMesh3 r = new DMesh3(x.Result);
-                    Expect(n + " is finite and valid", r.Vertices().All(v => v.IsFinite) && r.CheckValidity(true, FailMode.ReturnOnly) ? "" : "non-finite or invalid");
+                    // (a non-finite result ends the case here: the comparisons below need finite coordinates)
+                    bool finite = r.Vertices().All(v => v.IsFinite);
+                    Expect(n + " is finite and valid", finite && r.CheckValidity(true, FailMode.ReturnOnly) ? "" : "non-finite or invalid");
+                    if (!finite) continue;
                     Expect(n + " reports the open input", x.ExactWinding != null && x.ExactWinding[swap ? 0 : 1] == false && x.ExactWinding[swap ? 1 : 0] ? ""
                         : "ExactWinding " + (x.ExactWinding == null ? "null" : string.Join(",", x.ExactWinding)));
-                    if (Compute(n + " again", x)) Expect(n + ": a second Compute() gives the same mesh", SameBits(r, x.Result));
+                    if (Compute(n + " again", x)) { Tamper?.Invoke(n + " again", x); Expect(n + ": a second Compute() gives the same mesh", SameBits(r, x.Result)); }
                     ExactMeshBoolean s = Make(new[] { BooleanFuzzShapes.Map(a, p => p * 1024), BooleanFuzzShapes.Map(b, p => p * 1024) }, op, null);
-                    if (Compute(n + " scaled", s)) Expect(n + " scaled by 2^10 is the same bit for bit", SameBits(r, s.Result, 1024));
+                    if (Compute(n + " scaled", s)) Tamper?.Invoke(n + " scaled", s);
+                    if (s.Result != null && s.Status == ExactMeshBoolean.BooleanStatus.Success) Expect(n + " scaled by 2^10 is the same bit for bit", SameBits(r, s.Result, 1024));
                     int seed = rand.Next();
                     ExactMeshBoolean other = Make(new[] { a, b }, op, null);
                     other.Seed = seed;
-                    if (Compute(n + " seed", other)) Expect(n + " with Seed " + seed + " is the same surface", SurfaceFingerprint.Difference(SurfaceFingerprint.Of(other.Result), SurfaceFingerprint.Of(r)));
+                    if (Compute(n + " seed", other)) Tamper?.Invoke(n + " seed", other);
+                    if (other.Result != null && other.Status == ExactMeshBoolean.BooleanStatus.Success) Expect(n + " with Seed " + seed + " is the same surface", SurfaceFingerprint.Difference(SurfaceFingerprint.Of(other.Result), SurfaceFingerprint.Of(r)));
                 }
             }
             return Failures;

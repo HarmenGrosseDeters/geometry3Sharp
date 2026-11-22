@@ -85,7 +85,8 @@ namespace geometry3Sharp.Tests
             Rat s = !ix.IsZero ? nx / Rats.Of(ix) : !iy.IsZero ? ny / Rats.Of(iy) : nz / Rats.Of(iz);
             if (sign < 0) s = -s;
             Rat d = Rats.Of(ix) * a[0] + Rats.Of(iy) * a[1] + Rats.Of(iz) * a[2];
-            string key = ix + "," + iy + "," + iz + "|" + d;
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            string key = ix.ToString(inv) + "," + iy.ToString(inv) + "," + iz.ToString(inv) + "|" + d.N.ToString(inv) + "/" + d.D.ToString(inv);
             if (!Planes.TryGetValue(key, out Rat[] e)) { Planes[key] = e = new[] { Rat.Zero, Rat.Zero, Rat.Zero, Rat.Zero }; offsets[key] = d; }
             e[0] += s;
             for (int k = 0; k < 3; ++k) e[1 + k] += s * (a[k] + b[k] + c[k]);

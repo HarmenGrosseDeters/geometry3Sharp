@@ -29,6 +29,7 @@ namespace geometry3Sharp.Tests
         /// <summary> checks the seeds [from, from + count) of a family; returns the report of the failures ("" if none) </summary>
         string RunSeeds(string family, int from, int count)
         {
+            Assert.True(count > 0, "no seeds to run");
             var report = new StringBuilder();
             int failed = 0, booleans = 0, relations = 0, notClean = 0, inexact = 0, uncovered = 0, refused = 0, thinInsideOut = 0, samples = 0;
             int ncIntersections = 0, ncDegenerate = 0, ncContacts = 0, ncDisparity = 0;
@@ -129,8 +130,13 @@ namespace geometry3Sharp.Tests
                         if (closed && simple) Assert.True(SurfaceFingerprint.Of(m).SixVolume().Sign > 0, c.ToString());
                     }
                 }
-            // neighbouring seeds and families differ
-            Assert.NotEqual("", BooleanFuzzCheck.SameBits(BooleanFuzzCases.Make("coplanar", 1).B, BooleanFuzzCases.Make("coplanar", 2).B));
+            // neighbouring seeds differ: no two of 40 cases of a family are the same pair of meshes
+            foreach (string family in BooleanFuzzCases.ClosedFamilies) {
+                var seen = new HashSet<string>();
+                for (int seed = 0; seed < 40; ++seed) seen.Add(BooleanFuzzCases.Make(family, seed).ToCode().Split(new[] { '\n' }, 2)[1]);
+                // (shells draws from 5 x 5 fixed kinds, a fifth of them with a random box: its cases repeat by design)
+                Assert.True(seen.Count >= (family == "shells" ? 20 : 36), family + ": only " + seen.Count + " different cases of 40");
+            }
         }
 
         [Fact]
@@ -179,13 +185,19 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ToCode_RoundTripsTheMeshes()
         {
-            FuzzCase c = BooleanFuzzCases.Make("ulp", 3);
+            // a case with negative coordinates: their bit patterns do not fit a long literal, so the code casts them
+            FuzzCase c = BooleanFuzzCases.Make("slab", 0);
+            c.A = BooleanFuzzShapes.Map(c.A, p => p - new Vector3d(0.5, 0.25, 7));
+            Assert.Contains(c.A.Vertices(), v => v.x < 0 && v.y < 0 && v.z < 0);
             string code = c.ToCode();
             Assert.Contains("BooleanFuzzShapes.FromBits", code);
+            Assert.DoesNotContain(" 0x", code);
+            Assert.Contains("unchecked((long)0xBF", code);
             // the first array of the code line of A, parsed back
             string line = code.Split('\n').First(l => l.StartsWith("DMesh3 a", StringComparison.Ordinal));
             string[] arrays = line.Split(new[] { "{ ", " }" }, StringSplitOptions.None);
-            long[] bits = arrays[1].Split(new[] { ", " }, StringSplitOptions.None).Select(x => Convert.ToInt64(x.Substring(2), 16)).ToArray();
+            long[] bits = arrays[1].Split(new[] { ", " }, StringSplitOptions.None)
+                .Select(x => { Assert.StartsWith("unchecked((long)0x", x); return Convert.ToInt64(x.Substring(18, 16), 16); }).ToArray();
             int[] triangles = arrays[3].Split(new[] { ", " }, StringSplitOptions.None).Select(int.Parse).ToArray();
             Assert.Equal("", BooleanFuzzCheck.SameBits(new DMesh3(c.A, true), BooleanFuzzShapes.FromBits(bits, triangles)));
         }
@@ -201,7 +213,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Rat(36, 1), f.SixVolume());
             Assert.Equal("", SurfaceFingerprint.Difference(f, SurfaceFingerprint.Of(BooleanOracle.Subdivided(box, 2))));
             Assert.Equal("", SurfaceFingerprint.Difference(f, SurfaceFingerprint.Of(Invariance.Permuted(box, 5))));
-            // another box, the box reversed, and a box with a face moved in its plane (the same areas, another centroid)
+            // another box, the box reversed, and the box translated (the same volume)
             Assert.NotEqual("", SurfaceFingerprint.Difference(f, SurfaceFingerprint.Of(BooleanFuzzShapes.Box(0, 0, 0, 2, 1, 3.5))));
             Assert.NotEqual("", SurfaceFingerprint.Difference(f, SurfaceFingerprint.Of(BooleanFuzzShapes.Reversed(box))));
             Assert.Equal(new Rat(-36, 1), SurfaceFingerprint.Of(BooleanFuzzShapes.Reversed(box)).SixVolume());
@@ -209,6 +221,18 @@ namespace geometry3Sharp.Tests
             SurfaceFingerprint g = SurfaceFingerprint.Of(moved);
             Assert.Equal(f.SixVolume(), g.SixVolume());
             Assert.NotEqual("", SurfaceFingerprint.Difference(f, g));
+            // the first moment alone: a triangle and its translate within its plane have the same plane and the same area
+            DMesh3 One(double shift)
+            {
+                var m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(new Vector3d(shift, 0, 1)), m.AppendVertex(new Vector3d(shift + 1, 0, 1)), m.AppendVertex(new Vector3d(shift, 1, 1)));
+                return m;
+            }
+            SurfaceFingerprint t0 = SurfaceFingerprint.Of(One(0)), t1 = SurfaceFingerprint.Of(One(0.5));
+            Assert.Equal(t0.Planes.Keys.Single(), t1.Planes.Keys.Single());
+            Assert.Equal(t0.Planes.Values.Single()[0], t1.Planes.Values.Single()[0]);
+            Assert.NotEqual("", SurfaceFingerprint.Difference(t0, t1));
+            Assert.Equal("", SurfaceFingerprint.Difference(t0, SurfaceFingerprint.Of(One(0))));
             // a difference of one unit in the last place of one coordinate shows
             DMesh3 nudged = new DMesh3(box);
             nudged.SetVertex(7, new Vector3d(2, 1, BooleanFuzzShapes.Ulps(3, 1)));
@@ -289,8 +313,12 @@ namespace geometry3Sharp.Tests
         [InlineData("A Union A", "move", Groups.Algebra, "A u A = A")]
         [InlineData("A Intersection A", "move", Groups.Algebra, "A n A = A u A")]
         [InlineData("A Difference A", "box", Groups.Algebra, "A - A is empty")]
-        [InlineData("A Union B", "open", Groups.Algebra, "exact result")]
-        [InlineData("A Union B", "inexact", Groups.Algebra, "exact vertices")]
+        [InlineData("B Intersection B", "move", Groups.Algebra, "B n B = B u B")]
+        [InlineData("B Union B", "move", Groups.Algebra, "B u B = B")]
+        [InlineData("A Intersection B", "reverse", Groups.Algebra, "volumes are ordered")]
+        [InlineData("A Union B", "winding", Groups.None, "exact winding numbers")]
+        [InlineData("A Union B", "open", Groups.None, "exact result")]
+        [InlineData("A Union B", "inexact", Groups.None, "exact vertices")]
         [InlineData("Union reordered", "move", Groups.Representation, "reordered")]
         [InlineData("Intersection seed", "move", Groups.Representation, "with Seed")]
         [InlineData("Difference salt", "move", Groups.Representation, "hash salt")]
@@ -303,6 +331,8 @@ namespace geometry3Sharp.Tests
         [InlineData("(U - A) n (U - B)", "move", Groups.Complement, "(U - A) n (U - B) = U - (A u B)")]
         [InlineData("U - ((U - A) n (U - B))", "move", Groups.Complement, "= A u B")]
         [InlineData("default Union", "open", Groups.DefaultMode, "is a closed surface")]
+        [InlineData("default Union", "open", Groups.DefaultMode, "valid, closed DMesh3")]
+        [InlineData("default Union", "cross", Groups.DefaultMode, "clean where RoundingClean says so")]
         [InlineData("default Intersection", "far", Groups.DefaultMode, "within the rounding bound")]
         [InlineData("default Difference scaled 2^10", "move", Groups.DefaultMode, "bit for bit")]
         [InlineData("default Union again", "move", Groups.DefaultMode, "second Compute()")]
@@ -310,6 +340,8 @@ namespace geometry3Sharp.Tests
         [InlineData("default Difference", "empty", Groups.Differential, "winding numbers")]
         [InlineData("A Union B, rotated", "move", Groups.Similarities, "inclusion-exclusion, rotated")]
         [InlineData("A Intersection B, utm", "far", Groups.Similarities, "volume, utm")]
+        [InlineData("default, rotated", "open", Groups.Similarities, "rotated is a closed surface")]
+        [InlineData("default, scale 1e3", "cross", Groups.Similarities, "scale 1e3 is clean where RoundingClean says so")]
         public void Checker_SeesAWrongResult(string run, string fault, Groups group, string expected)
         {
             var check = new BooleanFuzzCheck(Boxes()) { Run = group };
@@ -322,6 +354,8 @@ namespace geometry3Sharp.Tests
                     case "far": foreach (int v in b.Result.VertexIndices().ToList()) { Vector3d p = b.Result.GetVertex(v); p.x *= 1.5; b.Result.SetVertex(v, p); if (b.ResultExactVertices != null) b.ResultExactVertices[v] = ExactOf(p); } break;
                     case "inexact": { int v = b.Result.VertexIndices().First(); b.Result.SetVertex(v, b.Result.GetVertex(v) + new Vector3d(1e-9, 0, 0)); break; }
                     case "reverse": b.Result = BooleanFuzzShapes.Reversed(b.Result); break;
+                    case "winding": b.ExactWinding[1] = false; break;
+                    case "cross": { Vector3d c0 = b.Result.CachedBounds.Min, d = b.Result.CachedBounds.Diagonal; b.Result = BooleanFuzzShapes.Join(b.Result, BooleanFuzzShapes.Box(c0 - 0.1 * d, c0 + 0.2 * d)); break; }
                     case "open": b.Result.RemoveTriangle(b.Result.TriangleIndices().First(), false, false); break;
                     case "empty": b.Result = new DMesh3(); b.ResultExactVertices = new ExactPoint3[0]; break;
                     case "box": b.Result = BooleanFuzzShapes.Box(0, 0, 0, 1, 1, 1); b.ResultExactVertices = b.Result.VertexIndices().Select(v => ExactOf(b.Result.GetVertex(v))).ToArray(); break;
@@ -332,8 +366,65 @@ namespace geometry3Sharp.Tests
             Assert.True(tampered >= 1, "the run '" + run + "' did not happen");
             Assert.True(failures.Any(f => f.Contains(expected)), "expected a failure with '" + expected + "', got: " + string.Join(" | ", failures));
 
-            // and the same groups without the fault: nothing
-            Assert.Empty(new BooleanFuzzCheck(Boxes()) { Run = group }.Check());
+        }
+
+        [Fact]
+        public void Checker_WithoutAFault_EveryGroupHolds()
+        {
+            foreach (Groups group in new[] { Groups.None, Groups.Algebra, Groups.Representation, Groups.Complement, Groups.DefaultMode, Groups.Differential, Groups.Similarities })
+                Assert.Empty(new BooleanFuzzCheck(Boxes()) { Run = group }.Check());
+        }
+
+        /// <summary> the pipeline relations: a wrong pipeline result (open, or another solid) fails them </summary>
+        [Theory]
+        [InlineData("pipeline Union", "open", "pipeline Union is a closed surface")]
+        [InlineData("pipeline Difference", "box", "pipeline Difference has the volume of the Boolean")]
+        public void Checker_SeesAWrongPipelineResult(string run, string fault, string expected)
+        {
+            var check = new BooleanFuzzCheck(Boxes()) { Run = Groups.Differential };
+            int tampered = 0;
+            check.TamperPipeline = (name, p) => {
+                if (name != run) return;
+                ++tampered;
+                if (fault == "open") p.Result.RemoveTriangle(p.Result.TriangleIndices().First(), false, false);
+                else p.Result = BooleanFuzzShapes.Box(0, 0, 0, 3, 3, 2);
+            };
+            List<string> failures = check.Check();
+            Assert.Equal(1, tampered);
+            Assert.True(failures.Any(f => f.Contains(expected)), "expected '" + expected + "', got: " + string.Join(" | ", failures));
+        }
+
+        /// <summary> the relations of the open case, each with a fault in the run it reads </summary>
+        [Theory]
+        [InlineData("A Union B", "nan", "is finite and valid")]
+        [InlineData("B Difference A", "winding", "reports the open input")]
+        [InlineData("A Intersection B", "windingBoth", "reports the open input")]
+        [InlineData("A Difference B again", "move", "second Compute()")]
+        [InlineData("B Union A scaled", "move", "bit for bit")]
+        [InlineData("A Difference B seed", "move", "is the same surface")]
+        public void Checker_OpenCase_SeesAWrongResult(string run, string fault, string expected)
+        {
+            // a box and a box without a face that cross: every operation has a result with triangles
+            var c = new FuzzCase { Family = "open", Open = true, A = BooleanFuzzShapes.Box(0, 0, 0, 2, 2, 2), B = BooleanFuzzShapes.Without(BooleanFuzzShapes.Box(1, 1, 1, 3, 3, 3), 2, 3) };
+            Assert.Empty(new BooleanFuzzCheck(c).Check());
+            var check = new BooleanFuzzCheck(c);
+            int tampered = 0;
+            check.Tamper = (name, b) => {
+                if (name != run) return;
+                ++tampered;
+                Assert.True(b.Result.VertexCount > 0, "the run '" + run + "' has an empty result");
+                switch (fault) {
+                    case "move": MoveVertex(b, new Vector3d(0.125, 0, 0)); break;
+                    case "nan": b.Result.SetVertex(b.Result.VertexIndices().First(), new Vector3d(double.NaN, 0, 0)); break;
+                    // the open input reported as exact, and the closed one as open
+                    case "winding": Array.Reverse(b.ExactWinding); break;
+                    case "windingBoth": b.ExactWinding[0] = b.ExactWinding[1] = false; break;
+                    default: throw new ArgumentException(fault);
+                }
+            };
+            List<string> failures = check.Check();
+            Assert.Equal(1, tampered);
+            Assert.True(failures.Any(f => f.Contains(run.Split(' ')[0] + " " + run.Split(' ')[1]) && f.Contains(expected)), "expected '" + expected + "', got: " + string.Join(" | ", failures));
         }
 
         [Fact]
@@ -393,7 +484,6 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PipelineRefusals_OnlyTheDocumentedOnesPass()
         {
-            var P = default(gs.SolidBooleanPipeline.PipelineStatus);
             foreach (gs.SolidBooleanPipeline.PipelineStatus status in Enum.GetValues(typeof(gs.SolidBooleanPipeline.PipelineStatus)))
                 foreach (ExactMeshBoolean.BooleanStatus b in Enum.GetValues(typeof(ExactMeshBoolean.BooleanStatus))) {
                     bool refusal = status == gs.SolidBooleanPipeline.PipelineStatus.ThinInput || status == gs.SolidBooleanPipeline.PipelineStatus.InsideOutInput
@@ -401,7 +491,7 @@ namespace geometry3Sharp.Tests
                     bool strict = status == gs.SolidBooleanPipeline.PipelineStatus.BooleanFailed && b == ExactMeshBoolean.BooleanStatus.RoundingNotClean;
                     Assert.Equal(refusal || strict, BooleanFuzzCheck.PipelineRefusalIsDocumented(status, b));
                 }
-            Assert.Equal(gs.SolidBooleanPipeline.PipelineStatus.Success, P);
+            Assert.False(BooleanFuzzCheck.PipelineRefusalIsDocumented(gs.SolidBooleanPipeline.PipelineStatus.Success, ExactMeshBoolean.BooleanStatus.Success));
             Assert.False(BooleanFuzzCheck.PipelineRefusalIsDocumented(gs.SolidBooleanPipeline.PipelineStatus.BooleanFailed, ExactMeshBoolean.BooleanStatus.BudgetExceeded));
             Assert.False(BooleanFuzzCheck.PipelineRefusalIsDocumented(gs.SolidBooleanPipeline.PipelineStatus.OpenInput, ExactMeshBoolean.BooleanStatus.NotComputed));
         }

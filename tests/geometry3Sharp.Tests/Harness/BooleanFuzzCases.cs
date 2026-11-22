@@ -42,7 +42,7 @@ namespace geometry3Sharp.Tests
                 DMesh3 c = new DMesh3(m, true);
                 sb.Append("DMesh3 " + name + " = BooleanFuzzShapes.FromBits(new long[] { ");
                 sb.Append(string.Join(", ", c.VertexIndices().SelectMany(v => new[] { c.GetVertex(v).x, c.GetVertex(v).y, c.GetVertex(v).z })
-                    .Select(x => "0x" + BitConverter.DoubleToInt64Bits(x).ToString("X16", CultureInfo.InvariantCulture))));
+                    .Select(x => "unchecked((long)0x" + BitConverter.DoubleToInt64Bits(x).ToString("X16", CultureInfo.InvariantCulture) + ")")));
                 sb.Append(" }, new[] { ");
                 sb.Append(string.Join(", ", c.TriangleIndices().SelectMany(t => c.GetTriangle(t).array).Select(i => i.ToString(CultureInfo.InvariantCulture))));
                 sb.AppendLine(" });");
@@ -147,7 +147,8 @@ namespace geometry3Sharp.Tests
     /// The generators of the Boolean fuzzer (docs/research/EXACT_BOOLEAN_FUZZ_2026-11.md): small solids biased to the cases
     /// where the exact Boolean has to decide ties, each from a family name and a seed. The same seed gives the same case on
     /// every platform (System.Random with a seed, and arithmetic that is exact or correctly rounded; the rotations use
-    /// Math.Sin / Math.Cos, whose last bit may differ between runtimes: the checks do not depend on particular coordinates).
+    /// Math.Sin / Math.Cos and the slabs Math.Pow(2, -k), whose last bit may differ between runtimes: the checks do not depend
+    /// on particular coordinates).
     /// </summary>
     public static class BooleanFuzzCases
     {
@@ -198,7 +199,6 @@ namespace geometry3Sharp.Tests
                 double a0 = r.Next(0, 3), a1 = a0 + r.Next(1, 4);
                 double b0 = Pick(r, a0 - 0.5, a0, a0, a0 + 0.25, (a0 + a1) / 2, a1 - 0.25, a1);
                 double b1 = b0 >= a1 ? a1 + Pick(r, 0.5, 1) : Pick(r, a1 - 0.125, a1, a1, a1 + 0.5);
-                if (b1 <= b0) b1 = a1 + 0.5;
                 lo[k] = a0; hi[k] = a1; blo[k] = b0; bhi[k] = b1;
             }
             DMesh3 a = BooleanFuzzShapes.Box(lo, hi), b = BooleanFuzzShapes.Box(blo, bhi);
@@ -223,7 +223,7 @@ namespace geometry3Sharp.Tests
         /// </summary>
         static FuzzCase Shared(Random r)
         {
-            for (int attempt = 0; ; ++attempt) {
+            while (true) {
                 int kind = r.Next(7);
                 Vector3d p0 = GridPoint(r, 4), p1 = GridPoint(r, 4), p2 = GridPoint(r, 4), p3 = GridPoint(r, 4);
                 Vector3d q1 = GridPoint(r, 4), q2 = GridPoint(r, 4), q3 = GridPoint(r, 4);
