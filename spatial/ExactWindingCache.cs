@@ -371,11 +371,10 @@ namespace g3
         /// margin): bErr covers the summation order, the nodes' approximation and the evaluation error of the replaced edges;
         /// 4e-15 (|chi| + |bSum|) covers the roundings of the division by 2 pi and of chi + bSum (u relative each, about 18
         /// times too large); the factor 1.01 the rounding of the margin and of the accumulation of err.
-        /// The 1e-9 is none of these terms. It is a cushion on one assumption of bErr, A1: the computed angle of an edge is
-        /// within 1e-12 of its exact value outside the exact fallbacks of boundary_edge_angle_x. A1 is pinned by an
-        /// oracle test (ExactWindingCacheInternalTestsEdgeAngleOracle: the largest error on adversarial edges is about 2.5e-15)
-        /// but not proved; the cushion is the safety net, and a larger margin only sends more decisions to the full sum. A
-        /// winding number is dimensionless, so an absolute term is the right kind.
+        /// The 1e-9 is none of these terms and not part of the proof: it is a cushion on top of the proved bound A1 (every edge of
+        /// an accepted node, kept on the fast path of boundary_edge_angle_x by fast_path_certificate, is within 1e-14 of its exact
+        /// angle; the code charges 1e-12), and an absolute term because a winding number is dimensionless. A larger margin only
+        /// sends more decisions to the full sum.
         /// </summary>
         internal static double tree_margin(double bErr, int chi, double bSum)
         {
@@ -544,6 +543,12 @@ namespace g3
             if (dbg != null) { dbg.Dr = dr; dbg.CoordEps = coordEps; }
             if (!coord_eps_small(coordEps))
                 return 0;
+            // A1 (the evaluation error of every replaced edge is at most 1e-14, design note, "The decision margin") is proved for
+            // edges that take the fast path of boundary_edge_angle_x; the certificate makes sure that every edge of an accepted
+            // node does (no rescaling, no extreme path, no exact fallback). A node that fails it is descended into, and its leaf
+            // edges are evaluated by the same function as the full sum, bit for bit.
+            if (!fast_path_certificate(d, r, dy, dz))
+                return 0;
             double rd = r / d;
             double cosA = Math.Sqrt(1.0 - rd * rd);
             double minusX1U = dx / dn;
@@ -597,6 +602,22 @@ namespace g3
 
         /// <summary> and where the rounding of the coordinates stays small against the distance </summary>
         internal static bool coord_eps_small(double coordEps) { return coordEps < 1e-6; }
+
+        /// <summary>
+        /// Every edge of a node (all its points within r of the centre c, d the distance from p to c, (dy, dz) the yz part of c - p)
+        /// takes the fast path of boundary_edge_angle_x: |a - p| lies in [0.75 d, 1.25 d], so its largest component is in
+        /// [2^-100, 2^100] for d in [2^-97, 2^99]; the yz part of every edge point is at least 1e-9 d (the yz part of the centre
+        /// minus r), far above the 2^-100 of the fast path's test; and the point is not on the +x axis (|yz| &gt; 0).
+        /// </summary>
+        internal static bool fast_path_certificate(double d, double r, double dy, double dz)
+        {
+            const double MinD = 6.310887241768095e-30;      // 2^-97
+            const double MaxD = 6.3382530011411470e29;      // 2^99
+            if (!(d >= MinD && d <= MaxD))
+                return false;
+            double yz = Math.Sqrt(dy * dy + dz * dz);
+            return yz - r >= 1e-9 * d;
+        }
 
         /// <summary> the +x ray from p misses the cap of the node's ball by the margin eps (the remainder bound needs the ray outside it) </summary>
         internal static bool ray_outside_cap(double minusX1U, double cosA, double eps) { return minusX1U < cosA - eps; }

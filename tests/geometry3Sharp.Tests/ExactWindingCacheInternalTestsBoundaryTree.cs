@@ -615,5 +615,65 @@ namespace geometry3Sharp.Tests
                 Assert.True(axisNodes > 10, $"plane {plane}: only {axisNodes} nodes with an edge along one axis");
             }
         }
+
+        [Fact]
+        public void FastPathCertificate_BoundariesOfDistanceAndOffAxisDistance()
+        {
+            double lo = Math.Pow(2, -97), hi = Math.Pow(2, 99);
+            Assert.True(ExactWindingCache.fast_path_certificate(lo, 0.0, lo, 0.0));
+            Assert.False(ExactWindingCache.fast_path_certificate(Down(lo), 0.0, Down(lo), 0.0));
+            Assert.True(ExactWindingCache.fast_path_certificate(hi, 0.0, hi, 0.0));
+            Assert.False(ExactWindingCache.fast_path_certificate(Up(hi), 0.0, Up(hi), 0.0));
+            // the yz part of the centre minus r against 1e-9 d: found at equality (d near 1, yz = 0.5)
+            double r0 = 0.5 - 1.1e-9;                   // far enough: accepted
+            Assert.True(ExactWindingCache.fast_path_certificate(1.0, r0, 0.5, 0.0));
+            Assert.True(ExactWindingCache.fast_path_certificate(1.0, r0, 0.0, 0.5));     // dz alone
+            Assert.True(ExactWindingCache.fast_path_certificate(1.0, r0, 0.3, 0.4));     // (0.3, 0.4): norm 0.5
+            double r1 = 0.5 - 0.9e-9;                   // too close to the axis: rejected
+            Assert.False(ExactWindingCache.fast_path_certificate(1.0, r1, 0.5, 0.0));
+            Assert.False(ExactWindingCache.fast_path_certificate(1.0, 0.5, 0.0, 0.0));   // on the axis
+            // exactly at the boundary: yz - r == 1e-9 d, with d searched near t / 1e-9 so that the product is t exactly
+            double r = 0.5 - 1e-9;
+            double t = 0.5 - r;                         // exact (Sterbenz)
+            double dd = t / 1e-9;
+            bool found = false;
+            for (int i = -40; i <= 40 && !found; ++i) {
+                double d = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(dd) + i);
+                if (1e-9 * d == t) {
+                    found = true;
+                    Assert.True(ExactWindingCache.fast_path_certificate(d, r, 0.5, 0.0), "yz - r == 1e-9 d is inside");
+                    Assert.False(ExactWindingCache.fast_path_certificate(d, Up(r), 0.5, 0.0), "just beyond");
+                }
+            }
+            Assert.True(found);
+        }
+
+        [Fact]
+        public void NodesOutsideTheFastPathCertificate_AreDescended_AndTheQueryStaysExact()
+        {
+            // behind p along the x axis (every point of the root's chain near the axis), far away (d above 2^99): descend
+            DMesh3 mesh = Grid(160);
+            ExactWindingCache cache = Cache(mesh);
+            Assert.Equal(1, cache.DescribeBoundaryNode(0, new Vector3d(0.3, 30.0, 20.0)).Status);       // accepted off the axis
+            ExactWindingCache.NodeInfo root = cache.DescribeBoundaryNode(0, new Vector3d(5, 0, 0));
+            Assert.Equal(0, root.Status);                                                               // the axis behind: not accepted
+            Assert.False(root.Query.Accepted);
+            foreach (Vector3d far in new[] { new Vector3d(1e35, 7e34, 3e34), new Vector3d(-1e35, 7e34, 3e34) }) {
+                for (int k = 0; k < Math.Min(cache.BoundaryNodeCount, 30); ++k)
+                    Assert.Equal(0, cache.DescribeBoundaryNode(k, far).Status);                         // d above 2^99
+                Assert.True(cache.TryEvaluateTreeBoundarySumX(far, out double bSum, out double bErr));  // leaves only: the full sum
+                double w = cache.Evaluate(far);
+                Assert.True(Math.Abs((w - Math.Round(w)) - (bSum - Math.Round(bSum))) < bErr + 1e-9);
+            }
+            // and too near: d below 2^-97
+            ExactWindingCache.NodeInfo near = cache.DescribeBoundaryNode(0, root.Center + new Vector3d(1e-30, 0, 0));
+            Assert.Equal(0, near.Status);
+            // thresholds decided at those points are still exact
+            foreach (Vector3d p in new[] { new Vector3d(5, 0, 0), new Vector3d(-5, 0, 0), new Vector3d(1e35, 7e34, 3e34) }) {
+                double w = cache.Evaluate(p);
+                Assert.Equal(w > 0.5, cache.EvaluateAbove(p, 0.5));
+                Assert.Equal(Math.Abs(w) > 0.25, cache.EvaluateAbsAbove(p, 0.25));
+            }
+        }
     }
 }

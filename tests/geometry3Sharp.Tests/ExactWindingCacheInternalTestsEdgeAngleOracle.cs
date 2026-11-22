@@ -156,5 +156,45 @@ namespace geometry3Sharp.Tests
             string report = string.Join("; ", perFamily);
             Assert.True(max <= 1e-12, $"the largest error {max:E3} exceeds the assumed 1e-12 ({where}); per family: {report}");
         }
+
+        [Fact]
+        public void EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound()
+        {
+            // the proved bound of A1 (design note, "The decision margin"): every edge of an accepted node, which the certificate
+            // keeps on the fast path, is within 1e-14 of its exact angle; the chord is such an edge
+            DMesh3 mesh = ExactWindingAdoptionTests.LargeBoundaryOpenGrid(160);
+            foreach (int v in mesh.VertexIndices()) {          // (an offset and a jitter: rounded differences)
+                Vector3d q = mesh.GetVertex(v);
+                mesh.SetVertex(v, q + new Vector3d(1e3, -2e3, 5e2) + new Vector3d(1e-4 * Math.Sin(7 * v), 1e-4 * Math.Cos(3 * v), 1e-4 * Math.Sin(11 * v)));
+            }
+            ExactWindingCache cache = new DMeshAABBTree3(mesh, true).GetExactWindingCache();
+            cache.PrepareThresholdQueries();
+            Assert.True(cache.HasBoundaryTree);
+            var rnd = new Random(5);
+            double max = 0.0;
+            int edges = 0, nodes = 0;
+            for (int k = 0; k < cache.BoundaryNodeCount; k += 3) {
+                ExactWindingCache.NodeInfo node = cache.DescribeBoundaryNode(k, Vector3d.Zero);
+                for (int t = 0; t < 6; ++t) {
+                    Vector3d dir = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                    Vector3d p = node.Center + (6 + 100 * rnd.NextDouble()) * Math.Max(node.R, 1e-3) * dir.Normalized;
+                    ExactWindingCache.NodeInfo info = cache.DescribeBoundaryNode(k, p);
+                    if (info.Status != 1) continue;
+                    ++nodes;
+                    var pairs = new List<(Vector3d, Vector3d)> { (info.Vertices[0], info.Vertices[info.Vertices.Length - 1]) };
+                    for (int s = 0; s + 1 < info.Vertices.Length; s += Math.Max(1, info.Vertices.Length / 6)) pairs.Add((info.Vertices[s], info.Vertices[s + 1]));
+                    foreach (var (a, b) in pairs) {
+                        if (a.Equals(b)) continue;
+                        ExactAngle(p, a, b, out double exact, out bool inZone);
+                        Assert.False(inZone, "an edge of an accepted node is never in the exact zone");
+                        double err = Math.Abs(ExactWindingCache.boundary_edge_angle_x(p, a, b) - exact);
+                        ++edges;
+                        if (err > max) max = err;
+                    }
+                }
+            }
+            Assert.True(edges > 300 && nodes > 100, $"{edges} edges of {nodes} nodes");
+            Assert.True(max <= 1e-14, $"the largest error {max:E3} of an accepted node's edge exceeds the proved 1e-14");
+        }
     }
 }

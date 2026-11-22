@@ -250,23 +250,54 @@ an edge (`boundary_edge_angle_x`) and θ_e its exact value, the terms are:
 | the rounding of /2π and of chi + bSum (u relative each) | `4e-15 (|chi| + |bSum|)`, about 18 times too large |
 | the rounding of the margin, and of the accumulation of err (n u relative, n visited terms) | the factor 1.01, valid while n u < 0.01 |
 
-What the table rests on, and the 1e-9: the rows `1e-11 + 16 coordEps` and `1e-12 (hi - lo)` rest on one assumption,
-**A1: the computed angle T_e of an edge is within 1e-12 of its exact value, for every edge for which `boundary_edge_angle_x`
-does not hand the decision to its exact predicates** (the branch cut: num and den both within numErr and denErr of 0, where
-the angle jumps by 2π and the sign is decided exactly; above numErr the sign of num is reliable, because the error of num is at
-most 3u (|p1| + |p2|) against 1e-12 (|p1| + |p2|)). The additive 1e-9 in the margin is **not** a term of the table: it is a
-cushion on A1 (it covers an error of up to 1e-9 / 2π in the angle sum, whatever its cause), and it is an absolute term because
-a winding number is dimensionless (a solid angle over 4π) and every row is an angle. The cushion costs no speed: a decision
-within 1e-9 of iso is rare, and it falls back on the full sum, which is the reference.
+What the table rests on, and the 1e-9: the rows `1e-11 + 16 coordEps` and `1e-12 (hi - lo)` rest on **A1: for every edge
+of an accepted node, and for the chord, the computed angle T_e is within 1e-14 of its exact value** (the code charges
+1e-12 per edge: a margin of 100). A1 is proved below for the edges of an accepted node, which `node_query` restricts to the fast
+path of `boundary_edge_angle_x` by a certificate (`fast_path_certificate`); a node that fails it is descended into, and the
+leaf edges below it are evaluated by the same function as the full sum, bit for bit, so no assumption is needed for them. The
+additive 1e-9 in the margin is **not part of the proof and not a term of the table**: it is a cushion on top of the proved bound
+(it covers an error of up to 1e-9 in the sum, whatever its cause), and an absolute term because a winding number is
+dimensionless (a solid angle over 4π) and every row is an angle. It costs no speed: a decision within 1e-9 of iso is rare,
+and it falls back on the full sum, which is the reference.
 
-A1 is pinned, not proved. `ExactWindingCacheInternalTestsEdgeAngleOracle` takes the exact num and den of the exact differences a - p,
-b - p (integers over the grid 2^-1074, the cancellation-free quotient for da, integer square roots) and compares atan2 of them
-with T_e on adversarial edges: a vertex within 1e-12 rad of the +x ray, p within 1e-6 .. 1e-12 of the yz line of the edge
-(ahead of and behind it), p near a vertex, yz 1e-5 .. 1e-45 of x (the fast path and the rescaled path), large offsets (rounded
-differences), and scales from 2^-90 to 2^90. The largest error is 2.5e-15 (about 400 times below A1). A proof would bound
-Δ(num, den) ≤ 4u (sum of the term sizes) against hypot(num, den)² = |a|²|b|² 2 (1 + A·B)(1 + A·x1)(1 + B·x1) (a vertex at the
-angle θ from the +x ray makes the yz terms of num and den small by the same factor θ, so the ratio stays O(u)), for the fast
-path and for the rescaled path (the exponent bookkeeping of `rescale_diff_2d`, `scaled_d_factor`); it is open.
+**Proof of A1 for the edges of an accepted node.** Let p be the query point, the node's points within r of its centre c, d
+the distance |c - p| (rounded down by 1e-15 relative), and u = a - p, v = b - p two points of the node, with la = |u|, lb = |v|.
+Accepted means r < d/4, the +x ray misses the cap of the ball by more than eps = 1e-9 (angle), d lies in [2^-97, 2^99],
+and the yz part of c - p exceeds r by at least 1e-9 d (`fast_path_certificate`).
+1. *Regime.* la, lb ∈ [0.75 d, 1.25 d], so the largest component of u and of v lies in [2^-100, 2^100]; the yz part of u and v
+   is at least 1e-9 d (more than 2^-100 times the largest component), so `boundary_edge_angle_x` takes the fast path: no
+   special case (u, v ≠ 0 and not on the axis), no rescaling. The angle between the unit vectors U = u/la and V = v/lb is at
+   most 2 asin(1/4) = 0.505, so 1 + U·V ≥ 1.87.
+2. *No exact fallback.* With x_u = 1 - U_x, s_u = sqrt(1 - U_x²) (so s_u² ≤ 2 x_u), num/(la lb) = s_u s_v sin φ and
+   den/(la lb) = x_u x_v + s_u s_v cos φ (φ the angle between the yz parts of u and v), and the identity for unit vectors
+   U, V, W = -x̂, (U·V×W)² + (1 + U·V + V·W + W·U)² = 2 (1 + U·V)(1 + V·W)(1 + W·U), hypot(num, den) =
+   la lb sqrt(2 (1 + U·V) x_u x_v) ≥ 1.93 la lb sqrt(x_u x_v). The sizes of the terms: S1 = |u_y v_z| + |u_z v_y| ≤ la lb s_u s_v
+   ≤ 2 la lb sqrt(x_u x_v) (Cauchy-Schwarz) and S2 = da db + |u_y v_y| + |u_z v_z| ≤ la lb (x_u x_v + s_u s_v) ≤ 4 la lb sqrt(x_u x_v)
+   (x_u x_v ≤ 2 sqrt(x_u x_v), as x_u x_v ≤ 4). The exact fallback needs |num| ≤ numErr = 1e-12 S1 **and** den ≤ denErr = 1e-12 S2.
+   The yz parts of the node's points lie in a disk of radius r about the yz part of c - p, whose norm exceeds r by 1e-9 d, so r/|yz_c| ≤
+   1 - 1e-9 and φ ≤ 2 asin(1 - 1e-9) ≤ π - 8.9e-5. If |φ| ≥ 1e-6, sin|φ| ≥ 1e-6 and |num| = la lb s_u s_v sin|φ| ≥ 1e-6 S1 > numErr.
+   If |φ| < 1e-6, cos φ > 0.999 and den ≥ la lb (x_u x_v + 0.999 s_u s_v) ≥ 0.999 S2 > denErr. The fallback never fires (and
+   the edge does not cross the branch cut, so the sign of num is the sign of the exact one: |num| ≥ 1e-6 S1 ≫ 2u S1).
+3. *Rounding of the differences.* ax = fl(a.x - p.x) etc. are the exact differences with relative error ≤ u per component, so the
+   computed vectors differ from u, v by ≤ u|u|, u|v| (L2). The half solid angle of the spherical triangle (U, V, W) changes by
+   at most π times the angle a vertex moves, per vertex (the area swept by its two sides, each at most π, halved): ≤ 2π u =
+   7e-16 in total.
+4. *Rounding of num and den.* For the rounded vectors: p1, p2 are one product each: num = fl(p2 - p1) has |Δnum| ≤ 2u S1.
+   yz² has ≤ 2u, la ≤ 2.5u, da = yz²/(la + ax) (ax > 0) ≤ 6.5u, da = la - ax = la + |ax| (ax ≤ 0) ≤ 3.5u: da, db ≤ 7u
+   relative. dotYZ has |Δ| ≤ 2u (|u_y v_y| + |u_z v_z|), the product da db ≤ 15u, den = fl(da db + dotYZ): |Δden| ≤ 16u da db + 3u (|u_y v_y| + |u_z v_z|) ≤ 22u S2.
+   With 2 and the bounds on S1, S2: |Δnum|/hypot ≤ 2u · 2 / 1.93 = 2.1u and |Δden|/hypot ≤ 22u · 4 / 1.93 = 45.6u.
+5. *atan2.* |atan2(num + Δn, den + Δd) - atan2(num, den)| ≤ asin(|Δ|/hypot) ≤ (π/2) |Δ|/hypot ≤ (π/2) 47.7u = 8.3e-15, and
+   the library's atan2 adds at most 2 ulp (7e-16, an assumption on `Math.Atan2`). Underflow: the products can be subnormal
+   when a component is small, with an absolute error of at most 2.5e-324, against hypot ≥ 1.9 la lb sqrt(x_u x_v) ≥ 1e-60 · 1e-9
+   (x_u ≥ 1 - cos(1e-9) = 5e-19): no effect.
+Total: 8.3e-15 + 0.7e-15 + 0.7e-15 = 9.7e-15 ≤ 1e-14. ∎
+
+`ExactWindingCacheInternalTestsEdgeAngleOracle` checks the claim: `EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound` compares the angle of every
+sampled edge of accepted nodes (and the chord) with the exact one (integers over the grid 2^-1074, exact square roots, the
+cancellation-free quotient for da) and asserts ≤ 1e-14; `EdgeAngle_ErrorIsBelowTheAssumedBound_OnAdversarialEdges` takes
+6300 adversarial edges outside the regime (a vertex within 1e-12 rad of the +x ray, p near the yz line of the edge, p near a
+vertex, yz 1e-5 .. 1e-45 of x, large offsets, scales 2^-90 .. 2^90): the largest error is 2.5e-15. That second test is evidence
+for the code outside the proof; the decision does not rest on it, because a node outside the certificate is not used.
 
 Notation: u = 2^-53 ≈ 1.1e-16. Every quantity is in the mesh's scaled grid units, the units of `FarPoints.Segments`.
 The names are those of the code: `AntipodalTree`, `antipodal_tree_value`, `tree_term`, `tree_decides`.
