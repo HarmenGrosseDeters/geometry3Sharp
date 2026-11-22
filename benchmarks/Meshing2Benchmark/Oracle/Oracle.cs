@@ -4212,19 +4212,26 @@ namespace Meshing2Acceptance
                 var lengths = Enumerable.Range(0, 3).Select(k => Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]])).ToArray();
                 Q best = lengths.Aggregate(Q.Min);
                 for (int k0 = 0; k0 < 3; ++k0)
-                    if (!(lengths[k0] > best) && SpansSmallInputAngle(t[(k0 + 1) % 3], t[(k0 + 2) % 3], sin2Low, false)) return true;
+                    if (!(lengths[k0] > best) && SpansSmallInputAngle(t[(k0 + 1) % 3], t[(k0 + 2) % 3], sin2Low, false, out var hit)) { CountBelowMpwFloor(t, hit); return true; }
                 // the two constraints miss each other by a rounding, but an end of one is in the other's tube: O11 makes it a vertex of
                 // both chains, so they meet there at that angle (#664: a T-junction rotated into doubles, its end 4e-17 beside the
                 // other segment; the lines then cross 1.4e-9 before that end, outside the tube). Counted apart
                 for (int k0 = 0; k0 < 3; ++k0)
-                    if (!(lengths[k0] > best) && SpansSmallInputAngle(t[(k0 + 1) % 3], t[(k0 + 2) % 3], sin2Low, true)) { r.NearMeetAngleExcused++; return true; }
+                    if (!(lengths[k0] > best) && SpansSmallInputAngle(t[(k0 + 1) % 3], t[(k0 + 2) % 3], sin2Low, true, out var hit)) { r.NearMeetAngleExcused++; CountBelowMpwFloor(t, hit); return true; }
                 return false;
+            }
+
+            /// <summary> OracleReport.BelowMpwFloorExcused: the excused triangle's smallest angle is below the floor of the pair that excused it </summary>
+            void CountBelowMpwFloor(int[] t, SourcePairInfo pair)
+            {
+                if (Exact.BelowMpwFloor(Exact.MinAngleSin2(v[t[0]], v[t[1]], v[t[2]]), pair.Sin2)) r.BelowMpwFloorExcused++;
             }
 
             /// <summary> the shortest edge pq spans a small input angle (above); with nearMeet the apex is instead an end of one constraint
             /// within the tube of the other, for constraints whose lines do not meet on both closed segments </summary>
-            bool SpansSmallInputAngle(int ip, int iq, Q sin2Low, bool nearMeet)
+            bool SpansSmallInputAngle(int ip, int iq, Q sin2Low, bool nearMeet, out SourcePairInfo hit)
             {
+                hit = null;
                 Pt p = v[ip], q = v[iq];
                 var sp = NearSourceIds(ip);
                 var sq = NearSourceIds(iq);
@@ -4239,6 +4246,7 @@ namespace Meshing2Acceptance
                         Q rp = Exact.Len2(apex, p), rq = Exact.Len2(apex, q);
                         if (rp.Sign == 0 || rq.Sign == 0 || rp * 4 > rq * 9 || rq * 4 > rp * 9) continue;
                         if (Dot(apex, p, q).Sign <= 0) continue;
+                        hit = pair;
                         return true;
                     }
                 return false;
