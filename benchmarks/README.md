@@ -62,6 +62,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 | [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
+| [QuadFlow3BSat](QuadFlow3BSat/README.md) | Research spike: the local SAT instances of the stage 3B repair decided by a clause-learning solver (search or problem), DIMACS dump of the obstructions |
 
 ## Contouring, Offsets, Lofting & Lattices
 
