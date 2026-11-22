@@ -155,17 +155,15 @@ namespace geometry3Sharp.Tests
             return () => new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
         }
 
-        static ExactMeshBoolean Run(Func<ExactMeshBoolean> make, bool boxesFromMesh, bool check = false)
+        static ExactMeshBoolean Run(Func<ExactMeshBoolean> make, bool boxesFromMesh)
         {
             MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = boxesFromMesh;
-            MeshRoundingRepair.CheckOnThisThread = check;
             try {
                 ExactMeshBoolean b = make();
                 Assert.True(b.Compute(), b.Error);
                 return b;
             } finally {
                 MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = false;
-                MeshRoundingRepair.CheckOnThisThread = false;
             }
         }
 
@@ -178,12 +176,33 @@ namespace geometry3Sharp.Tests
             Assert.True(kept.PendingBoxQueries > 1000, $"{kept.PendingBoxQueries} queries read the kept boxes");
             Assert.True(kept.PendingBoxRefreshes > 0 && 2 * kept.PendingBoxRefreshes < kept.PendingBoxQueries,
                 $"{kept.PendingBoxRefreshes} computations for {kept.PendingBoxQueries} queries");
-            // (not more often than the mesh changes: at most once per marked triangle)
-            Assert.True(kept.PendingBoxRefreshes <= 4L * (kept.Collapses + kept.Flips + kept.Moves + kept.Zips + 1),
-                $"{kept.PendingBoxRefreshes} computations for {kept.Collapses + kept.Flips + kept.Moves + kept.Zips} edits");
+            // (not more often than the mesh changes: an accepted edit is followed by at most a few computations)
+            long edits = kept.Collapses + kept.Flips + kept.Moves + kept.Zips + kept.VertexRemovals;
+            Assert.True(kept.PendingBoxRefreshes <= 4 * (edits + 1), $"{kept.PendingBoxRefreshes} computations for {edits} edits");
             MeshRoundingRepair reference = Repair(new DMesh3(m), boxesFromMesh: true);
             Assert.Equal(0, reference.PendingBoxRefreshes);
             Assert.Equal(0, reference.PendingBoxQueries);
+        }
+
+        [Fact]
+        public void PendingBoxes_SecondApplyOnOneInstance_SameAsAFreshInstance()
+        {
+            // (the kept boxes and their version outlive an Apply: the second Apply of an instance, on another mesh, must
+            // not read those of the first; checked against a scan and against a fresh instance)
+            DMesh3 first = SliverBox(14, 5), second = SliverBox(16, 7), fresh = new DMesh3(second);
+            var r = new MeshRoundingRepair(first) { SharedPositionsTouch = true };
+            r.Apply();
+            Assert.True(r.PendingBoxQueries > 0);
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                r.Mesh = second;
+                r.Apply();
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+            Assert.True(r.PendingBoxQueries > 0 && r.NearChecks > 0, $"{r.PendingBoxQueries} queries read the kept boxes in the second Apply");
+            Repair(fresh);
+            Assert.Equal(Print(fresh), Print(second));
         }
 
         [Fact]
@@ -222,7 +241,7 @@ namespace geometry3Sharp.Tests
             Assert.True(queries > 0);
         }
 
-        [Trait("Category", "Slow")]   // (booleans with their rounding, each twice and once more in check mode: 5-10 s)
+        [Trait("Category", "Slow")]   // (booleans of the rounding corpus with their rounding, each twice: up to 5 s in a full run)
         [Theory]
         [InlineData("utm Cluster 0 4 0")]
         [InlineData("utm Cluster 0 9 1")]
@@ -233,6 +252,7 @@ namespace geometry3Sharp.Tests
             Func<ExactMeshBoolean> make = MeshRoundingRepairIncrementalTests.Case(name);
             ExactMeshBoolean kept = Run(make, false), reference = Run(make, true);
             Assert.True(kept.Rounding.PendingBoxQueries > 0, $"{name}: no query read the kept boxes");
+            Assert.Equal(0, reference.Rounding.PendingBoxQueries);
             Assert.True(Print(kept.Result) == Print(reference.Result), name);
             Assert.Equal(reference.RoundingClean, kept.RoundingClean);
             Assert.Equal(reference.Rounding.MaxDrift, kept.Rounding.MaxDrift);
@@ -249,6 +269,7 @@ namespace geometry3Sharp.Tests
             Assert.True(Print(kept.Result) == Print(reference.Result), op.ToString());
             Assert.Equal(reference.RoundingClean, kept.RoundingClean);
             Assert.True(kept.Result.TriangleCount > 0 && Invariance.AllFinite(kept.Result), op.ToString());
+            Assert.Equal(0, reference.Rounding.PendingBoxQueries);
             Assert.True(kept.Rounding.PendingBoxQueries > 100, $"{op}: {kept.Rounding.PendingBoxQueries} queries read the kept boxes, {kept.Result.TriangleCount} triangles");
         }
 

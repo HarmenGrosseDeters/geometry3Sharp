@@ -1256,8 +1256,9 @@ operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending
 - 119829 union 3.57 to 2.60 s, 486343 union 2.28 to 1.70 s, plate_24 difference 4.97 to 4.03 s, 67709 union 15.71 to
   13.98 s, 102375 union 7.78 to 6.97 s, 498458 union 11.52 to 10.53 s.
 - The hashes of all three runs are equal on both sides for all 48 operations.
-- Where few edits are evaluated the change is inside the run-to-run variation (single operations between −13 and
-  +4 %; the two above that, 119829 intersection and sphere_60 intersection, take 0.1-0.3 s).
+- Where few edits are evaluated the change is inside the run-to-run variation (single operations of the second group
+  between −13 and +4 %). The two operations above that, 119829 intersection (+19 %) and sphere_60 intersection
+  (+15 %), take 0.1-0.3 s, 0.04 s of it rounding.
 
 ## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
 

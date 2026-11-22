@@ -503,7 +503,8 @@ namespace g3
         // the one of their computation: every change of a triangle's corners or positions, and every entry added to
         // pending, comes with a mark_dirty before the next query (set_vertex's callers, the flip, every appended
         // triangle), which raises version. A triangle that is only removed raises nothing: the query asks IsTriangle
-        // itself, as before
+        // itself, as before. Where near clears pending (the rebuild of dirtyTree) version stays, and the boxes are not
+        // read while pending is empty. version never goes back, also not from one Apply to the next
         double[] pendingBox = new double[0];
         long pendingBoxVersion = -1;
         // for tests: the computations of pendingBox and the queries that read it in the last Apply
@@ -736,7 +737,6 @@ namespace g3
             NearChecks = 0;
             PendingBoxRefreshes = PendingBoxQueries = 0;
             pendingFromMesh = PendingBoxesFromMeshOnThisThread;
-            pendingBoxVersion = -1;
             DirtyTreeBuilds = 0;
             MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
