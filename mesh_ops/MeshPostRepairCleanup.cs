@@ -38,7 +38,7 @@ namespace gs
         public double FoldAngleDeg = 175;
         /// <summary>
         /// a collapse of an edge between two interior vertices (#1363) moves the discarded vertex onto the kept one, that is by the length of the edge;
-        /// the collapse is skipped if that is more than this fraction of the reference diagonal (the diagonal of DegenerateAreaFactor), so a needle
+        /// the collapse is skipped if that is more than this fraction of the reference diagonal (ReferenceDiagonal, else the diagonal of the bounds of the triangles: the diagonal of DegenerateAreaFactor), so a needle
         /// cannot move the surface by more. 0 or less: no bound
         /// </summary>
         public double MaxCollapseDisplacement = 1e-4;
@@ -291,7 +291,8 @@ namespace gs
         bool try_collapse_to_end(Index2i ev, Index2i et)
         {
             Vector3d pa = Mesh.GetVertex(ev.a), pb = Mesh.GetVertex(ev.b);
-            if (MaxCollapseDisplacement > 0 && pa.Distance(pb) > MaxCollapseDisplacement * refDiag)
+            // (written so that a NaN length or diagonal refuses the collapse)
+            if (MaxCollapseDisplacement > 0 && !(pa.Distance(pb) <= MaxCollapseDisplacement * refDiag))
                 return false;
             bool fa = is_feature(ev.a), fb = is_feature(ev.b);
             bool aFirst;
@@ -301,7 +302,7 @@ namespace gs
                 // (the same origin for both: the volume of the patch changes, not its sum over the closed mesh)
                 Vector3d o = (pa + pb) * 0.5;
                 double va = Math.Abs(collapse_volume_change(ev.a, ev.b, pa, o, et)), vb = Math.Abs(collapse_volume_change(ev.b, ev.a, pb, o, et));
-                aFirst = va < vb || (va == vb && (pa.x < pb.x || (pa.x == pb.x && (pa.y < pb.y || (pa.y == pb.y && pa.z <= pb.z)))));
+                aFirst = va < vb || (va == vb && ev.a < ev.b);       // (a tie, eg a needle in a plane: the end with the lower id, as before)
             }
             for (int k = 0; k < 2; ++k) {
                 int keep = (k == 0) == aFirst ? ev.a : ev.b, discard = keep == ev.a ? ev.b : ev.a;

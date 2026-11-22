@@ -84,7 +84,12 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 box = BoxWithSplitEdge(1e-3);
             DMesh3 before = new DMesh3(box);
-            Run(box);       // (the flips of the fallback keep the vertices)
+            var c = Run(box);       // (the flips of the fallback keep the vertices)
+            Assert.Equal(before.TriangleCount, box.TriangleCount);
+            Assert.True(Vertices(before).SetEquals(Vertices(box)));
+            Assert.Equal(8, Volume(box), 12);
+            // a second Apply() on the same instance changes nothing more (the needle stays, it is not collapsed in a later pass either)
+            c.Apply();
             Assert.Equal(before.TriangleCount, box.TriangleCount);
             Assert.True(Vertices(before).SetEquals(Vertices(box)));
             Assert.Equal(8, Volume(box), 12);
