@@ -45,7 +45,7 @@ Part of the [roadmap](../ROADMAP.md).
   subdivision fails in 7 of 108 runs after flips and 16 of 108 after refinement, and 11 `Success` results after
   insertions carry false crossings; an integer prototype passes its checks in 324 of 324 runs, flips up to about 30 % slower, the
   subdivision 10-46 times faster. The Delaunay test stays floating point. Options and leaning are with the owner.
-  The false crossings are fixed (#1313, 2026-11-22: reported as `Inconsistent`), and so are faces lost at coincident crossings (#1326, 2026-11-22); options 2 and 3 of the note wait for the owner.
+  The false crossings are fixed (#1313, 2026-11-22: reported as `Inconsistent`), and so are faces lost at coincident crossings (#1326, 2026-11-22) and the missing face of a zero-area sliver at the input boundary, with `Faces` now empty on every `Inconsistent` (#1335, 2026-11-22); option 2 of the note is built (owner 2026-11-22, #1311): `EnableIntegerCoordinates`, opt-in, kept through flips and boundary splits; valid in 108 of 108 runs for flips and for `DelaunayRefine(0)` where tracing succeeds in 101, the extraction 6 to 28 times faster, the flips 5 to 30 % slower with the layer on. Option 3 (insertions, refinement) waits for a consumer.
 - **Geodesic Bézier curves** (Phase 5 #1): done (paths, waypoints and loops; Bézier curves merged in #540).
 - **Foldover-free maps** (Phase 5 #7, #374; round-off merged in #754, 2026-11-13; done, limits documented): the paper's energy-decrease stop is in (iterations
   115 / 132 / 169 / 132 -> 28 / 41 / 54 / 16, quality within 0.1 % on all four fixtures, time about 2-6x less). The SLIM
@@ -97,8 +97,9 @@ Part of the [roadmap](../ROADMAP.md).
   boundary; on the plane of 169-degree triangles the mean distance error drops from 0.06 to 0.02 edge
   lengths (max 0.8 to 0.1; `benchmarks/IntrinsicBenchmark`). Common subdivision by tracing (`ExtractCommonSubdivision`, area-checked, reports
   `Inconsistent` instead of wrong faces).
-  - [ ] Integer (normal) coordinates (Gillespie, Sharp, Crane 2021) for a combinatorially exact common
-    subdivision; signposts with the area checks suffice for the current operations
+  - [x] Integer (normal) coordinates (Gillespie, Sharp, Crane 2021) for a combinatorially exact common
+    subdivision: opt-in (`EnableIntegerCoordinates`), flips and boundary splits (#1311, 2026-11-22)
+  - [ ] Integer coordinates through insertions and refinement (option 3 of the research note; on demand)
 
 ### Open for the future (2026-11-15)
 
@@ -106,6 +107,6 @@ List as of 2026-11-17.
 
 1. `ExactMeshGeodesicDistance` as a certified test oracle (#869 merged 2026-11-15, #1062 2026-11-17): reach on flat / aligned inputs below 10^4 vertices (the ridge 41² completes in 5.7 s since #1058); the heat-method tests against the oracle (plan #1238).
 2. A7' (exactly flat vertices emit nothing; GEODESICS.md 6d, A.6; reviewed, merged #1147 2026-11-19) is done in the oracle: flat and aligned inputs of 10^4 vertices in 3-6 s. A9 is not built (0 gain on flat input, at most 1.2-1.8 times elsewhere, 6d). Next: the fragmentation lever (merging with a propagated window, 6d limit 2; plan #1238), then a public class for 10^5 vertices (done: `PolyhedralGeodesicDistance`, #1185, 2026-11-19; its saddle tail is #1186).
-3. Integer (normal) coordinates for an exact common subdivision (research; no issue; plan #1284; spike done 2026-11-22, [research note](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md); the implementation waits for the owner's decision).
+3. Integer (normal) coordinates for an exact common subdivision (research; no issue; plan #1284; spike done 2026-11-22, [research note](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md); the opt-in layer for flips and boundary splits is built, #1311, 2026-11-22; insertions and refinement on demand).
 4. P1 collapse: virtual fan vertices (research; documented limitation; plan #1285). Spectral conformal measured 2026-11-17: no fix for P1 (folds on nearly symmetric annuli), but it removes the P3 pin asymmetry (to 1e-13): owner 2026-11-17: an opt-in for disc charts; built in #1057 (2026-11-17) with the per-chart A/B against LSCM on the atlas corpus in `benchmarks/UVAtlasBenchmark/README.md`, default unchanged ([GEOGRAM_MEASUREMENTS_2026-11.md](../research/GEOGRAM_MEASUREMENTS_2026-11.md)).
 5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

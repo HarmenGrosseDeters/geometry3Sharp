@@ -50,5 +50,17 @@ namespace g3.Examples
             status = overlay.Status;           // Inconsistent (with overlay.Error) instead of wrong faces
             return overlay.ToMesh();
         }
+
+        /// <summary>
+        /// the same after the Delaunay flips and the splits of obtuse boundary edges, from integer coordinates:
+        /// no tracing, the connectivity is exact for the triangulation (other insertions switch them off)
+        /// </summary>
+        public static DMesh3 DelaunayCommonSubdivision(DMesh3 mesh, out CommonSubdivisionStatus status)
+        {
+            var T = new IntrinsicTriangulation(mesh);
+            T.EnableIntegerCoordinates();       // before the first flip
+            T.DelaunayRefine(0);                // flips and boundary splits keep them: T.HasIntegerCoordinates
+            return CommonSubdivision(T, out status);
+        }
     }
 }

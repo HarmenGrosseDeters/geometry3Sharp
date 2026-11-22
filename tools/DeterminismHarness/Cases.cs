@@ -41,6 +41,10 @@ namespace DeterminismHarness
             // ---- the correctly rounded CoreMath Acos and Tan: no platform libm, so the same bits on every platform (C1 of DETERMINISM.md)
             list.Add(CoreMathCase("acos", CoreMath.Acos, -1, 1, 1 - 1.0 / 9007199254740992.0, -1 + 1.0 / 9007199254740992.0, 0.23144537602828275, 0.5, 1e-300, 1, -1, 0.0));
             list.Add(CoreMathCase("tan", CoreMath.Tan, -1.5, 1.5, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 2, 1e22, 6381956970095103.0 * Math.Pow(2, 797), 5e-324, 4.4703483581541778e-07, 0.0));
+            // ---- the contour lofts on the inputs of the examples, with the circle points from CoreMath: the same bits on every platform, so a difference
+            // is the operation's (examples.ContourLoft.* build their circles with Math.Cos / Sin: an input that differs, F5 of the study)
+            list.Add(new Case("contourloft.frustum", serial => ContourLoftFrustum()));
+            list.Add(new Case("contourloft.stack", serial => ContourLoftBranchingStack()));
             // ---- runtime probes (no library code): arithmetic, sorting with ties, number parsing and formatting
             list.Add(new Case("probe.arith-chain", serial => ProbeArith()));
             list.Add(new Case("probe.sort-ties", serial => ProbeSort()));
@@ -392,6 +396,45 @@ namespace DeterminismHarness
             remesher.SetProjectionTarget(MeshProjectionTarget.Auto(m));
             for (int pass = 0; pass < 6; ++pass) remesher.BasicRemeshPass();
             t.Add(m);
+            return t;
+        }
+
+        static List<Vector3d> LoftCircle(double cx, double cy, double z, double r, int n)
+        {
+            var pts = new List<Vector3d>(n);
+            for (int i = 0; i < n; ++i) {
+                double a = 2.0 * Math.PI * i / n;
+                pts.Add(new Vector3d(cx + r * CoreMath.Cos(a), cy + r * CoreMath.Sin(a), z));
+            }
+            return pts;
+        }
+
+        static void LoftInput(Trace t, params IEnumerable<Vector3d>[] contours)
+        {
+            t.Section("input");
+            foreach (IEnumerable<Vector3d> c in contours) foreach (Vector3d p in c) t.Add(p);
+        }
+
+        // the loft of docs/examples/ContourLoftExample.cs
+        static Trace ContourLoftFrustum()
+        {
+            var t = new Trace();
+            List<Vector3d> lower = LoftCircle(0, 0, 0, 2.0, 24), upper = LoftCircle(0, 0, 2, 1.0, 24);
+            LoftInput(t, lower, upper);
+            var loft = new ContourLoft { Cost = ContourLoftCost.MinimumArea, Caps = true, CheckSelfIntersections = true };
+            Examples.AddResult(t, "return", loft.Compute(lower, upper));
+            return t;
+        }
+
+        static Trace ContourLoftBranchingStack()
+        {
+            var t = new Trace();
+            var slice0 = new List<IList<Vector3d>> { LoftCircle(0, 0, 0, 3.0, 24) };
+            var slice1 = new List<IList<Vector3d>> { LoftCircle(-1.2, 0, 2, 0.9, 16), LoftCircle(1.2, 0, 2, 0.9, 16) };
+            var slice2 = new List<IList<Vector3d>> { LoftCircle(-1.2, 0, 4, 0.7, 16), LoftCircle(1.2, 0, 4, 0.7, 16) };
+            LoftInput(t, slice0.Concat(slice1).Concat(slice2).SelectMany(c => c).ToArray());
+            var stack = new ContourLoftStack { CapEnds = true, LoweredSaddle = true, CheckSelfIntersections = true };
+            Examples.AddResult(t, "return", stack.Compute(new List<IList<IList<Vector3d>>> { slice0, slice1, slice2 }));
             return t;
         }
 

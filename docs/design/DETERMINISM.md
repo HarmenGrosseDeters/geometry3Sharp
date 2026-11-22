@@ -189,6 +189,32 @@ the run time (1.39 s against 1.40 s, median of 5, pit at tolerance 0.001). Files
 transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
 tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
 
+## 6b. Golden masters: two tiers (owner 2026-11-22)
+
+A pinned value (a hash, a digest, a golden file) of an operation holds on every platform or only on one libm family. The
+tier is decided by a tool, not by the author (research note section 6, plan #1287):
+
+| tier | which operation | what the golden master pins | who decides |
+|---|---|---|---|
+| 1, bit-exact | no platform libm on its reachable set (`DeterminismReach`, the upper bound `cha`), or one with an argument and a test (F2: `ExactMeshBoolean`) | one digest of the full result, the same on every runtime, OS and architecture | `DeterminismReach tier` against `tools/DeterminismReach/tier1.txt`: a listed type that gains a libm edge fails `tier-rule.yml` (every pull request that changes library sources or the documented operations) and the `linux` job of `determinism.yml` |
+| 2, bit-exact per libm family | reaches a platform libm value | (a) the combinatorial result and every exact value, one digest for all platforms where the operation promises them; (b) the coordinates as one digest per libm family (linux x64 = arm64, Windows .NET 10, Windows .NET Framework, macOS), recorded from CI, never a tolerance alone; (c) an invariant with a derived bound across families (Hausdorff, volume, angle) | the tool puts it there; leaving tier 2 means `CoreMath` on the path (6a) or an argument |
+| not a golden master | a schedule dependence (level L0) | nothing is pinned: serial equals parallel equals adversary, red or `KNOWN` until fixed | the adversary |
+
+**Inside one runtime every operation is tier 1**: serial, parallel, repeated runs and adversarial loop orders agree bit for
+bit, with or without libm. Only the comparison across libm families is relaxed, and only to another exact digest; a tolerance
+appears only in (c), with its derivation. The input of a test is part of the pin: a golden master over an input built with
+`Math.Sin / Cos` is tier 2 by its input (the `.libm-input` cases; the `examples.*` cases build circles that way).
+
+**The tier-1 list** (`tools/DeterminismReach/tier1.txt`, the documented public types without a libm edge on the `cha` graph,
+78 on 2026-11-22). `DeterminismReach tier <library.dll> --docs docs/OPERATIONS.md --docs docs/guides --baseline
+tools/DeterminismReach/tier1.txt` exits with 1 for a listed type that reaches the platform libm (`VIOLATION`) or is no longer
+a documented public type (`STALE`), and lists documented types without a libm edge that are not listed yet; `--update`
+rewrites the list (it drops a type that now reaches libm without an argument: the diff of the list is the review); `--tests tests/geometry3Sharp.Tests` (not wired into CI until the perturbation test of #1354 is merged) also checks that the argument of a type names a test class that exists. The remedies of a violation, in this order: remove the libm call from the path (`CoreMath`, if the rule 6a
+allows it: a measured difference); show by an argument and a perturbation test that it cannot reach the result and list the
+type with a `<TAB>argument: ...` line; or leave tier 1 deliberately (delete the line in the PR that adds the call, with the
+reason). The `cha` bound counts implementations an operation is never given, so an operation with callbacks can be tier 2
+without having a libm value; `--why <Type> libm` prints the path. A new pinned digest names its tier in its test.
+
 ## 7. Contract and fix proposals
 
 **Levels** (proposal for the owner): L0, same runtime, OS and architecture: serial equals parallel equals repeated runs

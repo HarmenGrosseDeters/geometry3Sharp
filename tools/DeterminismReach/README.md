@@ -43,6 +43,15 @@ may not gain a libm edge) guards against new direct uses, not against every path
 **Operations.** The public types whose name appears in backticks in the given documentation files; `--harness` marks the
 types the harness assembly references.
 
+**Tier rule.** `tier <library.dll> --docs <dir or file> ... --baseline tools/DeterminismReach/tier1.txt [--update]` is the check of the
+golden-master policy ([DETERMINISM.md](../../docs/design/DETERMINISM.md) section 6b): the documented public types whose `cha` reach
+has no libm are tier 1; the baseline lists them, a `Type<TAB>argument: ...` line lists a type that reaches libm and is tier 1 by an
+argument and a test (`ExactMeshBoolean`, F2). Exit 1 for a listed type that gains a libm edge or is gone (and, with `--tests <dir>`, for an argument that names no test class
+that exists there); exit 2 for a missing library, documentation or baseline; types that could be listed are printed. `--update`
+drops a listed type that now reaches libm without an argument: read the diff of the list. It runs in `.github/workflows/tier-rule.yml`
+(on pull requests that change library sources, `docs/OPERATIONS.md`, `docs/guides` or this tool: a minute) and in the `linux` job of
+`determinism.yml`.
+
 **Self-test.** `self-test` analyzes the tool's own assembly, whose fixtures (`SelfTest.cs`) have a known reachability, and
 exits with 1 on a difference. Checked with hand mutants: dropping the edges of `ldftn` or `newobj`, the class hierarchy
 edges, explicit interface implementations, inherited interface slots, static constructors, the callbacks of outside

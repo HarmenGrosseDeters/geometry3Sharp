@@ -157,9 +157,9 @@ full_config() {
 # a full run that a pull request does not make: the reason goes to the log and the job summary, the job succeeds
 skip_full() {
   mkdir -p StrykerOutput
-  echo "::notice::$config: full run on master ($1)"
+  echo "::notice::$config: NOT RUN on this PR, full run on master ($1)"
   {
-    echo "### $config: full run on master"
+    echo "### $config: NOT RUN on this PR, full run on master"
     echo
     echo "No full run on a pull request during 3.0: $1. The scheduled run on master measures this shard in full and seeds its baseline (tests/mutation/README.md)."
   } >> "$summary"

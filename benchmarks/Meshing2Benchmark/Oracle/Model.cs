@@ -224,6 +224,15 @@ namespace Meshing2Acceptance
         /// lies in the tube of the other (O11 makes it a vertex of both chains; #664). Findings to look at, as the merge zone's.
         /// </summary>
         public int NearMeetAngleExcused;
+        /// <summary>
+        /// A report, no rule (HP 6 option 1): of the triangles below the angle excused as spanning a small input angle (both kinds, the
+        /// exactly meeting constraints and NearMeetAngleExcused's), those whose smallest angle is below the floor arctan(sin phi / (2 - cos phi)) of
+        /// Miller, Pav and Walkington 2005 for the angle phi of the two constraints that excused them (the first pair that does).
+        /// phi is acute there (the excuse requires the apex angle of the triangle to be acute), so cos phi is the positive root of 1 - sin^2 phi.
+        /// Exact: with S = sin^2 phi and s = the triangle's sin^2 of its smallest angle, theta below the floor is s (5 - 4 cos phi) &lt; S, which is
+        /// 4 s cos phi &gt; 5 s - S: true where 5 s &lt; S, else 16 s^2 (1 - S) &gt; (5 s - S)^2.
+        /// </summary>
+        public int BelowMpwFloorExcused;
         /// <summary> the squared tolerance the O11 rule gives the mesher (a quarter of the squared tube without the subnormal floor of
         /// Oracle.AutoTolerance: the mesher's own tolerance has none); 0 at M1 </summary>
         public Q O11Tolerance2;
@@ -273,6 +282,7 @@ namespace Meshing2Acceptance
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
             if (NearMeetAngleExcused > 0) parts.Add(NearMeetAngleExcused + " excused at a small angle of constraints that meet in the tube");
+            if (BelowMpwFloorExcused > 0) parts.Add(BelowMpwFloorExcused + " of the small-angle excuses are below the floor of Miller, Pav and Walkington");
             return string.Join(", ", parts);
         }
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }

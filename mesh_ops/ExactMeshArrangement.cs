@@ -391,7 +391,7 @@ namespace g3
         /// <summary>
         /// for tests (issue 789): a salt for the hashes of exact points (0: their own hashes). The hash of an exact
         /// point is seeded per process on .NET (BigInteger.GetHashCode); a non-zero salt scrambles the hashes of the
-        /// rational and fixed-width points (their shard and their bucket in it, and ExactHash of the merge) and the
+        /// rational and fixed-width points (their shard and their bucket in it, and the hash of ExactIdComparer in the merge) and the
         /// shard of the implicit points (their bucket keeps PointKey's own hash, which is not seeded), so that a test
         /// can show that no result depends on them. SingleShard puts every point into the first shard. Both are set
         /// before the first point is added.

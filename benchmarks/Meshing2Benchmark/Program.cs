@@ -40,6 +40,9 @@ namespace Meshing2Acceptance
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
   snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
+  planarmap [--kinds soup,bundle,...] [--sizes small,large|<n>] [--tolerances 0,9.5367431640625e-07] [--repeats 3] [--judge [--judge-limit 40000]]
+                                    the constrained mesher as an exact planar map on near-degenerate segment sets, with two yardsticks
+                                    (docs/research/ROBUST_PLANAR_MAPS_2026-11.md); a measurement, not a gate
   rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending] [--mode constrained] [--snapped-area]   (--fast skips the slow rows; --pending also runs pending rows; --snapped-area reports mesh - snapped area, slow)
   corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000] [--mode constrained] [--snapped-area]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
@@ -92,6 +95,7 @@ namespace Meshing2Acceptance
                     case "rows": return RunRows(args);
                     case "corpus": return Corpus.Run(args, Arg);
                     case "snapcost": return SnapCost.Run(args, Arg);
+                    case "planarmap": return PlanarMapStress.Run(args, Arg);
                     case "gridcounts": return GridCounts.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
