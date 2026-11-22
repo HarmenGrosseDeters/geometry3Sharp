@@ -53,10 +53,12 @@ namespace g3
     /// covers the 4 2^-1075 by itself. With Tiny a triangle in a plane through the origin (all projections on its
     /// normal exactly zero) has the interval (-Tiny, Tiny), not none.
     ///
-    /// Overflow, values that are not finite. A coordinate, an axis component or a product that is not finite makes a
-    /// magnitude s~ infinite or NaN: the interval is then not used (the pair is not apart along that axis), nor is one
-    /// with an end that overflows, and an unusable interval of the triangle's own axis is stored as (-inf, +inf): never
-    /// apart. No FMA: a fused product would change steps 1 to 3 (it has one rounding less, so the bound would still
+    /// Overflow, values that are not finite. With finite magnitudes the projections are finite (|p~| &lt;= s~), and an
+    /// interval end that overflows is -inf below or +inf above: still an enclosure. A coordinate, an axis component or a
+    /// product that is not finite makes a magnitude s~ infinite or NaN (the maximum is taken with Math.Max, which
+    /// returns NaN if one of its arguments is), so the margin is infinite or NaN and each end of the interval is
+    /// infinite on its own side or NaN; a comparison with a NaN is false. Either way the pair is not apart along that
+    /// axis. No FMA: a fused product would change steps 1 to 3 (it has one rounding less, so the bound would still
     /// hold, but the results would differ between machines).
     ///
     /// Shared corners need no special case: a corner of both triangles has one p~ on an axis, which lies in both
@@ -89,14 +91,12 @@ namespace g3
                 SetOwnInterval(data, o, k, v0, v1, v2);
         }
 
-        /// <summary> the interval of the triangle (v0, v1, v2) on axis k of data at offset o, as its own (never apart if it is not usable) </summary>
+        /// <summary> the interval of the triangle (v0, v1, v2) on axis k of data at offset o, as its own </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void SetOwnInterval(double[] data, int o, int k, Vector3d v0, Vector3d v1, Vector3d v2)
         {
             double lo, hi;
-            if (Interval(data[o + 3 * k], data[o + 3 * k + 1], data[o + 3 * k + 2], v0, v1, v2, out lo, out hi) == false) {
-                lo = double.NegativeInfinity; hi = double.PositiveInfinity;
-            }
+            Interval(data[o + 3 * k], data[o + 3 * k + 1], data[o + 3 * k + 2], v0, v1, v2, out lo, out hi);
             data[o + 12 + 2 * k] = lo; data[o + 13 + 2 * k] = hi;
         }
 
@@ -118,14 +118,14 @@ namespace g3
         internal static bool ApartAlong(double[] data, int o, int k, Vector3d u0, Vector3d u1, Vector3d u2)
         {
             double lo, hi;
-            return Interval(data[o + 3 * k], data[o + 3 * k + 1], data[o + 3 * k + 2], u0, u1, u2, out lo, out hi)
-                && (lo > data[o + 13 + 2 * k] || data[o + 12 + 2 * k] > hi);
+            Interval(data[o + 3 * k], data[o + 3 * k + 1], data[o + 3 * k + 2], u0, u1, u2, out lo, out hi);
+            return lo > data[o + 13 + 2 * k] || data[o + 12 + 2 * k] > hi;
         }
 
-        // lo~ and hi~ of the three points on the axis (ax, ay, az); false if the interval may not be used (a magnitude or
-        // an end that is not finite)
+        // lo~ and hi~ of the three points on the axis (ax, ay, az) (see the class comment; ends that are infinite or NaN
+        // where a value is not finite)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static bool Interval(double ax, double ay, double az, Vector3d x0, Vector3d x1, Vector3d x2, out double lo, out double hi)
+        internal static void Interval(double ax, double ay, double az, Vector3d x0, Vector3d x1, Vector3d x2, out double lo, out double hi)
         {
             double t0x = ax * x0.x, t0y = ay * x0.y, t0z = az * x0.z;
             double t1x = ax * x1.x, t1y = ay * x1.y, t1z = az * x1.z;
@@ -133,21 +133,13 @@ namespace g3
             double p0 = (t0x + t0y) + t0z, p1 = (t1x + t1y) + t1z, p2 = (t2x + t2y) + t2z;
             double s0 = (Math.Abs(t0x) + Math.Abs(t0y)) + Math.Abs(t0z), s1 = (Math.Abs(t1x) + Math.Abs(t1y)) + Math.Abs(t1z),
                 s2 = (Math.Abs(t2x) + Math.Abs(t2y)) + Math.Abs(t2z);
-            // (a magnitude that is NaN or infinite: a coordinate or an axis that is not finite, or a product that overflows)
-            if (!(s0 + s1 + s2 < double.PositiveInfinity)) {
-                lo = double.NegativeInfinity; hi = double.PositiveInfinity;
-                return false;
-            }
-            double s = s0 > s1 ? s0 : s1;
-            if (s2 > s) s = s2;
-            double m = Gamma * s + Tiny;
+            // (Math.Max: NaN if a magnitude is NaN)
+            double m = Gamma * Math.Max(Math.Max(s0, s1), s2) + Tiny;
             double pmin = p0 < p1 ? p0 : p1, pmax = p0 > p1 ? p0 : p1;
             if (p2 < pmin) pmin = p2;
             if (p2 > pmax) pmax = p2;
             lo = pmin - m;
             hi = pmax + m;
-            // (with finite magnitudes the projections and the margin are finite; an end can still overflow)
-            return lo > double.NegativeInfinity && hi < double.PositiveInfinity;
         }
     }
 }

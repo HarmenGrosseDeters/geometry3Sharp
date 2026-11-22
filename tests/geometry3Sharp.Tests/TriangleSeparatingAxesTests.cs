@@ -186,10 +186,49 @@ namespace geometry3Sharp.Tests
             Assert.False(TriangleSeparatingAxes.ApartAlong(du, 0, 0, t.V0, t.V1, t.V2));
             // the margin as specified: Gamma times the magnitude, at least 4u S on each side (steps 3 to 5 of the class comment)
             double lo, hi;
-            Assert.True(TriangleSeparatingAxes.Interval(WorstAxis.x, WorstAxis.y, WorstAxis.z, WorstHigh, WorstHigh, WorstHigh, out lo, out hi));
+            TriangleSeparatingAxes.Interval(WorstAxis.x, WorstAxis.y, WorstAxis.z, WorstHigh, WorstHigh, WorstHigh, out lo, out hi);
             Assert.Equal(8 * U, TriangleSeparatingAxes.Gamma);
             Assert.True(ph - lo >= 4 * U * ph && hi - ph >= 4 * U * ph, $"margin {ph - lo} / {hi - ph} at {ph}");
             Assert.True(ph - lo <= 9 * U * ph && hi - ph <= 9 * U * ph, "the margin is not more than Gamma s, up to the rounding of the interval end");
+        }
+
+        // the formula of the class comment, written out apart from the implementation
+        static void Specified(Vector3d a, Vector3d[] x, out double lo, out double hi)
+        {
+            double pmin = double.PositiveInfinity, pmax = double.NegativeInfinity, smax = 0;
+            foreach (Vector3d v in x) {
+                double tx = a.x * v.x, ty = a.y * v.y, tz = a.z * v.z;
+                double p = (tx + ty) + tz, s = (Math.Abs(tx) + Math.Abs(ty)) + Math.Abs(tz);
+                pmin = Math.Min(pmin, p); pmax = Math.Max(pmax, p); smax = Math.Max(smax, s);
+            }
+            double m = 8 * U * smax + Math.Pow(2, -1072);
+            lo = pmin - m; hi = pmax + m;
+        }
+
+        [Fact]
+        public void Interval_IsTheSpecifiedFormula_AndEnclosesTheExactProjections()
+        {
+            // corners of very different magnitude (each corner in turn the largest, each coordinate in turn the dominant
+            // product, mixed signs): the margin is that of the largest magnitude, whichever corner and term it comes from
+            var r = new Random(13);
+            for (int i = 0; i < 6000; ++i) {
+                var a = Random(r, 1);
+                var x = new Vector3d[3];
+                for (int c = 0; c < 3; ++c) {
+                    x[c] = Random(r, Math.Pow(10, -r.Next(6)));
+                    if (r.Next(3) == 0) { Vector3d v = x[c]; v[r.Next(3)] *= 1e6; x[c] = v; }
+                }
+                int big = i % 3;
+                x[big] = 1e3 * x[big];
+                double lo, hi, elo, ehi;
+                TriangleSeparatingAxes.Interval(a.x, a.y, a.z, x[0], x[1], x[2], out lo, out hi);
+                Specified(a, x, out elo, out ehi);
+                Assert.Equal(elo, lo);
+                Assert.Equal(ehi, hi);
+                BigInteger blo = Dot(new Vector3d(lo, 0, 0), new Vector3d(1, 0, 0)), bhi = Dot(new Vector3d(hi, 0, 0), new Vector3d(1, 0, 0));
+                foreach (Vector3d v in x)
+                    Assert.True(blo < Dot(a, v) && Dot(a, v) < bhi, $"case {i}: an exact projection outside the interval");
+            }
         }
 
         [Fact]
