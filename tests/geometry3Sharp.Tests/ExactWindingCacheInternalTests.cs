@@ -117,6 +117,49 @@ namespace geometry3Sharp.Tests
             Assert.Equal(-w2, w2Rev);
         }
 
+
+        // independent oracle (Van Oosterom-Strakhov): half the solid angle of the spherical triangle (u, v, w = (-1,0,0)),
+        // atan2(u.(v x w), |u||v||w| + (u.v)|w| + (u.w)|v| + (v.w)|u|); only for well-scaled generic inputs
+        static double EdgeAngleOracle(Vector3d p, Vector3d a, Vector3d b)
+        {
+            Vector3d u = a - p, v = b - p;
+            double lu = u.Length, lv = v.Length;
+            double det = -(u.y * v.z - u.z * v.y);   // u . (v x w), w = (-1, 0, 0): w.x * (u.y v.z - u.z v.y) with the sign of the cross product
+            double den = lu * lv + u.Dot(v) + (-u.x) * lv + (-v.x) * lu;
+            return Math.Atan2(det, den);
+        }
+
+        static Vector3d Scaled(Vector3d v, double s) { return new Vector3d(v.x * s, v.y * s, v.z * s); }
+
+        [Fact]
+        public void BoundaryEdgeAngleX_MatchesAnIndependentOracle_AtEveryScale_AndIsScaleInvariant()
+        {
+            // generic well-scaled edges (coordinates are multiples of 1/8 in [-4, 4], so every 2^k scaling is exact);
+            // the same edge at 2^k for k from -1000 to 1000 takes the fast path (2^+-60) and the rescaling path (the others)
+            var rng = new Random(20261122);
+            int[] ks = { 0, 60, -60, 150, -150, 400, -400, 1000, -1000 };
+            int tested = 0;
+            for (int i = 0; i < 400; ++i) {
+                Vector3d P() { return new Vector3d(rng.Next(-32, 33) / 8.0, rng.Next(-32, 33) / 8.0, rng.Next(-32, 33) / 8.0); }
+                Vector3d p = P(), a = P(), b = P();
+                if (a.y == p.y && a.z == p.z || b.y == p.y && b.z == p.z || a.Equals(b)) continue;   // (the special-case paths: their own tests)
+                double expected = EdgeAngleOracle(p, a, b);
+                if (Math.Abs(expected) > 3.1415 || double.IsNaN(expected)) continue;                // (near the branch cut the oracle is not exact)
+                double baseAngle = ExactWindingCache.boundary_edge_angle_x(p, a, b);
+                Assert.True(Math.Abs(baseAngle - expected) < 1e-12, $"p {p} a {a} b {b}: {baseAngle:R} vs oracle {expected:R}");
+                foreach (int k in ks) {
+                    double s = BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+                    double scaled = ExactWindingCache.boundary_edge_angle_x(Scaled(p, s), Scaled(a, s), Scaled(b, s));
+                    Assert.True(Math.Abs(scaled - expected) < 1e-12, $"k {k}, p {p} a {a} b {b}: {scaled:R} vs oracle {expected:R}");
+                    // swapping the edge ends negates the angle exactly
+                    double swapped = ExactWindingCache.boundary_edge_angle_x(Scaled(p, s), Scaled(b, s), Scaled(a, s));
+                    Assert.Equal(-scaled, swapped);
+                    ++tested;
+                }
+            }
+            Assert.True(tested > 1500, $"only {tested} cases");
+        }
+
         [Fact]
         public void BoundaryEdgeAngleX_MixedExponentsAndUnderflow_ExactAndAntisymmetric()
         {
