@@ -806,14 +806,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TooManyCrossings_AreReported_NotAllocated()
         {
-            // counts that are consistent in themselves (arcs around the two far corners), above the limit of
-            // crossings: a status, before anything of that size is allocated
+            // the diagonal crossed twice as often as the limit of crossings allows (the corner counts stay whole
+            // numbers): a status, before anything of that size is allocated
             var T = Square(out DMesh3 mesh, out int diag);
-            int big = IntrinsicTriangulation.MaxCrossings;
-            foreach (int h in new[] { IntrinsicTriangulation.Next(diag), IntrinsicTriangulation.Prev(diag),
-                    IntrinsicTriangulation.Next(T.Twin(diag)), IntrinsicTriangulation.Prev(T.Twin(diag)) })
-                T.set_integer_coordinates(h, big, T.roundabout(h));
-            T.set_integer_coordinates(diag, 0, T.roundabout(diag));
+            T.set_integer_coordinates(diag, 2 * IntrinsicTriangulation.MaxCrossings, T.roundabout(diag));
             var cs = T.ExtractCommonSubdivision();
             Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
             Assert.Contains("too many crossings", cs.Error);
