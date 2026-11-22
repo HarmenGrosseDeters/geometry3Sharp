@@ -45,7 +45,8 @@ it passes, sampled gradients are pairwise less than 90 degrees apart). `G3_CIS_M
 `float` range of the contouring's node values and is refused). `all` takes about 40 minutes on 4 cores; its raw rows
 are in `results/all.csv`, the tables of the note come from `analyze.py`. `run <case[:k]> <N> [seed] [classP] [maxT]
 [maxTS]` is one row; `hull` (one minute) repeats the PV test of `all` in its published form (the hull of the sub-boxes'
-gradient enclosures as one box, `results/hull.csv`: 26 runs certified against 28 in the pairwise form of `all.csv`); `debug <case[:k]> <N> <seed>` prints sampled values and gradients of cells that fail the PV test.
+gradient enclosures as one box, `results/hull.csv`: 26 runs certified against 28 in the pairwise form of `all.csv`; the published form is the one the
+paper's proof covers, note section 4.3); `debug <case[:k]> <N> <seed>` prints sampled values and gradients of cells that fail the PV test.
 
 ## Columns of `all.csv`
 
