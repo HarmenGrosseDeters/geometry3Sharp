@@ -118,4 +118,5 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [net48-compare](net48-compare/README.md) | Side-by-side runtime comparison of `.NET Framework 4.8` vs. `.NET 10.0` |
 | [MetamorphicFalsification](MetamorphicFalsification/README.md) | Metamorphic relation falsification runs over core geometry operations |
+| [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher) on procedural inputs with independent checks of every Success |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |
