@@ -12,6 +12,7 @@ This directory contains the user-facing CLI/MCP server, build-time Roslyn analyz
 | `analyzers/G3ExactCodeAnalyzers/` | Build-time Roslyn analyzers enforcing exact-arithmetic and determinism rules (`G3E0001–3`, `G3D0001–9`) | [CLAUDE.md](../CLAUDE.md), [DETERMINISM_PROOF.md](../docs/design/DETERMINISM_PROOF.md) |
 | [PredicateCompiler/](PredicateCompiler/README.md) | Code generator and error-bound derivation tool for fixed-width, indirect, and double fallback predicates | [PredicateCompiler/README.md](PredicateCompiler/README.md) |
 | [DeterminismHarness/](DeterminismHarness/README.md) | Cross-runtime (`net48` vs `net10.0`) bit-for-bit determinism harness and probes | [DeterminismHarness/README.md](DeterminismHarness/README.md) |
+| [DeterminismReach/](DeterminismReach/README.md) | Static reachability of the sources of cross-runtime differences (libm, SIMD, hash order, ...) from the public operations, read from the compiled library | [DeterminismReach/README.md](DeterminismReach/README.md) |
 | [MeshFuzzPilot/](MeshFuzzPilot/README.md) | Coverage-guided fuzzing harness (SharpFuzz + libFuzzer) for mesh operations and findings log | [MeshFuzzPilot/README.md](MeshFuzzPilot/README.md) |
 | [ReaderFuzzPilot/](ReaderFuzzPilot/README.md) | Coverage-guided fuzzing harness for all mesh and geometry file readers | [ReaderFuzzPilot/README.md](ReaderFuzzPilot/README.md) |
 | [Z3Pilot/](Z3Pilot/README.md) | SMT verification pilot scripts using Z3 for predicate, rounding-drift, and separating-axis proofs | [Z3Pilot/README.md](Z3Pilot/README.md) |

@@ -19,9 +19,51 @@ count of each case) into the output directory. `compare` exits with 1 if a case 
 The net48 target builds on Windows or with `-p:TestNet48=true`.
 
 The workflow `.github/workflows/determinism.yml` runs it on Linux x64 and arm64 (net10.0, parallel twice, serial,
-and with `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 on x64), on Windows (net10.0, net48, net48 as a 32-bit process) and
-optionally macOS arm64, then compares the traces. It is not part of the PR gate: it runs on pull requests that change
+and with `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 on x64), on Windows x64 (net10.0, net48, net48 as a 32-bit process), on
+Windows arm64 (net10.0 and net48; a measurement, its failure does not stop the comparison) and optionally macOS arm64 and x64,
+then compares the traces. It is not part of the PR gate: it runs on pull requests that change
 the harness, `benchmarks/CoreMathBenchmark` or the workflow, and on demand.
+
+## Documented operations, generators and the cross-runtime probes
+
+Added for the cross-runtime study ([DETERMINISM_CROSS_RUNTIME_2026-11.md](../../docs/research/DETERMINISM_CROSS_RUNTIME_2026-11.md)):
+
+- **`examples.*`** (`Examples.cs`): every public static method of the compiled examples of `docs/OPERATIONS.md` (`docs/examples/*.cs`,
+  compiled into the harness) on fixed arguments; a method with an enum parameter is one case per value. Arguments are chosen by type
+  and parameter name (meshes and points from `Inputs`, which use only `+ - * /` and `sqrt`); a parameter the table does not know
+  makes the case record `unsupported` with a note, so a new example shows up in the comparison. The results (the return value,
+  `out` parameters, meshes changed in place) are traced by reflection: numbers, enums, strings as an FNV-1a hash, meshes, the `g3`
+  value types by their fields, sequences element by element, other library objects by their public fields and properties in
+  the order of their names, six levels deep; `BigInteger`, `decimal` and tuples are traced by value. A member is left out
+  when a whole word of its name marks a timing or a counter of work (`Seconds`, `Elapsed`, `Stats`, `Bytes`, ..., or a last
+  word `Time`), or when it is a string named like a message (`Error`, `Reason`, `Message`, ...); `Status`, `RMSError`,
+  `TimeOfImpact` and the like are results. `PointCloudSurface.BandNodes`, documented as approximate, is left out too. What
+  the trace cannot follow (another BCL object, a value below the depth limit) is counted in the section `not-traced` and
+  named in a note of the run, so nothing is skipped silently.
+- **`generators.*`**: every public `MeshGenerator` with a parameterless constructor, with its defaults. Six of the 18 need
+  input that the defaults do not have (a curve, a polygon: the two revolve generators, `PointSplatsGenerator`,
+  `TriangulatedPolygonGenerator`, `TubeGenerator`, `VerticalGeneralizedCylinderGenerator`) and record only the exception
+  type; the note of the case says so.
+- **`boolean.open-winding`** (`CrossRuntime.cs`): a Boolean with an open input of more than 1000 boundary segments, the only case
+  that reaches the hierarchical winding number, whose admission bound calls the platform `Math.Acos / Asin / Cos`.
+- **`winding.values`**: raw `DMeshAABBTree3.FastWindingNumber` / `WindingNumber` values (they end in `Math.Atan2`) and the
+  inside decisions made from them.
+- **`probe.libm-constfold`** (a transcendental function of a constant against the same call on a value the JIT cannot see,
+  in a method compiled with full optimization and in one compiled without),
+  **`probe.linq-sum`** (LINQ `Sum / Average / Min / Max` against a loop), **`probe.round-remainder`** (`Math.Round` with digits and
+  midpoint modes, `%`, `IEEERemainder`).
+
+The header of a run has a line `# machine` (vector widths, the instruction sets the JIT uses, whether the library's `Vector256`
+kernels are on); the workflow also runs the cases with `DOTNET_EnableHWIntrinsic=0`, `DOTNET_EnableAVX2=0`,
+`DOTNET_TieredCompilation=0` and `DOTNET_JITMinOpts=1`, which turn one machine into several. `cross_matrix.py <traces>` prints the
+matrix of the note (groups of cases against pairs of configurations) from the trace directories of a run.
+
+`adversary` lists a case of `KnownOrderDependent` (`Program.cs`: a known finding, with its reference) as `KNOWN` and does not
+fail on it; it fails when such a case stops differing, so the list only shrinks.
+
+`scope_report.py <build log>` summarizes the G3D diagnostics of a library build with more files in the proof scope (what a
+stage of the determinism proof would have to register). The static counterpart of the cases is
+[`tools/DeterminismReach`](../DeterminismReach/README.md).
 
 ## Stage 1 cases
 
