@@ -54,6 +54,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [ALPHA_WRAP_MANIFOLD_QUALITY.md](ALPHA_WRAP_MANIFOLD_QUALITY.md) | Quality-aware manifold step for `MeshAlphaWrap` |
 | [ALPHA_WRAP_QUALITY.md](ALPHA_WRAP_QUALITY.md) | Alpha wrap quality pass (stage 7b) |
 | [ALPHA_WRAP_ROUNDS.md](ALPHA_WRAP_ROUNDS.md) | Round-based parallel carving determinism and guarantees |
+| [ALPHA_WRAP_FEATURE_VALIDITY.md](ALPHA_WRAP_FEATURE_VALIDITY.md) | Validity theorem and proof for the sharp-feature pass (`AlphaWrapFeaturePass`): checked moves, splits and flips keep the wrap closed, manifold, intersection-free and enclosing |
 | [PASSAGE_WRAP.md](PASSAGE_WRAP.md) | Clearance-certified wrapping (`PassageWrap`) for open bores/channels |
 | [FINISH_HOLES_COVERAGE.md](FINISH_HOLES_COVERAGE.md) | Procedural coverage of `FinishHoles` |
 | [ROBUST_REPAIR_SCALE_FREE.md](ROBUST_REPAIR_SCALE_FREE.md) | Scale-free `MeshRobustRepair` design note |
