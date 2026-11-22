@@ -25,8 +25,8 @@
 
 ## Trigger / decision needed
 
-None for the method (decided). Scheduling: started (PR #1370, 2026-11-22); what remains is its CI, the exact-code
-review and the incremental mutation run, then the merge. Within the PR, the P5 obligations
+None for the method (decided). Scheduling: started (PR #1370, 2026-11-22); what remains is its CI and the incremental
+mutation run, then the merge (OPEN_TOPICS.md row "determinism proof stage 2"). Within the PR, the P5 obligations
 (renaming invariance of ids handed out in schedule order) decide whether option G (canonical result order) or C
 (deterministic ids by construction) is needed (§7); that choice goes to the owner with numbers.
 
