@@ -17,10 +17,10 @@ of a certificate) and on the stages 1-2 checker (#1061, [QA 2.4a](../qa/testing-
 | Stage 3 (C2a, the embedding) | Feasible with a small checker: a box tree of its own and one predicate (the sign of an orientation determinant of four exact points). The prototype agrees with the library's independent exact test on 445 876 lattice pairs and catches 378 of 378 injected missed intersections; no false alarm on 28 procedural booleans. |
 | Its cost | Deciding every sign with BigInteger (as stages 1-2 do): 14-100 times the boolean (3 on the two smallest cases). With a floating-point filter and three shortcuts: 0.4-8.5 times, median about 4, one case 14.6. The floor (floating point only, no certified answer) is 0.4-2.7 times, 3.4-8.4 on inputs with many coplanar input triangles. Near-linear in the pieces up to 395 000. The prototype is serial; the boolean ran on 4 cores. |
 | Solids the rounding drops (audit F1) | The checker as built certifies both audit cases: it exempts the components the rounding removed and only counts them. Without the exemption it rejects both. Neither drop is within the rounding bound; what a certificate says about removed components is an owner decision (4.4). |
-| The whole checker (C0-C5) as built | 16-570 times the boolean on these inputs (from 84 pieces on). It has two super-linear parts (the coplanar stacks of C3, the coverage of C5), fine at test sizes, not at these. |
-| A certified user mode | Possible, not cheap: the checker moves into the library as exact code with filters (review, mutation shard, at least one new error bound), its two super-linear parts get an index, and the price per run is a rough estimate of 3-12 times the boolean. The class is narrow: closed inputs, and a result with contacts is certified as embedded "up to its documented contacts", not as clean. |
+| The whole checker (C0-C5) as built | 16-570 times the boolean on these inputs (from 84 pieces on). It has one quadratic part (the coplanar stacks of C3) and one undiagnosed outlier (C5 on the linked tori: 19 s); fine at test sizes, not at these. |
+| A certified user mode | Possible, not cheap: the checker moves into the library as exact code with filters (review, mutation shard, at least one new error bound), the coplanar stacks get an index and the C5 outlier a diagnosis, and the price per run is a rough estimate of 3-16 times the boolean. The class is narrow: closed inputs, and a result with contacts is certified as embedded "up to its documented contacts", not as clean. |
 | What users can have today | `MeshRobustRepair.NotCleanReason(result)`: closed, manifold, no self-intersection, by an exact search on the result's doubles, for 0.1-0.6 times the boolean. It says nothing about the point set. |
-| Exact coplanar clip coordinates | Already there where it matters. The boolean computes coplanar crossings as exact implicit points and gives them out (`ComputeExactVertices` / `ResultExactVertices`, public). `IntrTriangle3Triangle3.Find` returns the exact polygon rounded: 0 deviations in 120 000 coplanar pairs. Open is only the legacy 2D class `IntrTriangle2Triangle2` (floating-point clip: wrong corner counts, corners off by up to 4e9 ulps on nearly parallel edges, contacts without area not reported), and its only caller in the library is dead code. |
+| Exact coplanar clip coordinates | Already there where it matters. The boolean computes coplanar crossings as exact implicit points and gives them out (`ComputeExactVertices` / `ResultExactVertices`, public). `IntrTriangle3Triangle3.Find` returns the exact polygon rounded: 0 deviations in 120 000 coplanar pairs (93 344 intersecting, all in the plane z = 0). Open is only the legacy 2D class `IntrTriangle2Triangle2` (floating-point clip: wrong corner counts, corners off by up to 4e9 ulps on nearly parallel edges, contacts without area not reported), and its only caller in the library is dead code. |
 
 Leaning (details in "Options"): build stage 3 as a test-only extension of the checker (option B); keep the certified user
 mode parked until a caller needs it (option C), with these numbers as its budget; close the coplanar item for the boolean
@@ -78,8 +78,8 @@ phase: not independent); the indirect predicates of the implicit points (the arr
 ## 3. The C2a prototype
 
 `benchmarks/BooleanComparison/Certify.cs`. It takes the arrangement's pieces (three point ids each, the source triangle)
-and the exact corners (`ExactPoint3`, homogeneous rationals on the arrangement's grid) and shares no code with the
-arrangement:
+and the exact corners (`ExactPoint3`, homogeneous rationals on the arrangement's grid: the witness) and shares no search
+or intersection code with the arrangement (it uses `ExactPoint3` and, for input vertices, `ExactPredicates`):
 
 1. **Broad phase:** boxes of the pieces from approximations of the corners, widened beyond the approximation error; a
    median-split box tree of its own with a self-join. Pairs of pieces of the same source are skipped (C1 certifies the
@@ -153,12 +153,13 @@ python3 benchmarks/BooleanComparison/certify_summary.py perf/certify_cost.txt pe
 (All 28 rows: `perf/certify_summary.txt`.)
 
 Reading it:
-- **Per pair:** about 9 µs with BigInteger, 0.4-0.5 µs filtered, 0.2-0.3 µs at the floor (two spheres). There are about
+- **Per pair** (two spheres, 14 228 pieces): about 9 µs with BigInteger, 0.4-0.5 µs filtered, 0.3 µs at the floor.
+  Other inputs differ widely: box+box overlap needs about 200 µs per pair with BigInteger (long rationals). There are about
   7 candidate pairs per piece, most of them neighbours in one input mesh.
 - **Scaling:** near-linear. Two spheres from 6 380 to 395 508 pieces: filtered total 1.5 to 3.1 times the boolean.
 - **Where the filtered variant loses against the floor:** true zeros. A corner on an edge line of another piece, or
   three collinear corners in a plane, give a determinant that is exactly 0; no filter decides a zero, so BigInteger
-  does (two tori: 72 459 of 517 854 predicate calls; cylinder on box: 302 628 of 3.6 million, which is the 14.6). The
+  does (two tori: 72 459 of 445 395 predicate calls; cylinder on box: 302 628 of 3.3 million, which is the 14.6). The
   shortcut (b) already removes the largest class (232 911 known zeros on two spheres). The rest needs a cheaper exact
   stage (expansions or the fixed-width exact points the arrangement already has, at the price of sharing them) or more
   witness data (which input edge a point lies on).
@@ -166,8 +167,9 @@ Reading it:
   adaptive predicate calls for 25 076 pieces. A per-plane 2D test would be cheaper than the generic pair test there.
 - **The parts:** the broad phase is a third to a half of the filtered total on the sphere cases (24 of 70 ms); the
   exact corners cost little here (1-5 ms) because recording a certificate already computes most of them.
-- **Recording** (`RecordCertificate`, `ComputeExactVertices`) costs the boolean between nothing measurable and about a
-  quarter (column "recording" of `perf/certify_cost.txt`; noisy).
+- **Recording** (`RecordCertificate`, `ComputeExactVertices`) costs the boolean typically 10-40 %, on single rows nothing measurable or as
+  much as the boolean itself (column "recording" of `perf/certify_cost.txt`: a difference of two noisy medians, not
+  measured on its own).
 - **Plan #1256's stop rule** ("stop if C2a takes more than 3 times the boolean without a clean spatial-index
   speedup"): the BigInteger version fails it everywhere; the filtered prototype meets it on 10 of the 28 cases and
   misses it on the rest, mostly by the true zeros; the floor meets it except on the coplanar grids. As a serial prototype
@@ -188,8 +190,8 @@ Reading it:
 | 3 spheres U | 16 736 | 41 | 210 | 561 | 257 | 1358 | 2386 (58) |
 
 All 17 certify (no failure, no uncovered triangle). The checker's own comment says it is a test oracle and names the
-quadratic parts; the numbers confirm both. In bold: the coplanar stacks of C3 (quadratic per plane) and the coverage of
-C5 on the linked tori (not diagnosed here). They do not matter at the sizes the tests use (hundreds of pieces) and
+coplanar stacks of C3 as quadratic per plane; the numbers confirm both (in bold). The 19 s of C5 on the linked tori are
+one outlier, not diagnosed here: the comment calls C5 near-linear, and the other rows agree. Neither matters at the sizes the tests use (hundreds of pieces) and
 would have to go before any user mode.
 
 ### 4.3 The result on its own
@@ -240,12 +242,12 @@ spheres (70 ms filtered): the exact corners and approximations 5 ms, the search 
   the pairs that do not meet. Only a different witness removes it (C2b, a tetrahedralization in which every piece is a
   face: checked without any search, but of worst-case quadratic size; prior-art note, section 3.4).
 - The predicates can use hints, and the largest one is already measured: "this corner lies in that source's plane"
-  (shortcut (b), certified by C1) answers 232 911 of about 790 000 sign questions on the two spheres without arithmetic. The
+  (shortcut (b), certified by C1) answers 232 911 of about 780 000 sign questions on the two spheres without arithmetic. The
   next hint of this kind is the incidence the arrangement knows for every implicit point (which input edge or which
   planes define it): it would turn most of the remaining true zeros (the gap between the filtered column and the
   floor) into lookups that C1-style checks verify.
 - In stages 1-2 the search parts are the coplanar stacks of C3 (which input triangles contain a piece) and the
-  coverage of C5 (which triangle covers which): exactly the two super-linear parts of 4.2. Both are hint-shaped: the
+  coverage of C5 (which triangle covers which): the two slow parts of 4.2. Both are hint-shaped: the
   boolean knows a piece's stack and which exact triangle a rounded one came from. That is the first thing to try
   before an index, for a user mode and for the test oracle alike.
 
@@ -255,12 +257,12 @@ spheres (70 ms filtered): the exact corners and approximations 5 ms, the search 
 1. The checker (1262 lines, test code) moves into the library, plus C2a (about 250 lines in the prototype). It becomes
    exact code: an entry in `.editorconfig`, the exact review, its own mutation shard (today: 36 hand mutants by script,
    about 25 minutes, because Stryker does not mutate test files).
-2. Speed: every sign of C1, C3 and C5 gets the filter that C2a got here, and the two super-linear parts get an index
-   (a 2D grid per plane for the stacks; the coverage). C2a showed a factor of 4-13 from filtering (totals of 4.1); a
+2. Speed: every sign of C1, C3 and C5 gets the filter that C2a got here, the coplanar stacks get an index (a 2D
+   grid per plane) and the C5 outlier a diagnosis. C2a showed a factor of 4-13 from filtering (totals of 4.1); a
    similar factor on the 16-66 of the well-behaved rows of 4.2 gives very roughly 2-8 times the boolean for C0, C1,
-   C3-C5, plus 1-8 for C2a: **about 3-12 times the boolean in total** (an extrapolation from one measured part, not a
+   C3-C5, plus 1-8 for C2a: **about 3-16 times the boolean in total** (an extrapolation from one measured part, not a
    measurement).
-   The floor of C2a alone is about 1-2.5.
+   The floor of C2a alone is 0.4-2.7 (up to 8.4 with many coplanar input triangles).
 3. At least one new error bound (the filter on approximated rational corners), or the reuse of the arrangement's
    filtered predicates. The second is cheaper and weakens the independence that the name "certified" rests on; today
    the only shared code is `ExactTriangleIntersection` in C0.
@@ -292,7 +294,7 @@ at one by one:
 | Place | State | Needed |
 |---|---|---|
 | `ExactMeshBoolean` / `ExactMeshArrangement` | A crossing of two coplanar edges is an implicit point of its own kind (`PointKind.Segments`), exact like every other point. `ComputeExactVertices` returns the result's vertices as rationals (`ResultExactVertices`, public); C1 and C5 check them. | **Nothing.** The plan's PR B has no work in the arrangement. |
-| `IntrTriangle3Triangle3.Find` with `ReportCoplanarIntersection` | Exact decisions, and every corner is an input corner or a crossing computed from exact determinants and rounded once (#253). Measured: 0 wrong decisions, 0 wrong corner counts, **0 corners different from the rounded exact polygon** in 120 000 pairs. | Only if someone needs the rationals themselves: an additive output next to `PolygonPoints`. No caller known. |
+| `IntrTriangle3Triangle3.Find` with `ReportCoplanarIntersection` | Exact decisions, and every corner is an input corner or a crossing computed from exact determinants and rounded once (#253). Measured: 0 wrong decisions in 120 000 pairs, and on the 93 344 that intersect 0 wrong corner counts and **0 corners different from the rounded exact polygon**. All pairs lie in the plane z = 0; tilted planes were not measured. | Only if someone needs the rationals themselves: an additive output next to `PolygonPoints`. No caller known. |
 | `IntrTriangle2Triangle2` (public, from WildMagic5) | Floating-point separating axes and clip. Its only caller in the library, `IntrTriangle3Triangle3.GetCoplanarIntersection`, is private and no longer called. | See below. |
 
 Measurement (`coplanar-clip`, `perf/coplanar_clip.txt`; 20 000 pairs per family; reference: an exact rational clip,
@@ -302,7 +304,7 @@ Sutherland-Hodgman with exact signs and crossings, a prototype in the benchmark)
 dotnet run -c Release --project benchmarks/BooleanComparison -- coplanar-clip 20000 > perf/coplanar_clip.txt
 ```
 
-| family | touching only (point or segment) | 2D class: not reported | wrong corner count | corners off by more than 1 ulp | largest deviation (ulps) |
+| family | touching only (point or segment) | 2D class: wrong decisions | wrong corner count | corners off by more than 1 ulp | largest deviation (ulps) |
 |---|---|---|---|---|---|
 | lattice 0..4 | 3343 | 3343 | 8 | 17 | 3 |
 | lattice 0..16 | 476 | 475 | 3 | 489 | 47 |
@@ -311,7 +313,8 @@ dotnet run -c Release --project benchmarks/BooleanComparison -- coplanar-clip 20
 | a copy turned by 1e-9 about a corner | 0 | 0 | 5389 | 16 175 | 4.0e9 |
 | a corner at the midpoint of the other's edge | 1406 | 1541 | 5007 | 5513 | 1.2e4 |
 
-So the 2D class does not report contacts without area (by its design), miscounts corners where edges are nearly
+So the 2D class does not report contacts without area (by its design: 3343 of 3343, 475 of 476; in the last family at
+least 135 of its 1541 wrong decisions are something else), miscounts corners where edges are nearly
 parallel or a corner lies on an edge, and its corners are off by up to 4e9 ulps (about 1e-6 at coordinates of size 1) in the
 nearly parallel family. Time per pair: the 2D class about 0.25 µs, `IntrTriangle3Triangle3.Find` on the same pairs
 8-15 µs, the rational prototype 7-40 µs (corners of up to 182 bits).
@@ -321,7 +324,7 @@ What "exact coplanar clip coordinates" would mean for the 2D class, as options:
   `IntrTriangle3Triangle3` (with `ReportCoplanarIntersection`) as the exact route; remove the dead
   `GetCoplanarIntersection`. A small library PR later (not in this spike).
 - **D2, make its `Find` exact:** the decisions and corners of #253 in 2D. It changes the results of a public class
-  (contacts without area are reported, corner counts change) and costs 30-50 times per pair unless filtered. An output
+  (contacts without area are reported, corner counts change) and costs 13-64 times per pair in the measurement unless filtered. An output
   change: the owner's decision.
 - **D3, an additive exact clip:** a new method that returns the polygon with rational corners. Additive, about the size
   of the prototype (80 lines) plus tests. No caller known.
@@ -334,8 +337,8 @@ with a separate self-intersection test; Manifold guarantees by construction).
 | # | Option | Gain | Effort | Risk |
 |---|---|---|---|---|
 | A | Nothing new; document for users that `NotCleanReason` on the result is the available check (closed, manifold, no self-intersection; 0.1-0.6 times the boolean) and what it does not say | users know what they have | S (docs) | none |
-| B | **Stage 3 test-only:** C2a in `BooleanCertificate` (the prototype's pair test and tree; BigInteger, or with the shortcuts (a)-(c), which need no new bound), with fault injection (the unsplit triangle, a moved corner, a crossing piece) and hand mutants | the oracle of the campaigns and the Nightly corpus no longer trusts the embedding: C0-C5 complete | M (one session; test code only, no exact file, no API) | low. Cost per case with BigInteger: 9 µs per pair, 7 pairs per piece, so about 45 ms for the 696 pieces of the two test spheres (C5 there: 65 ms). The Nightly corpus and the PR-tier tests grow accordingly (not measured); the 5 s rule decides on which families C2a runs in the PR tier |
-| C | **Certified user mode** (opt-in): the checker in the library with filters, section 5 | a certificate for callers who must show one | L (exact review, a mutation shard, a new bound or shared predicates, two indexes, API) | medium to high: 3-12 times the boolean (estimated), a narrow class, and independence erodes with every shared building block. No caller today. |
+| B | **Stage 3 test-only:** C2a in `BooleanCertificate` (the prototype's pair test and tree; BigInteger, or with the shortcuts (a)-(c), which need no new bound), with fault injection (the unsplit triangle, a moved corner, a crossing piece) and hand mutants | the oracle of the campaigns and the Nightly corpus no longer trusts the embedding: C0-C5 complete | M (one session; test code only, no exact file, no API) | low. Cost per case with BigInteger on sphere-like inputs: 9 µs per pair, 7 pairs per piece, so about 45 ms for the 696 pieces of the two test spheres (C5 there: 65 ms). The Nightly corpus and the PR-tier tests grow accordingly (not measured); the 5 s rule decides on which families C2a runs in the PR tier |
+| C | **Certified user mode** (opt-in): the checker in the library with filters, section 5 | a certificate for callers who must show one | L (exact review, a mutation shard, a new bound or shared predicates, two indexes, API) | medium to high: 3-16 times the boolean (estimated), a narrow class, and independence erodes with every shared building block. No caller today. |
 | D1 | Coplanar: close the item for the boolean and the 3D query (already exact); document the 2D class as legacy and remove the dead caller | the roadmap matches the code | S (later library PR) | none |
 | D2 / D3 | An exact `IntrTriangle2Triangle2.Find`, or an additive exact 2D clip | exact 2D clip for direct callers | M | D2 changes public results; neither has a caller |
 
@@ -353,8 +356,13 @@ The boolean-speed spike: nothing here changes the boolean; recording a certifica
 - The two audit cases of 4.4 were rebuilt from their description (own rotation), not taken from the audit's harness.
 - Procedural inputs only, up to 395 000 pieces; no Thingi10K run (T6 would be the next sample if C is ever built).
 - The filter's error bound is not reviewed; its verdicts were compared with BigInteger on every pair of the 28 cases.
+  It has no underflow term: the review found wrong signs for coplanar points scaled to about 2^-360 (none at 2^-356
+  and above, none in 3 million near-coplanar quadruples at normal ranges). Grid coordinates do not reach that range,
+  but a library version needs the term or a range guard.
+- Part 1 of the self test gives the filter exact approximations and does not use shortcut (b); the filter with real
+  approximation errors and shortcut (b) are exercised by part 2 and by the pair-by-pair comparison on the 28 cases.
 - Times from a shared 4-core container; ratios, not benchmarks.
-- The estimate for the whole filtered checker (3-12 times) extrapolates from C2a; C1, C3 and C5 were not rewritten.
+- The estimate for the whole filtered checker (3-16 times) extrapolates from C2a; C1, C3 and C5 were not rewritten.
 - The 19 s of C5 on the linked tori and the 4-5 s of C3 on meshed boxes were measured, not diagnosed.
 
 ## Sources

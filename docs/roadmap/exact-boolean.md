@@ -838,7 +838,7 @@ is the oracle of the boolean property campaigns and of a Nightly corpus; stage 3
 embedding, C2a) and a certified mode for users are not scheduled.
 Spike 2026-11-22 (owner go, plan #1256): [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) measures a
 C2a prototype (`benchmarks/BooleanComparison certify`: 0.4-8.5 times the boolean with a filter, 14-100 times with BigInteger; the
-whole checker as built 16-570 times), estimates a certified user mode at about 3-12 times the boolean for a narrow class, and finds
+whole checker as built 16-570 times), estimates a certified user mode at about 3-16 times the boolean (an extrapolation) for a narrow class, and finds
 the coplanar clip coordinates already exact in the boolean and in `IntrTriangle3Triangle3` (open only in the legacy
 `IntrTriangle2Triangle2`). Options are with the owner; nothing is scheduled.
 

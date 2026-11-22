@@ -169,6 +169,8 @@ static class Certify
             // the permanent of the widened entries bounds the determinant of any entries within the widths; the rest is
             // the rounding of the determinant and of the two permanents (prototype bound, generous, not reviewed)
             double err = (pp - p) + 32 * U * pp;
+            // (no underflow term in the bound: tiny or non-finite magnitudes go to the exact stage)
+            if (!(pp > 1e-200 && pp < 1e200)) return ExactO3(a, b, c, d);
             if (det > err) return 1;
             if (-det > err) return -1;
             return ExactO3(a, b, c, d);
@@ -519,6 +521,7 @@ static class Certify
         Console.WriteLine("case | in tris | pieces | boolean | boolean serial | recording | points | approx | broad | pairs | coplanar (BigInteger) | dup | C2a BigInteger | C2a filtered | BigInteger / adaptive / filter calls, known zeros | C2a float floor | NotClean(R) | "
             + (stages12 ? "C0 | C1 | C3+C4 | C5 | " : "") + "verdict");
         Boolean(cases[0], true); Boolean(cases[0], false);
+        int failed = 0;
         foreach (Case c in cases) {
             for (int w = 0; w < 3; ++w) { Boolean(c, false); Boolean(c, true); }
             double tBool = TimeMs(() => Boolean(c, false), reps);
@@ -558,8 +561,9 @@ static class Certify
             }
             Console.WriteLine($"{c.Name} | {c.Inputs.Sum(m => m.TriangleCount)} | {e.Tri.Length} | {F(tBool)} | {F(tSerial)} | {F(tRec - tBool)} | {F(Median(pts))} | {F(Median(apx))} | {F(tBroad)} | {e.Pairs.Count} | {filt.test.Coplanar} ({filt.test.CoplanarExact}) | {exact.test.Duplicates} | "
                 + $"{F(exact.ms)} | {F(tFilt)} | {filt.test.K.ExactCalls} / {filt.test.K.AdaptiveCalls} / {filt.test.K.Calls - filt.test.K.AdaptiveCalls}, {filt.test.K.KnownZeros} | {F(tFloat)} | {F(tClean)} | {s12}{verdict}");
+            if (verdict.Contains("VIOLATIONS") || verdict.Contains("MISMATCH") || verdict.Contains("stages 1-2") || verdict.Contains("uncovered")) failed++;
         }
-        return 0;
+        return failed == 0 ? 0 : 1;
     }
 
     // ------------------------------------------------------------------ self test of the prototype
