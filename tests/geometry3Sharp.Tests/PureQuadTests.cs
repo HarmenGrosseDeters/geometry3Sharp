@@ -1053,6 +1053,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadFirstStatus);
         }
 
+        [Fact]
+        public void SecondAttempt_WithSizeAdaptation_Compute_CanBeCalledAgain()
+        {
+            // the local spacing of SizeAdaptation and the second attempt on one instance: the first attempt fails (FlippedFaces), the second is clean;
+            // a second Compute() gives the same mesh, and switching the size field off and on again leaves no state of either
+            const double s = 0.25;
+            var qr = new QuadRemesher(Shape("cylinder")) { Field = FieldOf("cylinder"), TargetEdgeLength = s, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.True(qr.PureQuadRetried);
+            Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadFirstStatus);
+            AssertCleanPureQuads(qr, "cylinder", s * qr.MaxSpacing, 2);
+            Assert.True(qr.PureQuadRepair.FreeFrozenEdges);
+            DPolyMesh first = qr.Result; int[] offsets = qr.PureQuadRepair.Offsets(); QuadFlowRepair firstRepair = qr.PureQuadRepair;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied && qr.PureQuadRetried);
+            Assert.NotSame(first, qr.Result); Assert.NotSame(firstRepair, qr.PureQuadRepair);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(offsets, qr.PureQuadRepair.Offsets());
+            AssertSame(first, qr.Result);
+            // without the second attempt this input is the stage 2 fallback
+            var old = new QuadRemesher(Shape("cylinder")) { Field = FieldOf("cylinder"), TargetEdgeLength = s, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, PureQuadRetry = false };
+            Assert.Equal(QuadRemeshStatus.Success, old.Compute());
+            Assert.Equal(PureQuadStatus.FlippedFaces, old.PureQuadStatus);
+            // the size field off on the same instance: the same as a fresh instance; and on again: the first mesh
+            qr.SizeAdaptation = SizeAdaptationMode.Off;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.SizeAdaptationApplied);
+            QuadRemesher fresh = Run("cylinder", s);
+            Assert.Equal(fresh.PureQuadStatus, qr.PureQuadStatus);
+            Assert.Equal(fresh.PureQuadRetried, qr.PureQuadRetried);
+            AssertSame(fresh.Result, qr.Result);
+            qr.SizeAdaptation = SizeAdaptationMode.ScaleAndRotation;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied && qr.PureQuadRetried);
+            AssertSame(first, qr.Result);
+        }
+
         [Theory, MemberData(nameof(Frames))]
         public void SecondAttempt_IsInvariantUnderSimilarities(string name)
         {

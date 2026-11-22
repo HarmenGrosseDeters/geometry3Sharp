@@ -497,7 +497,7 @@ On the torus `CurvatureAlignment` 10 fixes the folds (6 of 6 clean, `torus-align
 
 #### 4.4d The second attempt: the fixed variables of the flow freed (2026-11-22, owner go)
 
-The measurement behind it is the research note `docs/research/QUAD_INTEGER_JUMPS_2026-11.md` (PR #1389, option C of the sheaf note); the owner
+The measurement behind it is the research note [QUAD_INTEGER_JUMPS_2026-11.md](../research/QUAD_INTEGER_JUMPS_2026-11.md) (#1389, option C of the sheaf note); the owner
 decided for the small step: an internal second attempt, no option, no new API.
 
 **What it does.** If the pure-quad attempt is not `Success` and its flow has fixed variables (the edges whose cycle has a holonomy: 25 to 1010
