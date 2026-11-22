@@ -476,6 +476,21 @@ Approximation with `SizeAdaptation`: the integer offsets are counts in the local
 
 Remaining limit (`capsule`, 1/6): with `CurvatureAlignment = 0`, all four `+1/4` singularities sit tightly clustered at each hemispherical cap (`unbal = 25..107`) with no cut edges crossing the barrel; by Stokes' theorem the barrel circumference integral is locked to the small sum of fixed cap edges, causing the flow to collapse the barrel regardless of flow costs. On `capped-cylinder`, `ScaleAndRotation` resolves the cap/barrel spacing mismatch (`0.45..1.58 s`) and raises clean runs from `0/6` to `5/6`.
 
+### 4.4b `CurvatureAlignment` on the capsule and the capped cylinder (2026-11-22, measurement only)
+
+On the torus `CurvatureAlignment` 10 fixes the folds (6 of 6 clean, `torus-align10` of the gate). Does it fix them on the capsule and the capped cylinder, the two shapes with 0 or 1 clean runs of 6 (4.4a)? `dotnet run -c Release --project benchmarks/QuadFlow3BGate -- only='capsule|capped-cylinder' align=<x>` (new argument `align`, overrides `CurvatureAlignment` of every selected shape; 6 variations per shape, adapt 0, net10.0 Release, 4-core cloud container):
+
+| `CurvatureAlignment` | capsule clean (of 6) | capped cylinder clean (of 6) | statuses of the 12 runs |
+|---|---|---|---|
+| 0 | 1 | 0 | FlippedFaces 8, BudgetExceeded 3, Success 1 |
+| 1 | 1 | 0 | FlippedFaces 10, BudgetExceeded 1, Success 1 |
+| 3 | 1 | 0 | FlippedFaces 10, BudgetExceeded 1, Success 1 |
+| 10 | 3 | 0 | FlippedFaces 8, BudgetExceeded 1, Success 3 |
+| 30 | 1 | 0 | FlippedFaces 10, BudgetExceeded 1, Success 1 |
+| 100 | 5 | 0 | FlippedFaces 6, BudgetExceeded 1, Success 5 |
+
+0 undetected bad in all 72 runs. **Answer: no, not as on the torus.** The capped cylinder stays at 0 of 6 for every weight; its failures are mostly `FlippedFaces` (a quad faces away from the surface), the capsule's too, so the status does not tell integer-map folds from other causes; where the flipped quads lie (the sharp rims of the caps are the likely place) is a hypothesis that this measurement does not localize. The capsule improves only at a weight of 10 (3 of 6) and 100 (5 of 6) and is not monotone (30: 1 of 6). A weight of 100 is a large weight (presumably it follows the principal curvature direction almost everywhere; not measured here) and not a setting to recommend as a default. Whether the cylinder needs the feature handling of stage 4 instead is open (the pure-quad repair does not keep creases, 4.7 on the branch of that measurement). Default output unchanged: the argument is a benchmark argument.
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
