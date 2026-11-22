@@ -144,6 +144,65 @@ namespace geometry3Sharp.Tests
             Assert.Contains("Orientation = ByNesting derives", p.Error);
         }
 
+        // An open, non-planar sheet without self-intersections (n x n grid over the unit square, normal +z): z = 0.1 sin(2 pi u)
+        // sin(2 pi v) - 0.02 sin(pi u) sin(pi v), so that it lies above and below the plane of its boundary (z = 0), more below.
+        internal static DMesh3 WavySheet(int n = 8)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double u = i / (double)n, v = j / (double)n;
+                    m.AppendVertex(new Vector3d(u, v, 0.1 * Math.Sin(2 * Math.PI * u) * Math.Sin(2 * Math.PI * v) - 0.02 * Math.Sin(Math.PI * u) * Math.Sin(Math.PI * v)));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = j * (n + 1) + i;
+                    m.AppendTriangle(a, a + 1, a + n + 2);
+                    m.AppendTriangle(a, a + n + 2, a + n + 1);
+                }
+            return m;
+        }
+
+        // Known limit, the diagnosis of the refusal of a repaired open tool (pinned current behaviour, not a contract: a change of
+        // MeshAutoRepair for sheets is an owner decision). MeshAutoRepair closes a sheet by filling its one boundary loop
+        // (fill_any_holes, MinimalHoleFill): a second surface that spans the same loop, here the flat square z = 0. The sheet
+        // crosses it, so the closed copy self-intersects along the crossing curves and consists of lenses between sheet and fill,
+        // one component; the global orientation (repair_orientation(true)) makes its total volume positive, which leaves the
+        // lenses on the other side of the fill negative: inverted in part. ByNesting cannot orient it (not embedded), the
+        // deciding triangle of the component lies in a negative lens, and the pipeline refuses it as InsideOutInput.
+        [Fact]
+        public void KnownLimit_AnOpenWavySheet_RepairedByMeshAutoRepair_SelfIntersects_AndIsRefusedWithTheRepairNamed()
+        {
+            DMesh3 sheet = WavySheet();
+            Assert.False(ExactMeshBoolean.IsWindingClosed(sheet));
+            var own = new ExactMeshArrangement(new List<DMesh3> { sheet }) { SelfIntersections = true };
+            own.Compute();
+            Assert.Equal(0, own.SelfIntersectingPairs);
+            var repair = new MeshAutoRepair(new DMesh3(sheet));
+            Assert.True(repair.Apply());
+            DMesh3 closed = repair.Mesh;
+            Assert.True(ExactMeshBoolean.IsWindingClosed(closed));
+            Assert.True(closed.TriangleCount > sheet.TriangleCount);
+            var arr = new ExactMeshArrangement(new List<DMesh3> { closed }) { SelfIntersections = true };
+            arr.Compute();
+            Assert.True(arr.SelfIntersectingPairs > 0);
+            Assert.True(Invariance.Volume(closed) > 1e-3);
+            var components = new MeshConnectedComponents(closed);
+            components.FindConnectedT();
+            Assert.Equal(1, components.Count);
+            var op = new ExactMeshBoolean(Parts(closed), D) { CountInsideOutCells = true, Orientation = Nesting };
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(1, op.InsideOutCells);
+
+            var p = new SolidBooleanPipeline(Parts(sheet), D) { Orientation = Nesting, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
+            Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
+            Assert.Equal(1, p.Report.InsideOutCells);
+            Assert.Contains("input 1 (the closed copy that the input repair MeshAutoRepair produced from the open input) self-intersects", p.Error);
+            Assert.DoesNotContain("Orientation = ByNesting derives", p.Error);
+        }
+
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
     }
 }
