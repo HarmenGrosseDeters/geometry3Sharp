@@ -28,6 +28,7 @@ static class Program
     static string Classify(string error)
     {
         if (error == null) return "ok";
+        if (error.Contains("false crossing")) return "false crossing";
         if (error.Contains("passes through vertex")) return "through vertex";
         if (error.Contains("does not reach its head")) return "trace lost";
         if (error.Contains("leaves input triangle")) return "trace off triangle";

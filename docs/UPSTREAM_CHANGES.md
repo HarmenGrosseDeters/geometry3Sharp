@@ -51,7 +51,7 @@ This fork maintains public API compatibility with upstream `geometry3Sharp 1.0.3
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` caps, `TrivialBox3Generator` normals | Incorrect border loop / normals | Corrected |
 | `VoxelSurfaceGenerator` (`MaxMeshElementCount`) | Could exceed limit by up to 17 vertices (off-by-one and fixed reservation) | Enforces hard `<=` bound per voxel (limits `< 24` vertices emit one voxel per mesh) |
 | `OBJReader`, `OFFReader` (out-of-range indices) | OBJ threw on bad normal/UV indices; OFF dropped polygons silently or threw on negative indices | OBJ falls back to default normal/UV; OFF fan-triangulates polygons and skips out-of-range polygons with a warning |
-| Mesh readers (OBJ, STL, OFF, PLY, 3MF, glTF/GLB) on NaN/Inf vertices | Framework-dependent parsing or silent acceptance of NaN/Inf | Fails with `FileParsingError` by default across runtimes (checked after 3MF/glTF transforms); opt in with `ReadOptions.AllowNonFiniteCoordinates = true` |
+| Mesh readers (OBJ, STL, OFF, PLY, 3MF, glTF/GLB, .g3mesh) on NaN/Inf vertices | Framework-dependent parsing or silent acceptance of NaN/Inf | Fails with `FileParsingError` by default across runtimes (checked after 3MF/glTF transforms); opt in with `ReadOptions.AllowNonFiniteCoordinates = true` |
 
 ---
 

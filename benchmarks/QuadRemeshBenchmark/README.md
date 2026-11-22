@@ -8,11 +8,11 @@ deviation from 90 degrees, the one-sided Hausdorff distance output to input in u
 manifold (`PolyMeshMetrics`), and the seconds of the cross field, the position field and the extraction with its cleanup.
 
 ```
-dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1] [adapt=0|1|2] [iters=<n>] [tol=<x>] [maxratio=<x>] [damp=<x>] [collapse=<x>] [digest=1]
+dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- [only=<regex>] [ratio=0.5] [sweeps=20] [scale=1] [serial=1] [cleanup=0] [align=<s>] [mm=0.5] [eps=0.05] [big=<n>] [diag=1] [adapt=0|1|2] [iters=<n>] [tol=<x>] [maxratio=<x>] [damp=<x>] [bndw=<x>] [collapse=<x>] [sharp=1] [creases=1] [creaseangle=30] [digest=1]
 ```
 
 `serial=1` runs the position field without parallel loops (the result is the same bit for bit), `big=<n>` adds a sphere of about
-`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths, `collapse=<x>` sets `CollapseLength` (default 0.6 since 2026-11-19, was 0.4: the results below are with 0.4; the open patch with 0.6 has 17 irregular vertices and 98.3 % quads, see QUAD_REMESHING.md 4.2). `adapt=1|2` turns `QuadRemesher.SizeAdaptation` on (Scale, ScaleAndRotation; the lines on stderr say whether it was applied, the curl before and after, the spacing range and the solver time), `iters`, `tol`, `maxratio`, `damp` set the solver of `IntegrableFrames`. `digest=1` prints an FNV-style digest (64-bit words) of the output mesh (vertex bits and face indices) on stderr, to compare two builds bit for bit.
+`n` input vertices (the speed gate), `diag=1` prints the valence histogram and the edge lengths, `collapse=<x>` sets `CollapseLength` (default 0.6 since 2026-11-19, was 0.4: the results below are with 0.4; the open patch with 0.6 has 17 irregular vertices and 98.3 % quads, see QUAD_REMESHING.md 4.2). `adapt=1|2` turns `QuadRemesher.SizeAdaptation` on (Scale, ScaleAndRotation; the lines on stderr say whether it was applied, the curl before and after, the spacing range and the solver time), `iters`, `tol`, `maxratio`, `damp`, `bndw` set the solver of `IntegrableFrames`. `sharp=1` runs procedural sharp CAD shapes (`sharp-box`, `sharp-cylinder`, `l-profile`, `gear`) and reports Stage 4 feature coverage, angle deviation p95, and feature Hausdorff; `creases=1` enables `CrossField.AlignCreases` and `QuadRemesher.PreserveCreases` (at `creaseangle`, default 30 deg). `digest=1` prints an FNV-style digest (64-bit words) of the output mesh (vertex bits and face indices) on stderr, to compare two builds bit for bit.
 
 ## Results (2026-11-17, net10.0 Release, 4-core Xeon at 2.1 GHz in a cloud container, default options, master with the Hermitian CrossField of #1099)
 
@@ -106,3 +106,31 @@ The size field is not applied where it does not lower the curl by 20 % (the fill
 | big-sphere (120806 input V in this run) | 14.76 / 5.24 | 16.05 / 6.40 | differs |
 
 The metrics are equal on every shape (irregular vertices, quads %, corner deviation, curl before and after, spacing range: the benchmark tables above are unchanged); the digests of the applied shapes differ because the factorization order changes the rounding of the log spacing (about 1e-9 or less), which moves vertex coordinates in the last bits. Owner decision 2026-11-19: output change of the opt-in Scale mode at rounding level. Off and ScaleAndRotation are bit for bit as before.
+
+### Open-boundary handling in `IntegrableFrames` (2026-11-20)
+
+Two changes in `IntegrableFrames`: (1) boundary vertices' `phi` Jacobian columns are zeroed out in `Linearize` so boundary rotations are eliminated from the normal equations rather than post-clamped after solving, and (2) `BoundarySpacingWeight` (default `0.05`, solved with an exact KKT gauge projection for `sum(d_sigma) = 0`) pulls open-boundary log spacing toward 0. Closed shapes have no boundary vertices and remain bit-identical (`digest=1` verified on `sphere`, `torus`, `filleted-box`, `noisy-sphere`); default `adapt=0` is untouched bit for bit.
+
+Command: `dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- adapt=1` and `adapt=2` (net10.0 Release; `before` is master `976ef22`, `after` is default `BoundarySpacingWeight = 0.05`):
+
+| shape | mode | curl before -> after | irreg. V (before -> after) | quads % (before -> after) | corner p95 deg (before -> after) | Hausdorff out->in / s (before -> after) |
+|---|---|---|---|---|---|---|
+| sphere-cap | Scale (`adapt=1`) | 79.6 -> 58.9 / 57.6 | 72 -> 86 | 94.4 -> 94.8 | 15.6 -> 15.9 | **0.64 -> 0.37** |
+| sphere-cap | ScaleAndRotation (`adapt=2`) | 79.6 -> 43.8 / 42.0 | 88 -> **65** | 95.0 -> **96.2** | 18.3 -> **13.4** | 0.31 -> 0.37 |
+| open-patch | Scale (`adapt=1`) | 2.1 -> 0.2 / 1.6 | 5 -> 7 | 99.8 -> 99.5 | 2.2 -> 2.6 | 0.05 -> 0.05 |
+| open-patch | ScaleAndRotation (`adapt=2`) | 2.1 -> 1.9 (not applied) / **1.6 (applied)** | 9 -> **7** | 99.2 -> **99.5** | 4.9 -> **2.7** | 0.05 -> 0.05 |
+
+## Sharp features (`sharp=1 creases=1`, Stage 4, 2026-11-21)
+
+Procedural CAD shapes isotropically remeshed at `h = 0.5 s` with `PreventNormalFlips = true, MinTriangleQuality = 0.2, PreserveBoundaryAndFeatures(30)`. Command: `dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- sharp=1 creases=0` vs `creases=1` (net10.0 Release):
+
+| shape | mode | input V | s | faces | quads % | irreg. V | manifold | feat cov % (`> 95`) | feat ang p95 deg (`<= 10`) | feat Haus / s (`<= 0.1`) | surf Haus / s | corner p95 (deg) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sharp-box | `creases=0` | 6352 | 0.1 | 1166 | 97.3 | 34 | yes | 1.4 | 22.8 | 0.565 | 0.40 | 17.2 |
+| sharp-box | `creases=1` | 6352 | 0.1 | 1219 | **99.5** | **12** | yes | **100.0** | **0.0** | **0.000** | **0.03** | **4.6** |
+| sharp-cylinder | `creases=0` | 4229 | 0.1 | 818 | 92.9 | 65 | yes | 14.6 | 21.9 | 0.505 | 0.30 | 18.2 |
+| sharp-cylinder | `creases=1` | 4229 | 0.1 | 834 | **92.3** | **60** | yes | **99.5** | **1.7** | **0.052** | **0.08** | **14.4** |
+| l-profile | `creases=0` | 3565 | 0.08 | 681 | 95.9 | 43 | yes | 57.1 | 2.4 | 0.520 | 0.31 | 12.3 |
+| l-profile | `creases=1` | 3565 | 0.08 | 650 | **98.5** | **16** | yes | **100.0** | **0.0** | **0.000** | **0.02** | **6.6** |
+| gear | `creases=0` | 8816 | 0.06 | 1644 | 91.7 | 150 | yes | 17.4 | 6.6 | 0.596 | 0.42 | 20.0 |
+| gear | `creases=1` | 8816 | 0.06 | 1614 | 91.8 | 168 | yes | **100.0** | **0.0** | **0.000** | **0.04** | **16.9** |

@@ -88,3 +88,11 @@ dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=2
 | corner p95 <= 15 deg (clean / stage 2 same rows) | 17 / 25 (18 / 25) | 20 / 43 (31 / 43) | 26 / 43 (42 / 43) | **29 / 48** (44 / 48) |
 | ratio pure / stage 2 (median / max) | 2.6 / 8.9 | 2.5 / 5.3 | 1.6 / 3.0 | **1.4 / 2.0** |
 | SAT time sum over clean rows (s) | 0.65 | **0.04** | **0.05** | **0.08** |
+
+## Open and creased shapes (`open=1`, Phase 4c measurement, 2026-11-22)
+
+`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- open=1 [only=<regex>] [adapt=0|1|2]` runs 10 procedural shapes (closed sphere as the reference, open patch, sphere cap, open strip, open tube, sharp box, open box, sharp cylinder, L profile, gear) at the scales 1, 0.8 and 1.25 (input edge 0.5 s) and prints per run: the stage 2 mesh (`PreserveCreases` on the creased shapes) with its feature metrics (feature = boundary edge or crease edge above 30 degrees: coverage within 0.1 s and 10 degrees, angle p95, feature Hausdorff), what `PureQuads` does today, and the raw integer map of the position field (triangles, boundary slots, triangles whose offsets do not sum to 0, inverted triangles, largest |d|; through reflection, no library change). If `QuadFlowRepair` has the static field `FixFeatureEdges` (the prototype of the branch `runs/quad-4c-prototype`, never merged) the attempt is repeated with the feature edges fixed and a summary per group is printed. The numbers and the decision (stop rule) are in [QUAD_REMESHING.md 4.7](../../docs/design/QUAD_REMESHING.md).
+
+## `align=<x>`: `CurvatureAlignment` on the capsule and the capped cylinder (2026-11-22)
+
+`align=<x>` overrides `CrossField.CurvatureAlignment` of every selected shape (default: the per-shape value, 0 except `torus-align10`). `only='capsule|capped-cylinder' align=0|1|3|10|30|100` gives capsule 1, 1, 1, 3, 1, 5 clean runs of 6 and capped cylinder 0 of 6 at every weight, 0 undetected bad; the table and the reading are in [QUAD_REMESHING.md 4.4b](../../docs/design/QUAD_REMESHING.md).

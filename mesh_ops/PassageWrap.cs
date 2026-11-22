@@ -402,6 +402,8 @@ namespace gs
             return res;
         }
 
+        const double WrapRangeMin = 2.9387358770557188e-39, WrapRangeMax = 3.402823669209385e38;   // 2^-128, 2^128 (as in MeshAlphaWrap)
+
         PassageStatus validate()
         {
             if (Mesh == null || Mesh.TriangleCount == 0) { Error = "no input triangles"; return PassageStatus.InvalidInput; }
@@ -409,7 +411,15 @@ namespace gs
                 Vector3d p = Mesh.GetVertex(v);
                 if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z)) { Error = "non-finite input coordinates"; return PassageStatus.InvalidInput; }
             }
-            if (Mesh.CachedBounds.MaxDim > 1e100 || Mesh.CachedBounds.Min.MaxAbs > 1e100 || Mesh.CachedBounds.Max.MaxAbs > 1e100) { Error = "coordinates above 1e100"; return PassageStatus.InvalidInput; }
+            // the alpha wrap supports nonzero coordinates with a magnitude in [2^-128, 2^128] only (MeshAlphaWrap): refuse
+            // such input here at once, not as a late WrapFailed (the wrap's extent rule, 2^-40 of the largest magnitude, is left to the wrap)
+            foreach (int v in Mesh.VertexIndices()) {
+                Vector3d p = Mesh.GetVertex(v);
+                for (int c = 0; c < 3; ++c) {
+                    double a = Math.Abs(p[c]);
+                    if (!(a == 0 || (a >= WrapRangeMin && a <= WrapRangeMax))) { Error = "outside the supported range: a nonzero coordinate has a magnitude outside [2^-128, 2^128]"; return PassageStatus.InvalidInput; }
+                }
+            }
             if (Pins == null || Pins.Count == 0) { Error = "no pins"; return PassageStatus.InvalidPins; }
             for (int i = 0; i < Pins.Count; ++i) {
                 PassagePin pin = Pins[i];

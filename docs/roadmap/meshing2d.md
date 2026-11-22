@@ -464,4 +464,5 @@ else waits for a concrete use case or is closed with its measurement.
    profile (dotnet-trace was not available in the session) would be the next step. The mesher's output is unchanged.
 5. Research, parked until a concrete use case (plan #1262; HP 6 small-angle cascade study, plan #1282): Shewchuk's Terminator with a region-based oracle excuse (until a real
    input fails the current small-angle rule); matched shells (the constrained quality mode is the answer); grading
-   placement strategy (if fewer triangles matter, eg FE meshes); Chew-2 (no issues).
+   placement strategy (if fewer triangles matter, eg FE meshes); Chew-2 (no issues). Spike of 2026-11-22 on HP 6 and HP 7
+   (plans #1282, #1283): [MESHING2D_HP6_HP7_SPIKE_2026-11.md](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), options with the owner.
