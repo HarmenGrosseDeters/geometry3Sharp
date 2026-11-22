@@ -45,12 +45,12 @@ configurations: 0: align 0 adapt Off, 1: align 10 adapt Off
 | genus2 | 1 / 0.7 | clean (irr. 21, p95 13.4) | BudgetExceeded | yes | 0.0698 |
 | capped-cylinder | 1 / 0.5 | BudgetExceeded | BudgetExceeded | no | 0.0923 |
 | capped-cylinder | 0.8 / 0.5 | BudgetExceeded | BudgetExceeded | no | 0.0691 |
-| capped-cylinder | 1.25 / 0.5 | BudgetExceeded | Success | no | 0.1036 |
-| capped-cylinder | 1.5 / 0.5 | BudgetExceeded | Success | no | 0.1200 |
+| capped-cylinder | 1.25 / 0.5 | BudgetExceeded | Success (NOT clean: the independent check fails) | no | 0.1036 |
+| capped-cylinder | 1.5 / 0.5 | BudgetExceeded | Success (NOT clean: the independent check fails) | no | 0.1200 |
 | capped-cylinder | 1 / 0.35 | BudgetExceeded | BudgetExceeded | no | 0.0780 |
 | capped-cylinder | 1 / 0.7 | OrientationFolds | BudgetExceeded | no | 0.0876 |
 
-inputs 48; clean per configuration: [align 0 Off] 19 (30.4 s incl. field), [align 10 Off] 16 (29.3 s incl. field)
+inputs 48; clean per configuration: [align 0 Off] 19 (31.9 s incl. field), [align 10 Off] 16 (29.8 s incl. field)
 oracle (clean with at least one configuration): 24 / 48; per shape: bumpy 1, filleted-box 6, genus2 6, noisy-sphere 1, sphere 4, torus 6
 best one-threshold switch between two configurations on the curl mass (in sample): 21 / 48 ([0] below, [1] from curl mass / cell 0.0902)
 trying the configurations one after the other (most successful first): [0] +19 = 19, [1] +5 = 24

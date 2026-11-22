@@ -198,7 +198,6 @@ static class Program
         public double EnergyCurl, EnergyDefect;                                // filling energies w^T L^-1 w and b^T L^-1 b of the sheaf Laplacian
         public double CorrMax; public int HotEdges, Edges;                     // of the minimal correction of R: largest |c|inf, edges with |c|inf >= 0.5
         public int RelaxedFolds, RelaxedThin; public double RelaxedCells;      // of the relaxed (closed, real) map: det <= 0, det < 1/4 of the geometric area, total area
-        public int GeoFolds;                                                   // triangles whose raw real offsets already have det <= 0
         public bool[] HotDefect, HotCorr, HotFold, HotThin;                    // per triangle
         public double SolveSeconds; public bool Solved;
 
@@ -216,10 +215,10 @@ static class Program
             for (int f = 0; f < NT; ++f) {
                 int ix = Dx[3 * f] + Dx[3 * f + 1] + Dx[3 * f + 2], iy = Dy[3 * f] + Dy[3 * f + 1] + Dy[3 * f + 2];
                 double fx = Rx[3 * f] + Rx[3 * f + 1] + Rx[3 * f + 2], fy = Ry[3 * f] + Ry[3 * f + 1] + Ry[3 * f + 2];
+                // (the raw offsets; the flow of the library starts from the offsets clamped to [-2, 2])
                 b[2 * f] = ix; b[2 * f + 1] = iy; w[2 * f] = fx; w[2 * f + 1] = fy;
                 if (ix != 0 || iy != 0) { DefectTriangles++; HotDefect[f] = true; }
                 DefectMass += Math.Abs(ix) + Math.Abs(iy); CurlMass += Math.Abs(fx) + Math.Abs(fy);
-                if (Rx[3 * f] * Ry[3 * f + 1] - Ry[3 * f] * Rx[3 * f + 1] <= 0) GeoFolds++;
             }
             // a flat bundle without holonomy (the aligned torus) has the two constant sections in the kernel: the shift makes L definite
             var ch = new SparseCholesky(n, 2);
@@ -264,8 +263,9 @@ static class Program
 
     /// <summary>
     /// the final offsets of QuadFlowRepair (after subdivision, greedy moves and SAT), by reflection: the lattice area of the map,
-    /// (1/2) sum det, and the centroids of the triangles with det &lt; 0. The sum is the same right after the flow: the subdivision moves
-    /// area between the two sides of a split edge, a vertex move and a SAT region change the map inside a fixed boundary.
+    /// (1/2) sum det, and the centroids of the triangles with det &lt; 0. The subdivision and the greedy moves keep the sum (a split moves
+    /// area between the two sides of the edge, a vertex without holonomy moves inside a fixed fan); a SAT region keeps it if it holds at
+    /// most one cone, so the value right after the flow can differ where a region holds several.
     /// </summary>
     static bool LibraryMap(QuadRemesher q, out double cells, out int folds, List<Vector3d> foldCentroids)
     {
@@ -376,7 +376,7 @@ static class Program
         string[] names = { "defect mass / cell", "curl mass / cell", "energy (curl) / cell", "energy (defect) / cell", "max correction", "hot edges share", "relaxed folds share", "relaxed thin share", "1 - relaxed area ratio", "singular faces", "triangles", "triangles per cell (input resolution)" };
         var fb = names.Select(_ => new List<double>()).ToArray(); var cl = names.Select(_ => new List<double>()).ToArray();
         var hotNames = new[] { "singular faces", "defect triangles", "correction >= 0.5", "relaxed folds", "relaxed thin" };
-        var hotHit = new double[hotNames.Length]; var hotCover = new double[hotNames.Length]; var hotRows = new int[hotNames.Length]; long foldTotal = 0;
+        var hotHit = new double[hotNames.Length]; var hotCover = new double[hotNames.Length]; long foldTotal = 0;
         var perShapeHit = new SortedDictionary<string, double[]>(); var perShapeCover = new SortedDictionary<string, double[]>(); var perShapeFolds = new SortedDictionary<string, long>();
         int total = 0, clean = 0, fallback = 0, viol = 0; double tFallbackAttempt = 0, tFallbackStage2 = 0, tSheaf = 0, tCleanAttempt = 0;
         var libRatioClean = new List<double>(); var libRatioFb = new List<double>();
@@ -399,6 +399,7 @@ static class Program
                 var sh = new Sheaf(input, cf, q3.Positions, s);
                 if (!sh.Ok || !sh.Closed) { Console.WriteLine($"| {name} | {scale}/{ratio} | no sheaf complex (open mesh or no position) |"); continue; }
                 sh.Analyse(); double ts = sw.Elapsed.TotalSeconds; tSheaf += ts; viol += sh.AntisymmetryViolations;
+                if (!sh.Solved) { Console.WriteLine($"| {name} | {scale}/{ratio} | the factorization of the sheaf Laplacian failed (row left out of the statistics) |"); continue; }
                 var foldPts = new List<Vector3d>();
                 bool hasMap = LibraryMap(q3, out double libCells, out int libFolds, foldPts);
                 double libRatio = hasMap ? libCells / sh.GeoCells : double.NaN;
@@ -415,12 +416,12 @@ static class Program
                     if (!perShapeHit.ContainsKey(name)) { perShapeHit[name] = new double[sets.Length]; perShapeCover[name] = new double[sets.Length]; perShapeFolds[name] = 0; }
                     perShapeFolds[name] += foldPts.Count;
                     for (int k = 0; k < sets.Length; ++k) {
-                        var grid = new Grid(radius * s); int members = 0;
-                        for (int f = 0; f < sh.NT; ++f) if (sets[k][f]) { grid.Add(sh.Centroid[f]); members++; }
+                        var grid = new Grid(radius * s);
+                        for (int f = 0; f < sh.NT; ++f) if (sets[k][f]) grid.Add(sh.Centroid[f]);
                         int hit = foldPts.Count(p => grid.Near(p));
                         double cover = 0; for (int f = 0; f < sh.NT; ++f) if (grid.Near(sh.Centroid[f])) cover += sh.Cells[f];
                         cover /= g;
-                        hotHit[k] += hit; hotCover[k] += cover * foldPts.Count; hotRows[k]++;
+                        hotHit[k] += hit; hotCover[k] += cover * foldPts.Count;
                         perShapeHit[name][k] += hit; perShapeCover[name][k] += cover * foldPts.Count;
                     }
                 }
@@ -489,7 +490,7 @@ static class Program
                     ok[i] = IsClean(q, input); secPer[i] += t + fieldSec[configs[i].align];
                     if (ok[i]) cleanPer[i]++;
                     PolyMeshMetrics m = ok[i] ? PolyMeshMetrics.Compute(q.Result) : null;
-                    cells[i] = ok[i] ? $"clean (irr. {m.IrregularVertices}, p95 {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")})" : q.PureQuadStatus.ToString();
+                    cells[i] = ok[i] ? $"clean (irr. {m.IrregularVertices}, p95 {F(PolyMeshMetrics.Percentile(m.CornerDeviations, 0.95), "F1")})" : q.PureQuadStatus == PureQuadStatus.Success ? "Success (NOT clean: the independent check fails)" : q.PureQuadStatus.ToString();
                     if (i == 0 && q.Positions != null) { var sh = new Sheaf(input, cf, q.Positions, s); if (sh.Ok && sh.Closed) { sh.Analyse(); curl = sh.CurlMass / sh.GeoCells; } }
                 }
                 inputs++; bool anyOk = ok.Any(x => x); if (anyOk) { any++; perShapeAny.TryGetValue(name, out int c); perShapeAny[name] = c + 1; }

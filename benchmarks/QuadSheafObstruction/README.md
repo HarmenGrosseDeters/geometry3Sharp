@@ -48,4 +48,7 @@ built against the head of PR #1293 (885b514b, the geometric sign reference of th
 | pure-quad attempts of the fallback rows / their stage 2 alone / sheaf analysis of all 54 rows (s) | 18.7 / 2.5 / 6.4 | 2.9 / 0.5 / 6.1 |
 | lever pass: best single configuration / with at least one (48 inputs) | 19 / 24 | 42 / 45 |
 
+The lever pass on master has two runs (capped cylinder at scale 1.25 and 1.5 with `CurvatureAlignment` 10) that are `Success` and fail the
+independent check; with PR #1293 both are `FlippedFaces`.
+
 The AUC and the thresholds are in sample (54 rows, 9 shapes): they describe these inputs, they are not a validated classifier.
