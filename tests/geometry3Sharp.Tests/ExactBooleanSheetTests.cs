@@ -1148,5 +1148,258 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, op.ReorientedTriangles);
             }
         }
+
+        // ---- the plumbing around the labels (pinned for the mutation gate of the sheet role) -----------------------------------------------------
+
+        static ExactMeshBoolean RunAll(DMesh3[] meshes, params ExactMeshBoolean.InputRole[] roles)
+        {
+            var op = new ExactMeshBoolean(meshes, Ops.Difference) { Roles = roles.ToList() };
+            op.Compute();
+            return op;
+        }
+
+        const ExactMeshBoolean.InputRole SolidRole = ExactMeshBoolean.InputRole.Solid, SheetRole = ExactMeshBoolean.InputRole.Sheet;
+
+        [Fact]
+        public void AnOpenSheet_IsNoOpenInput_AnOpenSolidNextToASheetIs()
+        {
+            // AllowOpenMeshes = false refuses the open meshes that are classified by generalized winding numbers. A sheet is open by its role and is not one of them
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            ExactMeshBoolean op = Run(cube, Plate(0.5, -1, 2, -1, 2), ExactMeshBoolean.SheetUncutSides.Refuse, o => o.AllowOpenMeshes = false);
+            Assert.True(op.Status == Status.Success, op.Status + " " + op.Error);
+            Assert.Equal(0.5, Volume(op.Result), 12);
+            ResultChecks.AssertClosed(op.Result);
+            // an open solid is still refused, next to an open sheet and next to a closed one (the role of one mesh does not excuse another)
+            foreach (DMesh3 sheet in new[] { Plate(0.5, -1, 2, -1, 2), Box(-1, -1, -1, 2, 2, 0.5) }) {
+                var open = new ExactMeshBoolean(new[] { cube, sheet, Plate(0.75, -1, 2, -1, 2) }, Ops.Difference) {
+                    Roles = new List<ExactMeshBoolean.InputRole> { SolidRole, SheetRole, SolidRole },
+                    AllowOpenMeshes = false
+                };
+                Assert.False(open.Compute());
+                Assert.Equal(Status.OpenInput, open.Status);
+                Assert.Equal(Refusal.None, open.SheetReason);
+            }
+        }
+
+        [Fact]
+        public void TheSheetStep_IsTimed_OnlyWithASheet()
+        {
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2));
+            Assert.True(op.Status == Status.Success, op.Error);
+            long us;
+            Assert.True(op.PhaseMilliseconds.TryGetValue("classification.sheets_us", out us));
+            Assert.True(us >= 0 && us < 60L * 1000 * 1000);
+            Assert.False(op.PhaseMilliseconds.ContainsKey("_us"));
+            // (the counters of the last sheet's pass: the pieces with a side in the cube, and their cells)
+            Assert.True(op.Counts["sheet_pieces"] >= 12 + 2, "sheet_pieces " + op.Counts["sheet_pieces"]);
+            var solids = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 1.5, 1.5, 1.5), Ops.Difference);
+            Assert.True(solids.Compute(), solids.Error);
+            Assert.False(solids.PhaseMilliseconds.ContainsKey("classification.sheets_us"));
+            Assert.False(solids.Counts.ContainsKey("sheet_pieces"));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SheetInTheSharedFaceOfTwoShells_KeepsTheShellInFrontOfIt(bool normalPlusX)
+        {
+            // two cubes of one mesh that share the face x = 1 (the workpiece's winding is 1 on both sides of it) and a sheet in the plane of that face: the
+            // piece of the face is no wall of the workpiece but a piece of the sheet, with the labels 0 and 1 on its sides, in either order against the
+            // orientation of the piece (the piece is the first cube's triangle, the sheet's triangle runs with it or against it)
+            DMesh3 two = TwoCubes(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0));
+            DMesh3 sheet = Page(new Vector3d(1, -1, -1), new Vector3d(1, 2, -1), new Vector3d(1, 2, 2), new Vector3d(1, -1, 2), new Vector3d(normalPlusX ? 1 : -1, 0, 0));
+            ExactMeshBoolean op = Cut(two, sheet, 1.0, "shared face, normal +x " + normalPlusX);
+            // (behind the sheet is removed: with the normal +x the cube at x > 1 stays)
+            Assert.Equal(normalPlusX ? 1.5 : 0.5, Centroid(op.Result).x, 12);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void AFlapOfTheWorkpiece_TwoCoincidentTrianglesOfOppositeOrientation_IsNoWallAndNoShell(bool flapFirst)
+        {
+            // the cube and a flap: one triangle twice, with opposite orientations (a closed shell without volume, away from the cube and the sheet). The
+            // workpiece's winding number is 0 on both sides of the flap (+1 and -1 across its two triangles), so it is no piece of the workpiece's
+            // boundary: no wall, no shell of its own (a second shell would make the cube's cut depend on the nesting), no cell that the sheet misses
+            var flap = new DMesh3();
+            int a = flap.AppendVertex(new Vector3d(3, 0, 0.25)), b = flap.AppendVertex(new Vector3d(4, 0, 0.25)), c = flap.AppendVertex(new Vector3d(3, 1, 0.25));
+            Assert.True(flap.AppendTriangle(a, b, c) >= 0);
+            Assert.True(flap.AppendTriangle(a, c, b) >= 0);
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 workpiece = flapFirst ? Joined(flap, cube) : Joined(cube, flap);
+            ExactMeshBoolean op = Cut(workpiece, Plate(0.5, -1, 2, -1, 2), 0.5, "cube and flap, flap first " + flapFirst);
+            BoundingBox(op.Result, out Vector3d min, out Vector3d max);
+            Assert.Equal(1.0, max.x);
+            // (the cube's two cells and the one outside it, as without the flap)
+            Assert.Equal(3, op.Counts["sheet_cells"]);
+        }
+
+        [Fact]
+        public void SheetOnAFaceAgainstTheFacesOrientation_FoldedIntoTheWorkpiece_MarksTheCellInFrontOfIt()
+        {
+            // the folded sheet of SheetFoldedOntoAFace_WithAPieceInside_IsStillACut, reversed: the patch on the top face has its normals down (against the
+            // face's triangle, which is the piece), so the cube under it is in front of the sheet, and the wall's normals point to -x: the left half is in
+            // front of both and stays
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 patch = Page(new Vector3d(0, -1, 1), new Vector3d(0.5, -1, 1), new Vector3d(0.5, 2, 1), new Vector3d(0, 2, 1), new Vector3d(0, 0, 1));
+            DMesh3 wall = Page(new Vector3d(0.5, -1, 1), new Vector3d(0.5, 2, 1), new Vector3d(0.5, 2, -1), new Vector3d(0.5, -1, -1), new Vector3d(1, 0, 0));
+            ExactMeshBoolean kept = Cut(cube, Joined(patch, wall), 0.5, "folded");
+            Assert.Equal(0.75, Centroid(kept.Result).x, 12);
+            ExactMeshBoolean other = Cut(cube, Reversed(Joined(patch, wall)), 0.5, "folded, reversed");
+            Assert.Equal(0.25, Centroid(other.Result).x, 12);
+        }
+
+        [Fact]
+        public void TwoLayersOfOneSheet_OverEachOther_BothMark()
+        {
+            // one sheet of two plates in the plane z = 0.5, one over the other (no vertex in common: 3 and 4 units wide), with opposite normals: every piece
+            // in the cube is a triangle of each layer, the cell above is in front of one layer and behind the other: refused. (Every layer of a piece marks,
+            // not only the last one.)
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            foreach (bool firstUp in new[] { true, false }) {
+                ExactMeshBoolean op = Run(cube, Joined(Plate(0.5, -1, 2, -1, 2, firstUp), Plate(0.5, -1.5, 2.5, -1.5, 2.5, firstUp == false)));
+                AssertRefused(op, Refusal.SidesInconsistent, "two layers, opposite, first up " + firstUp);
+                Assert.Equal(2, op.SheetConflictingCells);
+                // (the front mark is the first layer's triangle or the second's, by the normals; the back mark the other's)
+                Assert.InRange(op.SheetWitnessTriangle, 0, 3);
+                Assert.InRange(op.SheetWitnessTriangle2, 0, 3);
+                Assert.NotEqual(op.SheetWitnessTriangle < 2, op.SheetWitnessTriangle2 < 2);
+            }
+            // two layers with the same normals: one cut
+            Cut(cube, Joined(Plate(0.5, -1, 2, -1, 2), Plate(0.5, -1.5, 2.5, -1.5, 2.5)), 0.5, "two layers, same normals");
+            // three layers, two up and one down: the witness of the front mark is the first of the layers that mark the side (the lower triangle index)
+            ExactMeshBoolean three = Run(cube, Joined(Joined(Plate(0.5, -1, 2, -1, 2), Plate(0.5, -1.5, 2.5, -1.5, 2.5)), Plate(0.5, -2, 3, -2, 3, false)));
+            AssertRefused(three, Refusal.SidesInconsistent, "three layers");
+            int lower = Math.Min(three.SheetWitnessTriangle, three.SheetWitnessTriangle2), upper = Math.Max(three.SheetWitnessTriangle, three.SheetWitnessTriangle2);
+            Assert.InRange(lower, 0, 1);
+            Assert.InRange(upper, 4, 5);
+        }
+
+        // sheets for the box [0,2] x [0,1] x [0,1] with one refusal each (the sheets do not meet each other)
+        static DMesh3 RefusedSheet(Refusal reason)
+        {
+            switch (reason) {
+                case Refusal.RimInsideWorkpiece: return Plate(0.25, 0.75, 1.25, 0.25, 0.75);                         // a patch inside: free edges
+                case Refusal.SidesInconsistent: return Extruded(new[] { 0.5, -1 }, new[] { 0.5, 2 }, new[] { 3.0, 2 }, new[] { 3.0, -2 }, new[] { 1.5, -2 }, new[] { 1.5, 1.5 });
+                case Refusal.FloatingComponent: return Box(0.75, 0.25, 0.5, 1.25, 0.75, 0.75);                       // a closed sheet inside
+                default: return Plate(5, -1, 3, -1, 2);                                                           // far away: the box is uncut
+            }
+        }
+
+        [Theory]
+        [InlineData(Refusal.SidesInconsistent, Refusal.RimInsideWorkpiece, 2)]
+        [InlineData(Refusal.RimInsideWorkpiece, Refusal.SidesInconsistent, 1)]
+        [InlineData(Refusal.UncutComponents, Refusal.RimInsideWorkpiece, 2)]
+        [InlineData(Refusal.FloatingComponent, Refusal.RimInsideWorkpiece, 2)]
+        [InlineData(Refusal.UncutComponents, Refusal.SidesInconsistent, 2)]
+        [InlineData(Refusal.SidesInconsistent, Refusal.UncutComponents, 1)]
+        [InlineData(Refusal.UncutComponents, Refusal.FloatingComponent, 2)]
+        [InlineData(Refusal.FloatingComponent, Refusal.UncutComponents, 1)]
+        [InlineData(Refusal.SidesInconsistent, Refusal.FloatingComponent, 1)]
+        [InlineData(Refusal.FloatingComponent, Refusal.SidesInconsistent, 1)]
+        public void TwoRefusedSheets_TheReasonNamed_IsTheFreeEdge_ThenTheMarks_ThenTheUncutPart_AndTheFirstSheetAmongEquals(Refusal first, Refusal second, int expectedMesh)
+        {
+            DMesh3 box = Box(0, 0, 0, 2, 1, 1);
+            // (each sheet alone is refused for its reason)
+            AssertRefused(Run(box, RefusedSheet(first)), first, "first alone");
+            AssertRefused(Run(box, RefusedSheet(second)), second, "second alone");
+            ExactMeshBoolean op = RunAll(new[] { box, RefusedSheet(first), RefusedSheet(second) }, SolidRole, SheetRole, SheetRole);
+            AssertRefused(op, expectedMesh == 1 ? first : second, first + " then " + second);
+            Assert.Equal(expectedMesh, op.SheetWitnessMesh);
+        }
+
+        [Theory]
+        [InlineData(0, true)]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(3, true)]
+        [InlineData(0, false)]
+        [InlineData(1, false)]
+        [InlineData(2, false)]
+        [InlineData(3, false)]
+        public void RimInsideTheWorkpiece_TheWitnessIsTheStartOfTheFreeEdge_AndATriangleOfTheSheet(int quarterTurns, bool up)
+        {
+            // the half plate z = 0.5 whose free edge runs through the middle of the cube, turned by quarter turns about the cube's axis: the free edge inside
+            // the cube is one segment between two faces of the cube; the witness is the corner the edge starts at, in the direction of the sheet's triangle
+            // (counterclockwise seen from where the normal points to: the plate is on the left of its rim)
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            Func<Vector3d, Vector3d> turn = p => {
+                double x = p.x - 0.5, y = p.y - 0.5;
+                for (int k = 0; k < quarterTurns; ++k) { double t = x; x = -y; y = t; }
+                return new Vector3d(x + 0.5, y + 0.5, p.z);
+            };
+            DMesh3 plate = Plate(0.5, -1, 0.5, -1, 2, up);
+            foreach (int v in plate.VertexIndices())
+                plate.SetVertex(v, turn(plate.GetVertex(v)));
+            ExactMeshBoolean op = Run(cube, plate);
+            AssertRefused(op, Refusal.RimInsideWorkpiece, "half plate");
+            // (unturned, normals up: the plate is at x < 0.5, its rim x = 0.5 runs towards +y, and enters the cube at y = 0)
+            Vector3d start = turn(new Vector3d(0.5, up ? 0 : 1, 0.5));
+            Assert.Equal(start, op.SheetWitnessPoint);
+            Assert.Equal(1, op.SheetWitnessMesh);
+            Assert.InRange(op.SheetWitnessTriangle, 0, 1);
+            Assert.Contains("free edge of sheet 1", op.Error);
+        }
+
+        [Fact]
+        public void Witnesses_OfAPieceThatIsNotTheSheetsOrTheWorkpiecesTriangle_NameNoTriangle()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            // a free edge of the sheet on a piece that is the triangle of an open solid under it (the same patch as mesh 1, a solid, and as mesh 2, the sheet):
+            // the sheet is named, a triangle is not (the piece's triangle is not the sheet's)
+            DMesh3 patch = Plate(0.5, 0.25, 0.75, 0.25, 0.75);
+            ExactMeshBoolean rim = RunAll(new[] { cube, patch, new DMesh3(patch) }, SolidRole, SolidRole, SheetRole);
+            AssertRefused(rim, Refusal.RimInsideWorkpiece, "the sheet over an open solid");
+            Assert.Equal(2, rim.SheetWitnessMesh);
+            Assert.Equal(-1, rim.SheetWitnessTriangle);
+            Assert.Equal(0.5, rim.SheetWitnessPoint.z);
+            // an uncut cell: the witness is a triangle of the workpiece (the ball's: 12 triangles) ...
+            ExactMeshBoolean uncut = Run(Box(-0.125, -0.125, 0.25, 0.125, 0.125, 0.5), Plate(0, -1, 1, -1, 1));
+            AssertRefused(uncut, Refusal.UncutComponents, "uncut");
+            Assert.Equal(1, uncut.SheetWitnessMesh);
+            Assert.InRange(uncut.SheetWitnessTriangle, 0, 11);
+            Assert.Contains("not touched by sheet 1", uncut.Error);
+            // ... or none, where the uncut cell is the inside of another tool that floats in a cell (its pieces are that tool's triangles)
+            ExactMeshBoolean floating = RunAll(new[] { cube, Plate(0.5, -1, 2, -1, 2), Box(0.25, 0.25, 0.1, 0.75, 0.75, 0.3) }, SolidRole, SheetRole, SolidRole);
+            AssertRefused(floating, Refusal.UncutComponents, "floating tool");
+            Assert.Equal(1, floating.SheetWitnessMesh);
+            Assert.Equal(-1, floating.SheetWitnessTriangle);
+            Assert.Equal(1, floating.SheetUncutCells);
+        }
+
+        [Fact]
+        public void FloatingComponent_TheWitnessIsATriangleOfTheFloatingPart_ByItsFrontOrItsBackMark()
+        {
+            // the plate (triangles 0 and 1 of the sheet) and a bubble (triangles 2 to 13) that floats in a cell: the witness is a triangle of the bubble,
+            // whether the bubble's inside is behind its pieces (a back mark only) or in front of them (a front mark only)
+            foreach (bool inverted in new[] { false, true }) {
+                DMesh3 bubble = Box(0.25, 0.25, 0.1, 0.75, 0.75, 0.3);
+                ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Joined(Plate(0.5, -1, 2, -1, 2), inverted ? Reversed(bubble) : bubble));
+                AssertRefused(op, Refusal.FloatingComponent, "bubble, inverted " + inverted);
+                Assert.InRange(op.SheetWitnessTriangle, 2, 13);
+                // (two local cells without a wall of the workpiece: the bubble's inside and the cell around it, which no edge joins to the plate's)
+                Assert.Equal(2, op.SheetConflictingCells);
+                Assert.Contains("2 part(s) of sheet 1 float", op.Error);
+            }
+        }
+
+        [Fact]
+        public void OnlyTouching_TheWitnessIsTheFirstTouchingTriangleOfTheSheet_AndTheCellsOfTheWorkpieceAreCounted()
+        {
+            // two patches on the top face of the cube (triangles 0, 1 and 2, 3 of the sheet): the witness is a triangle of the first, the uncut cell is the cube
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            ExactMeshBoolean op = Run(cube, Joined(Plate(1, 0.125, 0.25, 0.125, 0.25), Plate(1, 0.5, 0.75, 0.5, 0.75)));
+            AssertRefused(op, Refusal.UncutComponents, "two patches on a face");
+            Assert.Contains("only touches", op.Error);
+            Assert.InRange(op.SheetWitnessTriangle, 0, 3);
+            Assert.Equal(1, op.SheetUncutCells);
+            // a plate under the whole bottom face, whose first triangle (y > x) is the workpiece's first piece: the witness is the sheet's triangle on that
+            // piece (the plate's second, y > x as well), not the one on the last touching piece
+            foreach (bool up in new[] { true, false }) {
+                ExactMeshBoolean bottom = Run(cube, Plate(0, -1, 2, -1, 2, up));
+                AssertRefused(bottom, Refusal.UncutComponents, "plate on the bottom face");
+                Assert.Equal(1, bottom.SheetWitnessTriangle);
+            }
+        }
     }
 }
