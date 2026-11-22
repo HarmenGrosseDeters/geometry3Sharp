@@ -562,7 +562,7 @@ ends that almost meet, collinear overlaps, a chain of T-junctions. Per row: the 
 alone (`detect`, a grid and the filtered exact `Orient2d`: the floor of any arrangement method), status, output size, median time,
 allocation, the Delaunay triangulation of the output's vertices alone, with a snap tolerance the time of `SnapRounding2.Apply` alone
 with its rounds and points, and with `--judge` the oracle's verdict (every kind of violation with its count). A measurement, not a gate;
-exit code 1 if a row fails or is judged invalid. Raw output: `perf/planarmap-*-net10.txt`. Results, reading and the four findings (a
+exit code 1 if a result is `Failed` or judged invalid. The vertex counts are the used vertices (the mesh keeps merged input points). Raw output: `perf/planarmap-*-net10.txt`. Results, reading and the four findings (a
 `NodingLimit` on heavy collinear overlap, superlinear edge recovery on near-parallel bundles, the cost of snap rounding on long
 segments with many hot pixels, a marker disagreement of mesher and oracle under snap rounding):
 [ROBUST_PLANAR_MAPS_2026-11.md](../../docs/research/ROBUST_PLANAR_MAPS_2026-11.md).
