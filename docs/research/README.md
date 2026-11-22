@@ -16,6 +16,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | [GEOGRAM_BOOLEAN_COMPARISON_2026-11.md](GEOGRAM_BOOLEAN_COMPARISON_2026-11.md) | Head-to-head comparison of `ExactMeshBoolean` against Geogram's exact mesh booleans |
 | [GEOGRAM_MEASUREMENTS_2026-11.md](GEOGRAM_MEASUREMENTS_2026-11.md) | Targeted measurements of high-priority ideas identified in the Geogram survey |
 | [GEOGRAM_SURVEY_2026-11.md](GEOGRAM_SURVEY_2026-11.md) | Detailed architectural survey of Geogram (BSD-3) algorithms relevant to `geometry3Sharp` |
+| [MAGNITUDE_ROBUSTNESS_2026-11.md](MAGNITUDE_ROBUSTNESS_2026-11.md) | Study: why the geodesic and intrinsic classes and `DualContouring` give another result far from unit scale (#1377, #1376, #1352): root cause per class, the options prescaling / scale-free formulas / checked range / documentation with measured cost, prior art, a recommendation |
 | [IMPRINT_CORPUS_2026-11.md](IMPRINT_CORPUS_2026-11.md) | Corpus evaluation of `ExactMeshImprint` on Thingi10K contact pairs |
 | [MESHING2D_HP6_HP7_SPIKE_2026-11.md](MESHING2D_HP6_HP7_SPIKE_2026-11.md) | 2D meshing spike: proven small-angle refinement rules against the library (HP 6) and a certifying checker against the oracle (HP 7), with measured upper bounds and ranked options |
 | [INTRINSIC_INTEGER_COORDINATES_2026-11.md](INTRINSIC_INTEGER_COORDINATES_2026-11.md) | Spike for integer (normal) coordinates in intrinsic triangulations: failure rate of the traced common subdivision, prototype, cost, options |
