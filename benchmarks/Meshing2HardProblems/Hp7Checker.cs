@@ -97,6 +97,8 @@ namespace Meshing2HardProblems
             for (int a = 0; a < n; ++a)
                 for (int e = start[a]; e < start[a + 1]; ++e)
                     for (int f = e + 1; f < start[a + 1]; ++f) if (to[e] == to[f]) return Fail("the directed edge " + a + "-" + to[e] + " is in two triangles");
+            // (every vertex is a corner of a triangle: an input point left out, or a vertex lying loose in a triangle, has no star)
+            for (int a = 0; a < n; ++a) if (start[a + 1] == start[a]) return Fail("vertex " + a + " is in no triangle");
             int Find(int a, int b) { for (int e = start[a]; e < start[a + 1]; ++e) if (to[e] == b) return e; return -1; }
             Lap("2 edges");
 
@@ -114,6 +116,17 @@ namespace Meshing2HardProblems
                 for (int k = 0; k < m; ++k) { srcA.Add(rv[k]); srcB.Add(rv[(k + 1) % m]); ringSign.Add(sign); }
             }
             int sn = srcA.Count;
+            // sources on the same two input points (a border that two rings share, a segment along a ring edge) are one class: a
+            // piece of one is a piece of all, or a chain could run beside its twin's (found in review: a hanging vertex on a shared
+            // border). Sources that overlap only in part are NOT found here: the real checker needs the input's own noding for them
+            // (keyed by the pair, not by a packed long: the default hash of a long, lo ^ hi, collides for neighbouring ids)
+            var classOf = new Dictionary<(int, int), int>(); var classId = new int[sn]; var classSize = new List<int>();
+            for (int s = 0; s < sn; ++s) {
+                if (srcA[s] == srcB[s] || (input.X[srcA[s]] == input.X[srcB[s]] && input.Y[srcA[s]] == input.Y[srcB[s]])) return Fail("source " + s + " has no length");
+                var key = srcA[s] < srcB[s] ? (srcA[s], srcB[s]) : (srcB[s], srcA[s]);
+                if (!classOf.TryGetValue(key, out int c)) { classOf[key] = c = classSize.Count; classSize.Add(0); }
+                classId[s] = c; ++classSize[c];
+            }
             var count = new int[sn + 1];
             for (int i = 0; i < subs.Count; ++i) foreach (int s in cert.SubsegmentSources[i]) { if ((uint)s >= sn) return Fail("a source id out of range"); ++count[s + 1]; }
             for (int s = 0; s < sn; ++s) count[s + 1] += count[s];
@@ -126,7 +139,14 @@ namespace Meshing2HardProblems
                 if (e < 0 && f < 0) return Fail("subsegment " + i + " is no edge of the mesh");
                 if (e >= 0) { if (tag[e] != 0) return Fail("a subsegment twice"); tag[e] = i + 1; }
                 if (f >= 0) { if (tag[f] != 0) return Fail("a subsegment twice"); tag[f] = -(i + 1); }
-                foreach (int s in cert.SubsegmentSources[i]) {
+                var named = cert.SubsegmentSources[i];
+                if (named.Length == 0) return Fail("subsegment " + i + " names no source");
+                for (int p = 0; p < named.Length; ++p) {
+                    int members = 0;
+                    for (int q = 0; q < named.Length; ++q) { if (classId[named[q]] == classId[named[p]]) ++members; if (q < p && named[q] == named[p]) return Fail("a source named twice"); }
+                    if (members != classSize[classId[named[p]]]) return Fail("subsegment " + i + " names source " + named[p] + " without the sources on the same input points");
+                }
+                foreach (int s in named) {
                     double ax = input.X[srcA[s]], ay = input.Y[srcA[s]], dx = input.X[srcB[s]] - ax, dy = input.Y[srcB[s]] - ay, len2 = dx * dx + dy * dy;
                     double ta = ((X[a] - ax) * dx + (Y[a] - ay) * dy) / len2, tb = ((X[b] - ax) * dx + (Y[b] - ay) * dy) / len2;
                     foreach (int v in new[] { a, b }) {

@@ -89,9 +89,11 @@ from small input angles", without an angle formula.
   and it bounds the large angles too.
 - The set of triangles that must be below the bound is not simply "the triangle at the apex". Around the apex, edges of length
   r and of length r·φ meet at one vertex. A triangulation with all angles at least θ changes edge lengths around a vertex by at
-  most a factor (2 cos θ)^(180° / θ) (Mitchell's bound, as used by Shewchuk): 292 at 20 degrees, 72 at 25, 27 at 30. Below about
-  φ = 1 / that factor, more triangles than the apex one must be bad. So a "provably necessary neighbourhood" depends on φ and
-  on the bound, and no paper read gives it in closed form.
+  most a factor (2 cos θ)^(180° / θ) (Mitchell's bound, as used by Shewchuk): 292 at 20 degrees, 72 at 25, 27 at 30. Once
+  1 / φ (in radians) is well above that factor, more triangles than the apex one must be bad. This is our own rough reading,
+  not a threshold from a paper; Shewchuk's worked example, which combines the factor with a wedge bound, gives about 0.6 degrees
+  for a bound of 30. So a "provably necessary neighbourhood" depends on φ and on the bound, and no paper read gives it in
+  closed form.
 
 ### 1.3 Building blocks in the library
 
@@ -143,8 +145,10 @@ from small input angles", without an angle formula.
 
 **What the numbers say.**
 1. **Plain Ruppert cascades.** Without an exemption 72 of 96 runs do not finish: 65 run down to the triangulator's tolerance
-   (2^-41 of the extent) and 7 reach the vertex limit of 20 000. The 24 that finish have φ of 40 degrees, or 20 degrees at the
-   bound 20. This is claim 10.1: no exemption is needed when the floor of φ is above the bound.
+   (2^-41 of the extent) and 7 reach the vertex limit of 20 000. The 24 that finish are the 16 with φ = 40 degrees, where
+   claim 10.1 applies (the floor of φ is above the bound), and the 8 with φ = 20 degrees at the bound 20. Those 8 are outside
+   the claim (the floor of 20 degrees is 17.9): there the apex triangle sits exactly at the bound, a knife edge of the
+   comparison in doubles, and nothing can be read from them.
 2. **The proven rule works as stated.** `mpw` finishes on all 96 inputs, including the fan, the T-junction, the crossing and
    the two apexes 1/64 apart. No angle is below the paper's floor. The largest angle is 136.2 degrees (the paper: 137.1).
 3. **The library's excused set is of the right kind, and a little looser than the paper's.**
@@ -175,7 +179,43 @@ from small input angles", without an angle formula.
   small pair, at the same shell, and the angle at least the floor. `ExistedBeforeRefinement` and `SubsegmentSources` (#870)
   carry what it needs.
 
-### 1.6 Options, ranked
+### 1.6 The floor as a lemma, and an interval bisection
+
+The cross-field note ([CROSS_FIELD_TRANSFER_2026-11.md](CROSS_FIELD_TRANSFER_2026-11.md), item 5.3) asks whether the floor can be
+written as an inequality over a compact box and checked by interval bisection. It can, and the box has three parameters.
+
+**The lemma** (the geometric core of the paper's lemma 7, in our words). Let two input segments meet at the apex x at an
+angle φ of at most 60 degrees. Let a and b be vertices on them at the same distance r from x, and let a⁺ be a vertex on the
+first segment at a distance between r and 2r (with shells the next vertex beyond a is such a point). Let abc be a triangle
+of a Delaunay triangulation with c on the side of a-b away from x. Then the angle at c is at least
+arctan(sin φ / (2 − cos φ)).
+
+**Proof.** The points a⁺ and c are on the same side of a-b. The triangle is Delaunay, so a⁺ is not strictly inside its
+circumcircle. By the inscribed angle theorem the angle at c over the chord a-b is then at least the angle at a⁺ over it. The
+angle at a⁺ falls as a⁺ moves away from a, and at the distance 2r it is arctan(sin φ / (2 − cos φ)): with x at the origin,
+a = (1, 0), b = (cos φ, sin φ) and a⁺ = (2, 0), its tangent is sin φ / (2 − cos φ). On the side of x the same argument with
+x in place of a⁺ gives at least φ.
+
+**The bisection** (`Meshing2HardProblems floor`, a throwaway check in doubles widened per operation, not a formal proof).
+Box: φ, and c in [−4, 6] x [−5, 5] without discs of 0.01 around a and b; a⁺ = (2, 0). A box is closed when c is on the side
+of x, when a⁺ is strictly inside the circumcircle, or when the cotangent of the angle at c is at most 1.05 times the floor's.
+- One angle (φ = 20 degrees): proved with about 50 000 boxes.
+- φ in [20, 21] and in [40, 60] degrees: proved, with 52 and 145 million boxes.
+- φ in [0.5, 60] degrees: not finished within the limit of 200 million boxes. The count grows about a thousandfold per
+  degree of φ, so plain bisection is the wrong tool for the whole range; the proof above does not need it.
+
+Raw output: `perf/floor-net10.txt`.
+
+**What the lemma needs, and what the library gives.** Three hypotheses: the two ends at the same distance from the apex, a
+next vertex within twice that distance on the same source, and a Delaunay triangle. The oracle's excuse asks for none of
+the three: the ends may differ by a factor 1.5, they may be input points with no vertex beyond them, and in the constrained
+mode the triangle need not be Delaunay. Without the second hypothesis there is no floor at all: c can lie as far away as
+the mesh allows, and the angle goes to zero. The 85 and 107 triangles below the floor in section 1.4 are that case, and
+each is a test input (the smallest: `crossing`, φ = 20 degrees, bound 20, constrained mode, 5.47 degrees). So the answer to
+the item is: the floor is a lemma for the paper's rule, with a three-parameter box; for today's excuse region the search
+ends in a counterexample, not in a proof.
+
+### 1.7 Options, ranked
 
 | # | option | gain | effort | risk |
 |---|---|---|---|---|
@@ -203,7 +243,7 @@ checker verifies it? What does the checker cost against today's oracle?
 
 Today ([MESHING2D_FAST_ORACLE.md](../design/MESHING2D_FAST_ORACLE.md)): the fast path already follows the idea in one place,
 the global Delaunay pass, where the oracle builds and certifies its own witness. It stopped at its stop rule (Herne 3.6 times
-the mesher; the target was 2 times).
+the mesher; the target was 2 times and the stop rule 2.5).
 
 ### 2.2 The literature, in our words
 
@@ -236,9 +276,10 @@ The oracle's own witness (section 6 of the fast-oracle note) is that constructio
 
 **The checker** (prototype: `Hp7Checker.cs`; rings define the domain, no snap grid; ε is the tube):
 1. Every triangle is positive (exact orientation, with a filter).
-2. No directed edge is in two triangles.
-3. Every subsegment is an edge. Every vertex of a piece is within ε of each source it names. The pieces of a source, sorted
-   along it, are one chain from its first end to its last.
+2. No directed edge is in two triangles, and every vertex is a corner of a triangle.
+3. Every subsegment is an edge and names at least one source. Every vertex of a piece is within ε of each source it names.
+   The pieces of a source, sorted along it, are one chain from its first end to its last. Sources on the same two input
+   points (a border that two rings share) are one class: a piece names all of a class or none.
 4. An edge with one triangle is a subsegment that the rings cross exactly once, with the domain on its left. An edge with two
    triangles is crossed by the rings zero times in total (two outer rings that share a border cancel).
 5. Every edge with two triangles that is no subsegment is locally Delaunay (exact in-circle, with a filter).
@@ -259,6 +300,15 @@ section 6.2, and of the checkers above).
 - A double cover is the case the local tests miss. The self-check has one: an annulus covered twice, with every triangle
   positive and every inner edge in two triangles. Pass 3 rejects it, since no chain of a ring edge joins its two ends.
 
+**Hypotheses the argument uses and the prototype does not check.**
+- The rings are simple and properly nested or side by side (a precondition on the input, which the oracle checks today).
+- The sign of a ring's area is taken in doubles.
+- Sources that overlap only in part are not recognised as one class. Then two chains can run beside each other in the
+  tube, and the mesh need not be edge to edge there. The real checker needs the noding of the input for this, which is
+  an input-only computation.
+- Cover-once outside the tubes does not by itself make the mesh edge to edge on a border that two rings share: a vertex can
+  hang on one side. The class rule in pass 3 closes this for borders on the same two input points.
+
 **Why constrained Delaunay follows:** the constrained Delaunay lemma, with pass 5 and the triangulation just proven.
 
 **What a certificate does not replace.**
@@ -271,11 +321,15 @@ section 6.2, and of the checkers above).
 - **Inside the tubes** the cover number is that of the chains. Where the tubes of two sources overlap (small angles, the
   snap grid), the chain rules of the specification decide. That is the Q17 part of the plan, and it is not modelled here.
 
-**Soundness against a wrong certificate.** The checker tests every claim of the certificate against the input, so a wrong
-certificate can only make it reject. `Meshing2HardProblems selfcheck` runs 48 cases: a reversed, missing or doubled triangle, a
+**Soundness against a wrong certificate.** The checker must test every claim of the certificate against the input, so that a
+wrong certificate can only make it reject. The first version did not: the independent review of this spike found three
+meshes it accepted wrongly (an edge that is not locally Delaunay, declared a subsegment of no source; a vertex hanging on a
+border that two rings share; an input point left out of the mesh). All three are fixed and are cases of the self-check now.
+This is the main risk of the design in small: every rule the checker does not enforce is a way past it, and the list of
+rules is only as complete as the review of the argument. `Meshing2HardProblems selfcheck` runs 52 cases: a reversed, missing or doubled triangle, a
 missing triangle declared a hole in the certificate, a flipped edge, a vertex moved away, a piece named for another source or
-for none, a missing subsegment, an unlisted triangle below the angle, and the double cover. The 43 corrupted ones are rejected; the mesher's four results and
-the single cover of the annulus are accepted.
+for none, a missing subsegment, an unlisted triangle below the angle, the three cases of the review, and the double cover. The 47
+corrupted ones are rejected; the mesher's four results and the single cover of the annulus are accepted.
 
 ### 2.4 Measurement
 
@@ -313,13 +367,32 @@ derived from the geometry outside the timing. All verdicts: oracle ok, checker a
 | fan12 φ = 2° q20 default | quality 88 % |
 | wide exponents q20 default | quality 61 %, segments 26 % |
 
-**A sampling profile** of `parcels30 q20 default` (dotnet-trace, inclusive time; stratum: this one ring-heavy input, the times
-include the allocation and copying the functions cause):
-- `Segments` (62 % of the oracle): about half of it is in copying lists of ring edges per source (`ToList` under
-  `RetainedPieces`, 49 %; memory moves 74 %), 11 % in the greatest common divisor of the exact rationals, 9 % in the exact
-  distance to a segment. So the larger part is a scan per source, not exact arithmetic.
-- `Domain` (29 %): 90 % is the exact area (`ComputeArea`), of which the greatest common divisor is 38 %. This part is exact
-  arithmetic on rationals.
+**Locating against deciding** (item 5.5 of the cross-field note: how much of the oracle's time is search). Sampling
+profiles (dotnet-trace), split by `profile_split.py`: a sample counts as *deciding* when its stack is inside the oracle's
+exact kernel (`Exact`, the rationals `Q` and `Pt`, `System.Numerics`) or one of its tube and zone tests, and as *locating*
+otherwise (scans, grids, list copies, hashing, sorting). Stratum: one input each; the times include the allocation and the
+garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
+
+| case | deciding | locating | largest checks: share of the oracle (locating share of the check) |
+|---|---|---|---|
+| parcels30 q20 default | 33 % | 67 % | segments 57 % (84 %), domain 32 % (36 %) |
+| coast2000 q20 default | 67 % | 33 % | conformity 27 % (39 %), segments 27 % (39 %), coverage 19 % (21 %), quality 15 % (10 %) |
+| coast2000 q20 cq | 54 % | 46 % | segments 34 % (71 %), conformity 25 % (44 %), coverage 15 % (17 %), quality 14 % (13 %) |
+| parcels30 q20 snap 1/64 | 71 % | 29 % | segments 79 % (17 %), coverage 12 % (96 %) |
+| wide exponents q20 default | 69 % | 31 % | quality 41 % (4 %), segments 20 % (13 %) |
+
+- On the parcels without a grid, the time is mostly locating: `Segments` copies and scans lists of ring edges per source
+  (`RetainedPieces`), and the rest of it and of `Domain` is the greatest common divisor of exact rationals.
+- On the other inputs most of the time is deciding: exact rational arithmetic, without a filter in doubles in front of it.
+- The deciding share is an upper estimate of what must stay: a predicate evaluated on a candidate that a search produced
+  disappears with the search. So "locating" is a lower bound of what hints remove.
+- **The stop rule of item 5.5** asks whether the oracle stays above 2.5 times the mesher with all search removed. On these
+  inputs it does: with locating at 29 to 67 %, a ratio of 11 to 590 stays far above 2.5. Hints alone do not reach the target.
+  Herne and the corpus were not measured (no tiles and no corpus files in this session); `profile_split.py` runs on any
+  trace of the oracle.
+- What makes the prototype checker fast is therefore not the hints alone. It is three things together: the certificate
+  (no search), predicates behind filters in doubles (on these outputs 0 orientation tests and at most a few hundred
+  in-circle tests fell back to exact arithmetic), and the degree argument, which replaces checks instead of speeding them up.
 
 **What the numbers say.**
 1. **The upper bound is large.** The checker of the core takes 1 to 8 % of the mesher's time; the oracle 11 to 590 times.
@@ -330,11 +403,14 @@ include the allocation and copying the functions cause):
 3. **Much of the gain does not need a certificate.** The two largest items on ring-heavy inputs are a scan of all ring edges
    per source and the exact area. The first needs an index (the oracle has `BoxGrid`), the second a filter or the degree
    argument. Both stay inside the oracle and keep it independent.
-4. **The oracle's time per source is high.** The ratio to the mesher is worst where an input has many sources and few triangles
+4. **Hints are the smaller part** (the split above): locating is 29 to 67 % of the oracle's time; the rest is exact
+   arithmetic that a filter in doubles would decide in most cases.
+5. **The oracle's time per source is high.** The ratio to the mesher is worst where an input has many sources and few triangles
    per source (parcels: 2 triangles per ring at 20 degrees). Herne has the opposite shape, which is why its ratio is 3.6.
-5. **The strata differ.** With many small input angles (`fan`, `comb`, wide exponents) the time is in `quality`, in the
-   excuses, which a certificate shortens only by naming the case. The snap grid was not measured for the checker: its rules are
-   not modelled, and the oracle's verdict on the grid inputs here is a finding of its own (section 3).
+6. **The strata differ.** With many small input angles (`fan`, `comb`, wide exponents) the time is in `quality`, in the
+   excuses, which a certificate shortens only by naming the case. On the three snap-grid rows the checker says nothing: it
+   accepts outputs that the oracle judges INVALID, because the grid rules are not modelled (the oracle's verdict there is a
+   finding of its own, section 3).
 
 ### 2.5 Fit and constraints
 
@@ -350,7 +426,7 @@ include the allocation and copying the functions cause):
 
 | # | option | gain | effort | risk |
 |---|---|---|---|---|
-| 1 | Inside the oracle: index the per-source scans of `Segments` (pieces by source, the existing grid) and filter or drop the exact area on the fast path | 85 to 95 % of the oracle's time on the parcels inputs is in these two checks (17 to 47 % on the coast inputs); needs no certificate | M (an equivalence argument per replacement, as in #376; check mode; mutants) | low to medium: the examples an INVALID report names may change order |
+| 1 | Inside the oracle: index the per-source scans of `Segments` (pieces by source, the existing grid), filter or drop the exact area, and put filters in doubles in front of the exact tests of `Segments`, `Coverage`, `Conformity` and `Quality` | 85 to 95 % of the oracle's time on the parcels inputs is in these two checks (17 to 47 % on the coast inputs); needs no certificate | M (an equivalence argument per replacement, as in #376; check mode; mutants) | low to medium: the examples an INVALID report names may change order |
 | 2 | A certifying core on the fast path: `SubsegmentSources` as the certificate and the checker of section 2.3 for coverage, conformity and the chains, where no excuse and no grid rule is involved | the core's upper bound (conformity and coverage: 34 to 58 % of the oracle on the coast inputs, 1 to 7 % on the parcels) | L (tier L: the argument against the specification's own wording of coverage, the tubes, the reference comparison) | medium: two ways to the same verdict must agree on every input, including inside the tubes |
 | 3 | A full certifying oracle: also the grid rules, Q17 and every excuse named in the certificate | the rest | XL | high: the certificate grows with the specification, and the mesher becomes responsible for explaining each excuse |
 
@@ -359,7 +435,7 @@ al.) cover a convex outer face and plain Delaunay; the validator of Sawai et al.
 polygons after the fact, without a certificate, at about n^1.6. None covers tolerance tubes, snap rounding or excuses. Our
 oracle's certified Delaunay witness is already at the level of that literature.
 
-**Leaning.** Option 1, then measure again on the corpus and, where tiles are available, on Herne. Option 2 only if the oracle
+**Leaning.** Option 1 (the scans first, then the filters, each measured), then measure again on the corpus and, where tiles are available, on Herne. Option 2 only if the oracle
 is still above its target after that; its argument is written down here and its prototype exists. Option 3: no.
 
 ## 3. Side findings
@@ -381,7 +457,7 @@ is still above its target after that; its argument is written down here and its 
   sections 5 and 6, and "Mesh generation for domains with small angles", SoCG 2000; Pav, Walkington, IMR 2005; Rand, CCCG 2011;
   Devillers, Liotta, Preparata, Tamassia, CGTA 11, 1998; Shewchuk, "Lecture notes on Delaunay mesh generation", sections 2.4
   and 2.8; Alkassar, Böhme, Mehlhorn, Rizkallah, arXiv 1301.7462; Dufourd, Bertot, arXiv 1007.3350.
-- **Abstract or parts only:** Sawai et al., arXiv 2401.08242; Rand, arXiv 1101.1071.
+- **Abstract or parts only:** Sawai et al., arXiv 2401.08242.
 - **Not reached** (hosts blocked in the session): McConnell et al. 2011 and Mehlhorn et al. 1999 in full text; the IMR 2003
   version of Miller, Pav, Walkington and Pav's thesis; Rand and Walkington, "Collars and intestines"; Cheng, Dey, Shewchuk,
   section 6.6 (the table of contents only); the CGAL and Gmsh manuals (search snippets only).

@@ -24,7 +24,9 @@ Measured 2026-11-22 in a Linux container, 4 cores, .NET 10.0.15: `hp6` 4.5 minut
 | `Hp6.cs` | the library's mesher and the reference rules on every input; the triangles below the bound by class |
 | `Hp7Checker.cs` | the prototype checker of a certifying design (rings, no snap grid, no excuses) and the derivation of its certificate |
 | `Hp7.cs` | the oracle's time by check against the mesher and the checker; the fault injection of `selfcheck` |
-| `perf/` | the raw output of the three commands |
+| `FloorLemma.cs` | a throwaway interval bisection of the angle floor near a small input angle (the lemma of the note, section 1.6) |
+| `profile_split.py` | splits a dotnet-trace profile of the oracle (speedscope format) into deciding (exact kernel, tube and zone tests) and locating (the rest), per check |
+| `perf/` | the raw output of the commands |
 
 ## Commands
 
@@ -36,15 +38,29 @@ Measured 2026-11-22 in a Linux container, 4 cores, .NET 10.0.15: `hp6` 4.5 minut
   units of the apex's shortest segment.
 - `hp7 [--size small|large] [--filter parcels]`: one row per case (mesher, oracle and checker times, both verdicts), then
   per case the oracle's six largest checks (its own laps, `G3_ORACLE_TIMING`) and the checker's passes.
-- `selfcheck`: the checker accepts the mesher's results and rejects 43 corrupted meshes and certificates, among them a double
+- `selfcheck`: the checker accepts the mesher's results and rejects 47 corrupted meshes and certificates, among them a double
   cover of an annulus. Exit code 1 if a case fails.
+- `floor [--slack 0.05] [--phi-min 0.5] [--phi-max 60] [--depth 60]`: the bisection; it stops at 200 million boxes and then
+  reports the boxes left as undecided. Exit code 1 if any is left.
 - `dump --case <name> --output <file>`: one `hp7` case in the text input format of `Meshing2Benchmark`, to judge it with
   `Meshing2Benchmark mesh --input`.
+
+The profile split (dotnet-trace as a local tool; one trace per case, each with the mesher's runs and two oracle runs):
+
+```
+dotnet-trace collect --format Speedscope -o t.nettrace -- dotnet Meshing2HardProblems.dll hp7 --filter "coast2000 q20 default"
+python3 benchmarks/Meshing2HardProblems/profile_split.py t.speedscope.json
+```
 
 ## Limits of the prototypes
 
 - The reference refiner has no off-centres, no lenses, no grid and no area bound, as the proofs it follows. Its plain mode is
   stopped at 20 000 vertices, the others at 60 000. Its triangle counts are not comparable one to one with the library's.
+- The reference refiner inserts circumcentres in batches (two accepted points are at least the larger circumradius apart),
+  not one at a time as the papers do. Its exemption has no same-shell test (the paper's rule has none either: the shells give
+  it). A collar that shrinks leaves its old chords as constraints.
+- The checker treats sources on the same two input points as one class; sources that overlap only in part are not
+  recognised. It takes the orientation of a ring in doubles.
 - The checker models the core only: a triangulation that covers a domain given by rings, the chains of the sources, the local
   Delaunay test and the list of triangles below the angle. It decides near-ties of its tube and angle tests in doubles and
   counts them; a real checker decides them exactly. With a snap grid its acceptance says nothing about the grid rules.

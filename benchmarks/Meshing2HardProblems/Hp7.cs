@@ -123,6 +123,7 @@ namespace Meshing2HardProblems
                 if (filter != null && !name.Contains(filter)) continue;
                 ConstrainedTriangulation2Result result = null;
                 var times = new List<double>();
+                Mesh(input);   // (untimed: the first run of a case pays for the JIT)
                 for (int r = 0; r < 3; ++r) { var sw = Stopwatch.StartNew(); result = Mesh(input); sw.Stop(); times.Add(sw.Elapsed.TotalMilliseconds); }
                 times.Sort();
                 double mesherMs = times[1];
@@ -201,7 +202,7 @@ namespace Meshing2HardProblems
                     m.Triangles = m.Triangles.Where((x, i) => i != interior).ToArray(); m.BadTriangles = new int[0];
                     var sources = cert.SubsegmentSources.ToList();
                     for (int k = 0; k < 3; ++k) if (!sub.Contains(Key(t[k], t[(k + 1) % 3]))) { m.Subsegments.Add(new SubsegmentOutput(t[k], t[(k + 1) % 3])); sources.Add(new[] { input.Segments.Count }); }
-                    Expect("a missing triangle declared a hole in the certificate" + tag, false, input, m, new Certificate { SubsegmentSources = sources.ToArray() }, !cq);
+                    Expect("a missing triangle declared a hole, its edges named for a ring edge" + tag, false, input, m, new Certificate { SubsegmentSources = sources.ToArray() }, !cq);
                 }
                 {
                     // an edge flip that keeps both triangles positive but breaks the empty circle
@@ -244,6 +245,37 @@ namespace Meshing2HardProblems
                     }
                     o.Triangles = tris.ToArray();
                     return o;
+                }
+                {
+                    // found in review: an edge that is not locally Delaunay, declared a subsegment of no source
+                    var quad = new Mesh2Input { X = new double[] { 0, 4, 4.2, 0 }, Y = new double[] { 0, 0, 1, 1.2 } };
+                    quad.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    var o = new Mesh2Output { Status = Mesh2Status.Success, VX = quad.X, VY = quad.Y, InputToVertex = new[] { 0, 1, 2, 3 }, BadTriangles = new int[0], Triangles = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } },
+                        Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+                    Expect("a quadrilateral with the wrong diagonal", false, quad, o, Hp7Checker.Derive(quad, o, 1e-9), false, "locally Delaunay");
+                    o.Subsegments.Add(new SubsegmentOutput(0, 2));
+                    var c = Hp7Checker.Derive(quad, o, 1e-9);
+                    Expect("the wrong diagonal declared a subsegment of no source", false, quad, o, c, false, "names no source");
+                }
+                {
+                    // found in review: a vertex hanging on the border that two rings share, used on one side only
+                    var two = new Mesh2Input { X = new double[] { 0, 1, 1, 0, 2, 2 }, Y = new double[] { 0, 0, 1, 1, 0, 1 } };
+                    two.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); two.Rings.Add(new RingInput(new[] { 1, 4, 5, 2 }, false));
+                    var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 0, 1, 1, 0, 2, 2, 1 }, VY = new double[] { 0, 0, 1, 1, 0, 1, 0.5 }, InputToVertex = new[] { 0, 1, 2, 3, 4, 5 }, BadTriangles = new int[0],
+                        Triangles = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 }, new[] { 1, 4, 6 }, new[] { 4, 5, 6 }, new[] { 5, 2, 6 } },
+                        Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0), new SubsegmentOutput(1, 4), new SubsegmentOutput(4, 5), new SubsegmentOutput(5, 2),
+                            new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 6), new SubsegmentOutput(6, 1) } };
+                    // sources: ring 0's edges 0..3 (0-1, 1-2, 2-3, 3-0), ring 1's edges 4..7 (1-4, 4-5, 5-2, 2-1)
+                    var c = new Certificate { SubsegmentSources = new[] { new[] { 0 }, new[] { 2 }, new[] { 3 }, new[] { 4 }, new[] { 5 }, new[] { 6 }, new[] { 1 }, new[] { 7 }, new[] { 7 } } };
+                    Expect("a vertex hanging on a border that two rings share", false, two, o, c, false, "same input points");
+                }
+                {
+                    // found in review: an input point that the mesh leaves out
+                    var sq = new Mesh2Input { X = new double[] { 0, 1, 1, 0, 0.3 }, Y = new double[] { 0, 0, 1, 1, 0.4 } };
+                    sq.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    var o = new Mesh2Output { Status = Mesh2Status.Success, VX = sq.X, VY = sq.Y, InputToVertex = new[] { 0, 1, 2, 3, 4 }, BadTriangles = new int[0], Triangles = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } },
+                        Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+                    Expect("an input point left out of the mesh", false, sq, o, Hp7Checker.Derive(sq, o, 1e-9), false, "in no triangle");
                 }
                 var single = Cover(1); var twice = Cover(2);
                 Expect("an annulus, one sheet", true, input, single, Hp7Checker.Derive(input, single, Tube(input)), false);

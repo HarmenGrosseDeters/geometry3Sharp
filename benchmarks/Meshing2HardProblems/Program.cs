@@ -15,6 +15,8 @@ namespace Meshing2HardProblems
         the oracle's time by check, against the mesher and against the prototype checker of a certifying design
   dump --case <name> --output <file> [--size small|large]
         one hp7 case in the text input format of Meshing2Benchmark
+  floor [--slack 0.05] [--k 1] [--phi-min 0.5] [--depth 60]
+        an interval bisection of the angle floor near a small input angle (the lemma of the note, section 1.6)
   selfcheck
         the prototype checker rejects corrupted meshes and certificates
 ";
@@ -27,6 +29,7 @@ namespace Meshing2HardProblems
                 case "hp6": return Hp6.Run(args, Arg);
                 case "hp7": return Hp7.Run(args, Arg);
                 case "selfcheck": return Hp7.SelfCheck();
+                case "floor": return FloorLemma.Run(args, Arg);
                 case "dump": {
                     // one hp7 case in the text input format of Meshing2Benchmark (to judge it with `Meshing2Benchmark mesh --input`)
                     foreach (var (name, input) in Hp7.Cases(Arg(args, "--size") ?? "small"))
