@@ -26,6 +26,8 @@ sealed class BlockCoverage
     readonly Dictionary<long, bool> edgeOk = new Dictionary<long, bool>(), faceOk = new Dictionary<long, bool>();
     readonly Dictionary<int, List<Enc>> cellPieces = new Dictionary<int, List<Enc>>();
     readonly List<int[]> boxes = new List<int[]>();       // lo x, y, z, hi x, y, z (hi exclusive); null if absorbed
+    readonly List<bool> boxZeroFree = new List<bool>();   // per box: no circle on its boundary
+    bool lastZeroFree;
 
     public void Run()
     {
@@ -41,9 +43,11 @@ sealed class BlockCoverage
             int fail = grow(new[] { i, j, k, i + 1, j + 1, k + 1 });
             if (fail != 0) ++FailBy[fail];
         }
-        foreach (int[] b in boxes) {
+        for (int id = 0; id < boxes.Count; ++id) {
+            int[] b = boxes[id];
             if (b == null) continue;
             ++Blocks;
+            if (boxZeroFree[id]) ++ZeroFreeBlocks;
             int side = Math.Max(b[3] - b[0], Math.Max(b[4] - b[1], b[5] - b[2]));
             ++SizeHistogram[Math.Min(side, 7)];
             int cells = (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]);
@@ -80,7 +84,7 @@ sealed class BlockCoverage
             int fail = test(b, sides);
             if (fail == 0) {
                 foreach (int o in absorbed) boxes[o] = null;
-                int id = boxes.Count; boxes.Add((int[])b.Clone());
+                int id = boxes.Count; boxes.Add((int[])b.Clone()); boxZeroFree.Add(lastZeroFree);
                 for (int k = b[2]; k < b[5]; ++k) for (int j = b[1]; j < b[4]; ++j) for (int i = b[0]; i < b[3]; ++i) owner[i + N * (j + N * k)] = id;
                 return 0;
             }
@@ -130,7 +134,7 @@ sealed class BlockCoverage
         }
         int m = circles(b);
         if (m > 1) return 5;
-        if (m == 0) ++ZeroFreeBlocks;
+        lastZeroFree = m == 0;
         return 0;
     }
 
