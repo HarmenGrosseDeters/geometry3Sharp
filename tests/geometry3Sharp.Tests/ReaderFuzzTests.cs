@@ -343,6 +343,10 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Formats))]
         public void MutatedFiles_OkMeansFiniteCoordinates(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, true);
 
+        // .g3mesh: an Ok result has finite coordinates (the reader rejects a stored NaN or infinity)
+        [Fact]
+        public void MutatedFiles_OkMeansFiniteCoordinates_G3Mesh() => AssertMutatedFilesReadSafely("g3mesh", true, true);
+
         // ---- Triangle's .node / .poly / .ele (g3cli TrianglePolyFormat, also used by Meshing2Benchmark): text, read from strings ----
 
         static string ValidTriangleFile(string kind)

@@ -419,6 +419,10 @@ Problems where the library already has a head start and that could be researched
   mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
   does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
   black-box part (needs a reference); stop rules in the note. Recommendation built as A1 and P1:
+  **Bug hunt over chains 2026-11-22** ([research/METAMORPHIC_BUG_HUNT_2026-11.md](../research/METAMORPHIC_BUG_HUNT_2026-11.md), harness
+  `benchmarks/MetamorphicBugHunt`): relations and chains Boolean → repair → remesh / reduce / quad / tet, the wrap, contouring,
+  the offset and the 2D mesher on procedural inputs, every Success checked independently. One defect (#1337: `MeshRobustRepair`
+  changes the solid of a clean one-part mesh); the other stages hold. Totals and what is left in the note.
   **A1 and P1 built 2026-11-16** (#988, merged 2026-11-16, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows; fixed in #1027, closed 2026-11-17) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above; closed 2026-11-17 by #1028 as a documented tolerance limit, not a fix). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
@@ -562,6 +566,9 @@ Ordered by expected value for the library.
      features (0.00, welding restores the clean result), overlapping boxes 0.80-0.82 against 0.94-0.96 with the union's
      creases given; the direct mitered offset is valid on 64 / 65. Leaning: write the
      validity theorem, cheap levers into #1237, no weighted-Delaunay wrap.
+     Option 1 built 2026-11-22 (owner go): [ALPHA_WRAP_FEATURE_VALIDITY.md](../design/ALPHA_WRAP_FEATURE_VALIDITY.md), the theorem
+     with its proof and one test per premise; the pass now refuses an operation next to a degenerate triangle and decides
+     the non-degeneracy of new triangles exactly. The band stays open; option 2 comes with #1237, option 3 is not decided.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
    - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
      B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),

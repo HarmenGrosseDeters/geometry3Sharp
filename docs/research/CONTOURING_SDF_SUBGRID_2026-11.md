@@ -1,5 +1,7 @@
 # Contouring spike: sharp features from distance grids, walls thinner than a cell, and a subdivision certificate
 
+Status 2026-11-22: option 1 of section 8 is built (`TwoLevelMarchingTetrahedra`, `TpmsLattice.TwoLevelSheet`; with exact polygon clipping at the rim instead of the prototype's fans, see [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) section 10); option 2 is next.
+
 Date: 2026-11-22 (Berlin). Research spike (owner go 2026-11-22): a note and a measurement prototype
 ([benchmarks/ContouringSubgridProbe](../../benchmarks/ContouringSubgridProbe/README.md)). No library code changed.
 Covers plan #1297 (two SIGGRAPH 2026 papers), plan #1289 (contouring certificate, thin features and options B / C),
