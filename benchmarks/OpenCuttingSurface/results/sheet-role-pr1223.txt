@@ -1,4 +1,3 @@
-    0 Error(s)
 sheet role available (ExactMeshBoolean.Roles): True
 
 ### What the existing parts give (volume of the result; the cube has 64)
@@ -45,7 +44,7 @@ sheet role available (ExactMeshBoolean.Roles): True
 | plane z=2, normals down | 32 | refused | Success 32 ok | Success 32 ok | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | 32 + 32 |
 | tilted plane z = 1 + x/2, up | 32 | refused | Success 32 ok | Success 32 ok | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | 32 + 32 |
 | bowl (12x12 grid), up | 37.25 | refused | Success 37.25 ok | Success 37.25 ok | 64 | 37.263 | Success 37.25 ok | 37.25 + 26.75 |
-| bucket (opening above), outward | 52 | refused | Success 52 ok | Success 52 ok | 52 (0 % wrong) | 52 (0 % wrong) | refused: not a height field along the sweep | 52 + 12 |
+| bucket (opening above), outward | 52 | refused | Success 52 ok | Success 52 ok | 52 (0 % wrong) | 52 (0 % wrong) | refused: a triangle does not face the sweep | 52 + 12 |
 | rim on the surface: z=2 on [0,4]^2, up | 32 | refused | Success 32 ok | Success 32 ok | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | 32 + 32 |
 | half sheet: z=2, x in [-1,2], up | - | refused | SheetRefused RimInsideWorkpiece | SheetRefused RimInsideWorkpiece | 64 | 32 | Success 48 | refused |
 | sheet with a hole [1,3]^2, up | - | refused | SheetRefused RimInsideWorkpiece | SheetRefused RimInsideWorkpiece | 64 | 32 | Success 40 | refused |
@@ -59,6 +58,6 @@ sheet role available (ExactMeshBoolean.Roles): True
 
 | sphere triangles | sheet triangles | swept tool triangles | today: open boolean | D swept tool | B sheet role | imprint only |
 |---|---|---|---|---|---|---|
-| 11532 | 2048 | 4352 | 159 (4.101 open) | 42 (2.092) | 52 (2.092) | 22 |
-| 47628 | 8192 | 16896 | 473 (4.102 open) | 96 (2.094) | 181 (2.094) | 86 |
-| 193548 | 32768 | 66560 | 1795 (4.102 open) | 379 (2.094) | 795 (2.094) | 279 |
+| 11532 | 2048 | 4352 | 121 (4.101 open) | 45 (2.092) | 55 (2.092) | 27 |
+| 47628 | 8192 | 16896 | 592 (4.102 open) | 119 (2.094) | 201 (2.094) | 103 |
+| 193548 | 32768 | 66560 | 2077 (4.102 open) | 450 (2.094) | 880 (2.094) | 302 |

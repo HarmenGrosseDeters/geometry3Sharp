@@ -44,7 +44,7 @@ sheet role available (ExactMeshBoolean.Roles): False
 | plane z=2, normals down | 32 | refused | n/a | n/a | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | n/a |
 | tilted plane z = 1 + x/2, up | 32 | refused | n/a | n/a | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | n/a |
 | bowl (12x12 grid), up | 37.25 | refused | n/a | n/a | 64 | 37.263 | Success 37.25 ok | n/a |
-| bucket (opening above), outward | 52 | refused | n/a | n/a | 52 (0 % wrong) | 52 (0 % wrong) | refused: not a height field along the sweep | n/a |
+| bucket (opening above), outward | 52 | refused | n/a | n/a | 52 (0 % wrong) | 52 (0 % wrong) | refused: a triangle does not face the sweep | n/a |
 | rim on the surface: z=2 on [0,4]^2, up | 32 | refused | n/a | n/a | 64 (50 % wrong) | 32 (0 % wrong) | Success 32 ok | n/a |
 | half sheet: z=2, x in [-1,2], up | - | refused | n/a | n/a | 64 | 32 | Success 48 | n/a |
 | sheet with a hole [1,3]^2, up | - | refused | n/a | n/a | 64 | 32 | Success 40 | n/a |
@@ -58,6 +58,6 @@ sheet role available (ExactMeshBoolean.Roles): False
 
 | sphere triangles | sheet triangles | swept tool triangles | today: open boolean | D swept tool | B sheet role | imprint only |
 |---|---|---|---|---|---|---|
-| 11532 | 2048 | 4352 | 174 (4.101 open) | 43 (2.092) | n/a | 24 |
-| 47628 | 8192 | 16896 | 511 (4.102 open) | 111 (2.094) | n/a | 95 |
-| 193548 | 32768 | 66560 | 1811 (4.102 open) | 439 (2.094) | n/a | 359 |
+| 11532 | 2048 | 4352 | 143 (4.101 open) | 36 (2.092) | n/a | 25 |
+| 47628 | 8192 | 16896 | 517 (4.102 open) | 123 (2.094) | n/a | 102 |
+| 193548 | 32768 | 66560 | 2057 (4.102 open) | 438 (2.094) | n/a | 364 |

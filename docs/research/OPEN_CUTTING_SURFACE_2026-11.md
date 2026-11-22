@@ -17,14 +17,17 @@ recommendation. No library code is changed; the semantics, any new option and an
   separate split or trim operation, in which either all pieces are returned or the side comes from the sheet's orientation
   under a full-crossing precondition.
 - **Recommended cut semantics: B, the oriented sheet with exact cell labelling**, which is what PR #1223 builds: right on all
-  8 cases with a defined intent, a named refusal on the 3 cases where the sheet ends inside the solid, no new predicate. Two
-  points of its contract are open for the owner (section 7): a sheet that only touches the workpiece removes all of it with
-  `Success`, and the side convention differs from the wording of #1211.
+  8 cases with a defined intent (volume and side), a named refusal on the 3 cases where the sheet ends inside the solid, no
+  new predicate. As the PR is, it covers single-shell workpieces (a cut through a hollow body is refused). Two points of its
+  contract are open for the owner (section 7): a sheet that only touches the workpiece removes all of it with `Success`,
+  and the side convention differs from the wording of #1211.
 - **D, the sheet swept to a closed tool, is a cheap complement** for the cases B refuses (a sheet ending inside: a step, a
-  slot, a blind pocket). It needs no exact code (a tool construction plus the closed boolean) and was half the time of B. It
+  slot, a blind pocket). It needs no exact code (`MeshExtrudeMesh` builds the tool, then the closed boolean) and took 0.5 to
+  0.8 of B's time. It
   is a different operation (an extruded cut along a direction), so it should be explicit, not a fallback.
 - **C, the generalized winding number, is not a cut semantics**: the threshold 1/2 is today's behaviour (wrong on 6 of 8);
-  the sign rule ignores where the sheet ends and has no mesh outside the planar case.
+  the sign rule ignores where the sheet ends, and it has no mesh where the rim or the level set `w = 0` lies inside the
+  workpiece (where neither does, it is B's result).
 - **The silent success is a separate decision** (section 8). The pipeline's default (`Refuse`) is no longer silent. Silent
   today: `ExactMeshBoolean` with its default `AllowOpenMeshes = true` (13 of 13 `Success`, 6 of 8 wrong, an open result on a
   curved case) and the pipeline's `AutoRepair` modes (13 of 13 `Success` and `Clean`, 6 of 8 wrong). Leaning: a report field
@@ -56,7 +59,8 @@ Command: `dotnet run -c Release --project benchmarks/OpenCuttingSurface -- today
   is above 1/2 in the pocket, and the sheet facing away on the top face) and wrong with `Success` on 6. The bowl under
   `AutoRepair` gives 57.573: neither the workpiece nor the cut.
 - A repair of the sheet cannot be the cut: `MeshRobustRepair` turns a sheet into a slab or a blob (alpha wrap or solidify,
-  volumes 0.2 to 13.7; only the bucket is closed to the box it stands for), and the Difference then removes a part of it (`Success`, 57.4 to 64). This is the family of cases
+  volumes 0.2 to 13.7; only the bucket is closed to the box it stands for), and the Difference then removes a part of it (`Success`, 57.4 to 63.9 for the 11 sheets that reach the cube; the outside
+  sheet 64). This is the family of cases
   that the wrap cannot rescue.
 - The imprint already has the cut lines: 2 regions of the workpiece's surface in every case that crosses fully, 1 region
   (a slit) for the half sheet, no curve for the disc. It has no cap, so it gives the trimmed shell, not the solid.
@@ -104,13 +108,16 @@ unchanged is the regularized no-op, which no system offers as the answer to a cu
 | `ExactMeshBoolean.radial_order` | the exact order of the pieces around an edge | master (#1218) |
 | `ExactMeshCells` + `Roles` / `SheetUncutSide` / `SheetRefusal` | the cells of the workpiece split by the sheet, labelled by the sheet's sides; candidate B complete | PR #1223, open |
 | `ExactMeshImprint` | the intersection curves on the workpiece (`CurveEdges`), no caps | master |
-| `MeshMeshCut` | floating-point cut of two meshes along their intersection | master, not exact |
+| `MeshMeshCut` | floating-point cut of two meshes along their intersection | master, not exact, obsolete |
 | `MeshPlaneCut` + `FillHoles` | the half-space cut of a plane, floating point | master |
+| `MeshExtrudeMesh` | an open surface and its offset copy stitched along the boundary loops: the swept tool of D | master, floating point construction |
 | `MeshAutoRepair`, `MeshRobustRepair` (solidify, alpha wrap) | a closed solid from the sheet: a slab or a blob, never the tool the sheet stands for | master |
 | `SolidBooleanPipeline.InputRepair` | `Refuse` (default since #1212), `AutoRepair`, `AutoRepairThenRobust` | master |
 
-Nothing in the library sweeps or extrudes an open mesh to a closed tool with the closedness checked; the prototype of D
-builds it in about 30 lines.
+`MeshExtrudeMesh` (with `ExtrudedPositionF` as a translation and `IsPositiveOffset = false`) turns an open surface into the
+closed shell of candidate D: the review of this study ran it on the plane and on the sheet with a hole and got the
+prototype's results (32 and 40). Missing for D are the test that the sweep is valid, the choice of direction and length,
+and a refusal status. `MeshExtrudeFaces` and `MeshExtrudeLoop` extrude a face set or one loop in place and do not apply.
 
 ## 5. The candidate semantics
 
@@ -122,7 +129,8 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
 - **Defined when:** never. **Decided:** the closedness in the winding number sense (every edge used equally often in both
   directions), exact, already computed (`ExactWinding`).
 - **Status:** `OpenInput`, with the input named (the audit's improvement 1).
-- **Cost:** none. It is the pipeline's default today and the answer of CGAL, OpenCASCADE, Manifold and NX to the Boolean.
+- **Cost:** none. It is the pipeline's default today and the answer of CGAL and OpenCASCADE to the Boolean (also of
+  Manifold and NX by the evidence of section 3, which is not the primary text).
 
 ### B. Oriented sheet, exact cell labelling (PR #1223)
 
@@ -137,7 +145,8 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
 - **Status when it does not apply:** `SheetRefused` with a `SheetRefusal` and a witness: `RimInsideWorkpiece` (the half
   sheet, the hole, the disc), `SidesInconsistent` (a ring, a spiral), `UncutComponents` (no contact), `NotSurface`,
   `OrientationInconsistent`, and the role refusals (Union, Intersection, first operand).
-- **Cost:** measured 1.2 to 2.1 times the closed Difference with the swept tool of D on the same inputs (section 6).
+- **Cost:** measured 1.2 to 2.0 times the closed Difference with the swept tool of D on the same inputs, rising with the
+  size (section 6).
 - **Limits of the PR as it is:** conservative refusals for hollow workpieces (nested shells) and floating parts; see also
   section 7.
 
@@ -152,7 +161,7 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
   not used). For a curved sheet the value is a sum of solid angles with an error bound, not exact, and its level set needs a
   contouring.
 - **Status when it does not apply:** none by itself: it never fails. That is the silent case of today.
-- **Cost:** one winding query per output piece (the open path of today: 2 to 5 times the cut on the sphere case).
+- **Cost:** one winding query per output piece (the open path of today: about 2 to 5 times the cut on the sphere case).
 - **Measured:** `tau = 1/2` is wrong on 6 of 8. The sign rule matches the intent on the 8 (0 % of the samples wrong on the 7
   with a closed-form point set; the bowl 37.26 against 37.25, within the sampling error), and gives the full plane cut where
   the sheet ends inside: 32 for the half sheet, the sheet with a hole and the disc, and 0 for the patch on the face.
@@ -163,16 +172,20 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
   translated copy reversed, and walls on the free edges. Then the ordinary closed Difference. With S crossing fully and
   its walls outside W this is B's result; with S ending inside W it removes everything under the sheet along d (the
   "extruded cut" of CAD systems).
-- **Defined when:** every triangle of S faces away from d (S is a height field along d), so the swept tool is embedded.
-  Not for a bucket or any sheet that folds back along d. The default direction (against the area-weighted mean normal) is a
+- **Defined when:** S is a height field along d: no line along d meets S twice. Then the swept tool is embedded. That
+  every triangle faces away from d is necessary and not sufficient: two parts of S stacked along d pass it (the review ran
+  the planes z = 1 and z = 3 in one mesh: accepted, `Success`, 16), and the closed boolean then takes the union of the swept
+  prisms, which is a defined result but not the one of an embedded tool. Not for a bucket or any sheet that folds back
+  along d. The default direction (against the area-weighted mean normal) is a
   heuristic; a stated direction is a contract.
 - **Decided exactly:** the facing test is the sign of a 3 x 3 determinant per triangle (`orient3d` with a point at
   `a + d`, or an expansion); everything after it is the closed exact boolean on a concrete mesh. The swept vertices are
   rounded doubles, so the walls are parallel to d only up to rounding; the result is the exact Difference with the tool as
   built.
-- **Status when it does not apply:** a refusal naming a triangle that faces the sweep.
+- **Status when it does not apply:** a refusal naming a triangle that faces the sweep; for stacked parts, a refusal by the
+  self-intersections of the tool (`SelfIntersectingPairs` of the boolean, or a check of the tool before it).
 - **Cost:** the closed boolean on a tool with about twice the sheet's triangles; measured 0.5 to 0.8 of B's time.
-- **Measured:** right on 7 of 8, the bucket refused (not a height field). The step (48), the pillar under the hole (40), the
+- **Measured:** right on 7 of 8, the bucket refused (triangles facing the sweep). The step (48), the pillar under the hole (40), the
   blind pocket under the disc (56) and a through hole under the patch on the face (48): defined results that B refuses, and
   that a user may or may not mean.
 
@@ -189,7 +202,10 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
 ## 6. Measurements of the candidates
 
 `dotnet run -c Release --project benchmarks/OpenCuttingSurface -- semantics` on the head of #1223
-(`results/sheet-role-pr1223.txt`; on master the columns B and E print `n/a`). Volumes; `ok` / `WRONG` against the intent.
+(`results/sheet-role-pr1223.txt`; on master the columns B and E print `n/a`). Volumes; `ok` / `WRONG` against the intent:
+the volume and, where the intent is a point set in closed form (all but the bowl), the side at 216 points, because a
+halving plane has the same volume on both sides. The intents 0 and 64 of the two sheets on the top face follow from B's own
+rule (a coplanar sheet is not defined by any system of section 3).
 
 | case | intent | A | B sheet role | C, w > 1/2 (sampled) | C, w > 0 (sampled) | D swept tool | E split (front + back) |
 |---|---|---|---|---|---|---|---|
@@ -197,7 +213,7 @@ W is the workpiece (closed), S the sheet (open, oriented). All candidates leave 
 | plane z = 2, down | 32 | refused | 32 ok | 64 WRONG | 32 | 32 ok | 32 + 32 |
 | tilted plane | 32 | refused | 32 ok | 64 WRONG | 32 | 32 ok | 32 + 32 |
 | bowl | 37.25 | refused | 37.25 ok | 64 WRONG | 37.263 | 37.25 ok | 37.25 + 26.75 |
-| bucket | 52 | refused | 52 ok | 52 | 52 | refused (not a height field) | 52 + 12 |
+| bucket | 52 | refused | 52 ok | 52 | 52 | refused (a triangle faces the sweep) | 52 + 12 |
 | rim on the surface | 32 | refused | 32 ok | 64 WRONG | 32 | 32 ok | 32 + 32 |
 | half sheet | - | refused | `RimInsideWorkpiece` | 64 | 32 | 48 | refused |
 | sheet with a hole | - | refused | `RimInsideWorkpiece` | 64 | 32 | 40 | refused |
@@ -212,22 +228,23 @@ cores, one shared container: read the ratios). The result volume is in brackets;
 
 | sphere triangles | sheet triangles | today: open boolean | D swept tool | B sheet role | imprint only |
 |---|---|---|---|---|---|
-| 11 532 | 2 048 | 159 (4.101, open) | 42 (2.092) | 52 (2.092) | 22 |
-| 47 628 | 8 192 | 473 (4.102, open) | 96 (2.094) | 181 (2.094) | 86 |
-| 193 548 | 32 768 | 1795 (4.102, open) | 379 (2.094) | 795 (2.094) | 279 |
+| 11 532 | 2 048 | 121 (4.101, open) | 45 (2.092) | 55 (2.092) | 27 |
+| 47 628 | 8 192 | 592 (4.102, open) | 119 (2.094) | 201 (2.094) | 103 |
+| 193 548 | 32 768 | 2077 (4.102, open) | 450 (2.094) | 880 (2.094) | 302 |
 
-B and D agree on the volume. B costs 1.2 to 2.1 times D, which builds twice the tool triangles: the labelling of #1223 has
-room (a note for that PR, not measured further here). Today's open path costs 2.3 to 4.9 times either and returns a wrong,
-open result.
+B and D agree on the volume. B costs 1.2, 1.7 and 2.0 times D (rising with the size; one job, three sizes), although D
+has twice the tool triangles: the labelling of #1223 has room (a note for that PR, not measured further here). Today's
+open path costs about 2 to 5 times either and returns a wrong, open result. The cases are one convex cube and one sphere:
+no hollow or non-convex workpiece, no case with more than two cells.
 
 ## 7. Comparison and recommendation
 
 | semantics | definition | defined when | exact | cost | existing parts |
 |---|---|---|---|---|---|
 | A refuse | no cut | never | yes (closedness) | none | master (pipeline default) |
-| B oriented sheet | cells of W behind S are removed | S crosses fully (rim outside W or on its surface), sides consistent | yes, no new predicate | about 2 x the closed boolean | PR #1223, complete with tests |
+| B oriented sheet | cells of W behind S are removed | S crosses fully (rim outside W or on its surface), sides consistent; in #1223 as it is, a single-shell workpiece | yes, no new predicate | 1.2 to 2.0 x D, rising with size | PR #1223, complete with tests |
 | C winding number | removed where `w_S > tau` | point set: always; mesh: only where the level set is the sheet | planar: yes (it is the plane cut); curved: no | a winding query per piece (today's slow open path) | master for `tau = 1/2`; nothing for a level-set mesh |
-| D swept tool | S swept along d to a closed tool, closed Difference | S is a height field along d | yes after the construction (rounded sweep vertices) | 1 x the closed boolean | closed boolean; the sweep is new (small, not exact code) |
+| D swept tool | S swept along d to a closed tool, closed Difference | S is a height field along d | yes after the construction (rounded sweep vertices) | 1 x the closed boolean | `MeshExtrudeMesh` and the closed boolean; the validity check of the sweep is new (small, not exact code) |
 | E split | all cells, no side | as B without orientation | yes | 2 x B today | B twice; a per-cell output is new |
 
 How others solve it: section 3 (refusal for the Boolean, a split without a side, or the half-space by orientation under a
@@ -244,12 +261,13 @@ full crossing; plane-only trims are universal).
      same rule that makes the full top face right (0). But the patch separates nothing, so a small sheet lying on a face
      silently empties the workpiece. Options: keep; or treat a sheet with no piece in the interior of W as cutting nothing
      (`UncutComponents`, so the side must be stated). Leaning: the second, because a refusal there costs one option and
-     the other direction is a silent total loss.
+     the other direction is a silent total loss. Its price: the two full sheets on the top face have no piece inside W
+     either, so they become refusals too, and B is then right on 6 of the 8 and refuses 2.
    - **The side convention.** #1211 words the intent as "the half on the sheet's back side stays"; #1223 keeps the front
      (the tool is behind the sheet, as for a closed tool's outward surface, and as Manifold's `TrimByPlane`; CGAL's
      `clip(plane)` keeps the other side). Leaning: the PR's, since it is the limit of a closed tool, stated in the guide.
-3. D is worth offering only as an explicit operation with a stated direction (a helper that builds the swept tool and
-   checks the facing, outside the exact code), for sheets that end inside the solid. It is not a fallback of B: the hole
+3. D is worth offering only as an explicit operation with a stated direction (a helper around `MeshExtrudeMesh` that
+   checks the sweep, outside the exact code), for sheets that end inside the solid. It is not a fallback of B: the hole
    case gives a pillar and the patch a through hole. Cost: small. "Not now" is a valid answer; the recipe can also be a
    documented example.
 4. C is not pursued. A planar sheet under the sign rule is the plane cut, which `MeshPlaneCut` has (floating point); an
@@ -268,9 +286,11 @@ Measured today (section 2 and `today`, last column):
   with an intent, with `RepairedInputs` as the only trace. Documented on the enum since #1212.
 - `ExactMeshBoolean`, default `AllowOpenMeshes = true`: `Success` in 13 of 13, wrong in 6 of 8; on the sphere case a
   result that is not closed, still `Success`.
-- A signal from what the boolean already reports: the tool is open, its triangles meet the workpiece's
-  (`IntersectingPairs > 0`) and the result has the workpiece's volume. It flags 11 of the 13 (every sheet that crosses or
-  touches, including the one on the top face that faces away, where "no effect" is the right answer); not the bucket (it
+- A proxy of a signal, from what the boolean already reports: the tool is open, its triangles meet the workpiece's
+  (`IntersectingPairs > 0`) and the result has the workpiece's volume (compared exactly, which holds for these dyadic
+  cases only; S1 below would count the tool's pieces in the result instead). It flags 10 of the 13 (every sheet that
+  crosses or touches: the 6 wrong ones, 3 without an intent, and the one on the top face that faces away, where "no
+  effect" is the right answer); not the bucket (it
   cuts), the disc and the outside sheet (no contact). It does not see the cases where the open tool changes the result
   wrongly (the sphere: open result; the bowl under `AutoRepair`: 57.573). For those the facts are "an open operand" and
   "the result is not closed", which the boolean has.
@@ -280,7 +300,7 @@ Options:
 | | change | catches | cost and risk |
 |---|---|---|---|
 | S0 | none (documented) | nothing | none |
-| S1 | report only: `ExactMeshBoolean` counts the open operands of which no piece is in the result although they meet the first mesh, and says whether the result is closed; the pipeline's report carries it; the `OpenInput` error names the input and the ways out (`InputRoles`, `InputRepair`) | the 11 flagged cases as a fact the caller can test; no status changes | small, API additions only (pack validates) |
+| S1 | report only: `ExactMeshBoolean` counts the open operands of which no piece is in the result although they meet the first mesh, and says whether the result is closed; the pipeline's report carries it; the `OpenInput` error names the input and the ways out (`InputRoles`, `InputRepair`) | the 10 flagged cases as a fact the caller can test; no status changes | small, API additions only (pack validates) |
 | S2 | the pipeline's repair modes refuse an open tool of a Difference whose repair is implausible (the audit's area ratio of at least 1.44 after the repair) | the sheet under `AutoRepair`, by a heuristic threshold | a threshold on a small sample; false refusals for solids with large missing faces |
 | S3 | `ExactMeshBoolean.AllowOpenMeshes` defaults to `false` | every case: an open operand needs an explicit opt-in (the winding number rule) or a role (the sheet) | a changed default of a public class: the five audit cases where the open boolean is right without a repair then need the opt-in |
 

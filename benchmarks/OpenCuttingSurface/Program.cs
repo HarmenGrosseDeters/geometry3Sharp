@@ -173,7 +173,18 @@ static class Program
             return o.Status;
         double v = Volume(o.Result);
         int open = OpenEdges(o.Result);
-        string verdict = double.IsNaN(c.Intent) ? "" : Math.Abs(v - c.Intent) < 1e-9 * 64 ? " ok" : " WRONG";
+        // the volume, and where the intent is a point set also the side: the result's winding number at 6^3 points
+        bool right = Math.Abs(v - c.Intent) < 1e-9 * 64;
+        if (right && c.Removed != null && open == 0) {
+            for (int i = 0; i < 6 && right; ++i)
+                for (int j = 0; j < 6 && right; ++j)
+                    for (int k = 0; k < 6 && right; ++k) {
+                        var p = new Vector3d(4 * (i + 0.37) / 6, 4 * (j + 0.41) / 6, 4 * (k + 0.43) / 6);     // on no face of a case
+                        bool inside = o.Result.TriangleCount > 0 && Math.Abs(o.Result.WindingNumber(p)) > 0.5;
+                        right = inside == !c.Removed(p);
+                    }
+        }
+        string verdict = double.IsNaN(c.Intent) ? "" : right ? " ok" : " WRONG";
         return o.Status + " " + F(v) + (open > 0 ? " open(" + open + ")" : "") + verdict;
     }
 
@@ -196,8 +207,8 @@ static class Program
         return new Outcome { Status = op.Status.ToString() + (op.ConflictEdges > 0 ? " conflict(" + op.ConflictEdges + ")" : ""), Result = op.Result };
     }
 
-    // the signal for the silent case, from what the boolean reports today: an open tool whose triangles meet the workpiece's
-    // (IntersectingPairs) and a result with the workpiece's volume
+    // a proxy of the signal for the silent case, from what the boolean reports today: an open tool whose triangles meet the
+    // workpiece's (IntersectingPairs) and a result with the workpiece's volume (exact equality: fine for these dyadic cases only)
     static string NoEffectSignal(DMesh3 w, DMesh3 s)
     {
         var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
@@ -340,7 +351,9 @@ static class Program
     }
 
     // D: the sheet swept against its normals to a closed tool that ends beyond the workpiece's box, or null with a reason
-    // where the sweep is not embedded (a triangle whose normal does not face the sweep's source side)
+    // where a triangle does not face the sweep. That test is necessary, not sufficient, for an embedded tool: two parts of
+    // the sheet stacked along the direction pass it, and the closed boolean then takes the union of their prisms.
+    // (MeshExtrudeMesh with ExtrudedPositionF as a translation builds the same shell; this one keeps the prototype self-contained.)
     static DMesh3 SweptTool(DMesh3 w, DMesh3 s, out string reason)
     {
         Vector3d sum = Vector3d.Zero;
@@ -349,7 +362,7 @@ static class Program
         if (sum.Length == 0) { reason = "no direction (the area normals cancel)"; return null; }
         Vector3d d = -sum.Normalized;
         foreach (int t in s.TriangleIndices())
-            if (s.GetTriNormal(t).Dot(d) >= 0) { reason = "not a height field along the sweep"; return null; }
+            if (s.GetTriNormal(t).Dot(d) >= 0) { reason = "a triangle does not face the sweep"; return null; }
         AxisAlignedBox3d box = w.GetBounds();
         box.Contain(s.GetBounds());
         double length = Math.Pow(2, Math.Ceiling(Math.Log(2 * box.DiagonalLength, 2)));

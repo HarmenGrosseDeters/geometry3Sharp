@@ -16,10 +16,12 @@ dotnet run -c Release --project benchmarks/OpenCuttingSurface -- all
 - Candidate C is not built as a mesh: the point set `{ p in W : w_S(p) <= tau }` is sampled at the cell centres of an `n^3` grid
   (the direct sum of the solid angles), for `tau = 1/2` (today's rule) and `tau = 0` (the sign rule).
 - Candidate D builds the swept tool here (the sheet, its copy moved against the area-weighted mean normal beyond the common box,
-  walls on the free edges) and runs the closed `ExactMeshBoolean`; it refuses a sheet with a triangle that does not face the
-  sweep. The direction and that test are in doubles (a prototype).
+  walls on the free edges; `MeshExtrudeMesh` builds the same shell) and runs the closed `ExactMeshBoolean`; it refuses a sheet
+  with a triangle that does not face the sweep, which is necessary and not sufficient for an embedded tool (parts stacked along
+  the direction pass). The direction and that test are in doubles (a prototype).
 - `intent` is the volume of the cut by the sheet's sides, with the convention of #1223: the tool is behind the sheet (the side
-  its normals point away from). `-` where the sheet does not define one. `ok` / `WRONG` compare a result's volume with it;
+  its normals point away from). `-` where the sheet does not define one. `ok` / `WRONG` compare a result's volume with it and, where the
+  intent is a point set in closed form, the side at 216 points;
   `open(n)` counts the boundary edges of a result after a weld by position.
 
 Raw output of `all` (2026-11-22, a cloud container, 4 cores, .NET 10.0.115; single container, read the ratios of the cost table,
