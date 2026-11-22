@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/MeshRoundingRepair.cs{73728..90207}"
     ],
-    "test-case-filter": "(FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch)|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~RoundingSerialWorkTests.IntersectionsAcrossBlocks|FullyQualifiedName~RoundingSerialWorkTests.PiercingTriangleAtABlockBorder|FullyQualifiedName~RoundingSerialWorkTests.Field_Clean",
+    "test-case-filter": "(FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch)|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~RoundingSerialWorkTests.IntersectionsAcrossBlocks|FullyQualifiedName~RoundingSerialWorkTests.PiercingTriangleAtABlockBorder|FullyQualifiedName~RoundingSerialWorkTests.Field_Clean|FullyQualifiedName~RoundingSeparatingAxesTests|FullyQualifiedName~RoundingDirtyTreeTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

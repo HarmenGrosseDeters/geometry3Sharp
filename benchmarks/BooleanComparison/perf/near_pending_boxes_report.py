@@ -1,6 +1,7 @@
 # Before / after table of the kept boxes of `near`'s pending list (MeshRoundingRepair, 2026-11-22; README, "The pending
 # list of the rounding's box query").
-#   near_pending_boxes_report.py <base.jsonl> <kept.jsonl>
+#   near_pending_boxes_report.py <base.jsonl> <kept.jsonl> [<label of the second column>]
+# (also the table of the separating axes of the full pair search: perf/first_search_axes_2026-11-22, label "with the axes")
 # Each file: the lines of `BooleanComparison profile --repeat 3 --median --safe-rounding <case>...` (one per operation;
 # "ms" holds the three times, "phases_ms" the phases of the median run). Prints per operation the median boolean and
 # its rounding phase, and whether the hashes of all runs are equal on both sides.
@@ -18,7 +19,8 @@ def median(v):
     return sorted(v)[len(v) // 2]
 
 base, kept = load(sys.argv[1]), load(sys.argv[2])
-print("| operation | boolean (median of 3) | with the kept boxes | rounding | with the kept boxes | hashes |")
+label = sys.argv[3] if len(sys.argv) > 3 else "with the kept boxes"
+print("| operation | boolean (median of 3) | %s | rounding | %s | hashes |" % (label, label))
 print("|---|---:|---:|---:|---:|---|")
 tb = tk = rb = rk = same = 0
 for k, b in base.items():

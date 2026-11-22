@@ -1260,6 +1260,36 @@ operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending
   between −13 and +4 %). The two operations above that, 119829 intersection (+19 %) and sphere_60 intersection
   (+15 %), take 0.1-0.3 s, 0.04 s of it rounding.
 
+## Separating axes in the rounding's full pair search (2026-11-22)
+
+`MeshRoundingRepair.intersecting_pairs_all` tests every box neighbour of a rounded triangle with the pair test. On
+results with long thin triangles on tilted faces a query has hundreds of box neighbours and none intersects. Now the
+four axes of every triangle (normal and in-plane edge normals) and its interval on each are computed once per search
+(`intersection/TriangleSeparatingAxes.cs`, 160 bytes per triangle for the time of the search), and a pair that is
+strictly apart along one of the eight axes of its two triangles skips the pair test. The margin of the comparison is
+derived in the class comment; the pairs found, and so the result, are the same. Lever 1 of the rounding cost study
+(`docs/research/ROUNDING_COST_2026-11.md` section 5, owner go 2026-11-22).
+
+Before (the branch of the kept pending boxes above, `19834efa`) and after, `profile --repeat 3 --median
+--safe-rounding`, one process per case and side in turn, `DOTNET_TieredPGO=0`, 4 cores
+(`perf/near_pending_boxes_report.py <base> <axes> "with the axes"`, rows in `perf/first_search_axes_2026-11-22/`):
+
+| group | operations | booleans (medians summed) | with the axes | rounding | with the axes |
+|---|---:|---:|---:|---:|---:|
+| procedural, thin triangles (gear_500, cyl_8000, fins_400, plate_24) | 12 | 121.9 s | 111.5 s (−8.5 %) | 48.7 s | 38.0 s (−21.9 %) |
+| procedural control (sphere_60) | 3 | 0.6 s | 0.6 s | 0.2 s | 0.2 s |
+| Thingi10K rotated, clean results (519511, 1517923, 1063860, 668056, 119829) | 15 | 50.2 s | 48.9 s (−2.7 %) | 15.7 s | 14.1 s (−10.1 %) |
+| Thingi10K rotated, results with defects (67709, 42327, 1368057, 102375, 498458, 486343) | 18 | 187.1 s | 187.3 s (+0.1 %) | 46.0 s | 44.3 s (−3.5 %) |
+| all | 48 | 359.8 s | 348.3 s (−3.2 %) | 110.5 s | 96.6 s (−12.5 %) |
+
+- gear_500 7.86 / 9.09 / 7.23 to 5.89 / 6.43 / 6.09 s, fins_400 union 15.56 to 13.11 s, cyl_8000 union 17.12 to 15.40 s,
+  519511 union 12.58 to 10.97 s (rounding 5.23 to 3.78 s).
+- The hashes of all three runs are equal on both sides for all 48 operations.
+- This run was noisier than the one above: single operations without box-neighbour work move by up to ±13 % in both
+  directions. The two largest apparent losses, 119829 union (+10 %) and 498458 union (+13 %), measured again twice
+  (median of 3 each): 2.75 / 2.62 s before against 2.95 / 2.46 s after, and 12.24 / 11.33 s against 12.06 / 11.36 s.
+  The cost of the axes themselves is 2-115 ms per search (the study's `cull` measurement).
+
 ## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
 
 Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)

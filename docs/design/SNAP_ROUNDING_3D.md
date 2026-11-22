@@ -254,6 +254,13 @@ stays within the noise). The remaining cost of the search is the enumeration of 
 hits, which no pair-level certificate touches. Not recommended as a work item; the lemma stays as a checked building
 block.
 
+Built 2026-11-22 (owner go; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) option 1) in the form that
+pays: `intersection/TriangleSeparatingAxes.cs`, the axes computed once per triangle and used in the full pair searches
+only. The margin is the lemma's 8u of the magnitude plus an absolute 2^-1072 for products that are subnormal (instead
+of scaling the axes or refusing small products: a triangle in a plane through the origin projects to exactly zero on
+its normal and must stay usable); the bound is derived operation by operation in the class comment. The absolute term
+is not part of the Z3 obligations. Measured: −3.2 % of 48 operations, hashes equal (BooleanComparison README).
+
 ### 5.4 Sub-linear rounding
 
 The question of problem 3 was whether rounding can be sub-linear in the result size for local edits. Answer from the

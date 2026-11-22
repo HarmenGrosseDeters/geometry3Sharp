@@ -92,6 +92,7 @@ on:
       - 'tests/geometry3Sharp.Tests/SafeRoundingBudgetTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingSeparatingAxesTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingSerialWorkTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepairTestsPositionSearch.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanPropertyFindings.cs'
