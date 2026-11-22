@@ -1313,6 +1313,6 @@ times.
 A proof step of its own, in [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) (written and
 independently reviewed 2026-11-22; nothing built). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
 Theorem 6, certified by one signed partial derivative and at most one circle of L on the block; tangencies with the
-grid, which Theorem 5 refuses at every resolution, move inside a block, and creases stay covered. No theorem of this
-note needs cubes. **Lemma 7.1**: Theorem 7 holds without (P3) if the negative products of its gradient test are
+grid, which Theorem 5 refuses at every resolution, move inside a block, and creases stay covered. Theorems 1, 2, 4, 5,
+6 and 8 need boxes, not cubes; Theorem 7 needs cubes until Lemma 7.1 is adopted. **Lemma 7.1**: Theorem 7 holds without (P3) if the negative products of its gradient test are
 weighted by the square of the largest spacing ratio; the premise PV is then used for exact cubes only.

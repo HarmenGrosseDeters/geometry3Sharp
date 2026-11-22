@@ -23,11 +23,12 @@ Short answer:
 - **Theorem 8 holds** (section 1): Theorem 5 carries over to a complex in which some cells are boxes made of several
   grid cells. A block is certified by (B0) to (B2) on its boundary (Theorem 5's node, edge and face tests), one partial
   derivative of constant sign on the block and at most one circle of L on its boundary. The proof adds no error bound.
-- **No theorem of the design note needs cubes** (remark 5); a certificate by Theorem 5 or 8 has no cell-shape condition.
+- **Theorems 1, 2, 4, 5, 6 and 8 need boxes, not cubes** (remark 5); a certificate by Theorem 5 or 8 has no cell-shape
+  condition. Theorem 7 still needs cubes, through its premise, until Lemma 7.1 is adopted.
 - **Lemma 7.1** (section 2): the smooth certificate of #1392 (Theorem 7) keeps its premise for exact cubes and gets a
   proved margin instead of the tolerance (P3): the negative products of the gradient test are multiplied by the square
   of the largest spacing ratio. That is a small code change with a new bound; today's code is short of the lemma by a
-  margin of about 2^-19 on that test.
+  margin of about twice its `CellShapeTolerance` on that test (2^-19 at the default, 2^-9 at the largest setting).
 - **Open** (sections 3 and 4): the mesh side for marching cubes and for marching tetrahedra on cubes (lemmas of their
   own; a finite check for the tetrahedra is done here), the two levels of a wall together, and a measurement of how
   many refused cells box blocks cover, which comes before any build.
@@ -47,7 +48,8 @@ A block R is *certified* if
 
 - (B0) f has no zero at the nodes on R (the enclosure of f at each excludes 0);
 - (B1) every edge of K on R satisfies (S1);
-- (B2) every face of K on R satisfies (S2), the separating segment on a face with four crossing points included;
+- (B2) every face of K on R satisfies (S2), the separating segment on a face with four crossing points included (f has
+  one sign on the segment, the sign at its ends, and the crossing points on either side of it are paired);
 - (B3) there is a direction d with d . g > 0 for all g in G(R), and the boundary of R carries at most one circle of L.
 
 Nothing is asked of the nodes, edges and faces inside R. A 3-cell of K in no block is certified as in section 7.8
@@ -123,7 +125,7 @@ signs differ there, and these are the same signs; on a face with four crossing p
 separating segment allows. A block has no pattern inside; in a block the count makes D a set of disks, as many as
 its boundary carries circles, which is the number m of the common pattern (none in a zero-free block: a wrong sign at
 an inner node there would give a closed component, which the count refuses). D does not meet the boundary of the
-grid's box: its nodes are nodes of K' with the true sign, and f has one sign on the connected outer layer. (b) with D
+grid's box: by (H1) every polygon of D lies in the interior of the four cells around its edge (Theorem 2). (b) with D
 as the PL surface. ∎
 
 Remarks.
@@ -204,7 +206,8 @@ with Psi(M~) in the place of M: D ~ Psi(M~) ~ M~ ~ zero set of f~ ~ L. ∎
 
 What this changes. The premise PV is now used for exact cubes only, so the second of the three "read, not quoted"
 points of section 7.13 goes away. The code of #1392 tests A+(1) and accepts spacings within 2^-20: between that and the
-lemma lie the cells with 0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about 2^-19 relative to the second sum
+lemma lie the cells with 0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second
+sum: 2^-19 at the default `CellShapeTolerance` of 2^-20, about 2^-9 at `MaxCellShapeTolerance` = 2^-10
 (only cells with a gradient component through 0 are affected). Closing
 it is a small change with a new bound, so it needs the exact review: compute an upper bound rho^2 of (M / m)^2 from the
 node coordinates (outward rounded), multiply the negative products of the gradient test by it, rounded down. Then the
@@ -229,8 +232,10 @@ from 0 against h), UTM coordinates among them; it is not needed.
 - *It is not measured.* The spike measured Theorem 5's cell test without blocks. Whether small boxes with one circle and
   one signed partial derivative cover the refused cells of a clipped TPMS is open; for meshes, box blocks covered much
   less than general blocks (section 7.10's estimate: 31 to 40 %), because silhouette bands run diagonally. For a
-  function the refused edges are not a band but single edges near the silhouette curve (an edge is crossed twice only
-  if both crossings fall into the same edge), so small boxes around them are plausible. The measurement comes before a
+  function the refused edges should be single edges near the silhouette curve, not a band: a grid line next to the
+  silhouette meets L twice, but the two points mostly lie in different grid edges, each with one crossing and a sign
+  change, and only where both fall into one edge is that edge crossed twice. So small boxes around such edges are
+  plausible. The measurement comes before a
   build: the spike's prototype has the tests (S0) to (S3) and can count the boxes that pass (B0) to (B3).
 
 ## 4. The per-level certificate of `TwoLevelMarchingTetrahedra` (the queued brief): covered and open
@@ -260,7 +265,8 @@ tetrahedra per cube. Against this note:
   surface in the cube was enumerated as a cell complex (vertices on sign-changing tetrahedron edges, one segment per
   mixed tetrahedron face, one polygon per mixed tetrahedron): every component has Euler characteristic 1 and the
   components are as many as the circles on the cube's boundary (0, 1, 2, 3 or 4 circles in 2, 168, 76, 8 and 2
-  patterns). So the surface meets every cube in disks, (C). This becomes a test of the build.
+  patterns). So the surface meets every cube in disks, (C). This becomes a test of the build. It covers corner values
+  with a sign only (+ or -); a value of exactly zero is refused by (S0).
 
 **Open, to be proved or decided before the build.**
 
@@ -296,6 +302,9 @@ Independent review on 2026-11-22 (an agent with the design note only, asked to f
 - Lemma 7.1 is stated for rho >= M / m (an outward-rounded bound can be exact), with the finiteness argument; the
   integral change of the windows is 2 eta (M - m); the continuation outside the grid; the margin is relative to the
   second sum.
+- A second review (the coordinator's referee, with the note and the code, on #1413) found no error either and
+  reproduced the enumeration of section 4; its two corrections (which theorems need no cubes; the margin as twice the
+  tolerance) and four smaller ones are worked in.
 - Theorem 2's setting in the design note said "uniform grid"; its proof was checked step by step for a hidden use of
   equal spacings and has none. The setting sentence is changed.
 - Faces with alternating corner signs can never pass the axis form of (S2) (remark 7); remark 6 on rounding and the
