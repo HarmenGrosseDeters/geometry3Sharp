@@ -97,6 +97,35 @@ namespace geometry3Sharp.Tests
             Assert.Contains("face without area", cs.Error);
         }
 
+        // The squared lengths and areas overflow from about 2^256 on, and the area errors are NaN there. A NaN passed both
+        // area checks (`err > 1e-6` is false for NaN): Success with wrong faces (#1352).
+        [Theory]
+        [InlineData(260)]
+        [InlineData(300)]
+        [InlineData(400)]
+        [InlineData(500)]
+        [InlineData(512)]
+        [InlineData(1000)]
+        public void AreaChecks_AreNaNSafe_AtOverflowingScales(int exponent)
+        {
+            DMesh3 mesh = ShearedGrid(1.0, 0.25, Similarity.Identity);
+            double scale = Math.Pow(2, exponent);
+            foreach (int vid in mesh.VertexIndices()) mesh.SetVertex(vid, mesh.GetVertex(vid) * scale);
+            var T = new IntrinsicTriangulation(mesh);
+            T.FlipToDelaunay();
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.False(string.IsNullOrEmpty(cs.Error));
+        }
+
+        [Fact]
+        public void AreaChecks_StillSucceed_OnTheSameMeshAtUnitScale()
+        {
+            var T = new IntrinsicTriangulation(ShearedGrid(1.0, 0.25, Similarity.Identity));
+            T.FlipToDelaunay();
+            Assert.Equal(CommonSubdivisionStatus.Success, T.ExtractCommonSubdivision().Status);
+        }
+
         [Fact]
         public void FacesMissingAtCoincidentCrossings_Invariance_OverSimilarities()
         {

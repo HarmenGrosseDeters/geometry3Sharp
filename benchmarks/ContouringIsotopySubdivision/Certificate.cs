@@ -34,9 +34,9 @@ sealed class GridCertificate
     public bool PvCertified { get { return SurfaceCells > 0 && PvCells == SurfaceCells && OuterSurfaceCells == 0; } }
     public bool SCertified { get { return SurfaceCells > 0 && SCells == SurfaceCells && OuterSurfaceCells == 0; } }
 
-    double X(int axis, long i, int t) { return Origin[axis] + (H / (1 << t)) * i; }      // node i of the grid refined t times; equals DC's origin + h * n at t = 0
-    Iv Span(int axis, long i, int t, int cells) { return new Iv(X(axis, i, t), X(axis, i + cells, t)); }
-    Enc Eval(Iv x, Iv y, Iv z) { ++Evaluations; return F.Eval(x, y, z); }
+    public double X(int axis, long i, int t) { return Origin[axis] + (H / (1 << t)) * i; }      // node i of the grid refined t times; equals DC's origin + h * n at t = 0
+    public Iv Span(int axis, long i, int t, int cells) { return new Iv(X(axis, i, t), X(axis, i + cells, t)); }
+    public Enc Eval(Iv x, Iv y, Iv z) { ++Evaluations; return F.Eval(x, y, z); }
 
     public int NodeSign(int i, int j, int k)
     {
@@ -274,7 +274,7 @@ sealed class GridCertificate
     }
 
     // d . g > 0 for all g of all enclosures (d as doubles; a zero or not finite d fails)
-    static bool oneSign(List<Enc> list, Vector3d d)
+    public static bool oneSign(List<Enc> list, Vector3d d)
     {
         if (!(d.LengthSquared > 0) || double.IsInfinity(d.LengthSquared)) return false;
         foreach (Enc e in list)

@@ -227,6 +227,7 @@ scale checks of the campaigns (the scaling is not exact there).
 | `DMeshAABBTree3` nearest (squared distance) | extent 2^-450 .. 2^450 | -- | squared distance representable | not guaranteed outside |
 | 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude; constrained: a domain more than 2^-41 of the larger of the largest coordinate and the extent wide (the automatic tolerance, O11) | -- | exact predicates; pentagon at aspect 2^e: mesh up to 2^±40, `Empty` from 2^±41 (#986) | `ArgumentException`; a domain no wider may vanish: `Empty` with a diagnostic without a snap tolerance (documented limit, owner 2026-11-17) |
 | `TerrainVolumeDifference`, `TerrainOffset` | <= 2^200, extent 2^-8 .. 2^200 | -- | bumpy 8 x 8 terrain: correct 2^-20 .. 2^250; zero volumes with `true` below 2^-25 and above 2^260; offset wrong with `true` above 2^260, `false` below 2^-30 | `Compute()` false (PR per module) |
+| `DualContouring` (`ExactHermite`, the default; dense mode) | geometry 2^-100 .. 2^200 with the field scaled along (edges below 2^250: the degenerate-triangle rules use a fourth power); node values normal `float` (1.2e-38 .. 1.7e38); any gradient magnitude | -- | the same bits for values x 2^-100 .. 2^100, geometry x 2^-60 .. 2^200, both x 2^-100 .. 2^200 (sphere and box; the sphere to 2^400): `DualContouringFieldScaleTests`. Values below 1.4e-45: an empty mesh (`benchmarks/MagnitudeRobustness`) | not guaranteed: an empty or partial mesh without a status below the `float` range (documented limit, #1376); `ExactHermite = false`: absolute tests (2.2e-16), ordinary sizes only; sparse mode and refinement: not swept |
 | Other terrain modules (grid TIN, greedy TIN, slope map / design / overlay, dual contouring, safety) | not swept: the slope classes decide with the exact kernel (`ExactSlopeKernel`) | -- | -- | open |
 
 The ranges are class-doc statements ("Supported input range") of the classes above (those of `ExactMeshBoolean` and
@@ -306,7 +307,9 @@ not depend on the implementer's own tests. Order of priority:
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](../design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
     triangulation-independent comparisons and orientation-preserving transformations, without changes to
-    `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
+    `ExactMesh*`. `ExactBooleanFuzzTests` (2026-11-22, [research note](../research/EXACT_BOOLEAN_FUZZ_2026-11.md)) checks the
+    set identities exactly on near-degenerate generated solids (an exact surface fingerprint, no tolerance): a seeded smoke
+    per family in the PR tier, the campaign in the Nightly tier. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
     unions of output edges.
     Symmetry and cost relations (S1, C1, C2 of [METAMORPHIC_RELATIONS.md](../design/METAMORPHIC_RELATIONS.md)):
     `SymmetryInvarianceTests` maps the input by one of the 48 symmetries of the cube (`Harness/Symmetry.cs`; exact, 24 are
