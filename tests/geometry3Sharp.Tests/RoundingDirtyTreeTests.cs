@@ -4,6 +4,7 @@ using System.Linq;
 using g3;
 using gs;
 using Xunit;
+using Ops = g3.ExactMeshBoolean.Operations;
 
 namespace geometry3Sharp.Tests
 {
@@ -33,9 +34,10 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static MeshRoundingRepair Repair(DMesh3 m, bool check = false, bool serial = false)
+        static MeshRoundingRepair Repair(DMesh3 m, bool check = false, bool serial = false, bool boxesFromMesh = false)
         {
             MeshRoundingRepair.CheckOnThisThread = check;
+            MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = boxesFromMesh;
             gParallel.SerialOnThisThread = serial;
             try {
                 var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true };
@@ -43,6 +45,7 @@ namespace geometry3Sharp.Tests
                 return r;
             } finally {
                 MeshRoundingRepair.CheckOnThisThread = false;
+                MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = false;
                 gParallel.SerialOnThisThread = false;
             }
         }
@@ -112,6 +115,141 @@ namespace geometry3Sharp.Tests
                     Assert.True(Print(a) == Print(b), f.ToString());
                 }
             Assert.True(checks > 0);
+        }
+
+        // ---- the boxes of the pending triangles are kept from query to query (ROUNDING_COST_2026-11.md section 6) ----
+
+        // a prism of height h over a regular n-gon of radius r around (cx, cy), from z0
+        static DMesh3 Prism(int n, double r, double cx, double cy, double z0, double h)
+        {
+            var m = new DMesh3();
+            for (int k = 0; k < 2; ++k)
+                for (int i = 0; i < n; ++i) {
+                    double t = 2 * Math.PI * i / n;
+                    m.AppendVertex(new Vector3d(cx + r * Math.Cos(t), cy + r * Math.Sin(t), z0 + k * h));
+                }
+            int c0 = m.AppendVertex(new Vector3d(cx, cy, z0)), c1 = m.AppendVertex(new Vector3d(cx, cy, z0 + h));
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                m.AppendTriangle(c0, j, i); m.AppendTriangle(c1, n + i, n + j);
+                m.AppendTriangle(i, j, n + j); m.AppendTriangle(i, n + j, n + i);
+            }
+            return m;
+        }
+
+        // a plate with holes x holes holes (the difference of a box and prisms: long thin triangles between the holes)
+        // and its copy, rotated and shifted: a boolean whose rounding evaluates many edits (the `plate` case of
+        // benchmarks/SnapRoundingExperiment gen)
+        static Func<ExactMeshBoolean> PlateWithHoles(int holes, Ops op)
+        {
+            var parts = new List<DMesh3> { new GridBox3Generator() { Box = new Box3d(new Vector3d(1, 1, 0.1), new Vector3d(1, 1, 0.1)), EdgeVertices = 2 }.Generate().MakeDMesh() };
+            double pitch = 2.0 / holes;
+            for (int i = 0; i < holes; ++i)
+                for (int j = 0; j < holes; ++j)
+                    parts.Add(Prism(16, 0.3 * pitch, (i + 0.5) * pitch, (j + 0.5) * pitch, -0.4, 1));
+            var plate = new ExactMeshBoolean(parts, Ops.Difference);
+            Assert.True(plate.Compute(), plate.Error);
+            DMesh3 a = plate.Result, b = new DMesh3(a);
+            MeshTransforms.Rotate(b, new Vector3d(1, 1, 0.1), Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
+            MeshTransforms.Translate(b, new Vector3d(0.5, 0.5, 0.05));
+            return () => new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        }
+
+        static ExactMeshBoolean Run(Func<ExactMeshBoolean> make, bool boxesFromMesh, bool check = false)
+        {
+            MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = boxesFromMesh;
+            MeshRoundingRepair.CheckOnThisThread = check;
+            try {
+                ExactMeshBoolean b = make();
+                Assert.True(b.Compute(), b.Error);
+                return b;
+            } finally {
+                MeshRoundingRepair.PendingBoxesFromMeshOnThisThread = false;
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+        }
+
+        [Fact]
+        public void PendingBoxes_AreKeptBetweenQueries()
+        {
+            DMesh3 m = SliverBox();
+            MeshRoundingRepair kept = Repair(new DMesh3(m));
+            // (the boxes are computed once per change of the mesh, not once per query: several queries per accepted edit)
+            Assert.True(kept.PendingBoxQueries > 1000, $"{kept.PendingBoxQueries} queries read the kept boxes");
+            Assert.True(kept.PendingBoxRefreshes > 0 && 2 * kept.PendingBoxRefreshes < kept.PendingBoxQueries,
+                $"{kept.PendingBoxRefreshes} computations for {kept.PendingBoxQueries} queries");
+            // (not more often than the mesh changes: at most once per marked triangle)
+            Assert.True(kept.PendingBoxRefreshes <= 4L * (kept.Collapses + kept.Flips + kept.Moves + kept.Zips + 1),
+                $"{kept.PendingBoxRefreshes} computations for {kept.Collapses + kept.Flips + kept.Moves + kept.Zips} edits");
+            MeshRoundingRepair reference = Repair(new DMesh3(m), boxesFromMesh: true);
+            Assert.Equal(0, reference.PendingBoxRefreshes);
+            Assert.Equal(0, reference.PendingBoxQueries);
+        }
+
+        [Fact]
+        public void PendingBoxes_ManySlivers_SameResultAsBoxesFromTheMesh()
+        {
+            // (ManySlivers_QueriesEqualAScan_TreeBuiltRarely checks the queries of the large box against a scan; here the
+            // result against the reference path, and the scan check on a smaller box)
+            foreach ((int n, int every, bool check) in new[] { (24, 9, false), (24, 5, false), (14, 5, true) }) {
+                DMesh3 m = SliverBox(n, every);
+                DMesh3 kept = new DMesh3(m), reference = new DMesh3(m), checkedMesh = new DMesh3(m);
+                MeshRoundingRepair rk = Repair(kept), rr = Repair(reference, boxesFromMesh: true);
+                Assert.True(rk.PendingBoxQueries > 0);
+                Assert.True(Print(kept) == Print(reference), $"{n} every {every}: the result differs from the one with the boxes from the mesh");
+                Assert.Equal((rr.Collapses, rr.Flips, rr.Moves, rr.Zips, rr.IsClean), (rk.Collapses, rk.Flips, rk.Moves, rk.Zips, rk.IsClean));
+                // (and every query of the kept boxes equals a scan of the mesh)
+                if (check) {
+                    MeshRoundingRepair rc = Repair(checkedMesh, check: true);
+                    Assert.True(rc.NearChecks > 0 && Print(kept) == Print(checkedMesh), $"{n} every {every}");
+                }
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(kept));
+            }
+        }
+
+        [Fact]
+        public void PendingBoxes_DegenerateFamilies_SameResultAsBoxesFromTheMesh()
+        {
+            long queries = 0;
+            foreach (SafeRoundingDegenerateInputTests.Family f in Enum.GetValues(typeof(SafeRoundingDegenerateInputTests.Family)))
+                foreach (int seed in new[] { 1, 2, 3 }) {
+                    DMesh3 m = SafeRoundingDegenerateInputTests.Make(f, 30, seed);
+                    DMesh3 kept = new DMesh3(m), reference = new DMesh3(m);
+                    queries += Repair(kept).PendingBoxQueries;
+                    Repair(reference, boxesFromMesh: true);
+                    Assert.True(Print(kept) == Print(reference), $"{f} {seed}");
+                }
+            Assert.True(queries > 0);
+        }
+
+        [Trait("Category", "Slow")]   // (booleans with their rounding, each twice and once more in check mode: 5-10 s)
+        [Theory]
+        [InlineData("utm Cluster 0 4 0")]
+        [InlineData("utm Cluster 0 9 1")]
+        [InlineData("Cluster")]
+        [InlineData("FoldedCluster")]
+        public void PendingBoxes_RoundingCorpusBooleans_SameResultAsBoxesFromTheMesh(string name)
+        {
+            Func<ExactMeshBoolean> make = MeshRoundingRepairIncrementalTests.Case(name);
+            ExactMeshBoolean kept = Run(make, false), reference = Run(make, true);
+            Assert.True(kept.Rounding.PendingBoxQueries > 0, $"{name}: no query read the kept boxes");
+            Assert.True(Print(kept.Result) == Print(reference.Result), name);
+            Assert.Equal(reference.RoundingClean, kept.RoundingClean);
+            Assert.Equal(reference.Rounding.MaxDrift, kept.Rounding.MaxDrift);
+        }
+
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Intersection)]
+        [InlineData(Ops.Difference)]
+        public void PendingBoxes_PlateWithHoles_SameResultAsBoxesFromTheMesh(Ops op)
+        {
+            Func<ExactMeshBoolean> make = PlateWithHoles(8, op);
+            ExactMeshBoolean kept = Run(make, false), reference = Run(make, true);
+            Assert.True(Print(kept.Result) == Print(reference.Result), op.ToString());
+            Assert.Equal(reference.RoundingClean, kept.RoundingClean);
+            Assert.True(kept.Result.TriangleCount > 0 && Invariance.AllFinite(kept.Result), op.ToString());
+            Assert.True(kept.Rounding.PendingBoxQueries > 100, $"{op}: {kept.Rounding.PendingBoxQueries} queries read the kept boxes, {kept.Result.TriangleCount} triangles");
         }
 
         // the frames in 4 rows (#698: 5.1-7.6 s alone in one row, up to 26.9 s in a full run); each row repairs the base too

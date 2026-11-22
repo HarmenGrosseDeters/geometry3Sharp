@@ -496,6 +496,22 @@ namespace g3
         // tree cost about n^2 / 2^17 box operations per main rebuild of n log n)
         readonly List<int> pending = new List<int>();
         readonly HashSet<int> pendingSet = new HashSet<int>();
+        // the boxes of the pending triangles (6 doubles each, in the order of pending; nothing meaningful for an entry
+        // that is no triangle), kept from query to query: near compared 100 and more of them per query, each computed
+        // from the mesh again, although the mesh changes only once per accepted edit and a query is asked 8 to 36 times
+        // per edit (docs/research/ROUNDING_COST_2026-11.md section 6). They are those of the mesh as long as version is
+        // the one of their computation: every change of a triangle's corners or positions, and every entry added to
+        // pending, comes with a mark_dirty before the next query (set_vertex's callers, the flip, every appended
+        // triangle), which raises version. A triangle that is only removed raises nothing: the query asks IsTriangle
+        // itself, as before
+        double[] pendingBox = new double[0];
+        long pendingBoxVersion = -1;
+        // for tests: the computations of pendingBox and the queries that read it in the last Apply
+        internal long PendingBoxRefreshes, PendingBoxQueries;
+        // for tests: near on this thread computes the boxes of the pending triangles from the mesh in every query (the
+        // reference of pendingBox: the results must be the same)
+        [ThreadStatic] internal static bool PendingBoxesFromMeshOnThisThread;
+        bool pendingFromMesh;
         // the box tree's hits of a query in near (reused)
         readonly List<int> hits = new List<int>();
         // for tests: the queries of near compared with a scan (CheckOnThisThread)
@@ -718,6 +734,9 @@ namespace g3
             lastPairs = null;
             check = CheckOnThisThread;
             NearChecks = 0;
+            PendingBoxRefreshes = PendingBoxQueries = 0;
+            pendingFromMesh = PendingBoxesFromMeshOnThisThread;
+            pendingBoxVersion = -1;
             DirtyTreeBuilds = 0;
             MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
@@ -1147,12 +1166,45 @@ namespace g3
             }
             if (pending.Count > MaxPendingScanned)
                 MaxPendingScanned = pending.Count;
-            foreach (int t in pending)
-                if (Mesh.IsTriangle(t) && closed_overlap(box(Mesh.GetTriangle(t)), query))
-                    result.Add(t);
+            if (pendingFromMesh) {
+                foreach (int t in pending)
+                    if (Mesh.IsTriangle(t) && closed_overlap(box(Mesh.GetTriangle(t)), query))
+                        result.Add(t);
+            } else if (pending.Count > 0) {
+                if (pendingBoxVersion != version)
+                    refresh_pending_boxes();
+                PendingBoxQueries++;
+                double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
+                double[] pb = pendingBox;
+                for (int i = 0, o = 0; i < pending.Count; ++i, o += 6) {
+                    int t = pending[i];
+                    // (the closed boxes overlap, as closed_overlap)
+                    if (Mesh.IsTriangle(t) && !(pb[o + 3] < x0 || pb[o] > x1 || pb[o + 4] < y0 || pb[o + 1] > y1 || pb[o + 5] < z0 || pb[o + 2] > z1))
+                        result.Add(t);
+                }
+            }
             if (check)
                 check_near(query, result);
             movedV = save;
+        }
+
+        // the boxes of the pending triangles from the current mesh (called in near with no proposed position: movedV -1)
+        [MethodImpl(JitHints.Optimize)]
+        void refresh_pending_boxes()
+        {
+            if (pendingBox.Length < 6 * pending.Count)
+                pendingBox = new double[6 * Math.Max(pending.Count, 256)];
+            for (int i = 0, o = 0; i < pending.Count; ++i, o += 6) {
+                int t = pending[i];
+                // (an entry that is no triangle is skipped by the query; it becomes one again only through mark_dirty)
+                if (Mesh.IsTriangle(t) == false)
+                    continue;
+                AxisAlignedBox3d b = box(Mesh.GetTriangle(t));
+                pendingBox[o] = b.Min.x; pendingBox[o + 1] = b.Min.y; pendingBox[o + 2] = b.Min.z;
+                pendingBox[o + 3] = b.Max.x; pendingBox[o + 4] = b.Max.y; pendingBox[o + 5] = b.Max.z;
+            }
+            pendingBoxVersion = version;
+            PendingBoxRefreshes++;
         }
 
         // (CheckOnThisThread) the result of near is the set of current triangles whose current box overlaps query, each
