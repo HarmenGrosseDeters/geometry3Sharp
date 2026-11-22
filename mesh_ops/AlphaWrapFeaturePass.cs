@@ -27,6 +27,8 @@ namespace gs
     /// flips only), free of self-intersections and strictly enclosing the input; it changes the offset band only by moving
     /// vertices onto the offset surface's planes and creases. Serial, in a fixed order: deterministic; relative thresholds only:
     /// scaling by 2^k gives the scaled result bit for bit. Corners (three planes) are not handled.
+    /// The validity statement and its proof (which checks it uses, and what it assumes of the mesh handed in):
+    /// docs/design/ALPHA_WRAP_FEATURE_VALIDITY.md.
     /// </summary>
     internal sealed class AlphaWrapFeaturePass
     {
@@ -425,7 +427,7 @@ namespace gs
             for (int i = 0; i < tris.Count; ++i) {
                 Triangle3d t = tris[i];
                 Vector3d n;
-                if (!unit_normal(t, out n)) return false;
+                if (!NotDegenerate(t, out n)) return false;
                 if (olds != null) {
                     Vector3d no;
                     if (!unit_normal(olds[i], out no) || n.Dot(no) < cosTurn) return false;
@@ -458,7 +460,7 @@ namespace gs
                 Triangle3d o = new Triangle3d(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
                 Triangle3d nt = new Triangle3d(tv.a == vid ? x : o.V0, tv.b == vid ? x : o.V1, tv.c == vid ? x : o.V2);
                 Vector3d no, nn;
-                if (!unit_normal(o, out no) || !unit_normal(nt, out nn) || nn.Dot(no) < cosTurn) return false;
+                if (!unit_normal(o, out no) || !NotDegenerate(nt, out nn) || nn.Dot(no) < cosTurn) return false;
                 if (min_angle(nt) < Math.Min(min_angle(o), MinAngleFloorDegrees) - 1e-9) return false;
                 if (max_angle(nt) > Math.Max(max_angle(o), MaxAngleCeilingDegrees) + 1e-9) return false;
                 mIds.Add(tv); mTris.Add(nt); mRemoved.Add(t);
@@ -482,7 +484,7 @@ namespace gs
                 // rest triangles, this is implied by the test against the rest: if fan triangles (x, e1) and (x, e2) cross, a
                 // ray from x meets both link edges, so the farther triangle contains a point of the nearer edge, beyond the shared
                 // vertices, and touches the rest triangle on that edge; it stays for splits and flips, and for a degenerate rest
-                // triangle, which the grid test skips)
+                // triangle, next to which the grid test refuses the operation)
                 for (int j = i + 1; j < tris.Count; ++j) {
                     Triangle3d B = tris[j];
                     if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ids[j], ref B)) return false;
@@ -492,7 +494,10 @@ namespace gs
                     if (hit || removed.Contains(tc) || Mesh.IsTriangle(tc) == false) return;
                     Index3i ic = Mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(Mesh.GetVertex(ic.a), Mesh.GetVertex(ic.b), Mesh.GetVertex(ic.c));
-                    if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                    // a degenerate rest triangle (none in a raw wrap, whose triangles are Delaunay facets, and none made by
+                    // this pass): the test beyond shared vertices is not defined for it, so an operation next to one is
+                    // refused instead of leaving the pair untested
+                    if (ExactTriangleIntersection.IsDegenerate(ref C)) { hit = true; return; }
                     if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C)) hit = true;
                 });
                 if (hit) return false;
@@ -522,6 +527,19 @@ namespace gs
         }
 
         // ---- geometry helpers ----
+
+        /// <summary>
+        /// a new triangle of an operation: its unit normal, false if it is too thin for one in floating point or degenerate
+        /// by the library's exact test (ExactTriangleIntersection.IsDegenerate: collinear corners). So "no operation creates
+        /// a degenerate triangle" is decided by the same test that clear() applies to the rest triangles, and rests on that
+        /// test's prefilter (pinned by IsDegenerate_PrefilterThreshold), not on a second threshold of its own. On every
+        /// input found the floating-point normal alone refuses collinear corners too (the cross product of exactly parallel
+        /// edge vectors carries only the rounding of the subtractions, about 1e-16 of the scale)
+        /// </summary>
+        internal static bool NotDegenerate(Triangle3d t, out Vector3d n)
+        {
+            return unit_normal(t, out n) && !ExactTriangleIntersection.IsDegenerate(ref t);
+        }
 
         static bool unit_normal(Triangle3d t, out Vector3d n)
         {
