@@ -220,12 +220,16 @@ The cases behind the cells that are not full:
   earlier measurement).
 - **`winding`**: `winding.values` differs between linux and macOS only (F3; the differing part is printed by the detail
   step); it agrees between linux, Windows .NET 10 and .NET Framework.
+  **Open (2026-11-22, not diagnosed):** which part of `winding.values` differs on macOS (the raw `FastWindingNumber` / `WindingNumber` values end in
+  `Math.Atan2` per triangle, F3/F4, so the likely part is the raw values, not the inside decisions) needs the macOS traces (the opt-in `macos`
+  input of `determinism.yml`; no run since the last harness change) and was not looked at again.
 - **`kernel`, `ledger`, `io`, `probe`**: the known runtime facts of DETERMINISM_PROOF.md 5.3: the `#if NET` branch flag
   (`kernel.limbsigns.path`), `Math.Min / Max` of zeros and NaN bits (`ledger.math`; the only case that differs between
   linux x64 and arm64), casts, text formatting and parsing on .NET Framework, the x87 cases of the 32-bit process, and new:
   `probe.round-remainder` differs between .NET 10 and .NET Framework in 6 of its 26 635 values, all in the section of
   `Math.Floor / Ceiling / Truncate` (not `Math.Round` with digits, not the remainders; not diagnosed further, the sign of a
-  zero result is the likely part), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
+  zero result is the likely part; **open**: the 6 values are in the traces of the Windows legs of the `determinism` workflow, which were not
+  downloaded here: `--detail` of `DeterminismHarness compare` on `windows-net10-serial` / `windows-net48-serial` names them), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
 - **Windows arm64, .NET Framework** (not in the table): an emulated x64 process, 34 cases different from the x64 runner (F6).
 
 The same run's opt-in job on the previous head (run 44986300782, job `suite-arm64`) ran the PR-tier test suite
