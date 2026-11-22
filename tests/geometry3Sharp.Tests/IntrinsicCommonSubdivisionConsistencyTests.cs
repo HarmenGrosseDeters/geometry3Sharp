@@ -97,16 +97,18 @@ namespace geometry3Sharp.Tests
             Assert.Contains("face without area", cs.Error);
         }
 
-        // The squared lengths and areas overflow from about 2^256 on, and the area errors are NaN there. A NaN passed both
-        // area checks (`err > 1e-6` is false for NaN): Success with wrong faces (#1352).
+        // The squared lengths and areas overflow from about 2^256 on; before the unit scale of #1377 the area errors were NaN there, and a NaN
+        // passed both area checks (`err > 1e-6` is false for NaN): Success with wrong faces (#1352). Now the triangulation computes in
+        // unit scale: Success up to 2^512, and from 2^513 on the face areas in the units of the mesh overflow: Inconsistent.
         [Theory]
-        [InlineData(260)]
-        [InlineData(300)]
-        [InlineData(400)]
-        [InlineData(500)]
-        [InlineData(512)]
-        [InlineData(1000)]
-        public void AreaChecks_AreNaNSafe_AtOverflowingScales(int exponent)
+        [InlineData(260, true)]
+        [InlineData(300, true)]
+        [InlineData(400, true)]
+        [InlineData(500, true)]
+        [InlineData(512, true)]
+        [InlineData(700, false)]
+        [InlineData(1000, false)]
+        public void AreaChecks_AtOverflowingScales_AreSuccessOrInconsistent_NeverWrong(int exponent, bool success)
         {
             DMesh3 mesh = ShearedGrid(1.0, 0.25, Similarity.Identity);
             double scale = Math.Pow(2, exponent);
@@ -114,8 +116,9 @@ namespace geometry3Sharp.Tests
             var T = new IntrinsicTriangulation(mesh);
             T.FlipToDelaunay();
             var cs = T.ExtractCommonSubdivision();
-            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
-            Assert.False(string.IsNullOrEmpty(cs.Error));
+            Assert.Equal(success ? CommonSubdivisionStatus.Success : CommonSubdivisionStatus.Inconsistent, cs.Status);
+            if (success) Assert.All(cs.Faces, f => Assert.True(f.Area > 0 && !double.IsInfinity(f.Area)));
+            else Assert.False(string.IsNullOrEmpty(cs.Error));
         }
 
         [Fact]
