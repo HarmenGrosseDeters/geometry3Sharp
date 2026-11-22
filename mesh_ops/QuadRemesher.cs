@@ -91,7 +91,7 @@ namespace gs
         public double MiddleRegularization = 0.05;
         /// <summary> see PositionField.CornerAngleDegrees: a boundary vertex where the boundary turns by more than this angle (degrees, 0..180) is pinned as a lattice point </summary>
         public double CornerAngleDegrees = 30;
-        /// <summary> see CrossField.CurvatureAlignment (used when Field is null; ignored when a pre-computed Field is supplied): 0 gives the smoothest field, about 1 follows principal curvature directions where the surface is anisotropic </summary>
+        /// <summary> see CrossField.CurvatureAlignment (used when Field is null; ignored when a pre-computed Field is supplied, but its value is always validated: non-negative and finite, else InvalidInput): 0 gives the smoothest field, about 1 follows principal curvature directions where the surface is anisotropic </summary>
         public double CurvatureAlignment = 0;
         /// <summary> see CrossField.AlignCreases (used when Field is null): align a cross direction with crease edges whose dihedral angle exceeds CreaseAngleDegrees </summary>
         public bool AlignCreases = false;

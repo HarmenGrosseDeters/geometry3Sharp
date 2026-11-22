@@ -450,6 +450,7 @@ namespace g3cli.Tests
             };
             Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
             Assert.NotEqual(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+            Assert.Equal(qr.SizeAdaptationApplied, B(r["size_adaptation_applied"]));
             Assert.Equal(qr.Result.FaceCount, I(r["faces"]["total"]));
             Assert.Equal(qr.Result.VertexCount, I(r["vertices"]));
         }
