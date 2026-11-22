@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Geodesics/param: integer (normal) coordinates"
 - **Kind:** research study (not needed by current operations; trigger: an operation requiring a combinatorially exact common subdivision of intrinsic and extrinsic triangulations)
 - **Tier:** L (new intrinsic triangulation data structure: integer normal coordinates + round-about ordering + exact predicates; study first)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study and an opt-in layer merged (PR `#1311`, [INTRINSIC_INTEGER_COORDINATES_2026-11.md](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md), `mesh_ops/IntrinsicIntegerCoordinates.cs`, `EnableIntegerCoordinates`: flips and boundary splits); the false crossings of `ExtractCommonSubdivision` found on the way are fixed (issues `#1313`, `#1326`, `#1335`). What remains, insertions and refinement (option 3 of the note), is on demand, with a consumer.
 
 ## Current state
 
@@ -20,6 +20,8 @@
     (normal coordinates + roundabouts), guaranteeing a combinatorially exact common subdivision with zero tracing drift.
 
 ## Trigger / decision needed
+
+Update 2026-11-22: phase 1 is done (see the plan status); the trigger below now applies to option 3 of the research note (insertions and refinement).
 
 A concrete downstream feature that requires extracting a **combinatorially exact common subdivision** between an
 intrinsic triangulation and the original `DMesh3` (e.g., exact texture/UV transfer after intrinsic Delaunay refinement,
