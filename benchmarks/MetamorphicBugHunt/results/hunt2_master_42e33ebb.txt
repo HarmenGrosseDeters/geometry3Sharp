@@ -28,7 +28,7 @@ INFO io | gltf | rotated star | second round trip | float positions about anothe
 INFO io | gltf | rotated star | second write | other bytes (normals or the centre of rounded positions)
 INFO io | gltf | irrational tet | second round trip | float positions about another centre: vertex 1: -9.371138998126582E-08 199999.99913194444 0.1417098214296857 vs -9.371138975922122E-08 199999.99913194444 0.1417098214296857
 INFO io | gltf | irrational tet | second write | other bytes (normals or the centre of rounded positions)
-STAGE io | pass 1404, fail 0, slow 0 | 621 ms
+STAGE io | pass 1399, fail 0, slow 0 | 834 ms
 INFO loft | square-square | MinimumArea | start rotation 1,0 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.295520
 INFO loft | square-square | MinimumArea | start rotation 0,1 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.955336
 INFO loft | square-square | MinimumArea | start rotation 2,3 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.955336
@@ -46,7 +46,7 @@ INFO loft | stack ending saddle | Unsupported contour 1 of slice 0 has no counte
 INFO loft | stack = loft | hexagon-triangle | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.4110438076762642,-0.911615592
 INFO loft | stack = loft | offset circles | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.14351974958216573,0.868713976
 INFO loft | stack = loft | tilted pair | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.02112997126331556,0.498447430
-STAGE loft | pass 2666, fail 0, slow 0 | 2510 ms
+STAGE loft | pass 2666, fail 0, slow 0 | 3004 ms
 INFO contour2 | torus mc | LinearEdges | throws as documented: LinearEdges requires strictly interior edge crossings
 INFO contour2 | two blobs mc | LinearEdges | throws as documented: LinearEdges requires strictly interior edge crossings
 INFO contour2 | tpms Gyroid Sheet | fraction 0.138 for a target of 0.3
@@ -71,7 +71,7 @@ INFO contour2 | tpms gyroid sheet fraction 0.05 divisions 4 | ContouringFailed t
 INFO contour2 | tpms gyroid sheet fraction 0.05 divisions 8 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.1 divisions 4 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.1 divisions 8 | ContouringFailed the lattice is empty in this domain
-STAGE contour2 | pass 594, fail 0, slow 0 | 9525 ms
+STAGE contour2 | pass 594, fail 0, slow 0 | 10116 ms
 INFO geodesic | sphere | source 0 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | sphere | source 50 | FlipOut | 2 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | sphere | source 151 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
@@ -87,8 +87,8 @@ INFO geodesic | terrain | source 168 | FlipOut | 3 of 10 paths are locally but n
 INFO geodesic | terrain alternating | source 0 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | terrain alternating | source 143 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | star prism | source 0 | FlipOut | 2 of 10 paths are locally but not globally shortest (documented)
-STAGE geodesic | pass 823, fail 0, slow 0 | 3194 ms
-STAGE intrinsic | pass 602, fail 0, slow 0 | 677 ms
+STAGE geodesic | pass 823, fail 0, slow 0 | 3076 ms
+STAGE intrinsic | pass 602, fail 0, slow 0 | 553 ms
 INFO quad | sphere | default | not closed (DroppedFaces 1; documented)
 INFO quad | sphere | default | flipped | 322/329 vertices/faces vs 315/323
 INFO quad | sphere | default | far copy | 632 faces vs 2 x 323 (sides 0,0,0,57,556,15,4,0 vs 0,0,0,37,277,6,3,0)
@@ -149,7 +149,7 @@ INFO quad | open disc | pure quads | flipped | 234/212 vertices/faces vs 234/210
 INFO quad | open disc | pure quads | far copy | 419 faces vs 2 x 210 (sides 0,0,0,83,319,10,7,0 vs 0,0,0,39,163,6,2,0)
 INFO quad | open disc | pure quads | far copy | pure status FlowInfeasible vs FlowInfeasible
 INFO quad | open disc | scale and rotation, pure quads | pure-quad attempt: FlowInfeasible
-STAGE quad | pass 496, fail 0, slow 0 | 9631 ms
+STAGE quad | pass 496, fail 0, slow 0 | 10075 ms
 INFO wrap2 | passage pin wider than the hole | PinBlockedByInput pin 0: radius 0.45 is not below the input's clearance 0.3919857411351155
 INFO wrap2 | passage pin of the hole's inradius | PinBlockedByInput pin 0: radius 0.3923141121612922 is not below the input's clearance 0.3919857411351155
 INFO wrap2 | feature pass | permuted or flipped input | 58 of 60 runs give another mesh than the input as generated (every guarantee holds for each)
@@ -158,7 +158,7 @@ INFO wrap2 | option tube | point limit 300 | PointLimitReached
 INFO wrap2 | option star | point limit 300 | PointLimitReached
 INFO wrap2 | option soup | point limit 300 | PointLimitReached
 INFO wrap2 | option plate | point limit 300 | PointLimitReached
-STAGE wrap2 | pass 1550, fail 0, slow 0 | 21649 ms
+STAGE wrap2 | pass 1550, fail 0, slow 0 | 24234 ms
 INFO mesh2d2 | square | steiner limit 5 | Steiner limit reached
 INFO mesh2d2 | square | steiner limit 5 | 2 bad triangles of 8
 INFO mesh2d2 | star | conforming 25 | shuffled points | 154 vs 150 triangles
@@ -180,10 +180,10 @@ INFO mesh2d2 | thin wedge | size function | 13 bad triangles of 42
 INFO mesh2d2 | thin wedge | steiner limit 5 | Steiner limit reached
 INFO mesh2d2 | thin wedge | steiner limit 5 | 6 bad triangles of 6
 INFO mesh2d2 | thin wedge | snap | 1 bad triangles of 1
-STAGE mesh2d2 | pass 575, fail 0, slow 0 | 414 ms
+STAGE mesh2d2 | pass 575, fail 0, slow 0 | 434 ms
 INFO tet | sphere | no improve | dihedral floor not met: 7.72 degrees (reported)
 INFO tet | soup | no improve | dihedral floor not met: 5.99 degrees (reported)
-STAGE tet | pass 721, fail 0, slow 0 | 24881 ms
+STAGE tet | pass 721, fail 0, slow 0 | 25069 ms
 INFO robust | scale 2^e | MeshAlphaWrap | exact from 2^-100 to 2^100; outside: 2^-320: status InvalidInput, 2^-280: status InvalidInput, 2^-260: status InvalidInput, 2^-240: status InvalidInput, 2^-200: status InvalidInput, 2^-150: status InvalidInput, 2^-140: status InvalidInput, 2^200: status InvalidInput, 2^250: status InvalidInput, 2^260: status InvalidInput, 2^300: status InvalidInput, 2^400: status InvalidInput
 INFO robust | scale 2^e | MeshTetrahedralization | exact from 2^-100 to 2^100; outside: 2^-320: status WrapFailed, 2^-280: status WrapFailed, 2^-260: status WrapFailed, 2^-240: status WrapFailed, 2^-200: status WrapFailed, 2^-150: status WrapFailed, 2^-140: status WrapFailed, 2^200: status WrapFailed, 2^250: status WrapFailed, 2^260: status WrapFailed, 2^300: status WrapFailed, 2^400: status WrapFailed
 INFO robust | scale 2^e | PassageWrap | exact from 2^-60 to 2^100; outside: 2^-320: status InvalidInput, 2^-280: status InvalidInput, 2^-260: status InvalidInput, 2^-240: status InvalidInput, 2^-200: status InvalidInput, 2^-150: status InvalidInput, 2^-140: status InvalidInput, 2^-100: status InvalidInput, 2^200: status InvalidInput, 2^250: status InvalidInput, 2^260: status InvalidInput, 2^300: status InvalidInput, 2^400: status InvalidInput
@@ -198,7 +198,7 @@ INFO robust | scale 2^e | DualContouring | exact from 2^-30 to 2^260; outside: 2
 INFO robust | scale 2^e | TpmsLattice | exact from 2^-320 to 2^400
 INFO robust | scale 2^e | ContourLoft | exact from 2^-320 to 2^200; outside: 2^250: status CapFailed, 2^260: status CapFailed, 2^300: status CapFailed, 2^400: status CapFailed
 INFO robust | scale 2^e | QualityMesh2 | exact from 2^-320 to 2^200; outside: 2^250: status ArgumentException, 2^260: status ArgumentException, 2^300: status ArgumentException, 2^400: status ArgumentException
-STAGE robust | pass 57, fail 0, slow 0 | 3392 ms
+STAGE robust | pass 57, fail 0, slow 0 | 2861 ms
 INFO findings2 | H2-F1 box domain with vertex ids 1..8, removed vertex at 0.00000000 0.00000000 0.00000000 | domain clean '', volume 8; lattice Ok, 22648 triangles, volume 1.5569095922592329, bounds x[-0.96900419,0.99992174] y[-0.99992174,0.96900419] z[-0.99992174,0.96900419]; compact domain: 43216 triangles, volume 3.860908571064577
 FAIL findings2 | H2-F1 TpmsLattice: a domain mesh with an id gap (removed vertex at 0.00000000 0.00000000 0.00000000) gives the lattice of its compact copy | 21120 vertices / 43216 triangles vs 11296 / 22648
 INFO findings2 | H2-F1 box domain with vertex ids 1..8, removed vertex at 3.00000000 0.00000000 0.00000000 | domain clean '', volume 8; lattice Ok, 18336 triangles, volume 1.0012731644543098, bounds x[-0.96900419,2.84458518] y[-0.99992174,0.98322890] z[-0.99992174,0.96900419]; compact domain: 43216 triangles, volume 3.860908571064577
@@ -255,5 +255,5 @@ INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, as generated |
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, permuted (seed 9) | Success, 196 faces (area / edge^2 = 208), DroppedFaces 0
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, permuted (seed 10) | Success, 185 faces (area / edge^2 = 208), DroppedFaces 1
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, flipped | Success, 143 faces (area / edge^2 = 208), DroppedFaces 11
-STAGE findings2 | pass 8, fail 37, slow 0 | 2548 ms
-TOTAL pass 9496, fail 37, slow 0
+STAGE findings2 | pass 8, fail 37, slow 0 | 2718 ms
+TOTAL pass 9491, fail 37, slow 0

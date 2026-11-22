@@ -144,7 +144,11 @@ namespace geometry3Sharp.Tests
                 DMesh3 back = Read(ext, bytes);
                 Holds(IndependentChecks.SameBits(src, back), $"{ext} round trip at scale {s}");
                 Holds(IndependentChecks.ClosedManifold(back), $"{ext} round trip at scale {s}");
-                Assert.True(bytes.SequenceEqual(Write(ext, back, binary)), $"{ext}: the second write differs at scale {s}");
+                // (a 3MF file is a zip archive whose entries carry the time of the write: its bytes differ from one write to the next,
+                // so there the second file is read back instead)
+                byte[] second = Write(ext, back, binary);
+                if (ext == "3mf") Holds(IndependentChecks.SameBits(back, Read(ext, second)), $"{ext}: the second round trip at scale {s}");
+                else Assert.True(bytes.SequenceEqual(second), $"{ext}: the second write differs at scale {s}");
             }
             DMesh3 gaps = IndependentChecks.WithIdGaps(mesh, out _);
             Assert.False(gaps.IsCompact);

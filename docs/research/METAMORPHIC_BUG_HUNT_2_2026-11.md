@@ -28,7 +28,7 @@ Out of scope (other sessions): `MeshPostRepairCleanup`, `SolidBooleanPipeline`, 
    with a wrong result outside about 2^-240 .. 2^250 (the "false success outside the range" class of
    [qa/testing-and-invariance.md](../qa/testing-and-invariance.md#25a-supported-input-range-correct-inside-fail-gracefully-outside-owner-2026-11-09)).
    Section 4.
-2. **Everything else holds**: 9496 checks pass; the 37 failures of the run are the three findings (stage `findings2`). No
+2. **Everything else holds**: 9491 checks pass; the 37 failures of the run are the three findings (stage `findings2`). No
    call above 20 s on a valid input (F1 produced one run of more than 10 minutes, section 4.1).
 3. Two of the three findings came from **relations that are not in the brief's list** and that hunt 1 did not run: "a mesh
    with gaps in its ids is the same input as its compact copy" (F1) and "a field times a positive constant has the same
@@ -67,7 +67,7 @@ The feature pass is internal: the harness reaches it by reflection, the tests th
 
 | Stage | Operations | Cases | Passed | Failed | Time |
 |---|---|---|---|---|---|
-| `io` | `StandardMeshReader` / `StandardMeshWriter`: obj, off, stl (ascii, binary), ply (ascii, binary, float), g3mesh, 3mf, glb, gltf, xyz | 12 formats x 5 meshes, attributes, 2^-300 .. 2^300 | 1404 | 0 | 0.8 s |
+| `io` | `StandardMeshReader` / `StandardMeshWriter`: obj, off, stl (ascii, binary), ply (ascii, binary, float), g3mesh, 3mf, glb, gltf, xyz | 12 formats x 5 meshes, attributes, 2^-300 .. 2^300 | 1399 | 0 | 0.8 s |
 | `loft` | `ContourLoft`, `ContourLoftStack` | 8 contour pairs x 2 costs x normalized x caps; 6 stacks x saddle | 2666 | 0 | 3.0 s |
 | `contour2` | `MarchingCubes`, `DualContouring`, `TpmsLattice` | 5 fields x 3 methods; 6 types x 3 styles, fractions, divisions | 594 | 0 | 9.4 s |
 | `geodesic` | `PolyhedralGeodesicDistance` and `TracePath`, `MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier`, `VectorHeatMethod` | 8 meshes x 3 sources | 823 | 0 | 2.7 s |
@@ -78,7 +78,7 @@ The feature pass is internal: the harness reaches it by reflection, the tests th
 | `tet` | `MeshTetrahedralization` | 5 inputs x 9 option sets | 721 | 0 | 22.7 s |
 | `robust` | id gaps, field x 2^k, scales 2^-320 .. 2^400 over 14 operations | 2 meshes; 9 factors; 19 exponents | 57 | 0 | 3.4 s |
 | `findings2` | the reduced cases of section 4 and the observations of section 6 | | 8 | 37 (F1: 2, F2: 9, F3: 26) | 2.5 s |
-| total | | | 9496 | 37 | 75 s |
+| total | | | 9491 | 37 | 75 s |
 
 Relations per area ("holds" means on every case of the stage; the details are in the stage files):
 
@@ -247,7 +247,9 @@ public void DualContouring_FieldTimesAConstant_SameLevelSet(int exponent, bool s
    `RealizedVolumeFraction` reports it. Below about 0.1 at 8 divisions: `ContouringFailed`, "the lattice is empty".
 4. **STL and glTF are not idempotent in their bytes**: STL writes the facet normal of the positions it is given (the first read
    rounded them); glTF stores float positions about the bounding box centre, which is another double for the read mesh. Both
-   stay within the format's precision (documented for glTF); the exact formats write the same bytes again.
+   stay within the format's precision (documented for glTF); the exact formats write the same bytes again. Except 3MF: a zip
+   archive whose entries carry the time of the write (2 s resolution), so two writes of one mesh can differ; the byte comparison
+   passed locally and failed once in CI on net48, and is not made for 3MF any more (the second file is read back instead).
 5. **ascii STL and OFF are not 2^k exact**: a fixed number of digits after the point (documented on `RealPrecisionDigits`).
 6. **`g3mesh` keeps the id gaps of a mesh**, every other format writes compact lists. Both read back as the same solid.
 7. **The wrap, the tet mesher, the quad remesher and the feature pass are not the same mesh for a permuted or flipped input**

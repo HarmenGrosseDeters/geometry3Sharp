@@ -256,7 +256,9 @@ namespace MetamorphicBugHunt
                             if (lossy) { if (same != "") Program.Info(S, c + " | second round trip", "float positions about another centre: " + same); Program.Report(S, c + " | second round trip close", MaxDiff(r, r2) <= 1e-6 * Checks.Bounds(mesh).MaxDim ? "" : "max difference " + MaxDiff(r, r2).ToString("R")); }
                             else Program.Report(S, c + " | second round trip same mesh", same);
                             bool sameBytes = bytes.SequenceEqual(bytes2);
-                            if (lossy || f.Ext == "stl") { if (!sameBytes) Program.Info(S, c + " | second write", "other bytes (normals or the centre of rounded positions)"); }
+                            // (3MF: a zip archive, its entries carry the time of the write, so the bytes depend on the clock)
+                            if (f.Ext == "3mf") { }
+                            else if (lossy || f.Ext == "stl") { if (!sameBytes) Program.Info(S, c + " | second write", "other bytes (normals or the centre of rounded positions)"); }
                             else Program.Report(S, c + " | second write same bytes", sameBytes ? "" : $"bytes differ ({bytes.Length} vs {bytes2.Length})");
                         }
                         // gaps in the ids: the same file as the compact copy
