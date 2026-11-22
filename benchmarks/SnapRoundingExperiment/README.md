@@ -55,6 +55,27 @@ same repair without the removal ends clean (`no_removal_clean`, a probe outside 
 each removed component (`no_removal_volume_ratio`: its volume after over before, 1 = kept as it was). Raw output:
 `trace/results/bound_2026-11-22.jsonl`, `bound_scale_2026-11-22.jsonl`, `bound_drop_2026-11-22.jsonl`.
 
+## Thin and tiny components: what the removal takes, and candidate rules (2026-11-22, #1216)
+
+The measurement of [docs/research/ROUNDING_THIN_SOLIDS_2026-11.md](../../docs/research/ROUNDING_THIN_SOLIDS_2026-11.md)
+(the tables and their reading are there). `thin <case>...` (`ThinSolids.cs`) prints one JSON line per case: the boolean
+as it is today, the exact result plainly rounded, and the boolean's own repair run on it again with
+`RemoveTinyComponents` off (the same options; the fixed vertices and point ids are read from the boolean by
+reflection). Per closed component that is thin, tiny or of zero volume it lists area and exact volume before and after
+the edits, whether an edit touched it and the defects left in it; every candidate rule is then applied to those
+components and its outcome checked with `NotCleanReasons`. Today's rule, written out the same way, must reproduce the
+boolean's own result (`replica`; it does on all 3474 non-empty results).
+
+- `thin.py run <dir> [<set>...]` runs the sets `issue` (the rows of the issue), `sheet` (its repro scaled: thickness,
+  size, offset, six frames), `plate`, `drop`, `copies` (A minus a nearly coincident copy, 1 to 2^36 ulps apart) and the
+  generated sets below, one compressed file per set; a rerun gives the same files bit for bit.
+- `thin.py tables <dir>` prints the tables of the note; `thin.py selftest` checks its classification.
+- `thin dump <case>` prints the operands and the plainly rounded exact result; `thin cost <case>` times the one pass a
+  candidate adds against the boolean and its rounding.
+- Raw output: `trace/results/thin_2026-11-22/` (`<set>.jsonl.gz`, `tables.txt`, `cost.jsonl`).
+
+No library code is changed and no rule is built: the rules exist only as predicates in `ThinSolids.cs`.
+
 ## Sets
 
 All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs`), no mesh files:
