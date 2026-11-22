@@ -202,7 +202,8 @@ them (cell 0.25, `Simplify` off unless stated):
 |---|---|---|
 | the values, e <= -52 (default: empty; `Simplify` off: 2408 triangles, moved vertices) | another | `exact_gradient(pe).Normalized` (`DualContouring.cs` 326; also 316, 328): `Vector3d.Normalized` returns zero below the absolute `MathUtil.Epsilon` = 2.2e-16. The gradient is values over geometry |
 | the geometry, values of order 1, e >= 100 (tested from 2^100; the rule predicts it from about 2^52) | 295 of 296 vertices moved; default: empty | the same line: the gradient is 2^-e |
-| the values, e <= -45 with `ExactHermite` off; field and geometry together, e <= -48 | other quad diagonals, the same vertices | `Math.Abs(fb - fa) > MathUtil.Epsilon` (311, and 2413 for the face vertices): an absolute test on a difference of values |
+| the values, e <= -45 with `ExactHermite` off | other quad diagonals, the same vertices | `Math.Abs(fb - fa) > MathUtil.Epsilon` (311, and 2413 for the face vertices): an absolute test on a difference of values |
+| field and geometry together, e <= -48; the geometry alone, e = -60 | other quad diagonals, the same vertices | `MathUtil.Normal` in `append_quad` (`DualContouring.cs` 2522, 2523) normalizes the edge vectors with the absolute 2.2e-16, so the normals of triangles with edges below that are zero and the diagonal choice changes. Found while building the fix (2026-11-22); the first version of this note put this row on line 311, and the prototype of 6.4 does not repair it |
 | the values, e <= -150 | empty | the grid stores `float` (792, 1400, 1407): values below 1.4e-45 are 0 |
 | the values, e >= 130 with `ExactHermite` off | all vertices moved | the float grid again: `clamp_value` (827, 1407) clamps at 2^127, the interpolated crossing is then 0.5 |
 | field and geometry, e >= 262, `Simplify` on | 168 triangles in place of 132, closed, the same surface | `n0.Dot(n1) > 0`, `AdaptiveDualContouring.cs` 428 (section 6.3) |

@@ -1,0 +1,49 @@
+corpus: 21 cases x 2 frames, 0 defects
+class | case | hole | tris | pairs | untangled | repair path | repair clean | h(result->input) | repair path after untangling | clean | h(result->input)
+parts | two boxes overlapping by half (components) | at the intersection | 23 | 10 | no | ExactResolve | True | 0.07158 | - | False | -
+parts | two boxes overlapping by half (components) | far from it | 23 | 12 | no | ExactResolve | True | 0.08388 | - | False | -
+parts | two boxes overlapping by 1e-6 (components) | at the intersection | 23 | 3 | yes | ExactResolve | True | 0.0266 | ExactResolve | True | 0.0266
+parts | two boxes overlapping by 1e-6 (components) | far from it | 23 | 10 | yes | ExactResolve | True | 0.10129 | Repair | True | 0.10129
+parts | two spheres, penetration 0.05 r (components) | at the intersection | 2903 | 41 | yes | ExactResolve | True | 0.00718 | Repair | True | 0.00746
+parts | two spheres, penetration 0.05 r (components) | far from it | 2903 | 42 | yes | ExactResolve | True | 0.00706 | Repair | True | 0.00706
+parts | two spheres, penetration 0.8 r (components) | at the intersection | 2903 | 182 | yes | ExactResolve | True | 0.00717 | Repair | True | 0.08527
+parts | two spheres, penetration 0.8 r (components) | far from it | 2903 | 185 | yes | ExactResolve | True | 0.00824 | Repair | True | 0.08527
+parts | helix tube, turns overlap by 0.1 r (connected) | at the intersection | 3103 | 259 | yes | ExactResolve | True | 0.00208 | Repair | True | 0.00448
+parts | helix tube, turns overlap by 0.1 r (connected) | far from it | 3103 | 262 | yes | ExactResolve | True | 0.00727 | Repair | True | 0.00727
+parts | helix tube, turns overlap by 1.0 r (connected) | at the intersection | 3103 | 293 | yes | ExactResolve | True | 0.00383 | Repair | True | 0.02754
+parts | helix tube, turns overlap by 1.0 r (connected) | far from it | 3103 | 296 | yes | ExactResolve | True | 0.00759 | Repair | True | 0.02754
+pushed | sphere cap pushed through the far side by 0.2 r | at the intersection | 2699 | 26 | yes | ExactResolve | True | 0.00797 | Repair | True | 0.01448
+pushed | sphere cap pushed through the far side by 0.2 r | far from it | 2699 | 28 | yes | ExactResolve | True | 0.00743 | Repair | True | 0.01454
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | at the intersection | 3071 | 34 | yes | ExactResolve | True | 0.00516 | Repair | True | 0.0052
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | far from it | 3071 | 36 | yes | ExactResolve | True | 0.0004 | Repair | True | 0.00135
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | at the intersection | 3071 | 74 | yes | ExactResolve | True | 0.00929 | Repair | True | 0.0284
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | far from it | 3071 | 76 | yes | ExactResolve | True | 0.0004 | Repair | True | 0.0284
+flap | sphere, one vertex moved 1.5 edges tangentially | at the intersection | 1451 | 5 | yes | ExactResolve | True | 0.00138 | Repair | True | 0.00139
+flap | sphere, one vertex moved 1.5 edges tangentially | far from it | 1451 | 6 | yes | ExactResolve | True | 0.01116 | Repair | True | 0.01116
+flap | sphere, 10 % of the vertices moved 0.8 edges | at the intersection | 1451 | 22 | yes | ExactResolve | True | 0.00958 | Repair | True | 0.00959
+flap | sphere, 10 % of the vertices moved 0.8 edges | far from it | 1451 | 24 | yes | ExactResolve | True | 0.0118 | Repair | True | 0.0118
+flap | sphere, 10 % of the vertices moved 1.5 edges | at the intersection | 1451 | 168 | yes | ExactResolve | True | 0.00106 | Repair | True | 0.00612
+flap | sphere, 10 % of the vertices moved 1.5 edges | far from it | 1451 | 169 | yes | ExactResolve | True | 0.01125 | Repair | True | 0.01125
+flap | box ridge folded back over the top face | at the intersection | 767 | 30 | yes | ExactResolve | True | 0.01068 | Repair | True | 0.01431
+flap | box ridge folded back over the top face | far from it | 767 | 31 | yes | ExactResolve | True | 0.01378 | Repair | True | 0.01378
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | at the intersection | 3071 | 10 | yes | ExactResolve | True | 0.003 | Repair | True | 0.003
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | far from it | 3071 | 12 | yes | ExactResolve | True | 0.0004 | Repair | True | 0.0004
+coplanar | flat face, one vertex moved 1.5 cells in the face | at the intersection | 767 | 1 | yes | ExactResolve | True | 0.01778 | Repair | True | 0.01784
+coplanar | flat face, one vertex moved 1.5 cells in the face | far from it | 767 | 3 | yes | ExactResolve | True | 0.01378 | Repair | True | 0.01378
+coplanar | two boxes with coplanar faces overlapping (components) | at the intersection | 23 | 18 | yes | ExactResolve | True | 0.04668 | Repair | True | 0.07967
+coplanar | two boxes with coplanar faces overlapping (components) | far from it | 23 | 24 | yes | ExactResolve | True | 0.09336 | Repair | True | 0.09337
+cad | pocket floor pushed through the bottom by 0.25 | at the intersection | 27 | 4 | yes | ExactResolve | True | 0.05515 | ExactResolve | True | 0.05521
+cad | pocket floor pushed through the bottom by 0.25 | far from it | 27 | 10 | yes | ExactResolve | True | 0.02866 | Repair | True | 0.02866
+cad | pocket floor pushed through the bottom by 2 | at the intersection | 27 | 5 | yes | ExactResolve | True | 0.05146 | ExactResolve | True | 0.1242
+cad | pocket floor pushed through the bottom by 2 | far from it | 27 | 10 | yes | ExactResolve | True | 0.02676 | Repair | True | 0.1242
+cad | boss top edge pushed through the opposite wall | at the intersection | 27 | 4 | yes | ExactResolve | True | 0.03503 | Repair | True | 0.03774
+cad | boss top edge pushed through the opposite wall | far from it | 27 | 5 | yes | ExactResolve | True | 0.10735 | Repair | True | 0.10735
+cad | box corner pushed through the opposite face | at the intersection | 11 | 2 | yes | ExactResolve | True | 0.03726 | Repair | True | 0.11035
+cad | box corner pushed through the opposite face | far from it | 11 | 5 | yes | ExactResolve | True | 0.05621 | Repair | True | 0.04149
+cad | bracket: top of the low arm pushed below the bottom | at the intersection | 27 | 4 | yes | ExactResolve | True | 0.00006 | Repair | True | 0.04324
+cad | bracket: top of the low arm pushed below the bottom | far from it | 27 | 5 | yes | ExactResolve | True | 0.04455 | Repair | True | 0.04786
+
+after untangling: - | 2
+after untangling: ExactResolve | 3
+after untangling: Repair | 37
+as is: ExactResolve | 42

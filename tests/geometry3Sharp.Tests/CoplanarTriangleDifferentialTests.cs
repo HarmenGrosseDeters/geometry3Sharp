@@ -11,7 +11,8 @@ namespace geometry3Sharp.Tests
     /// IntrTriangle3Triangle3 on coplanar triangles against the exact contract (ExactTriangleIntersection): fixtures
     /// with analytic outlines in five planes and all corner permutations, a seeded half-integer lattice, reuse,
     /// similarities. Taken from the tests of #193 (branch qa/differential-core-tests); its tests of the 2D clipping
-    /// (IntrTriangle2Triangle2) are not here, that class is unchanged.
+    /// (IntrTriangle2Triangle2) are not here: that class keeps its floating-point clipping (documented as legacy;
+    /// the one test below pins that a contact without area is not reported by it).
     /// </summary>
     public class CoplanarTriangleDifferentialTests
     {
@@ -392,6 +393,31 @@ namespace geometry3Sharp.Tests
                 AssertPositiveOutline(query, expected, Resolution(translatedA, translatedB), context);
                 Assert.Equal(height / 32, Area(expected));
             }
+        }
+
+        /// <summary>
+        /// IntrTriangle2Triangle2 is the floating-point legacy class (documented on it): a contact without area is not reported,
+        /// where IntrTriangle3Triangle3 with ReportCoplanarIntersection decides exactly and reports it, as a point or a
+        /// segment. The pinned side is the legacy behaviour; the exact side is the route the documentation names.
+        /// </summary>
+        [Theory]
+        [InlineData(0, 1)]    // a common corner: a point
+        [InlineData(1, 2)]    // a common edge, opposite sides: a segment
+        [InlineData(2, 2)]    // a corner on the other's edge, partly along it: a segment
+        public void TouchOnlyContact_IsNotReportedBy2DLegacyClass_ButByTheExact3DRoute(int which, int quantity)
+        {
+            Vector2d[][] pairs = {
+                new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0, 1), new Vector2d(1, 0), new Vector2d(2, 0), new Vector2d(1, 1) },
+                new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0, 1), new Vector2d(1, 0), new Vector2d(1, 1), new Vector2d(0, 1) },
+                new[] { new Vector2d(0, 0), new Vector2d(2, 0), new Vector2d(0, 2), new Vector2d(1, 0), new Vector2d(3, 0), new Vector2d(1, -1) },
+            };
+            Vector2d[] c = pairs[which];
+            var a2 = new Triangle2d(c[0], c[1], c[2]); var b2 = new Triangle2d(c[3], c[4], c[5]);
+            Assert.False(new IntrTriangle2Triangle2(a2, b2).Find(), "2D legacy: a contact without area is not reported");
+            Triangle3d Lift(Vector2d p, Vector2d q, Vector2d r) => new Triangle3d(new Vector3d(p.x, p.y, 0), new Vector3d(q.x, q.y, 0), new Vector3d(r.x, r.y, 0));
+            var exact = new IntrTriangle3Triangle3(Lift(c[0], c[1], c[2]), Lift(c[3], c[4], c[5])) { ReportCoplanarIntersection = true };
+            Assert.True(exact.Find(), "3D exact route reports the contact");
+            Assert.Equal(quantity, exact.Quantity);
         }
     }
 }

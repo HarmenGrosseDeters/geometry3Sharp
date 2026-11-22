@@ -100,6 +100,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Defaults_PreDecisionIsOn_InTheArrangementAndTheBoolean()
+        {
+            // kills a mutant of either default: nothing else leaves the flag unset (ExactMeshBoolean always passes its own to the arrangement)
+            Func<int, int, Vector3d> p = (x, y) => new Vector3d(x, y, 0);
+            var arr = new ExactMeshArrangement(new List<DMesh3> {
+                OneTriangle(p(0, 0), p(2, 0), p(0, 2)), OneTriangle(p(0, 2), p(2, 0), p(0, 0)) });
+            Assert.True(arr.PreDecideCoplanar);
+            arr.Compute();
+            Assert.Equal(1, arr.PreDecidedPairs);   // the same triangle twice: three shared corners, decided without clipping
+
+            Assert.True(new ExactMeshBoolean(OneTriangle(p(0, 0), p(2, 0), p(0, 2)), OneTriangle(p(0, 0), p(2, 0), p(0, 2)),
+                ExactMeshBoolean.Operations.Union).ArrangementPreDecideCoplanar);
+        }
+
+        [Fact]
         public void Decision_AllCasesOfTheThreeBranches()
         {
             Func<DMesh3, DMesh3, bool> decide = (a, b) => { var arr = Arrange(a, b, false); return arr.meets_only_at_shared(arr.Triangles[0], arr.Triangles[1]); };
