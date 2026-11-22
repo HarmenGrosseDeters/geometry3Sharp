@@ -19,7 +19,7 @@ namespace g3
     /// so the normals of the two faces of a crease do not blend (the QEF then finds the crease, QEFEigenTolerance
     /// can be low). With ExactHermite = false, or where Implicit disagrees with the sign of a grid value at an end of
     /// the edge (float rounding, imposed signs), the crossing is the linear interpolation of the grid values and the
-    /// normal the gradient at it (as before 2026-11). Without HermiteF the normals always come from Implicit, so it is
+    /// normal the gradient at it (with ExactHermite = false exactly as before 2026-11, see the notes). Without HermiteF the normals always come from Implicit, so it is
     /// needed in sparse mode too (the exact crossing then also uses it; the grid values only decide which edges cross).
     ///
     /// Each cell gets one vertex per surface patch (the patches marching cubes would create in it), as in
@@ -39,15 +39,19 @@ namespace g3
     ///
     /// Notes:
     ///   - inside is where the field is greater than IsoValue (eg winding number); set InsideIsLess for SDFs
-    ///   - Supported input range (ExactHermite, the default): neither the size of the values of Implicit nor the size of the
-    ///     geometry is part of the result. c * Implicit (c > 0, IsoValue 0) has the mesh of Implicit, a field of order 1 on
-    ///     geometry of size 2^e has the scaled mesh, and a level set whose gradient is far below 2.2e-16 is contoured (the
-    ///     Hermite normal and the crossing tests are relative; 2^k scales give the same bits, tested for values times
-    ///     2^-100 .. 2^100, geometry times 2^-60 .. 2^200 and both together times 2^-100 .. 2^400). Limits: the grid stores
-    ///     the node values as float, so a value below 1.4e-45 is 0 (an empty or partial contour, no status) and values above
-    ///     1.7e38 are clamped; coordinates and CellSize need squares that are normal doubles (below about 2^500). With
-    ///     ExactHermite = false the tests are absolute as before 2026-11 (a node difference or a gradient below 2.2e-16 gives
-    ///     the middle of the edge and no normal): that mode is for fields whose values and gradient are of ordinary size.
+    ///   - Supported input range (ExactHermite, the default; dense mode, ie Implicit sampled on the whole grid): neither the
+    ///     size of the values of Implicit nor the size of the geometry is part of the result. The normals of Implicit, the
+    ///     crossing tests and the normals of the quad diagonal choice are relative, so a level set whose gradient is far
+    ///     below 2.2e-16 is contoured, and 2^k scales give the same bits: tested for the values times 2^-100 .. 2^100
+    ///     (IsoValue 0), the geometry times 2^-60 .. 2^200 with values of order 1, and both together times 2^-100 .. 2^200
+    ///     (a smooth field: to 2^400). A factor that is not a power of two gives the same contour up to rounding. Limits:
+    ///     the grid stores the node values as float, so the bits are the same only while the values near the surface are
+    ///     normal floats (above 1.2e-38), a value below 1.4e-45 is 0 (an empty or partial contour, no status) and values
+    ///     above 1.7e38 are clamped; the degenerate-triangle rules of creased shapes need the fourth power of an edge to
+    ///     be finite (edges below about 2^250); sparse mode and local refinement are not covered (imposed signs use an
+    ///     absolute value step). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
+    ///     a gradient or a quad edge below 2.2e-16 gives the middle of the edge, no normal, or the first diagonal): that
+    ///     mode keeps its output bit for bit and is for fields and geometry of ordinary size.
     ///   - an ambiguous face between two single-patch cells (where the dual quads would share a non-manifold
     ///     edge) and a face between cells of different size get face vertices, so that their polygons become
     ///     fans that stay inside one cell each (Ju and Udeshi 2006, see FaceVertices): no quad is left out
@@ -83,7 +87,10 @@ namespace g3
         /// sharp shapes, slightly less accurate on smooth ones; about 66 instead of 6 evaluations of Implicit per
         /// sign-changing edge (0 to 100% more time on cheap fields, more on expensive ones; see
         /// benchmarks/DualContouringHermite). false gives the former behaviour (interpolation).
-        /// No effect when HermiteF is set (also where it returns false: the fallback stays the interpolation).
+        /// When HermiteF is set, no bisection is made (also where it returns false: the fallback stays the interpolation);
+        /// ExactHermite then still selects the relative tests of the class comment ("Supported input range") for the
+        /// interpolated crossing and the fallback normal. A normal returned by HermiteF is normalized with the absolute
+        /// threshold 2.2e-16 in both modes.
         /// </summary>
         public bool ExactHermite = true;
 
@@ -812,8 +819,9 @@ namespace g3
         }
 
         Vector3d node_pos(Vector3i n) { return origin + h * new Vector3d(n.x, n.y, n.z); }
-        // v times the power of two that brings its largest component into [1, 2). The scaling is exact, so the direction of v and
-        // the sign of a dot product of two such vectors are those of the unscaled ones, without underflow or overflow of the products.
+        // v times the power of two that brings its largest component into [1, 2). The scaling is exact for every component within
+        // 2^1022 of the largest (a smaller one becomes subnormal and may round), so for vectors without such a spread the direction
+        // of v and the sign of a dot product of two scaled vectors are those of the unscaled ones, without overflow of the products.
         internal static Vector3d pow2_scaled(Vector3d v)
         {
             double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
@@ -856,9 +864,11 @@ namespace g3
         // Do two node values differ enough to interpolate the crossing between them? With ExactHermite any difference counts (the
         // size of the values is not part of the level set). With ExactHermite = false the test is the absolute one from before
         // 2026-11, as that path's documented output: a smaller difference puts the crossing at the middle of the edge.
-        bool values_differ(double fa, double fb)
+        // A NaN value or two infinite ones do not differ in either mode (the middle of the edge, as before).
+        bool values_differ(double fa, double fb) { return values_differ(fa, fb, ExactHermite); }
+        internal static bool values_differ(double fa, double fb, bool relative)
         {
-            return ExactHermite ? fa != fb : Math.Abs(fb - fa) > MathUtil.Epsilon;
+            return Math.Abs(fb - fa) > (relative ? 0 : MathUtil.Epsilon);
         }
 
         bool is_inside(double f) { return InsideIsLess ? f < IsoValue : f > IsoValue; }
@@ -1486,8 +1496,7 @@ namespace g3
             return is_inside(Implicit.Value(ref pa)) == aInside && is_inside(Implicit.Value(ref pb)) != aInside;
         }
 
-        // central difference divided by its step 2s, so that the length (about |grad|) does not underflow into
-        // Vector3d.Normalized's absolute threshold at small scales
+        // central difference divided by its step 2s: about |grad| (unit_normal normalizes it at any magnitude)
         Vector3d exact_gradient(Vector3d p)
         {
             double s = h * ExactGradientStep;
@@ -2538,8 +2547,9 @@ namespace g3
             // crease line, #800) loses against one without: its normal is rounding noise, and the triangle has no area. With both
             // splits degenerate (or neither) the agreement decides, as before
             bool degA = degenerate(p0, p1, p2) || degenerate(p0, p2, p3), degB = degenerate(p1, p2, p3) || degenerate(p1, p3, p0);
-            double splitA = triangle_normal(p0, p1, p2).Dot(triangle_normal(p0, p2, p3));
-            double splitB = triangle_normal(p1, p2, p3).Dot(triangle_normal(p1, p3, p0));
+            // (ExactHermite = false keeps MathUtil.Normal, whose edge vectors below 2.2e-16 are zero: its output from before 2026-11)
+            double splitA = ExactHermite ? triangle_normal(p0, p1, p2).Dot(triangle_normal(p0, p2, p3)) : MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
+            double splitB = ExactHermite ? triangle_normal(p1, p2, p3).Dot(triangle_normal(p1, p3, p0)) : MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
             bool byAgreement = splitA >= splitB;
             bool preferA = (degA != degB) ? degB : byAgreement;
             if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0)) {

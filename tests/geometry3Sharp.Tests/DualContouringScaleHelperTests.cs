@@ -47,7 +47,8 @@ namespace geometry3Sharp.Tests
             var r = new Random(5);
             for (int i = 0; i < 500; ++i) {
                 Vector3d a = new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble()), b = new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble()), c = new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble());
-                if (i % 10 == 0) c = a + 0.5 * (b - a);         // collinear: the zero normal of MathUtil.Normal stays
+                if (i % 10 == 0) c = a + 0.5 * (b - a);         // nearly collinear: the same rounding noise as MathUtil.Normal
+                if (i % 10 == 5) c = b;                         // a repeated point: the zero normal stays
                 Vector3d n = MathUtil.Normal(a, b, c), m = DualContouring.triangle_normal(a, b, c);
                 Assert.True(n.x == m.x && n.y == m.y && n.z == m.z);
                 foreach (int e in new[] { -100, -600, 600 }) {
@@ -82,6 +83,24 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsNaN(a.Dot(b) - a.Dot(b)));       // the plain product is infinite
             Assert.True(DualContouring.pow2_scaled(a).Dot(DualContouring.pow2_scaled(b)) > 0);
             Assert.True(DualContouring.pow2_scaled(a).Dot(DualContouring.pow2_scaled(-b)) < 0);
+        }
+
+        [Fact]
+        public void ValuesDiffer_RelativeIsAnyDifference_AbsoluteIsTheOldThreshold_NaNNever()
+        {
+            Assert.True(DualContouring.values_differ(1e-300, 2e-300, true));
+            Assert.True(DualContouring.values_differ(0, double.Epsilon, true));
+            Assert.False(DualContouring.values_differ(1e-300, 2e-300, false));
+            Assert.False(DualContouring.values_differ(0, MathUtil.Epsilon, false));
+            Assert.True(DualContouring.values_differ(0, 2 * MathUtil.Epsilon, false));
+            Assert.True(DualContouring.values_differ(-1, 1, true));
+            Assert.True(DualContouring.values_differ(1, -1, false));
+            foreach (bool relative in new[] { true, false }) {
+                Assert.False(DualContouring.values_differ(0.5, 0.5, relative));
+                Assert.False(DualContouring.values_differ(double.NaN, 1, relative));
+                Assert.False(DualContouring.values_differ(1, double.NaN, relative));
+                Assert.False(DualContouring.values_differ(double.PositiveInfinity, double.PositiveInfinity, relative));
+            }
         }
     }
 }

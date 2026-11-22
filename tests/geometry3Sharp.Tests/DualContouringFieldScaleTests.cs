@@ -150,6 +150,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(unit, ScaledBack(scaled, e)));
         }
 
+        // a creased shape (the degenerate-split rule of the quad diagonals takes part): a box, field and geometry together.
+        // Fails before the fix at 2^-60 (other quad diagonals: the edge vectors were normalized with an absolute threshold).
+        [Theory]
+        [InlineData(-60, "default")]
+        [InlineData(-60, "Simplify off")]
+        [InlineData(200, "default")]
+        [InlineData(200, "Simplify off")]
+        public void Box_FieldAndGeometryTimesAPowerOfTwo_SameMeshBitForBit(int e, string config)
+        {
+            Func<Vector3d, double> box = p => Math.Max(Math.Abs(p.x) - 0.7, Math.Max(Math.Abs(p.y) - 0.9, Math.Abs(p.z) - 1.1));
+            double s = Pow2(e);
+            DMesh3 unit = Contour(box, UnitBox, 0.125, config);
+            AssertSolid(unit, "unit");
+            DMesh3 scaled = Contour(p => s * box(p / s), Scaled(UnitBox, s), 0.125 * s, config);
+            Assert.Equal("", Invariance.Difference(unit, ScaledBack(scaled, e)));
+        }
+
         // the field under every similarity, with a value scale of 2^-70 on top (a gradient of 8e-22 at unit scale): the 2^k scales
         // bit for bit, the others clean and of the same volume. Fails before the fix (empty meshes).
         [Fact]
@@ -295,6 +312,18 @@ namespace geometry3Sharp.Tests
         {
             double c = Pow2(e);
             Assert.Equal(digest, Digest(Contour(p => c * Sdf(p), UnitBox, 0.125, "ExactHermite off")));
+        }
+
+        // ... and where the geometry is small: the quad diagonals of ExactHermite = false are chosen as before (edge vectors below
+        // 2.2e-16 have no direction there), for the geometry alone and for field and geometry together
+        [Theory]
+        [InlineData(false, "2408 C88D33E9DDF3246E")]
+        [InlineData(true, "2408 C6BE37B01A0A267D")]
+        public void ExactHermiteOff_SmallGeometry_KeepsItsOutput(bool scaleValues, string digest)
+        {
+            double s = Pow2(-60);
+            DMesh3 m = Contour(p => (scaleValues ? s : 1) * Sdf(p / s), Scaled(UnitBox, s), 0.125 * s, "ExactHermite off");
+            Assert.Equal(digest, Digest(ScaledBack(m, -60)));
         }
     }
 }
