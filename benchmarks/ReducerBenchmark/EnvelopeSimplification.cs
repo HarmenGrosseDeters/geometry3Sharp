@@ -138,7 +138,7 @@ static class EnvelopeSimplification
     {
         if (closedInput == false) return m.CheckValidity(true, FailMode.ReturnOnly) ? "valid (open)" : "INVALID";
         string s = MeshRobustRepair.NotCleanReason(m, intersections);
-        return s ?? (intersections ? "clean" : "closed, manifold");
+        return string.IsNullOrEmpty(s) == false ? s : (intersections ? "clean" : "closed, manifold");
     }
 
     internal static void Run(Func<int, DMesh3> bumpy, Func<int, DMesh3> terrain, string[] args)

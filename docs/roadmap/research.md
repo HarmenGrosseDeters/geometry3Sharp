@@ -635,6 +635,11 @@ Ordered by expected value for the library.
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
+    - **Spike 2026-11-22** ([research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md),
+      `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
+      1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 1.4-98x the time. Leaning: no-go
+      for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
+      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner

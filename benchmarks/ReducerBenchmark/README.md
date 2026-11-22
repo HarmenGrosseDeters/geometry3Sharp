@@ -140,6 +140,81 @@ reports the bumpy sphere case. Each entry is triangles accepted, then µs per tr
 The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped (owner decision,
 ENVELOPE.md §6).
 
+## Reduction driven by the exact envelope (`envelope`, November 2026)
+
+Research spike for HP 10 ([docs/research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../../docs/research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md)):
+a whole reduction with `PolyhedralEnvelope.ContainsTriangle` (Wang et al. 2020, internal) as the collapse check, in a
+`Reducer` subclass of the benchmark (`EnvelopeSimplification.cs`), against the built-in `MaxDeviation`.
+
+```
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- envelope bracket            (A and C only: the upper bound)
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- envelope full "terrain 40"  (also "bumpy sphere 20", "cube 10")
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- envelope psi "bumpy sphere 20"
+```
+
+- **A**: `Reducer { MaxDeviation = eps }`. **C**: the same at 0.9 eps / sqrt 3, the distance envelope inside the polyhedra,
+  so A and C bracket what the envelope can reach. **B**: the envelope (point samples first, then `ContainsTriangle`).
+- **control**: the hook with `IsWithin`; "same" means its result equals A bit for bit (SHA-256).
+- Linux container, 4 cores, net10.0, Release, one run per entry; times in ms, the envelope's construction included.
+  Hausdorff distances are certified upper bounds to 0.01 eps.
+- "B without samples" was run for the terrain only (`full0`).
+- The topology column of the bumpy sphere and cube rows was printed empty (an empty `NotCleanReason`, which means clean,
+  before the label was fixed); it is written out here.
+
+| mesh | eps / diag | A: triangles, ms | C: triangles | B (envelope, with samples): triangles, ms | B without samples: triangles, ms | B / A triangles | B / A time | control (hook + IsWithin): ms, result vs A | A: h(R,M) / h(M,R) in eps | B: h(R,M) / h(M,R) in eps | A's triangles in the envelope | triangle checks B / control | checked position differs | topology A / B |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| terrain 40 | 0.001 | 2770, 283 | 3153 | 3138, 388 (build 61) | 3138, 1409 | 1.13 | 1.4 | 141, same | 1.01 / 1.02 | 0.57 / 0.68 | 1897 of 2770 | 367 / 2993 | 0 | valid (open) / valid (open) |
+| terrain 40 | 0.003 | 951, 248 | 1761 | 1590, 3133 (build 16) | 1590, 5035 | 1.67 | 12.6 | 266, same | 1.00 / 1.03 | 0.65 / 0.61 | 166 of 951 | 7392 / 8910 | 0 | valid (open) / valid (open) |
+| terrain 40 | 0.01 | 104, 223 | 244 | 201, 21726 (build 13) | 201, 25141 | 1.93 | 97.5 | 230, same | 0.99 / 1.03 | 0.64 / 0.70 | 15 of 104 | 11166 / 11268 | 0 | valid (open) / valid (open) |
+| bumpy sphere 20 | 0.001 | 1740, 667 | 2762 | 2630, 3354 (build 81) | - | 1.51 | 5.0 | 457, same | 1.01 / 1.01 | 0.58 / 0.58 | 454 of 1740 | 7745 / 10707 | 0 | closed, manifold / closed, manifold |
+| bumpy sphere 20 | 0.003 | 528, 570 | 1116 | 994, 7397 (build 23) | - | 1.88 | 13.0 | 552, same | 1.01 / 1.02 | 0.60 / 0.59 | 42 of 528 | 12538 / 13756 | 0 | closed, manifold / closed, manifold |
+| bumpy sphere 20 | 0.01 | 148, 338 | 296 | 270, 20943 (build 22) | - | 1.82 | 61.9 | 331, same | 1.00 / 1.00 | 0.59 / 0.58 | 23 of 148 | 14516 / 14858 | 0 | closed, manifold / closed, manifold |
+| cube 10 | 0.001 | 12, 3665 | 12 | 12, 141337 (build 26) | - | 1.00 | 38.6 | 19656, same | 0.01 / 0.01 | 0.01 / 0.01 | 12 of 12 | 63638 / 63638 | 0 | closed, manifold / closed, manifold |
+| cube 10 | 0.003 | 12, 2554 | 12 | 12, 149954 (build 5) | - | 1.00 | 58.7 | 12561, same | 0.01 / 0.01 | 0.01 / 0.01 | 12 of 12 | 63638 / 63638 | 0 | closed, manifold / closed, manifold |
+| cube 10 | 0.01 | 12, 1262 | 12 | 12, 149722 (build 7) | - | 1.00 | 118.6 | 5495, same | 0.01 / 0.01 | 0.01 / 0.01 | 12 of 12 | 63638 / 63638 | 0 | closed, manifold / closed, manifold |
+
+Per query (the queries of B, every fourth collapse, replayed serially; best of 3 for the envelope):
+
+| mesh | eps / diag | queries replayed | envelope µs (mean) | box scan µs (mean) | IsWithin µs (mean) | rejected at a vertex | one polyhedron holds it | full test: in | full test: out | envelope µs by class (vertex / one / in / out) | IsWithin accepts | envelope accepts |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| terrain 40 | 0.001 | 100 | 556 | 4 | 21 | 0 % | 23 % | 68 % | 9 % | - / 7 / 810 / 39 | 98 % | 91 % |
+| terrain 40 | 0.003 | 1815 | 908 | 4 | 22 | 0 % | 3 % | 89 % | 8 % | - / 7 / 1009 / 85 | 100 % | 92 % |
+| terrain 40 | 0.01 | 2767 | 4377 | 5 | 20 | 0 % | 11 % | 87 % | 2 % | - / 7 / 4952 / 4306 | 100 % | 98 % |
+| bumpy sphere 20 | 0.001 | 1962 | 832 | 6 | 46 | 0 % | 2 % | 89 % | 9 % | - / 8 / 929 / 74 | 100 % | 91 % |
+| bumpy sphere 20 | 0.003 | 3174 | 1281 | 7 | 43 | 0 % | 3 % | 95 % | 2 % | - / 8 / 1346 / 230 | 100 % | 98 % |
+| bumpy sphere 20 | 0.01 | 3626 | 3008 | 7 | 22 | 0 % | 12 % | 88 % | 0 % | - / 9 / 3397 / 4598 | 100 % | 100 % |
+| cube 10 | 0.001 | 3168 | 5431 | 3 | 783 | 0 % | 2 % | 98 % | 0 % | - / 7 / 5562 / - | 100 % | 100 % |
+| cube 10 | 0.003 | 3168 | 5674 | 1 | 538 | 0 % | 2 % | 98 % | 0 % | - / 6 / 5811 / - | 100 % | 100 % |
+| cube 10 | 0.01 | 3168 | 5686 | 3 | 153 | 0 % | 2 % | 98 % | 0 % | - / 6 / 5823 / - | 100 % | 100 % |
+
+Bracket on the larger inputs (`envelope bracket`):
+
+| mesh | triangles | eps / diag | A: triangles, ms | C: triangles, ms | C / A triangles |
+|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.001 | 1706, 3528 | 3616, 3263 | 2.12 |
+| bumpy sphere 40 | 18252 | 0.003 | 518, 2119 | 1062, 3072 | 2.05 |
+| bumpy sphere 40 | 18252 | 0.01 | 146, 947 | 292, 1498 | 2.00 |
+| terrain 80 | 12800 | 0.001 | 2941, 1503 | 6524, 1004 | 2.22 |
+| terrain 80 | 12800 | 0.003 | 932, 943 | 1627, 1239 | 1.75 |
+| terrain 80 | 12800 | 0.01 | 117, 615 | 340, 942 | 2.91 |
+
+With `PreventSelfIntersections` (`envelope psi`, eps = 0.003 of the diagonal):
+
+| mesh | eps / diag | A + PSI: triangles, ms, NotCleanReason | B + PSI: triangles, ms, NotCleanReason | B: in the envelope | B / A triangles | B / A time |
+|---|---|---|---|---|---|---|
+| bumpy sphere 20 | 0.003 | 528, 1029, clean | 994, 8098, clean | 994 of 994 | 1.88 | 7.9 |
+| cube 10 | 0.003 | 12, 2521, clean | 12, 157183, clean | 12 of 12 | 1.00 | 62.3 |
+
+Findings:
+- The envelope reduction is guaranteed (every result triangle is inside the envelope; measured deviation 0.57-0.65 eps),
+  but it stops at 1.13-1.93x the triangles of A on the curved inputs and takes 1.4-98x the time (cube: the same 12
+  triangles, 39-119x; 7-27x against the control, because the hook checks before the flip test).
+- 88-98 % of its queries run the full test (0.9-5.8 ms); the paper's fast path (one polyhedron holds the triangle,
+  6-8 µs) decides 2-12 %. The linear box scan is 1-7 µs.
+- `envelope full` on terrain 80 (12800 triangles) did not finish in 10 minutes.
+- The built-in `MaxDeviation` is slow on flat inputs: a cube of 4332 triangles takes 76 s at 0.001 (the research note,
+  section 5).
+
 ## Speculative parallel certification (measured and closed, 2026-11-02)
 
 The next checks of the queue were certified in parallel ahead of the serial loop, and a certificate was used only if
