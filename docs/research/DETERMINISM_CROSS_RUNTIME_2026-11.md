@@ -116,7 +116,7 @@ repeats the serial, parallel, processor-count and switch comparisons with the fi
 
 ### 3.3 Findings
 
-**F1. `LaplacianMeshSmoother` depends on the schedule (level L0, a defect).** `PackedSparseMatrix.Square`
+**F1. `LaplacianMeshSmoother` depends on the schedule (level L0, a defect; fixed after this study, issue #1314: the entries are now computed per row in column order, and the case is off the adversary's list).** `PackedSparseMatrix.Square`
 (`solvers/PackedSparseMatrix.cs`) computes the entries of the squared matrix in a `gParallel.BlockStartEnd` loop and
 appends them to one list under a spin lock, in the order the blocks happen to finish. The rows of the result keep that
 order, and `Multiply_Parallel` adds `row[k].d * X[row[k].j]` in row order, so the summation order of every product in the
@@ -382,7 +382,7 @@ clause 11 defines the reproducible subset this library's tier 1 already is.
 
 | rank | option | what the owner gets | effort | risk |
 |---|---|---|---|---|
-| 1 | **Fix F1** (sort the entries in `PackedSparseMatrix.Square`; test: the adversary case, serial equals parallel, processor counts) | the last known L0 defect of a documented operation gone | S / M, one small PR, label `bugfix` | results of `LaplacianMeshSmoother / Deformer` change in the last bits once, to the value of the serial run |
+| 1 | **Fix F1** (done, issue #1314; sort the entries in `PackedSparseMatrix.Square`; test: the adversary case, serial equals parallel, processor counts) | the last known L0 defect of a documented operation gone | S / M, one small PR, label `bugfix` | results of `LaplacianMeshSmoother / Deformer` change in the last bits once, to the value of the serial run |
 | 2 | **Keep the wide harness as the standing measurement** (this PR: examples and generators as cases, JIT switches, Windows arm64; then the 18 uncovered libm types as examples or cases) | every documented operation measured on every push that touches the harness, new examples covered automatically | done here; follow-up S | none; the workflow grows by one runner and four short runs |
 | 3 | **Stage 2 with decisions 1a and 2** (section 5) | the generated claim for the exact Boolean without rounding, with the rounding as a named assumption | L, one PR, about the size of stage 1 | file churn from Boolean PRs (plan #1241); F2's `CoreMath` variant needs an `Asin` port and a benchmark |
 | 4 | **Golden-master policy of section 6** with the reachability check as a CI step (a list of tier 1 types that may not gain a libm edge) | the tier is decided by a tool; a new `Math.Sin` on a tier 1 path fails CI instead of a hash on another platform months later | M: docs, one CI step, a baseline file | the `cha` bound puts operations with callbacks in tier 2; a baseline file is one more gate file |

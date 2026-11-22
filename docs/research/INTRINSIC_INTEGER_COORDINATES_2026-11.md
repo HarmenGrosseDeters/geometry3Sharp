@@ -269,6 +269,10 @@ change in the last bits and what the size limit of a refined subdivision is.
    **Done (#1313, 2026-11-22):** a false crossing is reported as `Inconsistent`. On this benchmark the 11 runs
    change from `Success` to `Inconsistent` (flips + insertions: 76 of 108 `Success`, none with a false crossing);
    the other steps are unchanged. The tables above are the state before the fix.
+   A second, rarer wrong `Success` found by the review of that fix (faces lost at coincident crossings: 21 wrong
+   `Success` results in 300 000 single near-edge insertions of the generator in
+   `IntrinsicCommonSubdivisionConsistencyTests`) is reported as `Inconsistent` since #1326; the counts of this
+   benchmark are the same before and after.
 2. **Option 2 when the owner wants a robust common subdivision**, as an opt-in layer first (no cost for the
    geodesic default). It is the cheap part of the paper, the measured cost is small, and it removes the
    extraction failures after flips in every run measured (the flips themselves still differ at ties).

@@ -83,6 +83,7 @@ static class Program
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
+        if (A.ContainsKey("open") && A["open"] == "1") return OpenShapes.Run(A);
         bool profile = A.ContainsKey("profile") && A["profile"] == "1";
         int adaptArg = A.ContainsKey("adapt") ? int.Parse(A["adapt"], CultureInfo.InvariantCulture) : 0;
         if (adaptArg < 0 || adaptArg > 2) throw new ArgumentOutOfRangeException("adapt", "adapt must be 0 (Off), 1 (Scale), or 2 (ScaleAndRotation).");
