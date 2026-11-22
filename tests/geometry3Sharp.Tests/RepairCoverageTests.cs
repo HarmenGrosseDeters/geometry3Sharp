@@ -79,7 +79,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 passed, rest;
             List<AxisAlignedBox3d> boxes;
-            Assert.False(MeshRobustRepairPassThrough.Split(new DMesh3(), 64, true, out passed, out rest, out boxes));
+            Assert.False(MeshRobustRepairPassThrough.Split(new DMesh3(), 64, true, true, out passed, out rest, out boxes));
             Assert.Null(passed);
             Assert.Null(rest);
             Assert.Null(boxes);
