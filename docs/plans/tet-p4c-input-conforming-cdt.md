@@ -1,9 +1,9 @@
 # Plan: Tet P4(c) — input-conforming CDT for clean inputs (owner decision)
 
-- **Board row:** OPEN_TOPICS.md §2 "Waiting for an owner decision", row "Tet: P4(c), input-conforming CDT for clean inputs"
+- **Board row:** OPEN_TOPICS.md (now parked by the owner, 2026-11-22), row "Tet: P4(c), input-conforming CDT for clean inputs"
 - **Kind:** owner decision
 - **Tier:** L (3-4 months estimated in TET_MESHING.md §17.3; exact arithmetic, 3D CDT recovery, bounds review, mutation gate)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the owner parked P4(c) on 2026-11-22 (option A; [OPEN_TOPICS.md](../OPEN_TOPICS.md) row "Tet: P4(c), input-conforming CDT for clean inputs": "Parked (owner 2026-11-22): starts only on the owner's go"; [ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22": "Parked: ... tet P4(c)"). The decision this plan asked for is taken; work starts only on the owner's go.
 
 ## Current state
 
@@ -18,6 +18,8 @@
   Steiner insertion, cavity retetrahedralization, acute-angle termination, exact arithmetic + full mutation shards).
 
 ## Trigger / decision needed
+
+Update 2026-11-22: decided, option A (park); the table is kept as the record of the options.
 
 Owner chooses whether to park/drop P4(c) now that P4(a) and P4(b) exist, or invest in a separate 3D CDT module:
 
