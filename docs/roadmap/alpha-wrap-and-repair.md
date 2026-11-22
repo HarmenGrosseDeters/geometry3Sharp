@@ -589,7 +589,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    ([ALPHA_DEFAULTS_800.md](../perf/ALPHA_DEFAULTS_800.md), run 43972566855 and the cap run 44013288852): lever 6 K (`AlphaWrapFeaturePass`,
    #736) stays opt-in; the raw-size budget (#846) stays off by default, with `MaxAlphaCoarsening` (#1014) opt-in; recipe for a
    bounded tail: budget 300,000 with `MaxAlphaCoarsening = 1.2` (mesh 40118: a coarsening above about 1.2 fills a hollow behind a narrow
-   neck). Open only if the owner wants the budget on by default: one 800 run of that recipe first (plan #1248).
+   neck). Owner 2026-11-22: the budget stays off by default (plan #1248 closed); turning it on would need one 800 run of that recipe first.
 2. The wrap tail above 20 s: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888),
    judged by the regression rule once the watch has a baseline.
 3. A quality-aware manifold step: an angle bound for the facets that `make_manifold` exposes (diagnosis in #919).

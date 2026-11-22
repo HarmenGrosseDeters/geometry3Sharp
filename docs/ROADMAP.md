@@ -117,7 +117,7 @@ the future" list, ordered by priority; this section names only what is in flight
 
 ## Open decisions (owner)
 
-Checked on 2026-11-17 (night).
+Checked on 2026-11-22.
 
 - **Branch deletion (decided, owner action pending; plan #1252):** the coordinator lists the candidates (branches whose PRs are merged
   or closed, plus `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`), and the
@@ -148,12 +148,15 @@ Decided on 2026-11-22 (owner, through the coordinator):
 - **Quads:** #1301 option A (the area ratio reported, not a fallback reason); the CurvatureAlignment benchmark on capsule and cylinder;
   `BoundarySpacingWeight` 0.05 (#1234).
 - **Stops:** tet HP5 option A; tie-order left at 498/500; snap rounding keeps SafeRounding (the per-result certificate documented); envelope
-  simplification; Boolean speed levers 3x and 1a (measured -2 % / 0 %, #1322 closed, #1323). Sharp wrap: option 1.
-- **Small items:** the `.g3mesh` reader refuses non-finite coordinates; PassageWrap refuses coordinates outside 2^+-128; TerrainSlopeDesign
+  simplification; Boolean speed levers 3x and 1a (measured -2 % / 0 %, #1322 closed, #1323).
+- **Sharp-feature recovery on the alpha wrap (HP 4):** option 1.
+- **Small items:** the `.g3mesh` reader refuses non-finite coordinates; PassageWrap refuses coordinates the alpha wrap cannot take (magnitudes above 2^128 or below 2^-128, as in `MeshAlphaWrap`); TerrainSlopeDesign
   768 / 1650 listed as unmeasurable with reasons; a mutation run skipped for a config or tool change shows as skipped, not success;
-  float32 STL at UTM: document recentring; the repair acceptance signal before a selection rule; `negative_volume` scaling.
+  float32 STL files at UTM coordinates: document recentring (the damage is in the file); repair: an acceptance signal first, a
+  candidate selection rule only after it; `negative_volume` scaling.
 - **Tet:** no lower limit on `MaxRadiusEdgeRatio` (#1249, option A); 839690 at alpha / 20 keeps the slide cap (#1251, option A).
-  #1096: closed without the Thingi10K run (#1246, option A). #1221 keeps its touch tolerance (256 eps M); #1223 option C stays parked.
+- **Repair and contracts:** #1096 closed without the Thingi10K run (#1246, option A); #1221 keeps its touch tolerance (256 eps M); #1223
+  option C (exact nesting) stays parked.
 - **Rows closed as decided earlier:** open inputs, inside / outside across patches (no use case, plan #1247); the alpha wrap's raw-size
   budget stays off by default (plan #1248).
 - **New sessions:** a metamorphic bug hunt across operations, the tests above 20 s (#698), then the rounding cost (hard problem 3 b-d).
@@ -258,7 +261,8 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
   no further starts until the count is back below it.
 - **Suspended (owner 2026-11-12, after the weekly reset):** the limit above is out of force until the owner sets it
   again; the coordinator still starts one PR-sized topic per session and keeps parallel sessions off the same files.
-- **Owner 2026-11-22:** the session caps are ignored, and so are the usage warnings (the owner resets the usage at 100 %).
+- **Owner 2026-11-22:** the session caps are ignored, and so are the usage warnings: the owner resets the usage when it reaches 100 %. This
+  overrides the rule "near the usage limit, finish running work only and start nothing new" of [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 8.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are

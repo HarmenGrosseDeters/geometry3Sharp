@@ -1,6 +1,6 @@
 # Open topics
 
-One board of every open topic of geometry3Sharp, one line each, as of 2026-11-21 (Berlin). Open items only: done, closed and
+One board of every open topic of geometry3Sharp, one line each, as of 2026-11-22 (Berlin). Open items only: done, closed and
 rejected items are not listed. Every item in §§2–5 links to a draft plan PR (`plan/*`, holding `docs/plans/<slug>.md`,
 not to be merged as is). Maintenance rule: a session that opens, finishes or changes the state of a topic updates its row
 here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) and the design notes.
@@ -16,7 +16,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Owner: whether to do it, now that P4(b) is known | [tet](design/TET_MESHING.md), plan #1250 |
+| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)
