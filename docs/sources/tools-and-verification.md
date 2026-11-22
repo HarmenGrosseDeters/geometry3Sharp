@@ -153,6 +153,23 @@ The [research report](../research/CROSS_FIELD_GEOMETRY.md) records opened source
 | Incidences and pinches missed by snap rounding in practice | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | paper only; background for the Q17 pinch fix |
 | Certified convex free regions | R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | paper only |
 
+## Magnitude robustness study
+
+The [study](../research/MAGNITUDE_ROBUSTNESS_2026-11.md) (probes in `benchmarks/MagnitudeRobustness`; no library code) read
+papers and documentation only; no external implementation code was read or run.
+
+| Topic | Source | Status |
+|---|---|---|
+| A stated exponent range for the predicates, overflow and underflow set aside | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, Discrete & Computational Geometry 18(3), 1997; read as report CMU-CS-96-140, [paper](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf) (section 2.1: exponents in [-142, 201]; conclusions) | paper, read |
+| The area of a triangle from its sides; over- and underflow evaded by scaling the data | W. Kahan, *Miscalculating Area and Angles of a Needle-like Triangle*, lecture notes, version of 2014-09-04, [notes](https://people.eecs.berkeley.edu/~wkahan/Triangle.pdf) (sections 2 and 4) | notes, read |
+| Sums of squares with accumulators scaled by powers of the radix | Reference BLAS `DNRM2`, [LAPACK 3.12.1 documentation](https://netlib.org/lapack/explore-html/d1/d2a/group__nrm2_gab5393665c8f0e7d5de9bd1dd2ff0d9d0.html); it cites J. L. Blue, *A Portable Fortran Program to Find the Euclidean Norm of a Vector*, ACM TOMS 4(1), 1978, [doi:10.1145/355769.355771](https://doi.org/10.1145/355769.355771), and E. Anderson, *Algorithm 978: Safe Scaling in the Level 1 BLAS*, ACM TOMS 44(1), 2017, [doi:10.1145/3061665](https://doi.org/10.1145/3061665) | routine documentation read; the two papers not opened |
+| Scale factors restricted to powers of the radix, so that scaling adds no rounding error | LAPACK `DGEEQUB`, [routine documentation](https://netlib.org/lapack/explore-html/df/d0a/group__geequb_gaef3a3015d58122ab3d4d018422b93b90.html) | documentation, read |
+| Filters that are wrong under underflow; range checks and an underflow guard | T. Bartels, V. Fisikopoulos, M. Weiser, *Fast Floating-Point Filters for Robust Predicates*, [arXiv:2208.00497](https://arxiv.org/abs/2208.00497), 2022 (BIT Numerical Mathematics 63, 2023, [doi:10.1007/s10543-023-00975-x](https://doi.org/10.1007/s10543-023-00975-x)) | arXiv v1 read; the journal version not opened |
+| A time step relative to the mean edge length, for invariance under scale | K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 32(5), 2013, [arXiv:1204.6216](https://arxiv.org/abs/1204.6216) (section 3.2.4) | paper, read |
+| Static filters need a bound on the input | M. Attene, *Indirect Predicates for Geometric Constructions*, Computer-Aided Design 126, 2020, [arXiv:2105.09772](https://arxiv.org/abs/2105.09772) (section 2.1) | paper, read |
+| Coordinates on an integer lattice of fixed size (snap rounding, exact computation) | O. Devillers, P. Guigue, *Inner and Outer Rounding of Boolean Operations on Lattice Polygonal Regions*, Computational Geometry 33, 2005, [arXiv:cs/0604059](https://arxiv.org/abs/cs/0604059) (section 1) | paper, read |
+| Not opened (named in the brief or looked for): J. D. Hobby, *Practical segment intersection with finite precision output*, Computational Geometry 13(4), 1999; N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002; IEEE 754 (`scaleB`, `logB`); the manuals of CGAL, Boost.Geometry and Clipper2 (hosts not reachable from the session) | -- | not used as evidence |
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |

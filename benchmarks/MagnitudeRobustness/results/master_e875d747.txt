@@ -1,0 +1,404 @@
+STAGE roots
+sphere of 152 vertices: edge lengths 0.2309 .. 0.4482 (2^-2.11 .. 2^-1.16)
+  Kahan product of four lengths (16 area^2): 2^-6.1 .. 2^-4.7
+    predicted at scale 2^e: some product subnormal for e <= -254, every product zero for e <= -268, some product infinite for e >= 258, every product infinite for e >= 258
+  squared components of the cross product (PolyhedralGeodesicDistance, lines 128 and 192): 2^-11.8 .. 2^-7.3
+    predicted: the largest subnormal for e <= -254, the largest infinite for e >= 258
+  triangle 0 (sides 0.261, 0.3158, 0.3556): angle 45.273 degrees, cotan 0.990521
+    2^-280: product zero, area zero (0 x 4^e), angle 0.000, cotan 1E+30, b^2 + c^2 - a^2 normal
+    2^-266: product subnormal, area normal (0.0398361 x 4^e), angle 45.237, cotan 0.991761, b^2 + c^2 - a^2 normal
+    2^-260: product subnormal, area normal (0.039886 x 4^e), angle 45.273, cotan 0.990521, b^2 + c^2 - a^2 normal
+    2^-256: product subnormal, area normal (0.039886 x 4^e), angle 45.273, cotan 0.990521, b^2 + c^2 - a^2 normal
+    2^-250: product normal, area normal (0.039886 x 4^e), angle 45.273, cotan 0.990521, b^2 + c^2 - a^2 normal
+    2^250: product normal, area normal (0.039886 x 4^e), angle 45.273, cotan 0.990521, b^2 + c^2 - a^2 normal
+    2^256: product normal, area normal (0.039886 x 4^e), angle 45.273, cotan 0.990521, b^2 + c^2 - a^2 normal
+    2^260: product infinite, area infinite (Infinity x 4^e), angle 90.000, cotan 0, b^2 + c^2 - a^2 normal
+    2^300: product infinite, area infinite (Infinity x 4^e), angle 90.000, cotan 0, b^2 + c^2 - a^2 normal
+    2^520: product infinite, area infinite (Infinity x 4^e), angle NaN, cotan NaN, b^2 + c^2 - a^2 NaN
+STAGE roots done in 0.0 s
+STAGE sweep
+PLAIN MeshGeodesicDistance [#1377] (unit run: true; 1.4 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-536: status false
+    2^-535 .. 2^-268: another (NaN or infinite values)
+    2^-267: status false
+    2^-266: another (1e-2 relative)
+    2^-265 .. 2^-263: another (1e-1 relative)
+    2^-262: another (1e-6 relative)
+    2^-261: another (1e-8 relative)
+    2^-260: another (1e-9 relative)
+    2^-259: another (1e-11 relative)
+    2^-258: another (1e-12 relative)
+    2^-257 .. 2^-256: another (1e-13 relative)
+    2^-255: another (1e-14 relative)
+    2^-254 .. 2^257: exact
+    2^258 .. 2^1020: status false
+PLAIN MeshGeodesicDistance (mesh triangles) [#1377] (unit run: true; 0.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-536: status false
+    2^-535 .. 2^-268: another (NaN or infinite values)
+    2^-267: status false
+    2^-266: another (1e-2 relative)
+    2^-265: another (1e-3 relative)
+    2^-264: another (1e-4 relative)
+    2^-263: another (1e-5 relative)
+    2^-262: another (1e-6 relative)
+    2^-261: another (1e-8 relative)
+    2^-260: another (1e-9 relative)
+    2^-259: another (1e-10 relative)
+    2^-258: another (1e-11 relative)
+    2^-257: another (1e-12 relative)
+    2^-256: another (1e-13 relative)
+    2^-255 .. 2^-254: another (1e-14 relative)
+    2^-253 .. 2^257: exact
+    2^258 .. 2^1020: status false
+PLAIN MeshGeodesicDistance.TracePath [#1377] (unit run: true; 0.4 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-536: status false
+    2^-535 .. 2^-268: another (sizes)
+    2^-267: status false
+    2^-266 .. 2^-32: another (sizes)
+    2^-31 .. 2^50: exact
+    2^51 .. 2^257: another (sizes)
+    2^258 .. 2^1020: status false
+PLAIN PolyhedralGeodesicDistance [#1377] (unit run: Ok; 1.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-266: status DegenerateTriangles
+    2^-265 .. 2^-261: another (above 1e-1 relative)
+    2^-260 .. 2^-259: another (1e-9 relative)
+    2^-258: another (1e-11 relative)
+    2^-257: another (1e-12 relative)
+    2^-256: another (1e-13 relative)
+    2^-255: another (1e-14 relative)
+    2^-254 .. 2^-253: another (1e-15 relative)
+    2^-252 .. 2^257: exact
+    2^258 .. 2^513: another (above 1e-1 relative)
+    2^514 .. 2^515: status PartiallyReached
+    2^516 .. 2^1020: status DegenerateTriangles
+PLAIN MeshGeodesicPath [#1377] (unit run: Success; 0.3 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-263: status TraceFailed
+    2^-262 .. 2^-260: another (sizes)
+    2^-259: another (1e-9 relative)
+    2^-258: another (1e-10 relative)
+    2^-257: another (1e-11 relative)
+    2^-256: another (1e-12 relative)
+    2^-255: another (1e-14 relative)
+    2^-254 .. 2^256: exact
+    2^257 .. 2^513: status TraceFailed
+    2^514 .. 2^1020: status NoPath
+PLAIN MeshGeodesicBezier [#1377] (unit run: Success; 0.7 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-490: status Stuck
+    2^-480 .. 2^-268: status TraceFailed
+    2^-267 .. 2^-265: status Stuck
+    2^-264 .. 2^-261: status TraceFailed
+    2^-260: another (1e-7 relative)
+    2^-259: another (1e-8 relative)
+    2^-258: another (1e-9 relative)
+    2^-257: another (1e-10 relative)
+    2^-256: another (1e-12 relative)
+    2^-255: another (1e-13 relative)
+    2^-254: another (1e-14 relative)
+    2^-253 .. 2^256: exact
+    2^257 .. 2^512: status TraceFailed
+    2^513: status Stuck
+    2^514 .. 2^1020: status NoPath
+PLAIN IntrinsicTriangulation.FlipToDelaunay [#1352] (unit run: flips; 0.0 s)
+    2^-1070 .. 2^-270: another (counts or indices)
+    2^-269 .. 2^255: exact
+    2^256 .. 2^1020: another (counts or indices)
+PLAIN IntrinsicTriangulation.DelaunayRefine [#1377] (unit run: Success; 0.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-536: another (counts or indices)
+    2^-535 .. 2^-268: status Incomplete
+    2^-267: another (1e-1 relative)
+    2^-266: another (1e-2 relative)
+    2^-265: another (counts or indices)
+    2^-264: status Incomplete
+    2^-263: another (counts or indices)
+    2^-262: another (1e-7 relative)
+    2^-261: another (1e-8 relative)
+    2^-260: another (1e-9 relative)
+    2^-259: another (1e-10 relative)
+    2^-258: another (1e-12 relative)
+    2^-257: another (1e-13 relative)
+    2^-256: another (1e-14 relative)
+    2^-255: another (1e-15 relative)
+    2^-254 .. 2^257: exact
+    2^258 .. 2^512: another (counts or indices)
+    2^513 .. 2^1020: status Incomplete
+PLAIN ExtractCommonSubdivision [#1352] (unit run: Success; 0.1 s)
+    2^-1070 .. 2^-270: status Inconsistent
+    2^-269 .. 2^-257: another (1e-15 relative)
+    2^-256 .. 2^255: exact
+    2^256 .. 2^511: another (counts or indices)
+    2^512 .. 2^1020: status Inconsistent
+PLAIN VectorHeatMethod.TransportVector [#1377] (unit run: returned; 0.8 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-268: threw InvalidOperationException
+    2^-267 .. 2^-255: another (above 1e-1 relative)
+    2^-254: another (1e-10 relative)
+    2^-253 .. 2^242: exact
+    2^243 .. 2^244: another (1e-15 relative)
+    2^245: another (1e-13 relative)
+    2^246: another (1e-12 relative)
+    2^247: another (1e-11 relative)
+    2^248: another (1e-10 relative)
+    2^249: another (1e-9 relative)
+    2^250: another (1e-7 relative)
+    2^251: another (1e-6 relative)
+    2^252: another (1e-5 relative)
+    2^253: another (1e-4 relative)
+    2^254 .. 2^255: another (1e-2 relative)
+    2^256 .. 2^257: another (NaN or infinite values)
+    2^258 .. 2^1020: threw InvalidOperationException
+PLAIN VectorHeatMethod.ComputeLogMap [#1377] (unit run: returned; 0.9 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-268: threw InvalidOperationException
+    2^-267 .. 2^-257: another (above 1e-1 relative)
+    2^-256: another (1e-11 relative)
+    2^-255: another (1e-10 relative)
+    2^-254: another (1e-12 relative)
+    2^-253 .. 2^242: exact
+    2^243: another (1e-15 relative)
+    2^244: another (1e-14 relative)
+    2^245: another (1e-13 relative)
+    2^246: another (1e-12 relative)
+    2^247: another (1e-11 relative)
+    2^248: another (1e-10 relative)
+    2^249: another (1e-9 relative)
+    2^250: another (1e-7 relative)
+    2^251: another (1e-6 relative)
+    2^252: another (1e-5 relative)
+    2^253: another (1e-4 relative)
+    2^254 .. 2^255: another (1e-2 relative)
+    2^256 .. 2^257: another (above 1e-1 relative)
+    2^258 .. 2^1020: threw InvalidOperationException
+PLAIN QuadRemesher [#1377] (unit run: Success; 2.7 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^-266: status FieldFailed
+    2^-265 .. 2^-252: another (counts or indices)
+    2^-251: another (1e-9 relative)
+    2^-250: another (1e-10 relative)
+    2^-249 .. 2^256: exact
+    2^257: another (counts or indices)
+    2^258 .. 2^1020: status FieldFailed
+PLAIN DualContouring (field and geometry x s) [#1376] (unit run: mesh; 1.7 s)
+    2^-1070 .. 2^-150: another (status empty)
+    2^-140 .. 2^-48: another (counts or indices)
+    2^-47 .. 2^261: exact
+    2^262 .. 2^1020: another (counts or indices)
+STAGE sweep done in 11.1 s
+STAGE prescale
+PRESCALED MeshGeodesicDistance [#1377] (unit run: true; 0.7 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED MeshGeodesicDistance (mesh triangles) [#1377] (unit run: true; 0.5 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED MeshGeodesicDistance.TracePath [#1377] (unit run: true; 0.6 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED PolyhedralGeodesicDistance [#1377] (unit run: Ok; 1.7 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED MeshGeodesicPath [#1377] (unit run: Success; 0.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED MeshGeodesicBezier [#1377] (unit run: Success; 0.5 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED IntrinsicTriangulation.FlipToDelaunay [#1352] (unit run: flips; 0.0 s)
+    2^-1070 .. 2^1020: exact
+PRESCALED IntrinsicTriangulation.DelaunayRefine [#1377] (unit run: Success; 0.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED ExtractCommonSubdivision [#1352] (unit run: Success; 0.1 s)
+    2^-1070 .. 2^1020: exact
+PRESCALED VectorHeatMethod.TransportVector [#1377] (unit run: returned; 1.1 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED VectorHeatMethod.ComputeLogMap [#1377] (unit run: returned; 1.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+PRESCALED QuadRemesher [#1377] (unit run: Success; 4.2 s)
+    2^-1070 .. 2^-1020: (the scaled input is not representable)
+    2^-1010 .. 2^1020: exact
+STAGE prescale done in 11.2 s
+STAGE dc
+PLAIN DualContouring, values x 2^e, default (504 triangles at e = 0)
+    2^-1060 .. 2^-52: another (status empty)
+    2^-51 .. 2^500: exact
+    2^520 .. 2^1020: another (status empty)
+PRESCALED DualContouring, values x 2^e, default
+    2^-1060: another (counts or indices)
+    2^-1040: another (1e-7 relative)
+    2^-1020 .. 2^1020: exact
+PLAIN DualContouring, values x 2^e, Simplify off (2408 triangles at e = 0)
+    2^-1060 .. 2^-150: another (status empty)
+    2^-149 .. 2^-52: another (counts or indices)
+    2^-51 .. 2^500: exact
+    2^520 .. 2^1020: another (counts or indices)
+PRESCALED DualContouring, values x 2^e, Simplify off
+    2^-1060: another (counts or indices)
+    2^-1040: another (1e-7 relative)
+    2^-1020 .. 2^1020: exact
+PLAIN DualContouring, values x 2^e, ExactHermite off (2408 triangles at e = 0)
+    2^-1060 .. 2^-150: another (status empty)
+    2^-149 .. 2^-45: another (counts or indices)
+    2^-44 .. 2^130: exact
+    2^131 .. 2^1020: another (counts or indices)
+PRESCALED DualContouring, values x 2^e, ExactHermite off
+    2^-1060: another (1e-2 relative)
+    2^-1040: another (1e-8 relative)
+    2^-1020 .. 2^1020: exact
+PRESCALED DualContouring, field and geometry x 2^e
+    2^-1060: another (counts or indices)
+    2^-1040: another (1e-7 relative)
+    2^-1020: another (1e-14 relative)
+    2^-1000 .. 2^1020: exact
+level 1E-005 of exp(-40 r^2): radius 0.5365, |gradient| at the surface 4.3E-004, volume 0.6468; MarchingCubes 0.6302; DualContouring 120 triangles, volume 0.6412; with the values prescaled by their maximum 120 triangles, volume 0.6412
+level 1E-010 of exp(-40 r^2): radius 0.7587, |gradient| at the surface 6.1E-009, volume 1.8295; MarchingCubes 1.8057; DualContouring 276 triangles, volume 1.8232; with the values prescaled by their maximum 276 triangles, volume 1.8232
+level 1E-014 of exp(-40 r^2): radius 0.8977, |gradient| at the surface 7.2E-013, volume 3.0305; MarchingCubes 3.0018; DualContouring 396 triangles, volume 3.0289; with the values prescaled by their maximum 396 triangles, volume 3.0289
+level 1E-016 of exp(-40 r^2): radius 0.9597, |gradient| at the surface 7.7E-015, volume 3.7026; MarchingCubes 3.6719; DualContouring 540 triangles, volume 3.7064; with the values prescaled by their maximum 540 triangles, volume 3.7064
+level 1E-020 of exp(-40 r^2): radius 1.0730, |gradient| at the surface 8.6E-019, volume 5.1745; MarchingCubes 5.1394; DualContouring 0 triangles, volume 0.0000; with the values prescaled by their maximum 0 triangles, volume 0.0000
+level 1E-030 of exp(-40 r^2): radius 1.3141, |gradient| at the surface 1.1E-028, volume 9.5061; MarchingCubes 9.4647; DualContouring 0 triangles, volume 0.0000; with the values prescaled by their maximum 0 triangles, volume 0.0000
+level 1E-040 of exp(-40 r^2): radius 1.5174, |gradient| at the surface 1.2E-038, volume 14.6357; MarchingCubes 14.6095; DualContouring 0 triangles, volume 0.0000; with the values prescaled by their maximum 0 triangles, volume 0.0000
+level 1E-050 of exp(-40 r^2): radius 1.6965, |gradient| at the surface 1.4E-048, volume 20.4539; MarchingCubes 20.4381; DualContouring 0 triangles, volume 0.0000; with the values prescaled by their maximum 0 triangles, volume 0.0000
+ordinary scale, sphere distance, default: plain 504 triangles; the wrapper: exact
+ordinary scale, sphere distance, Simplify off: plain 2408 triangles; the wrapper: exact
+ordinary scale, sphere distance, ExactHermite off: plain 2408 triangles; the wrapper: exact
+ordinary scale, 1000 x sphere distance, default: plain 504 triangles; the wrapper: exact
+ordinary scale, 1000 x sphere distance, Simplify off: plain 2408 triangles; the wrapper: exact
+ordinary scale, 1000 x sphere distance, ExactHermite off: plain 2408 triangles; the wrapper: exact
+ordinary scale, box distance, default: plain 12 triangles; the wrapper: exact
+ordinary scale, box distance, Simplify off: plain 2428 triangles; the wrapper: exact
+ordinary scale, box distance, ExactHermite off: plain 2428 triangles; the wrapper: exact
+ordinary scale, torus distance, default: plain 2160 triangles; the wrapper: exact
+ordinary scale, torus distance, Simplify off: plain 9040 triangles; the wrapper: exact
+ordinary scale, torus distance, ExactHermite off: plain 9040 triangles; the wrapper: exact
+ordinary scale, quartic blob x^4 + y^4 + z^4 - 1, default: plain 444 triangles; the wrapper: exact
+ordinary scale, quartic blob x^4 + y^4 + z^4 - 1, Simplify off: plain 2652 triangles; the wrapper: exact
+ordinary scale, quartic blob x^4 + y^4 + z^4 - 1, ExactHermite off: plain 2652 triangles; the wrapper: exact
+cost, sphere distance, cell 0.0625: plain 41.0 ms, geometry prescaled 39.9 ms, geometry and values prescaled 39.3 ms (-4.1 %)
+cost, sphere distance, cell 0.03125: plain 172.0 ms, geometry prescaled 151.1 ms, geometry and values prescaled 184.7 ms (7.4 %)
+STAGE dc done in 13.9 s
+STAGE dcbig
+AdaptiveDualContouring at 2^0: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^255: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^256: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^257: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^261: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^262: uniform 296 vertices / 588 triangles, clusters 50, merged vertices 260, check rounds 2, rejected clusters 7, base repairs 0, result 86 / 168, closed True, volume / s^3 4.196413
+AdaptiveDualContouring at 2^300: uniform 296 vertices / 588 triangles, clusters 50, merged vertices 260, check rounds 2, rejected clusters 7, base repairs 0, result 86 / 168, closed True, volume / s^3 4.196413
+AdaptiveDualContouring at 2^400: uniform 296 vertices / 588 triangles, clusters 50, merged vertices 260, check rounds 2, rejected clusters 7, base repairs 0, result 86 / 168, closed True, volume / s^3 4.196413
+DualContouring above 2^100, default
+  field and geometry x 2^e
+    2^100 .. 2^261: exact
+    2^262 .. 2^513: 86 vertices / 168 triangles (unit: 68 / 132)
+    2^514: 288 vertices / 572 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  geometry x 2^e, values of order 1
+    2^100 .. 2^1010: 1 vertices / 0 triangles (unit: 68 / 132)
+  values x 2^e, geometry of order 1
+    2^100 .. 2^512: exact
+    2^513 .. 2^1010: 1 vertices / 0 triangles (unit: 68 / 132)
+DualContouring above 2^100, Simplify off
+  field and geometry x 2^e
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^513: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 102 of 588 triangles with other indices
+    2^514: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 250 of 588 triangles with other indices
+    2^515 .. 2^1010: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 310 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^512: exact
+    2^513 .. 2^1010: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 102 of 588 triangles with other indices
+DualContouring above 2^100, Simplify off, ResolveSelfIntersections off
+  field and geometry x 2^e
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^513: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 102 of 588 triangles with other indices
+    2^514: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 250 of 588 triangles with other indices
+    2^515 .. 2^1010: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 310 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^512: exact
+    2^513 .. 2^1010: 295 of 296 vertices moved (at most 1.3E-001 in unit lengths), 102 of 588 triangles with other indices
+DualContouring above 2^100, ExactHermite off
+  field and geometry x 2^e
+    2^100 .. 2^129: exact
+    2^130: 253 of 296 vertices moved (at most 5.4E-002 in unit lengths), 36 of 588 triangles with other indices
+    2^131: 294 of 296 vertices moved (at most 1.3E-001 in unit lengths), 76 of 588 triangles with other indices
+    2^132: 295 of 296 vertices moved (at most 2.0E-001 in unit lengths), 112 of 588 triangles with other indices
+    2^133: 296 of 296 vertices moved (at most 2.0E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^134: 296 of 296 vertices moved (at most 2.6E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^135: 296 of 296 vertices moved (at most 2.5E-001 in unit lengths), 146 of 588 triangles with other indices
+    2^145 .. 2^513: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 152 of 588 triangles with other indices
+    2^514: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 210 of 588 triangles with other indices
+    2^515: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 298 of 588 triangles with other indices
+    2^516 .. 2^1010: 296 of 296 vertices moved (at most 1.7E-001 in unit lengths), 300 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 10 of 588 triangles with other indices
+    2^514: 18 of 296 vertices moved (at most 1.3E-001 in unit lengths), 178 of 588 triangles with other indices
+    2^515 .. 2^1010: 18 of 296 vertices moved (at most 1.3E-001 in unit lengths), 276 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^129: exact
+    2^130: 253 of 296 vertices moved (at most 5.4E-002 in unit lengths), 36 of 588 triangles with other indices
+    2^131: 294 of 296 vertices moved (at most 1.3E-001 in unit lengths), 76 of 588 triangles with other indices
+    2^132: 295 of 296 vertices moved (at most 2.0E-001 in unit lengths), 112 of 588 triangles with other indices
+    2^133: 296 of 296 vertices moved (at most 2.0E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^134: 296 of 296 vertices moved (at most 2.6E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^135: 296 of 296 vertices moved (at most 2.5E-001 in unit lengths), 146 of 588 triangles with other indices
+    2^145 .. 2^515: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 152 of 588 triangles with other indices
+    2^516 .. 2^1010: 296 of 296 vertices moved (at most 1.7E-001 in unit lengths), 140 of 588 triangles with other indices
+DualContouring above 2^100, ParallelCompute off
+  field and geometry x 2^e
+    2^100 .. 2^261: exact
+    2^262 .. 2^513: 86 vertices / 168 triangles (unit: 68 / 132)
+    2^514: 288 vertices / 572 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  geometry x 2^e, values of order 1
+    2^100 .. 2^1010: 1 vertices / 0 triangles (unit: 68 / 132)
+  values x 2^e, geometry of order 1
+    2^100 .. 2^512: exact
+    2^513 .. 2^1010: 1 vertices / 0 triangles (unit: 68 / 132)
+STAGE dcbig done in 6.0 s
+STAGE cost
+sphere, 3176 vertices, 6348 triangles (ms, median of 5, after one warm-up run)
+  MeshGeodesicDistance (build + one source)    plain     36.00  prescaled     31.52  plain again     39.71  overhead  -12.4 %
+  PolyhedralGeodesicDistance                   plain    160.78  prescaled    181.32  plain again    164.32  overhead   12.8 %
+  MeshGeodesicPath                             plain      7.17  prescaled      9.49  plain again      6.44  overhead   47.4 %
+  IntrinsicTriangulation + FlipToDelaunay      plain      5.08  prescaled      5.25  plain again      4.13  overhead   27.2 %
+  DelaunayRefine(25)                           plain      7.22  prescaled      8.77  plain again      9.52  overhead   21.6 %
+  VectorHeatMethod.TransportVector             plain     92.67  prescaled     75.32  plain again     67.52  overhead   11.5 %
+  QuadRemesher                                 plain     76.37  prescaled     61.23  plain again     62.51  overhead   -2.1 %
+  the scaled copy alone                            0.237
+sphere, 13256 vertices, 26508 triangles (ms, median of 5, after one warm-up run)
+  MeshGeodesicDistance (build + one source)    plain    160.11  prescaled    167.15  plain again    147.33  overhead   13.4 %
+  PolyhedralGeodesicDistance                   plain   1503.66  prescaled   1516.90  plain again   1512.28  overhead    0.9 %
+  MeshGeodesicPath                             plain     45.83  prescaled     35.19  plain again     33.68  overhead    4.5 %
+  IntrinsicTriangulation + FlipToDelaunay      plain     17.93  prescaled     17.83  plain again     18.07  overhead   -0.5 %
+  DelaunayRefine(25)                           plain     24.72  prescaled     28.90  plain again     33.45  overhead   16.9 %
+  VectorHeatMethod.TransportVector             plain    425.96  prescaled    442.26  plain again    430.10  overhead    3.8 %
+  QuadRemesher                                 plain    400.30  prescaled    413.03  plain again    384.05  overhead    7.5 %
+  the scaled copy alone                            1.003
+sphere, 54152 vertices, 108300 triangles (ms, median of 5, after one warm-up run)
+  MeshGeodesicDistance (build + one source)    plain    883.01  prescaled    947.35  plain again    993.26  overhead    7.3 %
+  PolyhedralGeodesicDistance                   plain   5189.36  prescaled   5679.67  plain again   5803.44  overhead    9.4 %
+  MeshGeodesicPath                             plain    231.23  prescaled    200.67  plain again    210.78  overhead   -4.8 %
+  IntrinsicTriangulation + FlipToDelaunay      plain    111.12  prescaled     86.23  plain again     81.66  overhead    5.6 %
+  DelaunayRefine(25)                           plain    142.56  prescaled    167.86  plain again    155.33  overhead   17.7 %
+  VectorHeatMethod.TransportVector             plain   2696.36  prescaled   2418.65  plain again   2753.29  overhead  -10.3 %
+  the scaled copy alone                            4.630
+STAGE cost done in 215.2 s
+STAGE formula
+area with a power-of-two normalization on the rare path: 0 of 458752 results differ from today's formula at 2^-255 .. 2^250; 0 of 131072 are not the scaled unit result at 2^-500 and 2^500
+  ns per call: today's formula 16.59 / 12.43, with the exponent test 15.85 / 12.32  (checksum 1.98E+08)
+STAGE formula done in 8.5 s
