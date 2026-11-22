@@ -353,6 +353,56 @@ So of the four plans, this study settles the first step of #1255 and lever (d) o
 normal-cone lead of #1253, and leaves the tail and open-operand questions (#1253 leads 1 and 3, #1258 (b), (c) and
 #837 lever 2, #1279) to measurements on their own strata.
 
+## 8b. The removal of tiny components and the levers (audit finding, 2026-11-22)
+
+The SolidBooleanPipeline audit found that SafeRounding's removal of tiny or thin components drops valid solids while the
+run reports success and `RoundingClean`; only `Rounding.RemovedComponents` shows it. Reproduced here
+(`seam-levers --parts drop`, `drop_untouched_cube.jsonl`): the box [0, 1024]³ united with a disjoint cube of edge 2^-k
+beside it. The cube is an input solid that the boolean does not touch.
+
+| cube edge | with SafeRounding | `RemovedComponents` | `RoundingClean`, `NotCleanReason` | without SafeRounding |
+|---|---|---:|---|---|
+| 2^0 … 2^-8 | both solids, 24 triangles | 0 | true, None | 24 triangles, None |
+| 2^-9 … 2^-12 | **the cube is gone**, 12 triangles | 1 | true, None | 24 triangles, **"degenerate triangles"** |
+
+**The mechanism** (`MeshRoundingRepair.remove_tiny_components`): the scan for degenerate triangles runs over all result
+triangles with one threshold, 1e-12 of the squared diagonal of all triangles. The cube's faces (area 2^-19 from edge
+2^-9 on) fall below it, so its 12 unchanged input triangles are "bad", the component counts as touched by a defect,
+it is tiny, and it is removed. No edit and no new vertex is involved. The same criterion is what `NotCleanReason`
+applies (the right column), so the removal is what makes the result "clean".
+
+**1. Does a lever widen the drop?** No. Every lever of this note is accepted only bit-identical (result hashes, and for
+1a also `RemovedComponents`, `RemovedTriangles` and `ScaleDisparity`), so each one drops exactly what is dropped today,
+and none drops more. This has a consequence for lever 1a, step 2: the scan for degenerate triangles must keep running
+over the unchanged triangles (section 4.2 lists it as needed), because that scan is how an untouched component reaches
+the removal. Restricting it to the new triangles would change results. On the two strata of this study the question
+does not arise: **0 components are removed in the 294 T6 booleans** (40 of them have degenerate triangles, 216 in all,
+repaired by 215 edits) and none in the 18 tube booleans.
+
+**2. Would local-only rounding confine the removal to the cut region?** It could, as a deliberate output change, not as
+a side effect. The rule would be: a component is a candidate for removal only if it has a new triangle (one with a
+vertex that is no input point) or a vertex an edit moved; a component of unchanged input triangles is kept whatever
+its size. The data for it exists (`exactAtStart`, the flags lever 1a relies on), and it fits the lemma: an unchanged
+component is the exact result, so removing it is never needed for a correct rounding. The cube above would be kept.
+The slab of the audit (an intersection of thickness h, dropped from h = 2^-15 after a rotation) would not: it consists
+of new triangles and lies in the cut region, where the thin-component rule is the documented bound of SAFE_ROUNDING.md
+section 1 (thinner than `maxLength`). That half of the finding is a question for the snap rounding spike, not for the
+cost side.
+
+**3. The cost of not dropping.**
+- Time: none. The removal is 2 % of the rounding on T6 (BOOLEAN_THREAD_SCALING.md 7.2), and keeping a component is less
+  work than removing it.
+- Status: the result is then **not clean by the public check**. With the cube kept, `NotCleanReason` reports
+  "degenerate triangles" (the right column above) and `RemainingDegenerate` is 12, so `RoundingClean` is false, although
+  the result is the exact union and a valid solid. The drop and the clean flag are two faces of one criterion, a triangle
+  area relative to the diagonal of everything. Keeping the solid *and* calling the result clean needs that criterion to
+  change (for example relative to the triangle's own component, or to tell a small well-shaped triangle from a sliver);
+  `NotCleanReason`'s public semantics are fixed for this study, so this is an owner decision. The roadmap already
+  carries the question ("Degeneracy criterion: reopen only if the degenerate-triangle results turn out to be
+  well-shaped tiny triangles"): these are.
+- Between the two: keep the unchanged component and report it (`ScaleDisparity`, as #985 does where an input is itself
+  thin or tiny). Then no solid disappears silently, and the run is honest about not being clean.
+
 ## 9. Reproduce
 
 ```sh
@@ -376,6 +426,7 @@ python3 $R seam tubes_t1.jsonl tubes_t4.jsonl
 python3 $R selfjoin t6_parts_t1.jsonl t6_parts_t4.jsonl tubes_t1.jsonl tubes_t4.jsonl
 python3 $R tree t6_parts_t1.jsonl t6_profile_t1.jsonl; python3 $R tree tubes_t1.jsonl
 python3 $R local tubes_local_t1.jsonl t6_local_t1.jsonl
+$B seam-levers --parts drop > drop_untouched_cube.jsonl       # section 8b
 ```
 
 The step times of section 4.2 and the counter switch of section 6.1 came from scratch patches of

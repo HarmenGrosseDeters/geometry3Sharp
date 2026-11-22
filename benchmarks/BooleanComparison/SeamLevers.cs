@@ -30,6 +30,9 @@
 //                       could take off
 //   part "near":        the triangles whose box meets a box of the other operand (the local set of an output-sensitive
 //                       boolean) and the time to find them with the two trees
+//   part "drop":        (only when named in --parts) a box [0, 1024]^3 united with a disjoint cube of edge 2^-k beside it, an
+//                       untouched input solid: whether SafeRounding's removal of tiny components drops it, and what the
+//                       result is called without the rounding (the finding of the SolidBooleanPipeline audit, 2026-11-22)
 //   part "stamp":       the time to hash an operand's vertex bits and triangles (a 64-bit mix, and SHA-256): what a
 //                       content stamp would cost that proves an operand is the unchanged clean result of an earlier boolean
 // Run it under `taskset -c 0` with DOTNET_PROCESSOR_COUNT=1 for one thread. The report: perf/seam_levers_report.py.
@@ -159,6 +162,11 @@ static class SeamLevers
             }
         }
 
+        if (parts.Contains("drop")) {
+            Drop();
+            if (parts.Count == 1)
+                return 0;
+        }
         if (caseDirs.Count > 0)
             halves.Clear();
         for (int ci = 0; ci < halves.Count + caseDirs.Count; ++ci) {
@@ -559,5 +567,43 @@ static class SeamLevers
         }
         return new Dictionary<string, object> { ["vertices"] = mesh.VertexCount, ["dictionary_ms"] = dictMs, ["flat_ms"] = flatMs,
             ["same_count"] = byDict == byFlat && byDict == expected, ["contacts"] = byDict };
+    }
+
+    static DMesh3 Box(Vector3d min, Vector3d max)
+    {
+        var m = new DMesh3();
+        for (int i = 0; i < 8; ++i)
+            m.AppendVertex(new Vector3d((i & 1) == 0 ? min.x : max.x, (i & 2) == 0 ? min.y : max.y, (i & 4) == 0 ? min.z : max.z));
+        int[][] quads = { new[] { 0, 2, 3, 1 }, new[] { 4, 5, 7, 6 }, new[] { 0, 1, 5, 4 }, new[] { 2, 6, 7, 3 }, new[] { 0, 4, 6, 2 }, new[] { 1, 3, 7, 5 } };
+        foreach (int[] q in quads) {
+            m.AppendTriangle(q[0], q[1], q[2]);
+            m.AppendTriangle(q[0], q[2], q[3]);
+        }
+        return m;
+    }
+
+    // a large box and a small cube that do not meet: the union is both, unchanged
+    static void Drop()
+    {
+        DMesh3 big = Box(Vector3d.Zero, new Vector3d(1024, 1024, 1024));
+        for (int k = 0; k <= 12; ++k) {
+            double e = Math.Pow(2, -k);
+            DMesh3 small = Box(new Vector3d(1100, 0, 0), new Vector3d(1100 + e, e, e));
+            var row = new Dictionary<string, object> { ["part"] = "drop", ["cube_edge"] = e, ["k"] = k };
+            foreach (bool safe in new[] { true, false }) {
+                var boolean = new ExactMeshBoolean(big, small, ExactMeshBoolean.Operations.Union) { SafeRounding = safe };
+                bool ok = boolean.Compute();
+                string tag = safe ? "rounded" : "unrounded";
+                row[tag + "_triangles"] = ok ? boolean.Result.TriangleCount : -1;
+                row[tag + "_not_clean_reason"] = ok ? Reason(boolean.Result) : "failed";
+                if (safe) {
+                    row["removed_components"] = boolean.Rounding.RemovedComponents;
+                    row["rounding_clean"] = boolean.RoundingClean;
+                    row["initial_degenerate"] = boolean.Rounding.InitialDegenerate;
+                    row["cube_kept"] = ok && boolean.Result.TriangleCount == 24;
+                }
+            }
+            Console.WriteLine(JsonSerializer.Serialize(row));
+        }
     }
 }

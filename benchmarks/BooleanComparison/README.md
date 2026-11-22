@@ -1248,6 +1248,7 @@ measurement; with `--cases <file>` it runs the same parts on pairs of case direc
 | `traversal` | the box-tree work alone: build, self-join traversal, queries of A in B |
 | `near` | the triangles whose box meets a box of the other operand, and the time to find them |
 | `stamp` | hashing an operand's vertices and triangles (64-bit mix, SHA-256) |
+| `drop` | (only when named) a box united with a disjoint cube of edge 2^-k: whether SafeRounding's removal of tiny components drops the untouched cube |
 
 Tables: `python3 perf/seam_levers_report.py phases|seam|selfjoin|tree|local <rows>...` (tests: `test_seam_levers.py`).
 Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22/](perf/seam_levers_2026-11-22/). Headline: a union
