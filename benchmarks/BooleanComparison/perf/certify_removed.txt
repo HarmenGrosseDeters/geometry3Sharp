@@ -1,0 +1,5 @@
+case | status | result tris | exact result tris | RemovedComponents | checker as built | exempt components | checker strict (no exemption)
+box [0,1024]^3 + cube of edge 2^-8 at x = 1100, U | Success | 24 | 24 | 0 | certified | 0 | certified
+box [0,1024]^3 + cube of edge 2^-9 at x = 1100, U | Success | 12 | 24 | 1 | certified | 1 | C5: a corner of the result before rounding is farther than 0.0177362002704148 from the result
+[0,2]^3 & [2-h,4]x[0,2]^2, h = 2^-10, turned, I | Success | 22 | 24 | 0 | 2 triangles not covered | 0 | 2 triangles not covered
+[0,2]^3 & [2-h,4]x[0,2]^2, h = 2^-15, turned, I | Success | 0 | 30 | 1 | certified | 1 | C5: the result before rounding has triangles, the result none

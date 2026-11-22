@@ -470,6 +470,11 @@ Open:
   triangles (or as many and fewer contacts); every clean result is bit for bit the one of Off, the second pass costs 26-49 % of the pipeline
   time on the contact cases (above the 25 % bound for a default), so Off stays the default; not built:
   opening the touching sheets by a gap (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
+  **Audit (owner request 2026-11-22, research spike, no library change):** 600 runs of a procedural adversarial corpus against an
+  independent oracle: 418 right, 154 refused (140 with a setting that gives the right result), 28 wrong with `Success`; findings,
+  the measured options for the open owner items and the ranked improvement PRs are in
+  [SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md](../research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md), the harness in
+  [benchmarks/SolidBooleanAudit](../../benchmarks/SolidBooleanAudit/README.md). The implementation waits for the owner's go.
 - **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
   and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
   exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
@@ -836,6 +841,21 @@ stage 2 closedness and coverage, C1 + C5) are to be built as a correctness oracl
 Built (merged 2026-11-17 as #1061, [QA.md 2.4a](../QA.md)): the checker (C0 inputs and culling, C1, C3, C4, C5 closedness and coverage)
 is the oracle of the boolean property campaigns and of a Nightly corpus; stage 3 (a simple exact recheck of the
 embedding, C2a) and a certified mode for users are not scheduled.
+Spike 2026-11-22 (owner go, plan #1256): [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) measures a
+C2a prototype (`benchmarks/BooleanComparison certify`: 0.4-8.5 times the boolean with a filter, 14-100 times with BigInteger; the
+whole checker as built 16-570 times), estimates a certified user mode at about 3-16 times the boolean (an extrapolation) for a narrow class, and finds
+the coplanar clip coordinates already exact in the boolean and in `IntrTriangle3Triangle3` (open only in the legacy
+`IntrTriangle2Triangle2`). Options are with the owner; nothing is scheduled.
+
+**Speed levers under the full guarantees: study (owner go for a study 2026-11-22; nothing scheduled, every lever needs the owner's go).**
+[EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md), probes `BooleanComparison seam-levers`.
+On large operands with a small seam (procedural tubes, 634k triangles) 90-93 % of a union is work on unchanged triangles, and
+the rounding is the largest part of it. Ranked: a shared counter in the rounding's pair search (−4 % at 4 threads on that
+input); the rounding without a tree of all result triangles (prototype, the same number of candidate pairs: at most −11 % on the seam union
+and −3.9 % on T6 at 1 thread, −2.8 % on T6 if the tree is simply built on the first edit) and then its setup scans; the serial tail (at most −12 % on T6 at 4 threads); EMBER lever 2
+with a content stamp (0 on raw single booleans, at most −24 % / −15 % at 1 / 4 threads on a T6-like step of certified
+operands; the stamp costs 1-2 % of the self-join); pass-through in classification and assembly. Dropped by their bounds:
+wide trees and packetised filters (≤ 4 %). A kernel with a weaker guarantee is an option for the owner only, not proposed.
 
 **Octree-embedded BSPs / EMBER architecture: shelved (owner 2026-11-17).** The ideas that fit are built (the cull of
 T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -15 % in chains at 12 threads,
@@ -908,7 +928,7 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15; Devillers et al. 2020 experiment parked, plan #1259; HP 1 study, plan #1278; spike of 2026-11-22 with measured upper bounds, leaning no build: [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)). Draft: Thingi10K full-corpus harness #385.
-9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certifying checker stage 3 / certified user mode / exact coplanar clip coordinates (plan #1256), mesh-kernel ideas.
+9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certifying checker stage 3 / certified user mode / exact coplanar clip coordinates (plan #1256, spike note of 2026-11-22 above), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
    exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; stages 1b and 1c are on hold (plan #1254) and the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups

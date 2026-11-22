@@ -104,7 +104,8 @@ operations), isosurface stuffing (lattice), Stellar (topological and smoothing i
 - **Isosurface stuffing** (Labelle and Shewchuk, SIGGRAPH 2007): a body-centred-cubic lattice cut by the surface, vertices warped
   to the surface, guaranteed dihedral angles in about [10.7, 164.8] degrees (value from the paper's abstract; conditions on the
   surface and lattice resolution to be read), fast, simple, no Delaunay; the boundary only approximates the surface and the
-  size is uniform (graded versions use octrees).
+  size is uniform (graded versions use octrees). Read in full 2026-11-22: 10.78 degrees holds per tet but tets may overlap on an unresolved surface;
+  9.31 degrees with the parameters that are safe on every input ([research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)).
 
 ## 4. Options for "any input -> valid tet mesh"
 
@@ -960,6 +961,11 @@ angle below about 60 degrees"), and real wrap surfaces have acute angles (10.1).
 (Labelle and Shewchuk 2007: 10.7 to 164.8 degrees for the uniform lattice, by the abstract) and, tiny, for sliver exudation. So the
 practical form is (a): measure and report per run, and keep the corpus evidence (P1) as the claim; the proof route is (b) and
 gives up the conforming wrap boundary.
+
+Spike 2026-11-22 on P5(b) ([research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)): the paper's 10.7 degrees holds per tet
+but only with parameters under which tets may overlap on an unresolved surface; the parameters that are safe on every input prove 9.31 degrees.
+Measured with a benchmark prototype (uniform lattice): the bound holds everywhere; at 10 / 69 times the default's tets the boundary is still 6.5 / 1.8 times farther from
+the input. Effort with the proof we would have to own: 4 to 5.5 weeks, not the 1-2 weeks of this table. Leaning: not built.
 
 ### 17.4 Recommended order
 

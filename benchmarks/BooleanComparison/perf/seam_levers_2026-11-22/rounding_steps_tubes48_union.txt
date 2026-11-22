@@ -1,0 +1,6 @@
+threads=1 triangles=628078 anchors=90.37 boundary=38.91 component_scales=146.03 finite_range=125.91 atPosition=120.26 exactAtStart=17.04 tree=461.17 pair_search=74.41 degenerate=43.89 rest_of_apply=230.70
+threads=1 triangles=628078 anchors=28.51 boundary=21.35 component_scales=66.39 finite_range=56.50 atPosition=119.28 exactAtStart=16.47 tree=522.87 pair_search=66.64 degenerate=41.68 rest_of_apply=117.11
+threads=1 triangles=628078 anchors=32.30 boundary=12.41 component_scales=54.53 finite_range=35.24 atPosition=111.44 exactAtStart=22.11 tree=374.68 pair_search=32.23 degenerate=36.67 rest_of_apply=109.14
+threads=4 triangles=628078 anchors=17.54 boundary=49.18 component_scales=54.95 finite_range=12.30 atPosition=72.70 exactAtStart=14.70 tree=155.66 pair_search=83.88 degenerate=17.33 rest_of_apply=165.33
+threads=4 triangles=628078 anchors=12.21 boundary=18.16 component_scales=64.00 finite_range=11.78 atPosition=114.85 exactAtStart=19.03 tree=205.29 pair_search=95.66 degenerate=14.28 rest_of_apply=133.75
+threads=4 triangles=628078 anchors=16.64 boundary=11.92 component_scales=56.45 finite_range=17.77 atPosition=90.88 exactAtStart=13.42 tree=168.13 pair_search=102.70 degenerate=15.08 rest_of_apply=121.18

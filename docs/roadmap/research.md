@@ -603,6 +603,11 @@ Ordered by expected value for the library.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
      At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
+   - 2026-11-22, spike on the proven floor (plan #1281, [research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)):
+     the 21 procedural inputs all reach 10° (the wrap's boundary angles do not follow the input's creases); a lattice mesher
+     (isosurface stuffing) proves 9.31° on every input (10.78° per tet, validity then checked per run) but rounds features and,
+     uniform, is at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering (SIGGRAPH 2026)
+     bounds face angles only. Leaning: stop, keep P5(a); owner decision open.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
