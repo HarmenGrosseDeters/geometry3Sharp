@@ -15,7 +15,7 @@ namespace g3
 
         /// <summary>
         /// B1: an upper bound of the distance from x to the triangle (v0, v1, v2): the distance to its point v0 + s (v1 - v0) + t (v2 - v0),
-        /// with s = w1 and t = w2 (the barycentric coordinates of a float closest point) clamped so that s, t >= 0 and s + t <= 1 hold
+        /// with s = w1 and t = w2 (the barycentric coordinates of a float closest point) clamped so that s, t >= 0 and s + t &lt;= 1 hold
         /// exactly, evaluated with outward rounding. Any point of the triangle gives a valid bound; the float closest point a tight one.
         /// </summary>
         internal static double PointTriangleUpper(Vector3d x, Vector3d v0, Vector3d v1, Vector3d v2, double w1, double w2)
@@ -30,7 +30,7 @@ namespace g3
             return sqrt_up(sum.Hi);
         }
 
-        /// <summary> barycentric coordinates s, t of v1, v2 with s, t >= 0 and s + t <= 1 exactly (a NaN counts as 0) </summary>
+        /// <summary> barycentric coordinates s, t of v1, v2 with s, t >= 0 and s + t &lt;= 1 exactly (a NaN counts as 0) </summary>
         internal static void Clamp(double w1, double w2, out double s, out double t)
         {
             s = Math.Min(w1, 1); t = w2;

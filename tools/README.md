@@ -38,3 +38,4 @@ Each script has matching unit tests (`tools/test_*.py`) run in CI.
 | `runtime_watch.py` | Times known extreme boolean/wrap cases per `master` commit to detect runtime regressions |
 | `schedule_guard.py` | Prevents duplicate/stale daily runs across scheduled workflows (`nightly`, `coverage`, `mutation`) |
 | `certificate_hand_mutants.py` | Applies hand-crafted mutants to validate the certifying checker of `ExactMeshBoolean` |
+| `check_docs.py` | Validates Markdown conflict markers, relative links/anchors, index completeness, user-doc table widths, and `docs/` root hygiene |

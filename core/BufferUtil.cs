@@ -10,7 +10,7 @@ namespace g3
     /// <summary>
     /// Convenience functions for working with arrays. 
     ///    - Math functions on arrays of floats/doubles
-    ///    - "automatic" conversion from IEnumerable<T> (via introspection)
+    ///    - "automatic" conversion from IEnumerable&lt;T&gt; (via introspection)
     ///    - byte[] conversions
     ///    - zlib compress/decompress byte[] buffers
     /// </summary>
@@ -565,7 +565,7 @@ namespace g3
 
     /// <summary>
     /// utility class for porting C++ code that uses this kind of idiom:
-    ///    T * ptr = &array[i];
+    ///    T * ptr = &amp;array[i];
     ///    ptr[k] = value
     /// </summary>
     public struct ArrayAlias<T>

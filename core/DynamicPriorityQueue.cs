@@ -28,7 +28,7 @@ namespace g3
     /// If you need a PQ for a larger portion of a graph, consider IndexPriorityQueue instead.
     /// 
     /// You need to subclass DynamicPriorityQueueNode, and *you* allocate the nodes, not the queue.
-    /// If there is a chance you will re-use nodes, consider using a MemoryPool<T>.
+    /// If there is a chance you will re-use nodes, consider using a MemoryPool&lt;T&gt;.
     /// See DijkstraGraphDistance for example usage.
     /// 
     /// conceptually based on https://github.com/BlueRaja/High-Speed-Priority-Queue-for-C-Sharp

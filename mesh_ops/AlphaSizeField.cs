@@ -27,7 +27,9 @@ namespace gs
 
         /// <param name="pos">the samples</param>
         /// <param name="alphaJ">their alpha; only those below alpha0 are kept</param>
+        /// <param name="alpha0">the outer (background) alpha value</param>
         /// <param name="alphaMin">the smallest alpha of the field (the reach of a sample is (alpha0 - alphaMin) / slope)</param>
+        /// <param name="slope">Lipschitz growth rate of alpha with distance from a fine sample</param>
         /// <remarks>
         /// The cost of a query is bounded: the kept samples are thinned to one per cube of alphaMin / 2 (the smallest alpha_j in it, the first by
         /// index on a tie; the field changes by at most slope * alphaMin * sqrt(3) / 2), so the samples within the reach of a point, which lie on a

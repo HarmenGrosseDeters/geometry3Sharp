@@ -3,7 +3,11 @@ using System.Collections.Generic;
 
 namespace g3 {
 
-	// partially based on WildMagic5 Box3
+	/// <summary>
+	/// Double-precision oriented 3D bounding box with <see cref="Center"/>, orthonormal axes
+	/// (<see cref="AxisX"/>, <see cref="AxisY"/>, <see cref="AxisZ"/>), and nonnegative <b>half-extents</b>
+	/// <see cref="Extent"/> (a box with <c>Extent = (1, 1, 1)</c> has side lengths <c>2 x 2 x 2</c>).
+	/// </summary>
 	public struct Box3d
 	{
 		// A box has center C, axis directions U[0], U[1], and U[2] (mutually
@@ -445,6 +449,11 @@ namespace g3 {
 
 
 	// partially based on WildMagic5 Box3
+	/// <summary>
+	/// Single-precision oriented 3D bounding box with <see cref="Center"/>, orthonormal axes
+	/// (<see cref="AxisX"/>, <see cref="AxisY"/>, <see cref="AxisZ"/>), and nonnegative <b>half-extents</b>
+	/// <see cref="Extent"/> (a box with <c>Extent = (1, 1, 1)</c> has side lengths <c>2 x 2 x 2</c>).
+	/// </summary>
 	public struct Box3f
 	{
 		// A box has center C, axis directions U[0], U[1], and U[2] (mutually
