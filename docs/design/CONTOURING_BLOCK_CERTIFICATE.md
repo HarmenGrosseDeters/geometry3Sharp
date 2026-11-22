@@ -9,7 +9,7 @@ proof step with its own review before any code. This note is that step. It is th
 there the level set is a mesh and a block is any ball of cells, tested by counting; here the level set is that of a
 function and a block is a box, tested by one direction. It also settles the cell shape (hypothesis (P3) of Theorem 7),
 which the review of #1392 left as "a reading of the premise, not a proved margin". Status: **written and independently
-reviewed on 2026-11-22 (section 5); nothing is built.**
+reviewed on 2026-11-22 (section 5); Lemma 7.1 is built, Theorem 8 is not.**
 
 Why blocks for class S: Theorem 5 refuses a cell whose edge may be crossed twice or whose face may carry a closed curve
 of L, that is every tangency of L with the grid, at every resolution ((S1), (S2)). On the capped TPMS of the spike these
@@ -24,14 +24,17 @@ Short answer:
   grid cells. A block is certified by (B0) to (B2) on its boundary (Theorem 5's node, edge and face tests), one partial
   derivative of constant sign on the block and at most one circle of L on its boundary. The proof adds no error bound.
 - **Theorems 1, 2, 4, 5, 6 and 8 need boxes, not cubes** (remark 5); a certificate by Theorem 5 or 8 has no cell-shape
-  condition. Theorem 7 still needs cubes, through its premise, until Lemma 7.1 is adopted.
+  condition. Theorem 7 needs cubes through its premise; Lemma 7.1 removes that.
 - **Lemma 7.1** (section 2): the smooth certificate of #1392 (Theorem 7) keeps its premise for exact cubes and gets a
   proved margin instead of the tolerance (P3): the negative products of the gradient test are multiplied by the square
-  of the largest spacing ratio. That is a small code change with a new bound; today's code is short of the lemma by a
-  margin of about twice its `CellShapeTolerance` on that test (2^-19 at the default, 2^-9 at the largest setting).
-- **Open** (sections 3 and 4): the mesh side for marching cubes and for marching tetrahedra on cubes (lemmas of their
-  own; a finite check for the tetrahedra is done here), the two levels of a wall together, and a measurement of how
-  many refused cells box blocks cover, which comes before any build.
+  of the largest spacing ratio. Built on 2026-11-22 (`ContouringSmoothCertificate.SpacingRatioSquared`); the code of
+  #1392 was short of the lemma by a margin of about twice its tolerance on that test.
+- **Measured** (section 3a): box blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period (five
+  of six runs complete) and about a third overall (9 to 56 % per run) for a TPMS clipped by a ball; box blocks grown
+  this way do not close a clipped lattice.
+- **The mesh side for marching tetrahedra on cubes** is written: Lemma 9 (section 4a).
+- **Open** (sections 3 and 4): the mesh side for marching cubes (a lemma of its own), the two levels of a wall
+  together, and the rim of a clipped lattice.
 
 ## 1. Theorem 8
 
@@ -165,6 +168,23 @@ Remarks.
    diagonal of the face in the simplest case), and its test is an enclosure of f over boxes that cover the segment.
 8. **Sources.** Nothing new: Theorems 1, 2, 4, 5 and Lemmas 5.1, 5.2, 6.1, 6.2, 6.4 of this note with their sources
    (Brown 1960 and 1962, Clarke 1983).
+9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; checked independently on
+   2026-11-22 with Lemma 9, and rewritten after that check). It is enough that d . g > 0 for all g in G(S) for every
+   box S of a finite set of closed boxes in R that covers every zero of f in R. *Proof.* Let p be a zero in R, in the
+   listed box S. G(S) contains the generalized gradients at p, so by upper semicontinuity, as in Lemma 5.2, there is a
+   ball B around p with d . g >= delta > 0 at all its points; by Lemma 5.1 on the convex set B, f increases strictly
+   along d through p, and L is in B a Lipschitz graph along d. So on a line parallel to d, which meets the convex R
+   in a segment, every zero has a neighbourhood without another zero: the zeros on the segment are finitely many.
+   Were there two, take two consecutive ones: just after the first f > 0, just before the second f < 0, so there is a
+   zero between them, a contradiction. Hence the projection along d is injective on L in R, and L is near each of its
+   points in the interior of R a Lipschitz graph; at its points on the boundary of R Lemma 8.1 needs nothing of (B3).
+   That is all Theorem 8 uses: in (a), Theorem 4 needs the compact 2-manifold and the injective projection (L in R is
+   then locally, not globally, a Lipschitz graph); in (b), the local flatness inside D_1 is local, and the two
+   pieces of the boundary of R carry the two signs of f because each piece of R minus D_1 is connected and without a
+   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form an axis is no longer the only candidate
+   for d (enclosures [2, 3] x [-1, 1] and [-1, 1] x [2, 3] admit d = (1, 1) and no axis); a sufficient test, for
+   instance: one partial derivative
+   keeps its sign on every listed sub-box, the same one with the same sign.
 
 ## 2. Lemma 7.1: the cell shape in Theorem 7
 
@@ -204,17 +224,16 @@ interpolates the node coordinates on each axis; it is isotopic to the identity i
 PL surface compatible with K with the pattern of the node signs and the chosen pairing. Steps (4) to (6) of Theorem 7
 with Psi(M~) in the place of M: D ~ Psi(M~) ~ M~ ~ zero set of f~ ~ L. ∎
 
-What this changes. The premise PV is now used for exact cubes only, so the second of the three "read, not quoted"
-points of section 7.13 goes away. The code of #1392 tests A+(1) and accepts spacings within 2^-20: between that and the
-lemma lie the cells with 0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second
-sum: 2^-19 at the default `CellShapeTolerance` of 2^-20, about 2^-9 at `MaxCellShapeTolerance` = 2^-10
-(only cells with a gradient component through 0 are affected). Closing
-it is a small change with a new bound, so it needs the exact review: compute an upper bound rho^2 of (M / m)^2 from the
-node coordinates (outward rounded), multiply the negative products of the gradient test by it, rounded down. Then the
-tolerance is no longer a refusal: the millimetre grid at UTM coordinates (M / m about 1 + 2e-6) is tested with
-rho^2 about 1 + 4e-6 and certified unless a cell passes the gradient test by less than that. The alternative, exact
-cubes only, would refuse every grid on which `origin + h * i` is rounded (h not a power of two, or an origin far
-from 0 against h), UTM coordinates among them; it is not needed.
+What this changed (built 2026-11-22). The premise PV is used for exact cubes only, so the second of the three "read,
+not quoted" points of section 7.13 went away. The code of #1392 tested A+(1) and accepted spacings within a tolerance
+(2^-20 by default, 2^-10 at most): between that and the lemma lay the cells with
+0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second sum (only cells
+with a gradient component through 0 were affected). Now the factor rho^2 is the smallest double that is at least
+(M / m)^2, from exact differences of the node coordinates (exactly 1 for exact cubes), the negative products of the
+gradient test are multiplied by it and rounded down, and the tolerance and its option are gone. The millimetre grid at
+UTM coordinates (M / m about 1 + 2e-6) is tested with rho^2 about 1 + 4e-6 and certified unless a cell passes the
+gradient test by less than that. The alternative, exact cubes only, would refuse every grid on which `origin + h * i`
+is rounded (h not a power of two, or an origin far from 0 against h), UTM coordinates among them; it is not needed.
 
 ## 3. What is missing for a certificate of `TpmsLattice`
 
@@ -229,14 +248,58 @@ from 0 against h), UTM coordinates among them; it is not needed.
 - *The choice of blocks* is the implementation's: the clusters of cells refused by (S1) or (S2), covered by boxes, grown
   until (B0) to (B2) hold on the boundary, merged or shrunk until the interiors are disjoint. The theorem holds for any
   choice.
-- *It is not measured.* The spike measured Theorem 5's cell test without blocks. Whether small boxes with one circle and
-  one signed partial derivative cover the refused cells of a clipped TPMS is open; for meshes, box blocks covered much
-  less than general blocks (section 7.10's estimate: 31 to 40 %), because silhouette bands run diagonally. For a
-  function the refused edges should be single edges near the silhouette curve, not a band: a grid line next to the
-  silhouette meets L twice, but the two points mostly lie in different grid edges, each with one crossing and a sign
-  change, and only where both fall into one edge is that edge crossed twice. So small boxes around such edges are
-  plausible. The measurement comes before a
-  build: the spike's prototype has the tests (S0) to (S3) and can count the boxes that pass (B0) to (B3).
+- *Measured (2026-11-22), level-set side only: box blocks close the gap for smooth lattices and not for clipped
+  ones.* Section 3a.
+
+## 3a. Measurement: how many refused cells do box blocks cover?
+
+[benchmarks/ContouringIsotopySubdivision](../../benchmarks/ContouringIsotopySubdivision/README.md), mode `blocks`
+(`Blocks.cs`, `results/blocks.csv`): the spike's cell test (S0) to (S3), then every refused surface cell as the seed
+of a box that grows by one layer on the sides that carry a failing node, edge or face, until (B0) to (B3) pass or the
+box exceeds 6 cells per side or reaches the outer layer; overlapping boxes are merged into their bounding box. (B3) in
+the form of remark 9. Only the level-set side: the contour's count in a block (Lemma 6.4) is not measured, so
+"complete" below means that every surface cell is certified or lies in a passing block, not that the contour is
+certified. 42 runs, axis-aligned and rotated, one machine (40 in the table; the two runs of two spheres half a cell
+apart are in no row: nothing refused in one, 157 of 178 covered in the other).
+
+| Set | Runs | Refused by the cell test (of the surface cells) | Covered by blocks | Left (of the surface cells) | Runs complete: cell test -> with blocks |
+|---|---|---|---|---|---|
+| capped TPMS (gyroid, Schwarz P, D), 32 cells per period | 6 | 6.2 % | 96.5 % | 0.21 % | 0 -> 5 |
+| capped TPMS, 16 cells per period | 6 | 15.2 % | 84.9 % | 2.3 % | 0 -> 1 |
+| smooth controls (sphere, torus, thick shell) | 8 | 2.3 % | 100 % | 0 | 2 -> 8 |
+| **TPMS clipped by a ball** (a crease at the cut), 32 cells per period | 6 | 22.0 % | 32.6 % | 14.9 % | 0 -> 0 |
+| TPMS clipped by a ball, 16 cells per period | 6 | 39.7 % | 22.4 % | 30.9 % | 0 -> 0 |
+| creases (tunnel, rod: 3 cells wide) | 4 | 5.6 % | 74.3 % | 1.4 % | 0 -> 1 |
+| thin controls (torus and shell of half a cell) | 4 | 69.0 % | 0.1 % | 69.0 % | 0 -> 0 |
+
+- **Smooth lattices: the blocks work.** At 32 cells per period five of six runs are complete, the sixth (Schwarz D,
+  rotated) leaves 220 of 19 876 surface cells, all for a missing direction. The blocks are small: of the 2 169 blocks
+  of the twelve smooth TPMS runs, 1 854 are two cells wide, 302 wider and 13 one cell. The block step costs 7 to 27 %
+  of the cell test there.
+- **Clipped lattices: box blocks grown this way do not close them.** About a third of the refused cells overall
+  (32.6 % at 32 cells per period, 22.4 % at 16), between 9 and 56 % per run, and no run complete. Of the seeds left at
+  32 cells per period, 13 442 fail by an edge, 1 999 by a face, 1 904 by the direction. Of the 5 196 blocks, 2 956
+  are one cell (a cell that passes when each edge and face may use its own tightening). The coverage rises slowly
+  with the size limit (limit 3, 6, 10: 36, 39 and 46 % on one clipped gyroid). Only this one greedy growth rule was
+  measured.
+- *An explanation, not a measurement* (the results do not record where the refused cells lie): at the cut the field
+  is a `max` of two pieces, and an edge near the rim is refused whenever the two pieces' derivatives along it differ
+  in sign (it may enter the solid through one piece and leave through the other). That would hold along the whole rim
+  for a fixed share of the edges, so the refusals would be a band along a curve, as the silhouette bands of meshes
+  (section 7.10's estimate), and a box that takes in a stretch of the band meets it again on its own boundary.
+- The thin controls stay refused, as they must.
+- Not measured: wrong contours (the contour's side is not in the prototype), and the cost against a contouring.
+
+**Decision (owner, 2026-11-22):** Theorem 8 is built for levels of a smooth field only. The route to a lattice clipped
+to a domain is not built; it stays an open limit of the contouring certificates (also in
+[roadmap/research.md](../roadmap/research.md)).
+
+**What follows.** For a level of a smooth field (a lattice with a smooth cap, a level g = +-w of
+`TwoLevelMarchingTetrahedra` without a domain) Theorem 8 is worth building: it turns "2 to 15 % of the cells refused
+at every resolution" into complete runs at 32 cells per period. For a lattice clipped to a domain, box blocks grown
+this way do not close the gap. If the explanation above is right, the rim needs blocks that follow a curve (general
+balls of cells, for which the convexity arguments of remark 1 do not hold) or a statement for two surfaces that cross
+(the wall and the cut, each smooth); neither exists here, and another growth rule for boxes was not tried.
 
 ## 4. The per-level certificate of `TwoLevelMarchingTetrahedra` (the queued brief): covered and open
 
@@ -270,13 +333,7 @@ tetrahedra per cube. Against this note:
 
 **Open, to be proved or decided before the build.**
 
-1. *Lemma for the mesh side (marching tetrahedra).* To write down: with every vertex strictly inside its tetrahedron
-   edge (exact comparisons; the mesher's guards exist for this), the level surface of the piecewise linear interpolant
-   is a closed PL surface compatible with K, with the sign-changing cube edges and the diagonal's pairing as pattern:
-   (E) and (F) from the construction (one planar piece per tetrahedron, pieces of neighbours meeting in the common
-   segment), (C) from the finite check. No self-intersection test is needed, by the mesher's construction. With a
-   block, the count P - A + Z of Lemma 6.4 is replaced by the Euler characteristic and the components of that cell
-   complex in the block (Lemma 6.2 as it is).
+1. *Lemma for the mesh side (marching tetrahedra).* Written: Lemma 9, section 4a.
 2. *Node values moved by `SliverGuard` and `RimGuard`.* Only signs and "strictly inside the edge" enter the pattern.
    The certificate compares the certified sign of g - w (g + w) at a node with the sign of the value the mesher used;
    a node whose sign a guard changed is refused with its cells. No bound on the size of the change is needed.
@@ -291,6 +348,137 @@ tetrahedra per cube. Against this note:
    far, the per-level statement stands.
 5. *Tangencies.* (S1) and (S2) refuse them at every resolution; blocks (Theorem 8) are the answer, and they are not
    measured (section 3).
+
+## 4a. Lemma 9: the marching-tetrahedra mesh of one level is compatible with the cube grid
+
+Owner decision 2026-11-22, after the measurement of section 3a: Theorem 8 is built for levels of a smooth field only,
+which includes the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. This is its mesh side. A
+lattice clipped to a domain is not built (section 3a; an open limit).
+
+**Setting.** K is the grid of cubes of `TwoLevelMarchingTetrahedra` (boxes between the node coordinates
+`origin + h * i`), each split into five tetrahedra, the split mirrored with the parity of the cube, so that the two
+cubes at a face use the same diagonal of it. A *level* is one of the mesher's functions (g - w, or -g - w) without a
+`Domain`: a value a_n at every node, as the mesher used it (after `SliverGuard`). A node is *inside* if a_n < 0. A
+tetrahedron edge is *crossed* if exactly one of its ends is inside; it is an edge of a cube or a diagonal of a face
+of a cube (the split has no diagonal through the interior of a cube). M is the part of the output mesh that belongs
+to the level: one vertex v_e per crossed tetrahedron edge e, and per tetrahedron with inside and outside nodes the
+polygon through the vertices of its crossed edges (a triangle if one node is alone on its side, else a
+quadrilateral cut into two triangles from one of its vertices), in the order in which neighbours lie in one face of
+the tetrahedron.
+
+Hypotheses:
+
+- (T0) no tetrahedron edge on the boundary of the grid is crossed (read from the signs; M then stays off the grid's
+  boundary);
+- (T1) no a_n is 0 (so "inside" is the sign of a_n; the proof below does not use it, (T2) already keeps a vertex off
+  a node: it is there for the certificate's comparison of signs, section 4 point 2);
+- (T2) every vertex on a cube edge lies strictly between the two nodes of the edge and has their other two
+  coordinates; every vertex on a face diagonal has the face's constant coordinate and lies strictly inside the face's
+  rectangle (exact comparisons of doubles; the vertex need not be exactly on the diagonal);
+- (T3) M is exactly the triangles described above: no polygon is clipped, dropped or reduced. This is recorded by
+  the mesher, not argued (remark 6): no polygon vertex was found outside the other level, and no triangle was left
+  out;
+- (T4) two different triangles of M meet exactly in the hull of the mesh vertices they share: nothing, a vertex or a
+  side (the exact self-intersection test, which must report a pair that shares a side and overlaps or folds onto
+  itself, and a pair that shares a vertex and meets elsewhere).
+
+**Lemma 9.** Under (T0) to (T4), M is a closed surface in the interior of the grid, compatible with K. Its pattern
+is: the crossed cube edges; and on a face with four crossed edges, the pairing that joins the two
+edges at each corner that is not on the face's diagonal.
+
+*Proof.* A cube is convex, and so are its faces and edges, which are faces of it as a convex set: a convex
+combination of points of the cube lies in a face (an edge) of the cube only if every point with a positive weight
+does. Call this (X). A triangle of M that belongs to a tetrahedron of the cube c has its vertices on tetrahedron
+edges of c, so in c by (T2), and lies in c.
+
+*Which vertices lie where.* By (T2) a vertex v_e lies in a face f of c exactly if e does (e is an edge of f or its
+diagonal), and on a cube edge exactly if e is that edge. A tetrahedron of the split meets the plane of a face of its
+cube in one of its own faces, edges or nodes. The crossed edges of a tetrahedron are never all in one of its faces
+(three edges at one node are not in a face; the four edges between two pairs of nodes are not), and no three vertices
+of a quadrilateral's triangle are (a face of the tetrahedron holds two of the four crossed edges at most). So no
+triangle of M has its three vertices in one face of c. Consequently no triangle is degenerate: different vertices
+are different points (they lie in the relative interiors of different edges and faces of cubes, by (T2)), and if
+three were on a line, the middle one would be a proper convex combination of the other two and lie in a face of c, so
+by (X) all three would lie in that face. A triangle of another cube c' lies in c' and meets c only in the common
+face, edge or node of the two cubes, where by (X) it has the hull of its vertices there: a vertex v_e of a crossed
+edge of c, or a side in a common half face. So below it adds nothing to what the triangles of c give.
+
+*(E).* By (X), a triangle meets a cube edge e' in the hull of its vertices on e', and the only vertex on e' is
+v_(e'), for a crossed e'. So M meets e' in v_(e'), an interior point by (T2), or not at all; no node is on M.
+
+*(F).* By (X), a triangle of c meets a face f of c in the hull of its vertices in f: nothing, a vertex, or one of
+its sides (not the triangle, by the above). A side of a triangle with both ends in f joins the vertices of two
+crossed edges of one face of a tetrahedron (it is not the cut of a quadrilateral, whose ends are on opposite edges
+of the tetrahedron, which no face plane holds both), and that face lies in f: it is one of the two triangles the diagonal
+cuts f into. In such a half face with inside and outside corners exactly two of its three sides are crossed, and
+the polygon of the tetrahedron behind it has those two vertices as neighbours, so M has the segment between them
+(the same segment for the tetrahedron of the cube on the other side of f, which has the same half face). So M meets
+f in one segment per half face with inside and outside corners. If the diagonal is crossed, both halves have such a
+segment, each from the diagonal's vertex to a vertex on a cube edge: one arc with two crossed cube edges. If it is
+not, its ends have one sign, and each half has a segment or none: none, one arc, or two arcs, the last exactly if
+the two corners off the diagonal have the other sign, which is the face with four crossed edges; each of the two
+arcs then joins the two edges at one of these corners, and the two arcs are disjoint (each lies in its closed half
+with its ends inside cube edges, so off the diagonal). The arcs end in the interiors of cube edges, and their other
+points are in the interior of f by (X) for the rectangle. The two segments of an arc through the diagonal's vertex
+meet only there: they run from a point inside the rectangle to two different points of its boundary. No closed
+curve, no isolated point.
+
+*(C).* M meets c in the triangles of the tetrahedra of c (a triangle of another cube lies in that cube and meets c
+in a common face only, in sides that are sides of triangles of c as well). As a cell complex (vertices; one segment
+per tetrahedron face with inside and outside nodes; one polygon per such tetrahedron) this depends on the signs at
+the eight corners only, and for each of the 256 sign patterns every component of it has Euler characteristic 1 and
+there are as many components as closed curves of segments on the faces of c (the enumeration of section 4, for one
+parity; the other is its mirror image). The complex is a surface with boundary: a segment on a tetrahedron face
+inside c lies in two polygons, one on a face of c in one, and the polygons around a vertex form a fan (it is the
+complex of the zero set of the piecewise linear interpolant of any values with those signs; also checked in the
+enumeration). A compact connected surface with Euler characteristic 1 is a disk or a projective plane, and as many
+components as circles leaves the disk: each component is a disk with one boundary circle. The triangles are not
+degenerate and their vertices are different points (above), and by (T4) they meet only as the complex says, so the
+linear map of the triangulated complex is injective: M meets c in disjoint embedded disks. Their boundaries are the arcs on the
+faces of c; an open triangle and an open side that is not in a face lie in the interior of c by (X); the vertices
+all lie on the arcs. So the interior of each disk is in the interior of c.
+
+Every point of M has a disk neighbourhood in M (inside a cube by (C); on a face or an edge the disks of the two or
+four cubes fit along the arcs), so M is a closed surface, in the interior of the grid by (T0). ∎
+
+Remarks.
+
+1. **What the rounding changes, and what it does not.** In exact arithmetic M is the zero set of the piecewise linear
+   interpolant, and (T4) holds by construction. The vertices are rounded doubles: on a cube edge the two fixed
+   coordinates are exact (the mesher computes a + t (b - a) with b - a = 0 there), on a diagonal only the face's
+   coordinate is. The proof therefore uses only (T2) and never that a vertex is on its diagonal or that a polygon is
+   planar, and it takes (T4) from the exact test instead of the construction.
+2. **Zeros and the guard.** A value of exactly 0 counts as outside for the mesher; (T1) refuses it. `SliverGuard`
+   removes zeros (a value below its threshold becomes negative, a small positive one too: the node then has another
+   sign than the field, section 4 point 2) except when the level changes sign on no grid edge
+   or the threshold underflows to 0. The position a + t (b - a) can round onto a node, or one unit past it, also for
+   a t inside (0, 1): (T2) tests the position, not t.
+3. **In a block** (Theorem 8 (c) for this mesher). The count P - A + Z of Lemma 6.4 becomes: the cell complex above
+   over the cubes of the block (polygons, minus the segments on tetrahedron faces inside the block, plus the vertices
+   on tetrahedron edges inside the block), its components, and whether each has a segment on the block's boundary;
+   Lemma 6.2 as it is. All from the signs.
+4. **The pattern against the level set's.** On a face with four crossed edges the mesh pairs across the diagonal that
+   the split gives the face. Theorem 8 needs the level set to pair the same way, by a certified sign on that diagonal
+   (remark 7 of section 1), or the face inside a block.
+5. **Scope.** One level, no `Domain`. With a constant `HalfWidth` the level's field is g - w; a `HalfWidthF` needs an
+   interval form of its own. The two levels together stay per level (point 3 below).
+6. **What the mesher has to record** (it keeps none of this today): the node values it used, per level, for (T1) and
+   for the comparison with the certified signs of the field (for the level -g - w the certified sign of g + w,
+   negated); for every vertex its tetrahedron edge, for (T2); the level of every triangle; and for (T3) two counters
+   that must be 0, the polygon vertices found outside the other level and the triangles left out. The first counter
+   is needed: on an edge that both levels cross, the mesher orders the two crossings by two separately rounded
+   quotients, and although the other level is inside at the crossing in exact arithmetic, a reversal by rounding is
+   not excluded by proof (none was found in 6e6 random trials of values as the mesher computes them; for values a few
+   units apart a reversal exists). A reversal clips a polygon. The mesher has three more places where a polygon
+   could vanish, before any vertex is made: it skips a cube, and returns early from a tetrahedron, if one of its
+   functions is negative at none of the nodes, and it skips a triangle with two equal vertices. Without a `Domain`
+   none of them can drop a polygon of a level: where the stored g - w is not negative, g >= w, so the stored -g - w
+   is at most -2 w < 0, and the guard only lowers values; so at every node one of the two functions is negative, and
+   a cube or tetrahedron that a level crosses has a node where that level is not negative, hence the other one is.
+   And the vertices of a polygon are on different tetrahedron edges, so no two are equal. These three need no
+   counter; "triangles left out" is the count of triangles the mesh refused.
+7. **Theorem 8 (c) for this mesher**: with Lemma 9 in the place of Theorem 2 and remark 3 in the place of Lemma 6.4;
+   (T0) in the place of what (H1) gives for the boundary of the grid.
 
 ## 5. Review
 
@@ -313,14 +501,19 @@ Independent review on 2026-11-22 (an agent with the design note only, asked to f
 - The outer layer inside a block, the true sign at nodes of zero-free cells, and the count in zero-free blocks are
   now said in Theorem 8 and its proof.
 
-Not reviewed by a second reader: section 4 (written after the review; its finite check is a script result, to become
-a test).
+Section 4 was written after the first review and read by the second. Remark 9 and Lemma 9 (section 4a) were checked
+by a third independent reader on 2026-11-22 (the note, the design note and the mesher's code; the enumeration and the
+combinatorial claims about the two splits reproduced by script): Lemma 9 holds, no error; remark 9's statement holds,
+but its first argument used more than it stated and is replaced by the one above (upper semicontinuity at each zero).
+Worked in: the manifold step before "Euler characteristic 1 means disk", non-degenerate triangles and the exact
+reading of (T4), triangles of neighbouring cubes, (T0), the wording on zeros and rounding, and remark 6: one code
+path (two crossings on one edge ordered by rounded quotients) can make (T3) false and is to be counted, not argued.
 
 ## 6. Next steps (for the coordinator and the owner)
 
 1. Coordinator's review of this proof.
-2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (small, exact review).
-3. A measurement before any build of blocks: on the spike's prototype (`benchmarks/ContouringIsotopySubdivision`,
-   which has (S0) to (S3)), the share of refused cells of capped and clipped TPMS that boxes with (B0) to (B3) cover.
-4. The mesh-side lemma for the mesher that is to be certified (marching tetrahedra: point 1 of section 4; marching
-   cubes: section 3), then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
+2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (done 2026-11-22).
+3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels; box blocks
+   grown this way do not close a lattice clipped to a domain.
+4. The mesh-side lemma for the mesher that is to be certified: written for marching tetrahedra, Lemma 9 (section
+   4a); open for marching cubes (section 3). Then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
