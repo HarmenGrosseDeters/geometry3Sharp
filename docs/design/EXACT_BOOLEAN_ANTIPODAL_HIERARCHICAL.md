@@ -263,7 +263,8 @@ and it falls back on the full sum, which is the reference.
 **Proof of A1 for the edges of an accepted node.** Let p be the query point, the node's points within r of its centre c, d
 the distance |c - p| (rounded down by 1e-15 relative), and u = a - p, v = b - p two points of the node, with la = |u|, lb = |v|.
 Accepted means r < d/4, the +x ray misses the cap of the ball by more than eps = 1e-9 (angle), d lies in [2^-97, 2^99],
-and the yz part of c - p exceeds r by at least 1e-9 d (`fast_path_certificate`).
+and the yz part of c - p exceeds r by at least 1e-9 d (`fast_path_certificate`). The rounding of the yz part itself (the
+differences c - p and the square root, about 3u d) is absorbed in the 1e-9 d margin: the exact yz part exceeds r by at least 1e-9 d - 3u d.
 1. *Regime.* la, lb ∈ [0.75 d, 1.25 d], so the largest component of u and of v lies in [2^-100, 2^100]; the yz part of u and v
    is at least 1e-9 d (more than 2^-100 times the largest component), so `boundary_edge_angle_x` takes the fast path: no
    special case (u, v ≠ 0 and not on the axis), no rescaling. The angle between the unit vectors U = u/la and V = v/lb is at
@@ -288,17 +289,29 @@ and the yz part of c - p exceeds r by at least 1e-9 d (`fast_path_certificate`).
    With 2 and the bounds on S1, S2: |Δnum|/hypot ≤ 2u · 2 / 1.93 = 2.1u and |Δden|/hypot ≤ 22u · 4 / 1.93 = 45.6u.
 5. *atan2.* |atan2(num + Δn, den + Δd) - atan2(num, den)| ≤ asin(|Δ|/hypot) ≤ (π/2) |Δ|/hypot ≤ (π/2) 47.7u = 8.3e-15, and
    the library's atan2 adds at most 2 ulp of its result, at most 8.9e-16 (the assumption on `Math.Atan2` below). Underflow: the products can be subnormal
-   when a component is small, with an absolute error of at most 2.5e-324, against hypot ≥ 1.9 la lb sqrt(x_u x_v) ≥ 1e-60 · 1e-9
-   (x_u ≥ 1 - cos(1e-9) = 5e-19): no effect.
+   when a component is small, with an absolute error of at most 2.5e-324 each, against hypot ≥ 1.93 la lb sqrt(x_u x_v) ≥
+   1.93 · 2.2e-59 · 3.2e-19 ≈ 1.4e-77 (la, lb ≥ 0.75 · 2^-97; x_u ≥ 1 - cos(8e-10) ≈ 3.2e-19, since every point of the node is at
+   least about 8e-10 rad from the +x ray): the ratio is below 1e-246, no effect.
 Total: 8.3e-15 + 0.7e-15 + 0.9e-15 = 9.9e-15 ≤ 1e-14. ∎
 
 *Assumptions of the proof.* (i) Every `+ - * /` and `sqrt` of the fast path is IEEE binary64 round-to-nearest (a fused
-multiply-add contraction only removes a rounding, so the bounds hold). (ii) `Math.Atan2` returns a result within 2 ulp of the exact
+multiply-add contraction only removes a rounding, so the bounds hold: each is u times a sum of absolute values of terms). The
+bit-for-bit identity of the leaf edges with the full sum also assumes that the compiled `boundary_edge_angle_x` gives the same
+value at every call site (the JIT may inline it differently in the tree and in the full sum; .NET does not reassociate or
+contract floating-point expressions, which the exact code relies on throughout, and no leaf term of the margin depends on it:
+a leaf difference would be charged as 1e-12 per edge, 100 times the 1e-14 of the proof). (ii) `Math.Atan2` returns a result within 2 ulp of the exact
 value. It calls the platform's C runtime (glibc's libm documents at most 1 ulp for atan2 on x86-64; the .NET documentation
 states no bound), so it is a measured assumption: `MathAtan2_IsWithinTwoUlpOfTheExactValue_OnTheArgumentsOfTheFastPath` compares
 6000 argument pairs (exponents 2^-200 .. 2^200, ratios 1e-15 .. 1e15, near ±π) with an exact arctangent (a fixed-point
 Taylor series over 2^-220) and asserts ≤ 2 ulp; the largest seen on the CI-type Linux x64 runner is 1.0 ulp. A platform whose
 atan2 is worse fails that test and the 1e-14 test (then the 1e-12 charged per edge still holds up to 1e3 ulp).
+
+**Test power.** The oracle test of the proved bound does not fail without the certificate: outside it the edges stay accurate in
+the observed range (4000 edges behind p near the x axis and at scales 2^-130 .. 2^130, the rescaled path, have an error of at most
+3e-21, since the angles are tiny), so the certificate restricts the *proof*, not an observable error, and no oracle case can
+distinguish it. It is killed by the status asserts (`NodesOutsideTheFastPathCertificate_AreDescended_...`, a node behind p or at d
+outside [2^-97, 2^99] must descend) and the predicate's boundary test (`FastPathCertificate_Boundaries...`), which pin each
+clause. The `Math.Atan2` test is a measurement of a library function (a precondition of the proof), not a mutation target.
 
 `ExactWindingCacheInternalTestsEdgeAngleOracle` checks the claim: `EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound` compares the angle of every
 sampled edge of accepted nodes (and the chord) with the exact one (integers over the grid 2^-1074, exact square roots, the

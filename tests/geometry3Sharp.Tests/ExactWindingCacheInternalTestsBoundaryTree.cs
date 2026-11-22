@@ -33,18 +33,19 @@ namespace geometry3Sharp.Tests
     ///  - chord `a0.x != ak.x` (and the conditional that never takes the shortcut): for a node whose end points agree in y and z
     ///    the edge runs along x, and the angle of an edge along x is exactly 0 (num = a.z b.y - a.y b.z = 0, den &gt; 0), the value
     ///    the shortcut returns; the shortcut skips an atan2.
-    ///  - mMax: `ma` and `mb` (Max to Min, `&lt;`, `&gt;=`, negated): the boundary is a cycle of positively weighted edges (the
-    ///    edges are oriented to carry a positive weight, and the sum of a closed surface's edges has no end points), so every
-    ///    vertex is the start of one edge and the end of another; the line of `ma` and the line of `mb` see the same vertices and
-    ///    each alone gives the same mMax (the tests with one huge coordinate per axis kill the mutants that change both).
-    ///    `mMax &gt;= 0.0`: mMax is 0 only without a boundary edge of length greater than 0.
+    ///  - mMax: `ma` and `mb` with Max to Min, `&gt;=` (the same maximum), and a mutant that drops one of the two lines: the boundary
+    ///    is a positively weighted cycle (the edges are oriented to carry a positive weight, and the sum of a closed surface's edges
+    ///    has no end points), so every vertex is the start of one edge and the end of another; the line of `ma` and the line of
+    ///    `mb` see the same vertices and each alone gives the same mMax. NOT equivalent, and killed by `TreeBuild_MMaxKeepsTheLargest`:
+    ///    `ma &lt; mMax` and `!(ma &gt; mMax)` (and the same for mb), which LOWER mMax when a later edge is smaller than an earlier huge
+    ///    one, so that the tree is built past the 1e65 gate (a grid plus a triangle with a point at -1e66). `mMax &gt;= 0.0`: mMax is
+    ///    0 only without a boundary edge of length greater than 0.
     ///  - `indegree[kb] = deg - 1`: only ContainsKey of the dictionary is read. `pass &lt;= 2`: a third pass finds no unused edge.
     ///    List capacities (`nu + 32`, `estNodes`): a hint. `lv &gt;= r`, `vm1 &gt;= l1`: the same maximum. `(b - a) &gt;&gt;&gt; 1`: b - a is
     ///    positive there.
-    ///  - `break` of the next-edge search (statement removed): the chain then continues with the last unused edge that leaves
-    ///    the vertex instead of the first. Any choice splits the same edges into chains (a vertex with two ways out is a
-    ///    pinch of the boundary), so the sum is over the same edges in another order, which sumOrderErr covers; this changes no
-    ///    value beyond the bound, and the tree stays deterministic.
+    ///  - (the `break` of the next-edge search is NOT equivalent: at a pinch of the boundary the chain continues with the last
+    ///    unused edge instead of the first, which changes the chain split, the nodes, bSum and bErr (no decision is wrong: each
+    ///    split is a valid decomposition under the same bound); killed by `TreeBuild_ChainsFollowTheFirstEdgeAtAPinch`.)
     /// </summary>
     public class ExactWindingCacheInternalTestsBoundaryTree
     {
@@ -677,6 +678,59 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(w > 0.5, cache.EvaluateAbove(p, 0.5));
                 Assert.Equal(Math.Abs(w) > 0.25, cache.EvaluateAbsAbove(p, 0.25));
             }
+        }
+
+        [Fact]
+        public void TreeBuild_MMaxKeepsTheLargest()
+        {
+            // a point at -1e66 on a triangle of its own, with smaller points after it: the largest coordinate decides the 1e65 gate;
+            // a maximum that is lowered by a later, smaller edge would build the tree past it
+            DMesh3 m = Grid(40);
+            int a = m.AppendVertex(new Vector3d(-1e66, 0.5, 0.5)), b = m.AppendVertex(new Vector3d(-1e6, 0.25, 0.75)), c = m.AppendVertex(new Vector3d(-1e6, 0.75, 0.25));
+            m.AppendTriangle(a, b, c);
+            ExactWindingCache cache = Cache(m, 0);
+            Assert.True(cache.BoundaryCount >= 160);
+            Assert.False(cache.HasBoundaryTree);
+            Assert.Equal(0, cache.BoundaryNodeCount);
+            // the same triangle at -1e65 (inside the gate): the tree is built
+            DMesh3 ok = Grid(40);
+            int a2 = ok.AppendVertex(new Vector3d(-1e65, 0.5, 0.5)), b2 = ok.AppendVertex(new Vector3d(-1e6, 0.25, 0.75)), c2 = ok.AppendVertex(new Vector3d(-1e6, 0.75, 0.25));
+            ok.AppendTriangle(a2, b2, c2);
+            Assert.True(Cache(ok, 0).HasBoundaryTree);
+        }
+
+        [Fact]
+        public void TreeBuild_ChainsFollowTheFirstEdgeAtAPinch()
+        {
+            // two 40-gons that share one boundary vertex (a bowtie): the boundary visits the pinch twice. The chains are the loops
+            // of the first-edge rule: two roots; taking the last unused edge at the pinch joins them into one chain
+            var m = new DMesh3();
+            // a disc of 40 rim points: a centre, an inner ring and the rim (160 triangles, more than its 40 boundary edges: no direct sum)
+            Vector3d rimPoint(Vector3d centre, int i) { double ang = 2 * Math.PI * i / 40; return centre + new Vector3d(Math.Cos(ang), Math.Sin(ang), 0.0); }
+            void Disc(Vector3d centre, int shared, Vector3d sharedPoint)
+            {
+                int c = m.AppendVertex(centre);
+                var inner = new int[40]; var rim = new int[40];
+                for (int i = 0; i < 40; ++i) {
+                    double ang = 2 * Math.PI * i / 40;
+                    inner[i] = m.AppendVertex(centre + 0.5 * new Vector3d(Math.Cos(ang), Math.Sin(ang), 0.0));
+                    rim[i] = m.AppendVertex(i == shared ? sharedPoint : rimPoint(centre, i));
+                }
+                for (int i = 0; i < 40; ++i) {
+                    int j = (i + 1) % 40;
+                    m.AppendTriangle(c, inner[i], inner[j]);
+                    m.AppendTriangle(inner[i], rim[i], rim[j]);
+                    m.AppendTriangle(inner[i], rim[j], inner[j]);
+                }
+            }
+            Vector3d pinch = rimPoint(Vector3d.Zero, 0);                          // (1, 0, 0)
+            Disc(Vector3d.Zero, -1, pinch);
+            // the second disc, centre (2, 0, 0): its rim point at angle pi is the first disc's rim point 0, exactly
+            Disc(new Vector3d(2, 0, 0), 20, pinch);
+            ExactWindingCache cache = Cache(m, 0);
+            Assert.Equal(80, cache.BoundaryCount);
+            Assert.True(cache.HasBoundaryTree);
+            Assert.Equal(2, cache.BoundaryTreeRoots.Length);
         }
     }
 }
