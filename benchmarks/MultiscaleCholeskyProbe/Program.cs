@@ -9,12 +9,14 @@
 //     inverse on the same pattern (one independent dense solve per row: the closed form of Schaefer, Katzfuss, Owhadi
 //     2021 applied to the entries of A, which is FSAI, Kolotilina and Yeremin 1993): setup time, entries, iterations to a
 //     relative residual of 1e-6 / 1e-8 / 1e-12 and the time of the iteration;
+//   - PCG with a seeded approximate elimination (Kyng and Sachdeva 2016: eliminate a vertex and, instead of its clique,
+//     sample one edge per neighbour), on the systems that are graph Laplacians plus a diagonal;
 //   - the floor of any PCG: iterations times one product with A.
 // on procedural systems shaped like those of the library: cotan Poisson (one pinned vertex), heat (M / t + L), bi-Laplacian
 // with fixed caps (BiharmonicMeshDeformer), a connection Laplacian with two unknowns per vertex (CrossField, real form) and a
 // 3D grid Laplacian.
 //
-//   dotnet run -c Release --project benchmarks/MultiscaleCholeskyProbe -- [only=<regex>] [rho=2,3,4] [k=96,192] [k3=30,48] [direct=1]
+//   dotnet run -c Release --project benchmarks/MultiscaleCholeskyProbe -- [only=<regex>] [rho=2,3,4] [k=96,192] [k3=30,48] [direct=0|1] [fsai=0|1]
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
