@@ -542,6 +542,8 @@ field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOf
 
 Since 2026-11-21 (§4.4a), `SizeAdaptation` combines with `PureQuads` (`QuadFlowRepair` uses the per-vertex spacing in both `BuildOffsets` and `SolvePositions`). Not done, so open: the dislocations that remain (about half) in stage 2, a spacing that follows a user size field, features and boundaries in the solver.
 
+Research spike 2026-11-22 ([QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md), `benchmarks/QuadSeamlessSeedSpike`): a spacing and rotation from a conformal cone metric with the field's cones (an oracle for a seamless-parametrization seed, spacing clamped at 0.7, same cell count) cuts the irregular vertices of 9 closed shapes from 863 (uniform) and 493 (the best of Scale and ScaleAndRotation) to 407, against 88 singular faces; the pure-quad success rate did not move in an exploratory run; options and leaning are in the note, nothing is built.
+
 ## 5. Limits and recommendation
 
 Limits:
