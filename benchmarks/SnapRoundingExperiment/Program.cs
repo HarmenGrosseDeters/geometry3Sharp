@@ -99,6 +99,14 @@ static class Program
                                 if (k != 0 || (f != F.Sliver && f != F.ShortEdge))
                                     yield return $"bool:{f}:{k}:{op}:{seed}";
                 break;
+            case "drop":
+                // small and thin valid solids (GuaranteeBound.DropCase)
+                foreach (int e in new[] { 3, 5, 7, 9, 11 })
+                    yield return $"drop:cube:{e}";
+                foreach (string frame in new[] { "axis", "rot" })
+                    foreach (int k in new[] { 11, 13, 14, 15, 16, 17, 19, 25, 35 })
+                        yield return $"drop:slab:{k}:{frame}";
+                break;
             default:
                 throw new ArgumentException("unknown set " + set);
         }
@@ -143,6 +151,8 @@ static class Program
                 DMesh3 b = DegenerateFamilies.Box(new Vector3d(-0.3 + 0.1 * seed, -2, -2), new Vector3d(2, 2, 2));
                 return (a, b, Enum.Parse<Ops>(p[3]));
             }
+            case "drop":
+                return GuaranteeBound.DropCase(p);
             case "scale":
                 return GuaranteeBound.ScaleCase(int.Parse(p[1]), Enum.Parse<Ops>(p[2]));
             case "bc": {

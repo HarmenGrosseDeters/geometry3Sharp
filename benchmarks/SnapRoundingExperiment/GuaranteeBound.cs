@@ -35,6 +35,36 @@ static class GuaranteeBound
         return (a, b, op);
     }
 
+    // the family "drop" (cases of the SolidBooleanPipeline audit, 2026-11-22): valid small or thin solids.
+    //   drop:cube:<e>          the union of the box [0,1024]^3 and a cube of edge 2^-e one unit beside it
+    //   drop:slab:<k>:<frame>  [0,2]^3 intersected with [2-h,4] x [0,2]^2, h = 2^-k: a slab of thickness h;
+    //                          frame "axis", or "rot": both operands under one generic rotation
+    internal static (DMesh3 a, DMesh3 b, Ops op) DropCase(string[] p)
+    {
+        if (p[1] == "cube") {
+            double e = Math.Pow(2, -int.Parse(p[2]));
+            return (Box(0, 0, 0, 1024, 1024, 1024), Box(1025, 0, 0, 1025 + e, e, e), Ops.Union);
+        }
+        double h = Math.Pow(2, -int.Parse(p[2]));
+        DMesh3 a = Box(0, 0, 0, 2, 2, 2), b = Box(2 - h, 0, 0, 4, 2, 2);
+        if (p[3] == "rot") {
+            Quaterniond q = Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23);
+            MeshTransforms.Rotate(a, Vector3d.Zero, q);
+            MeshTransforms.Rotate(b, Vector3d.Zero, q);
+        }
+        return (a, b, Ops.Intersection);
+    }
+
+    static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)
+    {
+        var m = new DMesh3();
+        var x = new[] { x0, x1 }; var y = new[] { y0, y1 }; var z = new[] { z0, z1 };
+        for (int i = 0; i < 8; i++) m.AppendVertex(new Vector3d(x[i & 1], y[(i >> 1) & 1], z[(i >> 2) & 1]));
+        int[] f = { 0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6, 0, 1, 5, 0, 5, 4, 2, 6, 7, 2, 7, 3, 0, 4, 6, 0, 6, 2, 1, 3, 7, 1, 7, 5 };
+        for (int i = 0; i < f.Length; i += 3) m.AppendTriangle(f[i], f[i + 1], f[i + 2]);
+        return m;
+    }
+
     internal static string Run(string name, DMesh3 a, DMesh3 b, Ops op)
     {
         var sb = new StringBuilder();
@@ -66,7 +96,7 @@ static class GuaranteeBound
         sb.Append(",\"scale_disparity\":").Append(r.ScaleDisparity);
         sb.Append(",\"edits\":").Append(r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
         sb.Append(",\"max_drift\":").Append(r.MaxDrift.ToString("R", ci)).Append(",\"max_length\":").Append(r.MaxLength.ToString("R", ci));
-        if (result.TriangleCount == 0 || raw.TriangleCount == 0)
+        if (raw.TriangleCount == 0)
             return sb.Append('}').ToString();
 
         // the grid of BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md section 2.3: the smallest power of two g with
@@ -115,6 +145,20 @@ static class GuaranteeBound
         sb.Append(",\"components\":").Append(components).Append(",\"components_thinner_than_cell\":").Append(thinnerThanCell);
         sb.Append(",\"removed\":[").Append(string.Join(",", removed)).Append(']');
 
+        if (r.RemovedComponents > 0) {
+            // the cheap alternative to a guarantee: the same repair on the plainly rounded result with the removal of
+            // tiny and thin components switched off (outside the boolean, so without its fixed input vertices: a probe).
+            // Clean then means the removed components could have stayed as valid solids
+            var keepMesh = new DMesh3(raw);
+            var keep = new MeshRoundingRepair(keepMesh) { SharedPositionsTouch = true, FixedWhereCoarse = false, RemoveTinyComponents = false };
+            keep.Apply();
+            var kc = new MeshConnectedComponents(keepMesh);
+            kc.FindConnectedT();
+            sb.Append(",\"no_removal_clean\":").Append(keep.IsClean && gs.MeshRobustRepair.NotCleanReasons(keepMesh) == "" ? "true" : "false");
+            sb.Append(",\"no_removal_components\":").Append(kc.Count);
+        }
+        if (result.TriangleCount == 0)
+            return sb.Append('}').ToString();
         // the cost side, on the whole result and on the patch around the defects
         AppendSlabs(sb, "", result, result.TriangleIndices().ToArray(), g);
         var defects = new HashSet<int>(SnapFallback.DefectTriangles(result));

@@ -76,6 +76,18 @@ def tables(args):
     thick = [(r["case"], c) for r in ok for c in r.get("removed", []) if c["thickness_cells"] >= 1]
     for case, c in thick:
         print("- one cell or thicker: %s, %d triangles, %.3g cells thick, %.3g cells long" % (case, c["tris"], c["thickness_cells"], c["box_max_cells"]))
+    rr = [r for r in ok if r["removed_components"] > 0]
+    print("\nThe same repair without the removal of tiny and thin components, on the %d results with a removed component: clean on %d." % (
+        len(rr), sum(r.get("no_removal_clean", False) for r in rr)))
+    drop = [r for r in ok if family(r["case"]) == "drop"]
+    if drop:
+        print("\n## Valid small and thin solids (the set drop)\n")
+        print("| case | cells per `maxLength` | result triangles | removed components | thickness of the removed, cells | without the removal: clean |")
+        print("|---|---:|---:|---:|---|---|")
+        for r in drop:
+            print("| %s | %.1f | %d | %d | %s | %s |" % (r["case"], r["max_length"] / r["grid"], r["tris"], r["removed_components"],
+                  ", ".join("%.3g" % c["thickness_cells"] for c in r.get("removed", [])) or "-",
+                  ("yes" if r["no_removal_clean"] else "no") if "no_removal_clean" in r else "-"))
     grid = [r for r in ok if "grid" in r]
     print("\nGrid of the area lemma: fits the drift bound on %d of %d results, representable on %d." % (
         sum(r["grid_fits_drift"] for r in grid), len(grid), sum(r["grid_representable"] for r in grid)))
@@ -120,6 +132,8 @@ def tables(args):
         sh = [r["patch_in_tris"] / r["tris"] for r in a]
         fa = [r["patch_out_tris_min"] / r["patch_in_tris"] for r in a]
         cl = [r.get("patch_close_tris", 0) / r["patch_in_tris"] for r in a]
+        if fam == "drop":
+            continue
         print("| %s | %d | %d, %d | %d, %d | %.0f %%, %.0f %% | %.1f, %.1f | %d | %.0f %%, %.0f %% |" % (fam, len(a), statistics.median(d), max(d),
               statistics.median(pt), max(pt), 100 * statistics.median(sh), 100 * max(sh), statistics.median(fa), max(fa),
               sum(c > 0 for c in cl), 100 * statistics.median(cl), 100 * max(cl)))

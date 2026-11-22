@@ -48,9 +48,11 @@ scheme would use), a lower bound of the output size of the algorithm of Deviller
 counted from the slabs its step 2 cuts every face by, not built), and the same count with the pairs closer than a cell
 on the patch around the defects that are left. `bound.py run <out.jsonl> <set>...` runs a set, one process per case,
 resumable; `bound.py tables <out.jsonl>...` prints the tables. `bound selfcheck` checks the slab count on a
-hand-counted case. The set `scale` (two rotated cube-spheres at six
-resolutions) is for this measurement. Raw output: `trace/results/bound_2026-11-22.jsonl`,
-`bound_scale_2026-11-22.jsonl`.
+hand-counted case. The sets `scale` (two rotated cube-spheres at six
+resolutions) and `drop` (valid small and thin solids that SafeRounding removes: a cube beside a large box, a slab
+axis-aligned and rotated) are for this measurement; where a component was removed, the line also says whether the
+same repair without the removal ends clean (`no_removal_clean`, a probe outside the boolean). Raw output:
+`trace/results/bound_2026-11-22.jsonl`, `bound_scale_2026-11-22.jsonl`, `bound_drop_2026-11-22.jsonl`.
 
 ## Sets
 
