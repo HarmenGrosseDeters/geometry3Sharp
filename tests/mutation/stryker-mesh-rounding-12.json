@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/MeshRoundingRepair.cs{71496..83869}"
+      "**/mesh_ops/MeshRoundingRepair.cs{73206..87388}"
     ],
     "test-case-filter": "(FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch)|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~RoundingSerialWorkTests.IntersectionsAcrossBlocks|FullyQualifiedName~RoundingSerialWorkTests.PiercingTriangleAtABlockBorder|FullyQualifiedName~RoundingSerialWorkTests.Field_Clean",
     "ignore-methods": [

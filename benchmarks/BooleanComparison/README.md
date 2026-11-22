@@ -1234,6 +1234,32 @@ The result files of base and new are byte-identical for all four cells (`cmp`), 
 open stage (-8 to -19 %), below the 5 % bound of the whole operation, as expected; it is not enough for the 10 % bar and was approved as an
 exception by the owner (2026-11-18).
 
+## The pending list of the rounding's box query (2026-11-22)
+
+`MeshRoundingRepair.near` returns the triangles whose box overlaps a query box from the tree of the start, a tree of
+the changed triangles and a linear list of the triangles changed since that tree was built (up to 256, about 100 on
+average). It computed the box of every listed triangle from the mesh in every query, 8 to 36 queries per accepted
+edit. Now the boxes are kept and computed again only when the mesh changed (`pendingBox`, keyed on the version counter
+that `mark_dirty` raises); the query returns the same triangles in the same order. Lever 2 of the rounding cost study
+(`docs/research/ROUNDING_COST_2026-11.md` section 6, owner go 2026-11-22).
+
+Before (master `bae5df61`) and after, `profile --repeat 3 --median --safe-rounding`, one process per case and side in
+turn, `DOTNET_TieredPGO=0`, 4 cores; the 11 rotated Thingi10K cases and the 5 procedural ones of the study, three
+operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending_boxes_2026-11-22/`):
+
+| group | operations | booleans (medians summed) | with the kept boxes | rounding | with the kept boxes |
+|---|---:|---:|---:|---:|---:|
+| many evaluated edits (plate_24, 119829, 67709, 42327, 1368057, 102375, 498458, 486343) | 24 | 205.1 s | 194.9 s (−5.0 %) | 60.7 s | 49.7 s (−18.2 %) |
+| the others (gear_500, cyl_8000, fins_400, sphere_60, 519511, 1517923, 1063860, 668056) | 24 | 146.9 s | 145.4 s (−1.0 %) | 52.4 s | 51.7 s (−1.3 %) |
+| all | 48 | 352.0 s | 340.3 s (−3.3 %) | 113.1 s | 101.4 s (−10.4 %) |
+
+- 119829 union 3.57 to 2.60 s, 486343 union 2.28 to 1.70 s, plate_24 difference 4.97 to 4.03 s, 67709 union 15.71 to
+  13.98 s, 102375 union 7.78 to 6.97 s, 498458 union 11.52 to 10.53 s.
+- The hashes of all three runs are equal on both sides for all 48 operations.
+- Where few edits are evaluated the change is inside the run-to-run variation (single operations of the second group
+  between −13 and +4 %). The two operations above that, 119829 intersection (+19 %) and sphere_60 intersection
+  (+15 %), take 0.1-0.3 s, 0.04 s of it rounding.
+
 ## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
 
 Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)

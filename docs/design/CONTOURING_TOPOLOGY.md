@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **class S for smooth fields built as an internal certificate (section 7.13, Theorem 7, 2026-11-22);** **class S on box-shaped blocks and the cell shape: proof step written (section 7.14, Theorem 8 and Lemma 7.1, 2026-11-22), not built;** **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **class S for smooth fields built as an internal certificate (section 7.13, Theorem 7, 2026-11-22);** **class S on box-shaped blocks and the cell shape: proof step written (section 7.14, Theorem 8 and Lemma 7.1, 2026-11-22); Lemma 7.1 built, Theorem 8 not;** **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. The study changed no library code (stage 1 did, #779); the study's measurement is
@@ -1227,10 +1227,14 @@ raw contour. For a cell c:
   a positive interval inner product with itself (each product of two independent copies of the interval, so a component
   through 0 contributes its negative product). This is the published test with G as the value of an inclusion function;
   it says that any two gradients on c have a positive inner product **and** that one partial derivative keeps its sign.
+- **A+(rho)(c)**, for rho >= 1: the same with every negative product multiplied by rho^2 (Lemma 7.1,
+  [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) section 2). A+(1) is A+.
 
 **Theorem 7** (on the premise PV below). Assume: (P0) f - iso is not 0 at any node, and the contour's inside flag of
-every node is the true sign; (P1) every cell satisfies Z or A+; (P2) every cell of the outermost layer satisfies Z;
-(P3) the node spacings of the three axes are equal within a stated tolerance (the cells are cubes up to rounding);
+every node is the true sign; (P1) every cell satisfies Z or A+(rho); (P2) every cell of the outermost layer satisfies Z;
+(P3) the node coordinates increase strictly on each axis, and rho is at least the largest node spacing over the
+smallest, over the three axes (for a grid of exact cubes rho = 1; until 2026-11-22 this was a tolerance of 2^-20 on
+the spacings with rho = 1, a reading of the premise and not a proved margin);
 (M) D satisfies (H1) to (H4) of Theorem 2 (section 7.3). Then L is a closed smooth surface in the interior of the grid,
 and D is isotopic to L.
 
@@ -1242,16 +1246,16 @@ values near the A+ cells, which extends beyond the grid without zeros. (3) **Pre
 bounded regular zero set and a regular grid of cubes in which every cell satisfies Z or A+, the marching-cubes-type
 mesh M (one vertex on every edge whose ends differ in sign, either pairing on a face with alternating corner signs as
 long as both cells use the same, one disk per loop) is isotopic to the zero set (S. Plantinga, G. Vegter, SGP 2004 and
-The Visual Computer 23(1), 2007, section 5 of both). (4) By Theorem 2 with (M) and (P0), D is compatible with K, with the
+The Visual Computer 23(1), 2007, section 5 of both). (3') If the cells are not exact cubes, Lemma 7.1 applies the premise to f in coordinates in which they are, where
+A+(rho) gives A+, and carries the mesh M back. (4) By Theorem 2 with (M) and (P0), D is compatible with K, with the
 sign-changing edges and its face rule as pattern. (5) With D's pairing (it depends on the signs of the face only), and
 its disks pushed slightly into their cells, M is a closed PL surface compatible with K with D's pattern; Theorem 1 gives
 D ~ M. (6) D ~ M ~ L. ∎
 
 What is a premise and what is not. The composition (steps 1, 2, 4, 5, 6) was reviewed independently on 2026-11-22 and
 holds. The premise PV is a published, peer-reviewed argument of about two pages at the level of a geometric sketch; it
-is not re-proved here. Three points of it are read, not quoted: that its deformations extend to an isotopy of space
-(the claim above is therefore "isotopic", and "ambient" only with that reading); that cells which are cubes up to the
-tolerance of (P3) are covered; and that the five corner-sign configurations it excludes are excluded under A+ (for one
+is not re-proved here. Two points of it are read, not quoted: that its deformations extend to an isotopy of space
+(the claim above is therefore "isotopic", and "ambient" only with that reading); and that the five corner-sign configurations it excludes are excluded under A+ (for one
 of them its argument uses only the pairwise fact). The code therefore checks the configuration of every cell itself
 and refuses the five. The weaker pairwise fact alone (gradients pairwise less than 90 degrees apart, proved by testing
 pairs of sub-boxes) is **not** covered by the published proof, which uses the constant sign of a partial derivative,
@@ -1273,11 +1277,11 @@ operation) or an exact comparison of doubles.
 | Hypothesis | Test | Refusal |
 |---|---|---|
 | (P1) Z | the enclosure of f - iso over the cell, or over each of its 2^t sub-boxes per axis (t up to 2), excludes 0; boxes of up to 8^3 cells are tried first | - |
-| (P1) A+ | every sub-box smooth, and the hull of the sub-boxes' gradient enclosures (an enclosure of the gradient over the cell) passes the interval product test | `GradientTest`, or `NotSmooth` if a sub-box may hold a non-smooth point |
+| (P1) A+(rho) | every sub-box smooth, and the hull of the sub-boxes' gradient enclosures (an enclosure of the gradient over the cell) passes the interval product test, a negative product multiplied by rho^2 first (rounded down) | `GradientTest`, or `NotSmooth` if a sub-box may hold a non-smooth point |
 | configuration guard | at most one face with alternating corner signs, and the minority sign is not a body diagonal: the nine admitted of the 14 configurations | `Configuration` |
 | (P0) | at the nodes of a cell that is not zero-free: a point enclosure with a certified sign; at every node of a zero-free box: the box's sign; both compared with the contour's inside flag | `NodeSign` |
 | (P2) | no cell of the outermost layer may fail Z | `OuterLayer` (cell and run) |
-| (P3) | largest spacing at most the smallest times 1 + 2^-20, over the three axes (differences of neighbouring doubles, the comparison rounded to the safe side) | `CellShape` (run) |
+| (P3) | rho^2 = the smallest double that is at least (largest spacing / smallest)^2 over the three axes, from exact differences of the node coordinates (`SpacingRatioSquared`; exactly 1 for exact cubes); no tolerance | `CellShape` (run; no cell is judged) if a coordinate is not finite, a spacing is not positive or the square is above 1e300 |
 | (M) | `DualContouring`'s record: `CertificateMeshFailures` (run), `CertificateMeshCells` (cells) | `MeshSide` |
 | the contour is the run that made the mesh | `DualContouring.CertificateRun`: set by a finished `Generate` with `RecordCertificateData`, with the grid and inside rule of that run; refused unless it is dense, of one cell size, and `IsoValue`, `InsideIsLess`, `Bounds.Min`, `CellSize` and `CornerDimensions` are unchanged since | `NoRecord` (run) |
 
@@ -1311,8 +1315,9 @@ times.
 ### 7.14 Theorem 8 and Lemma 7.1: box-shaped blocks for class S, and the cell shape (2026-11-22)
 
 A proof step of its own, in [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) (written and
-independently reviewed 2026-11-22; nothing built). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
+independently reviewed 2026-11-22; Lemma 7.1 is built, Theorem 8 is not). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
 Theorem 6, certified by one signed partial derivative and at most one circle of L on the block; tangencies with the
 grid, which Theorem 5 refuses at every resolution, move inside a block, and creases stay covered. Theorems 1, 2, 4, 5,
-6 and 8 need boxes, not cubes; Theorem 7 needs cubes until Lemma 7.1 is adopted. **Lemma 7.1**: Theorem 7 holds without (P3) if the negative products of its gradient test are
-weighted by the square of the largest spacing ratio; the premise PV is then used for exact cubes only.
+6 and 8 need boxes, not cubes. **Lemma 7.1**: Theorem 7 holds for cells that are not exact cubes if the negative
+products of its gradient test are weighted by the square of the largest spacing ratio; the premise PV is then used for
+exact cubes only. Built into `ContouringSmoothCertificate` on 2026-11-22 (section 7.13's (P3)).
