@@ -150,6 +150,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MeshIOExample_Float32RoundTrip_RecentringKeepsPrecision()
+        {
+            string dir = MeshFormatTestUtil.TempDir();
+            try {
+                var (direct, recentred) = MeshIOExample.Float32RoundTrip(dir);
+                // at 5e6 the float32 spacing is 0.5, so the direct round trip is off by far more than a recentred one
+                Assert.True(direct > 0.1, $"direct error {direct}");
+                Assert.True(recentred < 1e-5, $"recentred error {recentred}");
+            } finally {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        [Fact]
         public void LazyExactMeshExample_ExactVolumeAndClean()
         {
             // the cube minus the part of the hole inside it: 1 - 0.25 * 0.25 * 1
@@ -807,6 +821,18 @@ namespace geometry3Sharp.Tests
             CcdResult ccd = BatchQueriesAndCcdExample.VertexCrossingTriangle();
             Assert.Equal(CcdStatus.Collision, ccd.Status);
             Assert.InRange(ccd.TimeOfImpact, 0.5 - 1e-5, 0.5 + 1e-5);
+        }
+
+        [Fact]
+        public void TwoLevelMarchingTetrahedraExample_BuildsACleanThinBowl()
+        {
+            DMesh3 bowl = TwoLevelMarchingTetrahedraExample.ThinBowl();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(bowl));
+            // one piece (inner and outer side joined by the rim), up to the cut plane, the volume of the wall
+            Assert.Equal(1, MeshTopologySummary.Compute(bowl).Components);
+            Assert.InRange(bowl.CachedBounds.Max.z, 0.49, 0.51);
+            double exact = 2 * Math.PI * 1.5 * 0.025;      // area of the unit sphere below z = 0.5 (2 pi r h, h = 1.5) times the wall
+            Assert.InRange(Invariance.Volume(bowl) / exact, 0.95, 1.05);
         }
 
         [Fact]

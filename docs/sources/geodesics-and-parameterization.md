@@ -129,6 +129,8 @@ on the GitHub-hosted runner by `benchmarks/UVAtlasBenchmark` (workflow `uvatlas-
 
 Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
 
+The solvers (`solvers/`, including `CholeskyNestedDissection`) have no Stryker mutation shard; their tests are not mutation-gated (`docs/qa/mutation-and-coverage.md`).
+
 | Part | Source |
 |---|---|
 | Approximate minimum degree ordering on the quotient graph | P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989 |

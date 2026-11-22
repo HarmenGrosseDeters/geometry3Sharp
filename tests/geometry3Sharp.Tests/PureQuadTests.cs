@@ -540,10 +540,13 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(baseRun.InvertedTriangles, qr.InvertedTriangles);
                 Assert.Equal(baseRun.FlippedQuads, qr.FlippedQuads);
                 AssertSame(baseRun.Result, qr.Result, sim.Scale);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatio));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatioAfterFlow), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatioAfterFlow));
             } else {
                 // rotations, translations and other scales change the rounding: the same kind of mesh, the same size (or the attempt fails
                 // on the changed rounding, and then Result is a valid stage 2 mesh)
                 if (qr.PureQuadStatus != PureQuadStatus.Success) { Assert.True(qr.Result.Validate().IsValid); Assert.True(qr.InvertedTriangles > 0 || qr.PureQuadStatus != PureQuadStatus.OrientationFolds); return; }
+                Assert.InRange(qr.PureQuadAreaRatio, 0.5, 1.5);        // a successful run: a map that covers the surface about once
                 PolyMeshMetrics a = PolyMeshMetrics.Compute(baseRun.Result), b = PolyMeshMetrics.Compute(qr.Result);
                 Assert.Equal(1.0, b.QuadFraction);
                 Assert.True(b.IsManifold);
@@ -822,6 +825,87 @@ namespace geometry3Sharp.Tests
                 Assert.False(QuadFlowRepair.IsQuadFlipped(k * a, k * c2, k * b, k * c1, k * a, k * c2, k * b, k * c1, sn));
                 Assert.True(QuadFlowRepair.IsQuadFlipped(k * a, k * c2, k * b, k * c1, k * a, k * c1, k * b, k * c2, sn));
             }
+        }
+
+        // ---------------------------------------------------------------- the area ratio of the map (a diagnostic, #1301 option A)
+
+        [Fact]
+        public void LatticeAreaRatio_OfKnownMaps()
+        {
+            // a flat n x n grid of unit cells, every cell two triangles with offsets (1,0) and (0,1): lattice area = geometric area, ratio 1
+            int n = 6; double s = 0.25;
+            var flat = new List<(long, double)>();
+            for (int i = 0; i < 2 * n * n; ++i) flat.Add((1L, s * s));
+            double area = n * n * s * s;
+            Assert.Equal(1.0, QuadFlowRepair.LatticeAreaRatio(flat, area));
+            // every cell counted twice (offsets (2,0), (0,1): det 2): ratio 2
+            var twice = flat.Select(x => (2 * x.Item1, x.Item2)).ToList();
+            Assert.Equal(2.0, QuadFlowRepair.LatticeAreaRatio(twice, area));
+            // a quarter of the triangles folded (det -1): 3/4 - 1/4 = 1/2
+            var folded = new List<(long, double)>(flat);
+            for (int i = 0; i < folded.Count; i += 4) folded[i] = (-1L, s * s);
+            Assert.Equal(0.5, QuadFlowRepair.LatticeAreaRatio(folded, area));
+            // a local spacing of 2 s on half of the triangles: the cell area is 4 times as large there
+            var local = new List<(long, double)>();
+            for (int i = 0; i < 2 * n * n; ++i) local.Add((1L, i < n * n ? s * s : 4 * s * s));
+            Assert.Equal(2.5, QuadFlowRepair.LatticeAreaRatio(local, area));
+            // no geometric area: NaN
+            Assert.True(double.IsNaN(QuadFlowRepair.LatticeAreaRatio(flat, 0)));
+            Assert.True(double.IsNaN(QuadFlowRepair.LatticeAreaRatio(flat, double.PositiveInfinity)));
+            Assert.Equal(0.0, QuadFlowRepair.LatticeAreaRatio(new List<(long, double)>(), 1.0));
+        }
+
+        [Fact]
+        public void AreaRatio_OfAPureQuadRun_CoversTheSurfaceOnce_AndChangesNoResult()
+        {
+            QuadRemesher qr = RunCase("sphere");
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.InRange(qr.PureQuadAreaRatio, 0.8, 1.2);       // 0.89 on this sphere: about 1, not exactly (the cones move cells)
+            Assert.InRange(qr.PureQuadAreaRatioAfterFlow, 0.8, 1.2);
+            Assert.Equal(qr.PureQuadRepair.AreaRatio, qr.PureQuadAreaRatio);
+            Assert.Equal(qr.PureQuadRepair.AreaRatioAfterFlow, qr.PureQuadAreaRatioAfterFlow);
+            // a diagnostic: the result is the one of the earlier checks (all quads, manifold, no fold, no flipped quad)
+            Assert.Equal(0, qr.InvertedTriangles); Assert.Equal(0, qr.FlippedQuads);
+            Assert.Equal(1.0, PolyMeshMetrics.Compute(qr.Result).QuadFraction);
+            // the runs that fail after the flow report it too (the ones that end before the flow have NaN), and never as a reason: the status is the old one
+            QuadRemesher bad = RunCase("sphere", true, q => q.SignPenalty = false);
+            Assert.NotEqual(PureQuadStatus.Success, bad.PureQuadStatus);
+            Assert.True(!double.IsNaN(bad.PureQuadAreaRatio) && !double.IsNaN(bad.PureQuadAreaRatioAfterFlow));
+            AssertSame(RunCase("sphere", false).Result, bad.Result);       // the fallback is still the stage 2 mesh
+        }
+
+        [Fact]
+        public void AreaRatio_IsNaN_WhenNotComputed_AndResetOnReuse()
+        {
+            QuadRemesher off = RunCase("sphere", false);
+            Assert.True(double.IsNaN(off.PureQuadAreaRatio) && double.IsNaN(off.PureQuadAreaRatioAfterFlow));
+            // an open mesh ends before the flow
+            var open = new QuadRemesher(Shape("patch")) { Field = FieldOf("patch"), TargetEdgeLength = 0.2, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, open.Compute());
+            Assert.Equal(PureQuadStatus.FlowInfeasible, open.PureQuadStatus);
+            Assert.True(double.IsNaN(open.PureQuadAreaRatio));
+            // one instance: pure quads, then off, then an invalid input, then pure quads again: the same bits, never a stale value
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = Cases["sphere"].s, PureQuads = true };
+            qr.Compute();
+            double first = qr.PureQuadAreaRatio, firstFlow = qr.PureQuadAreaRatioAfterFlow;
+            Assert.False(double.IsNaN(first));
+            qr.PureQuads = false; qr.Compute();
+            Assert.True(double.IsNaN(qr.PureQuadAreaRatio) && double.IsNaN(qr.PureQuadAreaRatioAfterFlow));
+            qr.PureQuads = true; qr.TargetEdgeLength = -1;
+            Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+            Assert.True(double.IsNaN(qr.PureQuadAreaRatio));
+            qr.TargetEdgeLength = Cases["sphere"].s; qr.Compute();
+            Assert.Equal(BitConverter.DoubleToInt64Bits(first), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatio));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(firstFlow), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatioAfterFlow));
+        }
+
+        [Fact]
+        public void AreaRatio_IsTheSameSerialAndParallel()
+        {
+            QuadRemesher serial = Run("torus-aligned", Cases["torus-aligned"].s, Cases["torus-aligned"].align, true, q => { q.Parallel = false; q.ChunkSize = 8; });
+            QuadRemesher parallel = Run("torus-aligned", Cases["torus-aligned"].s, Cases["torus-aligned"].align, true, q => { q.Parallel = true; q.ChunkSize = 3; });
+            Assert.Equal(BitConverter.DoubleToInt64Bits(serial.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(parallel.PureQuadAreaRatio));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(serial.PureQuadAreaRatioAfterFlow), BitConverter.DoubleToInt64Bits(parallel.PureQuadAreaRatioAfterFlow));
         }
     }
 }
