@@ -627,5 +627,74 @@ namespace geometry3Sharp.Tests
                 Assert.True(haus <= 0.1, name + ": haus " + haus);
             }
         }
+
+        [Fact]
+        public void PreserveCreases_WithPureQuads_IsInvalidInput_NotASilentSuccess()
+        {
+            // before this check the combination ran the pure-quad repair, reported Success and lost the creases (sharp box: feature coverage 100 % -> about 41 %)
+            DMesh3 box = Shape("sharp-box");
+            double s = TargetOf("sharp-box");
+            var qr = new QuadRemesher(box) { TargetEdgeLength = s, PreserveCreases = true, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
+            Assert.Null(qr.Result);
+            Assert.Contains("PreserveCreases", qr.Error);
+            Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+            // the same instance, reused after the rejection: each option alone works
+            qr.PureQuads = false;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            CheckResult(qr.Result, "after the rejection");
+            qr.PreserveCreases = false; qr.PureQuads = true;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.NotEqual(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+        }
+
+        [Fact]
+        public void PreserveCreases_ImpliesAlignCreases_ForTheComputedField()
+        {
+            // PreserveCreases without AlignCreases: the computed field aligns creases anyway, so the result is the one with AlignCreases = true
+            DMesh3 box = Shape("sharp-box");
+            double s = TargetOf("sharp-box");
+            var a = new QuadRemesher(box) { TargetEdgeLength = s, PreserveCreases = true, AlignCreases = false };
+            var b = new QuadRemesher(box) { TargetEdgeLength = s, PreserveCreases = true, AlignCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, a.Compute());
+            Assert.Equal(QuadRemeshStatus.Success, b.Compute());
+            AssertSame(a.Result, b.Result);
+            // and the one crease angle is the field's and the lattice constraints' alike: an angle above every dihedral gives the plain result
+            var plain = new QuadRemesher(box) { TargetEdgeLength = s };
+            var high = new QuadRemesher(box) { TargetEdgeLength = s, PreserveCreases = true, CreaseAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, plain.Compute());
+            Assert.Equal(QuadRemeshStatus.Success, high.Compute());
+            AssertSame(plain.Result, high.Result);
+        }
+
+        [Fact]
+        public void CornerAngleDegrees_IsForwardedToTheCreaseCorners()
+        {
+            // an L-shaped ridge whose crease bends by 90 degrees: a corner (fixed lattice point) at 30 degrees, a smooth crease vertex at 100 degrees
+            var m = new DMesh3();
+            int n = 12;
+            int[,] ids = new int[n + 1, n + 1];
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double x = (double)i / n, y = (double)j / n;
+                    double d1 = PointSegmentDist(new Vector3d(x, y, 0), new Vector3d(0, 0.5, 0), new Vector3d(0.5, 0.5, 0));
+                    double d2 = PointSegmentDist(new Vector3d(x, y, 0), new Vector3d(0.5, 0.5, 0), new Vector3d(0.5, 1.0, 0));
+                    double z = 0.35 * Math.Max(0, 1.0 - Math.Min(d1, d2) / 0.25);
+                    ids[i, j] = m.AppendVertex(new Vector3d(x, y, z));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    m.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    m.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            var sharp = new QuadRemesher(m) { TargetEdgeLength = 0.15, PreserveCreases = true, CreaseAngleDegrees = 45, CornerAngleDegrees = 30 };
+            var smooth = new QuadRemesher(m) { TargetEdgeLength = 0.15, PreserveCreases = true, CreaseAngleDegrees = 45, CornerAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, sharp.Compute());
+            Assert.Equal(QuadRemeshStatus.Success, smooth.Compute());
+            Assert.Equal(PositionFieldStatus.Success, sharp.Positions.Status);
+            int turn = ids[n / 2, n / 2];
+            Assert.Equal((byte)2, sharp.Positions.L0.Kind[sharp.Positions.ToCompact[turn]]);
+            Assert.Equal((byte)1, smooth.Positions.L0.Kind[smooth.Positions.ToCompact[turn]]);
+        }
     }
 }

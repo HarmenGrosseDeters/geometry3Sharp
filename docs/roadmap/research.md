@@ -332,6 +332,7 @@ in the tool project.
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
   OBJ / PLY writers and conversion to and from DMesh3. Stage 5 (#1097), stage 1 (#1098; Hermitian form #1099, vector kernels of `SparseCholesky` #1103) and stage 2 (#1100) are merged. Stage 2 (`PositionField`, `QuadRemesher`): manifold, quad share
   93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): owner 2026-11-17: merged with the gates open, next stage 3B (flow from the paper, measurement first)
+  Research spike 2026-11-22 (seamless parametrization as a seed or replacement for the position field, SIGGRAPH 2025 papers): [QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md); upper bound measured (irregular vertices of 9 closed shapes 863 uniform / 493 size field / 407 with a clamped cone-metric seed / 88 cones; no gain in pure-quad success shown), options with the owner, nothing built.
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
@@ -477,6 +478,13 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Spike 2026-11-22 (owner go; [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)):
+     Devillers et al. 2018 read in full and its upper bounds measured on generated inputs, nothing built. The scheme
+     proves an intersection-free complex, not a clean closed surface (sheets closer than a cell are merged), keeps no
+     solid that SafeRounding removes on the generated sets, and its global form needs at least 16 to 258 times the
+     triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid thin slabs SafeRounding drops when rotated (pipeline audit,
+     #1304) stay clean and unchanged when its removal rule is switched off: a rule decision, not a rounding one (the
+     small cube of that audit is lost to the degenerate-area test instead). Leaning: no build; the owner's decisions on the options are open.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
@@ -595,6 +603,11 @@ Ordered by expected value for the library.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
      At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
+   - 2026-11-22, spike on the proven floor (plan #1281, [research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)):
+     the 21 procedural inputs all reach 10° (the wrap's boundary angles do not follow the input's creases); a lattice mesher
+     (isosurface stuffing) proves 9.31° on every input (10.78° per tet, validity then checked per run) but rounds features and,
+     uniform, is at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering (SIGGRAPH 2026)
+     bounds face angles only. Leaning: stop, keep P5(a); owner decision open.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -635,6 +648,11 @@ Ordered by expected value for the library.
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
+    - **Spike 2026-11-22** ([research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md),
+      `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
+      1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
+      for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
+      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner
@@ -680,16 +698,17 @@ Done and removed from this list (status 2026-11-17): #804 (#973, closed 2026-11-
 (geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
 owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 
-1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, merged in #1076), then the net48 / net10 measurement (#929, local, open).
+1. Hard problem 11, determinism proof: stage 1 (the exact building blocks as a closed world, merged in #1076; O2-O5 plan #1240; stage 2 plan #1241; umbrella plan #1286), then the net48 / net10 measurement (#929, local, open).
 2. Tet meshing: a dihedral floor of 10° on 100 % of the inputs: 494 of 500 sample meshes at the new default alpha diagonal / 40 (#1073,
-   TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the rescue lever (#1072, 17.11) lifts 4 of the 6 left (498 of 500); 38781 and 282598 stay at 9.4° / 9.5°; sliver exudation not needed by the diagnosis.
+   TET_MESHING.md 17.8; 36 of 40 on the earlier 40-mesh set, section 16); the rescue lever (#1072, 17.11) lifts 4 of the 6 left (498 of 500); 38781 and 282598 stay at 9.4° / 9.5°; sliver exudation not needed by the diagnosis (HP 5 / P5(b) study, plan #1281).
 3. ~~#866 / #940~~: `MeshSweepCollision` on the 1M-triangle ToI frame; closed 2026-11-16 as a documented limit (owner) after the
    pre-filter #977 (serial 23.5-24.9 s).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
-   rule (upper bound one run). Options B and C only after a reviewed proof.
-5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (merged, #848 closed 2026-11-19; `certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
-6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976.
-7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now)
+   rule (upper bound one run). Options B and C only after a reviewed proof (plan #1289).
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2; plan #1288). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (merged, #848 closed 2026-11-19; `certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
+6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976 (plan #1265).
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now, plan #1257)
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
-   speed and Lévy-style propagation left): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go.
+   speed and Lévy-style propagation left; plan #1279): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go (HP 1 plan #1278; HP 3 plan #1258; HP 4 pass K follow-ups plan #1237, provable recovery plan #1280).
 8. `ContourLoft` stage 2 (several contours per slice, branching, merging, caps, holes): `ContourLoftStack`, design approved 2026-11-19 ([CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) section 10), merged (#1159, 2026-11-19); holes inside branching groups built in #1197 (owner 2026-11-19, section 10.10); the opt-in `LoweredSaddle` for contained groups built (section 10.11, owner 2026-11-19); cut-group saddles at `BranchFraction` (1c probed, no gain), terminal-with-child, islands in branching holes and the straight skeleton (Barequet et al. 2004, not built: no building block, algebraic events) are documented limits (section 10.11). ContourLoft has no open items.
+9. Other draft plans for items in this subpage: TPMS Lidinoid primary-source check (plan #1245), TPMS wall-thickness transitions (plan #1274), open research questions (plan #1290).

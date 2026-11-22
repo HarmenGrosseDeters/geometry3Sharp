@@ -10,9 +10,9 @@ This guide covers isotropic triangle remeshing (`Remesher`, `RemesherPro`), QEM 
 |---|---|---|---|
 | Isotropic triangle remeshing | `g3.Remesher`, `gs.RemesherPro`, `g3.RegionRemesher`, `g3.EdgeLoopRemesher` | In-place | [RemeshExample.cs](../examples/RemeshExample.cs) |
 | QEM simplification & certified deviation | `g3.Reducer`, `gs.PartitionedReducer`, `gs.MeshEnvelope` | In-place (`PartitionedReducer`: new mesh) | [SimplificationExample.cs](../examples/SimplificationExample.cs) |
-| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | — |
+| Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `g3.DPolyMesh`, `g3.PolyMeshIO` | New `DPolyMesh` | [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs) |
 | Surface smoothing | `g3.MeshIterativeSmooth`, `g3.LaplacianMeshSmoother` | In-place | [SmoothingExample.cs](../examples/SmoothingExample.cs) |
-| Handle-based deformation | `gs.ArapMeshDeformer`, `gs.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | — |
+| Handle-based deformation | `g3.ArapMeshDeformer`, `g3.BiharmonicMeshDeformer`, `g3.LaplacianMeshDeformer` | New / in-place (see below) | [DeformationExample.cs](../examples/DeformationExample.cs) |
 | Plane cut & cap | `g3.MeshPlaneCut` | In-place | [PlaneCutExample.cs](../examples/PlaneCutExample.cs) |
 
 ---
@@ -92,15 +92,17 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ## Quad Remeshing (`QuadRemesher`, `DPolyMesh`)
 
-- **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
+- **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `gs.IntegrableFrames`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
 - **Input / mutability:** Read-only manifold triangle mesh (`DMesh3`); outputs a new `DPolyMesh` (with whole quad/polygon faces).
-- **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
+- **Guarantees & limits:** Computes a smooth cross field (or principal-curvature-aligned / crease-aligned via `CurvatureAlignment`, `AlignCreases`, `CreaseAngleDegrees` when `Field == null`), integrates an integer-lattice position field (boundary corners pinned above `CornerAngleDegrees`), and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit `TargetEdgeLength`.
+- **Opt-in size adaptation (`SizeAdaptation`):** `Off` (default, uniform spacing), `Scale`, or `ScaleAndRotation` runs `IntegrableFrames` to reduce lattice curl on closed smooth shapes (applied only if curl drops by at least `SizeAdaptationMinGain`, default 20 %; can be combined with `PureQuads`).
+- **Example:** [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs)
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
 ### Sharp Features, Pure-Quad Mode & I/O
 
-- **`PreserveCreases` (opt-in, default `false`):** Treats interior sharp creases (dihedral angle above `CreaseAngleDegrees`, default `30°`) as lattice lines and crease corners/junctions as fixed lattice points in `PositionField` (and enables `CrossField.AlignCreases` automatically when `Field` is `null`), preserving sharp CAD edges and corners.
-- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction. Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
+- **`PreserveCreases` (opt-in, default `false`):** Treats interior sharp creases (dihedral angle above `CreaseAngleDegrees`, default `30°`) as lattice lines and crease corners/junctions as fixed lattice points in `PositionField` (and enables `CrossField.AlignCreases` automatically when `Field` is `null`), preserving sharp CAD edges and corners. Not combined with `PureQuads` (`InvalidInput`: the pure-quad repair does not keep feature curves).
+- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction (can be combined with `SizeAdaptation` for local spacing and frame rotation). Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
 - **Saving quad meshes:** Use `PolyMeshIO` to write `.obj` (4-vertex `f` lines) or `.ply` (ASCII/binary). Triangle-only formats (STL, OFF, 3MF, glTF) cannot store quads.
 
 ---
@@ -116,10 +118,12 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ## Handle-Based Deformation
 
+- **Example:** [DeformationExample.cs](../examples/DeformationExample.cs)
+
 | Class | Energy / properties | Rotation invariance | Further reading |
 |---|---|---|---|
-| `gs.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
-| `gs.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
+| `g3.ArapMeshDeformer` | As-rigid-as-possible local/global iteration, nonnegative cotan weights, Anderson acceleration with energy safeguard, exact handle positions | **Yes** (compatible with rotations of mesh and targets) | [ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md) |
+| `g3.BiharmonicMeshDeformer` | Minimizes squared cotangent Laplacian, exact handle positions, equivariant under similarity transforms, bounded by `MaxMatrixContributions` | No (use `ArapMeshDeformer` for large rotations) | [BIHARMONIC_DEFORMATION.md](../design/BIHARMONIC_DEFORMATION.md) |
 | `g3.LaplacianMeshDeformer` | Basic uniform-weight Laplacian deformation via CG solve | No | — |
 
 Both `ArapMeshDeformer` and `BiharmonicMeshDeformer` report explicit `Status` and convergence residuals (`FixedPointResidual` / `StationarityResidual`).

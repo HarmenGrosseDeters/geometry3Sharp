@@ -3,11 +3,24 @@ using System.Globalization;
 
 namespace g3
 {
+    /// <summary>
+    /// Double-precision axis-aligned 3D bounding box <c>[Min, Max]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>default(AxisAlignedBox3d)</c> is the point box <c>[0, 0, 0]</c> (contains the origin); always start
+    /// bounding-box accumulators from <see cref="Empty"/> before calling <c>Contain(...)</c>.
+    /// The <c>(Vector3d vCenter, double fHalfWidth, double fHalfHeight, double fHalfDepth)</c> constructors take
+    /// <b>half</b>-extents.
+    /// </remarks>
     public struct AxisAlignedBox3d : IComparable<AxisAlignedBox3d>, IEquatable<AxisAlignedBox3d>
     {
         public Vector3d Min;
         public Vector3d Max;
 
+        /// <summary>
+        /// Inverted empty-box sentinel (<c>Min = +MaxValue</c>, <c>Max = -MaxValue</c>) for initializing
+        /// <c>Contain(...)</c> accumulators.
+        /// </summary>
         public static readonly AxisAlignedBox3d Empty = new AxisAlignedBox3d(false);
         public static readonly AxisAlignedBox3d Zero = new AxisAlignedBox3d(0);
         public static readonly AxisAlignedBox3d UnitPositive = new AxisAlignedBox3d(1);

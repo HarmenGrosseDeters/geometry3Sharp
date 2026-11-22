@@ -100,7 +100,8 @@ version does not always end, section 2.2), and (c) a statement about what the co
 
 Caveats: the theorem's input is polygons with disjoint interiors; our exact result has shared edges and vertices, which
 is what "a polyhedral complex" means in their setting [S, to be checked in the full text]. The L∞ reading of their 3/2
-is from the abstract [S].
+is from the abstract [S]. (Both checked in the full text of the SoCG 2018 paper on 2026-11-22 and confirmed:
+[SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](SNAP_ROUNDING_3D_GUARANTEE_2026-11.md) section 2.1.)
 
 ### 2.4 What is proven, what is open
 

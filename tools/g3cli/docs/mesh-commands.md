@@ -54,7 +54,7 @@ g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute
 
 ### Orientation & SafeRounding Options
 
-- **Orientation (`boolean`):** Closed inputs with flipped faces fail with `inconsistent_orientation` unless `--orientation area_majority` is passed.
+- **Orientation (`boolean`):** Closed inputs with flipped faces fail with `inconsistent_orientation` unless `--orientation area_majority` is passed; `--orientation by_nesting` orients an embedded input that is closed modulo 2 by the parity of the crossings of one exact ray per component (the solid is what the surface encloses); `--count-inside-out` reports `boolean.inside_out_cells`.
 - **SafeRounding (on by default):** `--no-safe-rounding` disables repair after rounding (`boolean.rounding: null`). Tuning options: `--rounding-max-displacement` (default `1e-5` of diagonal), `--rounding-ulp-factor` (default `256`, for large/UTM coordinates), `--rounding-absolute-tolerance`, `--rounding-max-pair-tests` (default `5M`), `--rounding-defect-scale` (`50000`), `--rounding-max-growth` (`4`), `--strict-rounding` (fails with `rounding_not_clean` rather than writing defects).
 
 ### Additive Result Fields (`boolean` / `resolve`)
@@ -131,17 +131,23 @@ g3cli wrap scan.obj wrapped.stl --alpha 0.5 --offset 0.02 --max-steiner-points 5
 
 ## `quad`
 
-Quad-dominant or opt-in pure-quad remeshing (`QuadRemesher`, `PolyMeshIO`).
+Quad-dominant or opt-in pure-quad remeshing (`QuadRemesher`, `IntegrableFrames`, `PolyMeshIO`).
 
 ```bash
 g3cli quad part.stl part.obj --edge-length 2.5
+g3cli quad smooth.stl smooth_quads.obj --edge-length 2.5 --size-adaptation scale
 g3cli quad part.stl part_pure.ply --edge-length 2.5 --pure-quads
 ```
 
 - **Formats:** Output must be `.obj` or `.ply` (`--binary false` for ASCII PLY). Triangle-only formats fail with `unknown_format`.
 - **`--edge-length`:** Defaults in CLI to `max(diagonal / 30, 2 * meanEdge)` (`used_edge_length`).
+- **Opt-in field & sizing options (library defaults off / `0` / `30`):**
+  - `--size-adaptation off|scale|scale_and_rotation`: runs `IntegrableFrames` for closed smooth shapes (applied only when curl drops by at least 20 %; can be combined with `--pure-quads`).
+  - `--curvature-alignment <num>`: principal-curvature alignment weight (`>= 0`).
+  - `--align-creases` / `--crease-angle <deg>`: align the cross field with crease edges above `crease_angle` (`0..180`).
+  - `--corner-angle <deg>`: boundary corner threshold (`0..180`) for pinning boundary vertices as lattice corners.
 - **`--pure-quads` (closed meshes only):** On fallback, writes the quad-dominant mesh with `pure_quads_fell_back: true`, a warning, and `pure_quad_status` naming the first failed check (open meshes give `flow_infeasible`).
-- Reports `quad_status`, `pure_quad_status`, `faces` (`total`, `quads`, `non_quads`, by sides), `irregular_vertices`, `closed`, `manifold`, corner/aspect stats, and stage timings.
+- Reports `quad_status`, `size_adaptation` / `size_adaptation_applied` (`curl_before`, `curl_after`, `min_spacing`, `max_spacing`), `pure_quad_status`, `faces` (`total`, `quads`, `non_quads`, by sides), `irregular_vertices`, `closed`, `manifold`, `quad_quality` (`median`, `p95`, `p99`, `max` for corner deviation and aspect), and `timings_seconds` (including `size_adaptation`).
 
 ---
 

@@ -541,7 +541,7 @@
     "after": [
       "if (qr.Status == QuadRemeshStatus.InvalidInput)"
     ],
-    "reason": "QuadRemesher returns InvalidInput only for no triangles, a non-positive or infinite edge length or a SizeAdaptation setting; the CLI rejects an empty mesh at read (empty_mesh), validates edge_length and has no size adaptation option",
+    "reason": "QuadRemesher returns InvalidInput only for no triangles, a non-positive or infinite edge length, an unknown SizeAdaptation value, an out-of-range CornerAngleDegrees / CreaseAngleDegrees, a negative or infinite CurvatureAlignment, or PreserveCreases together with PureQuads; the CLI rejects an empty mesh at read (empty_mesh), validates edge_length, maps size_adaptation to the three known values, validates curvature_alignment, crease_angle and corner_angle itself, and has no preserve_creases option",
     "approved_in": "#1208"
   },
   {

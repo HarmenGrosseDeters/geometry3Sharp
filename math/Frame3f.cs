@@ -6,6 +6,14 @@ using g3;
 
 namespace g3
 {
+    /// <summary>
+    /// Single-precision 3D coordinate frame (float <see cref="Origin"/> and <see cref="Quaternionf"/> orientation).
+    /// </summary>
+    /// <remarks>
+    /// Use <see cref="Frame3d"/> when the origin requires double precision (for example, UTM or large world
+    /// coordinates where float loses sub-metre precision). <c>ToFrameP</c>/<c>ToFrameV</c> map world points/vectors
+    /// into local frame coordinates; <c>FromFrameP</c>/<c>FromFrameV</c> map local coordinates back to world space.
+    /// </remarks>
     public struct Frame3f
     {
         Quaternionf rotation;

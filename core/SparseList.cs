@@ -10,7 +10,7 @@ namespace g3
     /// alternate data structure to store the [index,value] pairs, if the list
     /// is very sparse. 
     /// 
-    /// Currently uses Dictionary<> as sparse data structure
+    /// Currently uses Dictionary&lt;&gt; as sparse data structure
     /// </summary>
     public class SparseList<T>  where T : IEquatable<T>
     {

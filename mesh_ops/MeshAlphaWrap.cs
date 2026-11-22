@@ -197,7 +197,7 @@ namespace gs
         /// section 7: the 1 %-worst angle 17.8 -> 20.4 degrees on Thingi10K meshes, with TraverseByEmptyBall). The extra
         /// points count against MaxSteinerPoints (PointLimitReached, as RefineNonManifold). 15 is a measured choice
         /// (section 7: 20 degrees gives more triangles, +6.8 %, and larger largest angles), not a derived bound (Chew's surface bound is 30 degrees); at 60 and
-        /// above every facet counts as poor and the rounds run to their limit; NaN or a value <= 0 turns it off.
+        /// above every facet counts as poor and the rounds run to their limit; NaN or a value &lt;= 0 turns it off.
         /// </summary>
         public double RefineMinAngleDegrees = 15;
         const int MaxQualityRounds = 10;

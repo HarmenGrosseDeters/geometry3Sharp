@@ -100,7 +100,11 @@ namespace geometry3Sharp.Tests
             Assert.Contains("inconsistently oriented", p.Error);
             Assert.Empty(p.Report.RepairedInputs);
             // the earlier behaviour on request
+            // (the area majority makes this tool inside-out, an empty solid: the pipeline refuses that unless it is allowed)
             var legacy = new SolidBooleanPipeline(parts, D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            Assert.False(legacy.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, legacy.Status);
+            legacy = new SolidBooleanPipeline(parts, D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AllowInsideOutInputs = true };
             Assert.True(legacy.Compute(), legacy.Error);
             Assert.Equal(27, Volume(legacy.Result), 9);
         }
