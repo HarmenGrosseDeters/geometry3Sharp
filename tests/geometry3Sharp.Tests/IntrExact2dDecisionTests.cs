@@ -46,12 +46,22 @@ namespace geometry3Sharp.Tests
             public static Q Min(Q a, Q b) => a <= b ? a : b;
             public static Q Max(Q a, Q b) => a >= b ? a : b;
             public static readonly Q Zero = new Q(0, 1), One = new Q(1, 1);
+            // (BigInteger.GetBitLength is missing on net48)
+            static int BitLength(BigInteger x)
+            {
+                byte[] b = BigInteger.Abs(x).ToByteArray();
+                int top = b.Length - 1;
+                while (top > 0 && b[top] == 0) top--;
+                int bits = top * 8;
+                for (int v = b[top]; v > 0; v >>= 1) bits++;
+                return bits;
+            }
             // the value as a double (to about 20 digits of the quotient, enough to measure an error)
             public double Approx()
             {
                 if (N.IsZero) return 0;
                 BigInteger a = BigInteger.Abs(N);
-                int shift = 70 + (int)D.GetBitLength() - (int)a.GetBitLength();
+                int shift = 70 + BitLength(D) - BitLength(a);
                 BigInteger q = shift >= 0 ? (a << shift) / D : a / (D << -shift);
                 double r = Math.Pow(2, -shift) * (double)q;
                 return N.Sign < 0 ? -r : r;
