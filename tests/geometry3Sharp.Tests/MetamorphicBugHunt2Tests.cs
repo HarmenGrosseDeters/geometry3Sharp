@@ -273,10 +273,10 @@ namespace geometry3Sharp.Tests
             Holds(IndependentChecks.SameBits(r.Mesh, stack.Compute(L(slices)).Mesh), "a second Compute()");
 
             var variants = new (string, IEnumerable<IEnumerable<List<Vector3d>>>, double)[] {
-                ("contours in reverse order", slices.Select(s => s.Reverse()), 1),
+                ("contours in reverse order", slices.Select(s => Enumerable.Reverse(s)), 1),
                 ("other start vertices", slices.Select(s => s.Select((c, i) => Rotated(c, 1 + i))), 1),
                 ("other directions", slices.Select(s => s.Select(Reversed)), 1),
-                ("upside down", slices.Reverse().Select(s => s.Select(c => c.Select(p => new Vector3d(p.x, p.y, -p.z)).ToList())), 1),
+                ("upside down", Enumerable.Reverse(slices).Select(s => s.Select(c => c.Select(p => new Vector3d(p.x, p.y, -p.z)).ToList())), 1),
                 ("a far copy", slices.Select(s => s.Concat(s.Select(c => c.Select(p => p + new Vector3d(0, 64, 0)).ToList()))), 2),
             };
             foreach (var (name, v, factor) in variants) {
@@ -705,7 +705,7 @@ namespace geometry3Sharp.Tests
             Holds(IndependentChecks.SameBits(first, Run(new DMesh3(two), pins, threads: 1).Result), "one thread");
             Holds(IndependentChecks.SameBits(first, Run(new DMesh3(two), pins.Select(p => new PassagePin(p.Axis.AsEnumerable().Reverse(), p.Radius))).Result), "reversed axes");
             Holds(IndependentChecks.SameBits(first, Run(new DMesh3(two), pins.Concat(pins)).Result), "every pin twice");
-            Holds(IndependentChecks.SameBits(first, Run(new DMesh3(two), pins.Reverse()).Result), "the pins in reverse order");
+            Holds(IndependentChecks.SameBits(first, Run(new DMesh3(two), Enumerable.Reverse(pins)).Result), "the pins in reverse order");
             PassageWrap blocked = Run(new DMesh3(two), new[] { new PassagePin(pins[0].Axis, 0.45) });
             Assert.Equal(PassageWrap.PassageStatus.PinBlockedByInput, blocked.Status);
             Assert.False(blocked.AllPassed);
