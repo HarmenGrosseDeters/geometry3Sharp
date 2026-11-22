@@ -39,6 +39,22 @@ the commands (section 9):
   `thingi400_rounding_2026-11-15.jsonl` (what SafeRounding leaves on the 400 self-unions). The lemma:
   `tools/Z3Pilot/plateau_search.py`.
 
+## Upper bounds of a rounding with a guarantee (2026-11-22)
+
+The measurement of [docs/research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../../docs/research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)
+(the tables and their reading are there): `bound <case>` (`GuaranteeBound.cs`) prints one JSON line with what
+SafeRounding leaves and removes today (each removed component with its thickness in cells of the grid a guaranteed
+scheme would use), a lower bound of the output size of the algorithm of Devillers, Lazard and Lenhart (SoCG 2018;
+counted from the slabs its step 2 cuts every face by, not built), and the same count with the pairs closer than a cell
+on the patch around the defects that are left. `bound.py run <out.jsonl> <set>...` runs a set, one process per case,
+resumable; `bound.py tables <out.jsonl>...` prints the tables. `bound selfcheck` checks the slab count on a
+hand-counted case. The sets `scale` (two rotated cube-spheres at six
+resolutions) and `drop` (valid small and thin solids that SafeRounding removes: a cube beside a large box, a slab
+axis-aligned and rotated) are for this measurement; where a component was removed, the line also says whether the
+same repair without the removal ends clean (`no_removal_clean`, a probe outside the boolean) and what became of
+each removed component (`no_removal_volume_ratio`: its volume after over before, 1 = kept as it was). Raw output:
+`trace/results/bound_2026-11-22.jsonl`, `bound_scale_2026-11-22.jsonl`, `bound_drop_2026-11-22.jsonl`.
+
 ## Sets
 
 All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs`), no mesh files:
