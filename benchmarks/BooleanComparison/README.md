@@ -1255,6 +1255,24 @@ Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22
 of two tubes of 634k triangles in all, with 806 of them split, takes 2.47 s at 1 thread and 1.37 s at 4 on the 4-vCPU
 container; the same seam between tubes of 40k triangles 0.25 s and 0.09 s.
 
+### Built: lever 3x and the lazy first pair search (2026-11-22)
+
+`MeshRoundingRepair.intersecting_pairs_all` counts the skipped exact triangles per block (no shared counter), and the rounding's first
+pair search queries a tree of the new triangles only (`intersecting_pairs_of_new`: new against new from that tree, new against exact from
+the box of each exact triangle); the tree of all triangles is built at the first `near` query. Results are bit-identical
+(`RoundingLazyFirstSearchTests`, hash `C5689232CE10FDF1` on every run below). Tubes, half 48, union (628 078 triangles, 3 edits),
+`seam-levers --half 48 --ops union --parts boolean --repeat 3`, best of 3 per run, base and new alternating, 4-vCPU container:
+
+| threads | base total ms | new total ms | base rounding ms | new rounding ms |
+|---:|---:|---:|---:|---:|
+| 1 | 2443 | 2396 | 786 | 761 |
+| 4 | 1168 | 1194 | 483 | 516 |
+
+The first search alone drops from about 470 to 103 ms at 1 thread, but the first proposed edit (3 edits, about 30 `near` queries) builds the
+tree of all triangles at once, so the saving is spent again: as section 4.2 of the study predicts, a lazy tree gains nothing on a result
+with edits. The 3x change alone (4 threads, 6 runs): rounding 472 to 413 ms, total 1078 to 1053 ms. Run-to-run noise is about 5 %.
+Only a result without edits gains (no tree is built at all).
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,

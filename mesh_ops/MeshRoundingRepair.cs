@@ -514,6 +514,12 @@ namespace g3
         // canonical ids against the dictionary (InvalidOperationException if they differ), and compares every
         // decision of the projection filter in intersects with the exact test
         [ThreadStatic] internal static bool CheckOnThisThread;
+        // for tests: the first pair search builds the tree of all triangles and queries it, as it did before intersecting_pairs_of_new
+        // (read when Apply starts)
+        [ThreadStatic] internal static bool TreeFirstSearchOnThisThread;
+        bool treeFirstSearch;
+        // for tests: the trees of all triangles built in the last Apply, and the first searches done without one
+        internal int TreeBuilds, SearchesOfNew;
         bool check;
         // the vertices at their exact position (ExactMeshBoolean: the input points of the result), or null: the full search
         // skips the pairs of two triangles that existed at the start with three such vertices and have not changed since
@@ -714,9 +720,13 @@ namespace g3
                     exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
                 }
             }
-            rebuild_tree();
+            // (no tree yet: the first pair search needs only a tree of the new triangles, the first edit builds the tree
+            // of all, see ensure_tree)
+            reset_tree();
             lastPairs = null;
             check = CheckOnThisThread;
+            treeFirstSearch = TreeFirstSearchOnThisThread;
+            TreeBuilds = SearchesOfNew = 0;
             NearChecks = 0;
             DirtyTreeBuilds = 0;
             MaxPendingScanned = 0;
@@ -1070,6 +1080,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void rebuild_tree()
         {
+            TreeBuilds++;
             treeTids = new List<int>(Mesh.TriangleCount);
             foreach (int tid in Mesh.TriangleIndices())
                 treeTids.Add(tid);
@@ -1088,21 +1099,48 @@ namespace g3
             version++;
         }
 
+        // no tree of the triangles (tree == null): built by ensure_tree at the first query or search that needs it. Until
+        // then nothing is dirty: the tree is built from the mesh as it is then
+        void reset_tree()
+        {
+            tree = dirtyTree = null;
+            treeTids = dirtyTids = null;
+            dirty.Clear();
+            pending.Clear();
+            pendingSet.Clear();
+            version++;
+        }
+
+        // the tree of all triangles, built if it is not (from the committed mesh: a proposed move is not in it, as in
+        // rebuild_tree)
+        void ensure_tree()
+        {
+            if (tree != null)
+                return;
+            int saveV = movedV;
+            movedV = -1;
+            rebuild_tree();
+            movedV = saveV;
+        }
+
         void mark_dirty(int tid)
         {
             if (exactAtStart != null && tid >= 0 && tid < exactAtStart.Length)
                 exactAtStart[tid] = new Index3i(-1, -1, -1);
-            dirty.Add(tid);
+            // (without a tree nothing is dirty: see reset_tree)
+            if (tree != null) {
+                dirty.Add(tid);
+                if (dirtyTree != null && pendingSet.Add(tid))
+                    pending.Add(tid);
+            }
             pairsStale.Add(tid);
-            if (dirtyTree != null && pendingSet.Add(tid))
-                pending.Add(tid);
             version++;
             if (Mesh.IsTriangle(tid)) {
                 Index3i tv = Mesh.GetTriangle(tid);
                 changed.Add(tv.a); changed.Add(tv.b); changed.Add(tv.c);
             }
             // (the changed triangles are searched linearly)
-            if (dirty.Count > Math.Max(1024, Mesh.TriangleCount / 16))
+            if (tree != null && dirty.Count > Math.Max(1024, Mesh.TriangleCount / 16))
                 rebuild_tree();
         }
 
@@ -1111,6 +1149,7 @@ namespace g3
         void near(AxisAlignedBox3d query, List<int> result)
         {
             result.Clear();
+            ensure_tree();
             // (the list overload: no list and no closure per query)
             hits.Clear();
             tree.Query(query, hits);
@@ -1200,16 +1239,29 @@ namespace g3
         {
             if (dirty.Count > 0)
                 rebuild_tree();
-            List<Index2i> pairs;
+            List<Index2i> pairs = null;
             if (lastPairs != null && pairsStale.Count == 0) {
                 pairs = new List<Index2i>(lastPairs);
                 UnchangedPairSearches++;
-            } else if (lastPairs != null && pairsStale.Count <= treeTids.Count / 4) {
-                pairs = intersecting_pairs_of_changed();
-                IncrementalPairSearches++;
             } else {
-                pairs = intersecting_pairs_all();
-                FullPairSearches++;
+                // (the first search without a tree of all triangles, where the new triangles are few)
+                if (lastPairs == null && tree == null && treeFirstSearch == false) {
+                    pairs = intersecting_pairs_of_new();
+                    if (pairs != null) {
+                        FullPairSearches++;
+                        SearchesOfNew++;
+                    }
+                }
+                if (pairs == null) {
+                    ensure_tree();
+                    if (lastPairs != null && pairsStale.Count <= treeTids.Count / 4) {
+                        pairs = intersecting_pairs_of_changed();
+                        IncrementalPairSearches++;
+                    } else {
+                        pairs = intersecting_pairs_all();
+                        FullPairSearches++;
+                    }
+                }
             }
             if (check) {
                 // (also the full search with the exact pairs skipped, against one that tests every pair)
@@ -1240,18 +1292,44 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         List<Index2i> intersecting_pairs_all(bool skipExact = true)
         {
+            ensure_tree();
             int[] tris = treeTids.ToArray();
             bool skip = skipExact && exactAtStart != null;
             long skipped = 0;
-            // (per triangle, in triangle order: deterministic without a lock)
-            var found = new List<Index2i>[tris.Length];
-            gParallel.ForRange(tris.Length, (k) => {
-                int ta = tris[k];
-                // (an exact triangle's pairs with the others are found from those)
-                if (skip && exact_triangle(ta)) {
-                    System.Threading.Interlocked.Increment(ref skipped);
-                    return;
+            // (the triangles to query from: those that are not skipped, in index order. The skipped ones are counted per
+            // block of indices and summed in block order, not by a counter that all threads share)
+            int[] queryFrom;
+            if (skip) {
+                int blocks = (tris.Length + TriangleBlock - 1) / TriangleBlock;
+                var inBlock = new List<int>[blocks];
+                var skippedIn = new long[blocks];
+                gParallel.ForRange(blocks, (b) => {
+                    int end = Math.Min(tris.Length, (b + 1) * TriangleBlock);
+                    var list = new List<int>();
+                    for (int k = b * TriangleBlock; k < end; ++k) {
+                        // (an exact triangle's pairs with the others are found from those)
+                        if (exact_triangle(tris[k]))
+                            skippedIn[b]++;
+                        else
+                            list.Add(k);
+                    }
+                    inBlock[b] = list;
+                });
+                var all = new List<int>();
+                for (int b = 0; b < blocks; ++b) {
+                    skipped += skippedIn[b];
+                    all.AddRange(inBlock[b]);
                 }
+                queryFrom = all.ToArray();
+            } else {
+                queryFrom = new int[tris.Length];
+                for (int k = 0; k < queryFrom.Length; ++k)
+                    queryFrom[k] = k;
+            }
+            // (per triangle, in triangle order: deterministic without a lock)
+            var found = new List<Index2i>[queryFrom.Length];
+            gParallel.ForRange(queryFrom.Length, (w) => {
+                int ta = tris[queryFrom[w]];
                 Index3i ia = Mesh.GetTriangle(ta);
                 Triangle3d A = triangle(ia);
                 if (ExactTriangleIntersection.IsDegenerate(ref A))
@@ -1272,11 +1350,123 @@ namespace g3
                         local.Add(new Index2i(Math.Min(ta, tb), Math.Max(ta, tb)));
                     }
                 });
-                found[k] = local;
+                found[w] = local;
             });
             SkippedExactQueries += skipped;
             var pairs = new List<Index2i>();
             foreach (List<Index2i> local in found)
+                if (local != null)
+                    pairs.AddRange(local);
+            pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
+            return pairs;
+        }
+
+        // The first full search, without a tree of all triangles: the intersecting pairs of the whole mesh as
+        // intersecting_pairs_all(skipExact: true) finds them (ta < tb, sorted), or null where that is the better way (no
+        // exact triangles of the start, or more than half of the triangles are new).
+        // Only the pairs with a new triangle (one that is not an exact triangle of the start) are tested, and
+        // intersecting_pairs_all queries a tree of all triangles from each new triangle. Here a tree of the new triangles
+        // only is queried from each new triangle (for the pairs of two new ones) and from the box of each exact triangle
+        // (for the pairs of a new and an exact one). Both enumerate every pair of a new triangle with another triangle
+        // whose box overlaps, each pair once: the tests are the same, so the pairs are
+        [MethodImpl(JitHints.Optimize)]
+        List<Index2i> intersecting_pairs_of_new()
+        {
+            if (exactAtStart == null)
+                return null;
+            // (the new triangles in id order, and the exact ones counted, per block of ids and combined in block order)
+            int maxId = Mesh.MaxTriangleID;
+            int blocks = (maxId + TriangleBlock - 1) / TriangleBlock;
+            var newIn = new List<int>[blocks];
+            var exactIn = new long[blocks];
+            gParallel.ForRange(blocks, (b) => {
+                int end = Math.Min(maxId, (b + 1) * TriangleBlock);
+                var list = new List<int>();
+                for (int tid = b * TriangleBlock; tid < end; ++tid) {
+                    if (Mesh.IsTriangle(tid) == false)
+                        continue;
+                    if (exact_triangle(tid))
+                        exactIn[b]++;
+                    else
+                        list.Add(tid);
+                }
+                newIn[b] = list;
+            });
+            long exactCount = 0;
+            var newTids = new List<int>();
+            for (int b = 0; b < blocks; ++b) {
+                exactCount += exactIn[b];
+                newTids.AddRange(newIn[b]);
+            }
+            if (newTids.Count > Mesh.TriangleCount / 2)
+                return null;
+            SkippedExactQueries += exactCount;
+            var pairs = new List<Index2i>();
+            if (newTids.Count == 0)
+                return pairs;
+            int n = newTids.Count;
+            var newIdx = new Index3i[n];
+            var newTri = new Triangle3d[n];
+            var newOk = new bool[n];
+            var boxes = new List<AxisAlignedBox3d>(n);
+            for (int i = 0; i < n; ++i) {
+                newIdx[i] = Mesh.GetTriangle(newTids[i]);
+                newTri[i] = triangle(newIdx[i]);
+                newOk[i] = ExactTriangleIntersection.IsDegenerate(ref newTri[i]) == false;
+                boxes.Add(box(newIdx[i]));
+            }
+            var newTree = new TriangleBoxTree(boxes);
+            // (the pairs of two new triangles, once, from the smaller id; per triangle, in id order)
+            var found = new List<Index2i>[n];
+            gParallel.ForRange(n, (k) => {
+                if (newOk[k] == false)
+                    return;
+                int ta = newTids[k];
+                List<Index2i> local = null;
+                newTree.Query(boxes[k], (j) => {
+                    int tb = newTids[j];
+                    if (tb <= ta || newOk[j] == false) return;
+                    if (intersects(newIdx[k], ref newTri[k], newIdx[j], ref newTri[j])) {
+                        if (local == null) local = new List<Index2i>();
+                        local.Add(new Index2i(ta, tb));
+                    }
+                });
+                found[k] = local;
+            });
+            // (the pairs of a new and an exact triangle: from the exact one, per block of ids)
+            var foundExact = new List<Index2i>[blocks];
+            gParallel.ForRange(blocks, (b) => {
+                int end = Math.Min(maxId, (b + 1) * TriangleBlock);
+                List<Index2i> local = null;
+                for (int tb = b * TriangleBlock; tb < end; ++tb) {
+                    if (Mesh.IsTriangle(tb) == false || exact_triangle(tb) == false)
+                        continue;
+                    Index3i ib = Mesh.GetTriangle(tb);
+                    bool haveB = false, okB = false;
+                    Triangle3d B = default(Triangle3d);
+                    newTree.Query(box(ib), (j) => {
+                        if (newOk[j] == false) return;
+                        if (haveB == false) {
+                            B = triangle(ib);
+                            okB = ExactTriangleIntersection.IsDegenerate(ref B) == false;
+                            haveB = true;
+                        }
+                        if (okB == false) return;
+                        int ta = newTids[j];
+                        // (the smaller id first, as in intersecting_pairs_all)
+                        bool hit = ta < tb ? intersects(newIdx[j], ref newTri[j], ib, ref B) : intersects(ib, ref B, newIdx[j], ref newTri[j]);
+                        if (hit) {
+                            if (local == null) local = new List<Index2i>();
+                            local.Add(new Index2i(Math.Min(ta, tb), Math.Max(ta, tb)));
+                        }
+                    });
+                }
+                foundExact[b] = local;
+            });
+            foreach (List<Index2i> local in found)
+                if (local != null)
+                    pairs.AddRange(local);
+            foreach (List<Index2i> local in foundExact)
                 if (local != null)
                     pairs.AddRange(local);
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));

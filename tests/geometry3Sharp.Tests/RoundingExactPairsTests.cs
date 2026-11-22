@@ -39,7 +39,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> CasesExceptFoldedCluster() => Cases().Where(c => (string)c[0] != "FoldedCluster");
 
-        static (DMesh3, DMesh3, Ops) Inputs(string name)
+        internal static (DMesh3, DMesh3, Ops) Inputs(string name)
         {
             switch (name) {
                 case "boxes":
@@ -88,7 +88,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static string Print(DMesh3 m)
+        internal static string Print(DMesh3 m)
         {
             var sb = new System.Text.StringBuilder();
             foreach (int v in m.VertexIndices()) {
