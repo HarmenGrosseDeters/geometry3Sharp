@@ -1,6 +1,6 @@
 # Metamorphic and differential fuzzing of the exact Boolean (2026-11)
 
-Status: research spike (tests and this note, no library change), 2026-11-22, on master `57623890`.
+Status: research spike (tests and this note, no library change), 2026-11-22, on master `57623890`; rerun on `e7210143` after the merge (the same counts, section 5.4).
 Harness: `tests/geometry3Sharp.Tests/Harness/BooleanFuzzCases.cs` (generators), `BooleanFuzzCheck.cs` (relations),
 `BooleanFuzzExact.cs` (the exact comparison); tests: `ExactBooleanFuzzTests` (PR-tier smoke, Nightly campaign).
 Builds on [METAMORPHIC_BUG_HUNT_2026-11.md](METAMORPHIC_BUG_HUNT_2026-11.md) (chains of operations, double volumes with
@@ -180,7 +180,7 @@ Each first firing was read against the class comments before it counted, as in t
    `rotated`). The certificate's class comment says so: "a triangle not covered after the splits is only counted". Slivers
    thinner than Delta are the cause. The checker counts them and fails only on a violation (C0 to C5).
 4. **The certificate's "removed parts" verdict** (`not clean: the rounding removed N part(s) of the exact result (all else
-   holds)`; REMOVEDPARTS in the Nightly seeds, all in `ulp`, `slab` and `rotated`). Stage 3 of the certificate (#1359) reports
+   holds)`; 220 in the Nightly seeds, all in `ulp`, `slab` and `rotated`). Stage 3 of the certificate (#1359) reports
    the documented removal of tiny and thin components this way; it reached master while this spike ran, and the PR's CI, which
    tests the merge, showed it on `slab` seeds 0 and 1. Counted in the three sliver families, a failure in the others
    (`RemovedPartsVerdict_IsTheCertificatesText`).
