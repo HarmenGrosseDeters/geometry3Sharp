@@ -647,3 +647,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above (plan #1273).
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
 7. Remove `external/cgal_wrap.cpp` once no comparison needs it (plan #1260).
+8. Local self-intersection untangling before the wrap (SIGGRAPH 2025 / 2026): spike done 2026-11-22
+   ([research/SELF_INTERSECTION_UNTANGLING_2026-11.md](../research/SELF_INTERSECTION_UNTANGLING_2026-11.md)), leaning no-go: the
+   repair ends in the exact resolve on 84 of 84 procedural runs, and a prototype (40 of 42 clean) deviates more than the
+   wrap. Open as owner options only: a standalone connectivity-preserving operation, after a real-mesh upper-bound run.

@@ -1,0 +1,25 @@
+corpus: 21 cases, 0 defects
+class | case | Status | BooleanStatus | NotCleanReason | inside-out cells
+parts | two boxes overlapping by half (components) | Success | Success | '' | 0
+parts | two boxes overlapping by 1e-6 (components) | Success | Success | '' | 0
+parts | two spheres, penetration 0.05 r (components) | Success | Success | '' | 0
+parts | two spheres, penetration 0.8 r (components) | Success | Success | '' | 0
+parts | helix tube, turns overlap by 0.1 r (connected) | Success | Success | '' | 0
+parts | helix tube, turns overlap by 1.0 r (connected) | Success | Success | '' | 0
+pushed | sphere cap pushed through the far side by 0.2 r | Success | Success | '' | 0
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | Success | Success | '' | 0
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | Success | Success | '' | 0
+flap | sphere, one vertex moved 1.5 edges tangentially | Success | Success | '' | 0
+flap | sphere, 10 % of the vertices moved 0.8 edges | Success | Success | '' | 0
+flap | sphere, 10 % of the vertices moved 1.5 edges | Success | Success | 'self-intersections' | 0
+flap | box ridge folded back over the top face | Success | Success | '' | 0
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | Success | Success | '' | 0
+coplanar | flat face, one vertex moved 1.5 cells in the face | Success | Success | '' | 0
+coplanar | two boxes with coplanar faces overlapping (components) | Success | Success | '' | 0
+cad | pocket floor pushed through the bottom by 0.25 | InsideOutInput | Success | - | 1
+cad | pocket floor pushed through the bottom by 2 | InsideOutInput | Success | - | 1
+cad | boss top edge pushed through the opposite wall | Success | Success | '' | 0
+cad | box corner pushed through the opposite face | InsideOutInput | Success | - | 1
+cad | bracket: top of the low arm pushed below the bottom | Success | Success | '' | 0
+Success | 18
+InsideOutInput | 3

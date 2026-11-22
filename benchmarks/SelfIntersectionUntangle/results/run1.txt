@@ -1,0 +1,385 @@
+corpus: 21 cases, 0 defects
+class | case | frame | tris | pairs | method | status | ms | h(result->input) | h(input->result) | H(intent) | vol/intent | topology (intent) | detail
+parts | two boxes overlapping by half (components) | id | 24 | 18 | untangle local+d0 | self-intersections | 10 | - | - | - | - | - (-) | rounds 42, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | id | 24 | 18 | untangle local+d4 | self-intersections | 21 | - | - | - | - | - (-) | rounds 42, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | id | 24 | 18 | untangle signed+d0 | self-intersections | 55 | - | - | - | - | - (-) | rounds 42, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | id | 24 | 18 | untangle signed+d4 | self-intersections | 42 | - | - | - | - | - (-) | rounds 42, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | id | 24 | 18 | robust repair | clean | 129 | 0.00009 | 0.19245 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two boxes overlapping by half (components) | id | 24 | 18 | exact resolve | clean | 1 | 0.00009 | 0.19245 | - | - | 1c/2 (-) | 
+parts | two boxes overlapping by half (components) | id | 24 | 18 | solidify | clean | 1452 | 0.0001 | 0.19245 | - | - | 1c/2 (-) | 
+parts | two boxes overlapping by half (components) | id | 24 | 18 | alpha wrap | clean | 3323 | 0.00269 | 0.19282 | - | - | 1c/2 (-) | Success
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | untangle local+d0 | self-intersections | 5 | - | - | - | - | - (-) | rounds 40, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | untangle local+d4 | self-intersections | 17 | - | - | - | - | - (-) | rounds 40, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | untangle signed+d0 | self-intersections | 13 | - | - | - | - | - (-) | rounds 40, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | untangle signed+d4 | self-intersections | 24 | - | - | - | - | - (-) | rounds 40, pairs left 12 (best 12), pull-back t 1
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | robust repair | clean | 102 | 0.00007 | 0.14316 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | exact resolve | clean | 3 | 0.00007 | 0.14316 | - | - | 1c/2 (-) | 
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | solidify | clean | 963 | 0.00312 | 0.14316 | - | - | 1c/2 (-) | 
+parts | two boxes overlapping by half (components) | rot | 24 | 12 | alpha wrap | clean | 1459 | 0.00273 | 0.14358 | - | - | 1c/2 (-) | Success
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | untangle local+d0 | clean | 3 | 0.0001 | 0.0001 | 0.0001 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0.0005
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | untangle local+d4 | clean | 2 | 0.0001 | 0.0001 | 0.0001 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0.0005
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | untangle signed+d0 | clean | 2 | 0.0001 | 0.0001 | 0.0001 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | untangle signed+d4 | clean | 2 | 0.0001 | 0.00008 | 0.0001 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | robust repair | clean | 46 | 0.0001 | 0.16977 | 0.16977 | 1 | 1c/2 (2c/4) | Apply True, path ExactResolve
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | exact resolve | clean | 1 | 0.0001 | 0.16977 | 0.16977 | 1 | 1c/2 (2c/4) | 
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | solidify | clean | 841 | 0.0001 | 0.16977 | 0.16977 | 1 | 1c/2 (2c/4) | 
+parts | two boxes overlapping by 1e-6 (components) | id | 24 | 10 | alpha wrap | clean | 2529 | 0.00259 | 0.17019 | 0.17019 | 1.0041 | 1c/2 (2c/4) | Success
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | untangle local+d0 | clean | 1 | 0.00008 | 0.00008 | 0.00008 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0.0005
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | untangle local+d4 | clean | 1 | 0.00008 | 0.00008 | 0.00008 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0.0005
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | untangle signed+d0 | clean | 1 | 0.00008 | 0.00008 | 0.00008 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | untangle signed+d4 | clean | 1 | 0.00008 | 0.00008 | 0.00008 | 1 | 2c/4 (2c/4) | rounds 1, pairs left 0 (best 0), pull-back t 0
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | robust repair | clean | 20 | 0.00008 | 0.121 | 0.121 | 1 | 1c/2 (2c/4) | Apply True, path ExactResolve
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | exact resolve | clean | 1 | 0.00008 | 0.121 | 0.121 | 1 | 1c/2 (2c/4) | 
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | solidify | clean | 534 | 0.00294 | 0.12105 | 0.12105 | 0.9999 | 1c/2 (2c/4) | 
+parts | two boxes overlapping by 1e-6 (components) | rot | 24 | 10 | alpha wrap | clean | 1419 | 0.00273 | 0.12142 | 0.12142 | 1.0058 | 1c/2 (2c/4) | Success
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | untangle local+d0 | self-intersections | 100 | - | - | - | - | - (-) | rounds 40, pairs left 60 (best 42), pull-back t 1
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | untangle local+d4 | self-intersections | 155 | - | - | - | - | - (-) | rounds 40, pairs left 60 (best 42), pull-back t 1
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | untangle signed+d0 | clean | 102 | 0.00479 | 0.00434 | - | - | 2c/4 (-) | rounds 1, pairs left 0 (best 0), pull-back t 0.7225
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | untangle signed+d4 | clean | 94 | 0.00479 | 0.00458 | - | - | 2c/4 (-) | rounds 1, pairs left 0 (best 0), pull-back t 0.7225
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | robust repair | clean | 116 | 0.00009 | 0.04038 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | exact resolve | clean | 11 | 0.00009 | 0.04038 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | solidify | clean | 604 | 0.00406 | 0.0467 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.05 r (components) | id | 2904 | 42 | alpha wrap | clean | 1923 | 0.00326 | 0.04944 | - | - | 1c/2 (-) | Success
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | untangle local+d0 | self-intersections | 96 | - | - | - | - | - (-) | rounds 40, pairs left 60 (best 42), pull-back t 1
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | untangle local+d4 | self-intersections | 114 | - | - | - | - | - (-) | rounds 40, pairs left 60 (best 42), pull-back t 1
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | untangle signed+d0 | clean | 98 | 0.00441 | 0.00401 | - | - | 2c/4 (-) | rounds 1, pairs left 0 (best 0), pull-back t 0.7225
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | untangle signed+d4 | clean | 133 | 0.00441 | 0.00424 | - | - | 2c/4 (-) | rounds 1, pairs left 0 (best 0), pull-back t 0.7225
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | robust repair | clean | 56 | 0.00007 | 0.03721 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | exact resolve | clean | 18 | 0.00007 | 0.03721 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | solidify | clean | 433 | 0.00368 | 0.03787 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.05 r (components) | rot | 2904 | 42 | alpha wrap | clean | 1458 | 0.00336 | 0.04606 | - | - | 1c/2 (-) | Success
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | untangle local+d0 | self-intersections | 128 | - | - | - | - | - (-) | rounds 40, pairs left 239 (best 185), pull-back t 1
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | untangle local+d4 | self-intersections | 135 | - | - | - | - | - (-) | rounds 40, pairs left 237 (best 185), pull-back t 1
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | untangle signed+d0 | clean | 227 | 0.09056 | 0.0906 | - | - | 2c/4 (-) | rounds 16, pairs left 0 (best 0), pull-back t 0.9856
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | untangle signed+d4 | clean | 239 | 0.09056 | 0.0906 | - | - | 2c/4 (-) | rounds 16, pairs left 0 (best 0), pull-back t 0.9856
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | robust repair | clean | 96 | 0.0001 | 0.20451 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | exact resolve | clean | 12 | 0.0001 | 0.20451 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | solidify | clean | 584 | 0.00215 | 0.20451 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.8 r (components) | id | 2904 | 185 | alpha wrap | clean | 1644 | 0.0024 | 0.20509 | - | - | 1c/2 (-) | Success
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | untangle local+d0 | self-intersections | 89 | - | - | - | - | - (-) | rounds 40, pairs left 239 (best 185), pull-back t 1
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | untangle local+d4 | self-intersections | 107 | - | - | - | - | - (-) | rounds 40, pairs left 237 (best 185), pull-back t 1
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | untangle signed+d0 | clean | 263 | 0.08527 | 0.08531 | - | - | 2c/4 (-) | rounds 16, pairs left 0 (best 0), pull-back t 0.9856
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | untangle signed+d4 | clean | 231 | 0.08527 | 0.08531 | - | - | 2c/4 (-) | rounds 16, pairs left 0 (best 0), pull-back t 0.9856
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | robust repair | clean | 68 | 0.0001 | 0.19259 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | exact resolve | clean | 11 | 0.0001 | 0.19259 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | solidify | clean | 523 | 0.00141 | 0.19259 | - | - | 1c/2 (-) | 
+parts | two spheres, penetration 0.8 r (components) | rot | 2904 | 185 | alpha wrap | clean | 1462 | 0.00246 | 0.19311 | - | - | 1c/2 (-) | Success
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | untangle local+d0 | self-intersections | 114 | - | - | - | - | - (1c/2) | rounds 40, pairs left 396 (best 263), pull-back t 1
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | untangle local+d4 | self-intersections | 135 | - | - | - | - | - (1c/2) | rounds 40, pairs left 382 (best 263), pull-back t 1
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | untangle signed+d0 | clean | 92 | 0.00314 | 0.00306 | 0.0171 | 0.9902 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9786
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | untangle signed+d4 | clean | 106 | 0.00314 | 0.00307 | 0.0171 | 0.987 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9786
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | robust repair | clean | 101 | 0.00009 | 0.01469 | 0.0201 | 0.9972 | 1c/0 (1c/2) | Apply True, path ExactResolve
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | exact resolve | clean | 72 | 0.00009 | 0.01469 | 0.0201 | 0.9972 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | solidify | clean | 447 | 0.00323 | 0.02143 | 0.02453 | 0.9991 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 0.1 r (connected) | id | 3104 | 263 | alpha wrap | clean | 1854 | 0.00307 | 0.02344 | 0.02641 | 1.0094 | 1c/0 (1c/2) | Success
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | untangle local+d0 | self-intersections | 129 | - | - | - | - | - (1c/2) | rounds 40, pairs left 396 (best 262), pull-back t 1
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | untangle local+d4 | self-intersections | 125 | - | - | - | - | - (1c/2) | rounds 40, pairs left 380 (best 262), pull-back t 1
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | untangle signed+d0 | clean | 100 | 0.00301 | 0.00293 | 0.01636 | 0.9901 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9786
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | untangle signed+d4 | clean | 98 | 0.00301 | 0.00296 | 0.01636 | 0.9869 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9786
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | robust repair | clean | 86 | 0.00009 | 0.01407 | 0.01924 | 0.9972 | 1c/0 (1c/2) | Apply True, path ExactResolve
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | exact resolve | clean | 26 | 0.00009 | 0.01407 | 0.01924 | 0.9972 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | solidify | clean | 453 | 0.0031 | 0.02013 | 0.02348 | 0.999 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 0.1 r (connected) | rot | 3104 | 262 | alpha wrap | clean | 1843 | 0.00308 | 0.02255 | 0.02502 | 1.01 | 1c/0 (1c/2) | Success
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | untangle local+d0 | self-intersections | 127 | - | - | - | - | - (1c/2) | rounds 40, pairs left 306 (best 298), pull-back t 1
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | untangle local+d4 | self-intersections | 134 | - | - | - | - | - (1c/2) | rounds 40, pairs left 306 (best 298), pull-back t 1
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | untangle signed+d0 | clean | 743 | 0.02836 | 0.02792 | 0.09522 | 0.8228 | 1c/2 (1c/2) | rounds 48, pairs left 0 (best 0), pull-back t 0.9998
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | untangle signed+d4 | clean | 515 | 0.02837 | 0.02792 | 0.09428 | 0.8001 | 1c/2 (1c/2) | rounds 28, pairs left 0 (best 0), pull-back t 0.9998
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | robust repair | clean | 98 | 0.0001 | 0.0566 | 0.09522 | 0.8721 | 1c/0 (1c/2) | Apply True, path ExactResolve
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | exact resolve | clean | 46 | 0.0001 | 0.0566 | 0.09522 | 0.8721 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | solidify | clean | 507 | 0.0019 | 0.05664 | 0.09521 | 0.8732 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 1.0 r (connected) | id | 3104 | 298 | alpha wrap | clean | 1696 | 0.00256 | 0.05697 | 0.09495 | 0.8815 | 1c/0 (1c/2) | Success
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | untangle local+d0 | self-intersections | 141 | - | - | - | - | - (1c/2) | rounds 40, pairs left 310 (best 296), pull-back t 1
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | untangle local+d4 | self-intersections | 161 | - | - | - | - | - (1c/2) | rounds 40, pairs left 306 (best 296), pull-back t 1
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | untangle signed+d0 | clean | 756 | 0.02754 | 0.02711 | 0.09245 | 0.8226 | 1c/2 (1c/2) | rounds 48, pairs left 0 (best 0), pull-back t 0.9998
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | untangle signed+d4 | clean | 477 | 0.02754 | 0.0271 | 0.09063 | 0.8009 | 1c/2 (1c/2) | rounds 28, pairs left 0 (best 0), pull-back t 0.9998
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | robust repair | clean | 97 | 0.0001 | 0.05495 | 0.09245 | 0.8721 | 1c/0 (1c/2) | Apply True, path ExactResolve
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | exact resolve | clean | 30 | 0.0001 | 0.05495 | 0.09245 | 0.8721 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | solidify | clean | 437 | 0.00269 | 0.05501 | 0.09272 | 0.8732 | 1c/0 (1c/2) | 
+parts | helix tube, turns overlap by 1.0 r (connected) | rot | 3104 | 296 | alpha wrap | clean | 1485 | 0.0025 | 0.05532 | 0.09217 | 0.8818 | 1c/0 (1c/2) | Success
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | untangle local+d0 | self-intersections | 113 | - | - | - | - | - (1c/2) | rounds 44, pairs left 32 (best 24), pull-back t 1
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | untangle local+d4 | self-intersections | 158 | - | - | - | - | - (1c/2) | rounds 44, pairs left 32 (best 24), pull-back t 1
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | untangle signed+d0 | clean | 139 | 0.01577 | 0.01619 | 0.21485 | 0.884 | 1c/2 (1c/2) | rounds 8, pairs left 0 (best 0), pull-back t 0.7352
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | untangle signed+d4 | clean | 130 | 0.01577 | 0.01612 | 0.2154 | 0.8864 | 1c/2 (1c/2) | rounds 8, pairs left 0 (best 0), pull-back t 0.7352
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | robust repair | clean | 62 | 0.0001 | 0.03954 | 0.21485 | 0.8821 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | exact resolve | clean | 17 | 0.0001 | 0.03954 | 0.21485 | 0.8821 | 1c/0 (1c/2) | 
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | solidify | clean | 659 | 0.00233 | 0.03958 | 0.2148 | 0.8822 | 1c/0 (1c/2) | 
+pushed | sphere cap pushed through the far side by 0.2 r | id | 2700 | 36 | alpha wrap | clean | 2316 | 0.00225 | 0.00244 | 0.21519 | 0.8867 | 1c/2 (1c/2) | Success
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | untangle local+d0 | self-intersections | 102 | - | - | - | - | - (1c/2) | rounds 44, pairs left 32 (best 24), pull-back t 1
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | untangle local+d4 | self-intersections | 151 | - | - | - | - | - (1c/2) | rounds 44, pairs left 32 (best 24), pull-back t 1
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | untangle signed+d0 | clean | 223 | 0.01454 | 0.01539 | 0.21298 | 0.8848 | 1c/2 (1c/2) | rounds 14, pairs left 0 (best 0), pull-back t 0.999
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | untangle signed+d4 | clean | 244 | 0.01475 | 0.01538 | 0.21432 | 0.8877 | 1c/2 (1c/2) | rounds 14, pairs left 0 (best 0), pull-back t 0.9989
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | robust repair | clean | 65 | 0.0001 | 0.03925 | 0.21298 | 0.8821 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | exact resolve | clean | 8 | 0.0001 | 0.03925 | 0.21298 | 0.8821 | 1c/0 (1c/2) | 
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | solidify | clean | 707 | 0.00326 | 0.03943 | 0.21299 | 0.8822 | 1c/0 (1c/2) | 
+pushed | sphere cap pushed through the far side by 0.2 r | rot | 2700 | 28 | alpha wrap | clean | 2257 | 0.00219 | 0.00265 | 0.21335 | 0.8867 | 1c/2 (1c/2) | Success
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | untangle local+d0 | self-intersections | 117 | - | - | - | - | - (1c/2) | rounds 43, pairs left 20 (best 16), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | untangle local+d4 | self-intersections | 141 | - | - | - | - | - (1c/2) | rounds 43, pairs left 20 (best 16), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | untangle signed+d0 | clean | 116 | 0.0018 | 0.00177 | 0.01943 | 0.9318 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1602
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | untangle signed+d4 | clean | 89 | 0.0018 | 0.00177 | 0.01943 | 0.9322 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1602
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | robust repair | clean | 52 | 0.00009 | 0.03624 | 0.04018 | 0.9305 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | exact resolve | clean | 15 | 0.00009 | 0.03624 | 0.04018 | 0.9305 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | solidify | clean | 411 | 0.00099 | 0.04733 | 0.05025 | 0.9302 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | id | 3072 | 48 | alpha wrap | clean | 1403 | 0.0006 | 0.00061 | 0.01744 | 0.9708 | 1c/2 (1c/2) | Success
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | untangle local+d0 | self-intersections | 155 | - | - | - | - | - (1c/2) | rounds 43, pairs left 20 (best 20), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | untangle local+d4 | self-intersections | 162 | - | - | - | - | - (1c/2) | rounds 43, pairs left 20 (best 20), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | untangle signed+d0 | clean | 91 | 0.00135 | 0.00128 | 0.014 | 0.9322 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1602
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | untangle signed+d4 | clean | 121 | 0.00135 | 0.00128 | 0.014 | 0.9326 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1602
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | robust repair | clean | 101 | 0.0001 | 0.02598 | 0.0288 | 0.9305 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | exact resolve | clean | 18 | 0.0001 | 0.02598 | 0.0288 | 0.9305 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | solidify | clean | 311 | 0.00499 | 0.03389 | 0.03602 | 0.9143 | 4c/-8 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.06 (through by 0.01) | rot | 3072 | 36 | alpha wrap | clean | 840 | 0.00058 | 0.0006 | 0.01245 | 0.9862 | 1c/2 (1c/2) | Success
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | untangle local+d0 | self-intersections | 125 | - | - | - | - | - (1c/2) | rounds 41, pairs left 100 (best 84), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | untangle local+d4 | self-intersections | 157 | - | - | - | - | - (1c/2) | rounds 41, pairs left 100 (best 84), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | untangle signed+d0 | clean | 138 | 0.03678 | 0.04306 | 0.05897 | 1.0367 | 1c/2 (1c/2) | rounds 5, pairs left 0 (best 0), pull-back t 0.99
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | untangle signed+d4 | clean | 123 | 0.03678 | 0.04306 | 0.05897 | 1.1729 | 1c/2 (1c/2) | rounds 5, pairs left 0 (best 0), pull-back t 0.99
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | robust repair | clean | 60 | 0.0001 | 0.15359 | 0.12722 | 0.8558 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | exact resolve | clean | 11 | 0.0001 | 0.15359 | 0.12722 | 0.8558 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | solidify | clean | 385 | 0.00256 | 0.15486 | 0.12883 | 0.8549 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | id | 3072 | 96 | alpha wrap | clean | 1623 | 0.00152 | 0.00142 | 0.08823 | 1.103 | 1c/2 (1c/2) | Success
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | untangle local+d0 | self-intersections | 162 | - | - | - | - | - (1c/2) | rounds 40, pairs left 100 (best 76), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | untangle local+d4 | self-intersections | 175 | - | - | - | - | - (1c/2) | rounds 40, pairs left 100 (best 76), pull-back t 1
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | untangle signed+d0 | clean | 227 | 0.0284 | 0.0299 | 0.04015 | 1.0433 | 1c/2 (1c/2) | rounds 10, pairs left 0 (best 0), pull-back t 0.9996
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | untangle signed+d4 | clean | 220 | 0.0284 | 0.0299 | 0.04011 | 1.1918 | 1c/2 (1c/2) | rounds 10, pairs left 0 (best 0), pull-back t 0.9996
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | robust repair | clean | 152 | 0.0001 | 0.11078 | 0.09173 | 0.8558 | 1c/0 (1c/2) | Apply True, path ExactResolve
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | exact resolve | clean | 16 | 0.0001 | 0.11078 | 0.09173 | 0.8558 | 1c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | solidify | clean | 290 | 0.0049 | 0.11049 | 0.09101 | 0.8447 | 2c/0 (1c/2) | 
+pushed | plate 0.05 thick, bump pushed 0.3 (deep) | rot | 3072 | 76 | alpha wrap | clean | 901 | 0.00149 | 0.00143 | 0.06373 | 1.1187 | 1c/2 (1c/2) | Success
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | untangle local+d0 | clean | 36 | 0.00062 | 0.00685 | 0.00858 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2748
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | untangle local+d4 | clean | 35 | 0.00081 | 0.00685 | 0.00859 | 0.9999 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2748
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | untangle signed+d0 | clean | 36 | 0.00048 | 0.00429 | 0.00858 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2168
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | untangle signed+d4 | clean | 36 | 0.00051 | 0.0043 | 0.00858 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2168
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | robust repair | clean | 27 | 0.00067 | 0.00491 | 0.00897 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | exact resolve | clean | 4 | 0.0001 | 0.00354 | 0.00897 | 1 | 1c/2 (1c/2) | 
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | solidify | clean | 652 | 0.00542 | 0.00895 | 0.00993 | 1.0002 | 2c/4 (1c/2) | 
+flap | sphere, one vertex moved 1.5 edges tangentially | id | 1452 | 6 | alpha wrap | clean | 1568 | 0.00352 | 0.00603 | 0.00929 | 1.0035 | 1c/2 (1c/2) | Success
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | untangle local+d0 | clean | 33 | 0.00061 | 0.00683 | 0.00856 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2748
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | untangle local+d4 | clean | 33 | 0.0008 | 0.00683 | 0.00857 | 0.9999 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2748
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | untangle signed+d0 | clean | 36 | 0.00048 | 0.00428 | 0.00856 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2168
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | untangle signed+d4 | clean | 36 | 0.00051 | 0.00429 | 0.00856 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.2168
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | robust repair | clean | 29 | 0.00067 | 0.00492 | 0.00894 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | exact resolve | clean | 3 | 0.0001 | 0.00353 | 0.00894 | 1 | 1c/2 (1c/2) | 
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | solidify | clean | 508 | 0.00263 | 0.00892 | 0.00472 | 1.0001 | 1c/2 (1c/2) | 
+flap | sphere, one vertex moved 1.5 edges tangentially | rot | 1452 | 6 | alpha wrap | clean | 1797 | 0.0035 | 0.00603 | 0.00927 | 1.0035 | 1c/2 (1c/2) | Success
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | untangle local+d0 | clean | 34 | 0.00245 | 0.00487 | 0.0035 | 0.9997 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.5182
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | untangle local+d4 | clean | 37 | 0.0024 | 0.00487 | 0.00346 | 0.9991 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.5182
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | untangle signed+d0 | clean | 41 | 0.00282 | 0.00497 | 0.0035 | 0.9997 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.6449
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | untangle signed+d4 | clean | 44 | 0.00287 | 0.00497 | 0.00346 | 0.999 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.6449
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | robust repair | clean | 29 | 0.0001 | 0.00299 | 0.0035 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | exact resolve | clean | 5 | 0.0001 | 0.00299 | 0.0035 | 1 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | solidify | clean | 484 | 0.00267 | 0.00402 | 0.00356 | 1.0002 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 0.8 edges | id | 1452 | 24 | alpha wrap | clean | 1531 | 0.00271 | 0.00449 | 0.00383 | 1.0036 | 1c/2 (1c/2) | Success
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | untangle local+d0 | clean | 36 | 0.00245 | 0.00488 | 0.00351 | 0.9997 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.5182
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | untangle local+d4 | clean | 39 | 0.0024 | 0.00488 | 0.00347 | 0.9991 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.5182
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | untangle signed+d0 | clean | 38 | 0.00282 | 0.00498 | 0.00351 | 0.9997 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.6449
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | untangle signed+d4 | clean | 49 | 0.00288 | 0.00498 | 0.00347 | 0.999 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.6449
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | robust repair | clean | 27 | 0.0001 | 0.00299 | 0.00351 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | exact resolve | clean | 4 | 0.0001 | 0.00299 | 0.00351 | 1 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | solidify | clean | 524 | 0.00233 | 0.00378 | 0.00344 | 1.0001 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 0.8 edges | rot | 1452 | 24 | alpha wrap | clean | 1632 | 0.00256 | 0.00461 | 0.00384 | 1.0036 | 1c/2 (1c/2) | Success
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | untangle local+d0 | clean | 42 | 0.00601 | 0.0113 | 0.00945 | 0.9967 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9931
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | untangle local+d4 | clean | 45 | 0.00629 | 0.01154 | 0.01111 | 0.9924 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9931
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | untangle signed+d0 | clean | 54 | 0.00601 | 0.01107 | 0.0099 | 0.9972 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9356
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | untangle signed+d4 | clean | 67 | 0.00687 | 0.01144 | 0.01122 | 0.9935 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9734
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | robust repair | clean | 61 | 0.00103 | 0.0072 | 0.00883 | 1.0002 | 1c/-4 (1c/2) | Apply True, path ExactResolve
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | exact resolve | self-intersections | 15 | - | - | - | - | - (1c/2) | 
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | solidify | clean | 622 | 0.00317 | 0.00943 | 0.00834 | 1.0003 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 1.5 edges | id | 1452 | 169 | alpha wrap | clean | 2407 | 0.00365 | 0.00745 | 0.00913 | 1.0056 | 1c/-2 (1c/2) | Success
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | untangle local+d0 | clean | 42 | 0.00605 | 0.01137 | 0.00952 | 0.9967 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9931
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | untangle local+d4 | clean | 45 | 0.00633 | 0.01162 | 0.01118 | 0.9924 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9931
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | untangle signed+d0 | clean | 67 | 0.00605 | 0.01114 | 0.00997 | 0.9972 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9356
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | untangle signed+d4 | clean | 60 | 0.00692 | 0.01152 | 0.0113 | 0.9935 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9734
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | robust repair | clean | 43 | 0.00106 | 0.00725 | 0.00889 | 1.0002 | 1c/-4 (1c/2) | Apply True, path ExactResolve
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | exact resolve | self-intersections | 9 | - | - | - | - | - (1c/2) | 
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | solidify | clean | 584 | 0.00935 | 0.0096 | 0.00938 | 1.0004 | 1c/2 (1c/2) | 
+flap | sphere, 10 % of the vertices moved 1.5 edges | rot | 1452 | 169 | alpha wrap | clean | 2437 | 0.0036 | 0.00732 | 0.00921 | 1.0055 | 1c/0 (1c/2) | Success
+flap | box ridge folded back over the top face | id | 768 | 38 | untangle local+d0 | clean | 24 | 0.02042 | 0.06188 | 0.06188 | 0.9883 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9529
+flap | box ridge folded back over the top face | id | 768 | 38 | untangle local+d4 | clean | 26 | 0.02364 | 0.06279 | 0.06279 | 0.9847 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9494
+flap | box ridge folded back over the top face | id | 768 | 38 | untangle signed+d0 | clean | 42 | 0.01848 | 0.05647 | 0.05974 | 0.9909 | 1c/2 (1c/2) | rounds 7, pairs left 0 (best 0), pull-back t 0.8701
+flap | box ridge folded back over the top face | id | 768 | 38 | untangle signed+d4 | clean | 43 | 0.02084 | 0.05729 | 0.05973 | 0.9904 | 1c/2 (1c/2) | rounds 7, pairs left 0 (best 0), pull-back t 0.8694
+flap | box ridge folded back over the top face | id | 768 | 38 | robust repair | clean | 19 | 0.0001 | 0.03533 | 0.05653 | 0.9909 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | box ridge folded back over the top face | id | 768 | 38 | exact resolve | clean | 3 | 0.0001 | 0.03533 | 0.05653 | 0.9909 | 1c/2 (1c/2) | 
+flap | box ridge folded back over the top face | id | 768 | 38 | solidify | clean | 651 | 0.0028 | 0.03535 | 0.05653 | 0.9909 | 1c/2 (1c/2) | 
+flap | box ridge folded back over the top face | id | 768 | 38 | alpha wrap | clean | 3153 | 0.00335 | 0.01124 | 0.0563 | 0.9957 | 1c/2 (1c/2) | Success
+flap | box ridge folded back over the top face | rot | 768 | 31 | untangle local+d0 | clean | 31 | 0.01368 | 0.04171 | 0.04171 | 0.9884 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9731
+flap | box ridge folded back over the top face | rot | 768 | 31 | untangle local+d4 | clean | 34 | 0.01579 | 0.04234 | 0.04234 | 0.9841 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.979
+flap | box ridge folded back over the top face | rot | 768 | 31 | untangle signed+d0 | clean | 57 | 0.01043 | 0.0291 | 0.03871 | 0.992 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9557
+flap | box ridge folded back over the top face | rot | 768 | 31 | untangle signed+d4 | clean | 58 | 0.01051 | 0.02632 | 0.03876 | 0.992 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9426
+flap | box ridge folded back over the top face | rot | 768 | 31 | robust repair | clean | 26 | 0.00009 | 0.02355 | 0.03766 | 0.9909 | 1c/2 (1c/2) | Apply True, path ExactResolve
+flap | box ridge folded back over the top face | rot | 768 | 31 | exact resolve | clean | 4 | 0.00009 | 0.02355 | 0.03766 | 0.9909 | 1c/2 (1c/2) | 
+flap | box ridge folded back over the top face | rot | 768 | 31 | solidify | clean | 530 | 0.005 | 0.02362 | 0.0377 | 0.9907 | 1c/0 (1c/2) | 
+flap | box ridge folded back over the top face | rot | 768 | 31 | alpha wrap | clean | 1354 | 0.00331 | 0.00995 | 0.03738 | 0.9977 | 1c/2 (1c/2) | Success
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | untangle local+d0 | clean | 73 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0019
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | untangle local+d4 | clean | 77 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0019
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | untangle signed+d0 | clean | 86 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0019
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | untangle signed+d4 | clean | 96 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0019
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | robust repair | clean | 50 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/0 (1c/2) | Apply True, path ExactResolve
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | exact resolve | clean | 9 | 0.00009 | 0.00009 | 0.01762 | 0.9415 | 1c/0 (1c/2) | 
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | solidify | clean | 340 | 0.00275 | 0.05421 | 0.05596 | 0.9375 | 1c/0 (1c/2) | 
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | id | 3072 | 16 | alpha wrap | clean | 1420 | 0.0006 | 0.00062 | 0.01731 | 0.981 | 1c/2 (1c/2) | Success
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | untangle local+d0 | clean | 88 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0015
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | untangle local+d4 | clean | 87 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0015
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | untangle signed+d0 | clean | 96 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0015
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | untangle signed+d4 | clean | 101 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.0015
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | robust repair | clean | 109 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/0 (1c/2) | Apply True, path ExactResolve
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | exact resolve | clean | 12 | 0.0001 | 0.0001 | 0.01273 | 0.9415 | 1c/0 (1c/2) | 
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | solidify | clean | 343 | 0.00519 | 0.01548 | 0.01976 | 0.9249 | 2c/-16 (1c/2) | 
+coplanar | plate 0.05 thick, bump pushed 0.05 + 1e-7 (top meets bottom) | rot | 3072 | 12 | alpha wrap | clean | 769 | 0.0006 | 0.00062 | 0.01231 | 0.9966 | 1c/2 (1c/2) | Success
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | untangle local+d0 | clean | 26 | 0.0001 | 0.0001 | 0.0001 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | untangle local+d4 | clean | 26 | 0.0001 | 0.0001 | 0.0001 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | untangle signed+d0 | clean | 29 | 0.0008 | 0.0008 | 0.00081 | 1.0001 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.7898
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | untangle signed+d4 | clean | 33 | 0.0008 | 0.0008 | 0.0008 | 1.0001 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.7898
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | robust repair | clean | 23 | 0.0001 | 0.0001 | 0.0001 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | exact resolve | clean | 3 | 0.0001 | 0.0001 | 0.0001 | 1 | 1c/2 (1c/2) | 
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | solidify | clean | 531 | 0.0001 | 0.0001 | 0.0001 | 1 | 1c/2 (1c/2) | 
+coplanar | flat face, one vertex moved 1.5 cells in the face | id | 768 | 20 | alpha wrap | clean | 2685 | 0.00043 | 0.00043 | 0.00043 | 1.0035 | 1c/2 (1c/2) | Success
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | untangle local+d0 | clean | 22 | 0.00009 | 0.00009 | 0.00009 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | untangle local+d4 | clean | 22 | 0.00009 | 0.00009 | 0.00009 | 1 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | untangle signed+d0 | clean | 27 | 0.00418 | 0.0041 | 0.00416 | 1.0003 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7033
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | untangle signed+d4 | clean | 26 | 0.00443 | 0.00436 | 0.0044 | 1.0008 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.702
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | robust repair | clean | 29 | 0.00009 | 0.00009 | 0.00009 | 1 | 1c/2 (1c/2) | Apply True, path ExactResolve
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | exact resolve | clean | 4 | 0.00009 | 0.00009 | 0.00009 | 1 | 1c/2 (1c/2) | 
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | solidify | clean | 467 | 0.003 | 0.00258 | 0.00303 | 0.9999 | 1c/2 (1c/2) | 
+coplanar | flat face, one vertex moved 1.5 cells in the face | rot | 768 | 3 | alpha wrap | clean | 1180 | 0.00043 | 0.00043 | 0.00043 | 1.0053 | 1c/2 (1c/2) | Success
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | untangle local+d0 | self-intersections | 2 | - | - | - | - | - (-) | rounds 41, pairs left 20 (best 12), pull-back t 1
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | untangle local+d4 | self-intersections | 2 | - | - | - | - | - (-) | rounds 41, pairs left 14 (best 12), pull-back t 1
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | untangle signed+d0 | clean | 1 | 0.1171 | 0.11707 | - | - | 2c/4 (-) | rounds 2, pairs left 0 (best 0), pull-back t 0.9286
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | untangle signed+d4 | clean | 2 | 0.1171 | 0.11707 | - | - | 2c/4 (-) | rounds 2, pairs left 0 (best 0), pull-back t 0.9286
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | robust repair | clean | 9 | 0.00009 | 0.24254 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | exact resolve | clean | 1 | 0.00009 | 0.24254 | - | - | 1c/2 (-) | 
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | solidify | clean | 615 | 0.00009 | 0.24254 | - | - | 1c/2 (-) | 
+coplanar | two boxes with coplanar faces overlapping (components) | id | 24 | 52 | alpha wrap | clean | 2617 | 0.00039 | 0.24287 | - | - | 1c/2 (-) | Success
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | untangle local+d0 | self-intersections | 1 | - | - | - | - | - (-) | rounds 42, pairs left 22 (best 16), pull-back t 1
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | untangle local+d4 | self-intersections | 1 | - | - | - | - | - (-) | rounds 47, pairs left 20 (best 14), pull-back t 1
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | untangle signed+d0 | clean | 5 | 0.05797 | 0.09462 | - | - | 2c/4 (-) | rounds 31, pairs left 0 (best 0), pull-back t 0.9994
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | untangle signed+d4 | clean | 5 | 0.05793 | 0.09492 | - | - | 2c/4 (-) | rounds 31, pairs left 0 (best 0), pull-back t 0.9992
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | robust repair | clean | 10 | 0.00008 | 0.15933 | - | - | 1c/2 (-) | Apply True, path ExactResolve
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | exact resolve | clean | 3 | 0.00008 | 0.15933 | - | - | 1c/2 (-) | 
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | solidify | clean | 676 | 0.00263 | 0.15934 | - | - | 1c/2 (-) | 
+coplanar | two boxes with coplanar faces overlapping (components) | rot | 24 | 24 | alpha wrap | clean | 1121 | 0.00041 | 0.15967 | - | - | 1c/2 (-) | Success
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | untangle local+d0 | clean | 1 | 0.01901 | 0.01882 | 0.14071 | 0.9727 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9864
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | untangle local+d4 | clean | 1 | 0.01901 | 0.01882 | 0.14071 | 0.972 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9864
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | untangle signed+d0 | clean | 1 | 0.02361 | 0.02361 | 0.14133 | 0.9615 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1667
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | untangle signed+d4 | clean | 1 | 0.02361 | 0.02361 | 0.14133 | 0.9532 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1667
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | robust repair | clean | 9 | 0.0001 | 0.14568 | 0.14133 | 0.9231 | 1c/0 (1c/2) | Apply True, path ExactResolve
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | exact resolve | clean | 1 | 0.0001 | 0.14568 | 0.14133 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | solidify | clean | 846 | 0.0001 | 0.14568 | 0.14133 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 0.25 | id | 28 | 12 | alpha wrap | clean | 4545 | 0.00266 | 0.00344 | 0.141 | 0.9483 | 1c/2 (1c/2) | Success
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | untangle local+d0 | clean | 3 | 0.0142 | 0.01396 | 0.09369 | 0.9735 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9867
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | untangle local+d4 | clean | 3 | 0.0142 | 0.01396 | 0.09369 | 0.9731 | 1c/2 (1c/2) | rounds 6, pairs left 0 (best 0), pull-back t 0.9867
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | untangle signed+d0 | clean | 3 | 0.01568 | 0.01571 | 0.09405 | 0.9615 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1667
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | untangle signed+d4 | clean | 1 | 0.01568 | 0.01576 | 0.09405 | 0.9532 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.1667
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | robust repair | clean | 22 | 0.00009 | 0.09695 | 0.09405 | 0.9231 | 1c/0 (1c/2) | Apply True, path ExactResolve
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | exact resolve | clean | 1 | 0.00009 | 0.09695 | 0.09405 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | solidify | clean | 709 | 0.003 | 0.09695 | 0.09408 | 0.923 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 0.25 | rot | 28 | 10 | alpha wrap | clean | 1903 | 0.00268 | 0.00335 | 0.09372 | 0.9514 | 1c/2 (1c/2) | Success
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | untangle local+d0 | inside-out components | 6 | - | - | - | - | - (1c/2) | rounds 47, pairs left 0 (best 0), pull-back t 1
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | untangle local+d4 | inside-out components | 2 | - | - | - | - | - (1c/2) | rounds 41, pairs left 18 (best 10), pull-back t 1
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | untangle signed+d0 | clean | 1 | 0.1715 | 0.10929 | 0.185 | 1.3595 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7624
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | untangle signed+d4 | clean | 1 | 0.17171 | 0.10976 | 0.185 | 1.2668 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7624
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | robust repair | clean | 15 | 0.00008 | 0.27116 | 0.12127 | 0.9231 | 1c/0 (1c/2) | Apply True, path ExactResolve
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | exact resolve | clean | 0 | 0.00008 | 0.27116 | 0.12127 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | solidify | clean | 610 | 0.00009 | 0.27116 | 0.12127 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 2 | id | 28 | 12 | alpha wrap | clean | 4026 | 0.00265 | 0.00336 | 0.24287 | 1.0847 | 1c/2 (1c/2) | Success
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | untangle local+d0 | inside-out components | 3 | - | - | - | - | - (1c/2) | rounds 71, pairs left 0 (best 0), pull-back t 1
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | untangle local+d4 | inside-out components | 2 | - | - | - | - | - (1c/2) | rounds 40, pairs left 21 (best 10), pull-back t 1
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | untangle signed+d0 | clean | 1 | 0.1242 | 0.07852 | 0.13074 | 1.3174 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7443
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | untangle signed+d4 | clean | 1 | 0.12429 | 0.07913 | 0.13074 | 1.2248 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7443
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | robust repair | clean | 11 | 0.00009 | 0.19638 | 0.08782 | 0.9231 | 1c/0 (1c/2) | Apply True, path ExactResolve
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | exact resolve | clean | 1 | 0.00009 | 0.19638 | 0.08782 | 0.9231 | 1c/0 (1c/2) | 
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | solidify | clean | 808 | 0.00456 | 0.19643 | 0.08789 | 0.923 | 2c/2 (1c/2) | 
+cad | pocket floor pushed through the bottom by 2 | rot | 28 | 10 | alpha wrap | clean | 2069 | 0.00268 | 0.00345 | 0.17598 | 1.0877 | 1c/2 (1c/2) | Success
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | untangle local+d0 | clean | 1 | 0.03994 | 0.09925 | 0.11765 | 0.9691 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.9003
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | untangle local+d4 | clean | 1 | 0.04021 | 0.09925 | 0.11919 | 0.9573 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.9003
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | untangle signed+d0 | clean | 4 | 0.04694 | 0.10272 | 0.11577 | 0.9697 | 1c/2 (1c/2) | rounds 3, pairs left 0 (best 0), pull-back t 0.9066
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | untangle signed+d4 | clean | 2 | 0.04739 | 0.10268 | 0.11482 | 0.9551 | 1c/2 (1c/2) | rounds 3, pairs left 0 (best 0), pull-back t 0.9069
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | robust repair | clean | 7 | 0.00009 | 0.07133 | 0.12298 | 0.9647 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | exact resolve | clean | 1 | 0.00009 | 0.07133 | 0.12298 | 0.9647 | 1c/2 (1c/2) | 
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | solidify | clean | 642 | 0.00198 | 0.07134 | 0.12298 | 0.9647 | 1c/2 (1c/2) | 
+cad | boss top edge pushed through the opposite wall | id | 28 | 9 | alpha wrap | clean | 3119 | 0.00287 | 0.00339 | 0.12275 | 0.97 | 1c/2 (1c/2) | Success
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | untangle local+d0 | clean | 1 | 0.02133 | 0.06092 | 0.08214 | 0.9687 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.8809
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | untangle local+d4 | clean | 1 | 0.02141 | 0.06091 | 0.08408 | 0.9616 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.8807
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | untangle signed+d0 | clean | 1 | 0.02803 | 0.06361 | 0.0804 | 0.9687 | 1c/2 (1c/2) | rounds 3, pairs left 0 (best 0), pull-back t 0.8913
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | untangle signed+d4 | clean | 1 | 0.02829 | 0.06355 | 0.08037 | 0.9576 | 1c/2 (1c/2) | rounds 3, pairs left 0 (best 0), pull-back t 0.8907
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | robust repair | clean | 17 | 0.00009 | 0.04938 | 0.08507 | 0.9647 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | exact resolve | clean | 1 | 0.00009 | 0.04938 | 0.08507 | 0.9647 | 1c/2 (1c/2) | 
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | solidify | clean | 567 | 0.00318 | 0.04984 | 0.08516 | 0.9646 | 1c/2 (1c/2) | 
+cad | boss top edge pushed through the opposite wall | rot | 28 | 5 | alpha wrap | clean | 1426 | 0.00265 | 0.00331 | 0.08482 | 0.9718 | 1c/2 (1c/2) | Success
+cad | box corner pushed through the opposite face | id | 12 | 5 | untangle local+d0 | clean | 1 | 0.09737 | 0.33767 | 0.55454 | 0.0177 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9923
+cad | box corner pushed through the opposite face | id | 12 | 5 | untangle local+d4 | clean | 0 | 0.09737 | 0.33767 | 0.55454 | 0.0177 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9923
+cad | box corner pushed through the opposite face | id | 12 | 5 | untangle signed+d0 | clean | 0 | 0.05172 | 0.24427 | 0.5493 | 0.0801 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.8642
+cad | box corner pushed through the opposite face | id | 12 | 5 | untangle signed+d4 | clean | 1 | 0.05126 | 0.24427 | 0.5493 | 0.0749 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.8642
+cad | box corner pushed through the opposite face | id | 12 | 5 | robust repair | clean | 7 | 0.00006 | 0.49192 | 0.51894 | 0.1613 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | box corner pushed through the opposite face | id | 12 | 5 | exact resolve | clean | 0 | 0.00006 | 0.49192 | 0.51894 | 0.1613 | 1c/2 (1c/2) | 
+cad | box corner pushed through the opposite face | id | 12 | 5 | solidify | clean | 609 | 0.00402 | 0.49192 | 0.51896 | 0.1601 | 1c/2 (1c/2) | 
+cad | box corner pushed through the opposite face | id | 12 | 5 | alpha wrap | clean | 2932 | 0.00267 | 0.00323 | 0.51861 | 0.2264 | 1c/2 (1c/2) | Success
+cad | box corner pushed through the opposite face | rot | 12 | 5 | untangle local+d0 | clean | 1 | 0.06914 | 0.23978 | 0.39378 | 0.0177 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9923
+cad | box corner pushed through the opposite face | rot | 12 | 5 | untangle local+d4 | clean | 1 | 0.06914 | 0.23978 | 0.39378 | 0.0177 | 1c/2 (1c/2) | rounds 4, pairs left 0 (best 0), pull-back t 0.9923
+cad | box corner pushed through the opposite face | rot | 12 | 5 | untangle signed+d0 | clean | 1 | 0.03673 | 0.17346 | 0.39006 | 0.0801 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.8642
+cad | box corner pushed through the opposite face | rot | 12 | 5 | untangle signed+d4 | clean | 1 | 0.0364 | 0.17346 | 0.39006 | 0.0749 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.8642
+cad | box corner pushed through the opposite face | rot | 12 | 5 | robust repair | clean | 9 | 0.00009 | 0.34931 | 0.36849 | 0.1613 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | box corner pushed through the opposite face | rot | 12 | 5 | exact resolve | clean | 1 | 0.00009 | 0.34931 | 0.36849 | 0.1613 | 1c/2 (1c/2) | 
+cad | box corner pushed through the opposite face | rot | 12 | 5 | solidify | clean | 411 | 0.00563 | 0.34931 | 0.36856 | 0.1588 | 42c/60 (1c/2) | 
+cad | box corner pushed through the opposite face | rot | 12 | 5 | alpha wrap | clean | 1665 | 0.0027 | 0.00317 | 0.36816 | 0.2279 | 1c/2 (1c/2) | Success
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | untangle local+d0 | clean | 1 | 0.06426 | 0.0895 | 0.17367 | 0.7305 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9526
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | untangle local+d4 | clean | 1 | 0.06426 | 0.0895 | 0.17367 | 0.6734 | 1c/2 (1c/2) | rounds 1, pairs left 0 (best 0), pull-back t 0.9526
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | untangle signed+d0 | clean | 1 | 0.0595 | 0.09827 | 0.17447 | 0.7202 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7409
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | untangle signed+d4 | clean | 1 | 0.06227 | 0.09827 | 0.17447 | 0.657 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.7409
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | robust repair | clean | 9 | 0.0001 | 0.07643 | 0.15869 | 0.75 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | exact resolve | clean | 1 | 0.0001 | 0.07643 | 0.15869 | 0.75 | 1c/2 (1c/2) | 
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | solidify | clean | 485 | 0.00399 | 0.09721 | 0.16201 | 0.7494 | 1c/2 (1c/2) | 
+cad | bracket: top of the low arm pushed below the bottom | id | 28 | 9 | alpha wrap | clean | 2733 | 0.00269 | 0.00249 | 0.14176 | 0.7634 | 1c/2 (1c/2) | Success
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | untangle local+d0 | clean | 1 | 0.03451 | 0.07509 | 0.12811 | 0.7375 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.6851
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | untangle local+d4 | clean | 1 | 0.03559 | 0.07509 | 0.12811 | 0.6894 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.6851
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | untangle signed+d0 | clean | 1 | 0.04786 | 0.06498 | 0.11409 | 0.7399 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.9712
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | untangle signed+d4 | clean | 1 | 0.04861 | 0.06662 | 0.11419 | 0.6819 | 1c/2 (1c/2) | rounds 2, pairs left 0 (best 0), pull-back t 0.9712
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | robust repair | clean | 7 | 0 | 0.05473 | 0.11363 | 0.75 | 1c/2 (1c/2) | Apply True, path ExactResolve
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | exact resolve | clean | 0 | 0 | 0.05473 | 0.11363 | 0.75 | 1c/2 (1c/2) | 
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | solidify | clean | 498 | 0.00517 | 0.06564 | 0.11601 | 0.7489 | 1c/2 (1c/2) | 
+cad | bracket: top of the low arm pushed below the bottom | rot | 28 | 5 | alpha wrap | clean | 1256 | 0.00268 | 0.00237 | 0.10138 | 0.7659 | 1c/2 (1c/2) | Success
+
+class | method | clean / runs
+cad | alpha wrap | 10 / 10
+cad | exact resolve | 10 / 10
+cad | robust repair | 10 / 10
+cad | solidify | 10 / 10
+cad | untangle (any variant) | 10 / 10
+cad | untangle local+d0 | 8 / 10
+cad | untangle local+d4 | 8 / 10
+cad | untangle signed+d0 | 10 / 10
+cad | untangle signed+d4 | 10 / 10
+coplanar | alpha wrap | 6 / 6
+coplanar | exact resolve | 6 / 6
+coplanar | robust repair | 6 / 6
+coplanar | solidify | 6 / 6
+coplanar | untangle (any variant) | 6 / 6
+coplanar | untangle local+d0 | 4 / 6
+coplanar | untangle local+d4 | 4 / 6
+coplanar | untangle signed+d0 | 6 / 6
+coplanar | untangle signed+d4 | 6 / 6
+flap | alpha wrap | 8 / 8
+flap | exact resolve | 6 / 8
+flap | robust repair | 8 / 8
+flap | solidify | 8 / 8
+flap | untangle (any variant) | 8 / 8
+flap | untangle local+d0 | 8 / 8
+flap | untangle local+d4 | 8 / 8
+flap | untangle signed+d0 | 8 / 8
+flap | untangle signed+d4 | 8 / 8
+parts | alpha wrap | 12 / 12
+parts | exact resolve | 12 / 12
+parts | robust repair | 12 / 12
+parts | solidify | 12 / 12
+parts | untangle (any variant) | 10 / 12
+parts | untangle local+d0 | 2 / 12
+parts | untangle local+d4 | 2 / 12
+parts | untangle signed+d0 | 10 / 12
+parts | untangle signed+d4 | 10 / 12
+pushed | alpha wrap | 6 / 6
+pushed | exact resolve | 6 / 6
+pushed | robust repair | 6 / 6
+pushed | solidify | 6 / 6
+pushed | untangle (any variant) | 6 / 6
+pushed | untangle local+d0 | 0 / 6
+pushed | untangle local+d4 | 0 / 6
+pushed | untangle signed+d0 | 6 / 6
+pushed | untangle signed+d4 | 6 / 6
