@@ -5,7 +5,7 @@
 //   fallback         PureQuadStatus is not Success and Result is the stage 2 mesh face for face (checked here)
 //   undetected bad   Success, but an independent check fails (must be 0), or a fallback whose Result is not the stage 2 mesh
 // plus the time gate (clean rows: PureQuads Compute() at most max(3 x stage 2 Compute(), 1 s)) and the quality gates of stage 3.
-//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>]
+//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>]
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -84,6 +84,11 @@ static class Program
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
         bool profile = A.ContainsKey("profile") && A["profile"] == "1";
+        int adaptArg = A.ContainsKey("adapt") ? int.Parse(A["adapt"], CultureInfo.InvariantCulture) : 0;
+        if (adaptArg < 0 || adaptArg > 2) throw new ArgumentOutOfRangeException("adapt", "adapt must be 0 (Off), 1 (Scale), or 2 (ScaleAndRotation).");
+        SizeAdaptationMode adaptMode = adaptArg == 1 ? SizeAdaptationMode.Scale : adaptArg == 2 ? SizeAdaptationMode.ScaleAndRotation : SizeAdaptationMode.Off;
+        double minGain = A.ContainsKey("mingain") ? double.Parse(A["mingain"], CultureInfo.InvariantCulture) : 0.2;
+        if (double.IsNaN(minGain) || double.IsInfinity(minGain)) throw new ArgumentOutOfRangeException("mingain", "mingain must be finite.");
         int repeat = A.ContainsKey("repeat") ? int.Parse(A["repeat"]) : 1;
         Func<Vector3d, double> sphere = p => p.Length - 1;
         Func<Vector3d, double> torus = p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 1; return Math.Sqrt(q * q + p.z * p.z) - 0.35; };
@@ -108,15 +113,18 @@ static class Program
         };
         var variations = new (double scale, double ratio)[] { (1, 0.5), (0.8, 0.5), (1.25, 0.5), (1.5, 0.5), (1, 0.35), (1, 0.7) };
         // warm-up (JIT) on a small run, not part of the table
-        { var w = MakeInput(sphere, 0.1, 0); var wc = new CrossField(w); wc.Compute(); new QuadRemesher(w) { Field = wc, TargetEdgeLength = 0.2, PureQuads = true }.Compute(); new QuadRemesher(w) { Field = wc, TargetEdgeLength = 0.2 }.Compute(); }
+        { var w = MakeInput(sphere, 0.1, 0); var wc = new CrossField(w); wc.Compute(); new QuadRemesher(w) { Field = wc, TargetEdgeLength = 0.2, PureQuads = true, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain }.Compute(); new QuadRemesher(w) { Field = wc, TargetEdgeLength = 0.2, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain }.Compute(); }
         Console.WriteLine("| shape | scale / ratio | input V | sing. | irr. stage 2 | irr. 3B (gate) | quads % 3B | corner p95 2 / 3B | Hausdorff 2 / 3B (s) | status | inv. | flipped | t stage 2 (s) | t pure (s) | ratio | time gate | class |");
         Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         int clean = 0, fallback = 0, undetected = 0, gateTime = 0, total = 0, gateIrr = 0, gateHaus = 0, gateP95 = 0, gateP95Stage2 = 0;
         var ratios = new List<double>(); var cleanTimes = new List<double>(); var fallbackTimes = new List<double>();
         var stageSum = new double[8]; var stageSumFb = new double[8]; string[] stageNames = { "setup", "flow prep", "flow (net + MCF)", "subdivision", "greedy", "SAT", "position solve", "extract" };
         var statusCount = new SortedDictionary<string, int>();
+        var shapeClean = new Dictionary<string, int>();
+        var shapeTotal = new Dictionary<string, int>();
         foreach (var (name, fn, s0, align, noise) in shapes) {
             if (only != null && !only.IsMatch(name)) continue;
+            shapeClean[name] = 0; shapeTotal[name] = 0;
             foreach (var (scale, ratio) in variations) {
                 double s = s0 * scale;
                 DMesh3 input = MakeInput(fn, s * ratio, noise);
@@ -124,14 +132,14 @@ static class Program
                 if (!cf.Success) { Console.WriteLine($"| {name} | {scale}/{ratio} | cross field failed {cf.Status} |"); continue; }
                 double t2 = double.MaxValue, t3 = double.MaxValue; QuadRemesher q2 = null, q3 = null;
                 for (int rep = 0; rep < repeat; ++rep) {
-                    var a = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s };
+                    var a = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain };
                     var sw = Stopwatch.StartNew(); a.Compute(); double ta = sw.Elapsed.TotalSeconds;
-                    var b = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true };
+                    var b = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain };
                     sw.Restart(); b.Compute(); double tb = sw.Elapsed.TotalSeconds;
                     if (ta < t2) { t2 = ta; q2 = a; }
                     if (tb < t3) { t3 = tb; q3 = b; }
                 }
-                total++;
+                total++; shapeTotal[name]++;
                 PolyMeshMetrics m2 = PolyMeshMetrics.Compute(q2.Result);
                 bool success = q3.PureQuadStatus == PureQuadStatus.Success;
                 statusCount.TryGetValue(q3.PureQuadStatus.ToString(), out int sc); statusCount[q3.PureQuadStatus.ToString()] = sc + 1;
@@ -150,7 +158,7 @@ static class Program
                     }
                 } else cls = SameMesh(q2.Result, q3.Result) ? "fallback" : "UNDETECTED-BAD (Result is not the stage 2 mesh)";
                 if (cls == "clean") {
-                    clean++; ratios.Add(t3 / t2); cleanTimes.Add(t3); if (timeOk) gateTime++;
+                    clean++; shapeClean[name]++; ratios.Add(t3 / t2); cleanTimes.Add(t3); if (timeOk) gateTime++;
                     if (m3.IrregularVertices <= irrGate) gateIrr++;
                     if (h3 <= 0.5) gateHaus++;
                     if (PolyMeshMetrics.Percentile(m3.CornerDeviations, 0.95) <= 15) gateP95++;
@@ -169,6 +177,7 @@ static class Program
         double Max(List<double> l) { return l.Count == 0 ? double.NaN : l.Max(); }
         Console.WriteLine();
         Console.WriteLine($"runs {total}: clean {clean}, fallback {fallback}, undetected bad {undetected}; status counts: {string.Join(", ", statusCount.Select(kv => kv.Key + " " + kv.Value))}");
+        Console.WriteLine("per-shape clean: " + string.Join(", ", shapes.Where(s => shapeTotal.ContainsKey(s.Item1)).Select(s => $"{s.Item1} {shapeClean[s.Item1]}/{shapeTotal[s.Item1]}")));
         Console.WriteLine($"clean rows: time gate (max(3 x stage 2, 1 s)) {gateTime}/{clean}; irregular gate {gateIrr}/{clean}; Hausdorff <= 0.5 s {gateHaus}/{clean}; corner p95 <= 15: {gateP95}/{clean} (stage 2 on the same rows {gateP95Stage2}/{clean})");
         Console.WriteLine($"ratio pure/stage 2 on clean rows: median {F(Med(ratios), "F1")}, max {F(Max(ratios), "F1")}; pure time clean rows: median {F(Med(cleanTimes), "F2")} s, max {F(Max(cleanTimes), "F2")} s; fallback rows: median {F(Med(fallbackTimes), "F2")} s, max {F(Max(fallbackTimes), "F2")} s");
         Console.WriteLine("stage times of the pure-quad attempt, sum over clean rows (s): " + string.Join(", ", Enumerable.Range(0, 8).Select(i => stageNames[i] + " " + F(stageSum[i], "F2"))));

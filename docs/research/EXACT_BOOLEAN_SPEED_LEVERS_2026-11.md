@@ -206,6 +206,8 @@ as the dirty tree of #409 does at 256 changes. That design is not prototyped.
 - `atPosition` restricted to the neighbourhood of new vertices must give the same `Contacts`, `InitialFalseContacts`
   and canonical ids wherever they are read.
 - An untouched tiny inside-out residue must still be removed (#1152).
+- `remove_tiny_components` judges whole connected components (area, volume, touched): it needs the component sums over
+  all triangles, or a local stand-in that gives the same decisions (noted by the snap rounding spike; section 8b).
 
 ### 4.3 Lever 1b: pass-through in classification and assembly
 
