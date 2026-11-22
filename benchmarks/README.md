@@ -60,6 +60,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [CrossFieldBenchmark](CrossFieldBenchmark/README.md) | `CrossField` solve times and smoothness on procedural closed shapes |
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
+| [QuadIntegerJumps](QuadIntegerJumps/README.md) | Research spike: integer jumps on the frozen edges of the stage 3B flow of `QuadRemesher.PureQuads` (relaxed bi-directed flow), against the gate runs |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 | [FilletDetection](FilletDetection/README.md) | Research spike: fillet detectors (curvature, DeFillet's Voronoi rolling balls, medial balls) and sharp-edge reconstruction on procedural filleted CAD solids with a known answer |

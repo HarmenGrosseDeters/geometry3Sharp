@@ -163,6 +163,17 @@ code of QuadriFlow, Instant Meshes, QuadWild, LEMON, MiniSat or MapleSAT, and no
 | The implication encoding of the triangle constraints (the last mutable offset of a triangle is determined by the others), the total decision budget of 300k, the priority-queue subdivision with the order (largest offset, triangle, slot), the exact integer fold count (det < 0), the contracted position solve, the fallback to the stage 2 mesh | own choices (benchmarks/QuadFlow3BGate/README.md, QUAD_REMESHING.md 4.4) |
 | `benchmarks/QuadFlow3BSat` (a measurement, not library code): a clause-learning solver and a proof check, written from the papers; no solver code was read or run | J. P. Marques-Silva, K. A. Sakallah, *GRASP: A Search Algorithm for Propositional Satisfiability*, IEEE Trans. Computers 48(5), 1999; N. Eén, N. Sörensson, *An Extensible SAT-solver*, SAT 2003, LNCS 2919 (the paper only); M. Luby, A. Sinclair, D. Zuckerman, *Optimal speedup of Las Vegas algorithms*, Information Processing Letters 47(4), 1993; E. Goldberg, Y. Novikov, *Verification of proofs of unsatisfiability for CNF formulas*, DATE 2003 |
 
+## Integer jumps on the frozen edges of the pure-quad flow (research spike, `benchmarks/QuadIntegerJumps`; not library code)
+
+[research/QUAD_INTEGER_JUMPS_2026-11.md](../research/QUAD_INTEGER_JUMPS_2026-11.md). Written from the library's own code and the sources below; no
+code of QuadriFlow, QuadWild, libSatsuma, CoMISo or of any flow or matching solver was read or run.
+
+| Part | Source |
+|---|---|
+| The frozen edges as columns of a bi-directed graph, and the min-cost relaxation on the doubled network (a node and an arc with their mirrors, half the sum as the half-integral solution) | own derivation from `QuadFlowRepair.SolveFlow`; the construction is the skew-symmetric network of A. V. Goldberg, A. V. Karzanov, *Maximum skew-symmetric flows and matchings*, Math. Programming 100, 2004, arXiv:math/0304290 (abstract), for the bi-directed flows of J. Edmonds, E. L. Johnson, *Matching: a well-solved class of integer linear programs*, 1970 (as cited there, not read) |
+| The statement of quad quantization as a minimum-deviation flow in a bi-directed graph (prior art; its solvers are not implemented) | M. Heistermann, J. Warnett, D. Bommes, *Min-Deviation-Flow in Bi-directed Graphs for T-Mesh Quantization*, ACM TOG 42(4), 2023, [doi:10.1145/3592437](https://doi.org/10.1145/3592437) (abstract only) |
+| The flow solver and the step costs | the library's `MinCostFlow` and `QuadFlowRepair.StepCost`, by reflection (sources: the pure-quads section above) |
+
 ## Seamless-parametrization seed for quad remeshing (research spike, `benchmarks/QuadSeamlessSeedSpike`; not library code)
 
 Research note [research/QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md). Papers only: the code released with the two
