@@ -736,11 +736,18 @@ namespace gs
             return CoreMath.Atan2(Math.Sqrt((1.0 - c) * (1.0 + c)), c);
         }
 
-        double CornerAngle_input(int h)
+        internal double CornerAngle_input(int h)
         {
             int t = h / 3, c = h % 3;
             Vector2d a = inLayout[h], b = inLayout[3 * t + (c + 1) % 3], d = inLayout[3 * t + (c + 2) % 3];
-            return AcosDeterministic((b - a).Dot(d - a));       // (as Vector2d.AngleR, with a portable acos; the dot of the unnormalized edge vectors is clamped to [-1, 1] as before)
+            Vector2d u = b - a, w = d - a;
+            double lu = Math.Sqrt(u.x * u.x + u.y * u.y), lw = Math.Sqrt(w.x * w.x + w.y * w.y);
+            if (!(lu > 0 && lw > 0)) return AcosDeterministic(0);
+            // the angle between the edges, with a portable acos: the dot product of the unit vectors. (Before, the dot of the
+            // unnormalized edge vectors, clamped to [-1, 1]: the angle only for edges of length 1, so the tangent normal, which weights
+            // the corners by these angles, and with it GetTangentBasis, ToWorld, FromWorld and VectorHeatMethod.ComputeLogMap depended on
+            // the scale of the mesh.)
+            return AcosDeterministic((u.x * w.x + u.y * w.y) / (lu * lw));
         }
 
         int hV_input_head(int h)

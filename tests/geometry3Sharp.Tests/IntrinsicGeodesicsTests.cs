@@ -950,5 +950,42 @@ namespace geometry3Sharp.Tests
             Assert.True(notM.IsValid);
             Assert.False(notM.SolveLog(new[] { 0.0, double.NegativeInfinity }, new double[2]));
         }
-    }
+    
+        [Fact]
+        public void InputCornerAngles_AreTheAnglesOfTheTriangle()
+        {
+            // the corner angles that weight the tangent normal: a 3-4-5 triangle (the dot product of the unnormalized edges is no angle)
+            var mesh = new DMesh3();
+            mesh.AppendVertex(Vector3d.Zero); mesh.AppendVertex(new Vector3d(3, 0, 0)); mesh.AppendVertex(new Vector3d(0, 4, 0));
+            mesh.AppendTriangle(0, 1, 2);
+            var T = new IntrinsicTriangulation(mesh);
+            double[] want = { Math.PI / 2, Math.Atan2(4, 3), Math.Atan2(3, 4) };
+            for (int h = 0; h < 3; ++h) Assert.True(Math.Abs(T.CornerAngle_input(h) - want[h]) < 1e-14, $"corner {h}: {T.CornerAngle_input(h)} vs {want[h]}");
+        }
+
+        [Theory]
+        [InlineData(3)]
+        [InlineData(-5)]
+        [InlineData(40)]
+        public void TangentBasis_OfAScaledMesh_IsTheSameBasis(int e)
+        {
+            // the normal weights the corners by their angles: it depended on the scale of the mesh
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                mesh.SetVertex(vid, new Vector3d(0.1, 0.2, 0.3) + p * (1 + 0.1 * Math.Sin(3 * p.x + 1) * Math.Cos(2 * p.y - 0.5)));
+            }
+            DMesh3 big = new DMesh3(mesh);
+            double s = Math.Pow(2, e);
+            foreach (int vid in big.VertexIndices()) big.SetVertex(vid, mesh.GetVertex(vid) * s);
+            var T0 = new IntrinsicTriangulation(mesh);
+            var T = new IntrinsicTriangulation(big);
+            foreach (int vid in mesh.VertexIndices()) {
+                T0.GetTangentBasis(vid, out Vector3d a1, out Vector3d a2, out Vector3d an);
+                T.GetTangentBasis(vid, out Vector3d b1, out Vector3d b2, out Vector3d bn);
+                Assert.Equal(an, bn); Assert.Equal(a1, b1); Assert.Equal(a2, b2);
+                Assert.Equal(T0.ToWorld(vid, new Vector2d(0.3, 0.7)), T.ToWorld(vid, new Vector2d(0.3, 0.7)));
+            }
+        }
+}
 }
