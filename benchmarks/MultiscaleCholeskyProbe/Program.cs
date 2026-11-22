@@ -380,6 +380,90 @@ sealed class Fsai
     }
 }
 
+// Approximate elimination of a symmetric diagonally dominant matrix with non-positive off-diagonals (a graph Laplacian plus a
+// non-negative diagonal, held as an edge of each vertex to a ground vertex), after Kyng and Sachdeva 2016 and Gao, Kyng and
+// Spielman 2023: the eliminated vertex's clique w_i w_j / W is replaced by one sampled edge per neighbour (neighbours in
+// ascending weight; neighbour i gets an edge of weight w_i S_i / W to a later neighbour j drawn with probability w_j / S_i,
+// S_i the weight after i), which has the clique as its mean. Vertices are taken by smallest current list length. The
+// generator is seeded and the elimination serial, so the factor is the same on every run. A ~ C D C^T, C unit lower.
+sealed class ApproxElimination
+{
+    public int N; public int[] Order, ColPtr, Row; public double[] Val, D; public long Entries { get { return ColPtr[N] + N; } }
+    public int Clamped;
+
+    public ApproxElimination(Csr A, ulong seed)
+    {
+        int n = A.N; N = n;
+        var adj = new List<(int v, double w)>[n]; var ground = new double[n];
+        for (int r = 0; r < n; ++r) {
+            adj[r] = new List<(int, double)>(8); double sum = 0, diag = 0;
+            for (int q = A.P[r]; q < A.P[r + 1]; ++q) {
+                if (A.J[q] == r) { diag = A.V[q]; continue; }
+                if (A.V[q] >= 0) { if (A.V[q] > 0) ++Clamped; continue; }      // a positive off-diagonal is left out of the preconditioner
+                adj[r].Add((A.J[q], -A.V[q])); sum -= A.V[q];
+            }
+            ground[r] = Math.Max(0, diag - sum);
+        }
+        Clamped /= 2;
+        var done = new bool[n]; Order = new int[n]; D = new double[n]; ColPtr = new int[n + 1];
+        var rows = new List<int>(8 * n); var vals = new List<double>(8 * n);
+        var pq = new PriorityQueue<int, long>(n);
+        for (int i = 0; i < n; ++i) pq.Enqueue(i, ((long)adj[i].Count << 32) | (uint)i);
+        var nb = new List<(int v, double w)>(); var cum = new List<double>();
+        for (int p = 0; p < n;) {
+            pq.TryDequeue(out int v, out long key);
+            if (done[v] || (int)(key >> 32) != adj[v].Count) continue;
+            // the live neighbours, equal ones merged; the ground is vertex n
+            nb.Clear();
+            adj[v].Sort((a, b) => a.v.CompareTo(b.v));
+            foreach (var e in adj[v]) {
+                if (done[e.v]) continue;
+                if (nb.Count > 0 && nb[nb.Count - 1].v == e.v) nb[nb.Count - 1] = (e.v, nb[nb.Count - 1].w + e.w); else nb.Add(e);
+            }
+            if (ground[v] > 0) nb.Add((n, ground[v]));
+            adj[v] = null; done[v] = true; Order[p] = v;
+            nb.Sort((a, b) => a.w != b.w ? a.w.CompareTo(b.w) : a.v.CompareTo(b.v));
+            double W = 0; cum.Clear();
+            foreach (var e in nb) { W += e.w; cum.Add(W); }
+            if (!(W > 0)) throw new Exception("approximate elimination: a vertex without weight (singular matrix)");
+            D[p] = W;
+            foreach (var e in nb) if (e.v < n) { rows.Add(e.v); vals.Add(-e.w / W); }
+            ColPtr[++p] = rows.Count;
+            for (int i = 0; i + 1 < nb.Count; ++i) {
+                double S = W - cum[i];
+                if (!(S > 0)) break;
+                seed = seed * 6364136223846793005UL + 1442695040888963407UL;
+                double t = cum[i] + S * ((seed >> 11) * (1.0 / 9007199254740992.0));
+                int lo = i + 1, hi = nb.Count - 1;
+                while (lo < hi) { int mid = (lo + hi) / 2; if (cum[mid] > t) hi = mid; else lo = mid + 1; }
+                int a = nb[i].v, b = nb[lo].v; double w = nb[i].w * S / W;
+                if (a == n) ground[b] += w;
+                else if (b == n) ground[a] += w;
+                else {
+                    adj[a].Add((b, w)); adj[b].Add((a, w));
+                    pq.Enqueue(a, ((long)adj[a].Count << 32) | (uint)a); pq.Enqueue(b, ((long)adj[b].Count << 32) | (uint)b);
+                }
+            }
+        }
+        Row = rows.ToArray(); Val = vals.ToArray();
+    }
+
+    // z = (C D C^T)^-1 r
+    public void Apply(double[] r, double[] z, double[] t)
+    {
+        int n = N; Array.Copy(r, t, n);
+        for (int p = 0; p < n; ++p) {
+            double y = t[Order[p]];
+            for (int q = ColPtr[p]; q < ColPtr[p + 1]; ++q) t[Row[q]] -= Val[q] * y;
+        }
+        for (int p = n - 1; p >= 0; --p) {
+            int v = Order[p]; double s = t[v] / D[p];
+            for (int q = ColPtr[p]; q < ColPtr[p + 1]; ++q) s -= Val[q] * z[Row[q]];
+            z[v] = s;
+        }
+    }
+}
+
 static class Program
 {
     static ulong Next(ref ulong s) { s = s * 6364136223846793005UL + 1442695040888963407UL; return s >> 11; }
@@ -601,6 +685,18 @@ static class Program
             double setup = sw.Elapsed.TotalSeconds;
             PcgResult r0 = Pcg(A, b, (r, z) => L.SolveLLt(r, z, t1), maxIt);
             Console.WriteLine($"| PCG IC(0){(shift > 0 ? $" shift {shift:G2}" : "")} | {setup:F2} | {L.Entries / 1e6:F2}M | {Fmt(r0)} | {r0.TrueRes:E1} |");
+        }
+        if (pr.Bs == 1) {
+            long pos = 0, off = 0;
+            for (int r = 0; r < n; ++r) for (int q = A.P[r]; q < A.P[r + 1]; ++q) if (A.J[q] != r) { ++off; if (A.V[q] > 0) ++pos; }
+            if (pos * 100 > off) Console.WriteLine($"| PCG approximate elimination | not applicable: {100.0 * pos / off:F0} % of the off-diagonals are positive | | | | |");
+            else {
+                var sw = Stopwatch.StartNew();
+                var ae = new ApproxElimination(A, 1);
+                double setup = sw.Elapsed.TotalSeconds;
+                PcgResult r0 = Pcg(A, b, (r, z) => ae.Apply(r, z, t1), maxIt);
+                Console.WriteLine($"| PCG approximate elimination seed 1{(ae.Clamped > 0 ? $" ({ae.Clamped} positive off-diagonals left out)" : "")} | {setup:F2} | {ae.Entries / 1e6:F2}M | {Fmt(r0)} | {r0.TrueRes:E1} |");
+            }
         }
         var swh = Stopwatch.StartNew();
         var h = new Hierarchy(pr.Pos);
