@@ -615,6 +615,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(serial.PureQuadRepair.SatDecisions, r.PureQuadRepair.SatDecisions);
                 Assert.Equal(serial.PureQuadRepair.Splits, r.PureQuadRepair.Splits);
                 Assert.Equal(serial.PureQuadRetried, r.PureQuadRetried);
+                Assert.Equal(s == 0.2 && name == "cylinder" || s == 0.39, r.PureQuadRetried);        // the two rows of the second attempt
                 Assert.Equal(serial.PureQuadFirstStatus, r.PureQuadFirstStatus);
                 Assert.Equal(serial.PureQuadRepair.FrozenEdgesChanged, r.PureQuadRepair.FrozenEdgesChanged);
                 AssertSame(serial.Result, r.Result);
@@ -970,7 +971,8 @@ namespace geometry3Sharp.Tests
             Assert.False(old.PureQuadRetried);
             Assert.False(old.PureQuadRepair.FreeFrozenEdges);
             Assert.Equal(0, old.PureQuadRepair.FrozenEdgesChanged);
-            Assert.True(qr.FlowSeconds > qr.PureQuadRepair.FlowSeconds && qr.RepairSeconds >= qr.PureQuadRepair.RepairSeconds);   // the times of both attempts are counted
+            // the times of both attempts are counted (the first attempt has a flow, and here a repair too, so both sums are larger than the second's part)
+            Assert.True(qr.FlowSeconds > qr.PureQuadRepair.FlowSeconds && qr.RepairSeconds > qr.PureQuadRepair.RepairSeconds);
         }
 
         [Theory]
@@ -1075,9 +1077,11 @@ namespace geometry3Sharp.Tests
                 AssertSame(baseRun.Result, qr.Result, sim.Scale);
                 Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatio));
             } else {
-                // another rounding: a clean pure-quad mesh of about the same size, or a valid stage 2 mesh
+                // another rounding: a clean pure-quad mesh of about the same size (by the first or the second attempt), or a valid stage 2
+                // mesh after two attempts
                 Assert.True(qr.Result.Validate().IsValid);
-                if (qr.PureQuadStatus != PureQuadStatus.Success) return;
+                if (qr.PureQuadStatus != PureQuadStatus.Success) { Assert.True(qr.PureQuadRetried); Assert.False(qr.PureQuadRepair.FreeFrozenEdges); return; }
+                Assert.Equal(qr.PureQuadRetried, qr.PureQuadRepair.FreeFrozenEdges);
                 PolyMeshMetrics a = PolyMeshMetrics.Compute(baseRun.Result), b = PolyMeshMetrics.Compute(qr.Result);
                 Assert.Equal(1.0, b.QuadFraction);
                 Assert.True(b.IsManifold);
@@ -1108,10 +1112,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, a.FrozenEdges); Assert.Equal(0, b.FrozenEdges); Assert.Equal(0, b.FrozenEdgesChanged);
             Assert.Equal(a.Offsets(), b.Offsets());
             Assert.Equal(PureQuadStatus.Success, b.Status);
-            // the freed values stay in the start range of the variables, whatever capacity the network flow needs afterwards (4 or more here)
+            // the relaxation runs at the start range of the variables whatever capacity the network flow needs afterwards
             QuadFlowRepair fine = Repair("sphere", 0.05, 0, r => r.FreeFrozenEdges = true);
             Assert.True(fine.FrozenEdgesChanged > 0);
             Assert.NotEqual(PureQuadStatus.FlowInfeasible, fine.Status);
+            // its counters: one flow on four nodes per triangle; the searches are counted, never timed
+            Assert.Equal(0, plain.RelaxationArcs); Assert.Equal(0L, plain.RelaxationSettled); Assert.Equal(0.0, plain.RelaxationSeconds);
+            Assert.True(freed.RelaxationArcs > 0 && freed.RelaxationSearches > 0 && freed.RelaxationSettled > 0 && freed.RelaxationSeconds > 0);
+            Assert.True(freed.RelaxationSeconds <= freed.FlowPrepSeconds);
+            // the work stays near linear in the triangles (each search stops at the first deficit; 15 to 80 settled nodes per triangle on the gate runs)
+            foreach (QuadFlowRepair r in new[] { freed, fine })
+                Assert.True(r.RelaxationSettled < 200L * r.Triangles, $"relaxation settled {r.RelaxationSettled} nodes in {r.RelaxationSearches} searches for {r.Triangles} triangles");
         }
 
         [Fact]

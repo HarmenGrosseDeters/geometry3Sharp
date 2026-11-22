@@ -108,7 +108,7 @@ dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=1 adapt=2
 | `capsule` / `capped-cylinder` clean (of 6 each) | 1 / 0 | 5 / 6 | 1 / 5 | 5 / 6 |
 | rows clean with `retry=0`: quality columns identical | - | 43 / 43 | - | 48 / 48 |
 | second attempt run on / `Success` on | - | 11 / 10 | - | 6 / 5 |
-| pure time, rows that fall back with `retry=0`, sum (s) | 2.62 | 5.62 | 3.62 | 6.33 |
+| pure time, rows that fall back with `retry=0`, sum (s) | 2.62 | 5.63 | 3.62 | 6.33 |
 | pure time, rows clean on the first attempt, sum (s) | 10.50 | 10.59 | 28.94 | 28.48 |
 | time gate `max(3 x stage 2, 1 s)` (clean rows) | 41 / 43 | 49 / 53 | 48 / 48 | 51 / 53 |
 | irregular gate (clean rows) | 43 / 43 | 53 / 53 | 48 / 48 | 53 / 53 |

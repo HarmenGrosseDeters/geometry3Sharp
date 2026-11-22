@@ -524,7 +524,7 @@ container; `retry=0` is the internal hook `PureQuadRetry = false`, the behaviour
 | capsule / capped cylinder clean (of 6) | 1 / 0 | 5 / 6 | 1 / 5 | 5 / 6 |
 | rows clean before: quality columns identical | - | 43 / 43 | - | 48 / 48 |
 | second attempt run on / `Success` on | - | 11 / 10 | - | 6 / 5 |
-| pure time of the rows that fell back before, sum | 2.62 s | 5.62 s | 3.62 s | 6.33 s |
+| pure time of the rows that fell back before, sum | 2.62 s | 5.63 s | 3.62 s | 6.33 s |
 | pure time of the rows clean on the first attempt, sum | 10.50 s | 10.59 s | 28.94 s | 28.48 s |
 | time gate max(3 x stage 2, 1 s) on clean rows | 41 / 43 | 49 / 53 | 48 / 48 | 51 / 53 |
 | irregular gate; Hausdorff <= 0.5 s; corner p95 <= 15 (clean rows) | 43; 41; 20 of 43 | 53; 51; 21 of 53 | 48; 42; 29 of 48 | 53; 47; 30 of 53 |

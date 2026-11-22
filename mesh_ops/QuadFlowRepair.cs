@@ -77,6 +77,8 @@ namespace gs
         public long FlowSettled, SatDecisions, BalancingWork;
         /// <summary> the fixed variables of the flow (edges), and with FreeFrozenEdges those whose value the relaxation changed </summary>
         public int FrozenEdges, FrozenEdgesChanged;
+        /// <summary> FreeFrozenEdges: the relaxation's arcs, Dijkstra searches, settled nodes and seconds (the seconds are part of FlowPrepSeconds) </summary>
+        public int RelaxationArcs, RelaxationSearches; public long RelaxationSettled; public double RelaxationSeconds;
         public bool SatBudgetExhausted;
         /// <summary>
         /// DIAGNOSTIC ONLY (it is not a check: no status depends on it): the lattice area of the integer map over the geometric area of the input, both in
@@ -652,6 +654,7 @@ namespace gs
         void FreeFixedVariables(List<Edge> edges, int[] ex, bool[] balanced)
         {
             const int H = 2;        // the start range of the variables
+            var swRelax = Stopwatch.StartNew();
             int F = tris.Count, E = edges.Count, NN = 2 * F;
             var res = new long[NN];
             foreach (var e in edges) {
@@ -693,6 +696,7 @@ namespace gs
                 }
             }
             net.Solve(excess, out _);
+            RelaxationArcs = net.ArcCount; RelaxationSearches = net.Searches; RelaxationSettled = net.Settled;
             for (int k = 0; k < E; ++k) {
                 if (balanced[k]) continue;
                 var e = edges[k];
@@ -710,6 +714,7 @@ namespace gs
                 }
                 if (nx != e.Dv.X || ny != e.Dv.Y) { FrozenEdgesChanged++; e.Dv = new Off(nx, ny); }
             }
+            RelaxationSeconds = swRelax.Elapsed.TotalSeconds;
         }
 
         /// <summary> v + x2 / 2; a half goes to the neighbour nearer to the real offset r, a tie (or a non-finite r) towards v </summary>
