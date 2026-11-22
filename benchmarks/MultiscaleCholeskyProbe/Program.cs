@@ -674,12 +674,15 @@ static class Program
 
     static void Direct(Problem pr, CholeskyOrdering ord, double[] b)
     {
-        Csr A = pr.A; GC.Collect();
-        var c = new SparseCholesky(A.N, pr.Bs) { Ordering = ord };
-        for (int r = 0; r < A.N; ++r) for (int q = A.P[r]; q < A.P[r + 1]; ++q) if (A.J[q] <= r) c.Add(r, A.J[q], A.V[q]);
-        var sw = Stopwatch.StartNew();
-        if (!c.Factorize()) { Console.WriteLine($"| direct {ord} | failed: {c.Error} |"); return; }
-        double f = sw.Elapsed.TotalSeconds;
+        Csr A = pr.A; SparseCholesky c = null; double f = double.MaxValue; var sw = new Stopwatch();
+        for (int pass = 0; pass < 2; ++pass) {   // best of two factorizations on fresh instances (the first one pays first-touch costs)
+            c = null; GC.Collect();
+            c = new SparseCholesky(A.N, pr.Bs) { Ordering = ord };
+            for (int r = 0; r < A.N; ++r) for (int q = A.P[r]; q < A.P[r + 1]; ++q) if (A.J[q] <= r) c.Add(r, A.J[q], A.V[q]);
+            sw.Restart();
+            if (!c.Factorize()) { Console.WriteLine($"| direct {ord} | failed: {c.Error} |"); return; }
+            f = Math.Min(f, sw.Elapsed.TotalSeconds);
+        }
         var x = new double[A.N]; double best = double.MaxValue;
         for (int k = 0; k < 3; ++k) { sw.Restart(); c.Solve(b, x); best = Math.Min(best, sw.Elapsed.TotalMilliseconds); }
         var ax = new double[A.N]; A.Mul(x, ax); double e = 0, bn = 0;
@@ -765,9 +768,12 @@ static class Program
         bool direct = !a.ContainsKey("direct") || a["direct"] != "0";
         bool fsai = !a.ContainsKey("fsai") || a["fsai"] != "0";
         Console.WriteLine($"CPUs: {Environment.ProcessorCount} (the direct solver and the FSAI setup use them; everything else in the probe is serial)");
-        {   // warm up the JIT
-            var w = Poisson(BumpySphere(12)); var q = Console.Out; Console.SetOut(System.IO.TextWriter.Null);
-            Run(w, new[] { 2.0 }, true, true); Console.SetOut(q);
+        {   // warm up the JIT on every code path, at a size that reaches the tiered recompilation
+            var q = Console.Out; Console.SetOut(System.IO.TextWriter.Null); TriMesh wm = BumpySphere(40);
+            for (int pass = 0; pass < 2; ++pass) {
+                foreach (var w in new[] { Poisson(wm), Bilaplacian(wm), Connection(wm), Grid3(12) }) Run(w, new[] { 2.0 }, true, true);
+            }
+            Console.SetOut(q);
         }
         var makers = new (string name, Func<TriMesh, Problem> make)[] { ("poisson", Poisson), ("heat", Heat), ("bilaplacian", Bilaplacian), ("connection", Connection) };
         foreach (int k in ks) {
