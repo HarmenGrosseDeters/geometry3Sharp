@@ -71,35 +71,32 @@ namespace Meshing2HardProblems
             return input;
         }
 
-        /// <summary> a square with a hole whose corner is off the outer corner by 2^-k in both coordinates times very different
-        /// powers of two: coordinates at very different binary exponents, the class of #947 </summary>
+        /// <summary> a square whose first corner is at (1e-250, 1e-270) instead of the origin, with segments from it into the square:
+        /// coordinates at very different binary exponents, the class of #947 </summary>
         public static Mesh2Input WideExponents(double angle, bool constrained)
         {
             var g = new Pslg { Name = "wide" };
-            g.Ring.Add(g.Add(0, 0)); g.Ring.Add(g.Add(1, 0)); g.Ring.Add(g.Add(1, 1)); g.Ring.Add(g.Add(0, 1));
+            int corner = g.Add(1e-250, 1e-270);
+            g.Ring.Add(corner); g.Ring.Add(g.Add(1, 0)); g.Ring.Add(g.Add(1, 1)); g.Ring.Add(g.Add(0, 1));
             var rnd = new Random(5);
-            int centre = g.Add(0.5 + 3e-250, 0.5 + 7e-262);
-            for (int i = 0; i < 12; ++i) {
-                double a = 2 * Math.PI * i / 12 + 0.1, r = 0.2 + 0.2 * rnd.NextDouble();
-                g.Interior.Add((centre, g.Add(0.5 + r * Math.Cos(a) * (i % 3 == 0 ? 1e-200 : 1), 0.5 + r * Math.Sin(a) * (i % 3 == 0 ? 1e-200 : 1))));
-            }
+            for (int i = 1; i <= 6; ++i) { double a = Math.PI / 2 * i / 7, r = 0.3 + 0.5 * rnd.NextDouble(); g.Interior.Add((corner, g.Add(r * Math.Cos(a), r * Math.Sin(a)))); }
             return g.ToInput(angle, constrained);
         }
 
-        static IEnumerable<(string name, Mesh2Input input)> Cases(string size)
+        public static IEnumerable<(string name, Mesh2Input input)> Cases(string size)
         {
             bool large = size == "large";
             foreach (bool cq in new[] { false, true }) {
                 string mode = cq ? "cq" : "default";
-                foreach (int side in large ? new[] { 30, 60, 120 } : new[] { 10, 30 }) {
+                foreach (int side in large ? new[] { 30, 60 } : new[] { 10, 30 }) {
                     yield return ("parcels" + side + " q20 " + mode, Parcels(side, 20, cq));
                     yield return ("parcels" + side + " q30 " + mode, Parcels(side, 30, cq));
                 }
-                foreach (int n in large ? new[] { 2000, 20000 } : new[] { 2000 }) yield return ("coast" + n + " q20 " + mode, Coast(n, 20, cq));
+                foreach (int n in large ? new[] { 2000, 8000 } : new[] { 2000 }) yield return ("coast" + n + " q20 " + mode, Coast(n, 20, cq));
                 yield return ("comb40 phi1 q20 " + mode, Hp6Inputs.Comb(1, 40).ToInput(20, cq));
                 yield return ("fan12 phi2 q20 " + mode, Hp6Inputs.Fan(2, 12).ToInput(20, cq));
             }
-            { var snapped = Parcels(large ? 60 : 30, 20, false); snapped.SnapTolerance = 1.0 / 64; yield return ("parcels" + (large ? 60 : 30) + " q20 snap 1/64", snapped); }
+            foreach (int side in new[] { 2, 10, 30 }) { var snapped = Parcels(side, 20, false); snapped.SnapTolerance = 1.0 / 64; yield return ("parcels" + side + " q20 snap 1/64", snapped); }
             yield return ("wide exponents q20 default", WideExponents(20, false));
         }
 
@@ -154,6 +151,7 @@ namespace Meshing2HardProblems
                     best.ExactOrient, best.ExactInCircle, best.BelowBound, best.ConformingSubsegmentHits));
                 var oracleLaps = laps.Split('\n').Where(l => l.StartsWith("ORACLE ")).Select(l => l.Substring(7).Trim()).Select(l => { int cut = l.LastIndexOf(' ', l.Length - 4); return (l.Substring(0, cut), double.Parse(l.Substring(cut + 1, l.Length - cut - 4), CultureInfo.InvariantCulture)); }).ToList();
                 double total = oracleLaps.Sum(l => l.Item2);
+                if (!report.Ok) detail.Add(name + " | oracle violations (" + report.Violations.Count + "), the first: " + report.Violations[0]);
                 detail.Add(name + " | oracle: " + string.Join("; ", oracleLaps.OrderByDescending(l => l.Item2).Take(6).Select(l => l.Item1 + " " + F(l.Item2) + " ms (" + (100 * l.Item2 / total).ToString("F0", CultureInfo.InvariantCulture) + " %)"))
                     + " | checker: " + string.Join("; ", best.Laps.Select(l => l.step + " " + F(l.ms) + " ms")));
             }

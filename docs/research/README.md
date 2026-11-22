@@ -11,6 +11,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | [GEOGRAM_MEASUREMENTS_2026-11.md](GEOGRAM_MEASUREMENTS_2026-11.md) | Targeted measurements of high-priority ideas identified in the Geogram survey |
 | [GEOGRAM_SURVEY_2026-11.md](GEOGRAM_SURVEY_2026-11.md) | Detailed architectural survey of Geogram (BSD-3) algorithms relevant to `geometry3Sharp` |
 | [IMPRINT_CORPUS_2026-11.md](IMPRINT_CORPUS_2026-11.md) | Corpus evaluation of `ExactMeshImprint` on Thingi10K contact pairs |
+| [MESHING2D_HP6_HP7_SPIKE_2026-11.md](MESHING2D_HP6_HP7_SPIKE_2026-11.md) | 2D meshing spike: proven small-angle refinement rules against the library (HP 6) and a certifying checker against the oracle (HP 7), with measured upper bounds and ranked options |
 | [METAMORPHIC_TESTING.md](METAMORPHIC_TESTING.md) | Metamorphic testing and fuzzing study for geometry kernels with falsification runs |
 | [PLANE_BASED_KERNEL_STUDY_2026-11.md](PLANE_BASED_KERNEL_STUDY_2026-11.md) | Feasibility study of a plane-based (EMBER-style) boolean kernel (concluded no-go) |
 | [UNTAPPED_SCIENCE_GEOMETRY_2026-11.md](UNTAPPED_SCIENCE_GEOMETRY_2026-11.md) | Cross-disciplinary survey and ROI evaluation of untapped 2021–2026 math, physics, biology, and chemistry research for computational geometry |

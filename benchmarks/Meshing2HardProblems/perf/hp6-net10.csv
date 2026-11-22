@@ -1,0 +1,481 @@
+family,phi_deg,bound_deg,mesher,status,ms,vertices,triangles,min_deg,max_deg,below,apex_forced,across_shell,across_1.5,across_far,apex_unforced,other,below_mpw_floor,min_not_forced_deg,farthest_unforced
+wedge,40,20,g3-default,oracle ok,80,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,20,g3-cq,oracle ok,1,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,20,ruppert,ok,5,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,20,mpw,ok,0,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,20,collar,ok (shrinks 0; left at a collar 0),16,8,6,20.340,110.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,25,g3-default,oracle ok,0,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,25,g3-cq,oracle ok,0,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,25,ruppert,ok,0,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,25,mpw,ok,0,3,1,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,40,25,collar,ok (shrinks 0; left at a collar 0),3,11,10,28.789,110.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,20,g3-default,oracle ok,0,3,1,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,20,g3-cq,oracle ok,0,3,1,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,20,ruppert,ok,0,3,1,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,20,mpw,ok,0,3,1,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,20,collar,ok (shrinks 0; left at a collar 0),0,11,9,20.000,100.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,25,g3-default,oracle ok,1,3,1,20.000,80.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,20,25,g3-cq,oracle ok,0,3,1,20.000,80.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),102,161,157,31.401,100.0,0,0,0,0,0,0,0,0,-,0.000
+wedge,20,25,mpw,ok,0,5,3,17.878,100.0,2,1,1,0,0,0,0,0,17.878,0.659
+wedge,20,25,collar,ok (shrinks 0; left at a collar 0),0,11,9,20.000,100.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,20,g3-default,oracle ok,0,3,1,10.000,85.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,20,g3-cq,oracle ok,0,3,1,10.000,85.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),91,231,227,18.627,95.0,2,0,2,0,0,0,0,0,18.627,0.000
+wedge,10,20,mpw,ok,0,7,5,10.000,95.0,2,1,1,0,0,0,0,0,18.627,0.582
+wedge,10,20,collar,ok (shrinks 0; left at a collar 0),1,15,13,10.000,95.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,25,g3-default,oracle ok,0,3,1,10.000,85.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,25,g3-cq,oracle ok,0,3,1,10.000,85.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),74,231,227,18.627,95.0,2,0,2,0,0,0,0,0,18.627,0.000
+wedge,10,25,mpw,ok,0,7,5,10.000,95.0,2,1,1,0,0,0,0,0,18.627,0.582
+wedge,10,25,collar,ok (shrinks 0; left at a collar 0),1,15,13,10.000,95.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,20,g3-default,oracle ok,0,3,1,5.000,87.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,20,g3-cq,oracle ok,0,3,1,5.000,87.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),106,367,363,9.815,92.5,6,0,6,0,0,0,0,0,9.815,0.000
+wedge,5,20,mpw,ok,0,9,7,5.000,92.5,3,1,2,0,0,0,0,0,9.815,0.666
+wedge,5,20,collar,ok (shrinks 0; left at a collar 0),1,23,21,5.000,92.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,25,g3-default,oracle ok,0,3,1,5.000,87.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,25,g3-cq,oracle ok,0,3,1,5.000,87.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),199,437,433,9.815,92.5,8,0,8,0,0,0,0,0,9.815,0.000
+wedge,5,25,mpw,ok,0,9,7,5.000,92.5,3,1,2,0,0,0,0,0,9.815,0.666
+wedge,5,25,collar,ok (shrinks 0; left at a collar 0),1,27,25,5.000,92.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,20,g3-default,oracle ok,0,3,1,1.000,89.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,20,g3-cq,oracle ok,0,3,1,1.000,89.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),452,1367,1363,1.998,90.5,38,0,38,0,0,0,0,0,1.998,0.000
+wedge,1,20,mpw,ok,1,13,11,1.000,90.5,7,1,6,0,0,0,0,0,1.998,0.917
+wedge,1,20,collar,ok (shrinks 0; left at a collar 0),3,87,85,1.000,90.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,25,g3-default,oracle ok,0,3,1,1.000,89.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,25,g3-cq,oracle ok,0,3,1,1.000,89.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),384,1739,1735,1.998,90.5,50,0,50,0,0,0,0,0,1.998,0.000
+wedge,1,25,mpw,ok,0,13,11,1.000,90.5,7,1,6,0,0,0,0,0,1.998,0.917
+wedge,1,25,collar,ok (shrinks 0; left at a collar 0),2,111,109,1.000,90.5,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,20,g3-default,oracle ok,0,3,1,0.100,90.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,20,g3-cq,oracle ok,0,3,1,0.100,90.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),3545,10545,10541,0.200,90.1,414,0,414,0,0,0,0,0,0.200,0.000
+wedge,0.1,20,mpw,ok,1,19,17,0.100,90.1,13,1,12,0,0,0,0,0,0.200,0.990
+wedge,0.1,20,collar,ok (shrinks 0; left at a collar 0),12,839,837,0.100,90.1,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,25,g3-default,oracle ok,0,3,1,0.100,90.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,25,g3-cq,oracle ok,0,3,1,0.100,90.0,1,1,0,0,0,0,0,0,-,0.000
+wedge,0.1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),4876,13353,13349,0.200,90.1,532,0,532,0,0,0,0,0,0.200,0.000
+wedge,0.1,25,mpw,ok,1,21,19,0.100,90.1,15,1,14,0,0,0,0,0,0.200,0.995
+wedge,0.1,25,collar,ok (shrinks 0; left at a collar 0),17,1075,1073,0.100,90.1,1,1,0,0,0,0,0,0,-,0.000
+boxwedge,40,20,g3-default,oracle ok,9,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,20,g3-cq,oracle ok,8,8,9,15.712,117.7,1,0,1,0,0,0,0,1,15.712,1.534
+boxwedge,40,20,ruppert,ok,0,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,20,mpw,ok,0,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,20,collar,ok (shrinks 0; left at a collar 0),1,20,28,20.340,111.8,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,25,g3-default,oracle ok,0,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,25,g3-cq,oracle ok,0,8,9,15.712,117.7,1,0,1,0,0,0,0,1,15.712,1.534
+boxwedge,40,25,ruppert,ok,0,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,25,mpw,ok,0,11,12,31.187,113.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,40,25,collar,ok (shrinks 0; left at a collar 0),1,41,65,25.078,113.9,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,20,20,g3-default,oracle ok,0,10,11,18.091,116.6,1,0,1,0,0,0,0,0,18.091,1.343
+boxwedge,20,20,g3-cq,oracle ok,0,8,9,6.688,145.0,1,0,1,0,0,0,0,1,6.688,1.331
+boxwedge,20,20,ruppert,ok,0,14,16,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,20,20,mpw,ok,0,14,16,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,20,20,collar,ok (shrinks 0; left at a collar 0),1,31,48,20.000,128.7,0,0,0,0,0,0,0,0,-,0.000
+boxwedge,20,25,g3-default,oracle ok,1,11,12,18.091,98.5,2,1,1,0,0,0,0,0,18.091,1.343
+boxwedge,20,25,g3-cq,oracle ok,1,9,10,6.688,145.0,2,1,1,0,0,0,0,1,6.688,1.331
+boxwedge,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),20,164,313,0.000,142.1,153,0,1,20,21,0,111,41,0.000,1.343
+boxwedge,20,25,mpw,ok,0,19,26,17.878,124.4,2,1,1,0,0,0,0,0,17.878,0.659
+boxwedge,20,25,collar,ok (shrinks 0; left at a collar 0),2,54,88,20.000,112.5,1,1,0,0,0,0,0,0,-,0.000
+boxwedge,10,20,g3-default,oracle ok,0,10,11,8.744,116.6,2,1,1,0,0,0,0,1,8.744,1.347
+boxwedge,10,20,g3-cq,oracle ok,0,8,9,4.141,140.0,2,1,1,0,0,0,0,1,4.141,1.357
+boxwedge,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),27,230,445,0.000,160.3,221,0,3,56,3,0,159,59,0.000,1.330
+boxwedge,10,20,mpw,ok,1,27,39,10.000,128.4,2,1,1,0,0,0,0,0,18.627,0.582
+boxwedge,10,20,collar,ok (shrinks 0; left at a collar 0),1,46,78,10.000,122.1,1,1,0,0,0,0,0,0,-,0.000
+boxwedge,10,25,g3-default,oracle ok,0,11,12,8.744,102.8,2,1,1,0,0,0,0,1,8.744,1.347
+boxwedge,10,25,g3-cq,oracle ok,0,9,10,4.141,140.0,2,1,1,0,0,0,0,1,4.141,1.357
+boxwedge,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),27,230,445,0.000,160.3,221,0,3,56,3,0,159,59,0.000,1.330
+boxwedge,10,25,mpw,ok,1,31,46,10.000,115.4,2,1,1,0,0,0,0,0,18.627,0.582
+boxwedge,10,25,collar,ok (shrinks 0; left at a collar 1),2,58,97,10.000,111.7,2,1,0,0,0,0,1,0,15.600,0.179
+boxwedge,5,20,g3-default,oracle ok,0,11,12,4.209,109.9,2,1,1,0,0,0,0,1,4.209,1.346
+boxwedge,5,20,g3-cq,oracle ok,0,9,10,2.283,137.5,2,1,1,0,0,0,0,1,2.283,1.366
+boxwedge,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),73,358,701,0.000,170.0,353,0,7,88,3,0,255,91,0.000,1.332
+boxwedge,5,20,mpw,ok,1,34,55,5.000,124.1,3,1,2,0,0,0,0,0,9.815,0.666
+boxwedge,5,20,collar,ok (shrinks 0; left at a collar 2),2,70,124,5.000,139.2,3,1,0,0,0,0,2,0,13.917,0.314
+boxwedge,5,25,g3-default,oracle ok,0,11,12,4.209,109.9,2,1,1,0,0,0,0,1,4.209,1.346
+boxwedge,5,25,g3-cq,oracle ok,0,9,10,2.283,137.5,2,1,1,0,0,0,0,1,2.283,1.366
+boxwedge,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),61,424,833,0.000,170.0,421,0,9,104,3,0,305,107,0.000,1.332
+boxwedge,5,25,mpw,ok,1,51,86,5.000,125.0,3,1,2,0,0,0,0,0,9.815,0.666
+boxwedge,5,25,collar,ok (shrinks 0; left at a collar 6),4,100,179,5.000,114.7,6,1,0,0,0,0,5,0,10.469,0.215
+boxwedge,1,20,g3-default,oracle ok,0,11,12,0.809,115.3,2,1,1,0,0,0,0,1,0.809,1.344
+boxwedge,1,20,g3-cq,oracle ok,0,9,10,0.491,135.5,2,1,1,0,0,0,0,1,0.491,1.373
+boxwedge,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),385,1294,2573,0.000,178.0,1321,0,39,308,3,0,971,311,0.000,1.333
+boxwedge,1,20,mpw,ok,1,50,87,1.000,130.4,7,1,6,0,0,0,0,0,1.998,0.917
+boxwedge,1,20,collar,ok (shrinks 0; left at a collar 9),9,205,396,1.000,169.8,8,1,0,0,0,0,7,0,5.119,0.254
+boxwedge,1,25,g3-default,oracle ok,0,11,12,0.809,115.3,2,1,1,0,0,0,0,1,0.809,1.344
+boxwedge,1,25,g3-cq,oracle ok,0,9,10,0.491,135.5,2,1,1,0,0,0,0,1,0.491,1.373
+boxwedge,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),475,1642,3269,0.000,178.0,1681,0,51,380,3,0,1247,383,0.000,1.333
+boxwedge,1,25,mpw,ok,2,62,111,1.000,121.9,7,1,6,0,0,0,0,0,1.998,0.917
+boxwedge,1,25,collar,ok (shrinks 0; left at a collar 14),39,317,616,1.000,167.9,12,1,0,0,0,0,11,0,5.518,0.263
+boxwedge,0.1,20,g3-default,oracle ok,0,11,12,0.080,116.4,2,1,1,0,0,0,0,1,0.080,1.344
+boxwedge,0.1,20,g3-cq,oracle ok,0,9,10,0.050,135.1,2,1,1,0,0,0,0,1,0.050,1.374
+boxwedge,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),8156,10138,20261,0.000,179.8,10541,0,415,1864,3,0,8259,1867,0.000,1.333
+boxwedge,0.1,20,mpw,ok,2,76,140,0.100,127.7,13,1,12,0,0,0,0,0,0.200,0.990
+boxwedge,0.1,20,collar,ok (shrinks 0; left at a collar 20),162,1749,3483,0.100,174.1,15,1,0,0,0,0,14,0,1.504,0.261
+boxwedge,0.1,25,g3-default,oracle ok,0,11,12,0.080,116.4,2,1,1,0,0,0,0,1,0.080,1.344
+boxwedge,0.1,25,g3-cq,oracle ok,0,9,10,0.050,135.1,2,1,1,0,0,0,0,1,0.050,1.374
+boxwedge,0.1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),10715,12828,25641,0.000,179.8,13349,0,533,2218,3,0,10595,2221,0.000,1.333
+boxwedge,0.1,25,mpw,ok,3,89,166,0.100,119.3,15,1,14,0,0,0,0,0,0.200,0.995
+boxwedge,0.1,25,collar,ok (shrinks 0; left at a collar 27),314,2565,5113,0.100,175.6,20,1,0,0,0,0,19,0,1.058,0.266
+fan5,40,20,g3-default,oracle ok,2,27,38,20.063,136.8,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,20,g3-cq,oracle ok,3,22,32,15.712,140.0,2,0,2,0,0,0,0,2,15.712,1.556
+fan5,40,20,ruppert,ok,1,25,36,20.642,119.6,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,20,mpw,ok,1,25,36,20.642,119.6,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,20,collar,ok (shrinks 0; left at a collar 0),1,33,50,20.340,130.9,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,25,g3-default,oracle ok,1,35,50,25.000,121.7,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,25,g3-cq,oracle ok,1,33,48,15.712,117.7,1,0,1,0,0,0,0,1,15.712,1.534
+fan5,40,25,ruppert,ok,23,36,52,26.565,118.7,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,25,mpw,ok,1,36,52,26.565,118.7,0,0,0,0,0,0,0,0,-,0.000
+fan5,40,25,collar,ok (shrinks 0; left at a collar 0),2,52,83,25.078,120.9,0,0,0,0,0,0,0,0,-,0.000
+fan5,20,20,g3-default,oracle ok,0,14,18,11.091,130.0,4,0,4,0,0,0,0,3,11.091,1.343
+fan5,20,20,g3-cq,oracle ok,0,11,15,6.688,145.0,4,0,4,0,0,0,0,4,6.688,1.598
+fan5,20,20,ruppert,ok,0,21,29,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+fan5,20,20,mpw,ok,0,21,29,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+fan5,20,20,collar,ok (shrinks 0; left at a collar 0),1,50,82,20.000,128.7,0,0,0,0,0,0,0,0,-,0.000
+fan5,20,25,g3-default,oracle ok,0,14,18,11.091,130.0,8,4,4,0,0,0,0,3,11.091,1.343
+fan5,20,25,g3-cq,oracle ok,0,12,16,6.688,145.0,8,4,4,0,0,0,0,4,6.688,1.598
+fan5,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),48,396,771,0.000,106.9,159,0,4,12,30,0,113,45,0.000,1.757
+fan5,20,25,mpw,ok,1,29,43,17.878,124.4,8,4,4,0,0,0,0,0,17.878,0.659
+fan5,20,25,collar,ok (shrinks 0; left at a collar 0),2,59,99,20.000,112.5,4,4,0,0,0,0,0,0,-,0.000
+fan5,10,20,g3-default,oracle ok,0,14,18,6.601,125.0,8,4,4,0,0,0,0,4,6.601,1.351
+fan5,10,20,g3-cq,oracle ok,0,11,15,3.532,140.0,8,4,4,0,0,0,0,4,3.532,1.601
+fan5,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),75,558,1098,0.000,132.6,232,0,9,53,12,0,158,63,0.000,1.406
+fan5,10,20,mpw,ok,1,37,61,10.000,119.4,8,4,4,0,0,0,0,0,18.627,0.582
+fan5,10,20,collar,ok (shrinks 0; left at a collar 0),4,72,129,10.000,126.1,4,4,0,0,0,0,0,0,-,0.000
+fan5,10,25,g3-default,oracle ok,0,14,18,6.601,125.0,8,4,4,0,0,0,0,4,6.601,1.351
+fan5,10,25,g3-cq,oracle ok,0,11,15,3.532,140.0,8,4,4,0,0,0,0,4,3.532,1.601
+fan5,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),89,558,1098,0.000,132.6,235,2,9,53,12,0,159,63,0.000,1.754
+fan5,10,25,mpw,ok,2,44,72,10.000,112.8,8,4,4,0,0,0,0,0,18.627,0.582
+fan5,10,25,collar,ok (shrinks 0; left at a collar 1),5,86,154,10.000,116.6,5,4,0,0,0,0,1,0,21.572,0.181
+fan5,5,20,g3-default,oracle ok,0,13,17,4.209,116.6,8,4,4,0,0,0,0,4,4.209,1.353
+fan5,5,20,g3-cq,oracle ok,0,11,15,1.638,144.8,8,4,4,0,0,0,0,4,1.638,1.564
+fan5,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),235,877,1737,0.000,141.4,378,2,19,99,4,0,254,95,0.000,1.353
+fan5,5,20,mpw,ok,2,52,87,5.000,118.2,12,4,8,0,0,0,0,0,9.815,0.666
+fan5,5,20,collar,ok (shrinks 0; left at a collar 0),4,103,190,5.000,121.2,4,4,0,0,0,0,0,0,-,0.000
+fan5,5,25,g3-default,oracle ok,0,14,18,4.209,109.9,8,4,4,0,0,0,0,4,4.209,1.353
+fan5,5,25,g3-cq,oracle ok,0,12,16,1.638,144.8,8,4,4,0,0,0,0,4,1.638,1.564
+fan5,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),183,1042,2067,0.000,141.4,452,2,24,118,4,0,304,111,0.000,1.353
+fan5,5,25,mpw,ok,3,71,121,5.000,119.7,12,4,8,0,0,0,0,0,9.815,0.666
+fan5,5,25,collar,ok (shrinks 0; left at a collar 6),8,143,266,5.000,119.8,9,4,0,0,0,0,5,0,10.597,0.218
+fan5,1,20,g3-default,oracle ok,0,14,18,0.809,115.3,8,4,4,0,0,0,0,4,0.809,1.348
+fan5,1,20,g3-cq,oracle ok,0,12,16,0.439,139.9,8,4,4,0,0,0,0,4,0.439,1.373
+fan5,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),772,3217,6417,0.000,108.0,1442,2,99,367,4,0,970,315,0.000,1.333
+fan5,1,20,mpw,ok,3,74,132,1.000,126.8,28,4,24,0,0,0,0,0,1.998,0.917
+fan5,1,20,collar,ok (shrinks 0; left at a collar 9),17,337,658,1.000,169.8,11,4,0,0,0,0,7,0,5.113,0.254
+fan5,1,25,g3-default,oracle ok,0,14,18,0.809,115.3,8,4,4,0,0,0,0,4,0.809,1.348
+fan5,1,25,g3-cq,oracle ok,0,12,16,0.439,139.9,8,4,4,0,0,0,0,4,0.439,1.373
+fan5,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),1089,4087,8157,0.000,108.0,1838,2,129,457,4,0,1246,387,0.000,1.333
+fan5,1,25,mpw,ok,4,99,180,1.000,116.1,28,4,24,0,0,0,0,0,1.998,0.917
+fan5,1,25,collar,ok (shrinks 0; left at a collar 14),35,490,960,1.000,167.9,15,4,0,0,0,0,11,0,5.518,0.263
+fan5,0.1,20,g3-default,oracle ok,0,14,18,0.080,116.4,8,4,4,0,0,0,0,4,0.080,1.344
+fan5,0.1,20,g3-cq,oracle ok,0,12,16,0.049,135.5,8,4,4,0,0,0,0,4,0.049,1.374
+fan5,0.1,20,ruppert,vertex limit,12621,20102,40191,0.000,104.4,9704,4,1582,230,4,0,7884,155,0.000,1.333
+fan5,0.1,20,mpw,ok,4,107,202,0.100,127.7,52,4,48,0,0,0,0,0,0.200,0.990
+fan5,0.1,20,collar,ok (shrinks 0; left at a collar 20),347,3012,6008,0.100,173.8,17,4,0,0,0,0,13,0,1.504,0.261
+fan5,0.1,25,g3-default,oracle ok,0,14,18,0.080,116.4,8,4,4,0,0,0,0,4,0.080,1.344
+fan5,0.1,25,g3-cq,oracle ok,0,12,16,0.049,135.5,8,4,4,0,0,0,0,4,0.049,1.374
+fan5,0.1,25,ruppert,vertex limit,10408,21332,42651,0.000,104.4,10668,4,2127,23,4,0,8510,21,0.000,1.333
+fan5,0.1,25,mpw,ok,8,155,296,0.100,120.0,60,4,56,0,0,0,0,0,0.200,0.995
+fan5,0.1,25,collar,ok (shrinks 0; left at a collar 27),761,4184,8350,0.100,175.6,23,4,0,0,0,0,19,0,1.058,0.266
+comb6,40,20,g3-default,oracle ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,20,g3-cq,oracle ok,0,16,14,19.464,126.1,2,0,2,0,0,0,0,2,19.464,1.299
+comb6,40,20,ruppert,ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,20,mpw,ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,20,collar,ok (shrinks 0; left at a collar 0),1,66,64,27.516,110.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,25,g3-default,oracle ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,25,g3-cq,oracle ok,0,16,14,19.464,126.1,2,0,2,0,0,0,0,2,19.464,1.299
+comb6,40,25,ruppert,ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,25,mpw,ok,0,18,16,36.052,90.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,40,25,collar,ok (shrinks 0; left at a collar 0),1,66,64,27.516,110.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,20,20,g3-default,oracle ok,0,16,14,15.770,109.4,6,0,6,0,0,0,0,2,15.770,1.325
+comb6,20,20,g3-cq,oracle ok,0,15,13,11.418,125.2,6,0,6,0,0,0,0,4,11.418,1.325
+comb6,20,20,ruppert,ok,0,22,22,20.000,110.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,20,20,mpw,ok,0,22,22,20.000,110.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,20,20,collar,ok (shrinks 0; left at a collar 0),2,106,106,20.000,110.0,0,0,0,0,0,0,0,0,-,0.000
+comb6,20,25,g3-default,oracle ok,0,16,14,15.770,109.4,12,6,6,0,0,0,0,2,15.770,1.325
+comb6,20,25,g3-cq,oracle ok,0,15,13,11.418,125.2,12,6,6,0,0,0,0,4,11.418,1.325
+comb6,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),96,944,930,19.425,100.0,4,0,4,0,0,0,0,0,19.425,1.314
+comb6,20,25,mpw,ok,0,34,34,17.878,110.0,12,6,6,0,0,0,0,0,17.878,0.659
+comb6,20,25,collar,ok (shrinks 0; left at a collar 0),2,118,118,20.000,110.0,6,6,0,0,0,0,0,0,-,0.000
+comb6,10,20,g3-default,oracle ok,0,15,13,8.409,109.3,12,6,6,0,0,0,0,4,8.409,1.331
+comb6,10,20,g3-cq,oracle ok,0,15,13,8.409,109.3,12,6,6,0,0,0,0,4,8.409,1.331
+comb6,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),161,1352,1338,11.405,125.5,18,0,16,0,0,0,2,0,11.405,1.246
+comb6,10,20,mpw,ok,1,47,48,10.000,109.8,12,6,6,0,0,0,0,0,18.563,0.582
+comb6,10,20,collar,ok (shrinks 0; left at a collar 0),24,179,180,10.000,109.8,6,6,0,0,0,0,0,0,-,0.000
+comb6,10,25,g3-default,oracle ok,0,15,13,8.409,109.3,12,6,6,0,0,0,0,4,8.409,1.331
+comb6,10,25,g3-cq,oracle ok,0,15,13,8.409,109.3,12,6,6,0,0,0,0,4,8.409,1.331
+comb6,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),115,1352,1338,11.405,125.5,18,0,16,0,0,0,2,0,11.405,1.246
+comb6,10,25,mpw,ok,1,47,48,10.000,109.8,12,6,6,0,0,0,0,0,18.563,0.582
+comb6,10,25,collar,ok (shrinks 0; left at a collar 0),5,215,216,10.000,109.8,6,6,0,0,0,0,0,0,-,0.000
+comb6,5,20,g3-default,oracle ok,0,15,13,4.773,99.9,12,6,6,0,0,0,0,4,4.773,1.333
+comb6,5,20,g3-cq,oracle ok,0,15,13,4.773,99.9,12,6,6,0,0,0,0,4,4.773,1.333
+comb6,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),219,2145,2131,9.814,125.6,42,0,40,0,0,0,2,0,9.814,1.124
+comb6,5,20,mpw,ok,1,72,73,5.000,109.8,12,6,6,0,0,0,0,0,18.903,0.541
+comb6,5,20,collar,ok (shrinks 0; left at a collar 0),10,360,361,5.000,109.8,6,6,0,0,0,0,0,0,-,0.000
+comb6,5,25,g3-default,oracle ok,0,15,13,4.773,99.9,12,6,6,0,0,0,0,4,4.773,1.333
+comb6,5,25,g3-cq,oracle ok,0,15,13,4.773,99.9,12,6,6,0,0,0,0,4,4.773,1.333
+comb6,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),239,2553,2539,9.814,125.6,54,0,52,0,0,0,2,0,9.814,1.124
+comb6,5,25,mpw,ok,2,96,97,5.000,109.8,6,6,0,0,0,0,0,0,-,0.000
+comb6,5,25,collar,ok (shrinks 0; left at a collar 0),13,456,457,5.000,109.8,6,6,0,0,0,0,0,0,-,0.000
+comb6,1,20,g3-default,oracle ok,0,21,19,1.000,97.9,12,6,6,0,0,0,0,0,3.880,1.083
+comb6,1,20,g3-cq,oracle ok,0,21,19,1.000,97.9,12,6,6,0,0,0,0,0,3.880,1.083
+comb6,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),1178,7959,7945,1.998,138.2,234,0,232,0,0,0,2,0,1.998,1.031
+comb6,1,20,mpw,ok,5,258,259,1.000,112.0,30,6,24,0,0,0,0,0,12.759,0.917
+comb6,1,20,collar,ok (shrinks 0; left at a collar 0),116,2058,2059,1.000,112.0,6,6,0,0,0,0,0,0,-,0.000
+comb6,1,25,g3-default,oracle ok,0,29,27,1.000,105.6,12,6,6,0,0,0,0,0,7.125,1.042
+comb6,1,25,g3-cq,oracle ok,0,25,23,1.000,124.9,12,6,6,0,0,0,0,0,5.035,1.042
+comb6,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),2017,10125,10111,1.998,138.2,306,0,304,0,0,0,2,0,1.998,1.031
+comb6,1,25,mpw,ok,6,288,289,1.000,112.0,66,6,60,0,0,0,0,0,12.759,0.917
+comb6,1,25,collar,ok (shrinks 0; left at a collar 0),122,2640,2641,1.000,112.0,6,6,0,0,0,0,0,0,-,0.000
+comb6,0.1,20,g3-default,oracle ok,1,141,139,0.100,102.6,12,6,6,0,0,0,0,0,5.933,1.005
+comb6,0.1,20,g3-cq,oracle ok,1,109,107,0.100,119.2,12,6,6,0,0,0,0,0,4.647,1.005
+comb6,0.1,20,ruppert,vertex limit,2012,20761,20759,0.100,131.8,2500,6,2494,0,0,0,0,0,0.100,1.001
+comb6,0.1,20,mpw,ok,23,832,833,0.100,114.1,354,6,348,0,0,0,0,0,1.300,0.990
+comb6,0.1,20,collar,ok (shrinks 0; left at a collar 0),6930,27748,27749,0.100,114.1,6,6,0,0,0,0,0,0,-,0.000
+comb6,0.1,25,g3-default,oracle ok,1,141,139,0.100,102.6,12,6,6,0,0,0,0,0,5.933,1.005
+comb6,0.1,25,g3-cq,oracle ok,1,109,107,0.100,119.2,12,6,6,0,0,0,0,0,4.647,1.005
+comb6,0.1,25,ruppert,vertex limit,1841,22359,22357,0.100,131.8,3212,6,3202,0,0,0,4,0,0.100,1.007
+comb6,0.1,25,mpw,ok,24,930,931,0.100,111.2,402,6,396,0,0,0,0,0,1.300,0.995
+comb6,0.1,25,collar,ok (shrinks 0; left at a collar 0),11333,35502,35503,0.100,111.2,6,6,0,0,0,0,0,0,-,0.000
+tjunction,40,20,g3-default,oracle ok,0,16,19,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,20,g3-cq,oracle ok,0,13,16,15.712,117.7,1,0,1,0,0,0,0,1,15.712,2.045
+tjunction,40,20,ruppert,ok,0,15,17,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,20,mpw,ok,0,15,17,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,20,collar,ok (shrinks 0; left at a collar 0),0,23,32,20.000,140.0,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,25,g3-default,oracle ok,0,16,19,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,25,g3-cq,oracle ok,0,13,16,15.712,117.7,1,0,1,0,0,0,0,1,15.712,2.045
+tjunction,40,25,ruppert,ok,0,15,17,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,25,mpw,ok,0,15,17,26.565,116.6,0,0,0,0,0,0,0,0,-,0.000
+tjunction,40,25,collar,ok (shrinks 0; left at a collar 0),1,46,74,25.078,118.1,0,0,0,0,0,0,0,0,-,0.000
+tjunction,20,20,g3-default,oracle ok,0,15,18,18.091,116.6,1,0,1,0,0,0,0,0,18.091,1.791
+tjunction,20,20,g3-cq,oracle ok,0,13,16,6.688,145.0,1,0,1,0,0,0,0,1,6.688,1.775
+tjunction,20,20,ruppert,ok,0,18,21,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+tjunction,20,20,mpw,ok,0,18,21,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+tjunction,20,20,collar,ok (shrinks 0; left at a collar 0),1,36,56,20.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+tjunction,20,25,g3-default,oracle ok,0,16,19,18.091,116.6,2,1,1,0,0,0,0,0,18.091,1.791
+tjunction,20,25,g3-cq,oracle ok,0,14,17,6.688,145.0,2,1,1,0,0,0,0,1,6.688,1.775
+tjunction,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),15,167,317,0.000,142.1,153,0,1,20,21,0,111,41,0.000,1.791
+tjunction,20,25,mpw,ok,0,23,31,17.878,124.4,2,1,1,0,0,0,0,0,17.878,0.879
+tjunction,20,25,collar,ok (shrinks 0; left at a collar 0),1,52,84,20.000,116.4,1,1,0,0,0,0,0,0,-,0.000
+tjunction,10,20,g3-default,oracle ok,0,15,18,8.744,116.6,2,1,1,0,0,0,0,1,8.744,1.796
+tjunction,10,20,g3-cq,oracle ok,0,13,16,4.141,140.0,2,1,1,0,0,0,0,1,4.141,1.809
+tjunction,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),21,233,449,0.000,160.3,221,0,3,56,3,0,159,59,0.000,1.773
+tjunction,10,20,mpw,ok,1,31,44,10.000,128.4,2,1,1,0,0,0,0,0,18.627,0.775
+tjunction,10,20,collar,ok (shrinks 0; left at a collar 0),1,49,83,10.000,119.9,1,1,0,0,0,0,0,0,-,0.000
+tjunction,10,25,g3-default,oracle ok,0,16,19,8.744,116.6,2,1,1,0,0,0,0,1,8.744,1.796
+tjunction,10,25,g3-cq,oracle ok,0,14,17,4.141,140.0,2,1,1,0,0,0,0,1,4.141,1.809
+tjunction,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),22,233,449,0.000,160.3,221,0,3,56,3,0,159,59,0.000,1.773
+tjunction,10,25,mpw,ok,1,35,51,10.000,116.6,2,1,1,0,0,0,0,0,18.627,0.775
+tjunction,10,25,collar,ok (shrinks 0; left at a collar 1),1,60,100,10.000,119.7,2,1,0,0,0,0,1,0,15.600,0.239
+tjunction,5,20,g3-default,oracle ok,0,16,19,4.209,116.6,2,1,1,0,0,0,0,1,4.209,1.795
+tjunction,5,20,g3-cq,oracle ok,0,14,17,2.283,137.5,2,1,1,0,0,0,0,1,2.283,1.822
+tjunction,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),35,361,705,0.000,170.0,353,0,7,88,3,0,255,91,0.000,1.777
+tjunction,5,20,mpw,ok,1,38,60,5.000,124.1,3,1,2,0,0,0,0,0,9.815,0.888
+tjunction,5,20,collar,ok (shrinks 0; left at a collar 2),2,73,129,5.000,139.2,3,1,0,0,0,0,2,0,13.917,0.419
+tjunction,5,25,g3-default,oracle ok,0,16,19,4.209,116.6,2,1,1,0,0,0,0,1,4.209,1.795
+tjunction,5,25,g3-cq,oracle ok,0,14,17,2.283,137.5,2,1,1,0,0,0,0,1,2.283,1.822
+tjunction,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),43,427,837,0.000,170.0,421,0,9,104,3,0,305,107,0.000,1.777
+tjunction,5,25,mpw,ok,1,54,90,5.000,125.0,3,1,2,0,0,0,0,0,9.815,0.888
+tjunction,5,25,collar,ok (shrinks 0; left at a collar 6),3,102,182,5.000,114.7,6,1,0,0,0,0,5,0,10.469,0.287
+tjunction,1,20,g3-default,oracle ok,0,16,19,0.809,116.6,2,1,1,0,0,0,0,1,0.809,1.793
+tjunction,1,20,g3-cq,oracle ok,0,14,17,0.491,135.5,2,1,1,0,0,0,0,1,0.491,1.831
+tjunction,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),243,1297,2577,0.000,178.0,1321,0,39,308,3,0,971,311,0.000,1.778
+tjunction,1,20,mpw,ok,1,53,91,1.000,130.4,7,1,6,0,0,0,0,0,1.998,1.222
+tjunction,1,20,collar,ok (shrinks 0; left at a collar 9),5,208,401,1.000,169.8,8,1,0,0,0,0,7,0,5.119,0.338
+tjunction,1,25,g3-default,oracle ok,0,16,19,0.809,116.6,2,1,1,0,0,0,0,1,0.809,1.793
+tjunction,1,25,g3-cq,oracle ok,0,14,17,0.491,135.5,2,1,1,0,0,0,0,1,0.491,1.831
+tjunction,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),272,1645,3273,0.000,178.0,1681,0,51,380,3,0,1247,383,0.000,1.778
+tjunction,1,25,mpw,ok,1,66,116,1.000,121.9,7,1,6,0,0,0,0,0,1.998,1.222
+tjunction,1,25,collar,ok (shrinks 0; left at a collar 14),11,320,621,1.000,167.9,12,1,0,0,0,0,11,0,5.518,0.350
+tjunction,0.1,20,g3-default,oracle ok,0,16,19,0.080,116.6,2,1,1,0,0,0,0,1,0.080,1.792
+tjunction,0.1,20,g3-cq,oracle ok,0,14,17,0.050,135.1,2,1,1,0,0,0,0,1,0.050,1.832
+tjunction,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),7280,10141,20265,0.000,179.8,10541,0,415,1864,3,0,8259,1867,0.000,1.778
+tjunction,0.1,20,mpw,ok,2,80,145,0.100,127.7,13,1,12,0,0,0,0,0,0.200,1.319
+tjunction,0.1,20,collar,ok (shrinks 0; left at a collar 20),141,1753,3487,0.100,174.1,15,1,0,0,0,0,14,0,1.504,0.347
+tjunction,0.1,25,g3-default,oracle ok,0,16,19,0.080,116.6,2,1,1,0,0,0,0,1,0.080,1.792
+tjunction,0.1,25,g3-cq,oracle ok,0,14,17,0.050,135.1,2,1,1,0,0,0,0,1,0.050,1.832
+tjunction,0.1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),10744,12831,25645,0.000,179.8,13349,0,533,2218,3,0,10595,2221,0.000,1.778
+tjunction,0.1,25,mpw,ok,4,93,171,0.100,119.3,15,1,14,0,0,0,0,0,0.200,1.326
+tjunction,0.1,25,collar,ok (shrinks 0; left at a collar 27),309,2565,5112,0.100,175.6,20,1,0,0,0,0,19,0,1.058,0.354
+crossing,40,20,g3-default,oracle ok,0,15,18,21.082,116.6,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,20,g3-cq,oracle ok,0,12,15,11.196,116.8,1,0,1,0,0,0,0,1,11.196,1.844
+crossing,40,20,ruppert,ok,0,15,18,21.082,116.6,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,20,mpw,ok,0,15,18,21.082,116.6,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,20,collar,ok (shrinks 0; left at a collar 0),2,33,50,20.012,129.1,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,25,g3-default,oracle ok,0,15,18,21.082,116.6,1,0,1,0,0,0,0,1,21.082,1.541
+crossing,40,25,g3-cq,oracle ok,0,12,15,11.196,116.8,1,0,1,0,0,0,0,1,11.196,1.844
+crossing,40,25,ruppert,ok,0,19,24,25.462,123.4,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,25,mpw,ok,0,19,24,25.462,123.4,0,0,0,0,0,0,0,0,-,0.000
+crossing,40,25,collar,ok (shrinks 0; left at a collar 0),1,39,61,25.198,116.7,0,0,0,0,0,0,0,0,-,0.000
+crossing,20,20,g3-default,oracle ok,0,15,18,11.155,116.6,1,0,1,0,0,0,0,1,11.155,1.572
+crossing,20,20,g3-cq,oracle ok,0,13,17,5.471,138.7,1,0,1,0,0,0,0,1,5.471,1.571
+crossing,20,20,ruppert,ok,0,17,21,20.000,129.5,0,0,0,0,0,0,0,0,-,0.000
+crossing,20,20,mpw,ok,0,17,21,20.000,129.5,0,0,0,0,0,0,0,0,-,0.000
+crossing,20,20,collar,ok (shrinks 0; left at a collar 0),1,45,73,20.000,123.5,0,0,0,0,0,0,0,0,-,0.000
+crossing,20,25,g3-default,oracle ok,0,18,22,11.155,116.6,3,2,1,0,0,0,0,1,11.155,1.572
+crossing,20,25,g3-cq,oracle ok,0,16,20,5.471,138.7,3,2,1,0,0,0,0,1,5.471,1.571
+crossing,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),43,313,608,1.443,170.0,301,0,1,40,42,0,218,83,1.443,1.572
+crossing,20,25,mpw,ok,1,32,47,17.878,112.2,4,2,2,0,0,0,0,0,17.878,0.659
+crossing,20,25,collar,ok (shrinks 0; left at a collar 0),1,52,87,20.000,121.2,2,2,0,0,0,0,0,0,-,0.000
+crossing,10,20,g3-default,oracle ok,0,17,20,5.463,116.6,3,2,1,0,0,0,0,1,5.463,1.576
+crossing,10,20,g3-cq,oracle ok,0,15,19,3.201,133.7,3,2,1,0,0,0,0,1,3.201,1.598
+crossing,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),64,447,874,0.456,175.0,437,0,5,112,6,0,314,119,0.456,1.552
+crossing,10,20,mpw,ok,1,52,86,10.000,125.5,2,2,0,0,0,0,0,0,-,0.000
+crossing,10,20,collar,ok (shrinks 0; left at a collar 2),3,89,161,10.000,124.6,4,2,0,0,0,0,2,0,18.340,0.120
+crossing,10,25,g3-default,oracle ok,0,18,22,5.463,116.6,4,2,2,0,0,0,0,1,5.463,1.576
+crossing,10,25,g3-cq,oracle ok,0,16,21,3.201,133.7,4,2,2,0,0,0,0,1,3.201,1.598
+crossing,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),68,447,874,0.456,175.0,438,0,5,112,6,0,315,119,0.456,2.125
+crossing,10,25,mpw,ok,8,132,244,10.000,115.2,4,2,2,0,0,0,0,0,18.627,0.097
+crossing,10,25,collar,ok (shrinks 0; left at a collar 7),6,130,239,10.000,132.2,5,2,0,0,0,0,3,0,19.871,0.179
+crossing,5,20,g3-default,oracle ok,0,17,21,2.669,119.1,4,2,2,0,0,0,0,1,2.669,1.574
+crossing,5,20,g3-cq,oracle ok,0,15,19,1.716,131.2,4,2,2,0,0,0,0,1,1.716,1.609
+crossing,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),123,700,1379,0.132,177.5,698,0,14,176,6,0,502,183,0.132,1.555
+crossing,5,20,mpw,ok,4,121,222,5.000,122.5,6,2,4,0,0,0,0,0,9.815,0.222
+crossing,5,20,collar,ok (shrinks 0; left at a collar 5),3,97,174,5.000,139.8,7,2,0,0,0,0,5,0,13.601,0.421
+crossing,5,25,g3-default,oracle ok,0,18,23,2.669,119.1,4,2,2,0,0,0,0,1,2.669,1.574
+crossing,5,25,g3-cq,oracle ok,0,16,21,1.716,131.2,4,2,2,0,0,0,0,1,1.716,1.609
+crossing,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),142,832,1643,0.109,177.5,836,0,18,208,6,0,604,215,0.109,2.125
+crossing,5,25,mpw,ok,6,155,288,5.000,123.2,10,2,8,0,0,0,0,0,9.815,0.888
+crossing,5,25,collar,ok (shrinks 0; left at a collar 12),6,151,276,5.000,115.0,12,2,0,0,0,0,10,0,10.409,0.287
+crossing,1,20,g3-default,oracle ok,0,17,21,0.521,117.1,4,2,2,0,0,0,0,1,0.521,1.572
+crossing,1,20,g3-cq,oracle ok,0,15,19,0.361,132.9,4,2,2,0,0,0,0,1,0.361,1.616
+crossing,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),746,2547,5074,0.006,179.5,2610,0,78,616,6,0,1910,623,0.006,1.556
+crossing,1,20,mpw,ok,10,190,360,1.000,131.2,34,2,32,0,0,0,0,0,1.998,0.889
+crossing,1,20,collar,ok (shrinks 0; left at a collar 18),12,337,653,1.000,169.8,16,2,0,0,0,0,14,0,5.098,0.355
+crossing,1,25,g3-default,oracle ok,0,18,23,0.521,117.1,4,2,2,0,0,0,0,1,0.521,1.572
+crossing,1,25,g3-cq,oracle ok,0,16,21,0.361,132.9,4,2,2,0,0,0,0,1,0.361,1.616
+crossing,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),1094,3231,6442,0.005,179.5,3319,0,102,760,6,0,2451,767,0.005,2.123
+crossing,1,25,mpw,ok,20,331,639,1.000,129.7,52,2,50,0,0,0,0,0,1.998,0.944
+crossing,1,25,collar,ok (shrinks 0; left at a collar 26),30,481,936,1.000,167.9,21,2,0,0,0,0,19,0,4.033,0.350
+crossing,0.1,20,g3-default,oracle ok,0,17,21,0.052,116.6,4,2,2,0,0,0,0,1,0.052,1.571
+crossing,0.1,20,g3-cq,oracle ok,0,15,19,0.037,134.8,4,2,2,0,0,0,0,1,0.037,1.618
+crossing,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),26698,19943,39866,0.000,180.0,20758,0,830,3728,6,0,16194,3735,0.000,1.556
+crossing,0.1,20,mpw,ok,26,415,811,0.100,129.2,110,2,108,0,0,0,0,0,0.200,0.993
+crossing,0.1,20,collar,ok (shrinks 0; left at a collar 40),253,2838,5656,0.100,174.5,30,2,0,0,0,0,28,0,1.442,0.345
+crossing,0.1,25,g3-default,oracle ok,0,18,23,0.052,116.6,4,2,2,0,0,0,0,1,0.052,1.571
+crossing,0.1,25,g3-cq,oracle ok,0,16,21,0.037,134.8,4,2,2,0,0,0,0,1,0.037,1.618
+crossing,0.1,25,ruppert,vertex limit,24097,20847,41678,0.000,180.0,21903,2,1068,604,8,0,20221,613,0.000,2.123
+crossing,0.1,25,mpw,ok,50,525,1025,0.100,123.8,98,2,96,0,0,0,0,0,0.200,0.993
+crossing,0.1,25,collar,ok (shrinks 0; left at a collar 55),665,3897,7767,0.100,176.8,40,2,0,0,0,0,38,0,1.069,0.354
+rhombus,40,20,g3-default,oracle ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,20,g3-cq,oracle ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,20,ruppert,ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,20,mpw,ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,20,collar,ok (shrinks 0; left at a collar 0),0,12,10,20.340,110.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,25,g3-default,oracle ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,25,g3-cq,oracle ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,25,ruppert,ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,25,mpw,ok,0,4,2,40.000,70.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,40,25,collar,ok (shrinks 0; left at a collar 0),0,17,16,25.078,110.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,20,g3-default,oracle ok,0,4,2,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,20,g3-cq,oracle ok,0,4,2,20.000,80.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,20,ruppert,ok,0,24,22,20.000,100.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,20,mpw,ok,0,8,6,17.878,100.0,2,0,2,0,0,0,0,0,17.878,0.659
+rhombus,20,20,collar,ok (shrinks 0; left at a collar 0),0,16,14,20.000,100.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,25,g3-default,oracle ok,0,4,2,20.000,80.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,20,25,g3-cq,oracle ok,0,4,2,20.000,80.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),28,312,306,31.400,100.0,0,0,0,0,0,0,0,0,-,0.000
+rhombus,20,25,mpw,ok,0,8,6,17.878,100.0,4,2,2,0,0,0,0,0,17.878,0.659
+rhombus,20,25,collar,ok (shrinks 0; left at a collar 0),0,16,14,20.000,100.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,20,g3-default,oracle ok,0,4,2,10.000,85.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,20,g3-cq,oracle ok,0,4,2,10.000,85.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),37,448,442,18.627,95.0,4,0,4,0,0,0,0,0,18.627,0.000
+rhombus,10,20,mpw,ok,0,12,10,10.000,95.0,4,2,2,0,0,0,0,0,18.627,0.582
+rhombus,10,20,collar,ok (shrinks 0; left at a collar 0),0,28,26,10.000,95.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,25,g3-default,oracle ok,0,4,2,10.000,85.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,25,g3-cq,oracle ok,0,4,2,10.000,85.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),36,448,442,18.627,95.0,4,0,4,0,0,0,0,0,18.627,0.000
+rhombus,10,25,mpw,ok,0,12,10,10.000,95.0,4,2,2,0,0,0,0,0,18.627,0.582
+rhombus,10,25,collar,ok (shrinks 0; left at a collar 0),0,28,26,10.000,95.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,20,g3-default,oracle ok,0,4,2,5.000,87.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,20,g3-cq,oracle ok,0,4,2,5.000,87.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),75,712,706,9.815,92.5,12,0,12,0,0,0,0,0,9.815,0.000
+rhombus,5,20,mpw,ok,0,16,14,5.000,92.5,6,2,4,0,0,0,0,0,9.815,0.666
+rhombus,5,20,collar,ok (shrinks 0; left at a collar 0),1,44,42,5.000,92.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,25,g3-default,oracle ok,0,4,2,5.000,87.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,25,g3-cq,oracle ok,0,4,2,5.000,87.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),163,848,842,9.815,92.5,16,0,16,0,0,0,0,0,9.815,0.000
+rhombus,5,25,mpw,ok,0,16,14,5.000,92.5,6,2,4,0,0,0,0,0,9.815,0.666
+rhombus,5,25,collar,ok (shrinks 0; left at a collar 0),1,52,50,5.000,92.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,20,g3-default,oracle ok,0,4,2,1.000,89.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,20,g3-cq,oracle ok,0,4,2,1.000,89.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),424,2648,2642,1.998,90.5,76,0,76,0,0,0,0,0,1.998,0.000
+rhombus,1,20,mpw,ok,0,24,22,1.000,90.5,14,2,12,0,0,0,0,0,1.998,0.917
+rhombus,1,20,collar,ok (shrinks 0; left at a collar 0),3,172,170,1.000,90.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,25,g3-default,oracle ok,0,4,2,1.000,89.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,25,g3-cq,oracle ok,0,4,2,1.000,89.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),523,3368,3362,1.998,90.5,100,0,100,0,0,0,0,0,1.998,0.000
+rhombus,1,25,mpw,ok,0,24,22,1.000,90.5,14,2,12,0,0,0,0,0,1.998,0.917
+rhombus,1,25,collar,ok (shrinks 0; left at a collar 0),4,220,218,1.000,90.5,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,20,g3-default,oracle ok,0,4,2,0.100,90.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,20,g3-cq,oracle ok,0,4,2,0.100,90.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),6586,20252,20246,0.200,90.1,828,0,828,0,0,0,0,0,0.200,0.000
+rhombus,0.1,20,mpw,ok,2,36,34,0.100,90.1,26,2,24,0,0,0,0,0,0.200,0.990
+rhombus,0.1,20,collar,ok (shrinks 0; left at a collar 0),47,1676,1674,0.100,90.1,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,25,g3-default,oracle ok,0,4,2,0.100,90.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,25,g3-cq,oracle ok,0,4,2,0.100,90.0,2,2,0,0,0,0,0,0,-,0.000
+rhombus,0.1,25,ruppert,vertex limit,4564,20272,20270,0.100,90.1,1068,2,1066,0,0,0,0,0,0.100,0.000
+rhombus,0.1,25,mpw,ok,1,40,38,0.100,90.1,30,2,28,0,0,0,0,0,0.200,0.995
+rhombus,0.1,25,collar,ok (shrinks 0; left at a collar 0),88,2148,2146,0.100,90.1,2,2,0,0,0,0,0,0,-,0.000
+twin,40,20,g3-default,oracle ok,0,49,84,20.000,135.8,0,0,0,0,0,0,0,0,-,0.000
+twin,40,20,g3-cq,oracle ok,1,38,63,20.000,133.2,0,0,0,0,0,0,0,0,-,0.000
+twin,40,20,ruppert,ok,2,63,110,20.674,135.5,0,0,0,0,0,0,0,0,-,0.000
+twin,40,20,mpw,ok,2,63,110,20.674,135.5,0,0,0,0,0,0,0,0,-,0.000
+twin,40,20,collar,ok (shrinks 0; left at a collar 0),3,93,170,20.000,140.0,0,0,0,0,0,0,0,0,-,0.000
+twin,40,25,g3-default,oracle ok,1,62,108,25.000,124.4,0,0,0,0,0,0,0,0,-,0.000
+twin,40,25,g3-cq,oracle ok,1,57,101,25.000,128.5,0,0,0,0,0,0,0,0,-,0.000
+twin,40,25,ruppert,ok,2,65,114,25.115,123.8,0,0,0,0,0,0,0,0,-,0.000
+twin,40,25,mpw,ok,2,65,114,25.115,123.8,0,0,0,0,0,0,0,0,-,0.000
+twin,40,25,collar,ok (shrinks 0; left at a collar 0),5,142,265,20.000,140.0,1,0,0,0,0,0,1,0,20.000,0.029
+twin,20,20,g3-default,oracle ok,1,64,114,17.878,128.2,5,0,5,0,0,0,0,0,17.878,10.545
+twin,20,20,g3-cq,oracle ok,1,55,98,17.878,125.5,6,0,5,1,0,0,0,0,17.878,41.683
+twin,20,20,ruppert,ok,2,95,175,20.000,127.1,0,0,0,0,0,0,0,0,-,0.000
+twin,20,20,mpw,ok,2,74,133,17.878,128.1,5,0,5,0,0,0,0,0,17.878,10.545
+twin,20,20,collar,ok (shrinks 0; left at a collar 0),5,146,276,20.000,134.3,0,0,0,0,0,0,0,0,-,0.000
+twin,20,25,g3-default,oracle ok,1,72,130,17.878,127.0,7,2,5,0,0,0,0,0,17.878,10.545
+twin,20,25,g3-cq,oracle ok,1,72,130,17.878,119.0,8,2,5,1,0,0,0,0,17.878,41.683
+twin,20,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),26,306,595,0.000,180.0,287,0,0,41,42,0,204,82,0.000,84.967
+twin,20,25,mpw,ok,4,118,219,17.878,116.2,5,2,3,0,0,0,0,0,17.878,1.318
+twin,20,25,collar,ok (shrinks 0; left at a collar 2),7,196,375,20.000,119.1,4,2,0,0,0,0,2,0,23.257,0.193
+twin,10,20,g3-default,oracle ok,1,93,171,9.706,138.6,10,2,8,0,0,0,0,0,9.706,18.525
+twin,10,20,g3-cq,oracle ok,1,78,143,9.706,125.8,13,2,10,1,0,0,0,0,9.706,36.718
+twin,10,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),41,433,849,0.000,180.0,405,1,2,112,8,0,282,117,0.000,84.424
+twin,10,20,mpw,ok,4,130,244,9.706,131.2,11,2,9,0,0,0,0,0,9.706,9.304
+twin,10,20,collar,ok (shrinks 0; left at a collar 0),12,225,432,10.000,129.3,2,2,0,0,0,0,0,0,-,0.000
+twin,10,25,g3-default,oracle ok,1,124,230,9.706,124.9,10,2,7,1,0,0,0,0,9.706,71.211
+twin,10,25,g3-cq,oracle ok,2,102,191,9.706,129.5,15,2,10,3,0,0,0,0,9.706,71.211
+twin,10,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),49,433,849,0.000,180.0,407,1,2,112,8,0,284,117,0.000,84.424
+twin,10,25,mpw,ok,13,185,346,9.706,127.6,11,2,9,0,0,0,0,0,9.706,9.304
+twin,10,25,collar,ok (shrinks 0; left at a collar 3),18,287,554,10.000,127.7,5,2,0,0,0,0,3,0,14.138,0.211
+twin,5,20,g3-default,oracle ok,2,146,277,4.962,133.3,15,2,12,1,0,0,0,0,4.962,68.488
+twin,5,20,g3-cq,oracle ok,3,118,224,4.962,135.1,22,2,17,3,0,0,0,0,4.962,68.488
+twin,5,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),90,679,1341,0.000,180.0,644,0,6,182,7,0,449,182,0.000,84.606
+twin,5,20,mpw,ok,12,205,393,4.962,135.3,17,2,15,0,0,0,0,0,4.962,4.330
+twin,5,20,collar,ok (shrinks 0; left at a collar 7),38,356,696,5.000,132.2,8,2,0,0,0,0,6,0,10.922,0.297
+twin,5,25,g3-default,oracle ok,2,228,439,4.962,132.9,22,2,16,4,0,0,0,0,4.962,67.409
+twin,5,25,g3-cq,oracle ok,3,182,351,4.962,133.3,31,2,18,11,0,0,0,0,4.962,67.409
+twin,5,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),118,803,1589,0.000,180.0,768,0,8,216,7,0,537,214,0.000,84.606
+twin,5,25,mpw,ok,19,290,560,4.962,123.9,23,2,21,0,0,0,0,0,4.962,21.316
+twin,5,25,collar,ok (shrinks 0; left at a collar 11),40,536,1052,5.000,126.6,11,2,0,0,0,0,9,0,10.599,0.203
+twin,1,20,g3-default,oracle ok,6,591,1166,1.000,146.9,101,2,74,25,0,0,0,0,1.000,58.665
+twin,1,20,g3-cq,oracle ok,11,486,959,1.000,170.0,106,2,58,46,0,0,0,0,1.000,61.665
+twin,1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),852,2511,5005,0.000,179.6,2403,0,52,640,6,0,1705,622,0.000,84.660
+twin,1,20,mpw,ok,68,745,1474,1.000,130.9,83,2,81,0,0,0,0,0,1.000,20.333
+twin,1,20,collar,ok (shrinks 0; left at a collar 18),269,1654,3293,1.000,168.5,17,2,0,0,0,0,15,0,4.718,0.253
+twin,1,25,g3-default,oracle ok,10,834,1651,1.000,146.9,116,2,86,28,0,0,0,0,1.000,58.665
+twin,1,25,g3-cq,oracle ok,16,697,1378,1.000,170.0,136,2,77,57,0,0,0,0,1.000,62.665
+twin,1,25,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),830,3143,6269,0.000,179.6,3042,0,70,790,6,0,2176,766,0.000,84.660
+twin,1,25,mpw,ok,100,1048,2075,1.000,127.8,111,2,109,0,0,0,0,0,1.000,26.332
+twin,1,25,collar,ok (shrinks 0; left at a collar 30),332,2282,4544,1.000,156.9,22,2,0,0,0,0,20,0,5.638,0.265
+twin,0.1,20,g3-default,oracle ok,62,5360,10704,0.100,155.4,789,2,669,118,0,0,0,0,0.100,52.083
+twin,0.1,20,g3-cq,oracle ok,154,4319,8623,0.100,179.0,888,2,505,381,0,0,0,0,0.100,63.093
+twin,0.1,20,ruppert,cascade down to the triangulator's tolerance (a vertex left unused),22553,19415,38814,0.000,180.0,18521,0,826,3730,6,0,13959,3734,0.000,85.336
+twin,0.1,20,mpw,ok,1579,6449,12883,0.100,136.2,834,2,832,0,0,0,0,0,0.100,52.083
+twin,0.1,20,collar,ok (shrinks 0; left at a collar 41),16359,17545,35074,0.100,174.8,29,2,0,0,0,0,27,0,1.493,0.263
+twin,0.1,25,g3-default,oracle ok,109,7635,15251,0.100,143.5,1063,2,783,278,0,0,0,0,0.100,45.392
+twin,0.1,25,g3-cq,oracle ok,185,5997,11980,0.100,179.0,1244,2,710,532,0,0,0,0,0.100,63.084
+twin,0.1,25,ruppert,vertex limit,18699,20044,40076,0.000,180.0,19262,2,1066,604,8,0,17582,612,0.000,85.336
+twin,0.1,25,mpw,ok,3924,9263,18507,0.100,129.9,1064,2,1062,0,0,0,0,0,0.100,33.417
+twin,0.1,25,collar,ok (shrinks 0; left at a collar 55),33981,25174,50327,0.100,176.0,38,2,0,0,0,0,36,0,1.049,0.257
