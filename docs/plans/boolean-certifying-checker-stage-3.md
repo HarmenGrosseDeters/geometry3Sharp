@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Boolean: certifying checker stage 3, certified user mode, exact coplanar clip coordinates"
 - **Kind:** parked (not scheduled; trigger: a caller requiring runtime-certified exact boolean output or exact 2D coplanar clip coordinates)
 - **Tier:** L (exact predicates, `mesh_ops/ExactMesh*`, certification invariants: exact-code review + mutation gate)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): a spike answered the plan ([BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md)); owner decision 2026-11-22 ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22"): options B, A and D1, C parked. Item 1 (stage 3, test-only embedding check C2) is merged (PR `#1359`); item 3 is closed by option D1 for the boolean and the 3D query ([exact-boolean.md](../roadmap/exact-boolean.md), "Exact coplanar triangle intersection"; an exact 2D clip, options D2 / D3, has no caller). Only item 2, the certified user mode (option C), remains, parked until a caller needs it.
 
 ## Current state
 
@@ -20,6 +20,8 @@
      the coplanar 2D clipping path (currently parked with Exact Boolean 4.0 provenance).
 
 ## Trigger / decision needed
+
+Update 2026-11-22: stage 3 and the coplanar item are done (see the plan status); the trigger below now applies to the certified user mode only.
 
 A concrete caller / domain requirement for runtime-certified boolean outputs (e.g. regulatory/FEM certification) or
 exact coplanar clip coordinates. Treat item (3) as a separate PR from (1)+(2).
