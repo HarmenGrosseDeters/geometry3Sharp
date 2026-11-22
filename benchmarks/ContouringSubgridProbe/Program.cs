@@ -3,6 +3,7 @@
 //   sharp : DualContouring from a discrete SDF grid; grid-only Hermite data against an oracle (exact crossing and normal)
 //   thin  : walls thinner than a cell; MarchingCubes / DualContouring against a restricted subgrid marching tetrahedra
 //   cert  : cells of a Plantinga-Vegter subdivision for a thin sheet, as one field and as a pair of level sets
+//   cull  : evaluations of a coarse-first octree build from a Lipschitz bound against the dense grid (plan #1276)
 using System;
 using System.Globalization;
 using g3;
@@ -18,6 +19,7 @@ static class Program
         if (mode == "sharp" || mode == "all") SharpProbe.Run(seeds, new[] { 24, 48 });
         if (mode == "thin" || mode == "all") ThinProbe.Run(seeds, 32);
         if (mode == "cert" || mode == "all") CertProbe.Run();
+        if (mode == "cull") CullProbe.Run(seeds);      // the second argument is the largest N of the dense DualContouring run
         return 0;
     }
 

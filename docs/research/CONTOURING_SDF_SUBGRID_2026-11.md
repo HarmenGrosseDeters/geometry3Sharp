@@ -2,8 +2,8 @@
 
 Date: 2026-11-22 (Berlin). Research spike (owner go 2026-11-22): a note and a measurement prototype
 ([benchmarks/ContouringSubgridProbe](../../benchmarks/ContouringSubgridProbe/README.md)). No library code changed.
-Covers plan #1297 (two SIGGRAPH 2026 papers), plan #1289 (contouring certificate, thin features and options B / C)
-and item 5a of [UNTAPPED_SCIENCE_GEOMETRY_2026-11.md](UNTAPPED_SCIENCE_GEOMETRY_2026-11.md) (the subdivision variant
+Covers plan #1297 (two SIGGRAPH 2026 papers), plan #1289 (contouring certificate, thin features and options B / C),
+plan #1276 (coarse-first construction of the dual contouring grid; added by the coordinator on 2026-11-22) and item 5a of [UNTAPPED_SCIENCE_GEOMETRY_2026-11.md](UNTAPPED_SCIENCE_GEOMETRY_2026-11.md) (the subdivision variant
 of excursion-aware isotopy certificates; the SOS variant 5b is out of scope).
 
 Question: what sharp-feature recovery and thin-feature preservation is possible on procedural distance inputs,
@@ -16,8 +16,9 @@ against the analytic surface; and can a subdivision isotopy certificate cover th
 | A. Sharp features from a grid of distances (Carrera et al. 2026) | exact Hermite data on the same sign grid, 48 cells: mean feature distance 0.204 → 0.016 cells (13x), edge Chamfer 0.257 → 0.037 (7x), feature maximum 0.63 → 0.39 (1.6x); all runs clean | a large bound, but only for inputs that are a grid and nothing else: the library's own pipelines already have the oracle. A local grid-only estimator reaches about 30 % of it. Not now |
 | B. Walls thinner than a cell (Baktash et al. 2026) | restricted prototype, 32 cells: a rotated plate 0.25 cells thick comes out closed, manifold, with the right topology in 3 of 3 runs (marching cubes: fragments; coverage 0.14 → 0.92). For sheet fields the two-level form needs no evaluation beyond the grid nodes and gave the same topology in all 30 shell and gyroid runs | the strongest lever. Build as an opt-in generator, two-level form first |
 | C. Subdivision certificate for thin walls (Plantinga and Vegter; Burr and Byrd) | gyroid wall of 0.25 cells: as one function 16.2 million cells, 4x per halving of the thickness; as two levels of one function 19 440 cells at any thickness (mid-surface alone: 18 208) | yes for sheet and shell fields, as the class S certificate (stage 3) applied per level; no for one non-smooth field (a box plate) |
+| D. Coarse-first sparse grid from a Lipschitz bound (plan #1276) | N = 512: 1 to 2.4 % of the dense evaluations for distance fields, 16 % for a gyroid with a loose bound; sampling and crossings are 40 to 45 % of the dense run on a sphere and a plate, 6 % on the gyroid | the plan's time threshold (30 %) is met for simple distance fields at N = 512, not for lattices and not at N = 256 for the gyroid; its memory target is not reachable by the grid alone. Worth it only with a workload at N >= 512 |
 
-Sections 5 to 7 hold the numbers, section 8 the options with effort and risk, section 9 the leaning.
+Sections 5 to 7b hold the numbers, section 8 the options with effort and risk, section 9 the leaning.
 
 ## 2. The papers (paper text only, in our words)
 
@@ -104,6 +105,8 @@ procedural and rotated per seed, with a random grid shift (nothing is axis-align
   cubes at half and a quarter of the cell, and a restricted Subgrid Marching Tetrahedra with three sources of
   crossings: 8 samples per edge, sphere tracing with the Lipschitz bound, and the two-level form (below).
 - **cert**: the number of cells of a Plantinga and Vegter subdivision for the gyroid sheet and the shell.
+- **cull**: the evaluations of a top-down octree build from a Lipschitz bound against the dense grid, and the share
+  of the dense `DualContouring` run that they are (plan #1276).
 
 What the subgrid prototype leaves out of the paper: the dedicated fills (it uses fans; a loop with a scoop gets a
 fan from a point half way to the centre of the tetrahedron, which costs position accuracy at rims),
@@ -263,6 +266,52 @@ Reading:
   argument, not a measurement). For meshes that is what the exact class P certificate is for; for a thin plate as an
   implicit there is no certificate short of resolving it.
 
+## 7b. Plan #1276: coarse-first construction of the grid
+
+Plan #1276 asks for an opt-in top-down octree in `DualContouring` that skips cells by a Lipschitz bound or an
+interval evaluator, with a first step "measure the share of the dense sampling and the peak memory at N = 512;
+go on only above 30 % of the time or 50 % of the memory". That step is measured here.
+
+`... -- cull 512` (raw: `results/cull.txt`). Octree over [-1, 1]^3 down to N cells per axis, split only where
+`|f(centre)| <= L * half diagonal`; "sparse" = the centres evaluated plus the distinct corner nodes of the surviving
+finest cells. Dense run: `DualContouring` with its defaults, 4 cores; share = its phases `sample` and `crossings`.
+The peak working set is that of the process so far (it does not fall between runs; the rows are in run order, so
+only the three N = 512 rows and the first two sphere rows are a run's own peak).
+
+| shape | N | dense nodes | sparse / dense | dense run s | sample + crossings | triangles | peak GB |
+|---|---|---|---|---|---|---|---|
+| sphere | 128 | 2.1 M | 9.2 % | 1.0 | 13 % | 2 418 | 0.17 |
+| sphere | 256 | 17.0 M | 4.7 % | 2.3 | 28 % | 4 518 | 0.46 |
+| sphere | 512 | 135.0 M | 2.4 % | 10.7 | **40 %** | 14 400 | 1.9 |
+| plate 0.04 thick | 256 | 17.0 M | 1.9 % | 2.9 | 25 % | 3 018 | |
+| plate 0.04 thick | 512 | 135.0 M | 1.0 % | 22.6 | **45 %** | 4 658 | 2.3 |
+| gyroid sheet 0.04, 4 periods | 128 | 2.1 M | 47 % | 8.5 | 2.8 % | 93 536 | |
+| gyroid sheet 0.04, 4 periods | 256 | 17.0 M | 27 % | 33.6 | 4.3 % | 211 558 | 2.7 |
+| gyroid sheet 0.04, 4 periods | 512 | 135.0 M | 16 % | 136.5 | **6.2 %** | 364 056 | 9.7 |
+
+Reading:
+
+- The evaluations fall as the plan expects, from O(N^3) to O(N^2): to 1 to 2.4 % of the dense grid at N = 512 for
+  exact distances, and to 16 % for the gyroid with the loose bound sqrt 6 (a tight bound, as `TpmsLattice` has,
+  would do better; not measured).
+- The time that saving applies to is 40 to 45 % of the dense run at N = 512 for shapes with few triangles after
+  the simplification, so the plan's 30 % threshold is met there, and the bound of the gain is about 1.7x to 1.8x. At N = 256 it
+  is 25 to 28 % (the design note measured 8 to 15 % on its shapes), below the threshold.
+- For the gyroid, the workload the plan names first, sampling is 3 to 6 % of the run at every N: the time is in the
+  vertices, the clustering and the exact check of a mesh with hundreds of thousands of triangles. A sparse grid
+  does not help a lattice.
+- Memory: the dense node arrays are 0.68 GB at N = 512 (a float and a flag per node). That is 36 % of the sphere's
+  peak and 7 % of the gyroid's 9.7 GB, so the plan's "peak memory reduced by >= 50 %" cannot come from the grid
+  alone; the rest is per crossing edge and per triangle.
+- What the options below share with the plan: the same sound bound of the field. The C0 test of section 7 *is* the
+  cull test with an interval instead of a Lipschitz constant, and the sphere tracing of section 6 uses the same
+  constant along an edge. One opt-in interface (a Lipschitz constant, or an enclosure of f and its gradient over a
+  box) would serve the coarse-first grid, the certificate of option 2 and the root finder of option 3.
+- What they do not answer: the options are about what a cell can represent, the plan is about which cells to
+  visit. A coarse-first grid changes no result (that is its acceptance), so it recovers no thin wall; and the
+  two-level generator of option 1 needs only node values near the surface, so it would profit from the same culling
+  but does not depend on it.
+
 ## 8. Options
 
 How others solve it: sharp features from distance samples by empty-ball constraints (Kohlbrenner and Alexa 2025;
@@ -282,11 +331,12 @@ citations before Burr and Byrd are from memory, not re-read for this note.
 | 3 | **General subgrid marching tetrahedra** with sphere tracing for 1-Lipschitz fields (plates, `MeshOffset` thin parts, any distance field) | the plate right in 45 of 45 runs; but handles in 11 of 15 shell runs (excursions), no topology guarantee | L: the paper's full case analysis (scoops, loops along an edge, octagons) and its embedding argument for freedom from intersections | medium to high: wrong topology without a signal unless the scoop count is reported; evaluations of the order of a band refinement |
 | 4 | **Grid-only sharp features in `DualContouring`** (the paper's iterative fit, or a better local estimator) | bound 13x in the mean and 7x in edge Chamfer, 1.6x in the maximum; the local prototype reaches 30 % of the mean gap | L for the paper's method (closest-point queries on a changing mesh, up to 10^4 sweeps, a fixed sample order for determinism); M for more work on a local estimator with an unknown ceiling | high: no consumer in the library today, noise sensitivity stated by the authors, vertices leaving their cells against our intersection-free guarantee |
 | 5 | **Relax the edge condition of the class P certificate to subgrid crossings** (excursions, plan #1289) | not measured; would address the silhouette double crossings that stopped stage 2 | L, proof first (exact code, exact review, mutation run) | high: no three-dimensional statement in the literature we read |
-| 6 | Nothing | - | 0 | walls below two cells stay a documented limit of `TpmsLattice` |
+| 6 | **Coarse-first sparse grid** in `DualContouring` from a Lipschitz bound or interval evaluator (plan #1276) | evaluations to 1 to 16 % of the dense grid at N = 512; time bound 1.7x to 1.8x on simple distance fields at N = 512, under 1.07x on the gyroid; memory at most 36 % | M, as the plan says; the bound interface is shared with options 2 and 3 | low for soundness (opt-in, the caller's bound), but no workload at N >= 512 is known and lattices do not gain |
+| 7 | Nothing | - | 0 | walls below two cells stay a documented limit of `TpmsLattice` |
 
 ## 9. Leaning
 
-Option 1, then option 2 as its certificate, as two PRs; options 3 to 5 not now.
+Option 1, then option 2 as its certificate, as two PRs; options 3 to 6 not now.
 
 - Option 1 is the only lever here that is cheap, has a user in the library (`TpmsLattice` documents walls below two
   cubes as its limit) and comes with a structural guarantee instead of a measured one. The paper's general method
@@ -300,6 +350,10 @@ Option 1, then option 2 as its certificate, as two PRs; options 3 to 5 not now.
   distance grid and no geometry behind it. If such an input appears (an importer of sampled distance volumes), the
   bound of section 5 says the mean gain is there to be had, and the acceptance should be stated on the mean or the
   edge Chamfer, not on the Hausdorff distance.
+
+- Plan #1276 (option 6) stays parked on its own trigger: its first step is now measured, and it passes the time
+  threshold only for simple distance fields at N = 512, fails it for the gyroid, and cannot meet the memory target.
+  If option 2 is built, its bound interface should be designed so that the coarse-first grid can use it later.
 
 Open questions for the owner: (a) go for option 1 as an opt-in on `TpmsLattice` and a public generator, or as a
 generator only; (b) whether option 2 may be built beside the exact certificate (a new, non-exact file with interval

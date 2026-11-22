@@ -286,7 +286,7 @@ sealed class SubgridMT
 
 static class ThinProbe
 {
-    static double Box(Vector3d p, Vector3d half)
+    internal static double Box(Vector3d p, Vector3d half)
     {
         Vector3d q = new Vector3d(Math.Abs(p.x) - half.x, Math.Abs(p.y) - half.y, Math.Abs(p.z) - half.z);
         double outside = new Vector3d(Math.Max(q.x, 0), Math.Max(q.y, 0), Math.Max(q.z, 0)).Length;
