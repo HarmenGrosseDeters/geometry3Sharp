@@ -29,7 +29,7 @@ if (mesh != null) {
 | `.obj` | yes | yes | Materials (`.mtl`), face groups, UVs, vertex colors extension |
 | `.stl` | yes | yes | ASCII and binary (`WriteOptions.bWriteBinary`) |
 | `.off` | yes | yes | Fan-triangulates polygons; skips polygons with out-of-range indices with a warning |
-| `.g3mesh` | yes | yes | Packed binary `DMesh3` (`gSerialization`); validates counts and topology on restore |
+| `.g3mesh` | yes | yes | Packed binary `DMesh3` (`gSerialization`); validates counts and topology on restore, rejects non-finite coordinates (unless `AllowNonFiniteCoordinates`) |
 | `.xyz` | yes | yes | ASCII point cloud (`x y z` or `x y z nx ny nz`), vertex-only `DMesh3` |
 | `.ply` | yes | yes | ASCII & binary (LE/BE read, LE write); normals, colors, UVs, point sets |
 | `.3mf` | yes | yes | Core spec; build items, components, transforms; converts to mm by default |

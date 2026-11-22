@@ -152,4 +152,4 @@ If verification fails, `PassageWrap` tightens `Alpha` (`×0.8`, up to 3 retries)
 - **Namespace & classes:** `gs.MeshRepairMetrics`, `gs.MeshRobustRepair.NotCleanReason` / `NotCleanReasons` / `FindDefects`, `DMesh3.CheckValidity`, `g3.MeshValidation`
 - **Example:** [RepairMetricsExample.cs](../examples/RepairMetricsExample.cs)
 
-`MeshRobustRepair.NotCleanReason(mesh)` returns `""` when the mesh is closed, manifold (no bowties), has no degenerate triangles, is consistently oriented with no inside-out components, and passes the exact self-intersection check. Call `NotCleanReasons(mesh)` or `FindDefects(mesh)` to inspect all failed checks at once.
+`MeshRobustRepair.NotCleanReason(mesh)` returns `""` when the mesh is closed, manifold (no bowties), has no degenerate triangles, is consistently oriented with no inside-out components, and passes the exact self-intersection check. Call `NotCleanReasons(mesh)` or `FindDefects(mesh)` to inspect all failed checks at once. For a boolean result, what the check says and does not say (the point set, removed components, contacts) is in [Booleans & Imprint](booleans-and-imprint.md#what-notcleanreasonresult-covers).

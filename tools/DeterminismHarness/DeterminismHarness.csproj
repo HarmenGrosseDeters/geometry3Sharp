@@ -21,4 +21,9 @@
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
 
+  <!-- the compiled examples of docs/OPERATIONS.md, run as the cases examples.* (Examples.cs) -->
+  <ItemGroup>
+    <Compile Include="..\..\docs\examples\*.cs" Link="DocExamples\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

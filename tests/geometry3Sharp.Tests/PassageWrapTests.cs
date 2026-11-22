@@ -421,12 +421,12 @@ namespace geometry3Sharp.Tests
             Assert.False(w.PinResults[0].Passed);
         }
 
-        // coordinates above 1e100 are rejected (the distances would overflow)
+        // coordinates above 2^128 (the alpha wrap's limit) are rejected as invalid input
         [Fact]
         public void HugeCoordinates_AreInvalidInput()
         {
             DMesh3 mesh = Part("cross");
-            foreach (int v in mesh.VertexIndices().ToList()) mesh.SetVertex(v, 1e101 * mesh.GetVertex(v));
+            foreach (int v in mesh.VertexIndices().ToList()) mesh.SetVertex(v, 1e50 * mesh.GetVertex(v));
             Assert.Equal(PassageWrap.PassageStatus.InvalidInput, Run(mesh, Axis("cross"), 1).Status);
         }
 
