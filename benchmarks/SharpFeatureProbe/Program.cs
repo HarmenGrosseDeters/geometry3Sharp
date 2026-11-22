@@ -31,6 +31,7 @@ class Program
 
     static int Main(string[] args)
     {
+        if (args.Length >= 2 && args[0] == "bound") return Bound.Run(args);
         if (args.Length < 2) { Console.Error.WriteLine("usage: SharpFeatureProbe <out.jsonl> <input>... [-- variants]"); return 2; }
         string outFile = args[0];
         var inputs = new List<string>();
@@ -95,7 +96,7 @@ class Program
     }
 
     // the pipeline's simplification, with the wrap's input kept clear (as MeshRobustRepair.simplify_wrap since the contact fix)
-    static DMesh3 Simplify(DMesh3 raw, double delta, DMesh3 input)
+    internal static DMesh3 Simplify(DMesh3 raw, double delta, DMesh3 input)
     {
         return MeshRobustRepair.SimplifyWithin(raw, 0.5 * delta, 0.5 * delta, true, never, out int subdiv, MeshRobustRepair.WrapSimplifyMinQuality, true,
             MeshRobustRepair.WrapSimplifySlabs, 0, null, input) ?? raw;

@@ -11,6 +11,8 @@
 //                               (the published grid, [2^23, 2^24) per axis, hot voxels, 5 iterations, no drift bound), patch
 //                               (the upper bound of a patch-wise B). Option A (the separation by linear programs) was
 //                               measured and closed; its prototype is on the branch claude/snap-rounding-A-archive
+//   bound <case>                the upper-bound measurement of a rounding with a guarantee (GuaranteeBound.cs,
+//                               docs/research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md); also the set "scale"
 //   A case is a set name and its parameters, eg cluster:FoldedCluster:44:8:1, utm:Cluster:30:4:1, cylinder:2,
 //   bool:ShortEdge:44:Union:0, file:<path> (the self-union of a mesh file, eg Thingi10K), or bc:<dir>:<op> (a
 //   BooleanComparison case directory with A.off and B.off, and the operation).
@@ -47,9 +49,16 @@ static class Program
             Console.WriteLine(LatticeProbe.Run(args[1], la, lb, lop, args.Length > 2 ? double.Parse(args[2], ci) : 60, args.Length > 3 ? int.Parse(args[3]) : 1));
             return 0;
         }
+        if (args.Length == 2 && args[0] == "bound" && args[1] == "selfcheck")
+            return GuaranteeBound.SelfCheck();
+        if (args.Length >= 2 && args[0] == "bound") {
+            var (ba, bb, bop) = Input(args[1]);
+            Console.WriteLine(GuaranteeBound.Run(args[1], ba, bb, bop));
+            return 0;
+        }
         if (args.Length >= 3 && args[0] == "cull")
             return CandidateCulling.Run(args.Skip(1).ToArray());
-        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed]");
+        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck");
         return 1;
     }
 
@@ -76,6 +85,12 @@ static class Program
                 for (int step = 0; step < 6; step++)
                     yield return $"cylinder:{step}";
                 break;
+            case "scale":
+                // two rotated cube-spheres at growing resolution (GuaranteeBound.ScaleCase)
+                foreach (int resolution in new[] { 6, 11, 21, 41, 81, 161 })
+                    foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference })
+                        yield return $"scale:{resolution}:{op}";
+                break;
             case "booleans":
                 foreach (F f in new[] { F.Collinear, F.Sliver, F.ShortEdge, F.Coincident, F.Unwelded, F.Cluster })
                     foreach (int k in new[] { 0, 36, 44, 52 })
@@ -83,6 +98,14 @@ static class Program
                             for (int seed = 0; seed < 3; seed++)
                                 if (k != 0 || (f != F.Sliver && f != F.ShortEdge))
                                     yield return $"bool:{f}:{k}:{op}:{seed}";
+                break;
+            case "drop":
+                // small and thin valid solids (GuaranteeBound.DropCase)
+                foreach (int e in new[] { 3, 5, 7, 9, 11 })
+                    yield return $"drop:cube:{e}";
+                foreach (string frame in new[] { "axis", "rot" })
+                    foreach (int k in new[] { 11, 13, 14, 15, 16, 17, 19, 25, 35 })
+                        yield return $"drop:slab:{k}:{frame}";
                 break;
             default:
                 throw new ArgumentException("unknown set " + set);
@@ -128,6 +151,10 @@ static class Program
                 DMesh3 b = DegenerateFamilies.Box(new Vector3d(-0.3 + 0.1 * seed, -2, -2), new Vector3d(2, 2, 2));
                 return (a, b, Enum.Parse<Ops>(p[3]));
             }
+            case "drop":
+                return GuaranteeBound.DropCase(p);
+            case "scale":
+                return GuaranteeBound.ScaleCase(int.Parse(p[1]), Enum.Parse<Ops>(p[2]));
             case "bc": {
                 // a BooleanComparison case directory (A.off, B.off; benchmarks/BooleanComparison export / pair) and an
                 // operation: bc:<dir>:<Union|Intersection|Difference>

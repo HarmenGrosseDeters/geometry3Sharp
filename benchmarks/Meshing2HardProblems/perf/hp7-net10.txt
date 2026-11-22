@@ -1,0 +1,47 @@
+runtime .NET 10.0.15, 4 cores
+case,triangles,mesher_ms,oracle_ms,oracle/mesher,checker_ms,checker/mesher,oracle_verdict,checker_verdict,exact_orient,exact_incircle,below_angle,conforming_subsegment_hits
+parcels30 q20 default,1802,27,3375,124,1.59,0.058,ok,accepted,0,0,0,0
+parcels30 q30 default,3352,76,3351,44,1.54,0.020,ok,accepted,0,0,0,0
+parcels60 q20 default,7224,48,18451,382,2.83,0.059,ok,accepted,0,0,0,0
+parcels60 q30 default,13760,125,20682,165,5.29,0.042,ok,accepted,0,0,4,0
+coast2000 q20 default,26144,403,6084,15,9.00,0.022,ok,accepted,0,94,4093,0
+coast8000 q20 default,401151,6648,195355,29,160,0.024,ok,accepted,0,519,65282,0
+comb40 phi1 q20 default,81,0.39,26,68,0.03,0.072,ok,accepted,0,0,80,0
+fan12 phi2 q20 default,31,0.13,14,110,0.02,0.131,ok,accepted,0,0,22,0
+parcels30 q20 cq,1800,7.31,3064,419,0.84,0.115,ok,accepted,0,0,0,0
+parcels30 q30 cq,3352,33,3322,100,1.10,0.033,ok,accepted,0,0,0,0
+parcels60 q20 cq,7202,37,17616,477,3.24,0.088,ok,accepted,0,0,0,0
+parcels60 q30 cq,13760,76,18747,246,4.89,0.064,ok,accepted,0,0,4,0
+coast2000 q20 cq,7600,153,2376,16,1.65,0.011,ok,accepted,0,0,1329,0
+coast8000 q20 cq,87879,2506,47247,19,34,0.014,ok,accepted,0,2,7835,0
+comb40 phi1 q20 cq,81,0.48,25,52,0.02,0.036,ok,accepted,0,0,80,0
+fan12 phi2 q20 cq,29,0.12,16,138,0.01,0.069,ok,accepted,0,0,22,0
+parcels2 q20 snap 1/64,8,0.43,9.48,22,0.00,0.011,BoundaryOutsideTube,accepted,0,0,0,0
+parcels10 q20 snap 1/64,200,8.60,631,73,0.07,0.008,BoundaryOutsideTube,accepted,0,0,0,0
+parcels30 q20 snap 1/64,1802,85,15610,184,0.70,0.008,BoundaryOutsideTube,accepted,0,0,0,0
+wide exponents q20 default,66,0.26,103,392,0.01,0.034,ok,accepted,0,0,14,0
+
+the oracle's six largest checks and the checker's passes, per case:
+parcels30 q20 default | oracle: segments 2083 ms (62 %); domain 940 ms (28 %); marks 132 ms (4 %); conformity: remaining 49 ms (1 %); delaunay 38 ms (1 %); indices, identity 37 ms (1 %) | checker: 0 data 0.04 ms; 1 orientation 0.02 ms; 2 edges 0.09 ms; 3 certificate: chains 0.97 ms; 4 boundary 0.24 ms; 5 local Delaunay 0.21 ms; 6 angles 0.01 ms
+parcels30 q30 default | oracle: segments 2061 ms (62 %); domain 952 ms (28 %); marks 108 ms (3 %); coverage 58 ms (2 %); conformity: edge-crossings 42 ms (1 %); delaunay 40 ms (1 %) | checker: 0 data 0.05 ms; 1 orientation 0.03 ms; 2 edges 0.11 ms; 3 certificate: chains 0.67 ms; 4 boundary 0.34 ms; 5 local Delaunay 0.31 ms; 6 angles 0.02 ms
+parcels60 q20 default | oracle: segments 9459 ms (51 %); domain 7557 ms (41 %); marks 451 ms (2 %); coverage 360 ms (2 %); conformity: remaining 260 ms (1 %); delaunay 220 ms (1 %) | checker: 0 data 0.03 ms; 1 orientation 0.02 ms; 2 edges 0.19 ms; 3 certificate: chains 1.76 ms; 4 boundary 0.43 ms; 5 local Delaunay 0.32 ms; 6 angles 0.05 ms
+parcels60 q30 default | oracle: segments 9897 ms (48 %); domain 8426 ms (41 %); coverage 632 ms (3 %); conformity: remaining 546 ms (3 %); marks 534 ms (3 %); delaunay 366 ms (2 %) | checker: 0 data 0.08 ms; 1 orientation 0.10 ms; 2 edges 0.46 ms; 3 certificate: chains 2.79 ms; 4 boundary 0.96 ms; 5 local Delaunay 0.76 ms; 6 angles 0.11 ms
+coast2000 q20 default | oracle: segments 1608 ms (26 %); coverage 1263 ms (21 %); conformity: remaining 1244 ms (20 %); quality 1034 ms (17 %); conformity: edge-crossings 282 ms (5 %); delaunay 167 ms (3 %) | checker: 0 data 0.21 ms; 1 orientation 0.19 ms; 2 edges 1.12 ms; 3 certificate: chains 3.62 ms; 4 boundary 1.40 ms; 5 local Delaunay 2.10 ms; 6 angles 0.36 ms
+coast8000 q20 default | oracle: conformity: remaining 57165 ms (29 %); coverage 44202 ms (23 %); quality 43600 ms (22 %); segments 34010 ms (17 %); conformity: edge-crossings 4729 ms (2 %); delaunay 3520 ms (2 %) | checker: 0 data 2.68 ms; 1 orientation 5.68 ms; 2 edges 25 ms; 3 certificate: chains 59 ms; 4 boundary 29 ms; 5 local Delaunay 30 ms; 6 angles 8.24 ms
+comb40 phi1 q20 default | oracle: segments 11 ms (42 %); quality 9.40 ms (36 %); coverage 1.50 ms (6 %); marks 1.20 ms (5 %); delaunay 0.60 ms (2 %); domain 0.40 ms (2 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.01 ms; 3 certificate: chains 0.01 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms
+fan12 phi2 q20 default | oracle: quality 12 ms (88 %); segments 0.60 ms (4 %); marks 0.40 ms (3 %); conformity: edge-crossings 0.20 ms (1 %); indices, identity 0.10 ms (1 %); conformity: point-triangle 0.10 ms (1 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.01 ms; 3 certificate: chains 0.00 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms
+parcels30 q20 cq | oracle: segments 1783 ms (58 %); domain 1113 ms (36 %); marks 93 ms (3 %); conformity: remaining 22 ms (1 %); coverage 19 ms (1 %); conformity: edge-crossings 9.40 ms (0 %) | checker: 0 data 0.05 ms; 1 orientation 0.03 ms; 2 edges 0.10 ms; 3 certificate: chains 0.48 ms; 4 boundary 0.10 ms; 5 local Delaunay 0.06 ms; 6 angles 0.02 ms
+parcels30 q30 cq | oracle: segments 2172 ms (65 %); domain 897 ms (27 %); marks 135 ms (4 %); coverage 50 ms (2 %); conformity: remaining 29 ms (1 %); conformity: edge-crossings 13 ms (0 %) | checker: 0 data 0.04 ms; 1 orientation 0.02 ms; 2 edges 0.11 ms; 3 certificate: chains 0.58 ms; 4 boundary 0.21 ms; 5 local Delaunay 0.12 ms; 6 angles 0.03 ms
+parcels60 q20 cq | oracle: segments 9011 ms (51 %); domain 7429 ms (42 %); marks 530 ms (3 %); coverage 330 ms (2 %); conformity: remaining 178 ms (1 %); indices, identity 54 ms (0 %) | checker: 0 data 0.10 ms; 1 orientation 0.03 ms; 2 edges 0.24 ms; 3 certificate: chains 2.03 ms; 4 boundary 0.50 ms; 5 local Delaunay 0.27 ms; 6 angles 0.07 ms
+parcels60 q30 cq | oracle: segments 9200 ms (49 %); domain 7755 ms (41 %); coverage 711 ms (4 %); marks 512 ms (3 %); conformity: remaining 326 ms (2 %); conformity: edge-crossings 134 ms (1 %) | checker: 0 data 0.06 ms; 1 orientation 0.06 ms; 2 edges 0.48 ms; 3 certificate: chains 2.70 ms; 4 boundary 0.91 ms; 5 local Delaunay 0.53 ms; 6 angles 0.15 ms
+coast2000 q20 cq | oracle: segments 1023 ms (43 %); coverage 387 ms (16 %); quality 340 ms (14 %); conformity: remaining 290 ms (12 %); domain 133 ms (6 %); conformity: edge-crossings 70 ms (3 %) | checker: 0 data 0.03 ms; 1 orientation 0.03 ms; 2 edges 0.25 ms; 3 certificate: chains 0.67 ms; 4 boundary 0.34 ms; 5 local Delaunay 0.26 ms; 6 angles 0.08 ms
+coast8000 q20 cq | oracle: coverage 14032 ms (30 %); segments 11965 ms (25 %); conformity: remaining 11955 ms (25 %); quality 5214 ms (11 %); conformity: edge-crossings 1537 ms (3 %); domain 1133 ms (2 %) | checker: 0 data 0.53 ms; 1 orientation 0.92 ms; 2 edges 5.61 ms; 3 certificate: chains 15 ms; 4 boundary 5.59 ms; 5 local Delaunay 5.31 ms; 6 angles 1.25 ms
+comb40 phi1 q20 cq | oracle: segments 11 ms (42 %); quality 9.30 ms (37 %); coverage 1.50 ms (6 %); marks 1.20 ms (5 %); domain 0.50 ms (2 %); conformity: remaining 0.50 ms (2 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.00 ms; 3 certificate: chains 0.01 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms
+fan12 phi2 q20 cq | oracle: quality 14 ms (88 %); segments 0.80 ms (5 %); marks 0.50 ms (3 %); domain 0.10 ms (1 %); indices, identity 0.10 ms (1 %); orientation 0.10 ms (1 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.00 ms; 3 certificate: chains 0.00 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms
+parcels2 q20 snap 1/64 | oracle violations (8), the first: BoundaryOutsideTube: the input boundary near (8941458223368299/9007199254740992, 2669796552276053/18014398509481984) has no output boundary within 1 pixel
+parcels2 q20 snap 1/64 | oracle: coverage 3.90 ms (42 %); segments 3.70 ms (40 %); domain 0.40 ms (4 %); segments: chains through hot pixels 0.40 ms (4 %); marks 0.30 ms (3 %); conformity: point-triangle 0.20 ms (2 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.00 ms; 3 certificate: chains 0.00 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms
+parcels10 q20 snap 1/64 | oracle violations (8), the first: BoundaryOutsideTube: the input boundary near (8941458223368299/9007199254740992, 2669796552276053/18014398509481984) has no output boundary within 1 pixel
+parcels10 q20 snap 1/64 | oracle: segments 304 ms (48 %); coverage 223 ms (35 %); domain 67 ms (11 %); segments: chains through hot pixels 21 ms (3 %); marks 12 ms (2 %); indices, identity 1.00 ms (0 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.01 ms; 3 certificate: chains 0.05 ms; 4 boundary 0.01 ms; 5 local Delaunay 0.01 ms; 6 angles 0.00 ms
+parcels30 q20 snap 1/64 | oracle violations (8), the first: BoundaryOutsideTube: the input boundary near (8941458223368299/9007199254740992, 2669796552276053/18014398509481984) has no output boundary within 1 pixel
+parcels30 q20 snap 1/64 | oracle: segments 10789 ms (69 %); coverage 2405 ms (15 %); segments: chains through hot pixels 1444 ms (9 %); domain 778 ms (5 %); marks 97 ms (1 %); delaunay 47 ms (0 %) | checker: 0 data 0.00 ms; 1 orientation 0.01 ms; 2 edges 0.06 ms; 3 certificate: chains 0.41 ms; 4 boundary 0.11 ms; 5 local Delaunay 0.10 ms; 6 angles 0.01 ms
+wide exponents q20 default | oracle: quality 63 ms (61 %); segments 25 ms (24 %); marks 8.10 ms (8 %); delaunay 3.00 ms (3 %); coverage 1.80 ms (2 %); conformity: remaining 1.00 ms (1 %) | checker: 0 data 0.00 ms; 1 orientation 0.00 ms; 2 edges 0.00 ms; 3 certificate: chains 0.00 ms; 4 boundary 0.00 ms; 5 local Delaunay 0.00 ms; 6 angles 0.00 ms

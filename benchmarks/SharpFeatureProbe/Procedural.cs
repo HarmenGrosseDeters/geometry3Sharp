@@ -25,7 +25,7 @@ static class Procedural
     }
 
     // solid cells of an nx x ny x nz grid of unit cells; every boundary cell face becomes two triangles, outward
-    static DMesh3 PolyCube(int nx, int ny, int nz, Func<int, int, int, bool> solid)
+    public static DMesh3 PolyCube(int nx, int ny, int nz, Func<int, int, int, bool> solid)
     {
         Func<int, int, int, bool> s = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz && solid(x, y, z);
         var mesh = new DMesh3();
@@ -61,7 +61,7 @@ static class Procedural
     }
 
     // counter-clockwise polygon extruded by h along z
-    static DMesh3 Prism(List<Vector2d> poly, double h)
+    public static DMesh3 Prism(List<Vector2d> poly, double h)
     {
         var mesh = new DMesh3();
         int n = poly.Count;

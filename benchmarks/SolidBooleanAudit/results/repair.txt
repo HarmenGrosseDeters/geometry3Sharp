@@ -1,0 +1,44 @@
+| case | repair | closed after | area after / area given | volume / intent | mismatch against the intent | ms |
+|---|---|---|---|---|---|---|
+| cube, 1 triangle missing | MeshAutoRepair | yes | 1.091 | 1 | 0 | 129 |
+| cube, 1 triangle missing | MeshRobustRepair | yes | 1.091 | 1 | 0 | 179 |
+| cube, 1 triangle missing | weld only (MergeCoincidentEdges) | no | 1 | 0.9167 | 0.0498 | 0 |
+| cube, 1 face missing | MeshAutoRepair | yes | 1.2 | 1 | 0 | 71 |
+| cube, 1 face missing | MeshRobustRepair | yes | 1.2 | 1 | 0 | 19 |
+| cube, 1 face missing | weld only (MergeCoincidentEdges) | no | 1 | 0.8333 | 0.106 | 0 |
+| cube, 2 adjacent faces missing | MeshAutoRepair | yes | 1.592 | 0.8333 | 0.0968 | 5 |
+| cube, 2 adjacent faces missing | MeshRobustRepair | yes | 1.438 | 0.8224 | 0.099 | 4174 |
+| cube, 2 adjacent faces missing | weld only (MergeCoincidentEdges) | no | 1 | 0.6667 | 0.2083 | 0 |
+| sphere, 1 triangle missing | MeshAutoRepair | yes | 1.001 | 1 | 0 | 44 |
+| sphere, 1 triangle missing | MeshRobustRepair | yes | 1.001 | 1 | 0 | 272 |
+| sphere, 1 triangle missing | weld only (MergeCoincidentEdges) | no | 1 | 0.9993 | 0.0003 | 21 |
+| sphere, cap missing (z > 0.8) | MeshAutoRepair | yes | 1.098 | 0.9802 | 0.0123 | 54 |
+| sphere, cap missing (z > 0.8) | MeshRobustRepair | yes | 1.098 | 0.9802 | 0.0123 | 559 |
+| sphere, cap missing (z > 0.8) | weld only (MergeCoincidentEdges) | no | 1 | 0.9033 | 0.043 | 14 |
+| sphere, half missing (z > 0) | MeshAutoRepair | yes | 1.558 | 0.5459 | 0.1508 | 94 |
+| sphere, half missing (z > 0) | MeshRobustRepair | yes | 1.527 | 0.5172 | 0.1685 | 1271 |
+| sphere, half missing (z > 0) | weld only (MergeCoincidentEdges) | no | 1 | 0.5 | 0.205 | 2 |
+| torus, 20 scattered triangles missing | MeshAutoRepair | yes | 1.028 | 1 | 0 | 7 |
+| torus, 20 scattered triangles missing | MeshRobustRepair | yes | 1.028 | 1 | 0 | 53 |
+| torus, 20 scattered triangles missing | weld only (MergeCoincidentEdges) | no | 1 | 0.9711 | 0.0133 | 2 |
+| T-junction cube | MeshAutoRepair | yes | 1 | 1 | 0 | 0 |
+| T-junction cube | MeshRobustRepair | yes | 1 | 1 | 0 | 5 |
+| T-junction cube | weld only (MergeCoincidentEdges) | no | 1 | 1 | 0 | 0 |
+| cube with a duplicated face | MeshAutoRepair | yes | 1.143 | 1 | 0 | 1 |
+| cube with a duplicated face | MeshRobustRepair | yes | 0.857 | 1 | 0 | 38 |
+| cube with a duplicated face | weld only (MergeCoincidentEdges) | no | 1 | 1.1667 | 0.031 | 0 |
+| cube with a debris triangle | MeshAutoRepair | yes | 0.995 | 1 | 0 | 1 |
+| cube with a debris triangle | MeshRobustRepair | yes | 0.995 | 1 | 0 | 13 |
+| cube with a debris triangle | weld only (MergeCoincidentEdges) | no | 1 | 1.0417 | 0.003 | 0 |
+| cube, one triangle flipped | MeshAutoRepair | yes | 1 | 1 | 0 | 0 |
+| cube, one triangle flipped | MeshRobustRepair | yes | 1.225 | 0.9995 | 0.0755 | 1950 |
+| cube, one triangle flipped | weld only (MergeCoincidentEdges) | no | 1 | 0.8333 | 0.0657 | 0 |
+| cube, half of the faces flipped | MeshAutoRepair | yes | 1.789 | 0.3333 | 0.3308 | 2 |
+| cube, half of the faces flipped | MeshRobustRepair | yes | 0.935 | 0.1882 | 0.5762 | 1200 |
+| cube, half of the faces flipped | weld only (MergeCoincidentEdges) | no | 1 | 0 | 0.3328 | 0 |
+| cube with a debris triangle (welded) | MeshAutoRepair | yes | 0.995 | 1 | 0 | 0 |
+| cube with a debris triangle (welded) | MeshRobustRepair | yes | 1.007 | 1.0003 | 0.0065 | 154 |
+| cube with a debris triangle (welded) | weld only (MergeCoincidentEdges) | no | 1 | 1.0417 | 0.003 | 0 |
+| cutting sheet (one face of a box 6 x 6 x 7) | MeshAutoRepair | yes | 2 | 0 | 0.5508 | 1 |
+| cutting sheet (one face of a box 6 x 6 x 7) | MeshRobustRepair | yes | 2.24 | 0.0424 | 0.5532 | 124 |
+| cutting sheet (one face of a box 6 x 6 x 7) | weld only (MergeCoincidentEdges) | no | 1 | 0.1667 | 0.4788 | 0 |

@@ -297,3 +297,62 @@ Round 2 (a cap on the split attempts only, `MaxSplitAttemptsPerVertex`, not kept
 (baseline 4) and 73 / 84 / 106 at the floor 30 (baseline 107), saving 13 / 11 / 4 % and 31 / 23 / 14 % of the time: the slow meshes spend 50 to 60 % of their time in the
 operations a split cap does not bound.
 
+## Tie order of the improver (`tieorder`, docs/research/TET_TIE_ORDER_2026-11.md; 2026-11-22)
+
+`tieorder <mesh|proc> <alpha> <offset> <floor> [orders] [trace.csv]` runs stage 1 once and then the improver for order 0 (the stage-1 mesh as it is, bit for bit the
+library's result) and for `orders` deterministic relabelings of it (vertex ids, tet order, corner order within a tet, boundary triangles; `G3_TIE_PARTS` = a subset
+of `vtcb` limits it to parts). The geometry is the same; only the choices the improver makes by index or list position change. Effort is in visits. `tieorder check`
+is the harness's self-check on procedural inputs. Inputs and summary: `compare/run_tie_order.sh`, `compare/summarize_tie_order.py`; rows `results/tie-order-*-2026-11-22.csv`.
+
+| input (`40 600`) | today | 8 relabelings |
+|---|---|---|
+| floor 20: 38781, 40011, 46017, 85539 (the meshes above 20 s) | 51678 to 216175 visits, 163 to 721 tets below 20 | fastest / median visits 0.64 to 0.90 (every measure); none reaches 20 degrees |
+| floor 10: 38781 | 9.432 degrees | 8 of 8 reach 10 degrees (64 of 64) |
+| floor 10: 282598 | 9.532 degrees | 4 of 8 reach 10 degrees (38 of 64) |
+
+Tet order alone or corner order alone lifts the two (10 to 15 of 16 runs); vertex ids and boundary order change nothing on them. On the 40-mesh subset 159 of 160 relabelled
+runs reach 10 degrees (today 40 of 40); on five harder meshes 74 of 80. Conclusion and the proposal for the owner: the research note. No library change, no default change.
+
+## Dihedral-floor spike: a lattice mesher next to `MeshTetrahedralization` (`floor`, `floornoise`; 2026-11-22)
+
+Research spike for HP 5 / P5(b) ([docs/research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../../docs/research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), which has
+the tables and the reading). `Stuffing.cs` is a prototype of uniform isosurface stuffing (Labelle and Shewchuk 2007, from the paper's text), not
+library code. `floor [relativeCell ...]` runs `MeshTetrahedralization` (default, and with `CreaseAngleDegrees` 30) and the lattice (cell = diagonal /
+relativeCell) on the 8 procedural inputs and 13 inputs with acute creases, thin parts and near contacts; the columns are `TetFiles.Header` plus the
+largest dihedral angle and the input's smallest dihedral angle. `floornoise [seeds]` checks the angle bound on random labels and cut points.
+
+```
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 20 40 80
+G3_STUFF_OURS=0 G3_STUFF_ALPHA=0.24999,0.41189 dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 20 40 80
+G3_STUFF_OURS=0 G3_STUFF_OFFSET=0 dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 40 80
+G3_STUFF_FILE=<mesh> dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 40 80 160
+python3 benchmarks/TetMeshBenchmark/compare/summarize_floor_spike.py benchmarks/TetMeshBenchmark/results/tet-floor-spike-*2026-11-22.csv
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
+```
+
+Rows (2026-11-22, the 4-core cloud container, Release, net10.0): `results/tet-floor-spike-2026-11-22.csv` (the 10.78 degree parameters),
+`-safe-` (0.24999 / 0.41189), `-offset0-` (the input surface instead of its offset), `-thingi2-` (38781 and 282598, fetched by hand, not kept).
+Summary (`summarize_floor_spike.py`, first file):
+
+```
+ours      crease=0   inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 168.4 | tets median 6028 | time median 0.22 s max 1.05 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00057
+ours      crease=30  inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 169.0 | tets median 6028 | time median 0.25 s max 0.61 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00111
+stuffing  cell=20    inputs 21 meshed 20 valid 19 | min dihedral worst 15.23 median 21.02, all>=10: 20 | max dihedral worst 152.5 | tets median 9787 | time median 0.19 s max 0.57 | dev_in max: median 0.0240 worst 0.3747, mean: median 0.01169 | per input against ours (median of ratios): tets 1.23, dev_in max 10.65, dev_in mean 14.97, time 0.72 | inverted background tets 171 on 2 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 593
+   not meshed or not valid: torus thin - a boundary edge occurs twice with the same direction
+   not meshed or not valid: plate 1x1x0.02 - empty
+stuffing  cell=40    inputs 21 meshed 20 valid 20 | min dihedral worst 15.91 median 20.41, all>=10: 20 | max dihedral worst 157.2 | tets median 75248 | time median 0.88 s max 2.39 | dev_in max: median 0.0136 worst 0.2002, mean: median 0.00532 | per input against ours (median of ratios): tets 9.47, dev_in max 6.53, dev_in mean 9.12, time 3.50 | inverted background tets 3162 on 7 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 4684
+   not meshed or not valid: plate 1x1x0.02 - empty
+stuffing  cell=80    inputs 21 meshed 21 valid 21 | min dihedral worst 16.16 median 20.79, all>=10: 21 | max dihedral worst 156.8 | tets median 563180 | time median 3.42 s max 10.05 | dev_in max: median 0.0050 worst 0.1833, mean: median 0.00175 | per input against ours (median of ratios): tets 69.48, dev_in max 1.80, dev_in mean 2.67, time 13.63 | inverted background tets 12054 on 9 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 24928
+```
+
+`floornoise 20`:
+
+```
+alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inverted_background,inverted_background_with_output,rule_conflicts,quadzero_discarded
+0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,0,298902
+0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,0,295760
+```
+
+`inverted_background` counts the warped lattice tets whose exact orientation changed (the discarded ones included; with the 10.78 degree parameters
+they occur mostly on planar faces, with the safe ones never), `inverted_background_with_output` those that produce output tets. `wrap 40 600 hard` prints the
+wrap's own surface angles on the 13 hard inputs (smallest interior dihedral at a surface edge 29.5 to 90 degrees).
