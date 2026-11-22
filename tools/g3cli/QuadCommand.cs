@@ -36,13 +36,13 @@ namespace g3cli
                     "Result: quad_status, pure_quad_status, size_adaptation / size_adaptation_applied (with curl_before, curl_after, min_spacing, max_spacing), the face mix (quads, non-quads, triangles, pentagons, hexagons, larger), irregular vertices, closed / manifold flags, " +
                     "corner angle and aspect statistics of the quads (median, p95, p99, max), the stage timings and the pure-quad counters. " +
                     "Failures of the remeshing (field_failed, position_field_failed, no_faces) end with operation_failed and quad_status; nothing is written then. " +
-                    "The vertices lie on the tangent planes of the input, not on its surface ('deviation' reports the Hausdorff distance).",
+                    "The vertices of the quad-dominant mesh lie on the tangent planes of the input, not on its surface (a successful pure_quads result is projected onto the input; 'deviation' reports the Hausdorff distance).",
             };
             c.Params.Add(Input());
             c.Params.Add(new Param("output", ParamType.String, "output polygon mesh file (.obj or .ply; see 'format')") { Required = true, Positional = true });
             c.Params.Add(new Param("format", ParamType.String, "auto: by the extension; obj; ply") { Enum = new[] { "auto", "obj", "ply" }, Default = "auto" });
             c.Params.Add(new Param("edge_length", ParamType.Number, "target edge length of the quads in mesh units (the library has no default: if omitted, the larger of 1/30 of the bounding box diagonal and twice the mean edge length of the input; the value used is reported as used_edge_length)"));
-            c.Params.Add(new Param("size_adaptation", ParamType.String, "opt-in size field (IntegrableFrames, library default off): off (uniform spacing), scale (log spacing only), or scale_and_rotation (spacing and small field rotation); intended for closed smooth shapes, applied only when curl drops by at least 20 % (see size_adaptation_applied); cannot be combined with pure_quads") { Enum = new[] { "off", "scale", "scale_and_rotation" }, Default = "off" });
+            c.Params.Add(new Param("size_adaptation", ParamType.String, "opt-in size field (IntegrableFrames, library default off): off (uniform spacing), scale (log spacing only), or scale_and_rotation (spacing and small field rotation); intended for closed smooth shapes, applied only when curl drops by at least 20 % (see size_adaptation_applied); can be combined with pure_quads (local spacing in the pure-quad flow)") { Enum = new[] { "off", "scale", "scale_and_rotation" }, Default = "off" });
             c.Params.Add(new Param("curvature_alignment", ParamType.Number, "weight for aligning the cross field with principal curvature directions where anisotropic (0 = smoothest field, library default; about 1 follows principal directions)") { Default = 0.0 });
             c.Params.Add(new Param("align_creases", ParamType.Boolean, "align the cross field with crease edges whose dihedral angle exceeds crease_angle (library default false)") { Default = false });
             c.Params.Add(new Param("crease_angle", ParamType.Number, "dihedral angle threshold in degrees (0..180) for align_creases (library default 30)") { Default = 30.0 });
@@ -65,8 +65,6 @@ namespace g3cli
                 else if (sizeAdaptStr == "scale_and_rotation") sizeAdapt = SizeAdaptationMode.ScaleAndRotation;
                 else throw new CommandException(ResultCodes.InvalidArguments, "'size_adaptation' must be off, scale or scale_and_rotation");
                 bool pure = args.Bool("pure_quads");
-                if (sizeAdapt != SizeAdaptationMode.Off && pure)
-                    throw new CommandException(ResultCodes.InvalidArguments, "'size_adaptation' and 'pure_quads' cannot be combined (the pure-quad flow assumes a uniform spacing)");
                 double curvatureAlignment = args.Number("curvature_alignment");
                 if (!(curvatureAlignment >= 0) || double.IsInfinity(curvatureAlignment))
                     throw new CommandException(ResultCodes.InvalidArguments, "'curvature_alignment' must be >= 0 and finite");
@@ -120,7 +118,7 @@ namespace g3cli
                     JsonObject h = Hausdorff(input, tri);
                     if (h == null)
                         throw new CommandException(ResultCodes.OperationFailed, "the Hausdorff distance could not be computed; nothing is written", new JsonObject() { ["quad_status"] = status });
-                    deviation = new JsonObject() { ["hausdorff"] = h, ["measured_on"] = "the result triangulated (every face fanned into triangles)" };
+                    deviation = new JsonObject() { ["hausdorff"] = h, ["measured_on"] = "the result triangulated (DPolyMesh.ToDMesh3 ear-clipping)" };
                 }
                 try {
                     string dir = Path.GetDirectoryName(Path.GetFullPath(output));

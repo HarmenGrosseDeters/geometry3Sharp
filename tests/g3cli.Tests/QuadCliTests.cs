@@ -437,13 +437,21 @@ namespace g3cli.Tests
         [Theory]
         [InlineData("scale")]
         [InlineData("scale_and_rotation")]
-        public void SizeAdaptation_WithPureQuads_IsInvalidArguments_NothingWritten(string mode)
+        public void SizeAdaptation_WithPureQuads_IsAccepted_AndMatchesTheLibrary(string mode)
         {
             string output = m.Path_("adapt_pure_" + mode + ".obj");
             var (exit, r) = Quad(m.Sphere, output, "--edge-length", Edge, "--size-adaptation", mode, "--pure-quads");
-            AssertError(exit, r, "invalid_arguments");
-            Assert.Contains("cannot be combined", S(r["message"]));
-            Assert.False(File.Exists(output));
+            Assert.Equal(0, exit);
+            Assert.True(File.Exists(output));
+            DMesh3 mesh = MeshFiles.Read(m.Sphere, new List<string>());
+            var qr = new QuadRemesher(mesh) {
+                TargetEdgeLength = double.Parse(Edge, System.Globalization.CultureInfo.InvariantCulture), PureQuads = true,
+                SizeAdaptation = mode == "scale" ? SizeAdaptationMode.Scale : SizeAdaptationMode.ScaleAndRotation
+            };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.NotEqual(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+            Assert.Equal(qr.Result.FaceCount, I(r["faces"]["total"]));
+            Assert.Equal(qr.Result.VertexCount, I(r["vertices"]));
         }
 
         [Fact]

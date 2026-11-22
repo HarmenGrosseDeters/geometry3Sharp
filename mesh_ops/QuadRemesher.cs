@@ -106,7 +106,7 @@ namespace gs
         /// features (a filleted box) and with boundaries it may not help or may worsen the counts. Default Off: the output is then bit for bit the
         /// one without the option.
         /// </summary>
-        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;       // not together with PureQuads (InvalidInput)
+        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;
         /// <summary>
         /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, ...); the remesher sets its Mesh, Field, TargetEdgeLength and
         /// UseRotation (from SizeAdaptation) and computes it, so after Compute() it holds the spacing, the rotation and the curl
@@ -122,8 +122,8 @@ namespace gs
 
         /// <summary>
         /// Off (default): Result is the quad-dominant mesh of stage 2, bit for bit as without this option. On: the pure-quad repair
-        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, no triangle of the integer
-        /// map is inverted (exact), the repair stays in its budget, the extracted mesh is a manifold of quads only, no quad is flipped)
+        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, the repair stays in its
+        /// budget, no triangle of the integer map is inverted (exact), the extracted mesh is a manifold of quads only, no quad is flipped)
         /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
         /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
         /// PureQuadStatus names the first failed check. Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
@@ -168,7 +168,6 @@ namespace gs
             if (!(CurvatureAlignment >= 0) || double.IsInfinity(CurvatureAlignment)) return Fail(QuadRemeshStatus.InvalidInput, "CurvatureAlignment must be non-negative and finite");
             if (!(CreaseAngleDegrees >= 0 && CreaseAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CreaseAngleDegrees must be in [0, 180]");
             if (SizeAdaptation != SizeAdaptationMode.Off) {
-                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
                 if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
             }
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -301,8 +300,8 @@ namespace gs
 
         /// <summary>
         /// edges shorter than this (in units of the edge length, of the local spacing with SizeAdaptation) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
-        /// 2026-11-19; it was 0.4): the ragged boundary of an open mesh is a row of short edges, 0.6 removes them (open patch 32 -> 17 irregular
-        /// vertices, 95.8 -> 98.3 % quads), and the closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.5)
+        /// 2026-11-19; it was 0.4): collapses short boundary edges (open patch 32 -> 17 irregular vertices before #1179, 9 / 99.2 % quads after #1179),
+        /// and closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.2)
         /// </summary>
         public double CollapseLength = 0.6;
         /// <summary> short edges collapsed and valence 2 vertices removed by the last Compute() </summary>
@@ -362,7 +361,6 @@ namespace gs
             int nv = g.Pos.Count;
             // neighbours around each vertex, counter-clockwise about the normal, from the first neighbour
             var order = new int[nv][];
-            var start = new int[nv + 1];
             for (int k = 0; k < nv; ++k) {
                 List<int> nb = g.Adj[k];
                 if (nb.Count == 0) { order[k] = new int[0]; continue; }

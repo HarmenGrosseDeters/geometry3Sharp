@@ -69,9 +69,9 @@ namespace gs
 
         /// <summary>
         /// Use the fast (dipole-approximation) winding number of Barill et al. 2018 instead of the
-        /// hierarchical exact one. The exact one is fast for closed subtrees but degrades towards O(N)
-        /// per query on broken meshes / triangle soups; the fast one stays fast and is accurate to
-        /// a small fraction near the 0.5 iso-value.
+        /// exact ray-plus-boundary winding number (which reuses one +x BVH line traversal per grid row
+        /// on plain <see cref="DMeshAABBTree3"/> instances and is faster than FWN on closed meshes,
+        /// while FWN stays faster on meshes with very large open boundaries or disconnected soups).
         /// </summary>
         public bool UseFastWindingNumber = false;
 
@@ -218,21 +218,61 @@ namespace gs
                 mesh_sdf = sdf;
             if (DebugPrint) System.Console.WriteLine("done initial sdf");
 
+            ExactWindingCache rowCache = get_row_winding_cache();
+
             // compute MWN at surface voxels
             double ox = (double)origin[0], oy = (double)origin[1], oz = (double)origin[2];
-            gParallel.ForEach(gIndices.Grid3IndicesYZ(nj, nk), (jk) => {
-                if (CancelF())
-                    return;
-                for (int i = 0; i < ni; ++i) {
-                    Vector3i ijk = new Vector3i(i, jk.y, jk.z);
-                    float dist = distances[ijk];
-                    // this could be tighter? but I don't think it matters...
-                    if (dist < CellSize) {
-                        Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
-                        winding[ijk] = (float)winding_number(gx);
-                    }
+            if (rowCache != null) {
+                int totalRows = nj * nk;
+                if (totalRows > 0) {
+                    gParallel.BlockStartEnd(0, totalRows - 1, (start, end) => {
+                        var hits = new List<ExactWindingCache.LineHit>(16);
+                        var rowLeaves = new List<int>(16);
+                        int localCount = 0;
+                        for (int rowIdx = start; rowIdx <= end; ++rowIdx) {
+                            if (CancelF())
+                                break;
+                            int j = rowIdx % nj;
+                            int k = rowIdx / nj;
+                            bool anyActive = false;
+                            for (int i = 0; i < ni; ++i) {
+                                if (distances[i, j, k] < CellSize) {
+                                    anyActive = true;
+                                    break;
+                                }
+                            }
+                            if (!anyActive)
+                                continue;
+                            double y = (double)j * dx + oy;
+                            double z = (double)k * dx + oz;
+                            rowCache.CollectLineCrossingsX(y, z, hits, rowLeaves);
+                            for (int i = 0; i < ni; ++i) {
+                                if (distances[i, j, k] < CellSize) {
+                                    double x = (double)i * dx + ox;
+                                    winding[i, j, k] = (float)rowCache.EvaluateOnRowX(x, y, z, hits, rowLeaves);
+                                    localCount++;
+                                }
+                            }
+                        }
+                        if (localCount > 0)
+                            Interlocked.Add(ref winding_evaluations, localCount);
+                    }, 32);
                 }
-            });
+            } else {
+                gParallel.ForEach(gIndices.Grid3IndicesYZ(nj, nk), (jk) => {
+                    if (CancelF())
+                        return;
+                    for (int i = 0; i < ni; ++i) {
+                        Vector3i ijk = new Vector3i(i, jk.y, jk.z);
+                        float dist = distances[ijk];
+                        // this could be tighter? but I don't think it matters...
+                        if (dist < CellSize) {
+                            Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
+                            winding[ijk] = (float)winding_number(gx);
+                        }
+                    }
+                });
+            }
             if (CancelF())
                 return;
 
@@ -338,20 +378,50 @@ namespace gs
 
         }
 
-
-
-
-
-
-
-
-
+        // Row-ray reuse is available whenever exact WindingNumber is selected on a plain DMeshAABBTree3
+        // (subclasses that override WindingNumber keep going through the virtual call).
+        ExactWindingCache get_row_winding_cache()
+        {
+            if (UseFastWindingNumber || MeshSpatial == null || MeshSpatial.GetType() != typeof(DMeshAABBTree3) || MeshSpatial.ForceLegacyWindingCache)
+                return null;
+            return MeshSpatial.GetExactWindingCache();
+        }
 
         void make_grid_dense(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f winding)
         {
             winding.resize(ni, nj, nk);
+
+            ExactWindingCache rowCache = get_row_winding_cache();
+            if (rowCache != null) {
+                int totalRows = nj * nk;
+                if (totalRows > 0 && ni > 0) {
+                    double ox = origin[0], oy = origin[1], oz = origin[2];
+                    gParallel.BlockStartEnd(0, totalRows - 1, (start, end) => {
+                        var hits = new List<ExactWindingCache.LineHit>(16);
+                        var rowLeaves = new List<int>(16);
+                        var diffBuf = new int[ni];
+                        var rowBuf = new float[ni];
+                        int localCount = 0;
+                        for (int rowIdx = start; rowIdx <= end; ++rowIdx) {
+                            if (CancelF())
+                                break;
+                            int j = rowIdx % nj;
+                            int k = rowIdx / nj;
+                            double y = (double)j * dx + oy;
+                            double z = (double)k * dx + oz;
+                            rowCache.EvaluateFullRowX(ox, dx, ni, y, z, hits, rowLeaves, diffBuf, rowBuf);
+                            for (int i = 0; i < ni; ++i)
+                                winding[i, j, k] = rowBuf[i];
+                            localCount += ni;
+                        }
+                        if (localCount > 0)
+                            Interlocked.Add(ref winding_evaluations, localCount);
+                    }, 32);
+                }
+                return;
+            }
 
             winding_number(Vector3d.Zero);
             bool abort = false; int count = 0;

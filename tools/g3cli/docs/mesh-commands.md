@@ -142,7 +142,7 @@ g3cli quad part.stl part_pure.ply --edge-length 2.5 --pure-quads
 - **Formats:** Output must be `.obj` or `.ply` (`--binary false` for ASCII PLY). Triangle-only formats fail with `unknown_format`.
 - **`--edge-length`:** Defaults in CLI to `max(diagonal / 30, 2 * meanEdge)` (`used_edge_length`).
 - **Opt-in field & sizing options (library defaults off / `0` / `30`):**
-  - `--size-adaptation off|scale|scale_and_rotation`: runs `IntegrableFrames` for closed smooth shapes (applied only when curl drops by at least 20 %; cannot be combined with `--pure-quads`).
+  - `--size-adaptation off|scale|scale_and_rotation`: runs `IntegrableFrames` for closed smooth shapes (applied only when curl drops by at least 20 %; can be combined with `--pure-quads`).
   - `--curvature-alignment <num>`: principal-curvature alignment weight (`>= 0`).
   - `--align-creases` / `--crease-angle <deg>`: align the cross field with crease edges above `crease_angle` (`0..180`).
   - `--corner-angle <deg>`: boundary corner threshold (`0..180`) for pinning boundary vertices as lattice corners.

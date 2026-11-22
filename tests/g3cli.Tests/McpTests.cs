@@ -395,11 +395,12 @@ namespace g3cli.Tests
             Assert.Equal("boolean", S(quad["inputSchema"]["properties"]["align_creases"]["type"]));
             Assert.Equal("number", S(quad["inputSchema"]["properties"]["crease_angle"]["type"]));
             Assert.Equal("number", S(quad["inputSchema"]["properties"]["corner_angle"]["type"]));
-            // MCP call with size_adaptation + pure_quads returns invalid_arguments
+            // MCP call with size_adaptation + pure_quads is accepted and reports the pure-quad status (success or the named fallback)
             r = Handle(server, Call(5, "quad", new JsonObject() {
-                ["input"] = m.Sphere, ["output"] = m.Path_("mcp_quad_bad.obj"), ["edge_length"] = 0.4, ["size_adaptation"] = "scale", ["pure_quads"] = true }));
-            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
-            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+                ["input"] = m.Sphere, ["output"] = m.Path_("mcp_quad_both.obj"), ["edge_length"] = 0.4, ["size_adaptation"] = "scale", ["pure_quads"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("scale", S(r["result"]["structuredContent"]["size_adaptation"]));
+            Assert.NotEqual("not_requested", S(r["result"]["structuredContent"]["pure_quad_status"]));
             // MCP call with size_adaptation succeeds and reports p95
             r = Handle(server, Call(6, "quad", new JsonObject() {
                 ["input"] = m.Sphere, ["output"] = m.Path_("mcp_quad_adapt.obj"), ["edge_length"] = 0.4, ["size_adaptation"] = "scale", ["curvature_alignment"] = 1.0 }));

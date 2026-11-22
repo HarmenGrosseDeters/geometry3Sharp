@@ -80,6 +80,10 @@ namespace geometry3Sharp.Tests
             double scale = 1;
             DMesh3 m = far >= 0 ? RobustRepairFarPartTests.Scene(far) : FastWindingScaleTests.UnitFrameScene(1e8, out scale);
             var tree = new DMeshAABBTree3(m, true);
+            // FastWindingNumber evaluates exact leaves with floating-point MathUtil.TriSolidAngle, which can suffer
+            // near-0/0 cancellation on 1-ULP off-plane edge midpoints/centroids where ExactWindingCache now returns
+            // the exact Orient3d-decided 0/1. Compare against the matching TriSolidAngle sum to test the FWN gate.
+            var legacyRef = new DMeshAABBTree3(m, true) { ForceLegacyWindingCache = true };
             Assert.Equal(2.0, tree.FWNBeta);
             tree.FastWindingNumber(Vector3d.Zero);
             var exact = new System.Collections.Generic.List<int>();
@@ -92,8 +96,8 @@ namespace geometry3Sharp.Tests
                     tree.FastWindingExactTriangles(p, exact);
                     Assert.True(exact.Contains(t), $"far {far}, triangle {t}, point {p}: not summed exactly ({exact.Count} are)");
                     // (the own term of the triangle is +-0.5 on it: an expanded box above it would be off by about that)
-                    double fast = tree.FastWindingNumber(p), reference = tree.WindingNumber(p);
-                    Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs exact {reference}");
+                    double fast = tree.FastWindingNumber(p), reference = legacyRef.WindingNumber(p);
+                    Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs legacy {reference}");
                     checkedPoints++;
                 }
             }
