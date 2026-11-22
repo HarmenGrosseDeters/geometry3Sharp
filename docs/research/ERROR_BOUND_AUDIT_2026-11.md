@@ -179,8 +179,13 @@ as the tree; until then the spare 1e-6 is a documented part of the bound, not a 
 - `tools/PredicateCompiler/Compiler.cs:251`: the comment says "K > 2^-60", the check is K >= 2^-62 (which is what the argument needs).
 - "Relative error at most 2^-52" of a converted coordinate is used as |x^ - x| <= 2^-52 |x^| (one ulp of the double).
   That is what a truncating conversion gives, and the 2.3e-16 constants cover it with a margin of 1.036 (RC-2).
-- Lead from the inventory, not verified: `TriangleBoxTree.segment_hits` has no slack in its `|d| < 1e-300` branch,
-  and `PolyhedralEnvelope.cs:512` calls it with pad 0.
+- Lead from the inventory, checked (reproducer L1 of the adversarial tool): `TriangleBoxTree.segment_hits` tests only
+  p in its branch for a segment parallel to a slab (`|d| < 1e-300`), without slack. With pad 0 (the call of
+  `PolyhedralEnvelope.cs:512`) it returns false for the box x in [1e-310, 1] and the segment from x = 0 to 2e-310,
+  whose end is in the box. Not a finding: it needs coordinate differences below 1e-300; the boolean's callers pass a
+  pad of at least 1e-300 + 1e-9 of the point's size; and in the envelope the search box has a margin of about
+  9e-16 (Epsilon + M) around the polyhedron, so a dropped candidate matters only for Epsilon and coordinates below
+  about 1e-285, where it turns `ContainsSegment` from true to false (the conservative side).
 
 ## 4. Machine-derived bounds
 
@@ -360,16 +365,14 @@ reference expands the same determinant as the library, so it checks the rounding
 
 ## 7. Proposal: a CI test so that the bounds cannot drift
 
-1. **The table as a test, now.** `tools/ErrorBoundAudit/test_error_bound_audit.py` (in this PR, not yet in a
-   workflow): every anchor is still in the source; every derivation still proves its bound; the open findings are
-   exactly F1 and F4; the models hold on concrete doubles; mutants of the checker fail. A changed line that a model
-   transcribes or a guard it relies on (searched inside the model's function) fails the anchor test until the model
-   is brought up to date. An operation added between the anchored lines is not seen: the anchors narrow the review,
-   they do not replace re-reading a changed function. Where: one more line in the Python tool tests
-   of the `linux` job of `.github/workflows/ci.yml`
-   (`python3 -m unittest discover -s tools/ErrorBoundAudit -p 'test_*.py' -v`), and `tools/ErrorBoundAudit/` in the
-   scope that always runs them, since it reads library sources. Time: 5.3 s for the file (ten tests, the
-   largest about 3 s). `ci.yml` is a gate file: the coordinator's label.
+1. **The table as a test (done in the follow-up to this note's PR).** `tools/ErrorBoundAudit/test_error_bound_audit.py`:
+   every anchor is still in the source; every derivation still proves its bound; the open findings are exactly F1 and
+   F4; the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
+   guard it relies on (searched inside the model's function) fails the anchor test until the model is brought up to
+   date. An operation added between the anchored lines is not seen: the anchors narrow the review, they do not replace
+   re-reading a changed function. It runs in the `linux` job of `.github/workflows/ci.yml` (5 s, ten tests, the
+   largest about 3 s), which every library change runs; the same step runs the adversarial tool at 2 000 inputs per
+   group (about 3 s after its build) and fails on a wrong decision.
 2. **The adversarial run as an xunit test.** `ErrorBoundAdversarialTests` in `tests/geometry3Sharp.Tests`
    (it has `InternalsVisibleTo`, so without reflection): the checks of section 6 at 2 000 inputs per range, under 1 s
    each. With each fix of F1 to F4 its reproducer becomes a test that fails on the old code (label `bugfix`).

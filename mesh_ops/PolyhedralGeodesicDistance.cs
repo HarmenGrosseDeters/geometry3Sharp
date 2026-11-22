@@ -7,6 +7,7 @@ namespace g3
     /// <summary> The outcome of <see cref="PolyhedralGeodesicDistance.Compute"/>. </summary>
     /// <summary> PartiallyReached: the run finished, but a vertex of a source's connected component (reachable over the edges) has no distance
     /// (MaxDistance infinite); the reached values are in Distance, UnreachedVertices counts the rest. Seen on triangles of aspect ratio beyond about 1e5. </summary>
+    /// <summary> DegenerateTriangles: a triangle without area, and also edge lengths more than 2^200 apart (the shortest non-zero edge below 2^-200 of the longest: the products of four lengths of the geometry would leave the double range). </summary>
     public enum PolyhedralGeodesicStatus { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, Cancelled, PartiallyReached }
 
     /// <summary>
@@ -94,6 +95,16 @@ namespace g3
         double[] vx, vy, vz;
         double[] elen;
         double extent, cEps, delta, xiCap;
+        // Unit scale (#1377, MAGNITUDE_ROBUSTNESS_2026-11.md option (a)): the positions vx, vy, vz, the lengths and the windows are
+        // in lengths times 2^-scaleExp (the exponent of the longest edge), so that a mesh scaled by 2^j runs bit for bit the same at every
+        // scale and the products of four lengths in Place stay in the double range. Distance, the paths and MaxDistance are in the
+        // units of the mesh; maxDistU is MaxDistance in unit scale.
+        int scaleExp;
+        double maxDistU;
+        double Down(double x) => scaleExp == 0 ? x : ExactPoint3.ScaleB(x, -scaleExp);
+        double Up(double x) => scaleExp == 0 ? x : ExactPoint3.ScaleB(x, scaleExp);
+        Vector3d Down(Vector3d v) => scaleExp == 0 ? v : new Vector3d(Down(v.x), Down(v.y), Down(v.z));
+        const double DisparityLimit = 6.223015277861142e-61;      // 2^-200 of the longest edge, see IntrinsicTriangulation.HasLengthDisparity
         long maxWindows;
         int maxValence;
 
@@ -120,24 +131,27 @@ namespace g3
             if (sourceVertices != null) foreach (int s in sourceVertices) if (s >= 0 && s < n && Mesh.IsVertex(s) && !src.Contains(s)) src.Add(s);
             if (src.Count == 0) return PolyhedralGeodesicStatus.NoSource;
             foreach (int v in Mesh.VertexIndices()) if (Mesh.IsBowtieVertex(v)) return PolyhedralGeodesicStatus.NonManifoldInput;
+            scaleExp = gs.IntrinsicTriangulation.EdgeExponent(Mesh);
+            maxDistU = Down(MaxDistance);
             foreach (int t in Mesh.TriangleIndices()) {
                 Index3i tri = Mesh.GetTriangle(t);
-                Vector3d a = Mesh.GetVertex(tri.a), b = Mesh.GetVertex(tri.b), c = Mesh.GetVertex(tri.c);
+                Vector3d a = Down(Mesh.GetVertex(tri.a)), b = Down(Mesh.GetVertex(tri.b)), c = Down(Mesh.GetVertex(tri.c));       // (unit scale: the squares of the cross products stay in the double range)
                 ExactInterval ux = ExactInterval.Of(b.x) - ExactInterval.Of(a.x), uy = ExactInterval.Of(b.y) - ExactInterval.Of(a.y), uz = ExactInterval.Of(b.z) - ExactInterval.Of(a.z);
                 ExactInterval wx = ExactInterval.Of(c.x) - ExactInterval.Of(a.x), wy = ExactInterval.Of(c.y) - ExactInterval.Of(a.y), wz = ExactInterval.Of(c.z) - ExactInterval.Of(a.z);
                 ExactInterval area2 = ExactInterval.Square(uy * wz - uz * wy) + ExactInterval.Square(uz * wx - ux * wz) + ExactInterval.Square(ux * wy - uy * wx);
                 if (!(area2.Lo > 0)) return PolyhedralGeodesicStatus.DegenerateTriangles;
             }
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
-            extent = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
+            extent = Down(Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z)));
             cEps = 16 * Eps * extent; delta = 1e-12 * extent; xiCap = 1e-6 * extent;
             maxWindows = Math.Min(MaxWindows > 0 ? MaxWindows : 64L * Mesh.VertexCount, 1L << 30);   // window ids and the heap are int
             maxValence = 0;
             vx = new double[n]; vy = new double[n]; vz = new double[n];
-            foreach (int v in Mesh.VertexIndices()) { Vector3d p = Mesh.GetVertex(v); vx[v] = p.x; vy[v] = p.y; vz[v] = p.z; maxValence = Math.Max(maxValence, Mesh.GetVtxEdgeCount(v)); }
+            foreach (int v in Mesh.VertexIndices()) { Vector3d p = Mesh.GetVertex(v); vx[v] = Down(p.x); vy[v] = Down(p.y); vz[v] = Down(p.z); maxValence = Math.Max(maxValence, Mesh.GetVtxEdgeCount(v)); }
             int me = Mesh.MaxEdgeID;
             elen = new double[me];
             foreach (int e in Mesh.EdgeIndices()) { Index2i ev = Mesh.GetEdgeV(e); elen[e] = Len(ev.a, ev.b); }
+            foreach (int e in Mesh.EdgeIndices()) { Index2i ev = Mesh.GetEdgeV(e); bool vanished = elen[e] == 0 && (vx[ev.a] != vx[ev.b] || vy[ev.a] != vy[ev.b] || vz[ev.a] != vz[ev.b]); if (vanished || (elen[e] > 0 && elen[e] < DisparityLimit)) return PolyhedralGeodesicStatus.DegenerateTriangles; }     // edge lengths more than 2^200 apart
             vrec = new VRec[n];
             dist = new double[n]; xiV = new double[n]; emitted = new double[n]; root = new int[n]; kind = new byte[n]; vpos = new int[n];
             for (int v = 0; v < n; ++v) { dist[v] = emitted[v] = double.PositiveInfinity; root[v] = -1; vpos[v] = -1; }
@@ -162,7 +176,7 @@ namespace g3
                 Propagate(id, side);
             }
             for (int v = 0; v < n; ++v)
-                if (Mesh.IsVertex(v) && dist[v] <= MaxDistance && dist[v] < double.PositiveInfinity) { Distance[v] = dist[v]; NearestSource[v] = root[v]; }
+                if (Mesh.IsVertex(v) && dist[v] <= maxDistU && dist[v] < double.PositiveInfinity) { Distance[v] = Up(dist[v]); NearestSource[v] = root[v]; }
             if (double.IsPositiveInfinity(MaxDistance)) {
                 // Ok guarantees a distance for every vertex of the sources' components: a breadth-first walk over the edges from the sources
                 var seen = new bool[n]; var queue = new Queue<int>();
@@ -222,7 +236,7 @@ namespace g3
                 bool lower = d < dist[v];
                 dist[v] = d; root[v] = rootSource; xiV[v] = xi;
                 ref VRec vr = ref vrec[v]; vr.Kind = how; vr.E = e; vr.Side = side; vr.Org = origin; vr.X = ox; vr.Y = oy;
-                if (lower && kind[v] == 1 && d <= MaxDistance) Push(~v, d);
+                if (lower && kind[v] == 1 && d <= maxDistU) Push(~v, d);
             }
         }
 
@@ -301,7 +315,7 @@ namespace g3
         void Add(ref Window win)
         {
             int side = win.Side, e = side >> 1;
-            if (!(win.B1 > win.B0) || LowerKey(win) > MaxDistance) return;
+            if (!(win.B1 > win.B0) || LowerKey(win) > maxDistU) return;
             double L = elen[e];
             double xiM = win.Xi, margin = 4 * cEps;
             // segments of the new window that survive; the first version keeps one, cuts happen at the ends

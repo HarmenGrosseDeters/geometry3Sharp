@@ -394,8 +394,9 @@ namespace gs
                 // (convex in its input triangle; rounding can give a face without area a negative one)
                 if (!(area >= 0)) area = area < 0 ? 0 : area;
                 itArea[t] += area; inArea[it] += area;
+                if (!(UpArea(area) < double.PositiveInfinity) && faceError == null) faceError = "a face area is outside the double range in the units of the mesh (coordinates beyond about 2^500)";
                 R.Faces.Add(new IntrinsicCommonSubdivision.Face() {
-                    InputTriangle = inTid[it], IntrinsicTriangle = t, Corners = corners, Barycentric = bary, Area = area
+                    InputTriangle = inTid[it], IntrinsicTriangle = t, Corners = corners, Barycentric = bary, Area = UpArea(area)
                 });
             };
 
@@ -467,7 +468,7 @@ namespace gs
                 if (!(err <= R.MaxInputAreaError)) R.MaxInputAreaError = err;
             }
             for (int t = 0; t < F; ++t) {
-                double a = TriangleArea(t);
+                double a = TriangleAreaU(t);
                 double err = Math.Abs(itArea[t] - a) / Math.Max(a, 1e-300);
                 if (!(err <= R.MaxIntrinsicAreaError)) R.MaxIntrinsicAreaError = err;
             }

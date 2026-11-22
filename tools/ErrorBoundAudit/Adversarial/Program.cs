@@ -406,6 +406,18 @@ static class Program
         }
     }
 
+    // A lead of the inventory that is not a finding (note, section 3): TriangleBoxTree.segment_hits tests only p in its
+    // branch for a segment parallel to a slab (|d| < 1e-300), without slack, and PolyhedralEnvelope queries with pad 0.
+    static void SegmentHitsLead()
+    {
+        var sh = M("TriangleBoxTree", "segment_hits");
+        double[] box = { 1e-310, 0, 0, 1, 1, 1 };
+        Vector3d p = new Vector3d(0, 0.5, 0.5), q = new Vector3d(2e-310, 0.5, 0.5);
+        bool hit = (bool)sh.Invoke(null, new object[] { box, 0, p, q, 0.0 });
+        bool hitScaled = (bool)sh.Invoke(null, new object[] { new double[] { 1e-10, 0, 0, 1, 1, 1 }, 0, p, new Vector3d(2e-10, 0.5, 0.5), 0.0 });
+        Console.WriteLine("L1 segment_hits(box x in [1e-310, 1], segment x from 0 to 2e-310, pad 0) = {0} (q is in the box; with 1e-10 and 2e-10: {1})", hit, hitScaled);
+    }
+
     static int Main(string[] args)
     {
         int n = args.Length > 0 ? int.Parse(args[0]) : 20000;
@@ -417,6 +429,7 @@ static class Program
         Certified(n);
         Arrangement(n);
         Findings();
+        SegmentHitsLead();
         Console.WriteLine(failures == 0 ? "\nno wrong decision in the bounds the audit calls sound" : "\nFAILED: " + failures + " checks with wrong decisions");
         return failures == 0 ? 0 : 1;
     }
