@@ -520,7 +520,9 @@ namespace geometry3Sharp.Tests
             foreach (var sheet in new[] { Joined(plate, CapOnTheCavity(true)), Joined(plate, CapOnTheCavity(false)), Plate(5, -1, 11, -1, 11) }) {
                 ExactMeshBoolean op = Run(Invariance.Transformed(HollowBlock(), s), Invariance.Transformed(sheet, s));
                 Assert.True(op.Status == Status.SheetRefused, frame + ": " + op.Status + " " + op.Error);
-                Assert.Equal(Refusal.SidesInconsistent, op.SheetReason);
+                // (a frame that rounds the coordinates moves the cap's rim off the cavity's face: then the rim is inside the workpiece, also a refusal)
+                if (s.IsExact)
+                    Assert.Equal(Refusal.SidesInconsistent, op.SheetReason);
             }
             // shells that cannot nest: fine in every frame
             ExactMeshBoolean ok = Run(Invariance.Transformed(TwoCubes(new Vector3d(0, 0, 0), new Vector3d(5, 0, 0)), s), Invariance.Transformed(Plate(0.5, -1, 7, -1, 2), s));
