@@ -5,12 +5,13 @@
 //
 // Items:
 //   <case>            a case of the bound probe (Bound.cs: box, lshape, ..., fin:<k>, fslot, [@rot|@far|@rotfar]). Variants:
-//                       F the oracle with another triangulation (the quadrature floor), R the raw wrap, A the pipeline (wrap, simplification), K the feature pass then the simplification,
+//                       R the raw wrap, A the pipeline (wrap, simplification), K the feature pass then the simplification,
 //                     each against two references: O the mitered offset of the clean reference (Bound.cs), I the input itself.
 //   selftest          closed form (two parallel squares) and the convergence in the quadrature spacing
 //   bevel:<w,w,...>   controlled damage, no wrap: an L-shaped prism against itself with every vertical crease chamfered w offsets wide
 //   count:<w>         the same with 1, 2, ... of its 6 vertical creases chamfered w offsets wide
 //   shift:<x,x,...>   the prism against its own mitered offset by x offsets (position error only)
+//   floor:<case>      the floor row F of a case alone (no wrap), with the length of the oracle's feature network
 //   pose:<case>       the metric of (A, O) of a case under similarities applied to both meshes
 //
 // sigma is given in offsets (offset = diagonal / 3000, the wrap's); the quadrature spacing is sigma / q.
@@ -65,6 +66,7 @@ static class Varifold
                 else if (item.StartsWith("count:")) Damage(item, new[] { double.Parse(item.Substring(6), inv) }, "count");
                 else if (item.StartsWith("shift:")) Damage(item, item.Substring(6).Split(',').Select(s => double.Parse(s, inv)).ToArray(), "shift");
                 else if (item.StartsWith("pose:")) Pose(item);
+                else if (item.StartsWith("floor:")) Floor(item);
                 else Case(item);
             } catch (Exception e) { Console.Error.WriteLine(item + ": " + e); failed++; }
         }
@@ -103,9 +105,9 @@ static class Varifold
         Wraps(name, out DMesh3 input, out DMesh3 oracle, out Bound.Network net, out double alpha, out double delta, out DMesh3 raw, out DMesh3 a, out DMesh3 k, out long msA, out long msK);
         var refs = new[] { ("O", oracle), ("I", input) };
         var refCache = new Dictionary<string, Cached>();
-        foreach (var (variant, result, ms) in new[] { ("F", Resplit(oracle), 0L), ("R", raw, 0L), ("A", a, msA), ("K", k, msK) }) {
+        foreach (var (variant, result, ms) in new[] { ("R", raw, 0L), ("A", a, msA), ("K", k, msK) }) {
             var probe = new Dictionary<string, object>();
-            if (variant != "F") Bound.Measure(input, oracle, net, result, alpha, delta, probe);
+            Bound.Measure(input, oracle, net, result, alpha, delta, probe);
             var res = new Cached(result);
             foreach (var (rname, reference) in refs) {
                 if (!refCache.TryGetValue(rname, out Cached rc)) refCache[rname] = rc = new Cached(reference);
@@ -125,10 +127,23 @@ static class Varifold
         var r = new DMesh3(m, true);
         var rnd = new Random(4711);
         foreach (int tid in m.TriangleIndices()) {
-            double u = 0.2 + 0.4 * rnd.NextDouble(), v = 0.2 + 0.3 * rnd.NextDouble();
+            double u = 0.15 + 0.3 * rnd.NextDouble(), v = 0.15 + 0.3 * rnd.NextDouble();      // (u + v <= 0.9: inside)
             r.PokeTriangle(tid, new Vector3d(1 - u - v, u, v), out DMesh3.PokeTriangleInfo info);
         }
         return r;
+    }
+
+    // only the floor row of a case (no wrap), with the length of the oracle's feature network in offsets
+    static void Floor(string item)
+    {
+        Bound.Make(item.Substring(6), out DMesh3 input, out DMesh3 reference, out bool dirty);
+        double diag = input.CachedBounds.DiagonalLength, alpha = diag / RelAlpha, delta = diag / RelOffset;
+        DMesh3 oracle = Bound.MiteredOffset(reference, delta, out double residual);
+        var net = new Bound.Network(oracle, alpha);
+        var common = new Dictionary<string, object>();
+        common["file"] = item; common["variant"] = "F"; common["ref"] = "O"; common["delta"] = delta; common["tris"] = oracle.TriangleCount;
+        common["net_len"] = net.Length / delta; common["ref_area"] = MeshMeasurements.AreaT(oracle, oracle.TriangleIndices()) / (delta * delta);
+        Rows(common, new Cached(Resplit(oracle)), new Cached(oracle), delta);
     }
 
     // ---- rows: the varifold distances at every sigma, with the classical measures beside them ----
