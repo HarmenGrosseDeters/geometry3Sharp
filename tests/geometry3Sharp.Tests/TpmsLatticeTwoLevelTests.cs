@@ -105,6 +105,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(t.Mesh));
             Assert.Equal(1, MeshTopologySummary.Compute(t.Mesh).Components);
 
+            // a graded cell size (the period 1 to 1.5 along z) with a thin wall
+            t = Make(true, 0.4, 10, 1.5);
+            t.WallThickness = 0; t.VolumeFraction = 0.06;
+            t.Box = new AxisAlignedBox3d(new Vector3d(-0.75, -0.75, 0), new Vector3d(0.75, 0.75, 1.5));
+            t.Grade = TpmsLattice.LinearGrade(2, 0, 1, 1.5, 1.5, 1.75);
+            t.Compute();
+            Assert.True(t.Status == TpmsStatus.Ok, t.Status + ": " + t.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(t.Mesh));
+            Assert.Equal(1, MeshTopologySummary.Compute(t.Mesh).Components);
+
             var sphere = new Sphere3Generator_NormalizedCube { Radius = 0.7, EdgeVertices = 12 };
             DMesh3 domain = sphere.Generate().MakeDMesh();
             MeshTransforms.Translate(domain, new Vector3d(0.75, 0.75, 0.75));
@@ -124,10 +134,10 @@ namespace geometry3Sharp.Tests
         {
             TpmsLattice reference = null;
             foreach (Similarity s in Similarity.All()) {
-                TpmsLattice lattice = Make(true, 0.4, 10, 1.25);
+                TpmsLattice lattice = Make(true, 0.4, 8, 1);
                 lattice.CellSize = s.Scale * L;
-                lattice.WallThickness = 0.4 * s.Scale * L / 10;
-                lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.25, 1.25, 1.25) * s.Scale);
+                lattice.WallThickness = 0.4 * s.Scale * L / 8;
+                lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * s.Scale);
                 lattice.Origin = s.Apply(Vector3d.Zero);
                 lattice.Rotation = s.Rotation;
                 lattice.Compute();

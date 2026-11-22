@@ -391,10 +391,12 @@ measured the alternative that is built here: the two sides of the wall as the tw
 - **Consistency across tetrahedra in floating point:** whether a function is negative at a crossing of another one on a grid edge is decided
   by the order of the two crossing parameters on that edge only (with a fixed tie rule), never by evaluating the function at the point.
   Every tetrahedron and polygon at an edge so sees one arrangement, and the two polygons that meet in a face agree on whether the face has
-  a vertex of both planes (the test `RimGuard_...` and the mutants "order of crossings swapped" and "tie rule ignored" pin it).
+  a vertex of both planes (the test `CoincidentCrossings_WithoutTheRimGuard_StillGiveOneArrangement` and the mutants "order of crossings swapped" and "tie rule ignored" pin it; the
+  review's fuzz of 2400 small grids with integer node values, so with many ties, found none open or non-manifold with the guards on).
 - **Slivers:** two guards move node values, so the result stays the exact boundary of a piecewise linear solid. `SliverGuard` is the guard
   of section 4 (a value within 1/256 of the mean change per crossing edge counts as inside). `RimGuard` is new: where the cut of the domain
-  and a side of the wall cross a grid edge within 1/512 of the edge, the domain value at one end is changed to separate them (measured on 800
+  and a side of the wall cross a grid edge within 1/512 of the edge, the domain value at one end is changed to separate them (best effort, 8 rounds;
+  the cut moves by about 1.7 / 512 of a cube at the default; measured on 800
   clipped runs of four shapes, walls of 1.5 to 0.002 cells: 798 clean; without it about 10 % have triangles of almost no area). The two left
   are walls of 0.002 cells, thinner than the guard.
 - **What is not claimed:** the topology of the true level sets (the grid must still resolve the surface itself, 8 to 16 cubes per period),

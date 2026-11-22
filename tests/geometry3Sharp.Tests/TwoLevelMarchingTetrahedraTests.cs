@@ -133,24 +133,66 @@ namespace geometry3Sharp.Tests
             Assert.InRange(bottom - 0.7, 0.1 * H, 0.25 * H);
         }
 
-        [Fact]
-        public void Similarities_Pow2BitIdentical_AllClean()
+        [Theory]
+        [InlineData("shell")]
+        [InlineData("gyroid")]
+        public void Similarities_Pow2BitIdentical_AllClean(string shape)
         {
-            foreach (string shape in new[] { "shell", "gyroid" }) {
-                DMesh3 r0 = Contour(shape, 0.3, Similarity.Identity);
-                foreach (Similarity sim in Similarity.All()) {
-                    DMesh3 r = Contour(shape, 0.3, sim);
-                    Assert.True(r.IsClosed(), sim.Name);
-                    Assert.True(Invariance.AllFinite(r), sim.Name);
-                    DMesh3 back = Invariance.MappedBack(r, sim);
-                    if (sim.IsExact)
-                        Assert.Equal("", Invariance.Difference(r0, back));
-                    else {
-                        // another grid position: the same solid up to the cell size, still clean
-                        Assert.Equal("", MeshRobustRepair.NotCleanReason(back));
-                        Assert.InRange(Invariance.Volume(back) / Invariance.Volume(r0), 0.9, 1.1);
-                    }
+            DMesh3 r0 = Contour(shape, 0.3, Similarity.Identity);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r0));
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 r = Contour(shape, 0.3, sim);
+                Assert.True(r.IsClosed(), sim.Name);
+                Assert.True(Invariance.AllFinite(r), sim.Name);
+                DMesh3 back = Invariance.MappedBack(r, sim);
+                if (sim.IsExact)
+                    Assert.Equal("", Invariance.Difference(r0, back));
+                else {
+                    // another grid position: the same solid up to the cell size, still clean (the exact self-intersection
+                    // check, the slow part, runs on the identity and on the rotated frames only)
+                    Assert.Equal("", MeshRobustRepair.NotCleanReason(back, sim.Rotation.EpsilonEqual(Matrix3d.Identity, 0) == false));
+                    Assert.InRange(Invariance.Volume(back) / Invariance.Volume(r0), 0.9, 1.1);
                 }
+            }
+        }
+
+        [Fact]
+        public void ExtremeMagnitudes_SameMeshOrAnError()
+        {
+            // the field in other units: powers of two give the same mesh bit for bit, far beyond the range of a product of two values
+            Func<double, TwoLevelMarchingTetrahedra> make = s => {
+                TwoLevelMarchingTetrahedra g = Make("plate", 0.3, Similarity.Identity);
+                ImplicitFunction3d field = g.Field, domain = g.Domain; double w = g.HalfWidth;
+                g.Field = new Fn(p => s * field.Value(ref p)); g.Domain = new Fn(p => s * domain.Value(ref p)); g.HalfWidth = s * w;
+                return g;
+            };
+            TwoLevelMarchingTetrahedra reference = make(1);
+            reference.Generate();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(reference.Mesh));
+            foreach (int e in new[] { -900, -600, -200, 200, 400 }) {
+                TwoLevelMarchingTetrahedra g = make(Math.Pow(2, e));
+                g.Generate();
+                Assert.Equal("", Invariance.Difference(reference.Mesh, g.Mesh));
+            }
+            // above the documented range, and a half width that the field's rounding swallows: an error, not a wrong mesh
+            Assert.Throws<InvalidOperationException>(() => make(1e200).Generate());
+            TwoLevelMarchingTetrahedra thin = Make("shell", 1, Similarity.Identity);
+            thin.HalfWidth = 1e-18;
+            Assert.Throws<InvalidOperationException>(() => thin.Generate());
+        }
+
+        [Fact]
+        public void ExceptionOfACallback_IsRethrownAsItIs_SerialAndParallel()
+        {
+            foreach (bool parallel in new[] { false, true }) {
+                TwoLevelMarchingTetrahedra gen = Make("shell", 1, Similarity.Identity, parallel);
+                gen.HalfWidthF = p => { if (p.z > 0.5) throw new FormatException("from the caller"); return 0.01; };
+                FormatException e = Assert.Throws<FormatException>(() => gen.Generate());
+                Assert.Equal("from the caller", e.Message);
+                Assert.Null(gen.Mesh);
+                gen.HalfWidthF = null;          // reusable afterwards
+                gen.Generate();
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(gen.Mesh));
             }
         }
 
@@ -196,6 +238,7 @@ namespace geometry3Sharp.Tests
             AxisAlignedBox3d b = guarded.CachedBounds;
             Assert.InRange(b.Max.z, 0.25, 0.25 + 0.25 / 128);
             Assert.InRange(b.Min.z, -0.25 - 0.25 / 128, -0.25);
+            // without the guard every crossing is at a node: triangles without area at least (and the mesh need not be closed)
             Assert.NotEqual("", MeshRobustRepair.NotCleanReason(run(false)));
         }
 

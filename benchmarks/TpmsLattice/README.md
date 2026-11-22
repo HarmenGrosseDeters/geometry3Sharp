@@ -104,8 +104,9 @@ Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; ot
   cube and below the result is thousands of fragments reported as `Ok` (16 divisions) or empty. The two-level result keeps the wall asked
   for (0.99 to 1.09) down to a tenth of a cube, in one or two components, and passes the same certificate.
 - Where both resolve the wall (2 and 3 cubes at 16 divisions) they agree: the same number of components and the mean wall within 2 %.
-- Cost: 2.5 to 2.7 times the triangles of marching cubes (five tetrahedra per cube) and 2.5 to 3.2 times the time of `Compute` at 16
-  divisions where both give the wall (the exact self-intersection check and the rest of the certificate scale with the triangles; not
-  separated here). At 8 divisions and 2 cubes it was faster (252 against 300 ms; small runs, not investigated).
-- The component counts above one at thick walls are small pieces that the box cuts off at its corners, in both methods; this benchmark does
-  not check them against a reference.
+- Cost: 2.5 to 2.7 times the triangles of marching cubes (five tetrahedra per cube) and 2.5 times the time of `Compute` at 16
+  divisions where both give the wall (2 and 3 cubes; the exact self-intersection check and the rest of the certificate scale with the
+  triangles; not separated here). The times at 8 divisions are small and uneven (252 against 300 ms at 2 cubes, 641 ms at 1 cube with the
+  same grid; not investigated).
+- The component counts differ in places (8 divisions, 2 cubes: 3 against 1; 1 cube: 1 against 2). At thick walls the extra components are
+  small pieces that the box cuts off; this benchmark does not check the counts against a reference.

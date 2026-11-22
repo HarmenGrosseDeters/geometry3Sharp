@@ -13,8 +13,12 @@ namespace g3
     /// and d interpolated linearly in each tetrahedron, the result is the exact boundary of the solid
     /// {g - w &lt;= 0, -g - w &lt;= 0, d &lt;= 0} of those piecewise linear functions: in a tetrahedron the two sides are two
     /// planes that cannot meet (their functions add up to -2 w &lt; 0), so the wall keeps both sides at any thickness above
-    /// zero, and the pieces of different tetrahedra have disjoint interiors, so the mesh has no self-intersections by
-    /// construction. Where the solid stays inside Bounds the mesh is closed. It uses the values at the grid nodes only: one
+    /// zero that the values of g can carry (a half width below their rounding is rejected), and the pieces of different
+    /// tetrahedra have disjoint interiors, so the mesh has no self-intersections by construction. Where the solid stays
+    /// inside Bounds the mesh is closed, with SliverGuard on (without it a node value of exactly zero can leave a hole, counted
+    /// in NonManifoldTriangles). These are arguments about the construction in exact arithmetic; the vertices are rounded
+    /// doubles, so use MeshRobustRepair.NotCleanReason as the certificate of a result. Field values must be finite and at most
+    /// 1e150 in magnitude. It uses the values at the grid nodes only: one
     /// evaluation of Field (and of HalfWidthF and Domain) per node, as marching cubes with linear edges.
     ///
     /// What it does not do: it sees only what the grid resolves of g itself (a wall of g thinner than a cell is fine, a
@@ -54,9 +58,11 @@ namespace g3
         /// With a Domain: where the rim (a side of the wall meeting the cut of the domain) passes next to a grid edge, the
         /// boundary gets edges far shorter than a cell and triangles of almost no area. Where the crossings of the domain and
         /// of a side of the wall on a grid edge are closer than this fraction of the edge, the value of the Domain function at
-        /// one end of the edge is changed so that they are 1.5 times this fraction apart. The cut of the domain moves by about
-        /// that fraction of a cell there; the wall is not touched, and the result is still the exact boundary of a piecewise
-        /// linear solid. 0 switches it off.
+        /// one end of the edge is changed to move them 1.5 times this fraction apart (a few rounds, best effort: a node's change
+        /// moves the crossings of its other edges too, and a wall thinner than this fraction of a cell at the rim can keep
+        /// slivers). The cut of the domain moves by a few times this fraction of a cell there (measured: 1.7 times at the
+        /// default); the wall is not touched, and the result is still the exact boundary of a piecewise linear solid. 0
+        /// switches it off.
         /// </summary>
         public double RimGuard = 1.0 / 512;
 
@@ -73,8 +79,10 @@ namespace g3
         public Vector3i CellDimensions;
         /// <summary> triangles left out because they would have made a non-manifold edge (0 except for degenerate node values with SliverGuard 0) </summary>
         public int NonManifoldTriangles;
-        /// <summary> node values of the Domain function that RimGuard changed </summary>
+        /// <summary> changes of node values of the Domain function made by RimGuard (a node can be changed more than once) </summary>
         public int RimNodesMoved;
+
+        const double MaxMagnitude = 1e150;
 
         // the three constraint functions at the grid nodes, negative inside: g - w, -g - w, d
         double[][] f;
@@ -151,8 +159,14 @@ namespace g3
             f = new double[nc][];
             for (int c = 0; c < nc; ++c) f[c] = new double[nodes];
             bool bad = false, cancelled = false;
+            Exception thrown = null;
+            Action<int> rows = null;
+            // an exception of a caller's function is rethrown as it is, also from the parallel loop (the first one caught)
             Action<int> slab = k => {
-                if (cancelled || bad) return;
+                if (cancelled || bad || thrown != null) return;
+                try { rows(k); } catch (Exception e) { lock (f) { if (thrown == null) thrown = e; } }
+            };
+            rows = k => {
                 if (CancelF()) { cancelled = true; return; }
                 for (int j = 0; j < n1y; ++j)
                     for (int i = 0; i < n1x; ++i) {
@@ -161,15 +175,34 @@ namespace g3
                         double g = Field.Value(ref p);
                         double w = HalfWidthF != null ? HalfWidthF(p) : HalfWidth;
                         double d = nc == 3 ? Domain.Value(ref p) : -1;
-                        if (double.IsNaN(g) || double.IsInfinity(g) || !(w > 0) || double.IsInfinity(w) || double.IsNaN(d) || double.IsInfinity(d)) { bad = true; return; }
+                        // finite and within the range in which the sums and products of node values do not overflow
+                        if (!(Math.Abs(g) <= MaxMagnitude) || !(w > 0 && w <= MaxMagnitude) || !(Math.Abs(d) <= MaxMagnitude)) { bad = true; return; }
                         f[0][id] = g - w; f[1][id] = -g - w;
                         if (nc == 3) f[2][id] = d;
                     }
             };
             if (ParallelCompute) gParallel.ForEach(Interval1i.Range(n1z), slab);
             else for (int k = 0; k < n1z; ++k) slab(k);
-            if (bad) { Release(); throw new InvalidOperationException("TwoLevelMarchingTetrahedra: a field value is not finite, or the half width is not positive, at a grid node"); }
+            if (thrown != null) { Release(); System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(thrown).Throw(); }
+            if (bad) { Release(); throw new InvalidOperationException("TwoLevelMarchingTetrahedra: at a grid node a field value is not finite or above 1e150 in magnitude, or the half width is not positive"); }
             if (cancelled) { Release(); return false; }
+            // A half width below the rounding of g next to the surface would make the two sides one surface (g - w == g): on a grid
+            // edge that a side crosses, g - w and -g - w must add up to less than zero at one end at least.
+            int[] step = { 1, n1x, n1x * n1y };
+            for (int k = 0; k < n1z; ++k)
+                for (int j = 0; j < n1y; ++j)
+                    for (int i = 0; i < n1x; ++i) {
+                        int id = i + n1x * (j + n1y * k);
+                        if (f[0][id] + f[1][id] < 0) continue;
+                        for (int a = 0; a < 3; ++a) {
+                            if ((a == 0 ? i + 1 : a == 1 ? j + 1 : k + 1) >= (a == 0 ? n1x : a == 1 ? n1y : n1z)) continue;
+                            int other = id + step[a];
+                            if ((f[0][id] < 0) != (f[0][other] < 0) && !(f[0][other] + f[1][other] < 0)) {
+                                Release();
+                                throw new InvalidOperationException("TwoLevelMarchingTetrahedra: the half width is below the rounding of the field values at the surface");
+                            }
+                        }
+                    }
             return true;
         }
 
@@ -177,7 +210,7 @@ namespace g3
         double Guard(double[] v)
         {
             if (SliverGuard <= 0) return 0;
-            double sum = 0; long count = 0;
+            double sum = 0, unit = 0; long count = 0;      // the sum in units of the first change found: no underflow or overflow, and the same bits at every power-of-two scale
             int[] step = { 1, n1x, n1x * n1y };
             for (int k = 0; k < n1z; ++k)
                 for (int j = 0; j < n1y; ++j)
@@ -186,11 +219,11 @@ namespace g3
                         for (int a = 0; a < 3; ++a) {
                             if ((a == 0 ? i + 1 : a == 1 ? j + 1 : k + 1) >= (a == 0 ? n1x : a == 1 ? n1y : n1z)) continue;
                             double x = v[id], y = v[id + step[a]];
-                            if ((x < 0) != (y < 0)) { sum += Math.Abs(x - y); ++count; }
+                            if ((x < 0) != (y < 0)) { if (count == 0) unit = Math.Abs(x - y); sum += Math.Abs(x - y) / unit; ++count; }
                         }
                     }
             if (count == 0) return 0;
-            double snap = SliverGuard * (sum / count);
+            double snap = SliverGuard * (sum / count) * unit;
             for (int id = 0; id < v.Length; ++id)
                 if (Math.Abs(v[id]) < snap) v[id] = -snap;
             return snap;
@@ -389,6 +422,9 @@ namespace g3
             // barycentric coordinates: orthogonal to the values of both functions at the three nodes
             var u = new Vector3d(f[lowF][n0], f[lowF][n1], f[lowF][n2]);
             var v = new Vector3d(f[highF][n0], f[highF][n1], f[highF][n2]);
+            // only the directions of u and v matter: scaled by their largest entries, the products stay in range for any field magnitude
+            u /= Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(u.y), Math.Abs(u.z)));
+            v /= Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
             Vector3d w = u.Cross(v);
             double sum = w.x + w.y + w.z;
             if (sum < 0) { w = -w; sum = -sum; }
