@@ -23,7 +23,7 @@ namespace MagnitudeRobustness
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             var stages = new Dictionary<string, Action> {
                 { "roots", Roots }, { "sweep", () => Sweep(false) }, { "prescale", () => Sweep(true) }, { "dc", DcStage.Run }, { "dcbig", DcStage.Big },
-                { "cost", Cost }, { "formula", Formula }, { "dchash", DcStage.Hashes },
+                { "cost", Cost }, { "formula", Formula }, { "dchash", DcStage.Hashes }, { "ophash", OpHashes }, { "tracecount", TraceCounts },
             };
             foreach (string s in args.Length == 0 ? stages.Keys.ToArray() : args) {
                 if (!stages.TryGetValue(s, out Action run)) { Console.WriteLine("unknown stage " + s + " (stages: " + string.Join(", ", stages.Keys) + ")"); continue; }
@@ -138,6 +138,43 @@ namespace MagnitudeRobustness
                     answers.Add((e, Compare(unit, got, e)));
                 }
                 Console.WriteLine($"{(prescale ? "PRESCALED" : "PLAIN")} {op.Name} [{op.Issue}] (unit run: {unit.Status}; {w.Elapsed.TotalSeconds:F1} s)\n    {Runs(answers)}");
+            }
+        }
+
+        // ---------------------------------------------------------------- ophash: the results inside today's range, to compare two builds of the library
+
+        static string Hash(Sig g)
+        {
+            ulong h = 14695981039346656037UL;
+            void Mix(ulong x) { h ^= x; h *= 1099511628211UL; }
+            foreach (char c in g.Status) Mix(c);
+            foreach (int i in g.Ints) Mix((ulong)(uint)i);
+            foreach (double d in g.Pure) Mix((ulong)BitConverter.DoubleToInt64Bits(d));
+            foreach (double d in g.Lengths) Mix((ulong)BitConverter.DoubleToInt64Bits(d));
+            return $"{g.Status} ints {g.Ints.Length} values {g.Pure.Length + g.Lengths.Length} hash {h:x16}";
+        }
+
+        /// <summary> every operation with an input mesh at scales inside today's exact range, as one line each: run it on two builds and diff (#1352, #1377) </summary>
+        static void OpHashes()
+        {
+            foreach (Op op in Ops.All()) {
+                if (op.Mesh == null) continue;
+                foreach (int e in new[] { -12, -4, 0, 3, 10, 17, 30 }) {
+                    DMesh3 m = ScaledExactly(op.Mesh, e);
+                    Sig got = Guarded(() => op.Run(m, Math.ScaleB(1.0, e)));
+                    Console.WriteLine($"{op.Name} e={e}: {Hash(got)}");
+                }
+            }
+        }
+
+        /// <summary> the number of points of MeshGeodesicDistance.TracePath at scales inside and outside 2^-31 .. 2^50 (#1377: another count outside, on master) </summary>
+        static void TraceCounts()
+        {
+            Op op = Ops.All().First(o => o.Name == "MeshGeodesicDistance.TracePath");
+            foreach (int e in new[] { -200, -100, -60, -40, -32, -31, -20, 0, 20, 50, 51, 52, 60, 100, 200 }) {
+                DMesh3 m = ScaledExactly(op.Mesh, e);
+                Sig got = Guarded(() => op.Run(m, Math.ScaleB(1.0, e)));
+                Console.WriteLine($"TRACE e={e}: {got.Status} points {got.Lengths.Length / 3}");
             }
         }
 

@@ -530,7 +530,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AreasBeyondTheDoubleRange_AreReportedAsInconsistent()
         {
-            // coordinates of 2^520: the lengths are finite, the areas are not. No Success with faces of infinite area
+            // coordinates of 2^520: the lengths are finite, the areas in the units of the mesh (2^1040) are not. No Success with
+            // faces of infinite area (the triangulation computes in unit scale since #1352, so the failure is the range of the output)
             var big = new Similarity("scale 2^520", Math.Pow(2, 520), Matrix3d.Identity, Vector3d.Zero);
             DMesh3 mesh = ShearedGrid(3, 1, 0.375, big);
             var T = new IntrinsicTriangulation(mesh);
@@ -538,7 +539,7 @@ namespace geometry3Sharp.Tests
             T.FlipToDelaunay();
             var cs = T.ExtractCommonSubdivision();
             Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
-            Assert.Contains("do not sum to the input triangle areas", cs.Error);
+            Assert.Contains("outside the double range", cs.Error);
             Assert.Empty(cs.Faces);
         }
 
@@ -600,21 +601,25 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void IntrinsicAreasThatAreNotFinite_AreReportedAsInconsistent()
+        public void IntrinsicAreasBeyondTheFourthPowerRange_AreExactSinceTheUnitScale()
         {
-            // The intrinsic area error is reported and not checked against a tolerance, but it must be a number.
-            // Coordinates of 2^300: the lengths, their squares and the areas of the input triangles are finite,
-            // the product of four lengths in the area of an intrinsic triangle is not.
+            // Coordinates of 2^300: the product of four lengths in the area of an intrinsic triangle overflows in the units of the
+            // mesh (the areas were reported as not finite, Inconsistent). The triangulation computes in unit scale since #1352:
+            // the result is the one of the unit mesh, scaled, bit for bit.
             var big = new Similarity("scale 2^300", Math.Pow(2, 300), Matrix3d.Identity, Vector3d.Zero);
-            DMesh3 mesh = ShearedGrid(3, 1, 0.375, big);
+            DMesh3 unit = ShearedGrid(3, 1, 0.375, Similarity.Identity), mesh = ShearedGrid(3, 1, 0.375, big);
+            var T0 = new IntrinsicTriangulation(unit);
             var T = new IntrinsicTriangulation(mesh);
+            Assert.True(T0.EnableIntegerCoordinates());
             Assert.True(T.EnableIntegerCoordinates());
-            Assert.True(double.IsInfinity(T.TriangleArea(0)));
+            Assert.Equal(Math.Pow(2, 600) * T0.TriangleArea(0), T.TriangleArea(0));
+            var cs0 = T0.ExtractCommonSubdivision();
             var cs = T.ExtractCommonSubdivision();
-            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
-            Assert.Contains("intrinsic triangle areas are not finite", cs.Error);
-            Assert.Empty(cs.Faces);
-            Assert.True(cs.MaxInputAreaError <= 1e-6);
+            Assert.Equal(CommonSubdivisionStatus.Success, cs0.Status);
+            Assert.Equal(CommonSubdivisionStatus.Success, cs.Status);
+            Assert.Equal(cs0.Faces.Count, cs.Faces.Count);
+            for (int f = 0; f < cs.Faces.Count; ++f)
+                Assert.Equal(Math.Pow(2, 600) * cs0.Faces[f].Area, cs.Faces[f].Area);
         }
 
         [Fact]

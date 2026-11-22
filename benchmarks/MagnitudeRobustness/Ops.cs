@@ -93,6 +93,24 @@ namespace MagnitudeRobustness
             var ops = new List<Op>();
             void Add(string name, DMesh3 mesh, Func<DMesh3, double, Sig> run, string issue = "#1377") => ops.Add(new Op { Name = name, Mesh = mesh, Run = run, Issue = issue });
 
+            Add("IntrinsicTriangulation tangent bases and ToWorld", sphere, (m, u) => {
+                var t = new IntrinsicTriangulation(m); t.FlipToDelaunay();
+                var vals = new List<double>();
+                foreach (int vid in m.VertexIndices()) {
+                    if (Environment.GetEnvironmentVariable("BASISDUMP") != null && vid < 6 && u == 1) { t.GetTangentBasis(vid, out Vector3d d1, out Vector3d d2, out Vector3d dn); Console.WriteLine($"DUMP {vid} n {dn.x:R} {dn.y:R} {dn.z:R} e1 {d1.x:R} {d1.y:R} {d1.z:R}"); }
+                    t.GetTangentBasis(vid, out Vector3d e1, out Vector3d e2, out Vector3d n);
+                    vals.AddRange(new[] { e1.x, e1.y, e1.z, e2.x, e2.y, e2.z, n.x, n.y, n.z });
+                    Vector3d w = t.ToWorld(vid, new Vector2d(0.3, 0.7));
+                    vals.AddRange(new[] { w.x, w.y, w.z });
+                }
+                return new Sig { Status = "basis", Ok = true, Pure = vals.ToArray() };
+            }, "#1377");
+            Add("IntrinsicTriangulation DelaunayRefine edges and layouts", fine, (m, u) => {
+                var t = new IntrinsicTriangulation(m); IntrinsicRefinementResult r = t.DelaunayRefine(25);
+                var lay = new List<double>();
+                for (int k = 0; k < t.TriangleCount; ++k) { t.GetTriangleLayout(k, out Vector2d a, out Vector2d b, out Vector2d c); lay.AddRange(new[] { b.x, c.x, c.y }); }
+                return new Sig { Status = r.Status.ToString(), Ok = true, Ints = new[] { r.InsertedVertices, r.Flips }, Lengths = lay.ToArray() };
+            }, "#1377");
             Add("MeshGeodesicDistance", sphere, (m, u) => { var g = new MeshGeodesicDistance(m); bool ok = g.Compute(new[] { 0 }); return new Sig { Status = ok ? "true" : "false", Ok = ok, Lengths = ok ? g.Distance : Array.Empty<double>() }; });
             Add("MeshGeodesicDistance (mesh triangles)", sphere, (m, u) => { var g = new MeshGeodesicDistance(m) { IntrinsicDelaunay = false }; bool ok = g.Compute(new[] { 0 }); return new Sig { Status = ok ? "true" : "false", Ok = ok, Lengths = ok ? g.Distance : Array.Empty<double>() }; });
             Add("MeshGeodesicDistance.TracePath", sphere, (m, u) => { var g = new MeshGeodesicDistance(m); bool ok = g.Compute(new[] { 0 }); List<Vector3d> p = ok ? g.TracePath(77) : null; return new Sig { Status = ok ? "true" : "false", Ok = ok, Lengths = ok ? Flat(p) : Array.Empty<double>() }; });

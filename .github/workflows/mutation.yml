@@ -115,6 +115,8 @@ on:
       - 'spatial/ExactWindingCache.cs'
       - 'tests/geometry3Sharp.Tests/ExactWindingNumberTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTestsBoundaryTree.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTestsEdgeAngleOracle.cs'
       - 'tests/geometry3Sharp.Tests/FastWindingExpansionUsedTests.cs'
       - 'tests/geometry3Sharp.Tests/WindingNumberTests.cs'
       - 'tests/geometry3Sharp.Tests/WindingEdgeCaseTests.cs'
