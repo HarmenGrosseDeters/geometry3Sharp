@@ -145,6 +145,21 @@ namespace Meshing2Acceptance
         /// <summary>Even-odd position against one ring, by exact crossing counts.</summary>
         /// <summary> per ring: each vertex as an interval of doubles around its exact coordinates (x lo, x hi, y lo, y hi; NaN: unknown) </summary>
         static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> vertexBounds = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> edgeBoxes = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+
+        /// <summary> per edge i (from vertex i to the next): its box in doubles, the union of its two ends' boxes, as four values
+        /// (x low, x high, y low, y high); NaN where an end has no bounds </summary>
+        static double[] EdgeBoxes(Pt[] ring) => edgeBoxes.GetValue(ring, r => {
+            var vb = VertexBounds(r);
+            var b = new double[4 * r.Length];
+            for (int i = 0; i < r.Length; ++i) {
+                int j = (i + 1) % r.Length;
+                if (double.IsNaN(vb[4 * i]) || double.IsNaN(vb[4 * j])) { for (int k = 0; k < 4; ++k) b[4 * i + k] = double.NaN; continue; }
+                b[4 * i] = Math.Min(vb[4 * i], vb[4 * j]); b[4 * i + 1] = Math.Max(vb[4 * i + 1], vb[4 * j + 1]);
+                b[4 * i + 2] = Math.Min(vb[4 * i + 2], vb[4 * j + 2]); b[4 * i + 3] = Math.Max(vb[4 * i + 3], vb[4 * j + 3]);
+            }
+            return b;
+        });
 
         static double[] VertexBounds(Pt[] ring) => vertexBounds.GetValue(ring, r => {
             var b = new double[4 * r.Length];
@@ -211,6 +226,7 @@ namespace Meshing2Acceptance
             bool inside = false;
             Q py = default; bool pyKnown = false;   // (p.Qy, on first use: a gcd)
             var vb = VertexBounds(ring);
+            var eb = EdgeBoxes(ring);
             // the edges to look at: one bucket if p's y interval lies inside it (with a bucket of margin on each side of every edge,
             // so that rounding in the bucket index cannot drop an edge), else all
             int[] only = null;
@@ -231,10 +247,10 @@ namespace Meshing2Acceptance
             for (int q = 0; q < count; ++q) {
                 int i = only != null ? only[q] : q;
                 int j = (i + 1) % ring.Length;
-                if (filter && !double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
-                    double eyl = Math.Min(vb[4 * i + 2], vb[4 * j + 2]), eyh = Math.Max(vb[4 * i + 3], vb[4 * j + 3]);
+                if (filter && !double.IsNaN(eb[4 * i])) {
+                    double eyl = eb[4 * i + 2], eyh = eb[4 * i + 3];
                     if (pyHi < eyl || pyLo > eyh) continue;
-                    double exl = Math.Min(vb[4 * i], vb[4 * j]), exh = Math.Max(vb[4 * i + 1], vb[4 * j + 1]);
+                    double exl = eb[4 * i], exh = eb[4 * i + 1];
                     if (exh < pxLo) continue;
                     if (exl > pxHi) {
                         // entirely right of p: a crossing if the ends lie on both sides of p's y (decided in doubles where possible)

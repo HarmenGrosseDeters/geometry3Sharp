@@ -17,6 +17,16 @@ namespace Meshing2Acceptance
         {
             if (denominator.IsZero) throw new DivideByZeroException();
             if (denominator.Sign < 0) { numerator = -numerator; denominator = -denominator; }
+            if (denominator.IsOne) { n = numerator; d = denominator; return; }
+            if (denominator.IsPowerOfTwo) {
+                // (every value built from doubles by + - * has a power of two as its denominator: the common factor is a power of two too,
+                // 2^min(trailing zeros of the numerator, the exponent of the denominator), taken by shifts instead of a gcd; exact, so the
+                // reduced form is the same)
+                if (numerator.IsZero) { n = BigInteger.Zero; d = BigInteger.One; return; }
+                int shift = Math.Min(TrailingZeros(numerator), BitLength(denominator) - 1);
+                n = numerator >> shift; d = denominator >> shift;
+                return;
+            }
             var g = BigInteger.GreatestCommonDivisor(numerator, denominator);
             if (!g.IsOne && !g.IsZero) { numerator /= g; denominator /= g; }
             n = numerator; d = denominator;
@@ -53,6 +63,17 @@ namespace Meshing2Acceptance
             while (k > 0 && !double.IsInfinity(r) && r != 0) { int step = Math.Min(k, 1000); r *= Math.Pow(2, step); k -= step; }
             while (k < 0 && r != 0) { int step = Math.Min(-k, 1000); r *= Math.Pow(2, -step); k += step; }
             return r;
+        }
+
+        /// <summary> the number of trailing zero bits of a nonzero x (of |x|: the bytes of the two's complement hold the same count) </summary>
+        static int TrailingZeros(BigInteger x)
+        {
+            byte[] bytes = x.ToByteArray();
+            int i = 0;
+            while (bytes[i] == 0) ++i;
+            int b = bytes[i], z = 0;
+            while ((b & 1) == 0) { ++z; b >>= 1; }
+            return i * 8 + z;
         }
 
         /// <summary> the number of bits of |x| </summary>
