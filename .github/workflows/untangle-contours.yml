@@ -8,7 +8,8 @@ name: Untangle solidify contours (Thingi10K wrap cases)
 # No library code is changed or configured: benchmark only.
 # Manual only (workflow_dispatch, no other trigger). The meshes are fetched from huggingface at run time (a PR-tier test never
 # does); no mesh and no fetched byte is committed or uploaded: the artifacts hold the result rows only. GitHub-hosted runners
-# only. One process per mesh with a timeout; about 1 to 2 runner hours for the 36 meshes of the list.
+# only. One process per mesh with a timeout; about 1 runner hour expected for the 36 meshes of the list (their repairs took 844 s
+# in the recorded run; the prototype is capped at 150 s of rounds per contour), at most 6 with every mesh at the default timeout.
 on:
   workflow_dispatch:
     inputs:
@@ -19,8 +20,8 @@ on:
         description: 'Space-separated Thingi10K ids (empty: the list thingi_wrap_ids.txt)'
         default: ''
       timeout_s:
-        description: 'Timeout per mesh in seconds (60 to 3600)'
-        default: '1500'
+        description: 'Timeout per mesh in seconds (60 to 3600); the bound of a run is 36 meshes times this'
+        default: '600'
 
 permissions:
   contents: read
@@ -85,9 +86,9 @@ jobs:
             f=$(ls benchmarks/MeshRepairBenchmark/data/ids/meshes/"$id".* 2>/dev/null | head -1)
             [ -n "$f" ] || { echo "$id: no file"; printf '%s\n' "$id" >> out/failed.txt; continue; }
             start=$(date +%s)
-            rc=0; timeout "$TIMEOUT_S" dotnet "$BIN" contour "$f" out/rows.tsv > "out/$id.log" 2>&1 || rc=$?
+            rc=0; timeout -k 30 "$TIMEOUT_S" dotnet "$BIN" contour "$f" out/rows.tsv > "out/$id.log" 2>&1 < /dev/null || rc=$?
             echo "$id: exit $rc, $(( $(date +%s) - start )) s"
-            # (a mesh without a row: timeout 124 or a crash; the summary counts the ids of the list without a row)
+            # (a mesh without a row: timeout 124 or a crash; the summary job lists the ids of the list without a row)
             [ "$rc" = 0 ] || { printf '%s\t%s\n' "$id" "$rc" >> out/failed.txt; tail -5 "out/$id.log"; }
           done < "$RUNNER_TEMP/ids.txt"
       - uses: actions/upload-artifact@v4
@@ -116,17 +117,22 @@ jobs:
           path: art
           pattern: shard-*
       - name: Merge and summarize
+        env:
+          IDS: ${{ inputs.ids }}
         run: |
           mkdir -p merged
+          LIST=benchmarks/SelfIntersectionUntangle/thingi_wrap_ids.txt
+          if [ -n "${IDS// /}" ]; then printf '%s\n' $IDS > "$RUNNER_TEMP/list.txt"; LIST="$RUNNER_TEMP/list.txt"; fi
+          cat art/shard-*/out/failed.txt > merged/failed.txt 2>/dev/null || true
+          echo "meshes that ended without exit 0 (id, exit code; 124 = timeout): $(tr '\n' ' ' < merged/failed.txt)" | tee -a "$GITHUB_STEP_SUMMARY"
           ls art/shard-*/out/rows.tsv > /dev/null   # no rows at all: fail
           awk 'FNR == 1 && NR != 1 { next } { print }' art/shard-*/out/rows.tsv > merged/rows.tsv
-          cat art/shard-*/out/failed.txt > merged/failed.txt 2>/dev/null || true
           cp "$(ls art/shard-*/lib_sha.txt | head -1)" merged/lib_sha.txt
           {
             echo "### Untangle solidify contours"
-            echo "library $(head -1 merged/lib_sha.txt); meshes without a row (id, exit code; 124 = timeout): $(tr '\n' ' ' < merged/failed.txt)"
+            echo "library $(head -1 merged/lib_sha.txt)"
             echo
-            python3 -I benchmarks/SelfIntersectionUntangle/contour_summary.py merged/rows.tsv
+            python3 -I benchmarks/SelfIntersectionUntangle/contour_summary.py --ids "$LIST" merged/rows.tsv
           } | tee merged/summary.md >> "$GITHUB_STEP_SUMMARY"
           cat merged/summary.md
           echo "---- rows.tsv ----"; cat merged/rows.tsv

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Summary of the rows of the contour mode (Contours.cs), as markdown.
-   python3 benchmarks/SelfIntersectionUntangle/contour_summary.py rows.tsv [more.tsv ...]"""
+   python3 benchmarks/SelfIntersectionUntangle/contour_summary.py [--ids list.txt] rows.tsv [more.tsv ...]
+   --ids: the ids that were to be measured, one per line; those without a row (a timeout, a crash, a lost shard) are listed."""
 import csv
 import statistics
 import sys
@@ -10,7 +11,7 @@ def load(paths):
     rows = []
     for p in paths:
         with open(p, encoding="utf-8", newline="") as f:
-            rows += list(csv.DictReader(f, delimiter="\t"))
+            rows += list(csv.DictReader((line for line in f if not line.startswith("#")), delimiter="\t"))
     return rows
 
 
@@ -21,11 +22,16 @@ def num(s):
         return None
 
 
-def summary(rows):
+def summary(rows, ids=None):
     out = []
+    if ids is not None:
+        have = {r.get("input", "").split(".")[0] for r in rows}
+        missing = [i for i in ids if i not in have]
+        out.append("ids to measure: %d; without a row (timeout, crash or lost shard): %d%s" % (len(ids), len(missing), (" (" + " ".join(missing) + ")") if missing else ""))
     n = len(rows)
     contours = [r for r in rows if r.get("contour") == "self-intersecting"]
-    out.append("inputs: %d; no row result (load failed, timeout or crash): %d" % (n, sum(r.get("path", "-") == "-" for r in rows)))
+    out.append("rows: %d; load failed: %d" % (n, sum(r.get("path", "-") == "-" for r in rows)))
+    out.append("solidify stopped but the wrap was not taken (finished by the repair, no raw contour): %d" % sum((r.get("contour") or "").startswith("stopped") for r in rows))
     paths = {}
     for r in rows:
         paths[r.get("path", "-")] = paths.get(r.get("path", "-"), 0) + 1
@@ -42,26 +48,27 @@ def summary(rows):
     out.append("|---|---|")
     out.append("| self-intersections are the only defect | %d |" % only)
     out.append("| clean after SeparateTouchingVertices | %d |" % sep)
-    out.append("| clean after the untangling prototype | %d |" % len(unt))
+    out.append("| clean after the untangling prototype (NotCleanReason) | %d |" % len(unt))
+    out.append("| no self-intersection left after the prototype (whatever else) | %d |" % sum(r.get("untangle_no_self_intersections") == "True" for r in contours))
     out.append("| finished solidify clean, raw contour (no change) | %d |" % sum(r["finish_raw"] == "clean" for r in contours))
     out.append("| finished solidify clean, separated contour | %d |" % sum(r["finish_separated"] == "clean" for r in contours))
-    out.append("| finished solidify clean, untangled contour (the repair would not wrap) | %d |" % sum(r["finish_untangled"] == "clean" for r in contours))
-    moves = [num(r["untangle_move_per_diag"]) for r in unt]
-    cells = [num(r["untangle_move_per_cell"]) for r in unt]
-    if unt:
+    out.append("| finished solidify clean, untangled contour | %d |" % sum(r["finish_untangled"] == "clean" for r in contours))
+    moves = [m for m in (num(r["untangle_move_per_diag"]) for r in unt) if m is not None]
+    cells = [m for m in (num(r["untangle_move_per_cell"]) for r in unt) if m is not None]
+    if moves and cells:
         out.append("")
         out.append("largest vertex move of the %d untangled contours, per diagonal: median %.2e, max %.2e; per cell: median %.2e, max %.2e"
-                   % (len(unt), statistics.median(moves), max(moves), statistics.median(cells), max(cells)))
+                   % (len(moves), statistics.median(moves), max(moves), statistics.median(cells), max(cells)))
         for bound in (1e-6, 1e-3):
-            out.append("moves below %g of the diagonal: %d of %d" % (bound, sum(m < bound for m in moves), len(unt)))
-        out.append("moves below 0.01 cell: %d of %d" % (sum(x < 0.01 for x in cells), len(unt)))
+            out.append("moves below %g of the diagonal: %d of %d" % (bound, sum(m < bound for m in moves), len(moves)))
+        out.append("moves below 0.01 cell: %d of %d" % (sum(x < 0.01 for x in cells), len(cells)))
     both = [(num(r["h_wrap_to_input"]), num(r["h_finished_untangled_to_input"])) for r in contours]
     both = [(a, b) for a, b in both if a is not None and b is not None]
     if both:
         out.append("distance of the result to the input, per diagonal (%d inputs with both): wrap median %.2e, finished untangled solidify median %.2e; "
                    "the solidify is closer in %d" % (len(both), statistics.median(a for a, _ in both), statistics.median(b for _, b in both), sum(b < a for a, b in both)))
     out.append("")
-    cols = ["input", "triangles", "path", "contour_triangles", "pairs", "separate_reason", "untangle_reason", "untangle_rounds", "untangle_move_per_diag",
+    cols = ["input", "triangles", "path", "passed_through_triangles", "contour_triangles", "pairs", "separate_reason", "untangle_reason", "untangle_rounds", "untangle_move_per_diag",
             "untangle_move_per_cell", "finish_raw", "finish_untangled", "h_wrap_to_input", "h_finished_untangled_to_input", "untangle_ms"]
     out.append("| " + " | ".join(cols) + " |")
     out.append("|" + "---|" * len(cols))
@@ -71,4 +78,8 @@ def summary(rows):
 
 
 if __name__ == "__main__":
-    print("\n".join(summary(load(sys.argv[1:]))))
+    args, ids = sys.argv[1:], None
+    if args and args[0] == "--ids":
+        ids = [x.strip() for x in open(args[1]) if x.strip()]
+        args = args[2:]
+    print("\n".join(summary(load(args), ids)))

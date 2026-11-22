@@ -13,12 +13,15 @@ using gs;
 // contour and try (a) the existing contact separation (MeshRobustRepair.SeparateTouchingVertices) and (b) the untangling
 // prototype (signed), each judged by NotCleanReason (exact). Then finish the solidify (its cleanup and reduction,
 // MeshWindingNumberSolidify.FinishPostProcess) on the raw, the separated and the untangled contour, and judge again: a clean
-// finished contour is what the repair would return instead of the wrap. No library change: the contour and the finish go
-// through public members. One tab-separated row per input.
+// finished contour is the solidify result the repair would go on with instead of the wrap (its checks after the solidify, eg for
+// lost parts, are not run here). No library change: the contour and the finish go through public members. One tab-separated
+// row per input. Caveat: Apply() works in a frame scaled by a power of two and maps its outputs back; the finish here runs on
+// the mapped-back contour with the solidify's own scale, the same computation up to a power-of-two scale, not bit for bit.
+// With clean parts passed through, the contour covers the other parts only, while the diagonal is the whole input's.
 static class Contours
 {
-    static readonly string[] Columns = { "input", "triangles", "apply", "path", "repair_ms", "contour", "contour_triangles", "contour_defects", "pairs", "cell_per_diag",
-        "separate_moved", "separate_reason", "untangle_reason", "untangle_rounds", "untangle_pairs_left", "untangle_move_per_diag", "untangle_move_per_cell", "untangle_ms",
+    static readonly string[] Columns = { "input", "triangles", "apply", "path", "passed_through_triangles", "repair_ms", "contour", "contour_triangles", "contour_defects", "pairs", "cell_per_diag",
+        "separate_moved", "separate_reason", "untangle_reason", "untangle_no_self_intersections", "untangle_rounds", "untangle_pairs_left", "untangle_move_per_diag", "untangle_move_per_cell", "untangle_ms",
         "finish_raw", "finish_separated", "finish_untangled", "finish_untangled_triangles", "h_wrap_to_input", "h_finished_untangled_to_input", "h_not_converged" };
 
     public static int File(string path, string outFile)
@@ -70,6 +73,7 @@ static class Contours
                     if (!probe.Compute() || !probe.StoppedOnSelfIntersections) continue;
                     var row = new Dictionary<string, string> { ["input"] = inp.name + (rot ? ", rot" : ", id") + ", resolution " + res };
                     Measure(g, rr => { rr.ExactResolve = false; rr.PassThroughCleanParts = false; rr.SolidifyResolution = res; rr.RepairF = m => m; }, row);
+                    if (row["contour"] != "self-intersecting") continue;    // (the repair did not stop where the solidify alone did)
                     found++;
                     Emit(row, null);
                     // (to try the file mode by hand: UNTANGLE_PROBE_EXPORT=<dir> writes these inputs as OBJ files; never committed)
@@ -77,14 +81,16 @@ static class Contours
                     if (!string.IsNullOrEmpty(export))
                         StandardMeshWriter.WriteMesh(Path.Combine(export, "probe" + found + ".obj"), g, WriteOptions.Defaults);
                 }
-        Console.WriteLine("contours the solidify stops on (self-intersecting): " + found + " of " + runs + " runs");
+        Console.WriteLine("# contours the repair stops its solidify on (self-intersecting): " + found + " of " + runs + " runs");
         return 0;
     }
+
+    static bool headerPrinted;
 
     static void Emit(Dictionary<string, string> row, string outFile)
     {
         string header = string.Join("\t", Columns), line = string.Join("\t", Columns.Select(c => row.TryGetValue(c, out string v) ? v : "-"));
-        if (outFile == null) { Console.WriteLine(header); Console.WriteLine(line); return; }
+        if (outFile == null) { if (!headerPrinted) Console.WriteLine(header); headerPrinted = true; Console.WriteLine(line); return; }
         if (!System.IO.File.Exists(outFile)) System.IO.File.WriteAllText(outFile, header + "\n");
         System.IO.File.AppendAllText(outFile, line + "\n");
         Console.WriteLine(line);
@@ -111,10 +117,13 @@ static class Contours
         var sw = Stopwatch.StartNew();
         bool ok = rr.Apply();
         row["repair_ms"] = sw.ElapsedMilliseconds.ToString();
-        row["apply"] = ok.ToString(); row["path"] = rr.ResultPath.ToString();
+        row["apply"] = ok.ToString(); row["path"] = rr.ResultPath.ToString(); row["passed_through_triangles"] = rr.PassedThroughTriangles.ToString();
         MeshWindingNumberSolidify so = rr.Solidify;
         if (so == null || !so.StoppedOnSelfIntersections || so.Result == null) {
-            row["contour"] = so == null ? "no solidify" : "not stopped on self-intersections (" + rr.SolidifyReason + ")";
+            // (a wrap that failed or was refused: the repair finished the stopped solidify itself, and the raw contour is gone)
+            row["contour"] = so == null ? "no solidify"
+                : rr.PhaseMilliseconds.ContainsKey("solidify.finish") ? "stopped on self-intersections, but the wrap was not taken (" + rr.WrapReason + "): finished by the repair, no raw contour"
+                : "not stopped on self-intersections (" + rr.SolidifyReason + ")";
             return;
         }
         var contour = new DMesh3(so.Result, false, MeshComponents.None);
@@ -128,20 +137,22 @@ static class Contours
         row["separate_moved"] = MeshRobustRepair.SeparateTouchingVertices(separated, rr.SeparateFraction).ToString();
         row["separate_reason"] = Reason(separated);
 
-        UntangleResult u = Untangler.Run(contour, new UntangleOptions { Signed = true, MaxRounds = 60, StallRounds = 15 });
-        row["untangle_reason"] = u.Clean ? "clean" : u.Reason; row["untangle_rounds"] = u.Rounds.ToString(); row["untangle_pairs_left"] = u.PairsEnd.ToString();
+        // (the untangler judges an open contour by its self-intersections only: the row's verdict is the full NotCleanReason, as for the separation)
+        UntangleResult u = Untangler.Run(contour, new UntangleOptions { Signed = true, MaxRounds = 60, StallRounds = 15, MaxMilliseconds = 150000 });
+        bool untangled = Reason(u.Mesh) == "clean";
+        row["untangle_reason"] = Reason(u.Mesh); row["untangle_no_self_intersections"] = (u.PairsEnd == 0).ToString(); row["untangle_rounds"] = u.Rounds.ToString(); row["untangle_pairs_left"] = u.PairsEnd.ToString();
         row["untangle_move_per_diag"] = E(u.MaxMove / diag); row["untangle_move_per_cell"] = E(u.MaxMove / so.UsedCellSize); row["untangle_ms"] = u.Milliseconds.ToString();
 
         row["finish_raw"] = Reason(Finish(so, contour));
         if (row["separate_reason"] == "clean") row["finish_separated"] = Reason(Finish(so, separated));
-        if (u.Clean) {
+        int before = Program.NotConverged;
+        if (rr.Mesh != null && rr.UsedAlphaWrap) row["h_wrap_to_input"] = E(Program.Hausdorff(rr.Mesh, input, false, diag) / diag);
+        if (untangled) {
             DMesh3 fin = Finish(so, u.Mesh);
             row["finish_untangled"] = Reason(fin);
             if (fin != null) row["finish_untangled_triangles"] = fin.TriangleCount.ToString();
-            int before = Program.NotConverged;
-            if (rr.Mesh != null && rr.UsedAlphaWrap) row["h_wrap_to_input"] = E(Program.Hausdorff(rr.Mesh, input, false, 10 * diag) / diag);
-            if (row["finish_untangled"] == "clean") row["h_finished_untangled_to_input"] = E(Program.Hausdorff(fin, input, false, 10 * diag) / diag);
-            row["h_not_converged"] = (Program.NotConverged - before).ToString();
+            if (row["finish_untangled"] == "clean") row["h_finished_untangled_to_input"] = E(Program.Hausdorff(fin, input, false, diag) / diag);
         }
+        row["h_not_converged"] = (Program.NotConverged - before).ToString();
     }
 }
