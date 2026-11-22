@@ -36,7 +36,7 @@ namespace g3cli
                     "Result: quad_status, pure_quad_status, the face mix (quads, non-quads, triangles, pentagons, hexagons, larger), irregular vertices, closed / manifold flags, " +
                     "corner angle and aspect statistics of the quads, the stage timings and the pure-quad counters. " +
                     "Failures of the remeshing (field_failed, position_field_failed, no_faces) end with operation_failed and quad_status; nothing is written then. " +
-                    "The vertices lie on the tangent planes of the input, not on its surface ('deviation' reports the Hausdorff distance).",
+                    "The vertices of the quad-dominant mesh lie on the tangent planes of the input, not on its surface (a successful pure_quads result is projected onto the input; 'deviation' reports the Hausdorff distance).",
             };
             c.Params.Add(Input());
             c.Params.Add(new Param("output", ParamType.String, "output polygon mesh file (.obj or .ply; see 'format')") { Required = true, Positional = true });
@@ -88,7 +88,7 @@ namespace g3cli
                     JsonObject h = Hausdorff(input, tri);
                     if (h == null)
                         throw new CommandException(ResultCodes.OperationFailed, "the Hausdorff distance could not be computed; nothing is written", new JsonObject() { ["quad_status"] = status });
-                    deviation = new JsonObject() { ["hausdorff"] = h, ["measured_on"] = "the result triangulated (every face fanned into triangles)" };
+                    deviation = new JsonObject() { ["hausdorff"] = h, ["measured_on"] = "the result triangulated (DPolyMesh.ToDMesh3 ear-clipping)" };
                 }
                 try {
                     string dir = Path.GetDirectoryName(Path.GetFullPath(output));

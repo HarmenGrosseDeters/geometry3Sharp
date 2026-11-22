@@ -27,7 +27,7 @@ namespace gs
     /// 120 degrees, a fold) gets zeros and Valid = false.
     ///
     /// Scale: K1, K2 scale with 1 / s; scaling by a power of two gives the scaled values bit for bit, a rotation or
-    /// translation the same values up to rounding. Serial and deterministic, O(n).
+    /// translation the same values up to rounding. Parallel and deterministic (same bits as serial), O(n).
     /// </summary>
     public class MeshPrincipalCurvature
     {

@@ -30,8 +30,8 @@ namespace gs
     ///   - the smoothness energy is E(z) = sum_ij w_ij |z_j - exp(4 i rho_ij) z_i|^2 with the cotangent weights w_ij
     ///     (mollified at degenerate triangles by ParamMesh, clamped to [1e-3, 1e4]); the smoothest field is the
     ///     eigenvector of the smallest eigenvalue of the Hermitian matrix of E against the lumped vertex areas M,
-    ///     which is found by the Lanczos method on (K + eps M)^-1 M (inverse iteration with Krylov acceleration, one sparse
-    ///     Cholesky factorization per connected component), as a real symmetric system with interleaved (re, im) unknowns;
+    ///     which is found by the Lanczos method on (K + eps M)^-1 M (inverse iteration with Krylov acceleration, one complex
+    ///     Hermitian sparse Cholesky factorization per connected component via SparseHermitianCholesky);
     ///   - the singularity index of a face is read off the field around it: (sum of the wrapped differences
     ///     arg z_j - arg z_i - 4 rho_ij, plus 4 wrap(sum rho)) / 2 pi, an integer in units of 1/4 (FaceIndex).
     ///     On a closed surface the indices sum to the Euler characteristic (Poincare-Hopf), so a genus 0 surface has
@@ -61,7 +61,7 @@ namespace gs
     ///
     /// Input: the vertex ids of Mesh that triangles use (others have no field, see HasField), manifold, orientation
     /// as DMesh3 keeps it. Several connected components get independent fields. Open boundaries are natural
-    /// (Neumann) unless aligned. The mesh is not modified. Serial and deterministic: the same mesh gives the same
+    /// (Neumann) unless aligned. The mesh is not modified. Parallel and deterministic (same bits as serial): the same mesh gives the same
     /// field bit for bit; scaling by a power of two gives the same angles and indices bit for bit (the eigenvalue
     /// scales); a rotation or a translation the same up to rounding (the field of a near-degenerate eigenproblem,
     /// eg a plain sphere, up to its conditioning). Compute() can be called again after changing the settings or the mesh.
