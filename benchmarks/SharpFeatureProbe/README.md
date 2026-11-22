@@ -136,11 +136,12 @@ Before and after (16 clean cases, master 57623890, 4-core container; oriented8, 
 |---|---:|---:|---:|
 | varifold distance, median | 4.5e-4 | 9.8e-6 | 37.5 (3.2 - 81) |
 | equivalent chamfer width, offsets | 0.8 - 3.4 | 0.16 - 0.5 (V-notches 0.8, 1.9) | |
-| Hausdorff, offsets | 0.8 - 15 | 0.5 - 7 | 1.35 (1.0 - 2.2) |
+| Hausdorff (sampled), offsets | 0.8 - 15 | 0.5 - 7 | 1.35 (1.0 - 2.2) |
 | mean distance (Chamfer) | | | 32.5 (1.4 - 74) |
 | mean normal angle | | | 23.1 (1.6 - 42) |
-| area defect | | | 34.8 (9.6 - 390), reads 1.00000 on results with 4 - 8 % of the creases missing |
-| every varifold kernel against the input I | | | 1.00 - 1.10 (the offset dominates) |
+| area defect | | | 34.8 (9.6 - 390), smallest on results with 4 - 8 % of the creases missing |
+| every varifold kernel against the input I | | | 0.99 - 1.14 (the offset dominates) |
 
-Time per pair: 2.7 s at sigma = 10 offsets, 0.9 s at 20, 0.4 s at 40 (the pipeline: 4.9 s). The quadrature floor is 1e-6
-(0.1 offsets of chamfer width); 2^k scales give the same value bit for bit, rotations and translations to 1e-8.
+Time of a fresh pair (median): 5.3 s at sigma = 10 offsets, 1.5 s at 20, 0.5 s at 40 (the pipeline: 4.9 s); sigma = 20 separates
+as well as 10. The quadrature floor is 1e-6 (0.1 offsets of chamfer width); 2^k scales give the same value bit for bit, a
+rotation, a translation or a scale alone agree to 1e-8, all three together at coordinates of 6e6 to 6e-6.

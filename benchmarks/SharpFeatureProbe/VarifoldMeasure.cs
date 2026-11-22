@@ -33,6 +33,7 @@ sealed class VarifoldMeasure
     /// </summary>
     public static VarifoldMeasure Sample(DMesh3 mesh, double h, long maxPoints = 60_000_000, bool centroids = false)
     {
+        if (!(h > 0)) throw new ArgumentException("varifold: the spacing must be positive");
         var pts = new List<double>();
         var stack = new Stack<(Vector3d, Vector3d, Vector3d)>();
         double area = 0;
@@ -58,7 +59,8 @@ sealed class VarifoldMeasure
                     continue;
                 }
                 double kk = Math.Ceiling(Math.Sqrt(longest) / h);
-                int k = kk >= 1 && kk < 1e6 ? (int)kk : 1;
+                if (!(kk >= 1 && kk < 1e6)) throw new InvalidOperationException("varifold: the spacing " + h + " does not fit the triangles");
+                int k = (int)kk;
                 if (pts.Count / 7 + 3L * k * (k + 1) / 2 > maxPoints) throw new InvalidOperationException("varifold: more than " + maxPoints + " quadrature points");
                 double w = 0.5 * twice / ((double)k * k) / 3;
                 Vector3d e1 = (b - a) / k, e2 = (c - a) / k;

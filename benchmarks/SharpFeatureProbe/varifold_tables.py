@@ -59,7 +59,7 @@ def damage(rows):
         for r in sel:
             if r["variant"] not in variants:
                 variants.append(r["variant"])
-        header = ["variant", "Hausdorff", "Chamfer", "normal deg", "area ratio - 1"]
+        header = ["variant", "Hausdorff (sampled)", "Chamfer", "normal deg", "area ratio - 1"]
         for s in sigmas:
             header += ["%s @%g" % (k, s) for k in ("mass", "current", "varifold", "oriented8")]
         lines = []
@@ -91,7 +91,7 @@ def cases(rows):
         for s in sigmas:
             print("### reference %s, sigma = %g offsets: per case (F = quadrature floor, A = plain, K = feature pass)\n" % (ref, s))
             header = ["case", "cov 0.25 A", "cov 0.25 K", "o8 F", "o8 A", "o8 K", "w_eq A", "w_eq K", "A/K", "varifold A/K", "mass A/K", "current A/K",
-                      "Hausdorff A", "K", "Chamfer A/K", "normal deg A/K", "area defect A/K"]
+                      "Hausdorff (sampled) A", "K", "Chamfer A/K", "normal deg A/K", "area defect A/K"]
             lines = []
             for f in files:
                 a, k, fl = get(f, "A", ref, s), get(f, "K", ref, s), floors.get((f, s))
@@ -99,10 +99,10 @@ def cases(rows):
                     continue
 
                 def weq(r):
-                    # the width (in offsets) of a chamfer of all 90 degree creases with the same distance: line = 2.411 w^2 L
+                    # the width (in offsets) of a chamfer of all 90 degree creases with the same distance: line = 2.414 w^2 L
                     if not fl or ref != "O" or fl["net_len"] <= 0:
                         return "-"
-                    return fmt(math.sqrt(max(r["line_oriented8"], 0) / (2.411 * fl["net_len"])))
+                    return fmt(math.sqrt(max(r["line_oriented8"], 0) / (2.414 * fl["net_len"])))
 
                 def ratio(key):
                     return fmt(a[key] / k[key]) if k[key] > 0 else "-"
@@ -120,7 +120,8 @@ def cases(rows):
     for ref in ("O", "I"):
         keys = [("rel_" + k, s) for s in sigmas for k in KERNELS] + [(c, None) for c in CLASSIC]
         for key, s in keys:
-            s0 = s if s is not None else sigmas[0]
+            # (the point-to-mesh measures do not depend on sigma, only on the sampling: take the sigma with the most cases)
+            s0 = s if s is not None else max(sigmas, key=lambda x: sum(1 for f in files if get(f, "A", ref, x)))
             ratios = []
             for f in files:
                 a, k = get(f, "A", ref, s0), get(f, "K", ref, s0)
@@ -138,17 +139,19 @@ def cases(rows):
                           "%d / %d" % (sum(1 for x in ratios if x > 2), len(ratios))])
     table(header, lines)
 
-    print("### cost (ms, one process, 4 cores): the three inner products of one pair, with the quadrature\n")
-    header = ["sigma", "median points (result / reference)", "median ms", "max ms", "median pipeline ms (A)"]
+    print("### cost (ms, one process, 4 cores) of a fresh pair: the quadrature of both meshes and the three inner products (the floor rows)\n")
+    header = ["sigma", "pairs", "median points (result / reference)", "median ms", "min ms", "max ms"]
     lines = []
-    for s in sigmas:
-        rs = [r for r in sel if r["sigma"] == s and r["variant"] in ("A", "K")]
-        if not rs:
-            continue
-        pa = [r["pipeline_ms"] for r in sel if r["sigma"] == s and r["variant"] == "A" and r["ref"] == "O"]
-        lines.append([fmt(s), "%d / %d" % (median([r["points"] for r in rs]), median([r["ref_points"] for r in rs])),
-                      fmt(median([r["varifold_ms"] for r in rs])), fmt(max(r["varifold_ms"] for r in rs)), fmt(median(pa))])
+    fresh = [r for r in rows if r["file"].startswith("floor:")]
+    for s in sorted({r["sigma"] for r in fresh}):
+        rs = [r for r in fresh if r["sigma"] == s]
+        lines.append([fmt(s), str(len(rs)), "%d / %d" % (median([r["points"] for r in rs]), median([r["ref_points"] for r in rs])),
+                      fmt(median([r["varifold_ms"] for r in rs])), fmt(min(r["varifold_ms"] for r in rs)), fmt(max(r["varifold_ms"] for r in rs))])
     table(header, lines)
+    pa = [r["pipeline_ms"] for r in sel if r["variant"] == "A" and r["ref"] == "O" and r["sigma"] == max(sigmas)]
+    cl = [r["classic_ms"] for r in sel if r["sigma"] == max(sigmas)]
+    if pa:
+        print("Pipeline (A), median: %s ms. Point-to-mesh measures of a pair, median: %s ms.\n" % (fmt(median(pa)), fmt(median(cl))))
 
 
 def pose(rows):

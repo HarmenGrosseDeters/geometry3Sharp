@@ -51,6 +51,7 @@ static class Varifold
             }
             items.Add(args[i]);
         }
+        if (!(q > 0) || sigmas.Length == 0 || sigmas.Any(s => !(s > 0))) throw new ArgumentException("sigmas and q must be positive");
         var done = new HashSet<string>();
         if (File.Exists(outFile))
             foreach (string line in File.ReadLines(outFile)) {
@@ -197,7 +198,7 @@ static class Varifold
         }
     }
 
-    // sampled one-sided Hausdorff and mean distance from s's points to t, and the mean angle to the nearest triangle's normal
+    // sampled one-sided Hausdorff (a lower bound: the largest distance at the sample points) and mean distance from s's points to t, and the mean angle to the nearest triangle's normal
     static void OneSided(VarifoldMeasure s, Cached t, out double haus, out double mean, out double normalDeg)
     {
         var d = new double[s.Count]; var ang = new double[s.Count];
