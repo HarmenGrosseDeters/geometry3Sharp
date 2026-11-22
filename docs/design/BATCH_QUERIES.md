@@ -18,7 +18,7 @@ Update 2026-11-12: the caller profile of section 7 was merged in #678; nothing i
 
 `spatial/MeshBatchQueries.cs`: `IntersectBatch`, `AnyHitBatch`, `NearestPointBatch` and (owner, 2026-11-09, on request after the first version) `IsInsideBatch` over `DMeshAABBTree3`, with `RayHit`,
 `NearestPointResult`, `BatchOptions`, `BatchStatus`, `RayStatus`, `PointStatus`. Differences from the proposal in section 4:
-- the per-point status is `PointStatus` (`Ok`, `NonFinite`) for `NearestPointBatch`; `IsInsideBatch` returns `InsideStatus` (`Outside`, `Inside`, `Invalid`) per point, with `InsideMethod.Crossings` (= `tree.IsInside`) or `WindingNumber` (= `tree.FastWindingNumber(p) > 0.5`); `MaxDistance` does not apply to it; the winding cache is built once before the parallel part;
+- the per-point status is `PointStatus` (`Ok`, `NonFinite`) for `NearestPointBatch`; `IsInsideBatch` returns `InsideStatus` (`Outside`, `Inside`, `Invalid`) per point, with `InsideMethod.Crossings` (= `tree.IsInside`), `WindingNumber` (= `tree.FastWindingNumber(p) > 0.5`) or `ExactWindingNumber` (= `tree.WindingNumber(p) > 0.5`, the exact ray-plus-boundary winding number; on a true triangle soup the floating-point solid-angle sum); `MaxDistance` does not apply to it; the winding cache is built once before the parallel part;
 - arrays only; `Span` overloads (owner, 2026-11-09: later) and offset / count overloads are not there yet (a caller passes exactly the arrays it wants answered; buffers may be longer);
 - `BatchOptions.MaxDegreeOfParallelism` is not offered (the shared `gParallel.ForRange` has none); `Parallel = false` runs on the calling thread;
 - `AnyHitBatch` runs the nearest-hit query and tests for a hit: no early-out, since that needs the tree's internals;

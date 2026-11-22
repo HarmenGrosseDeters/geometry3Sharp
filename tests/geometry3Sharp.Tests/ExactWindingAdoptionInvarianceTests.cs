@@ -63,8 +63,9 @@ namespace geometry3Sharp.Tests
             cache.PrepareThresholdQueries();
             cacheT.PrepareThresholdQueries();
             Assert.True(cache.HasBoundaryTree && cacheT.HasBoundaryTree);
-            int above = 0;
+            int above = 0, treeUsed = 0;
             foreach (Vector3d p in Points(500, 9)) {
+                if (cache.TryEvaluateTreeBoundarySumX(p, out _, out _)) ++treeUsed;
                 Vector3d pT = sim.Apply(p);
                 foreach (double iso in new[] { 0.5, 0.0, -0.25 }) {
                     bool a = cache.EvaluateAbove(p, iso);
@@ -74,6 +75,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(cache.EvaluateAbsAbove(p, 0.5) == cacheT.EvaluateAbsAbove(pT, 0.5), $"{name}, EvaluateAbsAbove, point {p}");
             }
             Assert.True(above > 0);
+            Assert.True(treeUsed > 100, $"only {treeUsed} of the points take the tree");
         }
 
         [Theory]
