@@ -196,7 +196,7 @@ static class OpenShapes
                 DMesh3 input = build(s * ratio);
                 var cf = new CrossField(input) { AlignCreases = creased, CreaseAngleDegrees = 30 };
                 cf.Compute();
-                if (!cf.Success) { Console.WriteLine($"| {name} | {scale} | cross field failed {cf.Status} |"); continue; }
+                if (!cf.Success) { Console.WriteLine($"| {name} | {scale} | {input.VertexCount} | - | cross field failed {cf.Status} | - | - | - |"); continue; }
                 var a = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PreserveCreases = creased, SizeAdaptation = adaptMode };
                 var sw = Stopwatch.StartNew(); a.Compute(); double t2 = sw.Elapsed.TotalSeconds;
                 var b = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, SizeAdaptation = adaptMode };
