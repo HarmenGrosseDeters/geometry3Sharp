@@ -79,7 +79,22 @@ namespace geometry3Sharp.Tests
             var half = new Mesh2Output { Status = Mesh2Status.Success, VX = o.VX, VY = o.VY, InputToVertex = o.InputToVertex, Triangles = keep.Select(i => o.Triangles[i]).ToArray(),
                 TriangleLabels = keep.Select(i => o.TriangleLabels[i]).ToArray(), Subsegments = o.Subsegments, BadTriangles = new int[0], NeighboursReported = false };
             var report = Oracle.Check(input, half, new OracleExpect { Milestone = Milestone.M2 });
-            Assert.False(report.Ok);
+            Assert.True(report.Has(Violation.BoundaryOutsideTube), report.ToString());
+        }
+
+        /// <summary> the side points stay within a quarter of a pixel of a long edge: a hole 4 pixels wide beside an edge of 2^23 pixels,
+        /// filled in, is rejected for its long edges too (2^-20 of the edge would reach across it) </summary>
+        [Fact]
+        public void AThinHoleAlongALongEdge_FilledIn_IsBoundaryOutsideTubeOnItsLongEdges()
+        {
+            double length = 8388608, snap = 1;   // 2^23 pixels
+            var input = new Mesh2Input { X = new double[] { 0, length, length, 0, 64, length - 64, length - 64, 64 }, Y = new double[] { 0, 0, 64, 64, 30, 30, 34, 34 }, SnapTolerance = snap };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+            var solid = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+            var o = new Mesh2Output { Status = Mesh2Status.Success, VX = input.X, VY = input.Y, InputToVertex = Enumerable.Range(0, 8).ToArray(), Triangles = solid,
+                TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0], NeighboursReported = false };
+            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.Contains(report.Violations, v => v.Kind == Violation.BoundaryOutsideTube && (v.Detail.Contains(", 30)") || v.Detail.Contains(", 34)")));
         }
 
         /// <summary> a hole inside one of two parcels keeps its boundary rule: the hole left out of the mesh is rejected for it </summary>

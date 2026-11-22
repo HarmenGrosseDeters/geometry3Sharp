@@ -315,7 +315,7 @@ namespace Meshing2Acceptance
                 var left = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
                 var half = Oracle.Check(twoIn, new Mesh2Output { Status = Mesh2Status.Success, VX = twoIn.X, VY = twoIn.Y, InputToVertex = Enumerable.Range(0, 6).ToArray(),
                     Triangles = left, Neighbours = NeighboursOf(left), TriangleLabels = new[] { 0, 0 }, Subsegments = borders.Take(4).ToList(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
-                Must("reject: the right one of the two squares left out of the mesh", !half.Ok, "report: " + half);
+                Must("reject: the right one of the two squares left out of the mesh, as BoundaryOutsideTube among others", half.Has(Violation.BoundaryOutsideTube), "report: " + half);
             }
 
             // ---- the shortest edge of a triangle spans an input angle below 60 degrees (owner decision 2026-11-09, Shewchuk 2002 section
