@@ -254,6 +254,17 @@ not read). `MeshBatchQueries` (merged in #448) runs the existing single queries 
 | Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
 | Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
 
+## Exact generalized winding numbers (`spatial/ExactWindingCache.cs`, `DMeshAABBTree3.WindingNumber`, `MeshWindingNumberGrid`)
+
+Implemented from the published papers below; no external code was read or ported (in particular, `BoundaryBlaze` has no license and was never opened).
+
+| Part | Source |
+|---|---|
+| Ray-plus-boundary decomposition with apex at infinity (`(-1, 0, 0)`) and coupled exact symbolic-perturbation branch-cut resolution | C. Martens, P. Trettner, M. Bessmeltsev, *The Antipodal Method: Fast, Accurate, and Robust 3D Generalized Winding Numbers*, ACM TOG 45(4), Art. 43, 2026 |
+| Ray-plus-boundary generalized winding number for triangle meshes and exterior-edge reduction (`|∂M| = 0` on closed meshes) | P. Xie, C. Hafner, C. Wojtan, *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), Art. 41, 2026 |
+| Exact `Orient2d` / `Orient3d` predicates and Simulation of Simplicity (`p_eps = (p.x + eps3, p.y + eps1, p.z + eps2)`) | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18, 1997 (`ExactPredicates`); H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 1990 |
+| Single-pass `+x` grid-row ray reuse (`MeshWindingNumberGrid`), exact on-surface correction, and `2^k` bi-homogeneous power-of-two rescaling | own construction on top of the Antipodal / FEWN decomposition above |
+
 ## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
 
 Implemented from the paper; no code of the reference implementation was read or ported (its MIT licence would allow it).

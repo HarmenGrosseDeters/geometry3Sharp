@@ -57,6 +57,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
+| [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
 
 ## Contouring, Offsets, Lofting & Lattices
 
@@ -91,6 +92,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [BatchQueryBenchmark](BatchQueryBenchmark/README.md) | Throughput of `MeshBatchQueries` (rays, nearest points, inside tests) |
 | [RayQueryBenchmark](RayQueryBenchmark/README.md) | Per-ray timing of `DMeshAABBTree3.FindNearestHitTriangle` and exact `IsInside` |
+| [ExactWindingBenchmark](ExactWindingBenchmark/README.md) | Before/after build, query, and grid timings of `ExactWindingCache` (`DMeshAABBTree3.WindingNumber` & `MeshWindingNumberGrid`) |
 | [FastWindingCacheBenchmark](FastWindingCacheBenchmark/README.md) | Cache build and query timing for `DMeshAABBTree3.FastWindingNumber` |
 | [HausdorffBenchmark](HausdorffBenchmark/README.md) | `MeshHausdorffDistance` default vs. certified upper bounds |
 | [CcdBenchmark](CcdBenchmark/README.md) | `ContinuousCollision` and `MeshSweepCollision` throughput and interval-path scaling |
