@@ -140,6 +140,26 @@ namespace DeterminismReach
                 foreach (int j in graph.Cha[i]) all.Add(graph.Methods[j].DeclaringType.Name);
                 if (!all.SetEquals(new[] { "IShape", "Circle", "Square", "ExplicitShape", "ShapeBase", "ShapeDerived" })) { failed++; Console.WriteLine("FAIL implementations of IShape.Area: " + string.Join(",", all.OrderBy(x => x))); }
             }
+            // the tier rule: a listed type that gains a libm edge is a violation, an argument exempts it, a listed type that is gone is stale,
+            // a documented type without a libm edge that is not listed is a candidate
+            {
+                var documented = new Dictionary<string, bool> { { "Clean", false }, { "Gained", true }, { "Argued", true }, { "ArguedGone", false }, { "NewClean", false }, { "NewLibm", true } };
+                var baseline = TierBaseline.Parse("# comment\nClean\nGained\nArgued\targument: test X\nArguedGone\targument: test Y\nRemoved\n");
+                TierRule.Result r = TierRule.Check(documented, baseline);
+                Action<string, bool> check = (what, ok) => { checks++; if (!ok) { failed++; Console.WriteLine("FAIL tier rule: " + what); } };
+                check("violations", string.Join(",", r.Violations) == "Gained");
+                check("stale", string.Join(",", r.Stale) == "Removed");
+                check("candidates", string.Join(",", r.Candidates) == "NewClean");
+                check("arguments not needed", string.Join(",", r.ArgumentsNotNeeded) == "ArguedGone");
+                check("not ok", !r.Ok);
+                check("ok", TierRule.Check(documented, TierBaseline.Parse("Clean\nArgued\targument: t\n")).Ok);
+                TierBaseline updated = TierRule.Update(documented, baseline);
+                check("update", string.Join(",", updated.Tier1.Select(kv => kv.Key + "=" + kv.Value)) == "Argued=argument: test X,ArguedGone=argument: test Y,Clean=,NewClean=");
+                check("round trip", string.Join(",", TierBaseline.Parse(updated.Format("# h\n")).Tier1.Keys) == "Argued,ArguedGone,Clean,NewClean");
+                bool threw = false;
+                try { TierBaseline.Parse("T\tnot an argument"); } catch (FormatException) { threw = true; }
+                check("argument syntax", threw);
+            }
             Console.WriteLine($"self-test: {checks} checks, {failed} failed");
             return failed == 0 ? 0 : 1;
         }
