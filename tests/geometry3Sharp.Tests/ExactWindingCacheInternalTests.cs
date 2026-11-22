@@ -486,7 +486,7 @@ namespace geometry3Sharp.Tests
                 double Err(System.Numerics.BigInteger s2, double stored)
                 {
                     System.Numerics.BigInteger diff = (s2 >> 1) - Stored(stored);
-                    return Math.ScaleB((double)(diff >> 1900), 1900 - 2148);
+                    return (double)(diff >> 1900) * Math.Pow(2, 1900 - 2148);
                 }
                 double ex = Err(sx, info.HalfVa.x), ey = Err(sy, info.HalfVa.y), ez = Err(sz, info.HalfVa.z);
                 // (VaErr bounds the error of each component of the stored half va; the dipole is halfOmega = 0.5 * halfVa . dx / d^3)
