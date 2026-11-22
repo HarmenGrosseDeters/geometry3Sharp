@@ -70,6 +70,15 @@ sealed class Csr
     }
 }
 
+sealed class TriMesh
+{
+    public Vector3d[] V; public int[] T;
+    public int MaxVertexID { get { return V.Length; } }
+    public IEnumerable<int> TriangleIndices() { return Enumerable.Range(0, T.Length / 3); }
+    public Index3i GetTriangle(int t) { return new Index3i(T[3 * t], T[3 * t + 1], T[3 * t + 2]); }
+    public Vector3d GetVertex(int i) { return V[i]; }
+}
+
 sealed class TripletList
 {
     public long[] Key = new long[1 << 16]; public double[] Val = new double[1 << 16]; public int Count;
@@ -470,20 +479,41 @@ static class Program
 
     // ---------------------------------------------------------------- inputs
 
-    static DMesh3 BumpySphere(int k)
+    // cube sphere with k vertices per cube edge (6 (k - 1)^2 + 2 vertices), every quad split along its shorter diagonal, with a
+    // smooth radial bump (Sphere3Generator_NormalizedCube takes minutes at 200k vertices)
+    static TriMesh BumpySphere(int k)
     {
-        var gen = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = k };
-        gen.Generate();
-        DMesh3 m = gen.MakeDMesh();
-        foreach (int v in m.VertexIndices()) {
-            Vector3d p = m.GetVertex(v);
-            m.SetVertex(v, p * (1.0 + 0.15 * Math.Sin(3 * p.x + 0.3) * Math.Sin(4 * p.y + 0.7) * Math.Cos(5 * p.z)));
+        int m = k - 1; var id = new Dictionary<long, int>(); var V = new List<Vector3d>(); var T = new List<int>();
+        int vertex(int x, int y, int z)
+        {
+            long key = ((long)x << 42) | ((long)y << 21) | (long)z;
+            if (id.TryGetValue(key, out int v)) return v;
+            var p = new Vector3d(2.0 * x / m - 1, 2.0 * y / m - 1, 2.0 * z / m - 1).Normalized;
+            p *= 1.0 + 0.15 * Math.Sin(3 * p.x + 0.3) * Math.Sin(4 * p.y + 0.7) * Math.Cos(5 * p.z);
+            id[key] = V.Count; V.Add(p); return V.Count - 1;
         }
-        return m;
+        void tri(int a, int b, int c)
+        {
+            if ((V[b] - V[a]).Cross(V[c] - V[a]).Dot(V[a] + V[b] + V[c]) < 0) { int t = b; b = c; c = t; }
+            T.Add(a); T.Add(b); T.Add(c);
+        }
+        for (int axis = 0; axis < 3; ++axis)
+            for (int side = 0; side <= m; side += m)
+                for (int u = 0; u < m; ++u)
+                    for (int v = 0; v < m; ++v) {
+                        var q = new int[4];
+                        for (int c = 0; c < 4; ++c) {
+                            int uu = u + (c == 1 || c == 2 ? 1 : 0), vv = v + (c >= 2 ? 1 : 0);
+                            q[c] = axis == 0 ? vertex(side, uu, vv) : axis == 1 ? vertex(vv, side, uu) : vertex(uu, vv, side);
+                        }
+                        if (V[q[0]].DistanceSquared(V[q[2]]) <= V[q[1]].DistanceSquared(V[q[3]])) { tri(q[0], q[1], q[2]); tri(q[0], q[2], q[3]); }
+                        else { tri(q[0], q[1], q[3]); tri(q[1], q[2], q[3]); }
+                    }
+        return new TriMesh { V = V.ToArray(), T = T.ToArray() };
     }
 
     // cotan Laplacian (positive semidefinite, rows sum to zero) and lumped mass
-    static Csr Cotan(DMesh3 m, out double[] mass, out double meanEdge, bool clamp)
+    static Csr Cotan(TriMesh m, out double[] mass, out double meanEdge, bool clamp)
     {
         int n = m.MaxVertexID; var t = new TripletList(); mass = new double[n];
         var w = new Dictionary<long, double>();
@@ -511,14 +541,14 @@ static class Program
         return t.ToCsr(n);
     }
 
-    static Vector3d[] Positions(DMesh3 m, int[] kept)
+    static Vector3d[] Positions(TriMesh m, int[] kept)
     {
         var p = new Vector3d[kept.Length];
         for (int i = 0; i < kept.Length; ++i) p[i] = m.GetVertex(kept[i]);
         return p;
     }
 
-    static Problem Poisson(DMesh3 m)
+    static Problem Poisson(TriMesh m)
     {
         Csr L = Cotan(m, out _, out _, false);
         var drop = new bool[L.N]; drop[0] = true;
@@ -526,7 +556,7 @@ static class Program
         return new Problem { Name = "poisson", A = A, Pos = Positions(m, kept) };
     }
 
-    static Problem Heat(DMesh3 m)
+    static Problem Heat(TriMesh m)
     {
         Csr L = Cotan(m, out double[] mass, out double h, false);
         var t = new TripletList(); double time = h * h;
@@ -535,7 +565,7 @@ static class Program
     }
 
     // Q = L M^-1 L, the caps |z| > 0.9 fixed (handle and anchor regions of BiharmonicMeshDeformer)
-    static Problem Bilaplacian(DMesh3 m)
+    static Problem Bilaplacian(TriMesh m)
     {
         Csr L = Cotan(m, out double[] mass, out _, false);
         int n = L.N; var t = new TripletList();
@@ -551,7 +581,7 @@ static class Program
     }
 
     // connection Laplacian of a 4-direction field in real form (two unknowns per vertex) plus the 1e-8 mass shift of CrossField
-    static Problem Connection(DMesh3 m)
+    static Problem Connection(TriMesh m)
     {
         Csr L = Cotan(m, out double[] mass, out _, true);
         int n = L.N; var normal = new Vector3d[n];
@@ -687,9 +717,10 @@ static class Program
             Console.WriteLine($"| PCG IC(0){(shift > 0 ? $" shift {shift:G2}" : "")} | {setup:F2} | {L.Entries / 1e6:F2}M | {Fmt(r0)} | {r0.TrueRes:E1} |");
         }
         if (pr.Bs == 1) {
-            long pos = 0, off = 0;
-            for (int r = 0; r < n; ++r) for (int q = A.P[r]; q < A.P[r + 1]; ++q) if (A.J[q] != r) { ++off; if (A.V[q] > 0) ++pos; }
-            if (pos * 100 > off) Console.WriteLine($"| PCG approximate elimination | not applicable: {100.0 * pos / off:F0} % of the off-diagonals are positive | | | | |");
+            // share of the positive off-diagonals in the sum of the absolute off-diagonals: the method needs it to be (near) zero
+            double pos = 0, off = 0;
+            for (int r = 0; r < n; ++r) for (int q = A.P[r]; q < A.P[r + 1]; ++q) if (A.J[q] != r) { off += Math.Abs(A.V[q]); if (A.V[q] > 0) pos += A.V[q]; }
+            if (pos > 0.05 * off) Console.WriteLine($"| PCG approximate elimination | not applicable: positive off-diagonals hold {100.0 * pos / off:F0} % of the off-diagonal weight | | | | |");
             else {
                 var sw = Stopwatch.StartNew();
                 var ae = new ApproxElimination(A, 1);
@@ -736,9 +767,9 @@ static class Program
             var w = Poisson(BumpySphere(12)); var q = Console.Out; Console.SetOut(System.IO.TextWriter.Null);
             Run(w, new[] { 2.0 }, true, true); Console.SetOut(q);
         }
-        var makers = new (string name, Func<DMesh3, Problem> make)[] { ("poisson", Poisson), ("heat", Heat), ("bilaplacian", Bilaplacian), ("connection", Connection) };
+        var makers = new (string name, Func<TriMesh, Problem> make)[] { ("poisson", Poisson), ("heat", Heat), ("bilaplacian", Bilaplacian), ("connection", Connection) };
         foreach (int k in ks) {
-            DMesh3 m = null;
+            TriMesh m = null;
             foreach (var mk in makers) {
                 if (!Regex.IsMatch($"sphere k={k} {mk.name}", only)) continue;
                 if (m == null) m = BumpySphere(k);
