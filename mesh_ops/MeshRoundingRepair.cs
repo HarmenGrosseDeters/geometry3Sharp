@@ -54,7 +54,8 @@ namespace g3
     /// within a factor 2). A thin solid that the edits left as it was stays (docs/research/ROUNDING_THIN_SOLIDS_2026-11.md:
     /// before, one contraction of 1e-10 anywhere in a sheet removed the sheet). Every removed component is listed
     /// (RemovedComponentInfos: triangles, area, volume, thickness, reason). A removed component that was at least 256 units
-    /// in the last place and 1e-3 of the bound thick before the edits and went for one of the other reasons is a solid of
+    /// in the last place and 1e-3 of the bound thick before the edits and went for one of the other reasons (or, edited, for a
+    /// numerically zero volume after the edits) is a solid of
     /// the exact result that matters at the scale of the mesh (RemovedResolvable), and the repair is not clean; thinner
     /// removals leave it clean. Nothing is removed
     /// if the rule before #1216 would leave nothing of a mesh whose input is itself
@@ -365,15 +366,16 @@ namespace g3
             /// <summary> why it was removed </summary>
             public RemovalReasons Reason;
             /// <summary>
-            /// counted in RemovedResolvable: removed as StillDefective or VolumeChanged and, before the edits, at least 256 units in the last
-            /// place of its largest coordinate and at least 1e-3 of the bound thick, or removed as NotMeasured
+            /// counted in RemovedResolvable: removed as StillDefective, VolumeChanged or (edited) ZeroVolume and, before the edits, at
+            /// least 256 units in the last place of its largest coordinate and at least 1e-3 of the bound thick, or removed as NotMeasured.
+            /// Never: BelowResolution, InsideOutResidue and the ZeroVolume of a component no edit touched
             /// </summary>
             public bool Resolvable;
         }
         /// <summary> the removed components (RemovedComponents of them), in the order of their removal </summary>
         public List<RemovedComponentInfo> RemovedComponentInfos = new List<RemovedComponentInfo>();
         /// <summary>
-        /// of the removed components: those removed as StillDefective or VolumeChanged that were, before the edits, at least 256 units in
+        /// of the removed components: those removed as StillDefective or VolumeChanged (or, edited, as ZeroVolume) that were, before the edits, at least 256 units in
         /// the last place of their largest coordinate thick (the multiple of the bound's ulp term, UlpFactor's default) and at least 1e-3
         /// of the bound (MaxLength of the component: 1e-8 of the diagonal by default), and those removed as NotMeasured: solids of the
         /// exact result that matter at the scale of the mesh (#1216). With any, the repair is not clean (IsClean; owner 2026-11-22). A
@@ -3238,6 +3240,11 @@ namespace g3
             // or than ReportBoundFraction of the bound (what does not make the repair not clean when it is removed)
             public bool Exact, BelowResolution, BelowReport;
         }
+        // which components are measured before the edits: those within this factor of the two thresholds of the removal. (A
+        // field for the tests only: no edit of the repair is known to take a component from outside twice the thresholds to
+        // inside them, none of the 3474 procedural results of the study did, so the branch NotMeasured is reached there
+        // with 0: nothing is measured)
+        internal double MeasureWindow = 2;
         // per vertex: the index in befores of the measured component it was in, -1 none, -2 more than one (a vertex where two
         // closed components touch)
         int[] beforeOfVertex;
@@ -3289,7 +3296,7 @@ namespace g3
                 }
                 int v0 = Mesh.GetTriangle(comp[0]).a;
                 // (twice the thresholds of remove_tiny_components; a sum that is not finite is not below them)
-                if (closed == false || !(sum < 2e4 * sizeArea_of(v0) || 2 * Math.Abs(volume) < 2 * maxLength_of(v0) * sum))
+                if (closed == false || !(sum < MeasureWindow * 1e4 * sizeArea_of(v0) || 2 * Math.Abs(volume) < MeasureWindow * maxLength_of(v0) * sum))
                     continue;
                 var b = new Before() { Area = sum, Volume = volume, Largest = largest };
                 component_arrays(Mesh, comp, out double[] xyz, out int[] corners);
@@ -3298,8 +3305,9 @@ namespace g3
                 // area is so small that its threshold underflows)
                 bool zero = b.Exact && b.Total.IsZero;
                 b.BelowResolution = zero || numerically_zero_volume(Mesh, comp, volume, sum, largest, tripleNorms, ResolutionUlps);
-                // (the fraction of the bound: the product is formed once, in doubles; the bound scales exactly with 2^k, so the
-                // product and the test do too)
+                // (the fraction of the bound: two products in doubles, the fraction times the bound and that times the area in
+                // thinner_than, each rounded once; the bound and the area scale exactly with 2^k, so both products and the test
+                // do too)
                 b.BelowReport = b.BelowResolution || numerically_zero_volume(Mesh, comp, volume, sum, largest, tripleNorms, ReportUlps)
                     || thinner_than(Mesh, comp, volume, sum, tripleNorms, ReportBoundFraction * maxLength_of(v0));
                 foreach (int t in comp) {
@@ -3619,10 +3627,16 @@ namespace g3
             return volume_below(mesh, comp, volume, tripleNorms, length * area);
         }
 
-        // 2 |V| < t, exactly for the given t (see numerically_zero_volume). The keep shortcut is a floating-point margin that is not
-        // proven; where it were wrong the answer is "not below": the sheet of #1067 stays, with ResolutionUlps the component is
-        // judged by its defects and its volume, with the report thresholds a removal counts as resolvable. All err to the side of
-        // keeping and of reporting
+        // 2 |V| < t, exactly for the given t (see numerically_zero_volume). The keep shortcut is a floating-point margin: the
+        // computed volume is the sum of n terms a . (b x c) / 6 with a, b, c the corners minus a point of the component. To
+        // first order in u = 2^-53: the three differences are off by u each (3 u |a||b||c|), the cross product by at most
+        // 2 u (|b_i c_j| + |b_j c_i|) per component (below 4 u |b||c| in length), the dot product by 3 u |a||b x c|, the
+        // division by u: below 11 u |a||b||c| / 6 per term; the sum of the n terms adds at most (n - 1) u times the sum of
+        // their absolute values. Together below (n / 6 + 2) u sum |a||b||c| (the review of #1216 counted more coarsely:
+        // (0.87 n + 8.7) u sum). The shortcut asks for 8 (n + 16) u sum, 9 times the coarser count or more. A first-order
+        // count, not a formal proof; where it were wrong the answer is "not below": the sheet of #1067 stays, with
+        // ResolutionUlps the component is judged by its defects and its volume, with the report thresholds a removal counts
+        // as resolvable. All err to the side of keeping and of reporting
         static bool volume_below(DMesh3 mesh, List<int> comp, double volume, double tripleNorms, double t)
         {
             if (!(t >= ExactPredicates.MinNormal) || double.IsInfinity(t) || double.IsNaN(volume))

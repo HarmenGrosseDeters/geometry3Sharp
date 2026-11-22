@@ -793,5 +793,142 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(lost.Report.RoundingRemoved);
             Assert.Equal(Reasons.VolumeChanged, info.Reason);
         }
+        // the scene of SlabScene far from the origin (x + 2^24, where a unit in the last place is 2^-28): a sphere of radius 1 and
+        // a slab of 0.5 x 0.5 x h with a needle (one contraction repairs it); pierce: a cube through the slab (an intersection
+        // no edit separates). h is a multiple of the ulp, so the slab is exact
+        const double FarUlp = 3.7252902984619140625e-9;
+        static DMesh3 FarSlab(double ulps, bool pierce)
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            new MeshEditor(m).AppendMesh(CubeWithNeedle(new Vector3d(3, 0, 0), new Vector3d(0.25, 0.25, 0.5)));
+            if (pierce)
+                new MeshEditor(m).AppendMesh(new TrivialBox3Generator() { Box = new Box3d(new Vector3d(3.01, 0.02, 0.03), 0.1 * Vector3d.One) }.Generate().MakeDMesh());
+            m = new DMesh3(m, false, MeshComponents.None);
+            foreach (int v in m.VertexIndices().ToArray()) {
+                Vector3d p = m.GetVertex(v);
+                if (p.x > 2.5 && Math.Abs(p.z) == 0.5)
+                    p.z = p.z > 0 ? ulps * FarUlp : 0;
+                p.x += 16777216;
+                m.SetVertex(v, p);
+            }
+            return m;
+        }
+
+        /// <summary>
+        /// the verdict's 256 ulps in the repair itself: a slab that goes as still defective, in a frame where the fraction of the
+        /// bound is far below (3e-8 against an ulp of 4e-9 x 256), leaves the repair clean at 250 ulps and makes it not clean at 262
+        /// </summary>
+        [Theory]
+        [InlineData(250, false)]
+        [InlineData(262, true)]
+        public void Verdict_Is256Ulps_InTheRepair(double ulps, bool resolvable)
+        {
+            DMesh3 m = FarSlab(ulps, true);
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.True(MeshRoundingRepair.ReportBoundFraction * r.MaxLength < 16 * FarUlp);
+            MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(r.RemovedComponentInfos);
+            Assert.Equal(Reasons.StillDefective, info.Reason);
+            Assert.InRange(info.ThicknessUlps, ulps - 0.01, ulps);
+            Assert.Equal(resolvable, info.Resolvable);
+            Assert.Equal(resolvable ? 1 : 0, r.RemovedResolvable);
+            Assert.Equal(resolvable == false, r.IsClean);
+            Assert.Equal(312, m.TriangleCount);
+            AssertSolid(m);
+        }
+
+        /// <summary>
+        /// the resolution of 4 ulps in the repair itself: an edited slab that the repair leaves without a defect and with its
+        /// volume goes at 3 ulps of its largest coordinate (below the resolution: listed, clean) and stays at 5 and 6
+        /// </summary>
+        [Theory]
+        [InlineData(3, false)]
+        [InlineData(5, true)]
+        [InlineData(6, true)]
+        public void Resolution_IsFourUlps_InTheRepair(double ulps, bool stays)
+        {
+            DMesh3 m = FarSlab(ulps, false);
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.True(r.Collapses >= 1);
+            Assert.True(r.IsClean);
+            Assert.Equal(0, r.RemovedResolvable);
+            Assert.Equal(stays ? 0 : 1, r.RemovedComponents);
+            Assert.Equal(stays ? 312 : 300, m.TriangleCount);
+            AssertSolid(m);
+            if (stays) {
+                // (the slab as it was: 0.5 x 0.5 x ulps)
+                DMesh3 slab = MeshConnectedComponents.Separate(m).Single(c => c.TriangleCount == 12);
+                Assert.Equal(0.25 * ulps * FarUlp, Invariance.Volume(slab), 12);
+            }
+            else {
+                MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(r.RemovedComponentInfos);
+                Assert.Equal(Reasons.BelowResolution, info.Reason);
+                Assert.False(info.Resolvable);
+                Assert.InRange(info.ThicknessUlps, ulps - 0.01, ulps);
+            }
+        }
+
+        /// <summary>
+        /// a component that was not measured before the edits goes as before #1216, is listed as NotMeasured with what it is after
+        /// the edits, and makes the repair not clean. (No edit is known to bring a component from outside twice the thresholds to
+        /// inside them, so the test switches the measurement off: MeasureWindow 0. The same slab, measured, stays.)
+        /// </summary>
+        [Fact]
+        public void NotMeasuredComponent_IsRemoved_AndNotClean()
+        {
+            Func<DMesh3> scene = () => {
+                DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+                new MeshEditor(m).AppendMesh(CubeWithNeedle(new Vector3d(3, 0, 0), new Vector3d(0.5, 0.5, 1e-5)));
+                return m;
+            };
+            DMesh3 kept = scene();
+            var r = new MeshRoundingRepair(kept);
+            r.Apply();
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.True(r.IsClean);
+            Assert.Equal(312, kept.TriangleCount);
+
+            DMesh3 m2 = scene();
+            r = new MeshRoundingRepair(m2) { MeasureWindow = 0 };
+            r.Apply();
+            MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(r.RemovedComponentInfos);
+            Assert.Equal(Reasons.NotMeasured, info.Reason);
+            Assert.True(info.Resolvable);
+            Assert.Equal(12, info.Triangles);
+            Assert.InRange(info.Volume, 1.99e-5, 2.01e-5);
+            Assert.InRange(info.Thickness, 1.99e-5, 2.01e-5);
+            Assert.Equal(1, r.RemovedResolvable);
+            Assert.False(r.IsClean);
+            Assert.Equal(300, m2.TriangleCount);
+            AssertSolid(m2);
+        }
+
+        /// <summary>
+        /// SolidBooleanPipeline accepts a result whose only fault is a thin solid the bound kept (ScaleDisparity), but not one that
+        /// also lost a solid its coordinates resolve: the box of 1024 with a rod of 0.03 x 0.03 x 1 (thin by the bound, real
+        /// volume for its area, edited: kept and counted) succeeds; with the cube of 2^-11 as well (removed, resolvable) it is refused
+        /// </summary>
+        [Fact]
+        public void Pipeline_WithAKeptThinSolid_StillRefusesALostSolid()
+        {
+            var (a, b) = BoxAndCube(Math.Pow(2, -11));
+            DMesh3 rod = CubeWithNeedle(new Vector3d(-50, 0, 0), new Vector3d(0.015, 0.015, 0.5));
+            var thin = new SolidBooleanPipeline(new List<DMesh3>() { a, rod }, Ops.Union);
+            Assert.True(thin.Compute(), thin.Error);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, thin.BooleanStatus);
+            Assert.Empty(thin.Report.RoundingRemoved);
+            Assert.Equal(2, MeshConnectedComponents.Separate(thin.Result).Length);
+            AssertSolid(thin.Result);
+
+            var lost = new SolidBooleanPipeline(new List<DMesh3>() { a, b, rod }, Ops.Union);
+            Assert.False(lost.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, lost.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, lost.BooleanStatus);
+            Assert.Contains("1 components kept that the bound took as thin", lost.Error);
+            MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(lost.Report.RoundingRemoved);
+            Assert.Equal(Reasons.VolumeChanged, info.Reason);
+            Assert.True(info.Resolvable);
+        }
     }
 }

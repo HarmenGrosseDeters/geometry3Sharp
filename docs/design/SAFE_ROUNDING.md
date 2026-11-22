@@ -47,11 +47,16 @@ A component the edits left as it was stays. Every removed component is listed (`
 volume, thickness, reason).
 
 *The verdict has its own thresholds (owner 2026-11-22, after the cohort runs of the build).* A removed component makes
-the repair not clean only if it went for one of the last three reasons **and** was, before the edits, at least 256
+the repair not clean only if it went for one of the last three reasons (or, edited, for a numerically zero volume
+after the edits) **and** was, before the edits, at least 256
 units in the last place of its largest coordinate thick (256: the multiple of the bound's ulp term) **and** at least
 1e-3 of the bound `maxLength` of its component thick (1e-8 of the diagonal by default), or was not measured. Both tests
-are the exact volume comparison of #1191 against a threshold formed once in doubles; the bound scales exactly with 2^k,
-so the verdict does too. Those components are counted in `RemovedResolvable`; `StrictRounding` and
+are the exact volume comparison of #1191 against a threshold formed in doubles (the ulps test: exact products; the
+fraction of the bound: two products, each rounded once); the bound and the area scale exactly with 2^k, so the verdict
+does too. The floating-point keep shortcut in front of the exact comparison (a computed volume above the threshold by
+8 (n + 16) u Σ‖a‖‖b‖‖c‖ is "not below" without the exact test) has a first-order error count of at most
+(0.87 n + 8.7) u Σ‖a‖‖b‖‖c‖ (`volume_below`), so its margin holds 9 times over; if it failed, the answer would keep
+and report. Those components are counted in `RemovedResolvable`; `StrictRounding` and
 `SolidBooleanPipeline` then refuse the result. Thinner removals, the untouched ones of #1067 and components of exactly
 zero volume leave the repair clean. Why the two conditions:
 - *256 ulps.* On the Thingi10K contact cohort the differences of a model and its copy one to a few ulps away, which the
