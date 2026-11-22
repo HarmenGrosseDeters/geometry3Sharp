@@ -79,7 +79,8 @@ namespace gs
     /// connected components (a triangle soup is not a set of parts), whatever WrapRelativeAlpha is (a coarse alpha is refused in that mode).
     ///
     /// Clean parts (PassThroughCleanParts, on by default): a closed component that is clean on its own and whose box meets no other component's box is passed through
-    /// untouched, and only the other components go through the stages (design note, option B, stage 0); see PassThroughCleanParts.
+    /// untouched, and only the other components go through the stages (design note, option B, stage 0); see PassThroughCleanParts. An input that is one clean
+    /// component is returned as it is too (ResultPath PassThrough), unless ConfigureRepair is set (a configured tolerance asks for a change of a clean mesh).
     ///
     /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
     /// at least 2^-40 of the largest magnitude. Parts that lie far apart
@@ -557,7 +558,8 @@ namespace gs
         /// (NotCleanReason of the component alone) and whose bounding box meets the box of no other component is passed through untouched, and only
         /// the other components go through the repair stages (at most 64 components; the result is the union). Where the repair result of the others
         /// reaches the box of a passed part, or the union is not clean by NotCleanReason (a part far away makes its degenerate area too large), the input is repaired as a whole
-        /// (then, if that fails, the union is returned with ScaleDisparity). Off: the whole input goes through the stages, as before.
+        /// (then, if that fails, the union is returned with ScaleDisparity). An input of one clean component is returned as it is (the needle cleanup of the
+        /// repair would move its corners, #1337), unless ConfigureRepair is set. Off: the whole input goes through the stages, as before.
         /// </summary>
         public bool PassThroughCleanParts = true;
         /// <summary> triangles of the clean parts the last Apply() passed through untouched (PassThroughCleanParts; 0 if none) </summary>
@@ -637,7 +639,8 @@ namespace gs
             DMesh3 passed, rest;
             List<AxisAlignedBox3d> passedBoxes;
             if (PassThroughCleanParts && passThroughOff == false && RepairF == null && Mesh.TriangleCount > 0
-                && MeshRobustRepairPassThrough.Split(Mesh, MaxFarParts, CheckSelfIntersections, out passed, out rest, out passedBoxes))
+                // (an input of one clean component is returned as it is, unless ConfigureRepair asks for a change of a clean mesh, eg MinEdgeLengthTol: #1337)
+                && MeshRobustRepairPassThrough.Split(Mesh, MaxFarParts, CheckSelfIntersections, ConfigureRepair == null, out passed, out rest, out passedBoxes))
                 return apply_passing_through(passed, rest, passedBoxes);
             return apply_checked_whole();
         }
