@@ -82,6 +82,50 @@ namespace g3
         /// <summary> changes of node values of the Domain function made by RimGuard (a node can be changed more than once) </summary>
         public int RimNodesMoved;
 
+        /// <summary>
+        /// What a certificate of the result reads (docs/design/CONTOURING_BLOCK_CERTIFICATE.md, Lemma 9 and its remark 6):
+        /// kept by a Generate with RecordCertificateData and without a Domain, null otherwise. Internal state, not output.
+        /// </summary>
+        internal sealed class CertificateRecord
+        {
+            /// <summary> grid nodes per axis; node id = i + Nodes.x * (j + Nodes.y * k) at Origin + CellSize * (i, j, k) </summary>
+            public Vector3i Nodes;
+            public Vector3d Origin;
+            public double CellSize;
+            /// <summary>
+            /// per node, of the values the mesh was made from (after SliverGuard): bit 0 / bit 1 the level g - w / -g - w
+            /// is negative there (inside); bit 4 / bit 5 its value is exactly 0
+            /// </summary>
+            public byte[] NodeFlags;
+            /// <summary>
+            /// per mesh vertex id: the two nodes (A below B) of its tetrahedron edge, and its level (0 or 1). A vertex that is
+            /// not on an edge (made where a polygon was cut, so only with ClippedPolygonVertices above 0; both levels can
+            /// share it) has A = B = -1 and level 255.
+            /// </summary>
+            public List<int> VertexA = new List<int>(), VertexB = new List<int>();
+            public List<byte> VertexLevel = new List<byte>();
+            /// <summary> per triangle id: its level </summary>
+            public List<byte> TriangleLevel = new List<byte>();
+            /// <summary> polygon vertices that were found outside the other level: the level's polygon was cut there. Must be 0 for Lemma 9. </summary>
+            public int ClippedPolygonVertices;
+            /// <summary> the generator's NonManifoldTriangles of this run: triangles the mesh refused. Must be 0 for Lemma 9. </summary>
+            public int NonManifoldTriangles;
+            /// <summary> the half width was a function of the position (HalfWidthF): the levels are then not g - w and -g - w with one w </summary>
+            public bool VariableHalfWidth;
+        }
+
+        /// <summary> while true, every Generate without a Domain keeps its CertificateRecord </summary>
+        internal bool RecordCertificateData;
+        /// <summary> the record of the last Generate, or null </summary>
+        internal CertificateRecord Certificate;
+        /// <summary>
+        /// Test seam: called with the node values of the functions (two levels, and the domain if there is one) after
+        /// sampling and the guards, before the mesh is made, so that a test can set values the sampling cannot produce (the
+        /// counter of the record). Values set here are not guarded. Null in every use but those tests.
+        /// </summary>
+        internal Action<double[][]> NodeValuesForTest;
+        CertificateRecord record;
+
         const double MaxMagnitude = 1e150;
 
         // the three constraint functions at the grid nodes, negative inside: g - w, -g - w, d
@@ -99,6 +143,7 @@ namespace g3
         public void Generate()
         {
             Mesh = null; NonManifoldTriangles = 0; RimNodesMoved = 0; CellDimensions = Vector3i.Zero;
+            Certificate = null; record = null;
             if (Field == null) throw new ArgumentException("TwoLevelMarchingTetrahedra: Field is null");
             if (!(CellSize > 0) || double.IsInfinity(CellSize)) throw new ArgumentException("TwoLevelMarchingTetrahedra: CellSize must be finite and positive");
             if (HalfWidthF == null && (!(HalfWidth > 0) || double.IsInfinity(HalfWidth))) throw new ArgumentException("TwoLevelMarchingTetrahedra: HalfWidth must be finite and positive");
@@ -119,6 +164,12 @@ namespace g3
             floor = new double[nc];
             for (int c = 0; c < nc; ++c) floor[c] = Guard(f[c]);
             if (nc == 3) SeparateRim();
+            if (NodeValuesForTest != null) NodeValuesForTest(f);
+            if (RecordCertificateData && nc == 2) {
+                record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null };
+                for (int id = 0; id < record.NodeFlags.Length; ++id)
+                    record.NodeFlags[id] = (byte)((f[0][id] < 0 ? 1 : 0) | (f[1][id] < 0 ? 2 : 0) | (f[0][id] == 0 ? 16 : 0) | (f[1][id] == 0 ? 32 : 0));
+            }
 
             var mesh = new DMesh3();
             edgeVertices = new Dictionary<ValueTuple<int, int, int>, int>();
@@ -139,11 +190,14 @@ namespace g3
                         }
                     }
             }
+            CertificateRecord done = record;
+            if (done != null) done.NonManifoldTriangles = NonManifoldTriangles;
             Release();
             Mesh = mesh;
+            Certificate = done;
         }
 
-        void Release() { f = null; edgeVertices = null; faceVertices = null; }
+        void Release() { f = null; edgeVertices = null; faceVertices = null; record = null; }
 
         Vector3d NodePos(int id)
         {
@@ -317,7 +371,7 @@ namespace g3
                     for (int o = 0; o < nc; ++o) {
                         if (o == c) continue;
                         negative[p, o] = NegativeAt(o, c, polyA[p], polyB[p]);
-                        if (!negative[p, o]) inside[p] = false;
+                        if (!negative[p, o]) { inside[p] = false; if (record != null) ++record.ClippedPolygonVertices; }
                     }
                 }
                 emitted.Clear();
@@ -345,7 +399,9 @@ namespace g3
                 for (int t = 1; t + 1 < emitted.Count; ++t) {
                     int a = emitted[0], b = emitted[flip ? t + 1 : t], d = emitted[flip ? t : t + 1];
                     if (a == b || b == d || a == d) continue;
-                    if (mesh.AppendTriangle(a, b, d) < 0) ++NonManifoldTriangles;
+                    int tid = mesh.AppendTriangle(a, b, d);
+                    if (tid < 0) ++NonManifoldTriangles;
+                    else if (record != null) { while (record.TriangleLevel.Count <= tid) record.TriangleLevel.Add(255); record.TriangleLevel[tid] = (byte)c; }
                 }
             }
         }
@@ -406,7 +462,14 @@ namespace g3
             if (edgeVertices.TryGetValue(key, out vid)) return vid;
             vid = mesh.AppendVertex(EdgePoint(c, a, b));
             edgeVertices[key] = vid;
+            if (record != null) RecordVertex(vid, a, b, c);
             return vid;
+        }
+
+        void RecordVertex(int vid, int a, int b, int level)
+        {
+            while (record.VertexA.Count <= vid) { record.VertexA.Add(-1); record.VertexB.Add(-1); record.VertexLevel.Add(255); }
+            record.VertexA[vid] = a; record.VertexB[vid] = b; record.VertexLevel[vid] = (byte)level;
         }
 
         // the point of the face through the polygon vertices p and q where the functions c and o are both zero
@@ -438,6 +501,7 @@ namespace g3
             }
             vid = mesh.AppendVertex(pos);
             faceVertices[key] = vid;
+            if (record != null) RecordVertex(vid, -1, -1, 255);
             return vid;
         }
     }
