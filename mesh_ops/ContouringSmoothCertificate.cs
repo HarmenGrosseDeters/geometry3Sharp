@@ -233,8 +233,8 @@ namespace g3
             return e;
         }
 
-        // +1 / -1: the certified sign of f - iso on the whole box, 0: not decided
-        static int sign(ExactInterval f) { return f.Lo > 0 ? 1 : f.Hi < 0 ? -1 : 0; }
+        /// <summary> +1 / -1: the sign of every value of the interval; 0: not decided (the interval holds 0, or a bound is 0 or NaN) </summary>
+        internal static int CertifiedSign(ExactInterval f) { return f.Lo > 0 ? 1 : f.Hi < 0 ? -1 : 0; }
 
         // The certified sign of f - iso at a node by a point enclosure (0: not decided), computed once per node. Two threads
         // may compute the same node; both store the same value (the enclosure is a function of the node), so the result
@@ -244,7 +244,7 @@ namespace g3
             int idx = i + (nx + 1) * (j + (ny + 1) * k);
             sbyte v = nodeSign[idx];
             if (v == 0) {
-                int s = sign(enclose(ExactInterval.Of(X[i]), ExactInterval.Of(Y[j]), ExactInterval.Of(Z[k])).F);
+                int s = CertifiedSign(enclose(ExactInterval.Of(X[i]), ExactInterval.Of(Y[j]), ExactInterval.Of(Z[k])).F);
                 v = (sbyte)(s == 0 ? 2 : s);
                 nodeSign[idx] = v;
             }
@@ -269,7 +269,7 @@ namespace g3
             if (i >= nx || j >= ny || k >= nz) return;
             int si = Math.Min(size, nx - i), sj = Math.Min(size, ny - j), sk = Math.Min(size, nz - k);
             IntervalEnclosure e = enclose(span(0, i, si), span(1, j, sj), span(2, k, sk));
-            int s = sign(e.F);
+            int s = CertifiedSign(e.F);
             if (s != 0) {
                 // zero-free: every node of the box has this sign, and the contouring must have used it
                 for (int c = k; c <= k + sk; ++c)
@@ -317,7 +317,7 @@ namespace g3
                                 new ExactInterval(coord(0, (long)i * m + a, t), coord(0, (long)i * m + a + 1, t)),
                                 new ExactInterval(coord(1, (long)j * m + b, t), coord(1, (long)j * m + b + 1, t)),
                                 new ExactInterval(coord(2, (long)k * m + c, t), coord(2, (long)k * m + c + 1, t)));
-                            int s = sign(e.F);
+                            int s = CertifiedSign(e.F);
                             if (s == 0) allFree = false;
                             else if (boxSign == 0) boxSign = s;
                             else if (boxSign != s) allFree = false;        // cannot happen for a continuous f; refuses if it does

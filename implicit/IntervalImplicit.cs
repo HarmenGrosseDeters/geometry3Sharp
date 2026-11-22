@@ -72,7 +72,16 @@ namespace g3
                 return;
             // x = k pi / 2 + r. Any integer k is sound (r is an enclosure of x - k pi / 2 for the real pi); this k makes
             // |r| about pi / 4 at most. The check below, not the choice of k, is what the remainder bounds rest on.
-            double k = Math.Round(x * 0.6366197723675814);
+            SinCosReduced(x, Math.Round(x * 0.6366197723675814), out sin, out cos);
+        }
+
+        /// <summary>
+        /// sin x and cos x from the reduction x = k pi / 2 + r with the given integer k (a double with an integer value).
+        /// [-1, 1] if |r| may exceed MaxReduced: the remainder bounds hold for any k that passes this check.
+        /// </summary>
+        internal static void SinCosReduced(double x, double k, out ExactInterval sin, out ExactInterval cos)
+        {
+            sin = Unit; cos = Unit;
             ExactInterval r = ExactInterval.Of(x) - ExactInterval.Of(k) * PiHalf;
             if (!(Math.Max(Math.Abs(r.Lo), Math.Abs(r.Hi)) <= MaxReduced))
                 return;

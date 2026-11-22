@@ -260,6 +260,17 @@ namespace geometry3Sharp.Tests
             Assert.InRange(c.Hi - c.Lo, 7e-13, 1.2e-12);          // twice the bound of cos, and nothing else of that size
             Assert.InRange(s.Hi - s.Lo, 3e-14, 6e-14);            // twice (pi/4)^15 / 15! = 2.0e-14
             Assert.True(IntervalMath.MaxReduced >= 0.7853981633974484 && IntervalMath.MaxReduced < 1);
+            // the bounds hold for |r| <= MaxReduced only: a reduction with another multiple is refused, not evaluated
+            IntervalMath.SinCosReduced(x, 0, out s, out c);
+            Assert.True(c.Hi - c.Lo < 1.2e-12);
+            IntervalMath.SinCosReduced(x, 1, out s, out c);          // r = pi/4 - pi/2: still within the range
+            Assert.True(c.Hi - c.Lo < 1.2e-12 && s.Hi - s.Lo < 1.2e-12);
+            IntervalMath.SinCosReduced(x, 2, out s, out c);          // |r| = 3 pi / 4 > MaxReduced
+            Assert.Equal(-1, s.Lo); Assert.Equal(1, s.Hi); Assert.Equal(-1, c.Lo); Assert.Equal(1, c.Hi);
+            IntervalMath.SinCosReduced(0.81, 0, out s, out c);
+            Assert.Equal(-1, s.Lo); Assert.Equal(1, c.Hi);
+            IntervalMath.SinCosReduced(0.79, 0, out s, out c);
+            Assert.True(s.Hi - s.Lo < 1e-12);
             // the bound follows |r|: tiny near a multiple of pi / 2
             IntervalMath.SinCos(1.5707963267948966 + 1e-3, out s, out c);
             Assert.True(s.Hi - s.Lo < 1e-15 && c.Hi - c.Lo < 1e-15);
@@ -363,6 +374,24 @@ namespace geometry3Sharp.Tests
             Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(double.NegativeInfinity, double.PositiveInfinity), I(0, 0)));
             Assert.False(ContouringSmoothCertificate.GradientTest(I(double.NaN, double.NaN), I(1, 2), I(1, 2)));
             Assert.True(ContouringSmoothCertificate.GradientTest(I(-3, -2), I(0, 0), I(0, 0)));
+            // a lower bound of exactly 0 does not pass: subnormal products whose widened sum is [0, ...]
+            double e = double.Epsilon, a = Math.Pow(2, -537), b = Math.Sqrt(2) * a;
+            Assert.Equal(e, a * a); Assert.Equal(2 * e, b * b);
+            ExactInterval sum = I(b, b) * I(b, b) + I(b, b) * I(b, b) + I(a, a) * I(a, a);
+            Assert.Equal(0, sum.Lo);
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(b, b), I(b, b), I(a, a)));
+        }
+
+        [Fact]
+        public void CertifiedSign_NeedsAStrictBound()
+        {
+            Assert.Equal(1, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(double.Epsilon, 1)));
+            Assert.Equal(-1, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(-1, -double.Epsilon)));
+            Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(0, 1)));
+            Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(-1, 0)));
+            Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(-1, 1)));
+            Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(0, 0)));
+            Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(double.NaN, double.NaN)));
         }
 
         [Fact]
@@ -535,6 +564,11 @@ namespace geometry3Sharp.Tests
             Assert.False(cert.Certified, name);
             Assert.NotEmpty(cert.UncertifiedCells);
             Assert.Equal(0, OracleViolations(f, dc, cert, 5));
+            // the list is sorted by (z, y, x), whatever the order of the blocks
+            for (int i = 1; i < cert.UncertifiedCells.Count; ++i) {
+                Vector3i p = cert.UncertifiedCells[i - 1].Cell, q = cert.UncertifiedCells[i].Cell;
+                Assert.True(p.z < q.z || (p.z == q.z && (p.y < q.y || (p.y == q.y && p.x < q.x))), name + " order at " + i);
+            }
             // the reason fits the case
             if (name == "two-spheres") Assert.Contains(cert.UncertifiedCells, u => u.Reason == SmoothCertificateReason.NotSmooth);
             else Assert.Contains(cert.UncertifiedCells, u => u.Reason == SmoothCertificateReason.GradientTest);
@@ -662,6 +696,59 @@ namespace geometry3Sharp.Tests
             Assert.True(dc.Mesh.TriangleCount > 0);
         }
 
+        /// <summary> the contour sees the opposite sign at one point (a grid node); the enclosures are the field's </summary>
+        sealed class FlippedAt : TestField
+        {
+            readonly TestField f; readonly Vector3d at;
+            public FlippedAt(TestField f, Vector3d at) { this.f = f; this.at = at; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return f.Enclose(x, y, z); }
+            public override double Value(ref Vector3d p) { double v = f.Value(ref p); return p == at ? -v : v; }
+        }
+
+        [Theory]
+        [InlineData(0.04)]      // the node next to the surface: all eight cells around it are crossed
+        [InlineData(1.5)]       // one to two cells away: cells proven zero-free one by one
+        [InlineData(4.3)]       // far away: inside a block of cells proven zero-free as a whole (not 4.0: the surface would pass through a node)
+        [InlineData(-1.5)]
+        public void OneNodeWithTheWrongSign_RefusesExactlyTheEightCellsAroundIt(double cellsFromSurface)
+        {
+            const int n = 24;
+            double h = 2.2 / n;
+            Vector3i node = new Vector3i(16, 11, 12);
+            Vector3d at = new Vector3d(Shift.x + h * node.x, Shift.y + h * node.y, Shift.z + h * node.z);
+            // a sphere whose surface passes at the given distance from the node, on the axis through its centre
+            Vector3d centre = at - new Vector3d(0.4 + cellsFromSurface * h, 0, 0);
+            var sphere = new Sphere(centre, 0.4);
+            DualContouring clean = Contour(sphere, Shift, 2.2, n);
+            Assert.True(Certify(sphere, clean).Certified);
+            var f = new FlippedAt(sphere, at);
+            DualContouring dc = Contour(f, Shift, 2.2, n);
+            ContouringSmoothCertificate cert = Certify(f, dc);
+            Assert.False(cert.Certified);
+            Assert.All(cert.UncertifiedCells, u => Assert.Equal(SmoothCertificateReason.NodeSign, u.Reason));
+            var expected = new HashSet<Vector3i>();
+            for (int c = 0; c < 8; ++c) expected.Add(new Vector3i(node.x - (c & 1), node.y - (c >> 1 & 1), node.z - (c >> 2 & 1)));
+            Assert.Equal(expected, new HashSet<Vector3i>(cert.UncertifiedCells.Select(u => u.Cell)));
+            Assert.Equal(8, cert.UncertifiedCells.Count);
+        }
+
+        [Fact]
+        public void PiecesOfAMin_AreDecidedBySubBoxes_WhereTheWholeCellCannot()
+        {
+            // two balls two cells apart: near the gap a whole cell cannot tell which ball is nearer, its sub-boxes can
+            double h = 2.2 / 16;
+            var f = new Min(new Sphere(new Vector3d(0.35 + h, 0.02, 0.01), 0.35), new Sphere(new Vector3d(-0.35 - h, 0.02, 0.01), 0.35));
+            DualContouring dc;
+            ContouringSmoothCertificate cert = Run(f, 16, out dc);
+            Assert.True(cert.Certified, List(cert));
+            Assert.True(cert.PassedAtTightening[1] + cert.PassedAtTightening[2] > 0);
+            Assert.Equal("c=2;g=0+0", Signature(dc.Mesh));
+            Assert.Equal(0, OracleViolations(f, dc, cert, 6));
+            var none = new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = 0 };
+            none.Compute();
+            Assert.Contains(none.UncertifiedCells, u => u.Reason == SmoothCertificateReason.NotSmooth);
+        }
+
         [Fact]
         public void RunLevelRefusals()
         {
@@ -678,10 +765,14 @@ namespace geometry3Sharp.Tests
             Assert.False(cert.Certified);
             Assert.True((cert.RunFailure & SmoothCertificateRunFailure.OuterLayer) != 0);
             Assert.Contains(cert.UncertifiedCells, u => u.Reason == SmoothCertificateReason.OuterLayer);
-            // ... also when it only touches the outermost layer of cells
-            dc = Contour(f, new Vector3d(-0.75, -1.1, -1.1), 2.2, 16);
-            cert = Certify(f, dc);
-            Assert.True((cert.RunFailure & SmoothCertificateRunFailure.OuterLayer) != 0);
+            // ... also when it only touches the outermost layer of cells, on the low or the high side of any axis
+            foreach (Vector3d o in new[] { new Vector3d(-0.75, -1.1, -1.1), new Vector3d(-1.45, -1.1, -1.1), new Vector3d(-1.1, -0.75, -1.1),
+                new Vector3d(-1.1, -1.45, -1.1), new Vector3d(-1.1, -1.1, -0.75), new Vector3d(-1.1, -1.1, -1.45) }) {
+                dc = Contour(f, o, 2.2, 16);
+                cert = Certify(f, dc);
+                Assert.True((cert.RunFailure & SmoothCertificateRunFailure.OuterLayer) != 0, o.ToString());
+                Assert.All(cert.UncertifiedCells, u => Assert.Equal(SmoothCertificateReason.OuterLayer, u.Reason));
+            }
             // the mesh side: a vertex moved out of its cell after the contouring
             dc = Contour(f, Shift, 2.2, 16);
             Assert.True(Certify(f, dc).Certified);
