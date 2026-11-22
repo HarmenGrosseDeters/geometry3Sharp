@@ -151,6 +151,9 @@ namespace geometry3Sharp.Tests
             Assert.True(alone.Apply());
             Assert.True(withFar.Apply());
             Assert.Equal(ResultChecks.Volume(withFar.Mesh) - 8, ResultChecks.Volume(alone.Mesh), 12);
+            Assert.Equal(box.TriangleCount, alone.PassedThroughTriangles);
+            Assert.Equal(both.TriangleCount, withFar.PassedThroughTriangles);
+            Assert.True(Vertices(both).SetEquals(Vertices(withFar.Mesh)));
         }
 
         // under every similarity of the invariance tests the clean part passes through with its vertices as they are, and the 2^k scales map back bit for bit
@@ -158,6 +161,7 @@ namespace geometry3Sharp.Tests
         public void CleanSingleComponent_InvariantUnderSimilarities()
         {
             DMesh3 box = BoxWithSplitEdge(1e-3);
+            int ran = 0;
             foreach (Similarity sim in Similarity.All()) {
                 DMesh3 input = Invariance.Transformed(box, sim);
                 if (MeshRobustRepair.NotCleanReason(input) != "")
@@ -165,13 +169,50 @@ namespace geometry3Sharp.Tests
                 var r = new MeshRobustRepair(new DMesh3(input));
                 Assert.True(r.Apply(), sim.Name);
                 Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+                ++ran;
                 Assert.True(Vertices(input).SetEquals(Vertices(r.Mesh)), sim.Name);
                 if (sim.IsExact)
                     Assert.True(Vertices(box).SetEquals(Vertices(Invariance.MappedBack(r.Mesh, sim))), sim.Name);
             }
+            Assert.True(ran >= 4, "similarities run: " + ran);
         }
 
-        // a second Apply() on the same instance: the result of the first (clean) is passed through again, unchanged
+        // ConfigureRepair asks for a change of a clean mesh (eg a tolerance): the repair runs; RepairF too; PassThroughCleanParts off too
+        [Fact]
+        public void CleanSingleComponent_ConfigureRepairOrOff_RunsTheRepair()
+        {
+            DMesh3 box = BoxWithSplitEdge(1e-3);
+            var configured = new MeshRobustRepair(new DMesh3(box)) { ConfigureRepair = rep => rep.MinEdgeLengthTol = 0.01 };
+            Assert.True(configured.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, configured.ResultPath);
+            Assert.Equal(0, configured.PassedThroughTriangles);
+            Assert.True(configured.Mesh.TriangleCount < box.TriangleCount);     // the short edge collapsed, as asked
+            var off = new MeshRobustRepair(new DMesh3(box)) { PassThroughCleanParts = false };
+            Assert.True(off.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, off.ResultPath);
+        }
+
+        // the input as it is: triangle groups and ids are kept (the pass through of one part is a copy of the input)
+        [Fact]
+        public void CleanSingleComponent_KeepsGroupsAndIds()
+        {
+            DMesh3 box = BoxWithSplitEdge(1e-3);
+            box.EnableTriangleGroups();
+            foreach (int t in box.TriangleIndices())
+                box.SetTriangleGroup(t, 1 + t % 3);
+            var r = new MeshRobustRepair(new DMesh3(box));
+            Assert.True(r.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            Assert.True(r.Mesh.HasTriangleGroups);
+            foreach (int t in box.TriangleIndices()) {
+                Assert.Equal(box.GetTriangle(t), r.Mesh.GetTriangle(t));
+                Assert.Equal(box.GetTriangleGroup(t), r.Mesh.GetTriangleGroup(t));
+            }
+            foreach (int v in box.VertexIndices())
+                Assert.Equal(box.GetVertex(v), r.Mesh.GetVertex(v));
+        }
+
+        // a second Apply() on the same instance: clean, then an unclean mesh (repaired, nothing passed), then clean again the result of the first (clean) is passed through again, unchanged
         [Fact]
         public void CleanSingleComponent_ApplyTwice_Reuse()
         {
@@ -180,6 +221,15 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.True(r.Apply());
             Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            Assert.True(Vertices(box).SetEquals(Vertices(r.Mesh)));
+            r.Mesh = WithHole(Sphere(0, 1));
+            Assert.True(r.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, r.ResultPath);
+            Assert.Equal(0, r.PassedThroughTriangles);
+            r.Mesh = new DMesh3(box);
+            Assert.True(r.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            Assert.Equal(box.TriangleCount, r.PassedThroughTriangles);
             Assert.True(Vertices(box).SetEquals(Vertices(r.Mesh)));
         }
 

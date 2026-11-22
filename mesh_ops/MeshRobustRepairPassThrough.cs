@@ -55,6 +55,13 @@ namespace gs
             }
             if (boxesOut.Count == 0)
                 return false;
+            if (boxes.Count == 1) {
+                // one clean component: the input as it is (groups, ids and attributes kept), not the appended copy
+                passed = new DMesh3(input);
+                rest = new DMesh3();
+                passedBoxes = boxesOut;
+                return true;
+            }
             passed = passedMesh;
             rest = restMesh;
             passedBoxes = boxesOut;
