@@ -302,6 +302,48 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ManyIntersectingPairs_AboveTheCap_AreNotCounted_ButTheReasonIsStillGiven()
+        {
+            DMesh3 m = Together(Sphere(24, Vector3d.Zero), Sphere(24, new Vector3d(1.2, 0.1, 0.2)));
+            int pairs = MeshRepairMetrics.SelfIntersectionPairs(m).Count;
+            Assert.True(pairs > 20);
+            // (the cap is the number of pairs: at it the count is made, above it not)
+            var at = new SolidBooleanReport();
+            SolidBooleanPipeline.FinalCheck(m, at, true, pairs);
+            Assert.Equal("self-intersections", at.NotCleanReason);
+            Assert.True(at.SelfIntersectingTriangles > 0);
+            Assert.False(at.OnlyContacts);
+            var above = new SolidBooleanReport() { OnlyContacts = true };
+            SolidBooleanPipeline.FinalCheck(m, above, true, pairs - 1);
+            Assert.Equal("self-intersections", above.NotCleanReason);
+            Assert.Equal(-1, above.SelfIntersectingTriangles);
+            Assert.False(above.OnlyContacts);
+            Assert.True(above.ContactsResult >= 0);
+            // a contact-only result under the cap keeps OnlyContacts (the default cap is 20000 pairs)
+            SolidBooleanReport contact = Check(EdgeTouching());
+            Assert.True(contact.OnlyContacts);
+            Assert.True(MeshRepairMetrics.SelfIntersectionPairs(EdgeTouching()).Count < SolidBooleanPipeline.FinalCheckPairCap);
+            // the cap itself
+            Assert.Equal(20000, SolidBooleanPipeline.FinalCheckPairCap);
+        }
+
+        [Fact]
+        public void AHeavilySelfIntersectingResult_FinishesFast_AndGivesTheReason()
+        {
+            // two spheres of 40 thousand triangles that nearly coincide, one turned: the surfaces cross all over (far above the cap of pairs)
+            DMesh3 a = Sphere(80, Vector3d.Zero), b = Sphere(80, Vector3d.Zero);
+            MeshTransforms.Rotate(b, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.8).Normalized, 1.0));
+            DMesh3 m = Together(a, b);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            SolidBooleanReport r = Check(m);
+            watch.Stop();
+            Assert.Equal("self-intersections", r.NotCleanReason);
+            Assert.Equal(-1, r.SelfIntersectingTriangles);
+            Assert.False(r.OnlyContacts);
+            Assert.True(watch.ElapsedMilliseconds < 5000, "the final check took " + watch.ElapsedMilliseconds + " ms");
+        }
+
+        [Fact]
         public void FinalCheck_WithoutTheCrossingCount_ReportsContactsAndReasonOnly()
         {
             DMesh3 m = EdgeTouchingAndCrossing();

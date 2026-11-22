@@ -126,7 +126,8 @@ namespace gs
         /// along a plane with different triangulations (their coplanar triangles overlap and share at most one position). So the
         /// count is an upper bound of
         /// the true crossings and 0 means there is none. NotCleanReason reports degenerate triangles before self-intersections,
-        /// so none is degenerate here
+        /// so none is degenerate here. -1: the mesh has more than 20000 intersecting triangle pairs (contacts included): they are not
+        /// counted, so that a heavily self-intersecting result does not make the final check expensive (and OnlyContacts is false)
         /// </summary>
         public int SelfIntersectingTriangles;
         /// <summary>
@@ -1280,13 +1281,22 @@ namespace gs
         /// countCrossings false: the two are left at 0 / false without the (more expensive) count of the crossing pairs, which
         /// is the full enumeration of the intersecting pairs (no cap, no cancellation check: its cost grows with their number)
         /// </summary>
-        internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report, bool countCrossings = true)
+        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
+        internal const int FinalCheckPairCap = 20000;
+
+        internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report, bool countCrossings = true, int pairCap = FinalCheckPairCap)
         {
             report.ContactsResult = countContacts(mesh, null);
             report.NotCleanReason = MeshRobustRepair.NotCleanReason(mesh);
             report.SelfIntersectingTriangles = 0;
             report.OnlyContacts = false;
             if (countCrossings && report.NotCleanReason == "self-intersections") {
+                if (MeshRepairMetrics.SelfIntersectionsAtMost(mesh, pairCap) > pairCap) {
+                    // (more intersecting pairs than the cap: not counted, so that a heavily self-intersecting result does not make the check
+                    // expensive; it cannot be told that they are contacts only)
+                    report.SelfIntersectingTriangles = -1;
+                    return;
+                }
                 report.SelfIntersectingTriangles = CrossingTrianglesOfAll(mesh).Count;
                 report.OnlyContacts = report.ContactsResult > 0 && report.SelfIntersectingTriangles == 0;
             }
