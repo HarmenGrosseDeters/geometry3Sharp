@@ -740,7 +740,7 @@ namespace g3
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
-            if (CullOutsideA && WindingPredicate == null && (Operation == Operations.Difference || Operation == Operations.Intersection)
+            if (CullOutsideA && WindingPredicate is null && (Operation == Operations.Difference || Operation == Operations.Intersection)
                 && inputs.Count > 1) {
                 var against = new List<int>();
                 for (int m = 0; m < inputs.Count && (m == 0 || Operation == Operations.Intersection); ++m)
@@ -1305,7 +1305,7 @@ namespace g3
             PreparedInput first = PreparedFirst;
             Action<int> observer = PrepareObserverForTests;
             gParallel.ForRange(inputs.Count, (m) => {
-                if (observer != null)
+                if (observer is not null)
                     observer(m);
                 // (a shared first mesh prepared without components is prepared again when the count is asked for)
                 // (ByNesting prepares each input in nest_input: here only the finiteness check)
@@ -1515,7 +1515,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool inside(int[] winding, List<int> touched)
         {
-            if (WindingPredicate != null)
+            if (WindingPredicate is not null)
                 return WindingPredicate(winding);
             int count = 0;
             foreach (int m in touched)

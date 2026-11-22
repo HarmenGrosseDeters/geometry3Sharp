@@ -311,8 +311,10 @@ namespace g3
 
             public bool Equals(PointKey o) { return Kind == o.Kind && A == o.A && B == o.B && C == o.C; }
             public override bool Equals(object obj) { return obj is PointKey && Equals((PointKey)obj); }
+            public override int GetHashCode() { return Mixed(); }
+            /// <summary> the hash of the key (unseeded: three SplitMix64 rounds), also for choosing a shard, which is not a hash container </summary>
             [MethodImpl(JitHints.Optimize)]
-            public override int GetHashCode()
+            internal int Mixed()
             {
                 ulong h = (ulong)Kind;
                 h = mix(h ^ (ulong)A);
@@ -397,11 +399,13 @@ namespace g3
         internal int HashSalt;
         internal bool SingleShard;
         [MethodImpl(JitHints.Optimize)]
-        int salted(int h)
+        int salted(int h) { return salted(h, HashSalt); }
+        [MethodImpl(JitHints.Optimize)]
+        static int salted(int h, int salt)
         {
-            if (HashSalt == 0)
+            if (salt == 0)
                 return h;
-            ulong z = (uint)(h ^ HashSalt) * 0x9E3779B97F4A7C15UL;
+            ulong z = (uint)(h ^ salt) * 0x9E3779B97F4A7C15UL;
             z = (z ^ (z >> 29)) * 0xBF58476D1CE4E5B9UL;
             return (int)(z ^ (z >> 32));
         }
@@ -418,15 +422,16 @@ namespace g3
             return d;
         }
 
-        // an exact point with its hash computed once, outside the lock (the hash of four BigIntegers is not cheap)
+        // an exact point as the key of a shard of rationalIndex: the (salted) hash of its four BigIntegers is a hash value, which stays inside
+        // GetHashCode (a hash value only reaches a hash container); the shard is chosen by ExactPoint3.ShardBits, unseeded
         readonly struct HashedPoint : IEquatable<HashedPoint>
         {
             public readonly ExactPoint3 P;
-            public readonly int Hash;
-            public HashedPoint(ExactPoint3 p, int hash) { P = p; Hash = hash; }
-            public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
+            readonly int salt;
+            public HashedPoint(ExactPoint3 p, int salt) { P = p; this.salt = salt; }
+            public bool Equals(HashedPoint o) { return P.Equals(o.P); }
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
-            public override int GetHashCode() { return Hash; }
+            public override int GetHashCode() { return salted(P.GetHashCode(), salt); }
         }
         // a point in fixed width with its hash (computed once, outside the lock)
         // (the limbs only: IsDouble and D are not set in the key)
@@ -530,8 +535,8 @@ namespace g3
                     return id;
                 }
             }
-            var hp = new HashedPoint(p, salted(p.GetHashCode()));
-            var shard = rationalIndex[shard_of(hp.Hash)];
+            var hp = new HashedPoint(p, HashSalt);
+            var shard = rationalIndex[shard_of(salted(p.ShardBits()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(hp, out id))
@@ -559,7 +564,7 @@ namespace g3
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
-            var shard = keyIndex[shard_of(salted(key.GetHashCode()))];
+            var shard = keyIndex[shard_of(salted(key.Mixed()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(key, out id))
@@ -619,12 +624,8 @@ namespace g3
             return exactPoints[a].P.Equals(exactPoints[b].P);
         }
 
-        [MethodImpl(JitHints.Optimize)]
-        internal int ExactHash(int id)
-        {
-            int r = exact_ref(id);
-            return salted((r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode());
-        }
+        // the hash of the exact point of an id (for tests: the comparer's)
+        internal int ExactHash(int id) { return new ExactIdComparer(this).GetHashCode(id); }
 
         // point ids compared by their exact points
         sealed class ExactIdComparer : IEqualityComparer<int>
@@ -632,7 +633,12 @@ namespace g3
             readonly ExactMeshArrangement arr;
             public ExactIdComparer(ExactMeshArrangement arr) { this.arr = arr; }
             public bool Equals(int a, int b) { return a == b || arr.ExactEquals(a, b); }
-            public int GetHashCode(int id) { return arr.ExactHash(id); }
+            [MethodImpl(JitHints.Optimize)]
+            public int GetHashCode(int id)
+            {
+                int r = arr.exact_ref(id);
+                return arr.salted((r > 0) ? arr.fixedPoints[r - 1].Hash() : arr.exactPoints[id].P.GetHashCode());
+            }
         }
 
         // the grid point of input coordinates
@@ -2112,7 +2118,7 @@ namespace g3
             Culled = new bool[Triangles.Count];
             CulledCount = 0;
             CullTests = 0;
-            if (CullOutsideOf == null || CullTest == null)
+            if (CullOutsideOf is null || CullTest is null)
                 return;
             CullPrepare?.Invoke();
             var free = new bool[Triangles.Count];
@@ -2422,7 +2428,8 @@ namespace g3
             if (checkPrefilter && proper)
                 System.Threading.Interlocked.Increment(ref PrefilterChecked);
             if (checkPrefilter && proper && apart != (c > 0))
-                throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
+                throw new InvalidOperationException("ExactMeshArrangement: the prefilter says " + (apart ? "apart" : "meeting") + ", the construction " + (c > 0 ? "apart" : "meeting")
+                    + " (triangles " + ti.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + ui.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);

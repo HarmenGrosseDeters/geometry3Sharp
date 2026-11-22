@@ -58,6 +58,8 @@ M:System.Math.Max(System.Double,System.Double) ; [sites] max(-0, +0) differs as 
 M:System.Math.BigMul(System.UInt64,System.UInt64,System.UInt64@) ; [NET] the 128-bit product, exact (portable branch: FixedArith.MulHighPortable, registered #if)
 M:System.Numerics.BitOperations.LeadingZeroCount(System.UInt64) ; [NET] exact (portable branch registered #if)
 M:System.Numerics.BitOperations.TrailingZeroCount(System.UInt64) ; [NET] exact (portable branch registered #if)
+M:System.Numerics.BigInteger.op_BitwiseAnd(System.Numerics.BigInteger,System.Numerics.BigInteger) ; bitwise and with two's complement semantics for negative values (specified by the documentation), exact; used with the mask int.MaxValue (ExactPoint3.ShardBits)
+M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Int32 ; exact for a value in the range of Int32 (an OverflowException outside it: failure, outside the claim); ExactPoint3.ShardBits converts a value masked to 0 .. int.MaxValue
 
 // ---- BigInteger: integer arithmetic, defined by its value (T2) ----
 M:System.Numerics.BigInteger.#ctor(System.Int64) ; exact
