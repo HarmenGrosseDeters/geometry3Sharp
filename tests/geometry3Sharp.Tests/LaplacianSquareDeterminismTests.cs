@@ -78,7 +78,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Square_IsTheProduct_UpperEntriesInColumnOrder()
+        public void Square_IsTheProduct_RowsInColumnOrder()
         {
             DMesh3 mesh = Defects.Sphere(Vector3d.Zero, 1, 4);
             SymmetricSparseMatrix m = Laplacian(mesh);
@@ -95,12 +95,14 @@ namespace geometry3Sharp.Tests
             int nonzeros = 0;
             for (int r = 0; r < n; ++r) {
                 var seen = new HashSet<int>();
-                int lastUpper = -1;
+                int last = -1;
                 foreach (PackedSparseMatrix.nonzero nz in sq.Rows[r]) {
                     Assert.True(seen.Add(nz.j), $"row {r}: column {nz.j} twice");
                     Assert.True(Math.Abs(nz.d - dense[r, nz.j]) <= 1e-12 * (1 + Math.Abs(dense[r, nz.j])), $"({r}, {nz.j}): {nz.d:R} / {dense[r, nz.j]:R}");
-                    // (the entries of the row's own pass, columns >= r, come in the order of their columns)
-                    if (nz.j >= r) { Assert.True(nz.j > lastUpper, $"row {r}: column {nz.j} after {lastUpper}"); lastUpper = nz.j; }
+                    // (the mirrored entries of the rows before r come in the order of those rows, then the row's own
+                    // entries, columns >= r, in the order of their columns: the whole row is in column order)
+                    Assert.True(nz.j > last, $"row {r}: column {nz.j} after {last}");
+                    last = nz.j;
                     nonzeros++;
                 }
                 for (int c = 0; c < n; ++c)
@@ -121,6 +123,16 @@ namespace geometry3Sharp.Tests
                 sm.SetConstraint(v, m.GetVertex(v), m.IsBoundaryVertex(v) ? 100 : 0.5, m.IsBoundaryVertex(v));
             Vector3d[] result = new Vector3d[m.MaxVertexID];
             Assert.True(multipleRHS ? sm.SolveMultipleRHS(result) : sm.SolveMultipleCG(result));
+            // the result is a smoothing: the hard constraints (the boundary of the hole) are met exactly, the soft ones
+            // hold every other vertex near its place, and the mesh did change
+            double moved = 0;
+            foreach (int v in m.VertexIndices()) {
+                double d = result[v].Distance(m.GetVertex(v));
+                if (m.IsBoundaryVertex(v)) Assert.True(d == 0, $"boundary vertex {v} moved by {d:R}");
+                Assert.True(d < 0.25, $"vertex {v} moved by {d:R}");
+                moved = Math.Max(moved, d);
+            }
+            Assert.True(moved > 1e-4, "nothing was smoothed: " + moved.ToString("R"));
             foreach (int v in m.VertexIndices()) m.SetVertex(v, result[v]);
             Assert.True(Invariance.AllFinite(m));
             return m;
@@ -132,10 +144,14 @@ namespace geometry3Sharp.Tests
             var deformer = new LaplacianMeshDeformer(m);
             int lowest = m.VertexIndices().OrderBy(v => m.GetVertex(v).z).ThenBy(v => v).First();
             int highest = m.VertexIndices().OrderByDescending(v => m.GetVertex(v).z).ThenBy(v => v).First();
-            deformer.SetConstraint(lowest, m.GetVertex(lowest), 10, false);
-            deformer.SetConstraint(highest, m.GetVertex(highest) + new Vector3d(0.125, 0, 0.5), 10, false);
+            Vector3d fixedAt = m.GetVertex(lowest), target = m.GetVertex(highest) + new Vector3d(0.125, 0, 0.5);
+            deformer.SetConstraint(lowest, fixedAt, 10, true);
+            deformer.SetConstraint(highest, target, 10, true);
             Assert.True(deformer.SolveAndUpdateMesh());
             Assert.True(Invariance.AllFinite(m));
+            // the result is the deformation asked for: both hard constraints are met exactly, and the surface followed
+            Assert.True(m.GetVertex(lowest) == fixedAt && m.GetVertex(highest) == target, "the constraints are not met");
+            Assert.True(m.VertexIndices().Count(v => m.GetVertex(v).z > 1.0625) > 5, "the surface did not follow the handle");
             return m;
         }
 
