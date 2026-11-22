@@ -388,3 +388,126 @@ Delaunay only and have no global pass.
   every pair with the same xor. A mixing hash took it below a second.
 - **Verdicts unchanged:** the twelve Herne reports and the corpus verdicts (both modes) are those of master; one corpus run below the
   judge limit now (water-huge3 M3@25, ok) only because the step-1 mesher makes fewer triangles there.
+
+## 7. Step (4): the oracle on large inputs (#1319, 2026-11-22)
+
+`Meshing2HardProblems hp7 --size large` showed the oracle at 195 s on coast8000 q20 (401 151 triangles; the mesher takes 6.6 s) and at
+18 to 21 s on parcels60 (mesher 40 to 125 ms). The profiles (dotnet-trace, `profile_split.py`, and per-check laps) found the time
+in exact rational arithmetic where a double or an integer test decides, and in scans where an index exists. The replacements below are
+all on the fast path or equal to the exact computation on both paths; each has its argument. Times: section 7.9.
+
+### 7.1 `Q`: a power of two as denominator
+
+Every value the oracle builds from doubles by `+ - *` has a power of two as its denominator, and `Q`'s constructor ran a gcd on every
+operation (11 to 20 % of the oracle's time on coast8000). For `d = 2^e` the gcd with `n` is `2^min(tz(n), e)`, `tz` the number of
+trailing zero bits of `n` (of `|n|`: the two's complement of a negative number has the same count). The constructor shifts both by
+that count: the reduced form is the same as with the gcd. `0 / 2^e` is `0 / 1`, as before. `Meshing2OracleSpeedTests.Q_PowerOfTwoDenominators_ReduceLikeTheGcd`
+compares with the gcd on 3000 random values and on the negative case.
+
+### 7.2 `Exact.Dist2ToSegmentCompare`: the distance to a segment against a limit, without rationals
+
+`Dist2ToSegment(a, b, p) <= limit` was a rational computation (`Q` operations, each with a gcd), 27 call sites. With `D = Wa Wb Wp`
+(the homogeneous denominators), `u = b - a` and `v = p - a` are integer vectors over `D`: `UX = (Xb Wa - Xa Wb) Wp`, `VX = (Xp Wa - Xa Wp) Wb`.
+The three cases of `Dist2ToSegment` depend on `t = u.v / u.u`, which does not change under the common scale, and their values are
+quotients with positive denominators: `v.v / D^2` for `t <= 0`, `w.w / D^2` with `w = v - u` for `t >= 1`, `cross^2 / (u.u D^2)` between
+(the true cross product is `cross / D^2`, the true `u.u` is `u.u / D^2`). The quotient is compared with `limit = ln / ld` by cross
+multiplication (`ld`, the denominators positive). The sign is that of the rational difference, exactly; a degenerate segment (`u.u = 0`)
+takes the first case, as before. The equivalence test (`Dist2ToSegmentCompare_HasTheSignOfTheRationalDistance`) compares the sign with
+`Dist2ToSegment` for lattice points (ties at the ends, the feet and on the segment), rationals with odd denominators, equal ends and
+limits of both signs. `Segments` keeps the exact `moved2` maximum but evaluates the distance only where it exceeds the current maximum
+(`MaxDist2`: the comparison decides that, and `Q.Max` returns the same value).
+
+### 7.3 Doubles of a point without a gcd (`PtD`)
+
+`PtD(p)` took `p.Qx`, which reduces (a gcd), then `Bounds`. It now takes `Pt.Bounds` of the homogeneous parts: the middle of the same
+kind of interval, within a few units in the last place of the old value, far inside the slack (1e-12 of the magnitude) of every
+filter that reads it. The filters only decide where the doubles are surely on one side; the exact test decides the rest, so no
+verdict depends on those units.
+
+### 7.4 `Segments` (lever a)
+
+The ring edges were already indexed (`ringGrid`); the time was in what runs per source and per piece.
+
+- **`RetainedPieces`**: before the rational intersection of a ring edge with `a-b`, two exact orientation tests drop the edges whose ends lie
+  strictly on one side of `a-b`'s line or `a-b`'s ends strictly on one side of the edge's line. For such an edge no case below adds a
+  cut: with non-parallel lines the intersection of the lines lies outside the closed edge (first test) or outside the open `a-b` (second:
+  `t` must lie in `(0, 1)`, which needs the ends of `a-b` strictly apart or on the line); parallel and off the line, both ends of the edge are on one
+  side, and the old code `continue`d. A collinear overlap has all four orientations zero and is not dropped. The doubles of the ring
+  edges' ends are kept once per `Segments` (`ringD`) and read by index for the filtered lists.
+- **The vertices in a source's tube** (`near`): `NearSource` (the box test, the double filters on the stored ends, then the exact distance) in place
+  of `InTube`, which converted three points to doubles per call: on coast8000 a long source's box holds thousands of vertices (24 million
+  calls). `NearSource` is the test `InTube` makes (a vertex is near a source when its exact distance is at most the tube). The check mode compares with the scan.
+- **The starts and goals of a chain** (`candidates` against `piece.from` / `piece.to`): a filter in front of the exact `Len2`: a vertex
+  surely beyond the tube (the lower bound of `InTube`'s filter, for a point) is no start. `OnCut` converts the vertex from the output
+  doubles. Only rejections are filtered, so the exact result is unchanged.
+- **`NearSourceIds`** (the sources within the tube of a vertex, used by the small-angle excuse): from `sourceGridForZones` in ascending order, as the
+  scan; `NearSource` decides each. The check mode compares with the full scan.
+
+### 7.5 `Domain.ComputeArea` (lever b)
+
+The area is read by `Coverage` (against the mesh's), by the degenerate test and by the empty-mesh rule, so it cannot be skipped. For the
+slab sweep the set of rings of odd parity was rebuilt for every gap by a scan of all rings (3600 on parcels60, per gap of each slab).
+It is now kept as the sorted list of the toggled rings' ids: insertion and removal at the position of the ring that the gap's lower
+edge belongs to. The list after each toggle is the one the scan gave (the same ids, ascending), so `Decide` sees the same input. The constructor's
+gcds went with 7.1. `Domain_AreaOfSharedBorderParcels_IsTheSquare` and `Domain_AreaOfNestedRings_FollowsTheInnermostRule` pin the sweep.
+
+### 7.6 Point in ring (`InRing`)
+
+On a ring of 8000 thin edges the y bucket holds hundreds of edges, each tested exactly where its box meets the point's.
+
+- **A filter in doubles** (`SureOrient`): the orientation of `a, b, p` from the middles of the vertices' boxes, with the error bound of
+  `SurelyOneSide` (1e-12 of the largest coordinate times the factors, plus 1e-12 of the products). Where its sign is decided, `p` is off the line
+  (so `OnClosedSegment` is false) and the side is the exact `Orient`'s. The `a`/`b` above `p` test uses the boxes' separation from `p`'s y interval first,
+  the rational `Qy` only when they overlap, and `p.Qy` is computed on its first use (a gcd per call before).
+- **The edge boxes** (`EdgeBoxes`) are kept per ring (the union of the two ends' boxes), instead of being formed with `Math.Min`/`Max` per edge per call.
+
+### 7.7 `Coverage`: the vertices outside the domain (F-36)
+
+A vertex rounded off a boundary edge (a split point) lies outside by a few ulps, and the check scanned all ring edges for each (the
+box test per edge, an exact test where it met). It queries a `BoxGrid` over the boxes widened by the tube (the superset
+property is checked by `BoxGrid.CheckSuperset` in the check mode), and takes the double filter `TubeFilter` for edges whose ends are doubles,
+the exact test otherwise. One edge within the tube decides, so the candidates' order does not matter. A triangle's centroid is built in
+homogeneous parts (`(Xa Wb Wc + Xb Wa Wc + Xc Wa Wb) / (3 Wa Wb Wc)`, the same point), without the reductions of the rational sums.
+
+### 7.8 What was measured and not built (coast, lever c)
+
+The remaining checks are mostly the oracle's reference-style structures: `conformity: edge-crossings` (the STR-tree with certified hulls,
+5 s) and `point-triangle`, the witness and its certificate (3 s), `Quality`'s excuses (4 s). Each of those already has a filter in
+front of its exact tests (an earlier step), so the "exact tests without a filter" of the coast profile were the distance tests and rational
+sums above, not those. The profile of the largest checks is in section 7.9.
+
+### 7.9 Measured
+
+See the PR for the commands. Raw output: `benchmarks/Meshing2HardProblems/perf/hp7-net10.txt` (before: master 0f35a98c with #1325 is the
+older numbers of the spike; the before column below was measured in the same container immediately before the change).
+
+| case | oracle before ms | oracle after ms | speedup | verdict before | after |
+|---|---|---|---|---|---|
+| parcels30 q20 default | 3357 | 1948 | 1.7x | ok | ok |
+| parcels30 q30 default | 3505 | 1676 | 2.1x | ok | ok |
+| parcels60 q20 default | 19252 | 9829 | 2.0x | ok | ok |
+| parcels60 q30 default | 19108 | 10891 | 1.8x | ok | ok |
+| coast2000 q20 default | 5989 | 1692 | 3.5x | ok | ok |
+| coast8000 q20 default | 192781 | 29007 | 6.6x | ok | ok |
+| comb40 phi1 q20 default | 24 | 12 | 2.0x | ok | ok |
+| fan12 phi2 q20 default | 14 | 6.58 | 2.1x | ok | ok |
+| parcels30 q20 cq | 3264 | 1578 | 2.1x | ok | ok |
+| parcels30 q30 cq | 3326 | 1564 | 2.1x | ok | ok |
+| parcels60 q20 cq | 18997 | 9226 | 2.1x | ok | ok |
+| parcels60 q30 cq | 20027 | 9987 | 2.0x | ok | ok |
+| coast2000 q20 cq | 2452 | 723 | 3.4x | ok | ok |
+| coast8000 q20 cq | 45159 | 8173 | 5.5x | ok | ok |
+| comb40 phi1 q20 cq | 25 | 15 | 1.7x | ok | ok |
+| fan12 phi2 q20 cq | 14 | 8.74 | 1.6x | ok | ok |
+| parcels2 q20 snap 1/64 | 8.18 | 5.12 | 1.6x | BoundaryOutsideTube | ok |
+| parcels10 q20 snap 1/64 | 515 | 227 | 2.3x | BoundaryOutsideTube | ok |
+| parcels30 q20 snap 1/64 | 16378 | 12552 | 1.3x | BoundaryOutsideTube | ok |
+| wide exponents q20 default | 102 | 45 | 2.3x | ok | ok |
+
+`Meshing2HardProblems hp7 --size large`, 4 cores, net10.0, the oracle's second (timed) run of each case; before: master before this step,
+with the snap rows measured before #1325 (the three snap rows change to ok with #1325, not with this step). Verdicts of the 17 other rows
+are unchanged. **coast8000 q20 goes from 193 s to 29 s (6.6x), not under the 20 s target.** What is left there (isolated run, 30 s):
+`conformity: edge-crossings` 5.5 s and `point-triangle` 2.6 s (the certified STR-tree searches), `coverage` 5.4 s (the point-in-ring test
+per centroid, the boundary probes), `quality` 3.9 s, `segments` 3.6 s, the global Delaunay witness 3.4 s. Each is a flat share below 20 %;
+the next levers are a per-cell classification of the point-in-ring test for single-ring domains and the STR-tree walk's own orientation
+tests. parcels60 stays at 10 s: its `Domain` constructor (the slab sweep's rational heights, 5 s) and `Segments` (4 s).
