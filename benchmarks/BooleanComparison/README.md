@@ -1251,7 +1251,7 @@ measurement; with `--cases <file>` it runs the same parts on pairs of case direc
 | `drop` | (only when named) a box united with a disjoint cube of edge 2^-k: whether SafeRounding's removal of tiny components drops the untouched cube |
 
 Tables: `python3 perf/seam_levers_report.py phases|seam|selfjoin|tree|local <rows>...` (tests: `test_seam_levers.py`).
-Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22/](perf/seam_levers_2026-11-22/). Headline: a union
+Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22/](perf/seam_levers_2026-11-22/). Lever 3x and the lazy first pair search, measured on a prototype that was not merged (0 on seam unions): [perf/lazy_first_search_2026-11-22/](perf/lazy_first_search_2026-11-22/README.md). Headline: a union
 of two tubes of 634k triangles in all, with 806 of them split, takes 2.47 s at 1 thread and 1.37 s at 4 on the 4-vCPU
 container; the same seam between tubes of 40k triangles 0.25 s and 0.09 s.
 
