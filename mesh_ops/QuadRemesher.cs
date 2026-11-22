@@ -60,8 +60,8 @@ namespace gs
     /// tangent planes. See Cleanup for the repairs that follow.
     ///
     /// Input: a manifold triangle mesh (open boundaries are lattice constraints, see PositionField) and TargetEdgeLength, the
-    /// edge length of the quads. Field: a CrossField of the mesh that was computed successfully; if null, the smoothest field
-    /// (default settings) is computed. The mesh is not modified. Result: a DPolyMesh (outward as the input's orientation; vertices
+    /// edge length of the quads. Field: a CrossField of the mesh that was computed successfully; if null, one is computed
+    /// with CurvatureAlignment, AlignCreases and CreaseAngleDegrees (default: smoothest field). The mesh is not modified. Result: a DPolyMesh (outward as the input's orientation; vertices
     /// are on the tangent planes of the input, not projected). Deterministic: the same input gives the same output bit for bit,
     /// serial or parallel; power of two scalings of the mesh and of TargetEdgeLength give the same polygon mesh up to the scaling.
     /// Compute() can be called again.
@@ -89,6 +89,14 @@ namespace gs
         public double MismatchLimit = 0.5;
         /// <summary> see PositionField.MiddleRegularization </summary>
         public double MiddleRegularization = 0.05;
+        /// <summary> see PositionField.CornerAngleDegrees: a boundary vertex where the boundary turns by more than this angle (degrees, 0..180) is pinned as a lattice point </summary>
+        public double CornerAngleDegrees = 30;
+        /// <summary> see CrossField.CurvatureAlignment (used when Field is null; ignored when a pre-computed Field is supplied, but its value is always validated: non-negative and finite, else InvalidInput): 0 gives the smoothest field, about 1 follows principal curvature directions where the surface is anisotropic </summary>
+        public double CurvatureAlignment = 0;
+        /// <summary> see CrossField.AlignCreases (used when Field is null): align a cross direction with crease edges whose dihedral angle exceeds CreaseAngleDegrees </summary>
+        public bool AlignCreases = false;
+        /// <summary> see CrossField.CreaseAngleDegrees (used when Field is null and AlignCreases is true; degrees, 0..180) </summary>
+        public double CreaseAngleDegrees = 30;
 
         /// <summary>
         /// Off (default): the quads have the edge length TargetEdgeLength everywhere. Scale or ScaleAndRotation: a size field (and a rotation
@@ -150,18 +158,28 @@ namespace gs
         public QuadRemeshStatus Compute()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+            FieldSeconds = PositionSeconds = ExtractSeconds = 0;
+            CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
             PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
-            FieldSeconds = PositionSeconds = ExtractSeconds = 0;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            CrossField cf = Field;
-            if (cf == null) { cf = new CrossField(Mesh); cf.Compute(); FieldSeconds = sw.Elapsed.TotalSeconds; }
-            if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
-            var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
+            if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");
+            if (!(CurvatureAlignment >= 0) || double.IsInfinity(CurvatureAlignment)) return Fail(QuadRemeshStatus.InvalidInput, "CurvatureAlignment must be non-negative and finite");
+            if (!(CreaseAngleDegrees >= 0 && CreaseAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CreaseAngleDegrees must be in [0, 180]");
             if (SizeAdaptation != SizeAdaptationMode.Off) {
                 if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
+            }
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            CrossField cf = Field;
+            if (cf == null) {
+                cf = new CrossField(Mesh) { CurvatureAlignment = CurvatureAlignment, AlignCreases = AlignCreases, CreaseAngleDegrees = CreaseAngleDegrees };
+                cf.Compute();
+                FieldSeconds = sw.Elapsed.TotalSeconds;
+            }
+            if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
+            var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, CornerAngleDegrees = CornerAngleDegrees, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
+            if (SizeAdaptation != SizeAdaptationMode.Off) {
                 IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
                 fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;
                 if (fr.Compute() == IntegrableFramesStatus.InvalidInput) return Fail(QuadRemeshStatus.InvalidInput, fr.Error);
