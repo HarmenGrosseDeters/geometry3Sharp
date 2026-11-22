@@ -33,10 +33,16 @@ namespace g3
         /// 1 + 2^-48 = 1 + 32 u: applied to the final Err of every operation, so that the rounding of the arithmetic that computes
         /// Err cannot make it smaller than the real bound, for any of its terms (the operand errors too). The roundings on non-negative
         /// numbers, each by a factor within 1 +- u: a sum 5 (|xh| + |yh|, Eps2 times it, the sum of the three terms), a product 11
-        /// (Mag twice, four products of an error with a magnitude, Eps2 times |xh yh| with the product, the sums), a quotient 5 on top
-        /// of the 4 of the sum inside res.Err (Mag + Err, the denominator twice, the quotient, ErrUp). At most 12, so Err is rounded
+        /// (Mag twice, four products of an error with a magnitude, Eps2 times |xh yh| with the product, the sums), a quotient 6 (res.Mag,
+        /// + res.Err, the denominator twice, the division, ErrUp; res.Err carries its own factor). At most 12, so Err is rounded
         /// down by at most a factor 1 - 12 u
         /// </summary>
+        /// <summary>
+        /// 2^-1000: a bound that is not 0 but below this (an underflow, with a subnormal's large relative error) is raised to it when an operand
+        /// error is not 0: it stays far below any gap that matters (2^-1000 times the largest scale 2^960 of the range rule is 2^-40 absolute)
+        /// and keeps the relative error of the bound valid in the later operations
+        /// </summary>
+        const double ErrFloor = 9.332636185032189e-302;
         const double ErrUp = 1.0000000000000035527136788005;
         const double MinMagBits = 3.2033329522929615e-145;     // 2^-480
         const double MaxMagBits = 3.1217485503159922e144;      // 2^480
@@ -117,9 +123,10 @@ namespace g3
             TwoSum(ch, cl3, out zh, out zl);
             double ax = x.Mag, ay = y.Mag;
             double err = (ax * y.Err + ay * x.Err + x.Err * y.Err + Eps2 * Math.Abs(x.Hi * y.Hi)) * ErrUp;
-            // (an operand error that is not 0 must not vanish into a certified exact zero: the bound is at least the smallest double)
-            if (err == 0 && (x.Err > 0 || y.Err > 0))
-                err = double.Epsilon;
+            // (an operand error that is not 0 must not vanish, or shrink into the subnormals, into a bound that a later operation scales up
+            // to something far too small: the bound is at least ErrFloor)
+            if (err < ErrFloor && (x.Err > 0 || y.Err > 0))
+                err = ErrFloor;
             // (the product of the heads may be below the range even if both are in it: Checked)
             return Checked(zh, zl, err);
         }
@@ -147,8 +154,8 @@ namespace g3
             DoubleWord res = x - y * q;
             if (res.IsValid == false)
                 return Invalid;
-            // (y.Err up to a quarter of |yh|: then the denominator |yh| - |yl| - err(y) is at least 0.7 |yh| and its rounding, at most 2 u
-            // relative, is covered by ErrUp; a larger error is not certified)
+            // (y.Err up to a quarter of |yh|: then the denominator |yh| - |yl| - err(y) is at least 0.7 |yh| and its rounding, at most 2.5 u
+            // relative (u + u / 0.7), is covered by ErrUp; a larger error is not certified)
             if (y.Err > 0.25 * Math.Abs(y.Hi))
                 return Invalid;
             double den = Math.Abs(y.Hi) - Math.Abs(y.Lo) - y.Err;
@@ -156,9 +163,9 @@ namespace g3
                 return Invalid;
             // (res.Err already carries the errors of x and of y q, so x.Err and |q| y.Err are not added again)
             double err = (res.Mag + res.Err) / den * ErrUp;
-            // (the quotient of a tiny error by a large denominator can underflow too: the floor of the product)
-            if (err == 0 && (x.Err > 0 || y.Err > 0))
-                err = double.Epsilon;
+            // (the quotient of a tiny error by a large denominator can underflow too: the same floor)
+            if (err < ErrFloor && (x.Err > 0 || y.Err > 0 || res.Err > 0))
+                err = ErrFloor;
             return Checked(qh, ql, err);
         }
 

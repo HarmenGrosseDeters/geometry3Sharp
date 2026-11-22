@@ -236,6 +236,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TinyError_ScaledUpLater_IsNotACertifiedRounding()
+        {
+            // 0 +- 7 eps divided by 4.7, scaled by 2^480 twice, added to a value near 1.5 2^-60: an error that underflowed to a subnormal and was
+            // then scaled up would be about 2^-40 too small without a floor; the value is not certified
+            var x = new DoubleWord(0, 0, 7 * double.Epsilon);
+            var q = DoubleWord.Div(x, DoubleWord.Of(4.7));
+            Assert.True(q.IsValid);
+            Assert.True(q.Err >= Math.Pow(2, -1000));
+            var big = DoubleWord.Of(Math.Pow(2, 480));
+            var z = q * big * big;
+            Assert.True(z.IsValid == false || z.Err >= Math.Pow(2, -40));
+            var sum = z + new DoubleWord(1.5 * Math.Pow(2, -60), 0.6 * Math.Pow(2, -114), 0);
+            double r;
+            Assert.False(sum.IsValid && sum.RoundsTo(out r));
+        }
+
+        [Fact]
         public void Mag_IsTheSumOfTheMagnitudesOfTheWords()
         {
             // Hi a power of two with the largest Lo: Hi + |Lo| rounds back to Hi (a tie to even) but Hi - |Lo| is a double, so a difference would show
