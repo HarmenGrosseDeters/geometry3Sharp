@@ -3567,7 +3567,7 @@ namespace g3
             var rest = new DMesh3(Mesh);
             foreach (int[] comp in gone)
                 foreach (int t in comp)
-                    rest.RemoveTriangle(t, true);
+                    rest.RemoveTriangle(t);
             var flagged = new bool[Mesh.MaxTriangleID];
             foreach (int[] fc in gs.MeshPostRepairCleanup.FindInvertedComponents(rest))
                 foreach (int t in fc)
