@@ -132,7 +132,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Reuse_ComputeTwice_AndAcrossModes_TheAdviceFollowsTheLastRun()
+        public void Reuse_ComputeTwice_AndAcrossModes_OnOnePipeline_TheMessageIsThatOfTheMode()
         {
             var p = new SolidBooleanPipeline(Parts(DentedThroughBox()), D) { Orientation = Nesting };
             Assert.False(p.Compute());
@@ -145,14 +145,14 @@ namespace geometry3Sharp.Tests
         }
 
         // An open, non-planar sheet without self-intersections (n x n grid over the unit square, normal +z): z = 0.1 sin(2 pi u)
-        // sin(2 pi v) - 0.02 sin(pi u) sin(pi v), so that it lies above and below the plane of its boundary (z = 0), more below.
-        internal static DMesh3 WavySheet(int n = 8)
+        // sin(2 pi v) + c sin(pi u) sin(pi v), so that it lies above and below the plane of its boundary (z = 0); c = -0.02: more below.
+        internal static DMesh3 WavySheet(int n = 8, double c = -0.02)
         {
             var m = new DMesh3();
             for (int j = 0; j <= n; ++j)
                 for (int i = 0; i <= n; ++i) {
                     double u = i / (double)n, v = j / (double)n;
-                    m.AppendVertex(new Vector3d(u, v, 0.1 * Math.Sin(2 * Math.PI * u) * Math.Sin(2 * Math.PI * v) - 0.02 * Math.Sin(Math.PI * u) * Math.Sin(Math.PI * v)));
+                    m.AppendVertex(new Vector3d(u, v, 0.1 * Math.Sin(2 * Math.PI * u) * Math.Sin(2 * Math.PI * v) + c * Math.Sin(Math.PI * u) * Math.Sin(Math.PI * v)));
                 }
             for (int j = 0; j < n; ++j)
                 for (int i = 0; i < n; ++i) {
@@ -163,15 +163,15 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        // Known limit, the diagnosis of the refusal of a repaired open tool (pinned current behaviour, not a contract: a change of
-        // MeshAutoRepair for sheets is an owner decision). MeshAutoRepair closes a sheet by filling its one boundary loop
-        // (fill_any_holes, MinimalHoleFill): a second surface that spans the same loop, here the flat square z = 0. The sheet
-        // crosses it, so the closed copy self-intersects along the crossing curves and consists of lenses between sheet and fill,
-        // one component; the global orientation (repair_orientation(true)) makes its total volume positive, which leaves the
-        // lenses on the other side of the fill negative: inverted in part. ByNesting cannot orient it (not embedded), the
-        // deciding triangle of the component lies in a negative lens, and the pipeline refuses it as InsideOutInput.
+        // The diagnosis of the self-intersecting repaired copy of an open sheet. MeshAutoRepair closes a sheet by filling its one
+        // boundary loop (fill_any_holes, MinimalHoleFill): a second surface that spans the same loop, here the flat square z = 0.
+        // The sheet crosses it, so the closed copy self-intersects along the crossing curves and consists of lenses between sheet
+        // and fill, one component; the global orientation (repair_orientation(true)) makes its total volume positive, which
+        // leaves the lenses on the other side of the fill negative: inverted in part. ByNesting cannot orient it (not embedded)
+        // and the deciding triangle of the component lies in a negative lens (InsideOutCells 1). MeshAutoRepair itself is not
+        // changed (pinned here); the pipeline refuses such a copy as OpenInput before the boolean (RepairSelfIntersectionTests).
         [Fact]
-        public void KnownLimit_AnOpenWavySheet_RepairedByMeshAutoRepair_SelfIntersects_AndIsRefusedWithTheRepairNamed()
+        public void Diagnosis_AnOpenWavySheet_ClosedByMeshAutoRepair_SelfIntersects_AndIsInsideOutInPart()
         {
             DMesh3 sheet = WavySheet();
             Assert.False(ExactMeshBoolean.IsWindingClosed(sheet));
@@ -193,13 +193,11 @@ namespace geometry3Sharp.Tests
             var op = new ExactMeshBoolean(Parts(closed), D) { CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.InsideOutCells);
-
-            var p = new SolidBooleanPipeline(Parts(sheet), D) { Orientation = Nesting, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust };
+            // the closed copy given as it is: the refusal names its self-intersections, not ByNesting
+            var p = new SolidBooleanPipeline(Parts(closed), D) { Orientation = Nesting };
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
-            Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
-            Assert.Equal(1, p.Report.InsideOutCells);
-            Assert.Contains("input 1 (the closed copy that the input repair MeshAutoRepair produced from the open input) self-intersects", p.Error);
+            Assert.Contains("input 1 self-intersects", p.Error);
             Assert.DoesNotContain("Orientation = ByNesting derives", p.Error);
         }
 

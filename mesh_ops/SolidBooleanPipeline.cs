@@ -241,11 +241,20 @@ namespace gs
             /// MeshAutoRepair on a copy of the input. It fills holes by its own rules, without knowing the other inputs or what
             /// the open input means. For a solid with a small hole that is usually right; for an open cutting surface (a sheet
             /// used as the tool of a Difference) it is about never where the missing face was: the closed copy can enclose
-            /// almost nothing, and the cut then removes almost nothing, with Status Success and a clean report (#1211). Use
-            /// it only for inputs known to be solids with small holes
+            /// almost nothing, and the cut then removes almost nothing (#1211). Where that fill crosses the input (an open sheet whose
+            /// surface crosses the fill of its boundary loop, eg a non-planar or wavy sheet), the closed copy self-intersects: the
+            /// pipeline checks every MeshAutoRepair copy exactly for self-intersections (its own ExactMeshArrangement) and fails
+            /// with Status OpenInput if the copy has some and the input as given has none (an input that self-intersects already
+            /// is used as before; the check runs only for repaired inputs). A sheet whose fill does not cross it (eg a flat cap
+            /// over a planar rim) still gives a closed copy that encloses the wrong solid, with Status Success. Use it only for
+            /// inputs known to be solids with small holes
             /// </summary>
             AutoRepair = 1,
-            /// <summary> MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry can change) </summary>
+            /// <summary>
+            /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
+            /// can change). A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
+            /// (Status OpenInput), without falling back to MeshRobustRepair
+            /// </summary>
             AutoRepairThenRobust = 2
         }
 
@@ -271,7 +280,7 @@ namespace gs
             Success = 0,
             /// <summary> no input, a null input, non-finite coordinates, or more than one reduction criterion (see Error) </summary>
             InvalidInput = 1,
-            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it (see Error) </summary>
+            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it, or MeshAutoRepair closed it into a self-intersecting mesh (see Error and InputRepairModes.AutoRepair) </summary>
             OpenInput = 2,
             /// <summary> the boolean failed (BooleanStatus and Error), eg RoundingNotClean or BudgetExceeded; Result is null </summary>
             BooleanFailed = 3,
@@ -570,6 +579,17 @@ namespace gs
                     if (r == null)
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
                     Report.RepairedInputs.Add(r);
+                    // (a MeshAutoRepair copy that self-intersects where the input did not: the fill crosses the input, eg the fill of the
+                    // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
+                    if (r.Method == "MeshAutoRepair") {
+                        int added = repairSelfIntersections(given[i], repaired);
+                        if (added < 0)
+                            return fail(PipelineStatus.Cancelled, "cancelled", total);
+                        if (added > 0)
+                            return fail(PipelineStatus.OpenInput, "input " + i + " is not closed, and MeshAutoRepair closed it into a self-intersecting mesh (" + added +
+                                " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the fill crosses the input. An open " +
+                                "cutting surface is not a solid; close the input before the boolean so that it bounds the intended solid", total);
+                    }
                     used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
                         return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -1135,11 +1155,13 @@ namespace gs
                 if (cells[k] == 0)
                     continue;
                 int i = k < active.Count ? active[k] : k;
+                SolidBooleanInputRepair r = repaired.Find(x => x.Index == i);
                 if (op.Orientation != ExactMeshBoolean.OrientationModes.ByNesting || pairs == null || pairs[k] <= 0) {
                     nestingCanHelp = true;
+                    if (r != null)
+                        parts.Add("input " + i + " is the closed copy that the input repair " + r.Method + " produced from the open input");
                     continue;
                 }
-                SolidBooleanInputRepair r = repaired.Find(x => x.Index == i);
                 parts.Add("input " + i + (r != null ? " (the closed copy that the input repair " + r.Method + " produced from the open input)" : "") +
                     " self-intersects (" + pairs[k] + " pairs of its triangles meet beyond a common edge or vertex), so Orientation = ByNesting cannot orient it " +
                     "(its given orientation stays) and " + cells[k] + " of its components are inside-out at least in part; fix the self-intersections" +
@@ -1169,6 +1191,30 @@ namespace gs
         }
 
         // the cheapest allowed repair that makes input i closed (on a copy), or null
+        // tests: called with the triangle count of each mesh whose self-intersections the repair check computes (the copy, then the input)
+        internal Action<int> RepairCheckObserverForTests;
+
+        // The self-intersecting pairs of a repaired copy (its own arrangement, exact, not triangulated) if the input as given has
+        // none, else 0 (the input is used as before: its self-intersections are its own); -1 if cancelled. The input's own
+        // arrangement runs only if the copy has some.
+        int repairSelfIntersections(DMesh3 input, DMesh3 repaired)
+        {
+            int copy = selfIntersectingPairs(repaired);
+            if (copy <= 0)
+                return copy;
+            int own = selfIntersectingPairs(input);
+            return own < 0 ? -1 : own == 0 ? copy : 0;
+        }
+
+        int selfIntersectingPairs(DMesh3 mesh)
+        {
+            RepairCheckObserverForTests?.Invoke(mesh.TriangleCount);
+            var a = new ExactMeshArrangement(new List<DMesh3> { mesh }) { SelfIntersections = true, Cancellation = Cancellation };
+            a.TriangulateMeshes = new[] { false };
+            a.Compute();
+            return a.Stopped == ExactMeshArrangement.StopReason.Cancelled ? -1 : a.SelfIntersectingPairs;
+        }
+
         SolidBooleanInputRepair repair(int i, DMesh3 input, out DMesh3 repaired)
         {
             repaired = null;
