@@ -1355,6 +1355,7 @@ dotnet run -c Release -- certify selftest          # the pair test against Exact
 dotnet run -c Release -- certify cost 5            # 17 cases, with the stages 1-2 checker  -> perf/certify_cost.txt
 dotnet run -c Release -- certify scale-c2a 5       # size series, C2a only                  -> perf/certify_scale.txt
 python3 certify_summary.py perf/certify_cost.txt perf/certify_scale.txt                    # -> perf/certify_summary.txt
+dotnet run -c Release -- certify removed           # two cases where the rounding removes a solid -> perf/certify_removed.txt
 dotnet run -c Release -- coplanar-clip 20000       # -> perf/coplanar_clip.txt
 ```
 

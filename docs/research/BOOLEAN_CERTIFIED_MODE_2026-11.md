@@ -16,6 +16,7 @@ of a certificate) and on the stages 1-2 checker (#1061, [QA 2.4a](../qa/testing-
 |---|---|
 | Stage 3 (C2a, the embedding) | Feasible with a small checker: a box tree of its own and one predicate (the sign of an orientation determinant of four exact points). The prototype agrees with the library's independent exact test on 445 876 lattice pairs and catches 378 of 378 injected missed intersections; no false alarm on 28 procedural booleans. |
 | Its cost | Deciding every sign with BigInteger (as stages 1-2 do): 14-100 times the boolean (3 on the two smallest cases). With a floating-point filter and three shortcuts: 0.4-8.5 times, median about 4, one case 14.6. The floor (floating point only, no certified answer) is 0.4-2.7 times, 3.4-8.4 on inputs with many coplanar input triangles. Near-linear in the pieces up to 395 000. The prototype is serial; the boolean ran on 4 cores. |
+| Solids the rounding drops (audit F1) | The checker as built certifies both audit cases: it exempts the components the rounding removed and only counts them. Without the exemption it rejects both. Neither drop is within the rounding bound; what a certificate says about removed components is an owner decision (4.4). |
 | The whole checker (C0-C5) as built | 16-570 times the boolean on these inputs (from 84 pieces on). It has two super-linear parts (the coplanar stacks of C3, the coverage of C5), fine at test sizes, not at these. |
 | A certified user mode | Possible, not cheap: the checker moves into the library as exact code with filters (review, mutation shard, at least one new error bound), its two super-linear parts get an index, and the price per run is a rough estimate of 3-12 times the boolean. The class is narrow: closed inputs, and a result with contacts is certified as embedded "up to its documented contacts", not as clean. |
 | What users can have today | `MeshRobustRepair.NotCleanReason(result)`: closed, manifold, no self-intersection, by an exact search on the result's doubles, for 0.1-0.6 times the boolean. It says nothing about the point set. |
@@ -200,6 +201,54 @@ certificate therefore cannot promise "clean" for every input; for a result with 
 except at the contacts the boolean reports", and that statement needs its own check (the coinciding corners and edges
 are exactly the reported contacts).
 
+### 4.4 Components the rounding removes (cases of the pipeline audit)
+
+The `SolidBooleanPipeline` audit (PR #1304, its note's finding F1) found that the boolean returns `Success` while
+SafeRounding's removal of tiny and thin components drops a solid of the exact result. Its two cases, rebuilt here
+(`certify removed`, `perf/certify_removed.txt`; the rotation is this benchmark's own, 40 degrees about (1, 2, 3)):
+
+| case | result / exact result triangles | `RemovedComponents` | checker as built | checker strict |
+|---|---|---|---|---|
+| box [0,1024]³ ∪ cube of edge 2^-8 at x = 1100 | 24 / 24 | 0 | certified | certified |
+| the same, edge 2^-9 | 12 / 24 | 1 | certified, 1 component exempt | **rejects** (C5: a corner of the exact result is farther than the bound 0.0177 from the result) |
+| [0,2]³ ∩ [2-h,4]×[0,2]², h = 2^-10, turned | 22 / 24 | 0 | 2 triangles not covered (inconclusive) | the same |
+| the same, h = 2^-15 | 0 / 30 | 1 | certified, 1 component exempt | **rejects** (C5: the exact result has triangles, the result none) |
+
+- The checker as built follows the removal's documented rule: where the rounding reports removed components, the
+  components of the exact result that are tiny or thin by that rule are left out of the coverage (QA 2.4a). So it
+  **certifies both drops**, and the drop shows only in a counter (`ExemptComponents`). It sees the missing solid: with
+  the exemption off ("strict": one line in the benchmark) C5 rejects both.
+- Neither removal is "within the rounding bound". The bound is a distance (1e-5 of the largest component's diagonal: 0.0177 in
+  the first case); the removed cube is 76 away from the rest of the result, and the removed slab leaves an empty result. The
+  removal is a second, separate licence of the rounding (by size and thickness), not a consequence of the bound.
+- For a certified mode this decides the certificate's wording: either "the point set within the bound" (strict: these
+  results are **not certified**, and the caller learns which component is missing), or "within the bound, except
+  components removed as tiny or thin", with the removed components listed in the certificate. Silent exemption is
+  right for a test oracle of a documented decision and wrong for a user certificate. This is an output-semantics
+  decision of the owner, together with F1 of the audit.
+- A limit of the checker itself: the kept thin slab (h = 2^-10) ends as "2 triangles not covered", neither certified
+  nor rejected: no single triangle of the other mesh covers them within the bound after three levels of splits. The
+  campaign oracle counts that as a failure; a user mode needs a coverage test that decides.
+
+### 4.5 Search against predicates ("hints instead of search")
+
+The cross-field note (CROSS_FIELD_TRANSFER_2026-11.md, item 5.5) asks to split a checker's time into search and
+predicates, because a producer can hand the checker witnesses for what it would otherwise search. For C2a on the two
+spheres (70 ms filtered): the exact corners and approximations 5 ms, the search (broad phase) 24 ms, the predicates
+42 ms; at the floor 24 of 57 ms are search.
+- The search of C2a cannot become a hint: "no two pieces meet" is a claim about all pairs, and a producer cannot list
+  the pairs that do not meet. Only a different witness removes it (C2b, a tetrahedralization in which every piece is a
+  face: checked without any search, but of worst-case quadratic size; prior-art note, section 3.4).
+- The predicates can use hints, and the largest one is already measured: "this corner lies in that source's plane"
+  (shortcut (b), certified by C1) answers 232 911 of about 790 000 sign questions on the two spheres without arithmetic. The
+  next hint of this kind is the incidence the arrangement knows for every implicit point (which input edge or which
+  planes define it): it would turn most of the remaining true zeros (the gap between the filtered column and the
+  floor) into lookups that C1-style checks verify.
+- In stages 1-2 the search parts are the coplanar stacks of C3 (which input triangles contain a piece) and the
+  coverage of C5 (which triangle covers which): exactly the two super-linear parts of 4.2. Both are hint-shaped: the
+  boolean knows a piece's stack and which exact triangle a rounded one came from. That is the first thing to try
+  before an index, for a user mode and for the test oracle alike.
+
 ## 5. Can it be an opt-in certified mode?
 
 **What it takes.**
@@ -301,6 +350,7 @@ The boolean-speed spike: nothing here changes the boolean; recording a certifica
 
 ## 8. Limits of this spike
 
+- The two audit cases of 4.4 were rebuilt from their description (own rotation), not taken from the audit's harness.
 - Procedural inputs only, up to 395 000 pieces; no Thingi10K run (T6 would be the next sample if C is ever built).
 - The filter's error bound is not reviewed; its verdicts were compared with BigInteger on every pair of the 28 cases.
 - Times from a shared 4-core container; ratios, not benchmarks.

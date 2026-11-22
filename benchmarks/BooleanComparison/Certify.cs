@@ -8,7 +8,7 @@
 // every sign), a floating-point filter with the BigInteger fallback, and floating point only (the idealised floor: no
 // certified answer, only the time). The filter's error bound is a prototype bound, not a reviewed one.
 //
-// Usage: BooleanComparison certify [selftest | cost [reps] | scale [reps]]
+// Usage: BooleanComparison certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed]
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -624,6 +624,41 @@ static class Certify
         return mismatches == 0 && caught == unsplit && baseline == 0 ? 0 : 1;
     }
 
+    // ------------------------------------------------------------------ components the rounding removes
+
+    // Two cases of the SolidBooleanPipeline audit (docs/research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md, F1): the boolean
+    // succeeds while SafeRounding's removal of tiny and thin components drops a solid of the exact result. What the
+    // stages 1-2 checker says: as built (the removed components exempt from the coverage, counted in ExemptComponents),
+    // and strict (no exemption: every component of the exact result must be covered by the result).
+    static int Removed()
+    {
+        Func<Vector3d, Vector3d, DMesh3> box = (lo, hi) => Box(0.5 * (lo + hi), 0.5 * (hi - lo));
+        Func<DMesh3, DMesh3> turn = m => { var r = new DMesh3(m); MeshTransforms.Rotate(r, Vector3d.Zero, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 40)); return r; };
+        var cases = new List<Case>();
+        foreach (int k in new[] { 8, 9 })
+            cases.Add(new Case { Name = $"box [0,1024]^3 + cube of edge 2^-{k} at x = 1100, U", Op = Ops.Union,
+                Inputs = new List<DMesh3> { box(Vector3d.Zero, new Vector3d(1024, 1024, 1024)), box(new Vector3d(1100, 0, 0), new Vector3d(1100, 0, 0) + Math.Pow(2, -k) * Vector3d.One) } });
+        foreach (int k in new[] { 10, 15 })
+            cases.Add(new Case { Name = $"[0,2]^3 & [2-h,4]x[0,2]^2, h = 2^-{k}, turned, I", Op = Ops.Intersection,
+                Inputs = new List<DMesh3> { turn(box(Vector3d.Zero, new Vector3d(2, 2, 2))), turn(box(new Vector3d(2 - Math.Pow(2, -k), 0, 0), new Vector3d(4, 2, 2))) } });
+        Console.WriteLine("case | status | result tris | exact result tris | RemovedComponents | checker as built | exempt components | checker strict (no exemption)");
+        foreach (Case c in cases) {
+            ExemptOrStrict(c, false, out ExactMeshBoolean b, out BooleanCertificate cert, out string asBuilt);
+            ExemptOrStrict(c, true, out _, out _, out string strict);
+            Console.WriteLine($"{c.Name} | {b.Status} | {b.Result.TriangleCount} | {b.CertificateAssembled.TriangleCount} | {b.Rounding?.RemovedComponents ?? 0} | {asBuilt} | {cert.ExemptComponents} | {strict}");
+        }
+        return 0;
+    }
+
+    static void ExemptOrStrict(Case c, bool strict, out ExactMeshBoolean b, out BooleanCertificate cert, out string verdict)
+    {
+        b = Boolean(c, true);
+        cert = BooleanCertificate.From(b);
+        if (strict) cert.RemovedComponents = 0;
+        verdict = cert.Check();
+        if (verdict == "") verdict = cert.Uncovered == 0 ? "certified" : $"{cert.Uncovered} triangles not covered";
+    }
+
     public static int Run(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -635,8 +670,9 @@ static class Certify
             case "cost": return Cost(Cases(), reps, true);
             case "scale": return Cost(ScaleCases(), reps, true);
             case "scale-c2a": return Cost(ScaleCases(), reps, false);
+            case "removed": return Removed();
         }
-        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps]]");
+        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed]");
         return 1;
     }
 }
