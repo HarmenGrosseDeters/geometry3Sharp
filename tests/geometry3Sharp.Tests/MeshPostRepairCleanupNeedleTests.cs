@@ -14,35 +14,13 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class MeshPostRepairCleanupNeedleTests
     {
-        static double Volume(DMesh3 mesh) => MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;
+        static double Volume(DMesh3 mesh) => NeedleMeshes.Volume(mesh);
 
-        static HashSet<Vector3d> Vertices(DMesh3 m) => new HashSet<Vector3d>(m.VertexIndices().Select(v => m.GetVertex(v)));
+        static HashSet<Vector3d> Vertices(DMesh3 m) => NeedleMeshes.Vertices(m);
 
-        // the box [-1, 1]^3 with one edge split at the fraction t from a corner: the same solid, 14 triangles, one needle
-        static DMesh3 BoxWithSplitEdge(double t)
-        {
-            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
-            int eid = b.EdgeIndices().First(x => { Index2i ev = b.GetEdgeV(x); return Math.Abs((b.GetVertex(ev.a) - b.GetVertex(ev.b)).Length - 2) < 1e-12; });
-            Index2i evs = b.GetEdgeV(eid);
-            b.SplitEdge(eid, out DMesh3.EdgeSplitInfo info);
-            b.SetVertex(info.vNew, Vector3d.Lerp(b.GetVertex(evs.a), b.GetVertex(evs.b), t));
-            return b;
-        }
+        static DMesh3 BoxWithSplitEdge(double t) => NeedleMeshes.BoxWithSplitEdge(t);
 
-        // a sphere with the edge at its vertex split at the fraction t, the new vertex lifted by h along the normal: a needle bump on a smooth surface. Returns the
-        // sphere as it was, the mesh with the bump and the vertex that is the end of the edge nearer to the new one
-        static DMesh3 SphereWithBump(double t, double h, out DMesh3 original, out int vNear)
-        {
-            DMesh3 m = new Sphere3Generator_NormalizedCube() { EdgeVertices = 12, Radius = 1 }.Generate().MakeDMesh();
-            original = new DMesh3(m);
-            int eid = m.EdgeIndices().First(e => m.GetEdgeT(e).b != DMesh3.InvalidID);
-            Index2i ev = m.GetEdgeV(eid);
-            vNear = ev.a;
-            m.SplitEdge(eid, out DMesh3.EdgeSplitInfo info);
-            Vector3d p = Vector3d.Lerp(m.GetVertex(ev.a), m.GetVertex(ev.b), t);
-            m.SetVertex(info.vNew, p + h * p.Normalized);
-            return m;
-        }
+        static DMesh3 SphereWithBump(double t, double h, out DMesh3 original, out int vNear) => NeedleMeshes.SphereWithBump(t, h, out original, out vNear);
 
         static MeshPostRepairCleanup Run(DMesh3 mesh, double maxDisplacement = 1e-4)
         {
