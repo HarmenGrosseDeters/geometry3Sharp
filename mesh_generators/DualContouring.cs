@@ -185,6 +185,7 @@ namespace g3
         /// </summary>
         public void FindCrossings()
         {
+            CertificateRun = null;
             var timer = System.Diagnostics.Stopwatch.StartNew();
             origin = Bounds.Min;
             h = CellSize / F;
@@ -259,6 +260,7 @@ namespace g3
 
         void generate_simplified()
         {
+            CertificateRun = null;
             var ad = new AdaptiveDualContouring() {
                 Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
                 Tolerance = SimplifyTolerance, MaxLevel = SimplifyMaxLevel, QEFEigenTolerance = QEFEigenTolerance, QEFCellMargin = QEFCellMargin,
@@ -293,6 +295,7 @@ namespace g3
             faceVertexIds = new HashSet<int>();
             FaceVertices = ClampedFaceVertices = 0;
             certificate = RecordCertificateData ? new CertificateRecord() : null;
+            CertificateRun = null;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -635,8 +638,11 @@ namespace g3
                 ResolveMilliseconds = resolveTimer.ElapsedMilliseconds - diagnosticMs;
             }
             phase("intersections");
-            if (certificate != null)
+            if (certificate != null) {
                 certificate.Finish(this);
+                CertificateRun = new CertificateRunInfo { Dense = !sparse, Factor = F, IsoValue = IsoValue, InsideIsLess = InsideIsLess,
+                    Origin = origin, CellSize = h, Corners = sparse ? Vector3i.Zero : new Vector3i(NI, NJ, NK) };
+            }
             if (qefPositions != null) {
                 for (int v = 0; v < qefPositions.Length; ++v)
                     if (Mesh.IsVertex(v) && Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
@@ -1892,6 +1898,29 @@ namespace g3
         /// </summary>
         internal bool RecordCertificateData;
         CertificateRecord certificate;
+
+        /// <summary> what a recorded run was: its grid and its inside rule, as they were when the mesh was made </summary>
+        internal struct CertificateRunInfo
+        {
+            /// <summary> a dense grid (no CandidateCells) </summary>
+            public bool Dense;
+            /// <summary> the refinement factor (1: one cell size) </summary>
+            public int Factor;
+            public double IsoValue;
+            public bool InsideIsLess;
+            /// <summary> node n is at Origin + CellSize * n (CellSize is the fine cell size) </summary>
+            public Vector3d Origin;
+            public double CellSize;
+            /// <summary> nodes per axis of a dense grid </summary>
+            public Vector3i Corners;
+        }
+        /// <summary>
+        /// Set when a Generate with RecordCertificateData has run through the mesh side of the certificate, null
+        /// otherwise (no run yet, a run without the record, a cancelled run, a simplified run, or FindCrossings called
+        /// again since): a certificate that reads this contour later checks it, and that the public fields still say
+        /// what they said then.
+        /// </summary>
+        internal CertificateRunInfo? CertificateRun;
         /// test seam (the thread that calls Generate): true makes the face vertex asked for fail (as if none could be placed)
         [ThreadStatic] internal static Func<bool> FailFaceVertexForTests;
         /// (tests) the mesh side of the certificate again, on the mesh as it is now (eg after a test moved a vertex)

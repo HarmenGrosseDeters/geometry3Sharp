@@ -27,10 +27,11 @@ namespace g3
     internal enum SmoothCertificateRunFailure
     {
         None = 0,
-        /// <summary> the contour was not generated with RecordCertificateData, or has no grid </summary>
+        /// <summary>
+        /// the contour has no finished run with RecordCertificateData on a dense grid of one cell size, or its fields
+        /// (IsoValue, InsideIsLess, Bounds, CellSize, CornerDimensions) were changed since that run
+        /// </summary>
         NoRecord = 1,
-        /// <summary> the grid is refined (two cell sizes): the published statement used here is for one cell size </summary>
-        Refined = 2,
         /// <summary> the node spacings are not equal within the tolerance: the cells are not cubes </summary>
         CellShape = 4,
         /// <summary> the contour fails the mesh side as a whole (a vertex outside its cell, no area, left out, self-intersections) </summary>
@@ -66,8 +67,11 @@ namespace g3
     ///       the other five under the gradient test, by an argument this code does not rely on);
     ///   (N) the sign of f - iso at every node of a cell that is not zero-free is certified by a point enclosure, and at
     ///       every node of a zero-free box it is the box's sign; both must equal the inside flag the contouring used;
-    ///   (R) one cell size; node spacings equal within CellShapeTolerance (cubes); no possible zero in the outermost layer;
-    ///       the mesh side of Theorem 2 as recorded by DualContouring.
+    ///   (R) a finished, recorded run on a dense grid of one cell size whose fields are unchanged since; node spacings equal
+    ///       within CellShapeTolerance (cubes); no possible zero in the outermost layer; the mesh side of Theorem 2 as
+    ///       recorded by DualContouring.
+    /// The published argument is for cubes. Cells whose spacings differ within CellShapeTolerance are taken to be covered:
+    /// that is a reading of the premise, not a proved margin (section 7.13).
     /// Never certified: a cell on a crease of a min / max, a cell with two sheets, a node on the level set, a singular
     /// point of f, a surface that leaves the grid.
     ///
@@ -84,6 +88,8 @@ namespace g3
         public int MaxTightening = 2;
         /// <summary> the largest node spacing may exceed the smallest by this factor minus one (cubes up to rounding) </summary>
         public double CellShapeTolerance = 1.0 / 1048576;
+        /// <summary> the largest tolerance Compute accepts (2^-10) </summary>
+        internal const double MaxCellShapeTolerance = 1.0 / 1024;
         public bool ParallelCompute = true;
 
         public bool Certified;
@@ -99,8 +105,7 @@ namespace g3
         double[] X, Y, Z;               // node coordinates, as the contouring computes them
         bool[] inside;                  // the contouring's flag per node
         sbyte[] nodeSign;               // the certified sign of f - iso per node: 0 not computed, +1, -1, 2 not decided
-        double iso;
-        Vector3d origin; double h;
+        double iso; bool insideIsLess;
 
         sealed class BlockResult
         {
@@ -114,19 +119,24 @@ namespace g3
         {
             Certified = false; RunFailure = SmoothCertificateRunFailure.None;
             UncertifiedCells = new List<SmoothUncertifiedCell>(); SurfaceCells = 0;
-            PassedAtTightening = new int[Math.Max(0, MaxTightening) + 1];
+            PassedAtTightening = new int[0];
             if (Field == null) throw new ArgumentNullException(nameof(Field));
             if (Contour == null) throw new ArgumentNullException(nameof(Contour));
             if (MaxTightening < 0 || MaxTightening > 4) throw new ArgumentOutOfRangeException(nameof(MaxTightening));
+            if (!(CellShapeTolerance >= 0 && CellShapeTolerance <= MaxCellShapeTolerance)) throw new ArgumentOutOfRangeException(nameof(CellShapeTolerance));
+            PassedAtTightening = new int[MaxTightening + 1];
 
-            Vector3i dims = Contour.CornerDimensions;
-            if (!Contour.RecordCertificateData || Contour.Mesh == null || dims.x < 2 || dims.y < 2 || dims.z < 2) {
+            // the run the mesh was made by, and nothing changed since: the node flags below are read through the contour's
+            // own fields, so they are the flags of that run only if those fields still say what they said then
+            DualContouring.CertificateRunInfo? recorded = Contour.CertificateRun;
+            if (!recorded.HasValue || !RecordedRunIsCurrent(Contour, recorded.Value)) {
                 RunFailure = SmoothCertificateRunFailure.NoRecord; return;
             }
+            DualContouring.CertificateRunInfo run = recorded.Value;
+            Vector3i dims = run.Corners;
             CertificateGrid grid = Contour.ContourGrid();
-            if (grid.BinSize != 1) { RunFailure = SmoothCertificateRunFailure.Refined; return; }
             nx = dims.x - 1; ny = dims.y - 1; nz = dims.z - 1;
-            iso = Contour.IsoValue; origin = Contour.Bounds.Min; h = Contour.CellSize;
+            iso = run.IsoValue; insideIsLess = run.InsideIsLess;
             X = new double[nx + 1]; Y = new double[ny + 1]; Z = new double[nz + 1];
             for (int i = 0; i <= nx; ++i) X[i] = grid.Coord(0, i);
             for (int i = 0; i <= ny; ++i) Y[i] = grid.Coord(1, i);
@@ -150,7 +160,11 @@ namespace g3
                 descend(i0, j0, k0, Block, r);
                 results[b] = r;
             };
-            if (ParallelCompute) Parallel.For(0, results.Length, work);
+            if (ParallelCompute) {
+                // an exception of the field (Enclose) surfaces as it does in the serial path
+                try { Parallel.For(0, results.Length, work); }
+                catch (AggregateException e) when (e.InnerExceptions.Count > 0) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw(); }
+            }
             else for (int b = 0; b < results.Length; ++b) work(b);
 
             bool outer = false;
@@ -174,9 +188,9 @@ namespace g3
 
         /// <summary>
         /// Are all node spacings of the three axes equal within the factor 1 + tolerance (max at most min (1 + tolerance), min positive)?
-        /// Exact: the spacings are differences of neighbouring doubles (exact by Sterbenz's lemma for a cell size far above
-        /// the rounding unit; a difference that is not exact is of spacings that differ grossly, which fails either way), and
-        /// the comparison is evaluated with the product rounded down by one unit.
+        /// The spacings are differences of neighbouring doubles, each rounded once (a relative error of 2^-53, exact where
+        /// the two coordinates are within a factor of two), and the product is rounded down by one unit: against a
+        /// tolerance of 2^-20 the test is the stated one up to 2^-52.
         /// </summary>
         internal static bool EqualSpacing(double[] x, double[] y, double[] z, double tolerance)
         {
@@ -216,9 +230,29 @@ namespace g3
         // the four corners of each face in cyclic order (faces x = 0, x = 1, y = 0, y = 1, z = 0, z = 1)
         static readonly int[,] faceCorners = { { 0, 2, 6, 4 }, { 1, 3, 7, 5 }, { 0, 1, 5, 4 }, { 2, 3, 7, 6 }, { 0, 1, 3, 2 }, { 4, 5, 7, 6 } };
 
-        // node coordinate j of axis a on the grid refined t times; for j a multiple of 2^t this is the grid's own double,
-        // because (h / 2^t) * (i * 2^t) = h * i exactly and the sum is the one the contouring computes
-        double coord(int axis, long j, int t) { return origin[axis] + (h / (1 << t)) * j; }
+        /// <summary>
+        /// A dense run on one cell size whose grid and inside rule are still what the contour's fields say. Anything else
+        /// (no record, a sparse or refined run, a field changed after the run) is refused.
+        /// </summary>
+        internal static bool RecordedRunIsCurrent(DualContouring dc, DualContouring.CertificateRunInfo run)
+        {
+            return dc.RecordCertificateData && dc.Mesh != null && run.Dense && run.Factor == 1
+                && run.Corners.x >= 2 && run.Corners.y >= 2 && run.Corners.z >= 2 && dc.CornerDimensions == run.Corners
+                && dc.IsoValue == run.IsoValue && dc.InsideIsLess == run.InsideIsLess
+                && dc.Bounds.Min == run.Origin && dc.CellSize == run.CellSize;
+        }
+
+        // Breakpoint j of m between the grid nodes i and i + 1 of an axis: the ends are the grid's own doubles and the
+        // sequence is non-decreasing in j (rounding is monotone), so the m sub-intervals cover the cell's interval exactly,
+        // whatever the rounding of the inner points. j / m is exact (m is a power of two).
+        double breakpoint(int axis, int i, int j, int m)
+        {
+            double[] a = axis == 0 ? X : axis == 1 ? Y : Z;
+            if (j <= 0) return a[i];
+            if (j >= m) return a[i + 1];
+            double p = a[i] + (a[i + 1] - a[i]) * ((double)j / m);
+            return Math.Min(Math.Max(p, a[i]), a[i + 1]);
+        }
 
         ExactInterval span(int axis, int i, int cells)
         {
@@ -255,7 +289,7 @@ namespace g3
         int flagSign(int i, int j, int k)
         {
             bool isInside = inside[i + (nx + 1) * (j + (ny + 1) * k)];
-            return isInside == Contour.InsideIsLess ? -1 : 1;
+            return isInside == insideIsLess ? -1 : 1;
         }
 
         void refuse(BlockResult r, int i, int j, int k, SmoothCertificateReason reason)
@@ -314,9 +348,9 @@ namespace g3
                     for (int b = 0; b < m; ++b)
                         for (int a = 0; a < m; ++a) {
                             IntervalEnclosure e = t == 0 ? whole : enclose(
-                                new ExactInterval(coord(0, (long)i * m + a, t), coord(0, (long)i * m + a + 1, t)),
-                                new ExactInterval(coord(1, (long)j * m + b, t), coord(1, (long)j * m + b + 1, t)),
-                                new ExactInterval(coord(2, (long)k * m + c, t), coord(2, (long)k * m + c + 1, t)));
+                                new ExactInterval(breakpoint(0, i, a, m), breakpoint(0, i, a + 1, m)),
+                                new ExactInterval(breakpoint(1, j, b, m), breakpoint(1, j, b + 1, m)),
+                                new ExactInterval(breakpoint(2, k, c, m), breakpoint(2, k, c + 1, m)));
                             int s = CertifiedSign(e.F);
                             if (s == 0) allFree = false;
                             else if (boxSign == 0) boxSign = s;

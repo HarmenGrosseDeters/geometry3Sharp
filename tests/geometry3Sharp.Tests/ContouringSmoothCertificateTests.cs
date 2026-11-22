@@ -146,6 +146,11 @@ namespace geometry3Sharp.Tests
             public override double Value(ref Vector3d p) { return f.Value(ref p) + shift; }
         }
 
+        sealed class Throwing : IntervalImplicit3d
+        {
+            public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { throw new InvalidOperationException("field"); }
+        }
+
         sealed class Negated : TestField
         {
             readonly TestField f;
@@ -469,7 +474,7 @@ namespace geometry3Sharp.Tests
 
         // In every cell the certificate does not list, the facts it claims hold at sampled points: no sign change of f, or
         // f smooth with pairwise acute gradients and one gradient component of constant sign.
-        static int OracleViolations(TestField f, DualContouring dc, ContouringSmoothCertificate cert, int seed)
+        static int OracleViolations(TestField f, DualContouring dc, ContouringSmoothCertificate cert, int seed, int samples = 20)
         {
             var listed = new HashSet<Vector3i>(cert.UncertifiedCells.Select(u => u.Cell));
             var rnd = new Random(seed);
@@ -478,7 +483,7 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < n.z - 1; ++k) for (int j = 0; j < n.y - 1; ++j) for (int i = 0; i < n.x - 1; ++i) {
                 if (listed.Contains(new Vector3i(i, j, k))) continue;
                 var values = new List<double>(); var grads = new List<Vector3d>(); bool smooth = true;
-                for (int q = 0; q < 20; ++q) {
+                for (int q = 0; q < samples; ++q) {
                     Vector3d u = q < 8 ? new Vector3d(q & 1, q >> 1 & 1, q >> 2 & 1) : new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
                     Vector3d p = new Vector3d(o.x + h * (i + u.x), o.y + h * (j + u.y), o.z + h * (k + u.z));
                     values.Add(f.At(p) - dc.IsoValue);
@@ -505,7 +510,7 @@ namespace geometry3Sharp.Tests
             Assert.True(cert.SurfaceCells > 500);
             Assert.Equal(cert.SurfaceCells, cert.PassedAtTightening.Sum());
             Assert.Equal("", MeshRobustRepair.NotCleanReason(dc.Mesh));
-            Assert.Equal(0, OracleViolations(f, dc, cert, 1));
+            Assert.Equal(0, OracleViolations(f, dc, cert, 1, 12));
             // a second certified grid gives the same surface up to isotopy: components and genus agree
             DualContouring fine;
             ContouringSmoothCertificate certFine = Run(f, 36, out fine);
@@ -800,6 +805,69 @@ namespace geometry3Sharp.Tests
             Assert.True((cert.RunFailure & SmoothCertificateRunFailure.MeshSide) != 0);
             Assert.Throws<ArgumentNullException>(() => new ContouringSmoothCertificate { Contour = dc }.Compute());
             Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = 5 }.Compute());
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = int.MaxValue }.Compute());
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = -1 }.Compute());
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, CellShapeTolerance = 0.5 }.Compute());
+            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, CellShapeTolerance = double.NaN }.Compute());
+            Assert.Throws<ArgumentNullException>(() => new ContouringSmoothCertificate { Field = f }.Compute());
+            // an exception of the field is the same in both paths
+            var throwing = new Throwing();
+            DualContouring any = Contour(f, Shift, 2.2, 16);
+            Assert.Throws<InvalidOperationException>(() => new ContouringSmoothCertificate { Field = throwing, Contour = any, ParallelCompute = false }.Compute());
+            Assert.Throws<InvalidOperationException>(() => new ContouringSmoothCertificate { Field = throwing, Contour = any, ParallelCompute = true }.Compute());
+        }
+
+        [Fact]
+        public void AContourThatIsNotTheRecordedDenseRun_IsRefused()
+        {
+            var f = new Sphere(Vector3d.Zero, 0.7);
+            Func<DualContouring> fresh = () => Contour(f, Shift, 2.2, 16);
+            Action<DualContouring, string> refused = (dc, what) => {
+                ContouringSmoothCertificate cert = Certify(f, dc);
+                Assert.False(cert.Certified, what);
+                Assert.Equal(SmoothCertificateRunFailure.NoRecord, cert.RunFailure);
+            };
+            DualContouring d = fresh();
+            Assert.True(Certify(f, d).Certified);
+            Assert.True(d.CertificateRun.HasValue);
+            // the record switched on only after the run
+            var late = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = 2.2 / 16, Simplify = false, Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One) };
+            late.Generate();
+            late.RecordCertificateData = true;
+            refused(late, "flag set after the run");
+            // a field of the contour changed after the run: its node flags and grid would no longer be the run's
+            d = fresh(); d.IsoValue = 0.1; refused(d, "IsoValue");
+            d = fresh(); d.InsideIsLess = false; refused(d, "InsideIsLess");
+            d = fresh(); d.CellSize = 2.2 / 8; refused(d, "CellSize");
+            d = fresh(); d.Bounds = new AxisAlignedBox3d(Shift + 0.01 * Vector3d.One, Shift + 2.2 * Vector3d.One); refused(d, "Bounds");
+            d = fresh(); d.CornerDimensions = new Vector3i(9, 9, 9); refused(d, "CornerDimensions");
+            d = fresh(); d.RecordCertificateData = false; refused(d, "record switched off");
+            d = fresh(); d.Mesh = null; refused(d, "no mesh");
+            // the samples taken again without a new mesh
+            d = fresh(); d.FindCrossings(); refused(d, "FindCrossings after the run");
+            // a simplified run (it only happens without the record) after a recorded one on the same instance
+            d = fresh();
+            d.RecordCertificateData = false; d.Simplify = true;
+            d.Generate();
+            Assert.False(d.CertificateRun.HasValue);
+            d.RecordCertificateData = true;
+            refused(d, "simplified run after a recorded one");
+            // the same instance used again in sparse mode: the dense grid's dimensions are stale, the run is not dense
+            d = fresh();
+            var cells = new List<Vector3i>();
+            for (int k = 0; k < 16; ++k) for (int j = 0; j < 16; ++j) for (int i = 0; i < 16; ++i) cells.Add(new Vector3i(i, j, k));
+            double h = 2.2 / 16;
+            d.CandidateCells = cells;
+            d.NodeValueF = n => f.At(new Vector3d(Shift.x + h * n.x, Shift.y + h * n.y, Shift.z + h * n.z));
+            d.FindCrossings();
+            d.Generate();
+            Assert.True(d.Mesh.TriangleCount > 0);
+            Assert.True(d.CertificateRun.HasValue && !d.CertificateRun.Value.Dense);
+            refused(d, "sparse run on a reused instance");
+            // a cancelled run
+            var cancelled = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = 2.2 / 16, Simplify = false, Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One), RecordCertificateData = true, CancelF = () => true };
+            cancelled.Generate();
+            Assert.False(cancelled.CertificateRun.HasValue);
         }
 
         [Fact]

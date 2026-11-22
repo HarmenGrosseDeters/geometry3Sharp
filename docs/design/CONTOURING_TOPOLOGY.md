@@ -1275,9 +1275,9 @@ operation) or an exact comparison of doubles.
 | configuration guard | at most one face with alternating corner signs, and the minority sign is not a body diagonal: the nine admitted of the 14 configurations | `Configuration` |
 | (P0) | at the nodes of a cell that is not zero-free: a point enclosure with a certified sign; at every node of a zero-free box: the box's sign; both compared with the contour's inside flag | `NodeSign` |
 | (P2) | no cell of the outermost layer may fail Z | `OuterLayer` (cell and run) |
-| (P3) | largest spacing at most the smallest times 1 + 2^-20, over the three axes, compared exactly | `CellShape` (run) |
+| (P3) | largest spacing at most the smallest times 1 + 2^-20, over the three axes (differences of neighbouring doubles, the comparison rounded to the safe side) | `CellShape` (run) |
 | (M) | `DualContouring`'s record: `CertificateMeshFailures` (run), `CertificateMeshCells` (cells) | `MeshSide` |
-| one cell size, dense grid, recorded | `RecordCertificateData`, `CornerDimensions`, the grid's bin size | `NoRecord`, `Refined` (run) |
+| the contour is the run that made the mesh | `DualContouring.CertificateRun`: set by a finished `Generate` with `RecordCertificateData`, with the grid and inside rule of that run; refused unless it is dense, of one cell size, and `IsoValue`, `InsideIsLess`, `Bounds.Min`, `CellSize` and `CornerDimensions` are unchanged since | `NoRecord` (run) |
 
 - **sin and cos** are not taken from the runtime (its error is unspecified): the argument is reduced by an integer
   multiple of an interval that contains pi / 2 (a double and its successor), and sin r = r - r^3/3! + ... + r^13/13!,
@@ -1289,7 +1289,9 @@ operation) or an exact comparison of doubles.
   gives a true (infinite or largest) bound, a NaN the whole line, which fails every test. No dependency on FMA (every
   operation is rounded and widened on its own) or on a rounding mode; flush-to-zero must be off (the .NET default).
 - **Deterministic.** The parallel path works on blocks of 8^3 cells and merges their results in block order; it equals
-  the serial path. Under a scaling of the whole problem by a power of two the result is the same bit for bit.
+  the serial path. Under a scaling of the whole problem by a power of two the result is the same bit for bit. Sub-boxes
+  are cut between the grid's own node coordinates (non-decreasing breakpoints), so they cover a cell exactly whatever
+  the rounding.
 - **Tests** (`ContouringSmoothCertificateTests`): the sin / cos enclosures against an exact integer Taylor reference;
   the six `IntervalTpms` functions against `TpmsLattice.Evaluate` and difference quotients; the gradient test, the
   spacing test and the configuration guard on their own (the guard is 9 of 14 by enumeration); a cell-level oracle (in
@@ -1302,4 +1304,4 @@ nodal functions of `TpmsLattice` at level 0 with a smooth cap, 24 runs): certifi
 at 32 cells per period, I-WP at 16 and 32, Schwarz D at 64; not the gyroid and Schwarz P at 16 (2.7 and 5.8 % of the
 cells fail), and not Neovius and the Lidinoid at 16 or 32 (loose gradient enclosures). The serial certificate takes 1.1
 to 11 times a contouring that evaluates the field in plain doubles on the certified runs, the parallel one 0.4 to 2.9
-times. Hand mutants: 55, all killed by the tests except one that only removes a cache (the same result, slower).
+times.
