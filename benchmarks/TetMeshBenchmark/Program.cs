@@ -31,7 +31,8 @@ static class Program
         } else if (mode == "wrap") {
             double ra = args.Length > 1 ? double.Parse(args[1], Inv) : 20, ro = args.Length > 2 ? double.Parse(args[2], Inv) : 600;
             Header();
-            foreach (var kv in Procedural()) Wrap(kv.Key, kv.Value, ra, ro);
+            // a 4th argument "hard": the inputs with acute creases, thin parts and near contacts of the dihedral-floor spike instead
+            foreach (var kv in args.Length > 3 && args[3] == "hard" ? Stuffing.HardInputs() : Procedural()) Wrap(kv.Key, kv.Value, ra, ro);
         } else if (mode == "file") {
             double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
             var mesh = StandardMeshReader.ReadMesh(args[1]);

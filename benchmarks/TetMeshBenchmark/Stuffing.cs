@@ -27,7 +27,7 @@ static class Stuffing
     public sealed class Result
     {
         public TetMesh3 Mesh = new TetMesh3();
-        public long LatticePoints, CutPoints, Warped, QuadZeroDiscarded, InvertedBackground, RuleConflicts;
+        public long LatticePoints, CutPoints, Warped, QuadZeroDiscarded, InvertedBackground, InvertedBackgroundWithOutput, RuleConflicts;
         public double FieldSeconds, MeshSeconds;
     }
 
@@ -53,6 +53,7 @@ static class Stuffing
         L.Dx = 2 * (int)Math.Ceiling((b.Width + 2 * margin) / cell) + 1;
         L.Dy = 2 * (int)Math.Ceiling((b.Height + 2 * margin) / cell) + 1;
         L.Dz = 2 * (int)Math.Ceiling((b.Depth + 2 * margin) / cell) + 1;
+        if ((long)L.Dx * L.Dy * L.Dz * 7 > int.MaxValue) throw new ArgumentException("the lattice is too large for this prototype (cell too small)");
         int n = L.Dx * L.Dy * L.Dz;
         L.F = new double[n]; L.Sign = new sbyte[n]; L.Pos = new Vector3d[n]; L.Cut = new double[n * 7];
         for (int i = 0; i < L.Cut.Length; ++i) L.Cut[i] = double.NaN;
@@ -175,13 +176,15 @@ static class Stuffing
                             pts[0] = a; pts[1] = bb; pts[2] = c0; pts[3] = c1;
                             var P = new List<int[]>(); var Z = new List<int[]>(); var N = new List<int[]>();
                             foreach (int[] p in pts) { int s = L.Sign[L.Index(p[0], p[1], p[2])]; (s > 0 ? P : s < 0 ? N : Z).Add(p); }
-                            if (P.Count == 0) { if (Z.Count == 4) res.QuadZeroDiscarded++; continue; }
-                            // a warped background tet that is not positive any more ("unsafe" parameters): counted, exact
+                            // a warped background tet that is not positive any more (the paper: possible for tets with four warped
+                            // vertices under the "unsafe" parameters): counted, exact, for every lattice tet with a warped vertex,
+                            // the discarded ones included
                             if (Z.Count > 0) {
                                 double o = ExactPredicates.Orient3d(L.Pos[L.Index(a[0], a[1], a[2])], L.Pos[L.Index(bb[0], bb[1], bb[2])], L.Pos[L.Index(c0[0], c0[1], c0[2])], L.Pos[L.Index(c1[0], c1[1], c1[2])]);
                                 double o0 = ExactPredicates.Orient3d(unwarped[L.Index(a[0], a[1], a[2])], unwarped[L.Index(bb[0], bb[1], bb[2])], unwarped[L.Index(c0[0], c0[1], c0[2])], unwarped[L.Index(c1[0], c1[1], c1[2])]);
-                                if (Math.Sign(o) != Math.Sign(o0)) res.InvertedBackground++;
+                                if (Math.Sign(o) != Math.Sign(o0)) { res.InvertedBackground++; if (P.Count > 0) res.InvertedBackgroundWithOutput++; }
                             }
+                            if (P.Count == 0) { if (Z.Count == 4) res.QuadZeroDiscarded++; continue; }
                             if (N.Count == 0) { emit(latticeVertex(pts[0]), latticeVertex(pts[1]), latticeVertex(pts[2]), latticeVertex(pts[3])); continue; }
                             if (P.Count == 1) {
                                 var w = new List<int> { latticeVertex(P[0]) };
@@ -274,9 +277,9 @@ static class Stuffing
     {
         int seeds = args.Length > 1 ? int.Parse(args[1], Inv) : 20;
         DMesh3 box = Box(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5));
-        Console.WriteLine("alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,inverted_tets,inverted_background,rule_conflicts,quadzero_discarded");
+        Console.WriteLine("alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inverted_background,inverted_background_with_output,rule_conflicts,quadzero_discarded");
         foreach (var (aLong, aShort) in new[] { (0.28511, 0.39882), (0.24999, 0.41189) }) {
-            long tets = 0, invertedBg = 0, conflicts = 0, quadZero = 0, inverted = 0; double min = 180, max = 0;
+            long tets = 0, invertedBg = 0, invertedBgOut = 0, conflicts = 0, quadZero = 0, inverted = 0; double min = 180, max = 0;
             for (int seed = 0; seed < seeds; ++seed) {
                 // smaller density of inside points for some seeds, so that all sign patterns occur
                 double bias = (seed % 4) * 0.3 - 0.45;
@@ -286,14 +289,14 @@ static class Stuffing
                     return ((h & 0xFFFF) / 65535.0 - 0.5) + bias * 0.5;
                 };
                 Result r = Run(box, 1.0 / 14, 0, aLong, aShort, noise);
-                tets += r.Mesh.Tets.Count; invertedBg += r.InvertedBackground; conflicts += r.RuleConflicts; quadZero += r.QuadZeroDiscarded;
+                tets += r.Mesh.Tets.Count; invertedBg += r.InvertedBackground; invertedBgOut += r.InvertedBackgroundWithOutput; conflicts += r.RuleConflicts; quadZero += r.QuadZeroDiscarded;
                 foreach (Index4i q in r.Mesh.Tets) {
                     if (ExactPredicates.Orient3d(r.Mesh.Vertices[q.a], r.Mesh.Vertices[q.b], r.Mesh.Vertices[q.c], r.Mesh.Vertices[q.d]) <= 0) { inverted++; continue; }
                     TetMeshQuality.Measure(r.Mesh.Vertices[q.a], r.Mesh.Vertices[q.b], r.Mesh.Vertices[q.c], r.Mesh.Vertices[q.d], out _, out double lo, out double hi);
                     min = Math.Min(min, lo); max = Math.Max(max, hi);
                 }
             }
-            Console.WriteLine(string.Join(",", aLong.ToString(Inv), aShort.ToString(Inv), seeds, tets, min.ToString("F4", Inv), max.ToString("F4", Inv), inverted, invertedBg, conflicts, quadZero));
+            Console.WriteLine(string.Join(",", aLong.ToString(Inv), aShort.ToString(Inv), seeds, tets, min.ToString("F4", Inv), max.ToString("F4", Inv), inverted, invertedBg, invertedBgOut, conflicts, quadZero));
         }
         return 0;
     }
@@ -331,9 +334,11 @@ static class Stuffing
             foreach (double rc in cells) {
                 Result r = Run(input, diag / rc, relOffset > 0 ? diag / relOffset : 0, aLong, aShort);
                 if (r.Mesh.Tets.Count == 0) { Console.WriteLine("stuffing,cell=" + rc.ToString(Inv) + "," + kv.Key + ",empty"); continue; }
+                // the output tets are oriented by emit, so the validity of a row is TetFiles.Evaluate's (facets matched, closed manifold boundary
+                // without self-intersection), not the sign columns; the field evaluation uses all cores, the rest one thread
                 row("stuffing", "cell=" + rc.ToString(Inv), r.Mesh, r.FieldSeconds + r.MeshSeconds,
                     "field_s=" + r.FieldSeconds.ToString("G3", Inv) + " mesh_s=" + r.MeshSeconds.ToString("G3", Inv) + " lattice=" + r.LatticePoints + " cuts=" + r.CutPoints +
-                    " warped=" + r.Warped + " quadzero_discarded=" + r.QuadZeroDiscarded + " inverted_background=" + r.InvertedBackground + " rule_conflicts=" + r.RuleConflicts);
+                    " warped=" + r.Warped + " quadzero_discarded=" + r.QuadZeroDiscarded + " inverted_background=" + r.InvertedBackground + " inverted_background_with_output=" + r.InvertedBackgroundWithOutput + " rule_conflicts=" + r.RuleConflicts);
             }
         }
         return 0;

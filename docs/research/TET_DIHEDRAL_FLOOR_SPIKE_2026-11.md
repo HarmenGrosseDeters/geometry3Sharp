@@ -15,8 +15,9 @@ libigl or Triangle code was read.
 
 1. **Which inputs miss the floor today.** None of the 21 procedural inputs: every one has every tet >= 10 degrees at the
    default, including wedges with 5 to 60 degree creases, a 10 degree cone, a plate 1/50 as thick as wide and two cubes
-   0.01 apart (section 4). The reason is the pipeline, not luck: the tets fill the **alpha wrap**, an offset surface, and an
-   offset surface has no acute boundary angle (section 3.2). The wrap already is a chamfer of every acute input feature.
+   0.01 apart (section 4). The likely reason is the pipeline: the tets fill the **alpha wrap**, a triangulated offset surface, whose
+   boundary angles do not follow the input's (measured: 29.5 degrees or more at its edges on these inputs, 31 to 81 on the
+   wedges of 5 to 60 degrees; section 3.2). The wrap acts as a chamfer of every acute input feature.
    The only known misses are 2 of the 500 Thingi10K sample meshes (38781 at 9.43, 282598 at 9.53 degrees): local optima of
    the hill climbing on needles and wedges at short wrap edges (the diagnosis of
    [TET_MESHING.md](../design/TET_MESHING.md) 16.1), a sizing effect, not an input angle.
@@ -30,19 +31,22 @@ libigl or Triangle code was read.
    and no algorithm proves even that (section 3.1). For a boundary that only approximates the input: isosurface stuffing,
    for any continuous inside / outside function. Its proven numbers are **not** the abstract's 10.7 degrees without a
    condition: 10.78 to 164.74 degrees holds for every output tet with parameters under which tets may overlap where the
-   lattice does not resolve the surface; the parameters that exclude overlap on every input give **9.31** to 161.64 degrees
-   (9.77 with an ordered warp). So "a proven floor of 10 degrees on 100 % of inputs" needs either a per-run exact check on
-   top of the 10.78 parameters or the owner accepting 9.3 as the proven number (section 2.2).
+   surface is not smooth or not resolved; the parameters that exclude overlap on every input give **9.31** to 161.65 degrees
+   (9.77 with an ordered warp). So "a proven floor of 10 degrees on 100 % of inputs" needs either a per-run validity check on
+   top of the 10.78 parameters or the owner accepting 9.3 as the proven number (sections 2.2, 3.3).
 4. **Measured upper bound** (section 4). The prototype holds the bound on all 169 meshed runs (worst smallest angle 12.5 degrees,
-   worst largest 161.5) and on 1.55 million tets from random labels. The gain on the procedural inputs is **0 inputs**
-   (21 of 21 reach the floor already); what a lattice mesher adds is the proof and better worst angles (smallest about 20
-   instead of 10.0, largest about 150 instead of 165). Its price, uniform lattice against the default
+   worst largest 161.5; 1.55 million tets from random labels stay inside it too). The gain on the procedural inputs is **0 inputs**
+   (21 of 21 reach the floor already); what a lattice mesher adds is the proof and better worst angles (the worst smallest
+   angle over the inputs 15.2 instead of 10.0 degrees, the worst largest 157 instead of 169). Its price, uniform lattice against the default
    `MeshTetrahedralization`: at the same tet count (cell = diagonal / 20) the input-to-boundary distance is 10.7 times
    larger; at 9.5 times the tets (cell / 40) still 6.5 times larger; at 69 times the tets (cell / 80) 1.8 times larger. A
    plate thinner than a cell vanishes, and thin parts give a non-manifold boundary (8 of 169 runs; 282598 at every cell
    size tried).
-5. **Leaning: stop here (option A).** Plan #1281's own stop rule is met: the uniform lattice needs far more than 10 times
-   the tets to match the default's fidelity. Keep the certified per-run statement P5(a) as the claim. Build a lattice mesher
+5. **Leaning: stop here (option A).** The first half of plan #1281's stop rule is met (the uniform lattice needs far more
+   than 10 times the tets to match the default's fidelity); the second half, whether a graded lattice keeps a proven 10
+   degrees, depends on the reading of item 3 (9.31 without a condition, 10.78 with a validity check), and the graded
+   variant's tet count was bounded from below only (section 4.1). The leaning rests on the zero gain and the missing
+   trigger. Keep the certified per-run statement P5(a) as the claim. Build a lattice mesher
    only on a concrete request for a mathematical bound with a rounded, approximate boundary (option B, then with a graded
    interior); it would be a second mesher beside the wrap pipeline, not a fallback inside it.
 
@@ -93,21 +97,23 @@ libigl or Triangle code was read.
   | parameters (axis / diagonal alpha) | dihedral angles | tets cannot overlap on any input ("safe") |
   |---|---|---|
   | 0.28511 / 0.39882 | 10.78 to 164.74 degrees | no |
-  | 0.26649 / 0.36918 | 8.97 to 158.74 | no |
-  | 0.24999 / 0.41189 | **9.31** to 161.64 | yes |
+  | 0.26649 / 0.36918 | 8.97 to 158.75 | no |
+  | 0.24999 / 0.41189 | **9.31** to 161.65 | yes |
   | 0.24999 / 0.42978, ordered warp | 9.77 to 163.57 | yes |
-  | 0.24999 / 0.40173 | 9.06 to **160.53** | yes |
+  | 0.24999 / 0.40173 | 9.05 to **160.54** | yes |
 
-  The abstract's "10.7 to 164.8" is the first row. "Not safe" means: a lattice tet whose four vertices were all warped can
-  turn inside out where the lattice is too coarse for the surface, and then a few output tets may overlap; the bound on each
-  tet's angles still holds. Tets with four warped vertices are outside the bounds and are discarded when they are bad.
+  (Lower bounds rounded down, upper bounds up.) The abstract's "10.7 to 164.8" is the first row. "Not safe" means: a lattice
+  tet whose four vertices were all warped can turn inside out, even at a nearly flat surface; that alone does no harm, but
+  where the surface is not smooth or not resolved a few output tets may then overlap. The bound on each tet's angles still
+  holds. Tets with four warped vertices are outside the bounds and are discarded when they are bad.
 - **What it assumes.** Only that the function is continuous; the proof covers every position of a cut point on its edge, so
   an approximate cut point (bisection, or linear interpolation) keeps the angle bound. The boundary is within about one
   cell of the zero surface (theorem 2); it is homeomorphic to it only if the surface is smooth and the cell is small
-  against its curvature and thickness (theorem 3). Sharp creases and corners are rounded off; the paper names this as the
-  method's main shortcoming.
-- **Grading.** With an octree, the interior may be coarser while the boundary layer stays uniform, and the bounds of the
-  table above still hold (some need a few extra octants). Grading the boundary too leaves only 1.66 to 174.72 degrees.
+  against its curvature and thickness (theorem 3). Sharp creases and corners are rounded off; the paper names this as a
+  drawback of the method.
+- **Grading.** With an octree, the interior may be coarser while the boundary layer stays uniform, and the dihedral
+  bounds of the table above still hold (the 10.78 row needs a few extra octants; the two bounds the paper marks as weakened
+  are plane-angle bounds of other rows). Grading the boundary too leaves only 1.66 to 174.72 degrees.
 
 ### 2.3 Prior art checked (about 15 minutes; search terms: guaranteed dihedral angle tetrahedral mesh sharp features, lattice, octree)
 
@@ -142,14 +148,19 @@ libigl or Triangle code was read.
 
 ### 3.2 The wrap boundary (today's pipeline)
 
-- The wrap approximates the outer offset surface of the input at distance `Offset`. Every point of an offset surface has a
-  ball of radius `Offset` inside the offset solid touching it (centred on the nearest input point), so the solid has **no
-  convex crease or corner at all**: its interior angles are 180 degrees or more, whatever the input's angles are. Measured
-  on the wrap's triangulation ([benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md),
-  "Inside cells of the wrap"): smallest surface dihedral 86 to 171 degrees at alpha / 20.
-- This is the precondition a chamfering step would establish, and it holds for 100 % of inputs by construction. It explains
-  the measurement: an acute crease or a thin part of the input never forces a bad tet here.
-- What is still missing for a **proof** is not a property of the input. Stage 1 bounds the radius-edge ratio only away from
+- The wrap approximates the outer offset surface of the input at distance `Offset`. Every point of an exact offset surface
+  has a ball of radius `Offset` inside the offset solid touching it (centred on the nearest input point), so the exact
+  offset solid has no convex crease or corner, whatever the input's angles are. The wrap is a triangulation of that surface
+  with edges of about alpha, 15 times the offset at the default, so its own edge angles are sharper than the surface's.
+  Measured on the raw wrap at the default (`wrap 40 600 hard`, the 13 hard inputs): smallest interior dihedral angle at a
+  surface edge 29.5 to 90 degrees, with 0 to 68 edges below 90 and at most 6 below 45 per input; on the wedges of 60, 30, 20,
+  12 and 5 degrees it is 63, 31, 81, 34 and 63 degrees. On the 8 smooth inputs at alpha / 20: 86 to 171 degrees
+  ([benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), "Inside cells of the wrap").
+- So the boundary the tets must fit has angles well above the 10 degree floor and they do not follow the input's creases:
+  this is what a chamfering step would establish, and here it is an observation on these inputs with a geometric reason
+  behind it, not a proven bound on the wrap's angles. It fits the measurement: no acute crease or thin part of an input
+  forces a tet below 10 degrees.
+- What is missing for a **proof** is therefore not mainly a property of the input. Stage 1 bounds the radius-edge ratio only away from
   the fixed surface; stage 2 is hill climbing with exact safety checks (it never makes the worst angle smaller, it cannot
   promise to reach 10 degrees). The 2 misses of 500 are such local optima. No theory turns this pipeline into a proven floor;
   what it has is the per-run certificate P5(a) (`Targets.MinDihedralMet`).
@@ -159,11 +170,17 @@ libigl or Triangle code was read.
 ### 3.3 A lattice boundary
 
 - Proven for every continuous inside / outside function: 9.31 degrees with the safe parameters; 10.78 degrees per tet with
-  the first row, where validity (no overlap) needs either a resolved surface or a check. The check is cheap and exact: if
-  every warped lattice tet that touches the output keeps its positive orientation (`Orient3d`), the warped lattice is still
-  a triangulation and nothing overlaps. In all 169 runs and the random-label stress no such tet turned over
-  (`inverted_background` 0), so "10.78 parameters, checked per run, safe parameters as the fallback" would in practice
-  always return 10.78; the proven statement for 100 % of inputs would then be "9.31, and 10.78 whenever the check passes".
+  the first row, where validity (no overlap) needs either a smooth, resolved surface or a check per run.
+- The cheap check does not work: "no warped lattice tet changed its orientation" (`Orient3d`, column `inverted_background`)
+  fails with the 10.78 parameters on 18 of the 61 procedural runs (up to 3012 lattice tets, most of them flat, on planar
+  faces as the paper says) and never with the safe parameters. All of those tets have four warped vertices and are
+  discarded; no lattice tet that produces output changed orientation in any run (`inverted_background_with_output` 0).
+- The check that works is the library's exact validity test on the output (`TetMeshQuality.NotValidReason` plus the exact
+  self-intersection test of the boundary, as in `TetFiles.Evaluate`): positively oriented tets whose facets match and whose
+  boundary is a closed manifold without self-intersection cover the enclosed region exactly once. All 18 runs pass it. So
+  "the 10.78 parameters, the output validated per run, the safe parameters as the fallback" is a sound scheme; its proven
+  statement for 100 % of inputs is "9.31, and 10.78 whenever the validation passes". On these inputs the validation failed
+  only through a non-manifold boundary (next item), which the safe parameters do not cure.
 - Preconditions and what they cost:
   - **Fidelity is about one cell, features are rounded.** Parts thinner than about a cell are lost (the plate is empty at
     cell / 20 and / 40), creases recede (wedge 5: the tip is 0.37, 0.20, 0.09 of the diagonal short at cell / 20, / 40, / 80).
@@ -211,10 +228,11 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
 
 - Not meshed or not valid, lattice: the plate at / 20 and / 40 (thinner than a cell: no positive lattice point, empty
   mesh); the thin torus at / 20 (a boundary edge used twice). With the safe parameters also wedge 5 at / 40 (a non-manifold
-  boundary vertex); with offset 0 the two cubes at / 80 (the 0.01 gap is a pinch). No tet is inverted in any run.
+  boundary vertex); with offset 0 the two cubes at / 80 (the 0.01 gap is a pinch). The prototype orients its output tets
+  itself, so validity is the exact test of section 3.3, not a sign count.
 - Safe parameters (0.24999 / 0.41189): worst smallest dihedral 12.5 degrees (bound 9.31), worst largest 147.7.
-  Offset 0 (the input surface itself): worst 15.0, input-to-boundary max 0.0139 / 0.0076 at / 40 and / 80, about the same
-  as with the offset.
+  Offset 0 (the input surface itself): worst 15.0, input-to-boundary max 0.0139 / 0.0076 at / 40 and / 80 (with the
+  offset 0.0136 / 0.0050): the offset is not what costs the lattice its fidelity.
 - The worst input-to-boundary distance of the default and of the lattice at / 80 (0.18) is "two spheres (soup)", whose inner
   vertices no enclosing boundary reaches; at / 20 and / 40 the lattice's worst is the receded tip of wedge 5.
 - The deviation is sampled at the input's vertices, which on the polyhedral inputs are exactly the corners a lattice
@@ -222,10 +240,17 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
   default or closer from cell / 40 on (0.0016 to 0.0025 of the diagonal against 0.0016 to 0.0034), and at / 20 except on
   the thin torus and the coarse sphere; there it only costs tets (1.6 to 2.6 times at / 20 for the spheres, 12 to 20 times
   at / 40).
-- A graded interior would not close the gap: the boundary layer alone has 1.14 times (cell / 40) and 4.65 times (/ 80) as
-  many **boundary triangles** as the default mesh has tets (median), and every boundary triangle is the face of a tet.
-- Times of the prototype are not a design value: the cut points use 40 function evaluations each and the stencil code
-  allocates; the paper's point that the method is fast is not contested (6 to 29 us per tet here).
+- A graded interior (uniform boundary layer) was not built. A lower bound on its tet count is the number of boundary
+  triangles, since each is the face of a different tet: 1.14 times (cell / 40) and 4.65 times (/ 80) the default's tet count
+  (median), 5.7 times on 38781 at cell / 160. So a graded lattice could stay below 10 times the default's tets; how close it
+  gets to this bound is not measured (the boundary layer is several tets deep), and its fidelity is the uniform lattice's.
+- The per-input ratios leave out the inputs the lattice did not mesh (the plate at / 20 and / 40) and include the thin
+  torus at / 20, whose lattice mesh is not valid (0.15 times the tets): both favour the lattice.
+- Times of the prototype are not a design value: the field is evaluated at every lattice point of the box (on all cores,
+  the rest is one thread, so the time ratios mix both), the cut points use 40 evaluations each, and the stencil code
+  allocates. All procedural rows together: 30, 15 and 8 us per tet at cell / 20, / 40, / 80; on the two sample meshes of
+  4.3, where a field evaluation is expensive, 270 to 5700 us per tet. The paper's point that the method itself is fast is
+  not contested.
 
 ### 4.2 Random labels (the bound without a surface)
 
@@ -233,13 +258,16 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
 point and cut points fall anywhere on their edges; 20 seeds with four inside densities.
 
 ```
-alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,inverted_tets,inverted_background,rule_conflicts,quadzero_discarded
-0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,298902
-0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,295760
+alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inverted_background,inverted_background_with_output,rule_conflicts,quadzero_discarded
+0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,0,298902
+0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,0,295760
 ```
 
-No tet below the proven bound, none inverted, and the two diagonal rules never conflict (the prism of every stencil has a
-triangulation). The measured worst angles stay above the bounds because the bound's extreme configurations are specific.
+No tet below the proven bound and no lattice tet turned over. This run has little power to tell the paper's stencils from
+slightly different ones: the worst angle stays 3.7 degrees above the bound, because the bound's extreme configurations are
+specific, and the reviewer's mutants of the Parity Rule left every column unchanged. That the prototype follows the paper's
+rules rests on reading the code against the text (checked in the independent review); the real oracle would be the interval
+verification of section 7.
 
 ### 4.3 The two sample meshes that miss 10 degrees today
 
@@ -274,10 +302,18 @@ has parts so thin that the lattice boundary is not a manifold at any of the thre
 | # | Option | Gives | Effort | Risk |
 |---|---|---|---|---|
 | A | **Stop: keep P5(a) as the statement** (per-run certificate, 498 of 500 on the sample, 21 of 21 procedural). Record the corrected facts (9.31 / 10.78, chamfering has no dihedral bound) in the design note and plan #1281 | no proof; nothing changes | this PR | none |
-| B | Opt-in lattice mesher (uniform first, graded interior as its second step), `TetMesh3` output, the 10.78 parameters with the exact per-run check and the safe parameters as fallback, a pinch repair, a status for parts lost below the cell size, the interval verification of our own stencil table | the proven floor (9.31, and 10.78 when the check passes) on every input, largest angle below 165, with a rounded boundary about one cell from the input and 10 to 70 times the tets of the default at comparable fidelity | uniform 1.5 to 2 weeks; + 1 week for the verification program and the rounding argument; + 1.5 to 2 weeks for the graded interior (large model: the bound is the product) | medium: the method is simple and the prototype works; the risks are the proof we must own, the manifold repair, and that the result is too coarse or too large to be wanted |
-| C | The lattice as an automatic fallback inside `MeshTetrahedralization` when the target is missed (2 of 500) | a mesh at >= 10 degrees also for those runs | B plus the switch | high for little: the fallback's boundary is a different, coarser surface than the caller asked for (38781 needs 40 times the tets, 282598 has no manifold lattice boundary at three sizes), and it is an output change (owner) |
+| B | Opt-in lattice mesher, uniform first, then a graded interior (details below the table) | the proven floor on every input (9.31; 10.78 when the run's validity check passes), largest angle below 165; a rounded boundary about one cell from the input | 4 to 5.5 weeks, large model | medium |
+| C | The lattice as an automatic fallback inside `MeshTetrahedralization` when the target is missed (2 of 500) | a mesh at >= 10 degrees also for those runs, on a different, coarser boundary | B plus the switch | high for little; an output change (owner) |
 | D | Chamfering as in Diazzi et al. 2026 | termination and a face-angle bound for an input-conforming mesher; **no dihedral floor** | part of P4(c) (3 to 4 months, parked) | high; out of scope by the owner's decision |
 | E | Sliver exudation or perturbation on the current pipeline | a proven but tiny, unquantified constant, or none | 2 to 3 weeks (weighted `Delaunay3`, power predicate) | high for no usable number; the diagnosis found at most 25 slivers among 361 bad tets |
+
+Option B in detail: `TetMesh3` output; the 10.78 parameters with the validity check of section 3.3 and the safe parameters
+as the fallback; a pinch repair; a status for parts lost below the cell size; the interval verification of our own stencil
+table. Effort: uniform 1.5 to 2 weeks, + 1 week for the verification program and the rounding argument, + 1.5 to 2 weeks for
+the graded interior. Risks: the proof we must own, the manifold repair, and a result too coarse or too large to be wanted
+(uniform: 10 times the tets at 6.5 times the default's input-to-boundary distance, 69 times at 1.8 times, section 4.1).
+Option C in detail: 38781 needs 40 times the tets for the default's fidelity, and 282598 has no manifold lattice boundary at
+the three cell sizes tried.
 
 How others solve it: section 2.3. Not an option of this spike but noted: a further improver lever for the 2 meshes left
 is empirical work on the certified claim, not a proof; 282598's reaction to the crease pass (10.0004) shows these last
@@ -285,7 +321,7 @@ cases are sensitive to any change of the surface triangulation.
 
 **Leaning: A.** The trigger of plan #1281 (a caller who needs a mathematical bound and accepts an approximate boundary) has
 not occurred, the measured gain on our inputs is zero inputs, and the price is the fidelity that stages P1 to P4 were built
-for. If the trigger occurs: B, scoped as a separate mesher, with the stop rule "graded interior, cell chosen for the
+for. The stop rule's tet-count half is shown for the uniform lattice only. If the trigger occurs: B, scoped as a separate mesher, with the stop rule "graded interior, cell chosen for the
 caller's fidelity, at most 10 times the default's tets"; C and E not at all; D only as part of a P4(c) decision.
 
 ## 7. Open points for a later implementation (only if B gets a go)

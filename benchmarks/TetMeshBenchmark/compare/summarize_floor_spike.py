@@ -13,8 +13,8 @@ def rows(path):
                 d = dict(zip(head, r)); d["status"] = "ok"; yield d
 
 def extra(d, key):
-    for kv in d.get("extra", "").split():
-        if kv.startswith(key + "="): return int(kv.split("=")[1])
+    for kv in (d.get("extra") or "").split():
+        if kv.split("=")[0] == key: return int(kv.split("=")[1])
     return 0
 
 for path in sys.argv[1:]:
@@ -37,8 +37,9 @@ for path in sys.argv[1:]:
             line += " | per input against ours (median of ratios): tets %.2f, dev_in max %.2f, dev_in mean %.2f, time %.2f" % (
                 ratio("tets"), ratio("dev_in_max_rel"), ratio("dev_in_mean_rel"), ratio("time_s"))
         if method == "stuffing":
-            line += " | inverted background tets %d, rule conflicts %d, quadruple-zero discarded %d" % (
-                sum(extra(r, "inverted_background") for r in ok), sum(extra(r, "rule_conflicts") for r in ok), sum(extra(r, "quadzero_discarded") for r in ok))
+            line += " | inverted background tets %d on %d inputs (with output: %d), rule conflicts %d, quadruple-zero discarded %d" % (
+                sum(extra(r, "inverted_background") for r in ok), sum(extra(r, "inverted_background") > 0 for r in ok),
+                sum(extra(r, "inverted_background_with_output") for r in ok), sum(extra(r, "rule_conflicts") for r in ok), sum(extra(r, "quadzero_discarded") for r in ok))
         print(line)
         for r in g:
             if r["status"] != "ok" or r["valid"] != "yes":

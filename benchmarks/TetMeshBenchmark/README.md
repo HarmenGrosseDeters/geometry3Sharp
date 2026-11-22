@@ -319,17 +319,24 @@ Rows (2026-11-22, the 4-core cloud container, Release, net10.0): `results/tet-fl
 Summary (`summarize_floor_spike.py`, first file):
 
 ```
-ours      crease=0   inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 168.4 | tets median 6028 | time median 0.22 s max 0.95 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00057
-ours      crease=30  inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 169.0 | tets median 6028 | time median 0.28 s max 0.49 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00111
-stuffing  cell=20    inputs 21 meshed 20 valid 19 | min dihedral worst 15.23 median 21.02, all>=10: 20 | max dihedral worst 152.5 | tets median 9787 | time median 0.19 s max 0.60 | dev_in max: median 0.0240 worst 0.3747, mean: median 0.01169 | per input against ours (median of ratios): tets 1.23, dev_in max 10.65, dev_in mean 14.97, time 0.75 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 593
-stuffing  cell=40    inputs 21 meshed 20 valid 20 | min dihedral worst 15.91 median 20.41, all>=10: 20 | max dihedral worst 157.2 | tets median 75248 | time median 0.81 s max 2.30 | dev_in max: median 0.0136 worst 0.2002, mean: median 0.00532 | per input against ours (median of ratios): tets 9.47, dev_in max 6.53, dev_in mean 9.12, time 3.11 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 4684
-stuffing  cell=80    inputs 21 meshed 21 valid 21 | min dihedral worst 16.16 median 20.79, all>=10: 21 | max dihedral worst 156.8 | tets median 563180 | time median 3.31 s max 9.92 | dev_in max: median 0.0050 worst 0.1833, mean: median 0.00175 | per input against ours (median of ratios): tets 69.48, dev_in max 1.80, dev_in mean 2.67, time 15.13 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 24928
+ours      crease=0   inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 168.4 | tets median 6028 | time median 0.22 s max 1.05 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00057
+ours      crease=30  inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 169.0 | tets median 6028 | time median 0.25 s max 0.61 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00111
+stuffing  cell=20    inputs 21 meshed 20 valid 19 | min dihedral worst 15.23 median 21.02, all>=10: 20 | max dihedral worst 152.5 | tets median 9787 | time median 0.19 s max 0.57 | dev_in max: median 0.0240 worst 0.3747, mean: median 0.01169 | per input against ours (median of ratios): tets 1.23, dev_in max 10.65, dev_in mean 14.97, time 0.72 | inverted background tets 171 on 2 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 593
+   not meshed or not valid: torus thin - a boundary edge occurs twice with the same direction
+   not meshed or not valid: plate 1x1x0.02 - empty
+stuffing  cell=40    inputs 21 meshed 20 valid 20 | min dihedral worst 15.91 median 20.41, all>=10: 20 | max dihedral worst 157.2 | tets median 75248 | time median 0.88 s max 2.39 | dev_in max: median 0.0136 worst 0.2002, mean: median 0.00532 | per input against ours (median of ratios): tets 9.47, dev_in max 6.53, dev_in mean 9.12, time 3.50 | inverted background tets 3162 on 7 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 4684
+   not meshed or not valid: plate 1x1x0.02 - empty
+stuffing  cell=80    inputs 21 meshed 21 valid 21 | min dihedral worst 16.16 median 20.79, all>=10: 21 | max dihedral worst 156.8 | tets median 563180 | time median 3.42 s max 10.05 | dev_in max: median 0.0050 worst 0.1833, mean: median 0.00175 | per input against ours (median of ratios): tets 69.48, dev_in max 1.80, dev_in mean 2.67, time 13.63 | inverted background tets 12054 on 9 inputs (with output: 0), rule conflicts 0, quadruple-zero discarded 24928
 ```
 
 `floornoise 20`:
 
 ```
-alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,inverted_tets,inverted_background,rule_conflicts,quadzero_discarded
-0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,298902
-0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,295760
+alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inverted_background,inverted_background_with_output,rule_conflicts,quadzero_discarded
+0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,0,298902
+0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,0,295760
 ```
+
+`inverted_background` counts the warped lattice tets whose exact orientation changed (the discarded ones included; with the 10.78 degree parameters
+they occur on planar faces, with the safe ones never), `inverted_background_with_output` those that produce output tets. `wrap 40 600 hard` prints the
+wrap's own surface angles on the 13 hard inputs (smallest interior dihedral at a surface edge 29.5 to 90 degrees).
