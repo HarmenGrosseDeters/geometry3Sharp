@@ -11,6 +11,40 @@ namespace geometry3Sharp.Tests
     /// margin, the guards of the node query, the terms of the node's error against their formulas, the data a node stores
     /// against its build formulas, the gates of the build, and the fallbacks. The class name starts with
     /// ExactWindingCacheInternalTests so that the mutation shard's filter runs it.
+    ///
+    /// Mutants of the shard (spatial/ExactWindingCache.cs, the BoundaryTree) that are argued equivalent, by group (a mutant of a
+    /// bound is never "equivalent by margin": each reason below is about the values the code computes, not about a slack):
+    ///  - EvaluateAbove / EvaluateAbsAbove / TryEvaluate guards `triCount == 0 || !is_finite(p)` (`&amp;&amp;`): the early return is
+    ///    the same 0.0 that Evaluate returns for an empty tree or a point that is not finite, so the value does not change.
+    ///  - `!is_finite(iso)` branch (`Evaluate(p) &gt; iso` against `&gt;=`, and un-negated): for iso = +-infinity or NaN and a finite
+    ///    Evaluate(p), `&gt;` and `&gt;=` agree; for a finite iso the branch would only skip the tree, and the full sum decides
+    ///    the same (the branch saves work, not a decision).
+    ///  - `decided &gt;= 0` for `decided &gt; 0`: inside `if (decided != 0)`, decided is never 0.
+    ///  - decide_above `w &gt;= iso` / `w &lt;= iso`: at w == iso the distance is 0 and the margin is at least 1.01e-9, so the
+    ///    second clause already fails.
+    ///  - `?? new int[..]` (remove left): allocation only (the stack is reused per thread); `sp + 2 &gt;= stack.Length`: grows
+    ///    one slot earlier, the same values; the growth itself is tested with a start size of 1 to 4.
+    ///  - `left &gt; 0` for `left &gt;= 0`: a child node is never node 0 (node 0 is the first root).
+    ///  - `is_finite(bSum) || is_finite(bErr)` and the `!is_finite(chord / halfOmega / nodeErr)` guards and their -1 results,
+    ///    and the `!is_finite(c, rUp, va, vaError, aAbsVal, l1)` guard of the build: unreachable, because the build rejects a mesh
+    ///    with a coordinate above 1e65, the query rejects distances outside 1e-70 .. 1e70, and then every product, sum and
+    ///    square root in between is finite (the largest, a cross product of two vectors of 2e65, is 1e131); they are defensive.
+    ///  - `range &lt;= 0` for `range &lt; 0` in node_query: range is not 0 there.
+    ///  - chord `a0.x != ak.x` (and the conditional that never takes the shortcut): for a node whose end points agree in y and z
+    ///    the edge runs along x, and the angle of an edge along x is exactly 0 (num = a.z b.y - a.y b.z = 0, den &gt; 0), the value
+    ///    the shortcut returns; the shortcut skips an atan2.
+    ///  - mMax: `ma` and `mb` (Max to Min, `&lt;`, `&gt;=`, negated): the boundary is a cycle of positively weighted edges (the
+    ///    edges are oriented to carry a positive weight, and the sum of a closed surface's edges has no end points), so every
+    ///    vertex is the start of one edge and the end of another; the line of `ma` and the line of `mb` see the same vertices and
+    ///    each alone gives the same mMax (the tests with one huge coordinate per axis kill the mutants that change both).
+    ///    `mMax &gt;= 0.0`: mMax is 0 only without a boundary edge of length greater than 0.
+    ///  - `indegree[kb] = deg - 1`: only ContainsKey of the dictionary is read. `pass &lt;= 2`: a third pass finds no unused edge.
+    ///    List capacities (`nu + 32`, `estNodes`): a hint. `lv &gt;= r`, `vm1 &gt;= l1`: the same maximum. `(b - a) &gt;&gt;&gt; 1`: b - a is
+    ///    positive there.
+    ///  - `break` of the next-edge search (statement removed): the chain then continues with the last unused edge that leaves
+    ///    the vertex instead of the first. Any choice splits the same edges into chains (a vertex with two ways out is a
+    ///    pinch of the boundary), so the sum is over the same edges in another order, which sumOrderErr covers; this changes no
+    ///    value beyond the bound, and the tree stays deterministic.
     /// </summary>
     public class ExactWindingCacheInternalTestsBoundaryTree
     {
@@ -491,6 +525,95 @@ namespace geometry3Sharp.Tests
             ExactWindingCache pc = Cache(pent, 0);
             Assert.Equal(20, pc.BoundaryCount);
             Assert.True(pc.HasBoundaryTree);
+        }
+
+        [Fact]
+        public void TreeTraversal_GrowsItsStack_AndGivesTheSameSumAsWithTheDefaultStack()
+        {
+            ExactWindingCache cache = Cache(Grid(160));
+            var pts = new List<Vector3d>();
+            var rnd = new Random(23);
+            for (int i = 0; i < 40; ++i)
+                pts.Add(new Vector3d(rnd.NextDouble() * 2.2 - 1.1, (i % 2 == 0 ? -1 : 1) * (1.0 + 0.01 * rnd.NextDouble()), 0.2 * rnd.NextDouble()));
+            var reference = new List<double>();
+            ExactWindingCache.ResetBoundaryTreeStack();
+            foreach (Vector3d p in pts) { Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out double s, out double e)); reference.Add(s); reference.Add(e); }
+            int saved = ExactWindingCache.BoundaryTreeStackStart;
+            try {
+                foreach (int start in new[] { 1, 2, 3, 4 }) {
+                    ExactWindingCache.BoundaryTreeStackStart = start;
+                    ExactWindingCache.ResetBoundaryTreeStack();
+                    int i = 0;
+                    foreach (Vector3d p in pts) {
+                        Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out double s, out double e));
+                        Assert.Equal(reference[i++], s);
+                        Assert.Equal(reference[i++], e);
+                    }
+                }
+            } finally {
+                ExactWindingCache.BoundaryTreeStackStart = saved;
+                ExactWindingCache.ResetBoundaryTreeStack();
+            }
+        }
+
+        [Fact]
+        public void NodeQuery_PointAtTheCentre_DescendsAndHooksWithoutATreeAreEmpty()
+        {
+            ExactWindingCache cache = Cache(Grid(160));
+            ExactWindingCache.NodeInfo node = cache.DescribeBoundaryNode(0, new Vector3d(3, 3, 3));
+            ExactWindingCache.NodeInfo atCentre = cache.DescribeBoundaryNode(0, node.Center);
+            Assert.Equal(0, atCentre.Status);                       // too near for the node: descend, not "outside the certified range"
+            Assert.False(atCentre.Query.Accepted);
+            Assert.NotNull(cache.BoundaryTreeRoots);
+            Assert.NotNull(cache.BoundaryTreeHeavy);
+            Assert.True(cache.BoundaryTreeTotalWeight > 0.0);
+            ExactWindingCache closed = Cache(ExactWindingAdoptionTests.Sphere(10, 1.0));
+            Assert.Null(closed.BoundaryTreeRoots);
+            Assert.Null(closed.BoundaryTreeHeavy);
+            Assert.Equal(0.0, closed.BoundaryTreeTotalWeight);
+            Assert.False(closed.TryEvaluateTreeBoundarySumX(new Vector3d(1, 2, 3), out _, out double err));
+            Assert.True(double.IsPositiveInfinity(err));
+            Assert.False(cache.TryEvaluateTreeBoundarySumX(new Vector3d(double.NaN, 0, 0), out _, out _));
+            var empty = new DMeshAABBTree3(new DMesh3(), true).GetExactWindingCache();
+            Assert.False(empty.TryEvaluateTreeBoundarySumX(new Vector3d(1, 2, 3), out _, out _));
+        }
+
+        [Fact]
+        public void NodeTerms_OnFlatGrids_ChordOfAnEdgeAlongOneAxisIsNotSkipped()
+        {
+            // nodes whose end points agree in two coordinates and differ in the third (the sides of a flat grid): the chord of
+            // such a node is the angle of that edge (checked against the formula, and nonzero for the edges along y and z), not
+            // the 0 that a closed loop's node (end points equal) gets
+            for (int plane = 0; plane < 2; ++plane) {
+                DMesh3 m = Grid(160);
+                foreach (int v in m.VertexIndices()) {
+                    Vector3d q = m.GetVertex(v);
+                    m.SetVertex(v, plane == 0 ? new Vector3d(q.x, q.y, 0.0) : new Vector3d(q.x, 0.0, q.y));
+                }
+                ExactWindingCache cache = Cache(m);
+                Assert.True(cache.HasBoundaryTree);
+                var rnd = new Random(77 + plane);
+                int accepted = 0, axisNodes = 0;
+                for (int k = 0; k < cache.BoundaryNodeCount; ++k) {
+                    ExactWindingCache.NodeInfo node = cache.DescribeBoundaryNode(k, new Vector3d(9, 8, 7));
+                    Vector3d a0 = node.Vertices[0], ak = node.Vertices[node.Vertices.Length - 1];
+                    int same = (a0.x == ak.x ? 1 : 0) + (a0.y == ak.y ? 1 : 0) + (a0.z == ak.z ? 1 : 0);
+                    if (same != 2) continue;
+                    for (int t = 0; t < 12; ++t) {
+                        Vector3d dir = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() + 0.3);
+                        Vector3d p = node.Center + (10 + 20 * rnd.NextDouble()) * Math.Max(node.R, 1e-3) * dir.Normalized + new Vector3d(0.011, -0.017, 0.023);
+                        ExactWindingCache.NodeInfo info = cache.DescribeBoundaryNode(k, p);
+                        if (info.Status != 1) continue;
+                        int dummy = 0;
+                        AssertNodeTerms(info, p, ref dummy);
+                        // (an edge along x has the angle 0 exactly: num = a.z b.y - a.y b.z = 0 and den > 0; the other two axes do not)
+                        if (a0.x == ak.x)
+                            Assert.NotEqual(0.0, info.Query.Chord);
+                        ++accepted; ++axisNodes;
+                    }
+                }
+                Assert.True(axisNodes > 10, $"plane {plane}: only {axisNodes} nodes with an edge along one axis");
+            }
         }
     }
 }

@@ -73,6 +73,9 @@ namespace g3
         readonly object boundaryTreeLock = new object();
 
         [ThreadStatic] static int[] boundaryTreeStack;
+        // the start size of the traversal stack of a thread (the tree is balanced: depth <= 31, so 128 never grows); tests make it small
+        internal static int BoundaryTreeStackStart = 128;
+        internal static void ResetBoundaryTreeStack() { boundaryTreeStack = null; }
 
         internal int BoundaryCount { get { return boundary.Length; } }
         internal int TriangleCount { get { return triCount; } }
@@ -458,7 +461,7 @@ namespace g3
                 err += 1e-12 * wAbs;
             }
 
-            int[] stack = boundaryTreeStack ?? (boundaryTreeStack = new int[128]);
+            int[] stack = boundaryTreeStack ?? (boundaryTreeStack = new int[BoundaryTreeStackStart]);
             int[] roots = tree.Roots;
             int[] loArr = tree.Lo, hiArr = tree.Hi, leftArr = tree.Left, rightArr = tree.Right;
             Vector3d[] verts = tree.Verts;
