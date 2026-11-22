@@ -500,6 +500,44 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(-530)]
+        [InlineData(-300)]
+        [InlineData(300)]
+        [InlineData(520)]
+        public void Crossing_AtExtremeScales_IsTheCrossing(int exponent)
+        {
+            // the rounded distances to the line underflow (2^-530) or overflow (2^520): the crossing must still be found
+            double s = Math.Pow(2, exponent);
+            var line = new Line2d(new Vector2d(-s, 0), Vector2d.AxisX);
+            var seg = new Segment2d(Vector2d.Zero, Vector2d.AxisY, s);        // (not from two points: Normalize zeroes a vector below 2.2e-16 and overflows above 1e154)
+            var ls = new IntrLine2Segment2(line, seg);
+            Assert.True(ls.Find(), "line-segment find " + ls.Result);
+            Assert.Equal(IntersectionType.Point, ls.Type);
+            Assert.True(Math.Abs(ls.Point.x) <= 1e-15 * s && Math.Abs(ls.Point.y) <= 1e-15 * s, "line-segment " + ls.Point);
+            var ss = new IntrSegment2Segment2(new Segment2d(Vector2d.Zero, Vector2d.AxisX, s), seg);
+            Assert.True(ss.Find(), "segment-segment find " + ss.Result);
+            Assert.Equal(IntersectionType.Point, ss.Type);
+            Assert.True(Math.Abs(ss.Point0.x) <= 1e-15 * s && Math.Abs(ss.Point0.y) <= 1e-15 * s, "segment-segment " + ss.Point0);
+            var tri = new Triangle2d(new Vector2d(0, -s), new Vector2d(s, s), new Vector2d(-s, s));
+            var lt = new IntrLine2Triangle2(new Line2d(new Vector2d(-s, 0), Vector2d.AxisX), tri);
+            Assert.True(lt.Find(), "line-triangle find " + lt.Result);
+            Assert.Equal(2, lt.Quantity);
+            Assert.True(Math.Abs(lt.Point0.y) <= 1e-15 * s && Math.Abs(lt.Point1.y) <= 1e-15 * s);
+        }
+
+        [Fact]
+        public void LineWhoseSecondPointOverflows_IsInvalid()
+        {
+            var line = new Line2d(new Vector2d(1.7e308, 0), Vector2d.AxisX);
+            var seg = new Segment2d(new Vector2d(1, -1), new Vector2d(1, 1));
+            var tri = new Triangle2d(new Vector2d(0, -1), new Vector2d(2, -1), new Vector2d(1, 2));
+            Assert.False(new IntrLine2Line2(line, line).Find());
+            Assert.False(new IntrLine2Segment2(line, seg).Find());
+            Assert.False(new IntrLine2Triangle2(line, tri).Find());
+            Assert.Equal(IntersectionResult.InvalidQuery, new IntrLine2Segment2(line, seg).Compute().Result);
+        }
+
         // ---- tolerance route ----
         [Fact]
         public void IntervalThreshold_SelectsTheToleranceRoute()

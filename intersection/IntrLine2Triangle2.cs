@@ -89,6 +89,8 @@ namespace g3
 			    || IntrExact2d.IsFinite(triangle.V1) == false || IntrExact2d.IsFinite(triangle.V2) == false)
 				return false;
 			Vector2d p = IntrExact2d.SecondPoint(o, line.Direction);
+			if (p == o)
+				return false;       // (the second point overflowed: no line)
 			IntrExact2d.Cand entry, exit;
 			int r = IntrExact2d.Interval(o, p, ref triangle, out entry, out exit);
 			if (r < 0) {

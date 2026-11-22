@@ -41,7 +41,7 @@ namespace g3
     /// (Origin + 2^m Direction, rounded) and the segment ends are Segment2d.P0 and P1 (rounded from Center and Extent).
     /// <see cref="DotThreshold"/> is not used then. With an IntervalThreshold above 0 the old tolerance route runs
     /// (the segment is enlarged by the threshold, lines within DotThreshold of parallel count as parallel). Non-finite
-    /// input is an InvalidQuery.
+    /// input is an InvalidQuery; a segment that collapsed to a point in the rounding of its ends takes the tolerance route.
     /// </summary>
     public class IntrLine2Segment2
     {
@@ -109,30 +109,7 @@ namespace g3
             }
 
             if (intervalThresh > 0) {
-                // with an IntervalThreshold the segment is enlarged: the tolerance route (DotThreshold and IntervalThreshold)
-                Vector2d s = Vector2d.Zero;
-                Type = IntrLine2Line2.Classify(line.Origin, line.Direction,
-                                               segment.Center, segment.Direction,
-                                               dotThresh, ref s);
-
-                if (Type == IntersectionType.Point) {
-
-                    // Test whether the line-line intersection is on the segment.
-                    if (Math.Abs(s[1]) <= segment.Extent + intervalThresh) {
-                        Quantity = 1;
-                        Point = line.Origin + s[0] * line.Direction;
-                        Parameter = s[0];
-                    } else {
-                        Quantity = 0;
-                        Type = IntersectionType.Empty;
-                    }
-
-                } else if (Type == IntersectionType.Line) {
-                    Type = IntersectionType.Segment;
-                    Quantity = int.MaxValue;
-                } else {
-                    Quantity = 0;
-                }
+                find_tolerant();
             } else if (find_exact() == false) {
                 Type = IntersectionType.Empty;
                 Result = IntersectionResult.InvalidQuery;
@@ -144,14 +121,51 @@ namespace g3
 
             return (Result == IntersectionResult.Intersects);
         }
+
+        // the old route with the tolerances (DotThreshold, IntervalThreshold)
+        void find_tolerant()
+        {
+            Vector2d s = Vector2d.Zero;
+            Type = IntrLine2Line2.Classify(line.Origin, line.Direction,
+                                           segment.Center, segment.Direction,
+                                           dotThresh, ref s);
+
+            if (Type == IntersectionType.Point) {
+
+                // Test whether the line-line intersection is on the segment.
+                if (Math.Abs(s[1]) <= segment.Extent + intervalThresh) {
+                    Quantity = 1;
+                    Point = line.Origin + s[0] * line.Direction;
+                    Parameter = s[0];
+                } else {
+                    Quantity = 0;
+                    Type = IntersectionType.Empty;
+                }
+
+            } else if (Type == IntersectionType.Line) {
+                Type = IntersectionType.Segment;
+                Quantity = int.MaxValue;
+            } else {
+                Quantity = 0;
+            }
+        }
+
+
         // the exact decision (IntervalThreshold 0): the line through Origin and its second point against the closed segment
         // P0-P1. false for non-finite input or a segment that collapsed to a point.
         bool find_exact()
         {
             Vector2d o = line.Origin, a = segment.P0, b = segment.P1;
-            if (IntrExact2d.IsFinite(o) == false || IntrExact2d.IsFinite(a) == false || IntrExact2d.IsFinite(b) == false || a == b)
+            if (IntrExact2d.IsFinite(o) == false || IntrExact2d.IsFinite(a) == false || IntrExact2d.IsFinite(b) == false)
                 return false;
             Vector2d p = IntrExact2d.SecondPoint(o, line.Direction);
+            if (p == o)
+                return false;       // (the second point overflowed: no line)
+            if (a == b) {
+                // a segment that collapsed to a point in the rounding of its ends: the tolerance route
+                find_tolerant();
+                return true;
+            }
             int sa = ExactPredicates.Orient2d(o, p, a), sb = ExactPredicates.Orient2d(o, p, b);
             if (sa == 0 && sb == 0) {
                 Type = IntersectionType.Segment;        // (the segment lies on the line)
@@ -166,8 +180,7 @@ namespace g3
                 else if (sb == 0) Point = b;
                 else {
                     double da = line.Direction.DotPerp(a - o), db = line.Direction.DotPerp(b - o);
-                    double w = (da * db < 0) ? da / (da - db) : (Math.Abs(da) <= Math.Abs(db) ? 0 : 1);     // (the exact signs are opposite: with rounded distances that disagree, the end nearer the line)
-                    Point = a + w * (b - a);
+                    Point = a + IntrExact2d.CrossingFraction(da, db) * (b - a);
                 }
                 Parameter = (Point - o).Dot(line.Direction);
             }

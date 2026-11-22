@@ -43,7 +43,8 @@ namespace g3
 	/// are returned exactly, a proper crossing in floating point. Two segments that share an end given as input can still
 	/// miss each other when the rounding of P0/P1 separates them: use an IntervalThreshold above 0 for that, which
 	/// selects the old tolerance route (the segments are enlarged by the threshold; DotThreshold is used there only).
-	/// Non-finite input is an InvalidQuery.
+	/// Non-finite input is an InvalidQuery. A segment that collapsed to a point in the rounding of P0/P1 takes the
+	/// tolerance route (not scale invariant).
 	/// </summary>
 	public class IntrSegment2Segment2
     {
@@ -233,12 +234,11 @@ namespace g3
 				else if (o3 == 0) set_point(a, ref Point0, ref Parameter0);
 				else if (o4 == 0) set_point(b, ref Point0, ref Parameter0);
 				else {
-					// a proper crossing: its parameter on segment 1, in floating point (inside the segment)
-					Vector2d diff = segment2.Center - segment1.Center;
-					double s = diff.DotPerp(segment2.Direction) / segment1.Direction.DotPerp(segment2.Direction);
-					s = (s - s == 0) ? Math.Max(-segment1.Extent, Math.Min(segment1.Extent, s)) : 0;
-					Point0 = segment1.Center + s * segment1.Direction;
-					Parameter0 = s;
+					// a proper crossing: on segment 1, from the distances of its ends to the line of segment 2 (in floating
+					// point, on the segment: the fraction is where the rounded distances change sign)
+					double da = segment2.Direction.DotPerp(a - segment2.Center), db = segment2.Direction.DotPerp(b - segment2.Center);
+					Point0 = a + IntrExact2d.CrossingFraction(da, db) * (b - a);
+					Parameter0 = (Point0 - segment1.Center).Dot(segment1.Direction);
 				}
 			} else {
 				Type = IntersectionType.Empty;

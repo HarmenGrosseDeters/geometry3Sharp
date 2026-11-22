@@ -80,7 +80,14 @@ namespace g3
 				Result = IntersectionResult.InvalidQuery;
 				return false;
 			}
-			Type = IntrExact2d.LineLine(o1, IntrExact2d.SecondPoint(o1, line1.Direction), o2, IntrExact2d.SecondPoint(o2, line2.Direction));
+			Vector2d p1 = IntrExact2d.SecondPoint(o1, line1.Direction), p2 = IntrExact2d.SecondPoint(o2, line2.Direction);
+			if (p1 == o1 || p2 == o2) {
+				// (the second point overflowed: no line)
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
+			Type = IntrExact2d.LineLine(o1, p1, o2, p2);
 			Vector2d s = Vector2d.Zero;
 			if (Type == IntersectionType.Point) {
 				double den = line1.Direction.DotPerp(line2.Direction);

@@ -8,7 +8,8 @@ namespace g3
     /// sign (ExactPredicates.Orient2d / Orient3d, each with a floating-point filter) or a comparison of coordinates, so
     /// nothing depends on a tolerance and nothing changes under scaling by 2^k. Contact points that are input points
     /// (endpoints, corners) are returned exactly; a crossing point is computed in floating point from the exactly decided
-    /// crossing (a few ulp).
+    /// crossing, on the edge or segment it crosses (a few ulp across it, and along it as well as the angle of the crossing
+    /// allows: about 1e-16 / sin(angle) relative).
     /// <para>
     /// A line (Origin, Direction) is the line through Origin and its second point (ExactRayTriangle.SecondPoint of the
     /// 3D classes: Origin + 2^m Direction, rounded), a segment the closed segment between Segment2d.P0 and P1 (the
@@ -151,6 +152,23 @@ namespace g3
             return -r * slope;
         }
 
+        /// <summary>
+        /// where the linear function with the values dp at the start and dq at the end of an edge is 0, as a fraction in
+        /// [0, 1], for values of exactly opposite signs that were rounded (they may have lost their signs, underflowed to 0,
+        /// or overflowed): dp / (dp - dq) if the rounded values still have opposite signs and are finite, else the end that is
+        /// nearer to the line
+        /// </summary>
+        internal static double CrossingFraction(double dp, double dq)
+        {
+            bool finite = (dp - dp) == 0 && (dq - dq) == 0;
+            if (finite && ((dp < 0 && dq > 0) || (dp > 0 && dq < 0))) {
+                double w = dp / (dp - dq);
+                if (w >= 0 && w <= 1)
+                    return w;
+            }
+            return Math.Abs(dp) <= Math.Abs(dq) ? 0 : 1;
+        }
+
         /// <summary> the first point of the line a-b in the triangle (candidate c): the corner, or the crossing computed in floating point </summary>
         internal static Vector2d PointOf(Cand c, ref Triangle2d t, Vector2d a, Vector2d b)
         {
@@ -159,9 +177,16 @@ namespace g3
             Vector2d p = t[c.Index], q = t[(c.Index + 1) % 3];
             // the distances of the edge ends to the line, with the exact signs (opposite): w = dp / (dp - dq)
             Vector2d d = b - a;
+            // (d scaled by a power of two to a largest coordinate in [1, 2): the products below cannot overflow, and the
+            // fraction does not change)
+            double md = Math.Max(Math.Abs(d.x), Math.Abs(d.y));
+            if (md > 0 && md - md == 0) {
+                int e = (int)((BitConverter.DoubleToInt64Bits(md) >> 52) & 0x7FF);
+                if (e > 0 && e < 2046)
+                    d *= BitConverter.Int64BitsToDouble((long)(2046 - e) << 52);
+            }
             double dp = d.DotPerp(p - a), dq = d.DotPerp(q - a);
-            double w = (dp * dq < 0) ? dp / (dp - dq) : (Math.Abs(dp) <= Math.Abs(dq) ? 0 : 1);   // (rounded distances without the exact signs: the crossing is at the end nearer the line)
-            return p + w * (q - p);
+            return p + CrossingFraction(dp, dq) * (q - p);
         }
     }
 }
