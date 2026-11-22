@@ -10,15 +10,16 @@ and of `DCurve3BoxTree` ray queries.
 
 | Operation | before | after |
 |---|---|---|
-| `IntrRay3AxisAlignedBox3.FindRayIntersectT` (hot path of `DMeshAABBTree3`) | 26 | 35 |
+| `IntrRay3AxisAlignedBox3.FindRayIntersectT` (exact; the tree uses `RayAabbMay`, below) | 26 | 35-41 |
 | `IntrRay3AxisAlignedBox3.Intersects` | 15 | 36 |
-| `IntrRay3Box3.Intersects` (oriented, expand 0.01) | 17-21 | 52 |
+| `IntrRay3Box3.Intersects` (oriented, expand 0.01), generic rays | 17 | 43 |
+| `IntrRay3Box3.Intersects`, axis-parallel rays | 6-9 | 25 |
 | `IntrRay3Box3.Find` | 83-105 | 260-350 |
 | `IntrRay3AxisAlignedBox3.Find` | 57-60 | 90-100 |
-| `DMeshAABBTree3.FindNearestHitTriangle` (266412 triangles) | 800-1200 | 900-1200 (within the run-to-run noise) |
-| `DCurve3BoxTree.SquaredDistance(ray)` (4000 segments) | 34 us | 82 us |
-| `DCurve3BoxTree.FindClosestRayIntersction` | 4.8 us | 13.6 us |
+| `DMeshAABBTree3.FindNearestHitTriangle` (266412 triangles, conservative form `RayAabbMay`) | 840-1070 | 700-890 |
+| `DCurve3BoxTree.SquaredDistance(ray)` (4000 segments) | 34 us | 55 us |
+| `DCurve3BoxTree.FindClosestRayIntersction` | 4.8 us | 9.0 us |
 
 The decision is now exact (hits, misses and the Point/Segment type; no `1e-8` slack, touching counts); the ends of a contact are on the
-face exactly (axis-aligned) or within a few ulp. The cost is the certified error bound of each slab (division, absolute errors for the
+face exactly (axis-aligned) or within a few ulp. `DMeshAABBTree3` culls with the conservative form (`RayAabbMay`: false only for a certified miss, never an exact computation), which is cheaper than the old clip chain. The cost of the oriented ray is the certified error bound of each slab (division, absolute errors for the
 dot products of an oriented box) that the old code did not have.

@@ -417,6 +417,83 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SegmentLongerThanTheRange_IsDecidedExactly()
+        {
+            // the span p1 - p0 overflows (3.4e308: not reachable through Segment3d, whose center, direction and extent overflow first, but the
+            // shared decision takes two points): the filter's direction would be wrong; the exact route decides
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+            Vector3d p0 = new Vector3d(-1.7e308, 0, 0), p1 = new Vector3d(1.7e308, 0, 0);
+            IntrExactBox3.Hit hit;
+            Assert.True(IntrExactBox3.Find(ref spec, ref p0, ref p0, ref p1, true, 0, true, 1, true, out hit));
+            Assert.Equal(2, hit.Kind);
+            Assert.Equal(-1.0, hit.P0.x); Assert.Equal(1.0, hit.P1.x);
+            Vector3d q0 = new Vector3d(-1.7e308, 2, 0), q1 = new Vector3d(1.7e308, 2, 0);
+            Assert.True(IntrExactBox3.Find(ref spec, ref q0, ref q0, ref q1, true, 0, true, 1, true, out hit));
+            Assert.Equal(0, hit.Kind);
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            var aspec = IntrExactBox3.BoxSpec.Of(ref aab, 0);
+            Assert.True(IntrExactBox3.Find(ref aspec, ref p0, ref p0, ref p1, true, 0, true, 1, true, out hit));
+            Assert.Equal(2, hit.Kind);
+        }
+
+        [Fact]
+        public void ZeroDirection_IsNotARay_TestAndFindAgree()
+        {
+            var aab = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var obox = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5));
+            var zero = new Ray3d(new Vector3d(0.5, 0.5, 0.5), Vector3d.Zero);
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref zero, ref aab));
+            Assert.False(IntrRay3Box3.Intersects(ref zero, ref obox));
+            double t; Assert.False(IntrRay3AxisAlignedBox3.FindRayIntersectT(ref zero, ref aab, out t));
+            Assert.False(new IntrRay3AxisAlignedBox3(zero, aab).Test());
+            Assert.False(new IntrRay3Box3(zero, obox).Test());
+            Assert.False(new IntrRay3AxisAlignedBox3(zero, aab).Find());
+        }
+
+        [Fact]
+        public void FacesThatOverflowWhenExpanded_AreAnInvalidQuery()
+        {
+            var aab = new AxisAlignedBox3d(new Vector3d(-1.7e308, 0, 0), new Vector3d(1.7e308, 1, 1));
+            var ray = new Ray3d(new Vector3d(0, 0.5, 0.5), Vector3d.AxisX);
+            Assert.True(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab, 1.7e308));
+        }
+
+        [Theory]
+        [MemberData(nameof(Frames))]
+        public void ConservativeRayForm_NeverMissesABoxThatTheExactTestHits(double scale, double offset)
+        {
+            int hits = 0, culled = 0, extra = 0;
+            foreach (var (o, d, lo, hi) in Cases(2500, 19, scale, offset)) {
+                if (Normalized(d) == false) continue;
+                var box = new AxisAlignedBox3d(lo, hi);
+                var ray = new Ray3d(o, d);
+                var e = Contact(Slabs(box, o, d), new Q(0, 1), null);
+                double t;
+                bool may = IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref box, 0, out t);
+                if (e.kind != 0) {
+                    hits++;
+                    Assert.True(may, "an exact hit was culled");
+                    Assert.True(t >= 0 && t <= e.t0.ToDouble(), $"entry {t:R} is not a lower bound of {e.t0.ToDouble():R}");
+                } else if (may) extra++;
+                else culled++;
+                // the expanded box too
+                double ex = 0.125 * scale;
+                var s2 = Slabs(box, o, d, ex);
+                var e2 = Contact(s2, new Q(0, 1), null);
+                bool may2 = IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref box, ex, out t);
+                if (e2.kind != 0) Assert.True(may2, "an exact hit of the expanded box was culled");
+            }
+            Assert.True(hits > 200 && culled > 200, $"hits {hits}, culled {culled}, may-hit without an exact hit {extra}");
+            // the touching and near-touching rays are answered "may hit": a ray through the corner, and one ulp beside it
+            var b = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
+            var corner = new Ray3d(new Vector3d(2, 2, 2), new Vector3d(-1, -1, -1).Normalized);
+            double tt;
+            Assert.True(IntrExactBox3.RayAabbMay(ref corner.Origin, ref corner.Direction, ref b, 0, out tt));
+        }
+
+        [Fact]
         public void ZeroLengthSegment_IsAPoint()
         {
             var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));

@@ -117,9 +117,12 @@ namespace g3
             public static BoxSpec Of(ref Box3d b, double expand) { return new BoxSpec { Aabb = false, B = b, Expand = expand }; }
             public bool IsFinite()
             {
+                // (the faces moved by Expand must be finite too)
                 if (Aabb)
-                    return fin(A.Min) && fin(A.Max) && fin(Expand);
-                return fin(B.Center) && fin(B.AxisX) && fin(B.AxisY) && fin(B.AxisZ) && fin(B.Extent) && fin(Expand);
+                    return fin(A.Min) && fin(A.Max) && fin(Expand) && fin(A.Min.x - Expand) && fin(A.Min.y - Expand) && fin(A.Min.z - Expand)
+                        && fin(A.Max.x + Expand) && fin(A.Max.y + Expand) && fin(A.Max.z + Expand);
+                return fin(B.Center) && fin(B.AxisX) && fin(B.AxisY) && fin(B.AxisZ) && fin(B.Extent) && fin(Expand)
+                    && fin(B.Extent.x + Expand) && fin(B.Extent.y + Expand) && fin(B.Extent.z + Expand);
             }
         }
 
@@ -137,12 +140,14 @@ namespace g3
             if (box.IsFinite() == false || fin(o) == false || fin(d0) == false || fin(d1) == false)
                 return false;
             Vector3d dd = d1 - d0;
-            if (fin(dd) == false)
-                dd = new Vector3d(fin(dd.x) ? dd.x : 0, fin(dd.y) ? dd.y : 0, fin(dd.z) ? dd.z : 0);       // (the double d only feeds the filter, whose overflow sends the pair to the exact route)
+            // (a difference that overflows: the filter's direction would be wrong, the pair goes to the exact route)
+            bool ddOverflow = fin(dd) == false;
+            if (ddOverflow)
+                dd = d1 * 0.5 - d0 * 0.5;       // (only its signs are used: the snap to a face)
             bool d0Zero = d0.x == 0 && d0.y == 0 && d0.z == 0;
             Acc acc = default(Acc);
             acc.Init(hasMin, tmin, hasMax, tmax);
-            int verdict = FilterAll(ref box, ref o, ref d0, ref dd, d0Zero, hasMin && tmin == 0 && hasMax == false && d0Zero, ref acc);
+            int verdict = ddOverflow ? 3 : FilterAll(ref box, ref o, ref d0, ref dd, d0Zero, hasMin && tmin == 0 && hasMax == false && d0Zero, false, ref acc);
             if (verdict == 0) verdict = acc.Verdict();
             else if (verdict == 1) verdict = 0;
             int act0 = acc.Act0, act1 = acc.Act1;
@@ -218,7 +223,7 @@ namespace g3
         /// <summary> the exact closed contact of the component with the box, no points (Test, Intersects); false for a non-finite input </summary>
         internal static bool Touches(ref BoxSpec box, ref Vector3d origin, ref Vector3d direction, bool hasMin, double tmin, bool hasMax, double tmax)
         {
-            if (box.IsFinite() == false || fin(origin) == false || fin(direction) == false)
+            if (box.IsFinite() == false || fin(origin) == false || fin(direction) == false || IsZero(ref direction))
                 return false;
             if (box.Aabb && hasMin && tmin == 0 && hasMax == false) {
                 double tt;
@@ -229,8 +234,9 @@ namespace g3
             bool d0Zero = true;
             Acc acc = default(Acc);
             acc.Init(hasMin, tmin, hasMax, tmax);
-            int v = FilterAll(ref box, ref origin, ref zero, ref direction, d0Zero, hasMin && tmin == 0 && hasMax == false, ref acc);
+            int v = FilterAll(ref box, ref origin, ref zero, ref direction, d0Zero, hasMin && tmin == 0 && hasMax == false, true, ref acc);
             if (v == 1) return false;
+            if (v == 4) return true;
             if (v == 0) {
                 v = acc.Verdict(false);         // (only the decision: the accuracy of the ends does not matter)
                 if (v == 0) return false;
@@ -276,11 +282,18 @@ namespace g3
         /// <summary> the closed ray against an oriented box, without copying the box: the decision of IntrRay3Box3.Intersects </summary>
         internal static bool RayTouchesBox3(ref Vector3d origin, ref Vector3d direction, ref Box3d b, double expand)
         {
-            if (fin(origin) && fin(direction) && fin(expand) && fin(b.Center) && fin(b.AxisX) && fin(b.AxisY) && fin(b.AxisZ) && fin(b.Extent)) {
+            if (IsZero(ref direction))
+                return false;       // (no direction: not a ray)
+            // (one test of the sum of all inputs for NaN and infinities: finite values whose sum overflows take the careful route)
+            double sum = (origin.x + origin.y + origin.z) + (direction.x + direction.y + direction.z) + (b.Center.x + b.Center.y + b.Center.z)
+                + (b.AxisX.x + b.AxisX.y + b.AxisX.z) + (b.AxisY.x + b.AxisY.y + b.AxisY.z) + (b.AxisZ.x + b.AxisZ.y + b.AxisZ.z)
+                + (b.Extent.x + b.Extent.y + b.Extent.z) + expand;
+            if (sum - sum == 0 && fin(b.Extent.x + expand) && fin(b.Extent.y + expand) && fin(b.Extent.z + expand)) {
                 Vector3d zero = Vector3d.Zero;
                 Acc acc = default(Acc);
                 acc.Init(true, 0, false, 0);
-                int v = FilterOriented(ref b, expand, ref origin, ref direction, true, ref acc);
+                int v = FilterOriented(ref b, expand, ref origin, ref direction, true, true, ref acc);
+                if (v == 4) return true;
                 if (v == 1) return false;
                 if (v == 0) {
                     v = acc.Verdict(false);
@@ -292,11 +305,44 @@ namespace g3
             return Touches(ref spec, ref origin, ref direction, true, 0, false, 0);
         }
 
+        /// <summary>
+        /// The conservative form for culling (the tree traversals): false only for a certified miss; otherwise true ("may hit"), with t a
+        /// lower bound of the entry parameter of the ray (outward by the bound of its error, at least 0). It never misses a box that the
+        /// exact test hits: the values t = (face - origin) / direction are within 2.5 u of their exact values (one rounding of the difference, one of
+        /// the quotient) plus 2^-1070 of underflow, so tn &gt; tf + 3 u (|tn| + |tf|) + 1e-320 cannot hold for an exact hit; an overflowed
+        /// quotient is an infinity of the right sign. Where nothing is certified (touching, parallel on a face, subnormal values) the answer is
+        /// true and no exact computation is made.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static bool RayAabbMay(ref Vector3d o, ref Vector3d d, ref AxisAlignedBox3d b, double ex, out double t)
+        {
+            double tn = 0, tf = double.PositiveInfinity;
+            for (int i = 0; i < 3; i++) {
+                double di = d[i], oi = o[i], lo = b.Min[i] - ex, hi = b.Max[i] + ex;
+                if (di > 0) {
+                    if (oi > hi) { t = 0; return false; }
+                    if (oi < lo) { double lt = (lo - oi) / di; if (lt > tn) tn = lt; }
+                    double ht = (hi - oi) / di; if (ht < tf) tf = ht;
+                } else if (di < 0) {
+                    if (oi < lo) { t = 0; return false; }
+                    if (oi > hi) { double lt = (hi - oi) / di; if (lt > tn) tn = lt; }
+                    double ht = (lo - oi) / di; if (ht < tf) tf = ht;
+                } else if (oi < lo || oi > hi) {
+                    t = 0; return false;
+                }
+            }
+            double m = 3 * U * (Math.Abs(tn) + Math.Abs(tf)) + AbsErr;
+            if (tn > tf + m) { t = 0; return false; }
+            t = tn - 3 * U * tn - AbsErr;
+            if (t < 0) t = 0;
+            return true;
+        }
+
         /// <summary> the parameter of the entry of the ray into the box (0 for an origin inside); false for a miss or a non-finite input </summary>
         internal static bool RayEntry(ref BoxSpec box, ref Vector3d origin, ref Vector3d direction, out double t)
         {
             t = 0;
-            if (box.IsFinite() == false || fin(origin) == false || fin(direction) == false)
+            if (box.IsFinite() == false || fin(origin) == false || fin(direction) == false || IsZero(ref direction))
                 return false;
             if (box.Aabb) {
                 int r = RayAabb(ref origin, ref direction, ref box.A, box.Expand, out t);
@@ -305,7 +351,7 @@ namespace g3
             Vector3d zero = Vector3d.Zero;
             Acc acc = default(Acc);
             acc.Init(true, 0, false, 0);
-            int v = FilterAll(ref box, ref origin, ref zero, ref direction, true, true, ref acc);
+            int v = FilterAll(ref box, ref origin, ref zero, ref direction, true, true, false, ref acc);
             if (v == 1) return false;
             if (v == 0) {
                 v = acc.Verdict();
@@ -318,6 +364,8 @@ namespace g3
             t = hit.T0;
             return true;
         }
+
+        static bool IsZero(ref Vector3d d) { return d.x == 0 && d.y == 0 && d.z == 0; }
 
         internal static bool IsFinite(ref Vector3d o, ref Vector3d d) { return fin(o) && fin(d); }
 
@@ -361,7 +409,7 @@ namespace g3
 
         /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, ref Acc c)
+        static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
         {
             if (Q == 0 && eQ == 0) {
                 // parallel to the slab, exactly: P itself against L and H
@@ -375,6 +423,21 @@ namespace g3
                 return 3;
             double n1 = L - P, n2 = H - P;
             double en1 = eP + U * Math.Abs(n1) + AbsErr, en2 = eP + U * Math.Abs(n2) + AbsErr;
+            if (ray && ((Q > 0 && n1 + en1 < 0) || (Q < 0 && n2 - en2 > 0))) {
+                // a ray whose origin is certainly inside the slab on the entering side: the lower bound of t is negative, below the limit 0 of
+                // the ray, so only the upper bound is needed (one division)
+                double nu = Q > 0 ? n2 : n1, enu = Q > 0 ? en2 : en1;
+                double uv0 = nu / Q, ue0;
+                if (Math.Abs(uv0) > Huge) { uv0 = uv0 > 0 ? double.PositiveInfinity : double.NegativeInfinity; ue0 = 0; }
+                else {
+                    if (uv0 != 0 && Math.Abs(uv0) < Tiny) return 3;
+                    ue0 = (eP == 0 && eQ == 0) ? 2.5 * U * Math.Abs(uv0) + AbsErr : TErr(enu, eQ, 1.0000001 / (aq - eQ), uv0);
+                }
+                if (uv0 + ue0 < c.UpPlus) c.UpPlus = uv0 + ue0;
+                if (uv0 - ue0 < c.UpMinus) c.UpMinus = uv0 - ue0;
+                if (uv0 < c.UpBest) { c.UpBest = uv0; c.UpBestErr = ue0; c.Act1 = i; }
+                return 0;
+            }
             double a = n1 / Q, b = n2 / Q;
             // (a bound beyond 1e290 in magnitude, eg of a slab expanded by double.MaxValue, counts as infinite: it is then
             // compared with the other bounds; two infinite bounds of the same side are not decided)
@@ -411,7 +474,7 @@ namespace g3
 
         /// <summary> the three slabs from the box and the component (no allocation) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int FilterAll(ref BoxSpec box, ref Vector3d o, ref Vector3d d0, ref Vector3d dd, bool d0Zero, bool ray, ref Acc c)
+        static int FilterAll(ref BoxSpec box, ref Vector3d o, ref Vector3d d0, ref Vector3d dd, bool d0Zero, bool ray, bool quick, ref Acc c)
         {
             if (box.Aabb) {
                 double ex = box.Expand;
@@ -419,36 +482,63 @@ namespace g3
                     double lo = box.A.Min[i], hi = box.A.Max[i];
                     if (ex != 0) { lo -= ex; hi += ex; }
                     double q = dd[i];
-                    int v = Step(i, o[i], 0, q, d0Zero ? 0 : U * Math.Abs(q) + AbsErr, lo, hi, ref c);
+                    int v = Step(i, o[i], 0, q, d0Zero ? 0 : U * Math.Abs(q) + AbsErr, lo, hi, ray, ref c);
                     if (v != 0) return v;
                     if (c.LoMinus > c.UpPlus) return 1;
                 }
                 return 0;
             }
-            return FilterOriented(ref box.B, box.Expand, ref o, ref dd, ray, ref c);
+            return FilterOriented(ref box.B, box.Expand, ref o, ref dd, ray, quick, ref c);
         }
 
-        /// <summary> the three slabs of an oriented box, no allocation, no copy of the box </summary>
+        /// <summary> P, Q of a slab of an oriented box (o - Center and the direction on the axis u) with the bounds of their error </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int FilterOriented(ref Box3d bx, double expand, ref Vector3d o, ref Vector3d dd, bool ray, ref Acc c)
+        static void Prep(double ux, double uy, double uz, double cx, double cy, double cz, ref Vector3d o, ref Vector3d dd, out double P, out double eP, out double Q, out double eQ)
         {
-            Vector3d cc = bx.Center;
-            for (int i = 0; i < 3; i++) {
-                Vector3d u = bx.Axis(i);
-                double e = bx.Extent[i] + expand;
-                double x = (o.x - cc.x) * u.x, y = (o.y - cc.y) * u.y, z = (o.z - cc.z) * u.z;
-                double a = dd.x * u.x, b = dd.y * u.y, w = dd.z * u.z;
-                // (a direction component that is exactly zero, or a zero axis component, gives an exact zero product: no error)
-                bool qExact = (dd.x == 0 || u.x == 0) && (dd.y == 0 || u.y == 0) && (dd.z == 0 || u.z == 0);
-                double P = (x + y) + z, eP = 6 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z)) + AbsErr;
-                double Q = (a + b) + w, eQ = qExact ? 0 : 6 * U * (Math.Abs(a) + Math.Abs(b) + Math.Abs(w)) + AbsErr;
-                // a ray that starts beyond a face of the slab and does not move toward it (the sign of Q certified) misses
-                if (ray && ((P - eP > e && Q >= eQ && Q >= 0) || (P + eP < -e && -Q >= eQ && Q <= 0)))
+            double x = (o.x - cx) * ux, y = (o.y - cy) * uy, z = (o.z - cz) * uz;
+            double a = dd.x * ux, b = dd.y * uy, w = dd.z * uz;
+            P = (x + y) + z; eP = 6 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z)) + AbsErr;
+            Q = (a + b) + w;
+            // (a direction component that is exactly zero, or a zero axis component, gives an exact zero product: no error)
+            eQ = ((dd.x == 0 || ux == 0) && (dd.y == 0 || uy == 0) && (dd.z == 0 || uz == 0)) ? 0 : 6 * U * (Math.Abs(a) + Math.Abs(b) + Math.Abs(w)) + AbsErr;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        static bool Away(double P, double eP, double Q, double eQ, double e)
+        {
+            // a ray that starts beyond a face of the slab and does not move toward it (the sign of Q certified) misses
+            return (P - eP > e && Q >= eQ && Q >= 0) || (P + eP < -e && -Q >= eQ && Q <= 0);
+        }
+
+        /// <summary>
+        /// the three slabs of an oriented box, no allocation, no copy of the box. 1: certified miss; 3: undecided; 0: the bounds are in c;
+        /// for a ray and quick: 4 when the origin is certainly inside all three slabs (a hit at t = 0, no bounds computed)
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        static int FilterOriented(ref Box3d bx, double expand, ref Vector3d o, ref Vector3d dd, bool ray, bool quick, ref Acc c)
+        {
+            double cx = bx.Center.x, cy = bx.Center.y, cz = bx.Center.z;
+            double e0 = bx.Extent.x + expand, e1 = bx.Extent.y + expand, e2 = bx.Extent.z + expand;
+            double P0, eP0, Q0, eQ0, P1, eP1, Q1, eQ1, P2, eP2, Q2, eQ2;
+            Prep(bx.AxisX.x, bx.AxisX.y, bx.AxisX.z, cx, cy, cz, ref o, ref dd, out P0, out eP0, out Q0, out eQ0);
+            Prep(bx.AxisY.x, bx.AxisY.y, bx.AxisY.z, cx, cy, cz, ref o, ref dd, out P1, out eP1, out Q1, out eQ1);
+            Prep(bx.AxisZ.x, bx.AxisZ.y, bx.AxisZ.z, cx, cy, cz, ref o, ref dd, out P2, out eP2, out Q2, out eQ2);
+            if (ray) {
+                // the cheap tests of all slabs first: a miss, or an origin strictly inside all slabs (in the box)
+                if (Away(P0, eP0, Q0, eQ0, e0) || Away(P1, eP1, Q1, eQ1, e1) || Away(P2, eP2, Q2, eQ2, e2))
                     return 1;
-                int v = Step(i, P, eP, Q, eQ, -e, e, ref c);
-                if (v != 0) return v;
-                if (c.LoMinus > c.UpPlus) return 1;
+                if (quick && P0 - eP0 > -e0 && P0 + eP0 < e0 && P1 - eP1 > -e1 && P1 + eP1 < e1 && P2 - eP2 > -e2 && P2 + eP2 < e2)
+                    return 4;
             }
+            int v = Step(0, P0, eP0, Q0, eQ0, -e0, e0, ray, ref c);
+            if (v != 0) return v;
+            if (c.LoMinus > c.UpPlus) return 1;
+            v = Step(1, P1, eP1, Q1, eQ1, -e1, e1, ray, ref c);
+            if (v != 0) return v;
+            if (c.LoMinus > c.UpPlus) return 1;
+            v = Step(2, P2, eP2, Q2, eQ2, -e2, e2, ray, ref c);
+            if (v != 0) return v;
+            if (c.LoMinus > c.UpPlus) return 1;
             return 0;
         }
 
