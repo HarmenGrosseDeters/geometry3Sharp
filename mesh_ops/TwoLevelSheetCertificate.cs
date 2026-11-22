@@ -91,6 +91,8 @@ namespace g3
         public List<SheetUncertifiedCell> UncertifiedCells = new List<SheetUncertifiedCell>();
         /// <summary> per level: cubes not proven zero-free; those certified on their own; those certified in a block; the blocks </summary>
         public int[] SurfaceCells = new int[2], CellsCertifiedAlone = new int[2], CellsInBlocks = new int[2], Blocks = new int[2];
+        /// <summary> per level: the certified blocks as ranges of cubes (lo x, y, z, hi x, y, z; hi exclusive), with disjoint interiors, in the order they were made </summary>
+        public List<int[]>[] BlockBoxes = { new List<int[]>(), new List<int[]>() };
         /// <summary> per level and cube (x + nx (y + ny z)): 0 zero-free, 1 certified on its own, 2 not certified, 3 in a certified block; null before Compute </summary>
         public byte[][] CellStates = new byte[2][];
 
@@ -114,6 +116,7 @@ namespace g3
             UncertifiedCells = new List<SheetUncertifiedCell>();
             SurfaceCells = new int[2]; CellsCertifiedAlone = new int[2]; CellsInBlocks = new int[2]; Blocks = new int[2];
             CellStates = new byte[2][];
+            BlockBoxes = new[] { new List<int[]>(), new List<int[]>() };
             if (Field == null) throw new ArgumentNullException(nameof(Field));
             if (Mesher == null) throw new ArgumentNullException(nameof(Mesher));
             if (MaxTightening < 0 || MaxTightening > 4) throw new ArgumentOutOfRangeException(nameof(MaxTightening));
@@ -163,7 +166,8 @@ namespace g3
                     else if (cellState[c] == 3) ++CellsInBlocks[level];
                     else if (cellState[c] == 2) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = cellReason[c] });
                 }
-                foreach (int[] b in boxes) if (b != null) ++Blocks[level];
+                foreach (int[] b in boxes) if (b != null) BlockBoxes[level].Add(b);
+                Blocks[level] = BlockBoxes[level].Count;
                 CellStates[level] = cellState;
             }
             foreach (SheetUncertifiedCell u in UncertifiedCells) if (u.Reason == SheetCertificateReason.OuterLayer) RunFailure |= SheetCertificateRunFailure.OuterLayer;
@@ -190,12 +194,13 @@ namespace g3
 
         // ---- enclosures of the level in work ----
 
-        // the level over a box: g - w or -g - w, with its gradient
+        // The level over a box: g - w or -g - w, with the gradient of g. The gradient of the second level is the negative of
+        // it, which no test below needs: each asks for one sign of a derivative or for some direction d with d . g > 0, and
+        // -d does for -g what d does for g.
         IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z)
         {
             IntervalEnclosure e = Field.Enclose(x, y, z);
-            if (level == 0) { e.F = e.F - W; return e; }
-            e.F = -e.F - W; e.Gx = -e.Gx; e.Gy = -e.Gy; e.Gz = -e.Gz;
+            e.F = level == 0 ? e.F - W : -e.F - W;
             return e;
         }
 
@@ -321,7 +326,7 @@ namespace g3
             }
             var list = new List<IntervalEnclosure>();
             for (int k = b[2]; k < b[5]; ++k) for (int j = b[1]; j < b[4]; ++j) for (int i = b[0]; i < b[3]; ++i) list.AddRange(pieces(i, j, k));
-            if (list.Count > 0 && !hasDirection(list, -1)) return SheetCertificateReason.Direction;
+            if (list.Count > 0 && !HasDirection(list, -1)) return SheetCertificateReason.Direction;
             int m = Circles(rec, level, b);
             if (m > 1) return SheetCertificateReason.Circles;
             if (!MeshIsDisks(rec, level, b, m)) return SheetCertificateReason.MeshInBlock;
@@ -349,12 +354,12 @@ namespace g3
 
         /// <summary>
         /// d . g > 0 for every gradient of every enclosure: the lower bound of the interval product is positive. A d that is
-        /// zero or not finite fails.
+        /// zero or not finite fails. A lower bound of exactly 0 fails too.
         /// </summary>
         internal static bool OneSign(List<IntervalEnclosure> list, Vector3d d)
         {
-            double l2 = d.LengthSquared;
-            if (!(l2 > 0) || double.IsInfinity(l2)) return false;
+            // a zero d fails by the arithmetic below (0 * g is an interval around 0), a d that is not a number too
+            if (double.IsInfinity(d.LengthSquared)) return false;
             ExactInterval dx = ExactInterval.Of(d.x), dy = ExactInterval.Of(d.y), dz = ExactInterval.Of(d.z);
             foreach (IntervalEnclosure e in list)
                 if (!((dx * e.Gx + dy * e.Gy + dz * e.Gz).Lo > 0)) return false;
@@ -363,7 +368,7 @@ namespace g3
 
         // a direction of strict growth for all the enclosures: the mean of their midpoints, or an axis; in the plane with
         // normal `normal` if that is 0, 1 or 2 (the component along it is exactly 0)
-        static bool hasDirection(List<IntervalEnclosure> list, int normal)
+        internal static bool HasDirection(List<IntervalEnclosure> list, int normal)
         {
             Vector3d mean = Vector3d.Zero;
             foreach (IntervalEnclosure e in list) mean += new Vector3d(0.5 * (e.Gx.Lo + e.Gx.Hi), 0.5 * (e.Gy.Lo + e.Gy.Hi), 0.5 * (e.Gz.Lo + e.Gz.Hi));
@@ -430,7 +435,7 @@ namespace g3
                     IntervalEnclosure e = enclose(x[0], x[1], x[2]);
                     if (MayBeZero(e.F)) list.Add(e);
                 }
-                bool ok = list.Count == 0 || hasDirection(list, axis);
+                bool ok = list.Count == 0 || HasDirection(list, axis);
                 if (ok && alternating) {
                     int pieces = 8 * m;
                     for (int p = 0; p < pieces && ok; ++p) {
@@ -557,7 +562,6 @@ namespace g3
                 }
             }
             if (circles == 0) return polygons == 0;
-            if (polygons == 0) return false;
             int components = 0;
             for (int p = 0; p < polygons; ++p) if (find(p) == p) ++components;
             return components == 1 && vertices.Count - segments.Count + polygons == 1;

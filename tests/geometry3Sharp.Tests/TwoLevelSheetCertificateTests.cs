@@ -81,10 +81,26 @@ namespace geometry3Sharp.Tests
                 + "|blocks " + string.Join(",", c.Blocks) + "|left " + c.UncertifiedCells.Count + ":" + string.Join(" ", c.UncertifiedCells.GroupBy(u => u.Level + "" + u.Reason).Select(g => g.Key + "x" + g.Count()));
         }
 
+        // the blocks are boxes with disjoint interiors, and a cube is "in a block" exactly if it lies in one
+        static void CheckBlocks(TwoLevelSheetCertificate c, int nx, int ny, int nz)
+        {
+            for (int level = 0; level < 2; ++level) {
+                Assert.Equal(c.Blocks[level], c.BlockBoxes[level].Count);
+                var covered = new int[nx * ny * nz];
+                foreach (int[] b in c.BlockBoxes[level]) {
+                    Assert.True(b[0] >= 1 && b[1] >= 1 && b[2] >= 1 && b[3] <= nx - 1 && b[4] <= ny - 1 && b[5] <= nz - 1 && b[3] > b[0] && b[4] > b[1] && b[5] > b[2]);
+                    for (int k = b[2]; k < b[5]; ++k) for (int j = b[1]; j < b[4]; ++j) for (int i = b[0]; i < b[3]; ++i) ++covered[i + nx * (j + ny * k)];
+                }
+                for (int cell = 0; cell < covered.Length; ++cell) Assert.Equal(c.CellStates[level][cell] == 3 ? 1 : 0, covered[cell]);
+                Assert.Equal(c.CellsInBlocks[level], covered.Sum());
+            }
+        }
+
         static string List(TwoLevelSheetCertificate c)
         {
             return Summary(c) + "|" + string.Join(";", c.UncertifiedCells.Select(u => u.Level + ":" + u.Cell.x + "," + u.Cell.y + "," + u.Cell.z + ":" + u.Reason))
-                + "|" + string.Join("/", c.CellStates.Select(a => a == null ? "-" : string.Join("", a)));
+                + "|" + string.Join("/", c.CellStates.Select(a => a == null ? "-" : string.Join("", a)))
+                + "|" + string.Join("/", c.BlockBoxes.Select(l => string.Join(";", l.Select(b => string.Join(",", b)))));
         }
 
         static string Signature(DMesh3 mesh)
@@ -150,6 +166,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(c.SurfaceCells[0], c.CellStates[0].Count(s => s == 1 || s == 3) - c.CellStates[0].Count(s => s == 3) + c.CellsInBlocks[0] - ZeroFreeInBlocks(c, 0));
             Assert.Equal("c=2;g=0+0", Signature(gen.Mesh));
             Assert.Equal(0, OracleViolations(f, gen, c));
+            CheckBlocks(c, 24, 24, 24);
         }
 
         // cubes in blocks that were zero-free or certified before the block took them in are counted as in the block: the
@@ -166,6 +183,9 @@ namespace geometry3Sharp.Tests
             Assert.True(c.Blocks[0] > 3 && c.Blocks[1] > 3, Summary(c));
             Assert.True(c.CellsInBlocks[0] > 0 && c.CellsCertifiedAlone[0] > 1000);
             Assert.Equal(0, OracleViolations(f, gen, c));
+            CheckBlocks(c, 32, 32, 32);
+            // blocks that met were merged: some block is wider than the two cubes a single seed needs
+            Assert.Contains(c.BlockBoxes[0].Concat(c.BlockBoxes[1]), b => (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]) > 8);
             // without blocks the same run is not certified: the cubes of the blocks are left, for an edge or a face
             var alone = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxBlockSide = 1 };
             alone.Compute();
@@ -263,6 +283,22 @@ namespace geometry3Sharp.Tests
             gen = fresh();
             gen.Mesh.RemoveTriangle(0, false, false);
             Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            // the record's lists against the mesh, one by one
+            gen = fresh(); gen.Certificate.TriangleLevel.Add(0);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            gen = fresh(); gen.Certificate.VertexA.Add(0);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            gen = fresh(); gen.Certificate.VertexB.Add(1);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            gen = fresh(); gen.Certificate.VertexLevel.Add(0);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            // a vertex removed from the mesh, with lists that still have the mesh's highest id
+            gen = fresh();
+            int extra = gen.Mesh.AppendVertex(Vector3d.Zero);
+            gen.Certificate.VertexA.Add(0); gen.Certificate.VertexB.Add(1); gen.Certificate.VertexLevel.Add(0);
+            gen.Mesh.RemoveVertex(extra, false, false);
+            Assert.Equal(gen.Mesh.MaxVertexID, gen.Certificate.VertexA.Count);
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
             gen = fresh();
             gen.Mesh = null;
             TwoLevelSheetCertificate none = Certify(f, gen);
@@ -289,6 +325,18 @@ namespace geometry3Sharp.Tests
             gen.Mesh.SetVertex(5, kept + new Vector3d(1e-9, 1e-9, 1e-9));
             Assert.True((Certify(f, gen).RunFailure & SheetCertificateRunFailure.MeshSide) != 0);
             gen.Mesh.SetVertex(5, kept);
+            Assert.True(Certify(f, gen).Certified);
+            // a vertex without an edge, with its nodes in the wrong order, without a level
+            int a5 = r.VertexA[5], b5 = r.VertexB[5];
+            r.VertexA[5] = -1; r.VertexB[5] = -1;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.VertexA[5] = b5; r.VertexB[5] = a5;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.VertexA[5] = a5; r.VertexB[5] = a5;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.VertexB[5] = b5; r.VertexLevel[5] = 255;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.VertexLevel[5] = 0;
             Assert.True(Certify(f, gen).Certified);
             r.NodeFlags[0] |= 16;
             Assert.True((Certify(f, gen).RunFailure & SheetCertificateRunFailure.MeshSide) != 0);
@@ -361,6 +409,22 @@ namespace geometry3Sharp.Tests
             Assert.Contains(c.UncertifiedCells, u => u.Reason == SheetCertificateReason.OuterLayer);
             Assert.All(c.UncertifiedCells.Where(u => u.Reason == SheetCertificateReason.OuterLayer), u =>
                 Assert.True(u.Cell.x == 0 || u.Cell.y == 0 || u.Cell.z == 0 || u.Cell.x == 15 || u.Cell.y == 15 || u.Cell.z == 15));
+            // no cube of the outermost layer is certified or taken into a block
+            for (int k = 0; k < 16; ++k) for (int j = 0; j < 16; ++j) for (int i = 0; i < 16; ++i)
+                if (i == 0 || j == 0 || k == 0 || i == 15 || j == 15 || k == 15)
+                    for (int level = 0; level < 2; ++level) Assert.True(c.CellStates[level][i + 16 * (j + 16 * k)] == 0 || c.CellStates[level][i + 16 * (j + 16 * k)] == 2);
+            CheckBlocks(c, 16, 16, 16);
+            // a sphere that reaches one side only, the high one of each axis in turn
+            for (int axis = 0; axis < 3; ++axis) {
+                Vector3d centre = new Vector3d(0.03, -0.02, 0.01);
+                centre[axis] = 0.3;
+                var g = new Sphere(centre, 0.74);
+                TwoLevelSheetCertificate one = Certify(g, Mesh(g, 0.5 * 2.2 / 16 / 2, Shift, 2.2, 16));
+                Assert.True((one.RunFailure & SheetCertificateRunFailure.OuterLayer) != 0, "axis " + axis);
+                Assert.NotEmpty(one.UncertifiedCells);
+                Assert.All(one.UncertifiedCells.Where(u => u.Reason == SheetCertificateReason.OuterLayer), u => Assert.Equal(15, u.Cell[axis]));
+                Assert.Contains(one.UncertifiedCells, u => u.Reason == SheetCertificateReason.OuterLayer);
+            }
         }
 
         // One node far from the wall with the wrong sign in the mesher (through its seam): the mesh has a closed piece around
@@ -490,6 +554,12 @@ namespace geometry3Sharp.Tests
             var coarse = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxTightening = 1, MaxBlockSide = 1 };
             coarse.Compute();
             Assert.False(coarse.FacePasses(0, 2, i, 4, 4));
+            // where the face passes, the cube above it has everything but one closed curve: the level set cuts off its two inside
+            // corners separately, as the mesh does
+            if (passes) {
+                Assert.Equal(2, TwoLevelSheetCertificate.Circles(r, 0, new[] { i, 4, 4, i + 1, 5, 5 }));
+                Assert.Contains(cert.UncertifiedCells, u => u.Level == 0 && u.Cell == new Vector3i(i, 4, 4) && u.Reason == SheetCertificateReason.Circles);
+            }
             // neither cube at a refused face is certified on its own
             if (!passes) {
                 Assert.NotEqual(1, cert.CellStates[0][i + 8 * (4 + 8 * 4)]);
@@ -555,6 +625,108 @@ namespace geometry3Sharp.Tests
             TwoLevelSheetCertificate cert = Certify(f, gen);
             Assert.False(cert.Certified);
             Assert.Equal(SheetCertificateRunFailure.NoRecord, cert.RunFailure);
+        }
+
+        /// <summary> a field with an enclosure of its value that cannot decide the sign on every box that contains one point (a valid, weak enclosure) </summary>
+        sealed class UncertainAt : TestField
+        {
+            readonly TestField inner; readonly Vector3d[] points;
+            public UncertainAt(TestField inner, params Vector3d[] points) { this.inner = inner; this.points = points; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                IntervalEnclosure e = inner.Enclose(x, y, z);
+                foreach (Vector3d p in points)
+                    if (x.Lo <= p.x && p.x <= x.Hi && y.Lo <= p.y && p.y <= y.Hi && z.Lo <= p.z && p.z <= z.Hi) e.F = new ExactInterval(-1e30, 1e30);
+                return e;
+            }
+            public override double Value(ref Vector3d q) { return inner.Value(ref q); }
+        }
+
+        // A node whose sign the enclosure cannot certify, far outside the wall: the eight cubes at it are not certified on
+        // their own (the mesher's sign there is not confirmed), but in a block that has the node inside.
+        [Fact]
+        public void ANodeWithoutACertifiedSign_IsOnlyCertifiedInsideABlock()
+        {
+            var sphere = new Sphere(new Vector3d(0.03, -0.02, 0.01), 0.6);
+            var f = new UncertainAt(sphere, new Vector3d(Node(0, 3), Node(1, 3), Node(2, 3)));
+            TwoLevelMarchingTetrahedra gen = Mesh(f, 0.5 * H / 2, Shift, 2.2, 16);
+            TwoLevelSheetCertificate cert = Certify(f, gen);
+            Assert.True(cert.Certified, Summary(cert));
+            for (int level = 0; level < 2; ++level) {
+                for (int c = 0; c < 8; ++c) Assert.Equal(3, cert.CellStates[level][(2 + (c & 1)) + 16 * ((2 + (c >> 1 & 1)) + 16 * (2 + (c >> 2 & 1)))]);
+                Assert.Contains(cert.BlockBoxes[level], b => b[0] == 2 && b[1] == 2 && b[2] == 2 && b[3] == 4 && b[4] == 4 && b[5] == 4);
+            }
+            CheckBlocks(cert, 16, 16, 16);
+        }
+
+        static Vector3d NodePoint(int i, int j, int k) { return new Vector3d(Node(0, i), Node(1, j), Node(2, k)); }
+
+        // Two blocks that come to overlap are one block: the block around the nodes (3,3,3) and (4,4,3) grows into the
+        // block around (5,2,2), which was made before it.
+        [Fact]
+        public void BlocksThatOverlap_AreMerged()
+        {
+            var sphere = new Sphere(new Vector3d(0.03, -0.02, 0.01), 0.6);
+            var f = new UncertainAt(sphere, NodePoint(5, 2, 2), NodePoint(3, 3, 3), NodePoint(4, 4, 3));
+            TwoLevelMarchingTetrahedra gen = Mesh(f, 0.5 * H / 2, Shift, 2.2, 16);
+            var cert = new TwoLevelSheetCertificate { Field = f, Mesher = gen };
+            cert.Compute();
+            Assert.True(cert.Certified, Summary(cert));
+            CheckBlocks(cert, 16, 16, 16);
+            for (int level = 0; level < 2; ++level)
+                Assert.Contains(cert.BlockBoxes[level], b => string.Join(",", b) == "2,1,1,6,5,4");
+            // the same again on the instance, and nothing of it after a refused run
+            string first = List(cert);
+            cert.Compute();
+            Assert.Equal(first, List(cert));
+            cert.Mesher = new TwoLevelMarchingTetrahedra();
+            cert.Compute();
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, cert.RunFailure);
+            Assert.Empty(cert.BlockBoxes[0]);
+            Assert.Empty(cert.BlockBoxes[1]);
+        }
+
+        // A block does not grow into the outermost layer: a node without a certified sign on the inner side of that layer
+        // leaves the cube inside of it uncertified.
+        [Fact]
+        public void ABlock_DoesNotGrowIntoTheOutermostLayer()
+        {
+            var sphere = new Sphere(new Vector3d(0.03, -0.02, 0.01), 0.6);
+            var f = new UncertainAt(sphere, NodePoint(1, 1, 1));
+            TwoLevelSheetCertificate cert = Certify(f, Mesh(f, 0.5 * H / 2, Shift, 2.2, 16));
+            Assert.False(cert.Certified);
+            CheckBlocks(cert, 16, 16, 16);
+            for (int level = 0; level < 2; ++level) {
+                Assert.Equal(2, cert.CellStates[level][1 + 16 * (1 + 16 * 1)]);
+                Assert.Contains(cert.UncertifiedCells, u => u.Level == level && u.Cell == new Vector3i(1, 1, 1) && u.Reason == SheetCertificateReason.BlockLimit);
+            }
+            // at the high end of an axis
+            f = new UncertainAt(sphere, NodePoint(15, 8, 8));
+            cert = Certify(f, Mesh(f, 0.5 * H / 2, Shift, 2.2, 16));
+            Assert.False(cert.Certified);
+            CheckBlocks(cert, 16, 16, 16);
+            Assert.Contains(cert.UncertifiedCells, u => u.Cell == new Vector3i(14, 7, 7) && u.Reason == SheetCertificateReason.BlockLimit);
+        }
+
+        [Fact]
+        public void HasDirection_TriesTheMeanGradient_AndTheAxes()
+        {
+            Func<double, double, ExactInterval> I = (lo, hi) => new ExactInterval(lo, hi);
+            Func<ExactInterval, ExactInterval, ExactInterval, List<IntervalEnclosure>> one = (x, y, z) => new List<IntervalEnclosure> { new IntervalEnclosure { Gx = x, Gy = y, Gz = z } };
+            // the mean (1.5, 4, 0) fails (1.5 - 4 < 0), the x axis does it
+            Assert.True(TwoLevelSheetCertificate.HasDirection(one(I(1, 2), I(-1, 9), I(0, 0)), -1));
+            Assert.True(TwoLevelSheetCertificate.HasDirection(one(I(-1, 9), I(-2, -1), I(0, 0)), -1));          // the y axis, negative
+            Assert.True(TwoLevelSheetCertificate.HasDirection(one(I(-1, 9), I(-1, 9), I(3, 4)), -1));           // the z axis
+            Assert.False(TwoLevelSheetCertificate.HasDirection(one(I(-1, 9), I(-1, 9), I(-1, 9)), -1));
+            // no axis, the mean does it: two enclosures that share (1, 1, 0) only
+            var two = new List<IntervalEnclosure> { new IntervalEnclosure { Gx = I(2, 3), Gy = I(-1, 1), Gz = I(0, 0) }, new IntervalEnclosure { Gx = I(-1, 1), Gy = I(2, 3), Gz = I(0, 0) } };
+            Assert.True(TwoLevelSheetCertificate.HasDirection(two, -1));
+            Assert.True(TwoLevelSheetCertificate.HasDirection(two, 2));
+            // in a plane: the axis along its normal does not count, and the mean loses that part
+            Assert.False(TwoLevelSheetCertificate.HasDirection(one(I(-1, 1), I(-1, 1), I(3, 4)), 2));
+            Assert.True(TwoLevelSheetCertificate.HasDirection(one(I(-1, 1), I(-1, 1), I(3, 4)), 0));
+            Assert.False(TwoLevelSheetCertificate.HasDirection(one(I(3, 4), I(-1, 1), I(-1, 1)), 0));
+            Assert.True(TwoLevelSheetCertificate.HasDirection(one(I(3, 4), I(0.5, 1), I(-9, 1)), 0));           // the y axis in the plane x = const
         }
 
         // ---- the counts on the record ----
@@ -624,7 +796,14 @@ namespace geometry3Sharp.Tests
             int[] slab = { 0, 0, 0, 4, 4, 4 };
             Assert.Equal(2, TwoLevelSheetCertificate.Circles(two, 1, slab));
             Assert.False(TwoLevelSheetCertificate.MeshIsDisks(two, 1, slab, 1));
-            // a tube through a box (a ring of inside nodes around a line of outside ones is not needed: a line of inside nodes):
+            // a closed ring of mesh (around a ring of inside nodes) beside a plane: one curve on the box, Euler characteristic
+            // 1 + 0, but two components
+            var ring = Flags(7, (i, j, k) => (k == 2 && i >= 1 && i <= 3 && j >= 1 && j <= 3 && !(i == 2 && j == 2)) || k >= 5);
+            int[] whole = { 0, 0, 0, 6, 6, 6 };
+            Assert.Equal(1, TwoLevelSheetCertificate.Circles(ring, 1, whole));
+            Assert.False(TwoLevelSheetCertificate.MeshIsDisks(ring, 1, whole, 1));
+            Assert.True(TwoLevelSheetCertificate.MeshIsDisks(ring, 1, new[] { 0, 0, 4, 6, 6, 6 }, 1));
+            // a tube through a box (a line of inside nodes):
             // two curves on the box, one component, not a disk
             var tube = Flags(4, (i, j, k) => i == 1 && j == 1);
             int[] across = { 0, 0, 1, 3, 3, 2 };
@@ -654,6 +833,18 @@ namespace geometry3Sharp.Tests
             Assert.True(TwoLevelSheetCertificate.OneSign(list, new Vector3d(1, 1, -1)));        // 1 - 0.5 + 2 > 0
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(1, 2, 0)));        // 1 - 1 = 0: not > 0
             Assert.False(TwoLevelSheetCertificate.OneSign(list, Vector3d.Zero));
+            // a lower bound of exactly 0 is not a sign: the smallest gradients whose rounded bound reaches 0, and the next
+            int atZero = -1;
+            for (int a = 1; a <= 16 && atZero < 0; ++a) {
+                ExactInterval gx = new ExactInterval(a * double.Epsilon, 1), zero = new ExactInterval(0, 0);
+                if ((ExactInterval.Of(1.0) * gx + ExactInterval.Of(0.0) * zero + ExactInterval.Of(0.0) * zero).Lo == 0) atZero = a;
+            }
+            Assert.True(atZero > 0);
+            Func<int, List<IntervalEnclosure>> tiny = a => new List<IntervalEnclosure> { new IntervalEnclosure { Gx = new ExactInterval(a * double.Epsilon, 1), Gy = new ExactInterval(0, 0), Gz = new ExactInterval(0, 0) } };
+            Assert.False(TwoLevelSheetCertificate.OneSign(tiny(atZero), new Vector3d(1, 0, 0)));
+            Assert.True(TwoLevelSheetCertificate.OneSign(tiny(atZero + 1), new Vector3d(1, 0, 0)));
+            Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.PositiveInfinity, 0, 0)));
+            Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.NaN, 0, 0)));
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.NaN, 0, 0)));
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.PositiveInfinity, 0, 0)));
             // every enclosure of the list counts
