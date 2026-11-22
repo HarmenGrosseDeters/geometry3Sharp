@@ -210,16 +210,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(2e-5, false, true)]     // thinner than the limit (about 4.9e-5): removed
+        // (#1216: the slab thinner than the limit (about 4.9e-5) has one needle, which the repair contracts and so leaves the slab
+        // as it was: kept. Before, that one contraction removed the slab. What is removed: MeshRoundingRepairTestsThinSolids)
+        [InlineData(2e-5, false, false)]    // thinner than the limit, closed, left as it was by the edit: kept
         [InlineData(1e-3, false, false)]    // thicker: kept
         [InlineData(2e-5, true, false)]     // thin but open: kept
-        public void ThinComponent_RemovedOnlyIfClosedAndThin(double t, bool open, bool removed)
+        public void ThinComponent_LeftAsItWasByTheEdit_IsKept(double t, bool open, bool removed)
         {
             int n;
             double maxLength;
             DMesh3 m = SphereAndSlab(t, open, out n, out maxLength);
             // thickness 2 V / A of the closed slab: t / (1 + 2 t), against the limit
-            Assert.True((t < maxLength) == removed || open);
+            Assert.True((t < maxLength) == (t == 2e-5));
             int before = m.TriangleCount;
             var r = new MeshRoundingRepair(m);
             r.Apply();

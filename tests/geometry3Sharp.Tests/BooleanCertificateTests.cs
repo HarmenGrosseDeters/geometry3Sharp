@@ -532,9 +532,10 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// A real removal (case F1 of the pipeline audit: the rounding drops a cube of edge 2^-9 beside a large box while the
+        /// A real removal (case F1 of the pipeline audit: the rounding drops a cube of edge 2^-11 beside a large box while the
         /// boolean succeeds): the checker lists the part and does not report the result as clean; the cube of edge 2^-8,
-        /// which stays, is clean with nothing listed.
+        /// which stays, is clean with nothing listed. (Since #1216 the cube of 2^-9 stays as well: the repair collapses it
+        /// to a tetrahedron of 1.85 times its volume, within the factor 2 of the rule; 2^-11 ends at 245 times and goes.)
         /// </summary>
         [Fact]
         public void RemovedComponent_OfARealBoolean_IsListed_AndTheResultIsNotClean()
@@ -545,8 +546,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, ek.Rounding.RemovedComponents);
             Assert.Equal("", kept.Check());
             Assert.Empty(kept.RemovedParts);
-            BooleanCertificate dropped = Certify(big, Cube(Math.Pow(2, -9)), Ops.Union, out ExactMeshBoolean ed);
+            BooleanCertificate dropped = Certify(big, Cube(Math.Pow(2, -11)), Ops.Union, out ExactMeshBoolean ed);
             Assert.Equal(1, ed.Rounding.RemovedComponents);
+            Assert.Equal(MeshRoundingRepair.RemovalReasons.VolumeChanged, ed.Rounding.RemovedComponentInfos[0].Reason);
+            Assert.False(ed.RoundingClean);
             string r = dropped.Check();
             Assert.StartsWith("not clean: the rounding removed 1 part(s)", r);
             Assert.Single(dropped.RemovedParts);
@@ -554,7 +557,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(12, ed.CertificateAssembled.TriangleCount - ed.Result.TriangleCount);
             Assert.Contains("12 triangles", dropped.RemovedParts[0]);
             // the oracle of the campaigns reports it too
-            Assert.StartsWith("certificate Union: not clean", BooleanCertificate.CheckBoolean(big, Cube(Math.Pow(2, -9)), Ops.Union));
+            Assert.StartsWith("certificate Union: not clean", BooleanCertificate.CheckBoolean(big, Cube(Math.Pow(2, -11)), Ops.Union));
         }
 
         [Fact]

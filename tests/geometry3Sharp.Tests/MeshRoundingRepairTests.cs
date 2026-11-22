@@ -113,13 +113,18 @@ namespace geometry3Sharp.Tests
         public void NearlyCoincidentSpheres_Difference_ThinSliversRemoved()
         {
             // the difference of nearly coincident solids is a set of slivers thinner than 1e-10: removed as
-            // components thinner than MaxDisplacement (their volume is below 1e-9)
+            // components thinner than MaxDisplacement (their volume is below 1e-9). Since #1216 they are listed: at these
+            // distances (42 to 5e5 ulps) most are mangled by the repair (VolumeChanged), the few below 4 ulps go as
+            // BelowResolution; all are below 1e-8 of the diagonal, so none makes the result not clean
             foreach (double eps in new[] { 1e-8, 1e-10, 1e-12 }) {
                 var ab = NearlyCoincident(Sphere(10), new Vector3d(0.6, 0.3, 0.1), eps, eps * new Vector3d(0.2, 0.9, 0.5));
                 var plain = Run(ab, Ops.Difference, false);
                 Assert.True(Degenerate(plain.Result) > 0);
                 Assert.True(Math.Abs(Volume(plain.Result)) < 1e-6);
                 var safe = Run(ab, Ops.Difference, true);
+                Assert.True(safe.Rounding.RemovedComponents > 0);
+                Assert.All(safe.Rounding.RemovedComponentInfos, i => Assert.True(i.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged || i.Reason == MeshRoundingRepair.RemovalReasons.BelowResolution, i.Reason.ToString()));
+                Assert.Equal(0, safe.Rounding.RemovedResolvable);
                 Assert.True(safe.RoundingClean);
                 Assert.Equal(0, MeshRepairMetrics.SelfIntersections(safe.Result));
                 Assert.Equal(0, Degenerate(safe.Result));
@@ -319,12 +324,12 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Repair_TinyClosedComponent_Removed()
+        public void Repair_TinyClosedComponent_LeftAsItWasByTheEdit_IsKept()
         {
             // a sphere and, apart from it, a closed cube of edge 1.2e-4 with a needle: tiny (area below 1e4 times the
             // degenerate area, of the largest component's diagonal, the sphere's) but not thin (thickness 2 V / A =
-            // edge / 3 = 4e-5 above 1e-5 of that diagonal): removed as tiny once the needle is contracted (an edited
-            // component)
+            // edge / 3 = 4e-5 above 1e-5 of that diagonal). The needle is contracted, which leaves the cube as it was:
+            // kept since #1216 (before, removed as tiny once edited)
             DMesh3 m = Sphere(6);
             int n = m.TriangleCount;
             double diag = m.CachedBounds.DiagonalLength, areaEps = 1e-12 * diag * diag;
@@ -340,9 +345,11 @@ namespace geometry3Sharp.Tests
             Assert.True(1.2e-4 / 3 > 1e-5 * diag);
             var repair = new MeshRoundingRepair(m);
             Assert.True(repair.Apply());
-            Assert.Equal(1, repair.RemovedComponents);
-            Assert.Equal(n, m.TriangleCount);
+            Assert.Equal(1, repair.Collapses);
+            Assert.Equal(0, repair.RemovedComponents);
+            Assert.Equal(n + 12, m.TriangleCount);
             Assert.True(m.IsClosed());
+            Assert.Equal(2, MeshConnectedComponents.Separate(m).Length);
         }
 
         [Fact]

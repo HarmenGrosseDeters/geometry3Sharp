@@ -99,7 +99,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Field_Clean_TinyDefectiveRemoved_TinyPlainKept()
+        public void Field_Clean_TinyRepairedKept_TinyPlainKept()
         {
             DMesh3 m = Field();
             Assert.True(m.MaxTriangleID > 2 * 4096);
@@ -107,9 +107,10 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair r = Repair(m);
             Assert.True(r.IsClean);
             Assert.True(r.InitialDegenerate > 100);
-            // the poked tetrahedra are tiny and hold a defect: removed; the plain ones have none: kept
-            Assert.Equal(3, r.RemovedComponents);
-            Assert.Equal(components - 3, Components(m).Count);
+            // the poked tetrahedra are tiny and held a defect that the repair removed, leaving them as they were: kept since #1216
+            // (before, every tiny edited component went); the plain ones have none: kept
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(components, Components(m).Count);
             Assert.True(m.IsClosed() && Invariance.AllFinite(m));
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));

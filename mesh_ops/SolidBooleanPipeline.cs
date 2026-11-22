@@ -104,6 +104,12 @@ namespace gs
         /// MinThickness they are removed if they are thinner than it (RemovedThinSolids)
         /// </summary>
         public int ThinComponentsKept;
+        /// <summary>
+        /// the closed components the boolean's rounding removed (ExactMeshBoolean.Rounding.RemovedComponentInfos: triangles, area, volume,
+        /// thickness, reason), also where the run failed with BooleanStatus RoundingNotClean because one of them is a solid its
+        /// coordinates resolve (#1216); empty if none
+        /// </summary>
+        public List<MeshRoundingRepair.RemovedComponentInfo> RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>();
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
@@ -587,6 +593,8 @@ namespace gs
             // a strict refusal whose only cause is components thinner than the bound: the rounded result is kept (the rounding
             // left no intersection, degenerate triangle or false contact, checked exactly by the repair)
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
+            if (op.Rounding != null)
+                Report.RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>(op.Rounding.RemovedComponentInfos);
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
@@ -807,7 +815,7 @@ namespace gs
         internal static bool OnlyThinComponents(MeshRoundingRepair r)
         {
             return r != null && r.Mesh != null && r.ScaleDisparity > 0 && r.RemainingIntersections == 0 && r.RemainingDegenerate == 0
-                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange;
+                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange && r.RemovedResolvable == 0;
         }
 
         /// <summary>

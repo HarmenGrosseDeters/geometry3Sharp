@@ -46,8 +46,19 @@ namespace g3
     /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
     /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
-    /// RemoveTinyComponents, as Milenkovic and Sacks do (not if that would leave nothing of a mesh whose input is itself
-    /// thin or tiny: KeepWhenEmptied, set by ExactMeshBoolean, #985). Open components are kept (they may close the rest of the
+    /// RemoveTinyComponents, as Milenkovic and Sacks do, but (#1216, owner 2026-11-22) only where the coordinates do not
+    /// resolve them or the repair could not leave them as they were: a component that before the edits was thinner than 4
+    /// units in the last place of its largest coordinate (exact, for the computed area), one that keeps a defect (a
+    /// degenerate triangle, an intersecting pair, a contact the rounding made), one whose volume the edits changed by more
+    /// than a factor 2 or turned over (exact), and one that was not measured before the edits (neither tiny nor thin then,
+    /// within a factor 2). A thin solid that the edits left as it was stays (docs/research/ROUNDING_THIN_SOLIDS_2026-11.md:
+    /// before, one contraction of 1e-10 anywhere in a sheet removed the sheet). Every removed component is listed
+    /// (RemovedComponentInfos: triangles, area, volume, thickness, reason). A removed component that was at least 256 units
+    /// in the last place and 1e-3 of the bound thick before the edits and went for one of the other reasons is a solid of
+    /// the exact result that matters at the scale of the mesh (RemovedResolvable), and the repair is not clean; thinner
+    /// removals leave it clean. Nothing is removed
+    /// if the rule before #1216 would leave nothing of a mesh whose input is itself
+    /// thin or tiny: KeepWhenEmptied, set by ExactMeshBoolean, #985. Open components are kept (they may close the rest of the
     /// mesh by position), so an isolated sliver that no edit can repair is left and counted in RemainingDegenerate.
     ///
     /// The degenerate test is the one of MeshRobustRepair.NotCleanReason (area below DegenerateArea times the
@@ -249,7 +260,10 @@ namespace g3
         internal long PairBudget { get { return pairBudget; } }
         /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests: from there on no edit is proposed (see SmallestRejectedDrift) </summary>
         public bool EvaluationLimitReached;
-        /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
+        /// <summary>
+        /// remove closed components that are tiny or thin and keep a degenerate triangle or were edited, where their coordinates do not
+        /// resolve them, a defect is left in them or the edits changed their volume by more than a factor 2 (see class comment)
+        /// </summary>
         public bool RemoveTinyComponents = true;
 
         /// <summary> intersecting triangle pairs and degenerate triangles before the repair </summary>
@@ -318,6 +332,69 @@ namespace g3
         const int MaxStripProposals = 32;
         /// <summary> components, and their triangles, removed as tiny or thin (RemoveTinyComponents) </summary>
         public int RemovedComponents, RemovedTriangles;
+        /// <summary> why a closed component was removed (RemovedComponentInfo.Reason; see the class comment and remove_tiny_components) </summary>
+        public enum RemovalReasons
+        {
+            /// <summary> edited by the repair, and thinner than ResolutionUlps units in the last place of its largest coordinate before the edits: its coordinates do not resolve it </summary>
+            BelowResolution,
+            /// <summary> of numerically zero volume (thinner than one unit in the last place, #1067): not edited, or edited and of zero volume after the edits </summary>
+            ZeroVolume,
+            /// <summary> not edited, tiny, inside out and enclosed by nothing (a residue, #1067) </summary>
+            InsideOutResidue,
+            /// <summary> edited, tiny or thin by the bound, and a degenerate triangle, an intersection or a contact made by the rounding is left in it </summary>
+            StillDefective,
+            /// <summary> edited, tiny or thin by the bound, and the edits changed its volume by more than a factor 2 (or its sign) </summary>
+            VolumeChanged,
+            /// <summary> edited, tiny or thin by the bound, and not measured before the edits (it was neither then): removed as before #1216 </summary>
+            NotMeasured
+        }
+        /// <summary> one closed component that the repair removed (RemovedComponentInfos) </summary>
+        public sealed class RemovedComponentInfo
+        {
+            /// <summary> its triangles when it was removed </summary>
+            public int Triangles;
+            /// <summary>
+            /// area and volume (signed) before the edits where it was measured then (every Reason but ZeroVolume, InsideOutResidue and
+            /// NotMeasured: there as removed); in the coordinates of the mesh the repair was given
+            /// </summary>
+            public double Area, Volume;
+            /// <summary> 2 |Volume| / Area (the thickness of a slab), and the same in units in the last place of its largest coordinate </summary>
+            public double Thickness, ThicknessUlps;
+            /// <summary> its box when it was removed </summary>
+            public AxisAlignedBox3d Bounds;
+            /// <summary> why it was removed </summary>
+            public RemovalReasons Reason;
+            /// <summary>
+            /// counted in RemovedResolvable: removed as StillDefective or VolumeChanged and, before the edits, at least 256 units in the last
+            /// place of its largest coordinate and at least 1e-3 of the bound thick, or removed as NotMeasured
+            /// </summary>
+            public bool Resolvable;
+        }
+        /// <summary> the removed components (RemovedComponents of them), in the order of their removal </summary>
+        public List<RemovedComponentInfo> RemovedComponentInfos = new List<RemovedComponentInfo>();
+        /// <summary>
+        /// of the removed components: those removed as StillDefective or VolumeChanged that were, before the edits, at least 256 units in
+        /// the last place of their largest coordinate thick (the multiple of the bound's ulp term, UlpFactor's default) and at least 1e-3
+        /// of the bound (MaxLength of the component: 1e-8 of the diagonal by default), and those removed as NotMeasured: solids of the
+        /// exact result that matter at the scale of the mesh (#1216). With any, the repair is not clean (IsClean; owner 2026-11-22). A
+        /// thinner one is listed and leaves the repair clean: the slivers between copies a few ulps apart (4 to some tens of ulps where
+        /// they lie near a coordinate plane), and the residues between a result that an earlier rounding repaired and the surface it came
+        /// from, which are as thick as that repair's drift (a chain of booleans)
+        /// </summary>
+        public int RemovedResolvable;
+        /// <summary> an edited component thinner than this many units in the last place of its largest coordinate is not resolved by its coordinates and goes (owner 2026-11-22, #1216) </summary>
+        internal const double ResolutionUlps = 4;
+        /// <summary>
+        /// a removed component makes the repair not clean if it is at least this many units in the last place of its largest coordinate
+        /// thick and at least ReportBoundFraction of the bound (owner 2026-11-22, #1216)
+        /// </summary>
+        internal const double ReportUlps = 256;
+        /// <summary>
+        /// the second condition of ReportUlps: at least this fraction of the bound maxLength of the component (1e-8 of the diagonal with the
+        /// default MaxDisplacement). The residue between a result that an earlier rounding repaired and the surface it came from is as
+        /// thick as that repair's drift, whatever its ulps: in a chain of booleans such residues are the normal case, not a lost solid
+        /// </summary>
+        internal const double ReportBoundFraction = 1e-3;
         /// <summary>
         /// the largest drift of an applied edit, absolute: a bound on the Hausdorff distance between the repaired surface
         /// and the surface at the start, without the removed components (see the class comment; up to an absolute
@@ -406,9 +483,10 @@ namespace g3
         public bool OutsideRange;
         /// <summary>
         /// no self-intersections, no degenerate triangles and no contacts made by the rounding remain, no component was
-        /// kept for ScaleDisparity, the scale is finite (ScaleNotFinite) and the coordinates are in the supported range (OutsideRange)
+        /// kept for ScaleDisparity, the scale is finite (ScaleNotFinite), the coordinates are in the supported range (OutsideRange)
+        /// and no component was removed that its coordinates resolve (RemovedResolvable, #1216)
         /// </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false && OutsideRange == false; } }
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false && OutsideRange == false && RemovedResolvable == 0; } }
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
@@ -627,6 +705,10 @@ namespace g3
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
+            RemovedComponentInfos = new List<RemovedComponentInfo>();
+            RemovedResolvable = 0;
+            beforeOfVertex = null;
+            befores = null;
             LockedContractions = RuleLockedContractions = 0;
             FollowStageRan = followRuleLocks = false;
             RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
@@ -740,6 +822,10 @@ namespace g3
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
             pairBudget = pair_budget(MaxPairTests, PairTestsDefectScale, PairTestsMaxGrowth, pairs.Count + bad.Count + InitialFalseContacts);
+            // (#1216) the closed components that may be removed as tiny or thin, measured before the first edit; only where an
+            // edit can follow (a defect, or coarse coordinates: remove_contact_vertices)
+            if (RemoveTinyComponents && FixedHard == false && (pairs.Count > 0 || bad.Count > 0 || InitialFalseContacts > 0 || anyCoarse))
+                measure_components_before();
             repair_passes(ref pairs, ref bad);
             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
             // passes again where the moves changed the mesh)
@@ -782,7 +868,7 @@ namespace g3
             }
             if (check)
                 check_all_bounds();
-            if (RemoveTinyComponents && FixedHard == false && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
+            if (RemoveTinyComponents && FixedHard == false && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad, pairs) > 0) {
                 bad = degenerate_triangles();
                 if (pairs.Count > 0)
                     pairs = intersecting_pairs();
@@ -3083,12 +3169,132 @@ namespace g3
             }
         }
 
-        // closed components with a degenerate triangle or an edited vertex that are tiny or thin, and (#1067) untouched ones
-        // of numerically zero volume (thickness 2 |V| / area below the ulp of the largest coordinate, any orientation, whatever
-        // encloses them) and untouched tiny ones that are inside out and enclosed by nothing (a residue). Called only when the
-        // repair edited or found something: a mesh with nothing to repair keeps such components (reported by NotCleanReason)
+        // a closed component as it was before the first edit (#1216): what the removal compares the repaired component with
+        sealed class Before
+        {
+            public double Area, Volume, Largest;
+            // six times the volume, exact: Total 2^Exponent (ExactPredicates.TryVolumeSum6Exact)
+            public System.Numerics.BigInteger Total;
+            public int Exponent;
+            // BelowResolution: thinner than ResolutionUlps ulps, or of exactly zero volume; BelowReport: thinner than ReportUlps ulps
+            // or than ReportBoundFraction of the bound (what does not make the repair not clean when it is removed)
+            public bool Exact, BelowResolution, BelowReport;
+        }
+        // per vertex: the index in befores of the measured component it was in, -1 none, -2 more than one (a vertex where two
+        // closed components touch)
+        int[] beforeOfVertex;
+        List<Before> befores;
+
+        // the coordinates and corners of a component's triangles, as the exact volume routines take them
+        static void component_arrays(DMesh3 mesh, List<int> comp, out double[] xyz, out int[] corners)
+        {
+            var index = new Dictionary<int, int>();
+            var list = new List<double>();
+            corners = new int[3 * comp.Count];
+            for (int i = 0; i < comp.Count; ++i) {
+                Index3i tv = mesh.GetTriangle(comp[i]);
+                for (int k = 0; k < 3; ++k) {
+                    if (index.TryGetValue(tv[k], out int id) == false) {
+                        index[tv[k]] = id = list.Count / 3;
+                        Vector3d p = mesh.GetVertex(tv[k]);
+                        list.Add(p.x); list.Add(p.y); list.Add(p.z);
+                    }
+                    corners[3 * i + k] = id;
+                }
+            }
+            xyz = list.ToArray();
+        }
+
+        // measures, before the first edit, the closed components that the removal may meet as tiny or thin: those within twice
+        // its two thresholds (a component that is neither then and is tiny or thin after the edits is removed as before #1216,
+        // RemovalReasons.NotMeasured: its thickness has halved or its area has). Per component: area, volume, largest coordinate,
+        // the exact volume sum, and whether it is thinner than ResolutionUlps units in the last place of its largest coordinate
+        // (the test of numerically_zero_volume with that factor: exact for the computed area)
+        void measure_components_before()
+        {
+            beforeOfVertex = new int[Mesh.MaxVertexID];
+            for (int v = 0; v < beforeOfVertex.Length; ++v)
+                beforeOfVertex[v] = -1;
+            befores = new List<Before>();
+            foreach (List<int> comp in connected_components(Mesh)) {
+                double sum = 0, volume = 0, largest = 0, tripleNorms = 0;
+                bool closed = true;
+                Vector3d o = Mesh.GetVertex(Mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
+                    Index3i tv = Mesh.GetTriangle(t), te = Mesh.GetTriEdges(t);
+                    Vector3d pa = Mesh.GetVertex(tv.a), pb = Mesh.GetVertex(tv.b), pc = Mesh.GetVertex(tv.c);
+                    sum += 0.5 * (pb - pa).Cross(pc - pa).Length;
+                    volume += (pa - o).Dot((pb - o).Cross(pc - o)) / 6;
+                    tripleNorms += (pa - o).Length * (pb - o).Length * (pc - o).Length;
+                    largest = Math.Max(largest, Math.Max(pa.MaxAbs, Math.Max(pb.MaxAbs, pc.MaxAbs)));
+                    closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
+                }
+                int v0 = Mesh.GetTriangle(comp[0]).a;
+                // (twice the thresholds of remove_tiny_components; a sum that is not finite is not below them)
+                if (closed == false || !(sum < 2e4 * sizeArea_of(v0) || 2 * Math.Abs(volume) < 2 * maxLength_of(v0) * sum))
+                    continue;
+                var b = new Before() { Area = sum, Volume = volume, Largest = largest };
+                component_arrays(Mesh, comp, out double[] xyz, out int[] corners);
+                b.Exact = ExactPredicates.TryVolumeSum6Exact(xyz, corners, out b.Total, out b.Exponent);
+                // (an exact volume of zero is below every resolution: the test of numerically_zero_volume does not decide where the
+                // area is so small that its threshold underflows)
+                bool zero = b.Exact && b.Total.IsZero;
+                b.BelowResolution = zero || numerically_zero_volume(Mesh, comp, volume, sum, largest, tripleNorms, ResolutionUlps);
+                // (the fraction of the bound: the product is formed once, in doubles; the bound scales exactly with 2^k, so the
+                // product and the test do too)
+                b.BelowReport = b.BelowResolution || numerically_zero_volume(Mesh, comp, volume, sum, largest, tripleNorms, ReportUlps)
+                    || thinner_than(Mesh, comp, volume, sum, tripleNorms, ReportBoundFraction * maxLength_of(v0));
+                foreach (int t in comp) {
+                    Index3i tv = Mesh.GetTriangle(t);
+                    for (int k = 0; k < 3; ++k)
+                        beforeOfVertex[tv[k]] = (beforeOfVertex[tv[k]] == -1 || beforeOfVertex[tv[k]] == befores.Count) ? befores.Count : -2;
+                }
+                befores.Add(b);
+            }
+        }
+
+        // the measurement of the component before the edits, or null: not measured, or its vertices do not name one
+        // measured component (the edits add no vertex and stay within a component, so every vertex of the component was in
+        // it then; a vertex shared with another measured component names none)
+        Before before_of(List<int> comp)
+        {
+            if (beforeOfVertex == null)
+                return null;
+            int found = -1;
+            foreach (int t in comp) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) {
+                    int b = tv[k] < beforeOfVertex.Length ? beforeOfVertex[tv[k]] : -1;
+                    if (b == -2)
+                        continue;
+                    if (b == -1 || (found >= 0 && b != found))
+                        return null;
+                    found = b;
+                }
+            }
+            return found >= 0 ? befores[found] : null;
+        }
+
+        // Closed components that the repair edited (or that keep a degenerate triangle) and that are tiny or thin by the bound
+        // go if (#1216, owner 2026-11-22)
+        // - they were thinner than ResolutionUlps units in the last place of their largest coordinate before the edits (their
+        //   coordinates do not resolve them: the slivers between nearly coincident surfaces), or
+        // - a defect is left in them (a degenerate triangle, an intersecting pair, a contact the rounding made), or
+        // - the edits changed their volume by more than a factor 2 or turned it over (the repair has mangled them: their own
+        //   triangles were below the degenerate area), or
+        // - they were not measured before the edits (neither tiny nor thin then, within a factor 2).
+        // Otherwise they stay: a thin solid of the exact result that the repair left as it was (before #1216 every such
+        // component went, whatever the size of the edit and whatever it left). Of the last three kinds, those that were at least
+        // ReportUlps ulps and ReportBoundFraction of the bound thick before the edits (and the unmeasured ones) are solids that
+        // matter at the scale of the mesh: they are counted in RemovedResolvable and the repair is not clean; thinner ones are
+        // listed only (the slivers between copies a few ulps apart reach some tens of ulps of their own largest coordinate where
+        // they lie near a coordinate plane; the residues of an earlier rounding in a chain are as thick as its drift). Untouched components go as before (#1067):
+        // those of numerically zero volume (thickness 2 |V| / area below the ulp of the largest coordinate, any orientation,
+        // whatever encloses them) and tiny ones that are inside out and enclosed by nothing (a residue). Called only when the
+        // repair edited or found something: a mesh with nothing to repair keeps such components (reported by NotCleanReason).
+        // Every removed component is listed in RemovedComponentInfos
         [MethodImpl(JitHints.Optimize)]
-        int remove_tiny_components(List<int> bad)
+        int remove_tiny_components(List<int> bad, List<Index2i> pairs)
         {
             // (marks instead of hash sets; the components in the order of MeshConnectedComponents.FindConnectedT, each
             // in its order, so the sums below are the same, bit for bit)
@@ -3099,22 +3305,44 @@ namespace g3
             // (the edits add no vertices: every touched id is below MaxVertexID)
             foreach (int v in touched)
                 isTouched[v] = true;
+            // what else counts as a defect left in a component: the triangles of an intersecting pair, the vertices of a
+            // contact the rounding made
+            var inPair = new bool[Mesh.MaxTriangleID];
+            foreach (Index2i pr in pairs) {
+                if (pr.a >= 0 && pr.a < inPair.Length) inPair[pr.a] = true;
+                if (pr.b >= 0 && pr.b < inPair.Length) inPair[pr.b] = true;
+            }
+            bool[] inContact = null;
+            if (PointIdF != null && atPosition != null) {
+                foreach (List<int> group in false_contacts()) {
+                    if (inContact == null)
+                        inContact = new bool[Mesh.MaxVertexID];
+                    foreach (int v in group)
+                        inContact[v] = true;
+                }
+            }
             int count = 0;
             // the components to remove, decided first and removed after the loop: removing a closed component changes no
-            // other component, so the decisions are the same as when removing on the way (and in the same order)
+            // other component, so the decisions are the same as when removing on the way (and in the same order).
+            // before1216: what the rule before #1216 would remove (every edited tiny or thin component), for KeepWhenEmptied
             var remove = new List<int[]>();
+            var infos = new List<RemovedComponentInfo>();
+            var before1216 = new List<int[]>();
             List<int[]> inverted = null;
-            int removeTriangles = 0;
+            List<RemovedComponentInfo> invertedInfos = null;
             foreach (List<int> comp in connected_components(Mesh)) {
-                bool hasBad = false;
+                bool hasBad = false, defect = false;
                 double sum = 0, volume = 0, largest = 0, tripleNorms = 0;
+                AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
                 // (the volume relative to a point of the component, against cancellation far from the origin)
                 Vector3d o = pos(Mesh.GetTriangle(comp[0]).a);
                 foreach (int t in comp) {
                     Index3i tv = Mesh.GetTriangle(t);
                     hasBad |= isBad[t] || isTouched[tv.a] || isTouched[tv.b] || isTouched[tv.c];
+                    defect |= isBad[t] || inPair[t] || (inContact != null && (inContact[tv.a] || inContact[tv.b] || inContact[tv.c]));
                     sum += area(t);
                     Vector3d pa = pos(tv.a), pb = pos(tv.b), pc = pos(tv.c);
+                    bounds.Contain(pa); bounds.Contain(pb); bounds.Contain(pc);
                     double term = (pa - o).Dot((pb - o).Cross(pc - o)) / 6;
                     volume += term;
                     tripleNorms += (pa - o).Length * (pb - o).Length * (pc - o).Length;
@@ -3149,60 +3377,105 @@ namespace g3
                     //   not deleted. A cavity (enclosed) is a legitimate result and stays. (The exact sign of the volume is a
                     //   pre-filter: the nesting test flags only inside-out components, but builds trees)
                     if (zeroVolume) {
-                        remove.Add(comp.ToArray());
-                        removeTriangles += comp.Count;
+                        int[] ids = comp.ToArray();
+                        remove.Add(ids);
+                        before1216.Add(ids);
+                        infos.Add(removed_info(comp.Count, sum, volume, largest, bounds, RemovalReasons.ZeroVolume));
                         continue;
                     }
                     if (tiny) {
                         int[] ids = comp.ToArray();
-                        if (gs.MeshPostRepairCleanup.volume_sign(Mesh, ids) < 0)
+                        if (gs.MeshPostRepairCleanup.volume_sign(Mesh, ids) < 0) {
                             (inverted ?? (inverted = new List<int[]>())).Add(ids);
+                            (invertedInfos ?? (invertedInfos = new List<RemovedComponentInfo>())).Add(removed_info(comp.Count, sum, volume, largest, bounds, RemovalReasons.InsideOutResidue));
+                        }
                     }
                     continue;
                 }
                 // never as thin a component that holds real volume for its area (a sphere has |V| = 0.094 A^1.5, a slab
                 // of thickness h about h A / 2): thin by the bound but not by its shape, it is kept and counted
-                // (ScaleDisparity, not clean). Tiny components go, as decided (SAFE_ROUNDING.md section 1)
+                // (ScaleDisparity, not clean). Tiny components go, as decided (SAFE_ROUNDING.md section 1). (Before the
+                // rule of #1216, so that such a component is counted as it was)
                 if (tiny == false && Math.Abs(volume) >= 1e-3 * sum * Math.Sqrt(sum)) {
                     ScaleDisparity++;
                     continue;
                 }
-                remove.Add(comp.ToArray());
-                removeTriangles += comp.Count;
-            }
-            if (inverted != null) {
-                // (the nesting is judged on the mesh without the edited components that go, as they are removed before: a
-                // tiny solid that encloses a residue does not make it a cavity; a copy with the same ids, once. Only the
-                // components it flags as inside out go)
-                var rest = new DMesh3(Mesh);
-                foreach (int[] comp in remove)
-                    foreach (int t in comp)
-                        rest.RemoveTriangle(t, true);
-                var flagged = new bool[Mesh.MaxTriangleID];
-                foreach (int[] fc in gs.MeshPostRepairCleanup.FindInvertedComponents(rest))
-                    foreach (int t in fc)
-                        flagged[t] = true;
-                foreach (int[] comp in inverted)
-                    if (flagged[comp[0]]) {
-                        remove.Add(comp);
-                        removeTriangles += comp.Length;
-                    }
+                int[] edited = comp.ToArray();
+                before1216.Add(edited);
+                // the rule of #1216
+                Before b = before_of(comp);
+                RemovalReasons reason;
+                if (b == null || b.Exact == false)
+                    reason = RemovalReasons.NotMeasured;
+                else if (b.BelowResolution)
+                    reason = RemovalReasons.BelowResolution;
+                else if (defect)
+                    reason = RemovalReasons.StillDefective;
+                else if (volume_changed(b, comp))
+                    reason = RemovalReasons.VolumeChanged;
+                else if (zeroVolume)
+                    // (numerically zero after the edits, though neither below the resolution before nor changed by a factor 2:
+                    // its area has grown; no thickness is left that its coordinates can tell from zero, #1067)
+                    reason = RemovalReasons.ZeroVolume;
+                else
+                    continue;
+                remove.Add(edited);
+                RemovedComponentInfo info = reason == RemovalReasons.NotMeasured ? removed_info(comp.Count, sum, volume, largest, bounds, reason)
+                    : removed_info(comp.Count, b.Area, b.Volume, b.Largest, bounds, reason);
+                // (what makes the repair not clean: a solid of ReportUlps ulps and ReportBoundFraction of the bound or more that did
+                // not survive the repair)
+                info.Resolvable = reason == RemovalReasons.NotMeasured || (reason != RemovalReasons.BelowResolution && b.BelowReport == false);
+                if (reason == RemovalReasons.ZeroVolume) {
+                    // (as it is now: what the report says of a zero volume)
+                    bool resolvable = info.Resolvable;
+                    info = removed_info(comp.Count, sum, volume, largest, bounds, reason);
+                    info.Resolvable = resolvable;
+                }
+                infos.Add(info);
             }
             // never all of a non-empty mesh whose input was itself thin or tiny (#985, KeepWhenEmptied): the scale is that
             // of the largest component, so a flattened or long thin solid is thin or tiny by its own diagonal. Then nothing
             // is removed (every component stays, so that no cavity is lost) and each is counted as ScaleDisparity: the
             // repair is not clean. Without KeepWhenEmptied a result of thin pieces only goes (the slivers of A - A',
-            // owner 2026-11-16)
-            if (KeepWhenEmptied && remove.Count > 0 && removeTriangles == Mesh.TriangleCount) {
-                ScaleDisparity += remove.Count;
-                KeptWhenEmptied += remove.Count;
-                remove.Clear();
+            // owner 2026-11-16). Judged on what the rule before #1216 would remove, so that the result and its verdict are
+            // those of before where that rule would have emptied the mesh
+            if (KeepWhenEmptied && before1216.Count > 0) {
+                var all = new List<int[]>(before1216);
+                if (inverted != null)
+                    all.AddRange(flagged_inverted(inverted, before1216, null));
+                int triangles = 0;
+                foreach (int[] comp in all)
+                    triangles += comp.Length;
+                if (triangles == Mesh.TriangleCount) {
+                    ScaleDisparity += all.Count;
+                    KeptWhenEmptied += all.Count;
+                    return 0;
+                }
             }
-            foreach (int[] comp in remove) {
-                foreach (int t in comp)
+            if (inverted != null) {
+                // (the nesting is judged on the mesh without the edited components that go, as they are removed before: a
+                // tiny solid that encloses a residue does not make it a cavity; a copy with the same ids. Only the
+                // components it flags as inside out go. Since #1216 fewer edited components go, which changes the nesting
+                // depth of what they enclose: a residue goes only if it is inside out both without the components that go
+                // now and without those the rule before #1216 removed, so that nothing goes that stayed before)
+                bool same = remove.Count == before1216.Count;
+                var old = new HashSet<int[]>(same ? new List<int[]>() : flagged_inverted(inverted, before1216, null));
+                var flaggedInfos = new List<RemovedComponentInfo>();
+                foreach (int[] comp in flagged_inverted(inverted, remove, null))
+                    if (same || old.Contains(comp)) {
+                        remove.Add(comp);
+                        flaggedInfos.Add(invertedInfos[inverted.IndexOf(comp)]);
+                    }
+                infos.AddRange(flaggedInfos);
+            }
+            for (int i = 0; i < remove.Count; ++i) {
+                foreach (int t in remove[i])
                     remove_triangle(t, true);
-                count += comp.Length;
+                count += remove[i].Length;
                 RemovedComponents++;
+                RemovedComponentInfos.Add(infos[i]);
+                if (infos[i].Resolvable)
+                    RemovedResolvable++;
             }
             if (count > 0) {
                 RemovedTriangles += count;
@@ -3214,6 +3487,47 @@ namespace g3
                 rebuild_tree();
             }
             return count;
+        }
+
+        // of the tiny inside-out candidates, those that are inside out in the mesh without the components of gone (in the
+        // order of the candidates; found is called with the index of each)
+        List<int[]> flagged_inverted(List<int[]> candidates, List<int[]> gone, Action<int> found)
+        {
+            var rest = new DMesh3(Mesh);
+            foreach (int[] comp in gone)
+                foreach (int t in comp)
+                    rest.RemoveTriangle(t, true);
+            var flagged = new bool[Mesh.MaxTriangleID];
+            foreach (int[] fc in gs.MeshPostRepairCleanup.FindInvertedComponents(rest))
+                foreach (int t in fc)
+                    flagged[t] = true;
+            var result = new List<int[]>();
+            for (int i = 0; i < candidates.Count; ++i)
+                if (flagged[candidates[i][0]]) {
+                    result.Add(candidates[i]);
+                    if (found != null)
+                        found(i);
+                }
+            return result;
+        }
+
+        static RemovedComponentInfo removed_info(int triangles, double area, double volume, double largest, AxisAlignedBox3d bounds, RemovalReasons reason)
+        {
+            double thickness = area > 0 ? 2 * Math.Abs(volume) / area : 0;
+            return new RemovedComponentInfo() { Triangles = triangles, Area = area, Volume = volume, Thickness = thickness, ThicknessUlps = thickness / ulp(largest), Bounds = bounds, Reason = reason };
+        }
+
+        // whether the edits changed the volume of the component by more than a factor 2, or its sign: exact, the volume sum of
+        // the component now against the one measured before the edits (ExactPredicates.VolumeSumsDifferByMoreThan). A sum that
+        // cannot be formed now (a coordinate not finite) counts as changed. The two sums are taken relative to different corners,
+        // which does not matter: the component is closed, and DMesh3 keeps the triangles across every edge consistently
+        // oriented, so the sum is the same for every reference point
+        bool volume_changed(Before b, List<int> comp)
+        {
+            component_arrays(Mesh, comp, out double[] xyz, out int[] corners);
+            if (ExactPredicates.TryVolumeSum6Exact(xyz, corners, out System.Numerics.BigInteger total, out int exponent) == false)
+                return true;
+            return ExactPredicates.VolumeSumsDifferByMoreThan(b.Total, b.Exponent, total, exponent, 1);
         }
 
         /// <summary>
@@ -3231,29 +3545,35 @@ namespace g3
         /// triangles. Not decided (a coordinate or t not finite, t zero or subnormal): false, the sheet stays. (The floor on t breaks the
         /// 2^k invariance only below t of 2^-1022, coordinates of about 1e-100 and smaller; such components are tiny and go as such.)
         /// </summary>
-        internal static bool numerically_zero_volume(DMesh3 mesh, List<int> comp, double volume, double area, double largest, double tripleNorms)
+        internal static bool numerically_zero_volume(DMesh3 mesh, List<int> comp, double volume, double area, double largest, double tripleNorms, double ulps = 1)
         {
-            double t = ulp(largest) * area;
+            // (ulps: a power of two, so ulps * ulp(largest) is exact; 1 for the rule of #1067, ResolutionUlps and ReportUlps for
+            // those of #1216)
+            return volume_below(mesh, comp, volume, tripleNorms, ulps * ulp(largest) * area);
+        }
+
+        /// <summary>
+        /// whether a closed sheet is thinner than length: 2 |V| &lt; length * area, as numerically_zero_volume decides it (exact for the
+        /// computed threshold; the 2^k scales give the same answer where length scales with them)
+        /// </summary>
+        internal static bool thinner_than(DMesh3 mesh, List<int> comp, double volume, double area, double tripleNorms, double length)
+        {
+            return volume_below(mesh, comp, volume, tripleNorms, length * area);
+        }
+
+        // 2 |V| < t, exactly for the given t (see numerically_zero_volume). The keep shortcut is a floating-point margin that is not
+        // proven; where it were wrong the answer is "not below": the sheet of #1067 stays, with ResolutionUlps the component is
+        // judged by its defects and its volume, with the report thresholds a removal counts as resolvable. All err to the side of
+        // keeping and of reporting
+        static bool volume_below(DMesh3 mesh, List<int> comp, double volume, double tripleNorms, double t)
+        {
             if (!(t >= ExactPredicates.MinNormal) || double.IsInfinity(t) || double.IsNaN(volume))
                 return false;
             double margin = (comp.Count + 16) * 1.1102230246251565e-16 * tripleNorms;
             if (2 * (Math.Abs(volume) - 8 * margin) >= t)
                 return false;
-            var index = new Dictionary<int, int>();
-            var xyz = new List<double>();
-            var corners = new int[3 * comp.Count];
-            for (int i = 0; i < comp.Count; ++i) {
-                Index3i tv = mesh.GetTriangle(comp[i]);
-                for (int k = 0; k < 3; ++k) {
-                    if (index.TryGetValue(tv[k], out int id) == false) {
-                        index[tv[k]] = id = xyz.Count / 3;
-                        Vector3d p = mesh.GetVertex(tv[k]);
-                        xyz.Add(p.x); xyz.Add(p.y); xyz.Add(p.z);
-                    }
-                    corners[3 * i + k] = id;
-                }
-            }
-            return ExactPredicates.TryCompareAbsVolume6(xyz.ToArray(), corners, t, out int sign) && sign < 0;
+            component_arrays(mesh, comp, out double[] xyz, out int[] corners);
+            return ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out int sign) && sign < 0;
         }
     }
 }

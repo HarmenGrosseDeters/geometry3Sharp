@@ -292,8 +292,11 @@ namespace g3
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
         /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents,
-        /// but not all of them where an exact input is itself that thin or tiny: then every one is kept, counted in Rounding.ScaleDisparity (#985);
+        /// keep a sliver or were edited and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, if they were thinner than
+        /// 4 units in the last place of their largest coordinate, keep a defect, or had their volume changed by more than a factor 2 by the
+        /// edits (#1216; a thin solid the edits left as it was stays). They are counted in Rounding.RemovedComponents and listed in
+        /// Rounding.RemovedComponentInfos; a removal, for one of the last two reasons, of a component of at least 256 ulps and 1e-3 of the bound (Rounding.RemovedResolvable) makes the result not
+        /// clean, so with StrictRounding the run fails. Not all of them go where an exact input is itself that thin or tiny: then every one is kept, counted in Rounding.ScaleDisparity (#985);
         /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
         /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
@@ -853,6 +856,7 @@ namespace g3
                 Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips + Rounding.VertexRemovals;
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
+                Counts["rounding_removed_resolvable"] = Rounding.RemovedResolvable;
                 Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
                 Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
                 Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
@@ -860,12 +864,13 @@ namespace g3
                 Counts["rounding_outside_range"] = Rounding.OutsideRange ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity){9}",
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity); {10} components removed that their coordinates resolve (still defective, or changed by the repair){9}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
                         Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
                         Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
                         (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "")
-                        + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""));
+                        + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""),
+                        Rounding.RemovedResolvable);
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
