@@ -83,8 +83,9 @@ Fields (p = 2 pi x / L): gyroid `sin x cos y + sin y cos z + sin z cos x`; P `co
 `sin x sin y sin z + sin x cos y cos z + cos x sin y cos z + cos x cos y sin z`; Neovius
 `3(cos x + cos y + cos z) + 4 cos x cos y cos z`; I-WP `2(cos x cos y + cos y cos z + cos z cos x) - (cos 2x + cos 2y + cos 2z)`; Lidinoid
 `0.5 (sin 2x cos y sin z + sin 2y cos z sin x + sin 2z cos x sin y) - 0.5 (cos 2x cos 2y + cos 2y cos 2z + cos 2z cos 2x) + 0.15`
-(the nodal approximation as given by Al-Ketan & Abu Al-Rub 2019; the constant 0.15 puts the zero set on the Lidinoid; the
-formula is invariant under the cyclic permutation of the axes and even under the central inversion; it has no mirror
+(the nodal approximation as given by Al-Ketan & Abu Al-Rub 2019, constant +0.15 included, checked against open-access works that
+cite it; like every nodal formula it approximates the minimal surface, and the source does not say that the constant puts the
+zero set exactly on it; `f < 0` covers 38.4 % of the cell at the constant 0.15, 50 % needs about 0.006; the formula is invariant under the cyclic permutation of the axes and even under the central inversion; it has no mirror
 or axis swap symmetry). The zero set depends on the constant: other implementations write the same terms without the two factors 0.5 and the constant +0.3, which is
 the same surface. `f < 0` covers about 38 % of the cell, so the zero set is not volume-balanced and the low and high skeletal styles give
 different shapes; the volume fraction comes from the quantile table, not from the constant. Gradient bound for Enclosure: `d/dx = cos 2x cos y sin z + 0.5 sin 2y cos z cos x
