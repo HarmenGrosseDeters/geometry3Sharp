@@ -277,13 +277,19 @@ namespace geometry3Sharp.Tests
             Assert.True(Vertices(box).SetEquals(Vertices(r.Mesh)));
         }
 
-        // more than 64 components are pieces, not parts: nothing passes
+        // more than 64 components are pieces, not parts: no part passes through on its own; a whole input that is clean still is returned as it is (#1337)
         [Fact]
-        public void ManyComponents_NoPassThrough()
+        public void ManyComponents_NoPartPassThrough_CleanWholeIsUnchanged()
         {
             var parts = new List<DMesh3>();
             for (int i = 0; i < 70; ++i)
                 parts.Add(new TrivialBox3Generator() { Box = new Box3d(new Vector3d(10 * i, 0, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh());
+            DMesh3 clean = Union(parts.ToArray());
+            var all = new MeshRobustRepair(new DMesh3(clean));
+            Assert.True(all.Apply());
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, all.ResultPath);
+            Assert.Equal(clean.TriangleCount, all.PassedThroughTriangles);
+            parts[0] = WithHole(parts[0]);
             var r = new MeshRobustRepair(Union(parts.ToArray()));
             r.Apply();
             Assert.Equal(0, r.PassedThroughTriangles);
