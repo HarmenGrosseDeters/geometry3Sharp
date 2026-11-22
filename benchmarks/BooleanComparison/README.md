@@ -1234,6 +1234,27 @@ The result files of base and new are byte-identical for all four cells (`cmp`), 
 open stage (-8 to -19 %), below the 5 % bound of the whole operation, as expected; it is not enough for the 10 % bar and was approved as an
 exception by the owner (2026-11-18).
 
+## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
+
+Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)
+(measurement only; all tables and their reading are there). `seam-levers` ([SeamLevers.cs](SeamLevers.cs)) builds two procedural
+closed tubes that cross in a seam of fixed size, with the operand size set by `--half`, and prints one JSON line per
+measurement; with `--cases <file>` it runs the same parts on pairs of case directories (A.off / B.off, eg the T6 set):
+
+| part | what it measures |
+|---|---|
+| `boolean` | `ExactMeshBoolean` with its phase timers; the contact count by dictionary against a flat table; with `--local-rounding` the candidate pairs of the rounding's first search with a tree of all result triangles (today) against a tree of the new triangles only (the numbers of pairs are compared) |
+| `arrangement` | `ExactMeshArrangement` with and without the operand self-join, for the pair and for each operand |
+| `traversal` | the box-tree work alone: build, self-join traversal, queries of A in B |
+| `near` | the triangles whose box meets a box of the other operand, and the time to find them |
+| `stamp` | hashing an operand's vertices and triangles (64-bit mix, SHA-256) |
+| `drop` | (only when named) a box united with a disjoint cube of edge 2^-k: whether SafeRounding's removal of tiny components drops the untouched cube |
+
+Tables: `python3 perf/seam_levers_report.py phases|seam|selfjoin|tree|local <rows>...` (tests: `test_seam_levers.py`).
+Raw rows of the study (no meshes, case names only): [perf/seam_levers_2026-11-22/](perf/seam_levers_2026-11-22/). Headline: a union
+of two tubes of 634k triangles in all, with 806 of them split, takes 2.47 s at 1 thread and 1.37 s at 4 on the 4-vCPU
+container; the same seam between tubes of 40k triangles 0.25 s and 0.09 s.
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,

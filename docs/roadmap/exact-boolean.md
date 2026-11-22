@@ -847,6 +847,16 @@ whole checker as built 16-570 times), estimates a certified user mode at about 3
 the coplanar clip coordinates already exact in the boolean and in `IntrTriangle3Triangle3` (open only in the legacy
 `IntrTriangle2Triangle2`). Options are with the owner; nothing is scheduled.
 
+**Speed levers under the full guarantees: study (owner go for a study 2026-11-22; nothing scheduled, every lever needs the owner's go).**
+[EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md), probes `BooleanComparison seam-levers`.
+On large operands with a small seam (procedural tubes, 634k triangles) 90-93 % of a union is work on unchanged triangles, and
+the rounding is the largest part of it. Ranked: a shared counter in the rounding's pair search (−4 % at 4 threads on that
+input); the rounding without a tree of all result triangles (prototype, the same number of candidate pairs: at most −11 % on the seam union
+and −3.9 % on T6 at 1 thread, −2.8 % on T6 if the tree is simply built on the first edit) and then its setup scans; the serial tail (at most −12 % on T6 at 4 threads); EMBER lever 2
+with a content stamp (0 on raw single booleans, at most −24 % / −15 % at 1 / 4 threads on a T6-like step of certified
+operands; the stamp costs 1-2 % of the self-join); pass-through in classification and assembly. Dropped by their bounds:
+wide trees and packetised filters (≤ 4 %). A kernel with a weaker guarantee is an option for the owner only, not proposed.
+
 **Octree-embedded BSPs / EMBER architecture: shelved (owner 2026-11-17).** The ideas that fit are built (the cull of
 T3a #612, the local rays of #633 L2) or bounded (EMBER lever 2, at most about -15 % in chains at 12 threads,
 extrapolated). What is left is a second, quantized
