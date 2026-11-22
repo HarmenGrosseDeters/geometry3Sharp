@@ -9,6 +9,7 @@ on:
     paths:
       - 'tools/DeterminismHarness/**'
       - 'tools/DeterminismReach/**'
+      - 'docs/examples/**'
       - 'benchmarks/CoreMathBenchmark/**'
       - '.github/workflows/determinism.yml'
   workflow_dispatch:
@@ -52,14 +53,6 @@ jobs:
           DOTNET_TieredCompilation=0 $H run --out out/linux-net10-jit-notiered --serial
           DOTNET_JITMinOpts=1 $H run --out out/linux-net10-jit-minopts --serial
           grep -H "^# machine" out/*/summary.txt
-      - name: Static reachability of the sources of differences (tools/DeterminismReach)
-        run: |
-          dotnet build tools/DeterminismReach -c Release
-          R="dotnet tools/DeterminismReach/bin/Release/net10.0/DeterminismReach.dll"
-          $R self-test
-          $R report tools/DeterminismHarness/bin/Release/net10.0/geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides \
-            --harness tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll --tsv out/reach.tsv
-          python3 -m unittest discover -s tools/DeterminismHarness -p 'test_scope_report.py'
       - name: Cost of the correctly rounded CoreMath (benchmarks/CoreMathBenchmark)
         run: |
           dotnet build benchmarks/CoreMathBenchmark -c Release
@@ -71,6 +64,15 @@ jobs:
       # (after the upload: a difference fails this job, and the traces are still there for the comparison's diagnosis)
       - name: Schedule adversary (gParallel's loops backwards and in seeded permutations)
         run: dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll adversary --seeds 5
+      # (after the upload and the adversary: a failure here does not cost the traces)
+      - name: Static reachability of the sources of differences (tools/DeterminismReach)
+        run: |
+          dotnet build tools/DeterminismReach -c Release
+          R="dotnet tools/DeterminismReach/bin/Release/net10.0/DeterminismReach.dll"
+          $R self-test
+          $R report tools/DeterminismHarness/bin/Release/net10.0/geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides \
+            --harness tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll
+          python3 -m unittest discover -s tools/DeterminismHarness -p 'test_scope_report.py'
 
   # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
   # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
@@ -111,7 +113,9 @@ jobs:
           dotnet build tools/DeterminismHarness -c Release -f net48
           tools/DeterminismHarness/bin/Release/net48/DeterminismHarness.exe run --out out/${{ matrix.name }}-net48-parallel
           tools/DeterminismHarness/bin/Release/net48/DeterminismHarness.exe run --out out/${{ matrix.name }}-net48-serial --serial
+      # (always: the net10.0 traces of a leg whose net48 step failed are still compared)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: traces-${{ matrix.name }}
           path: out

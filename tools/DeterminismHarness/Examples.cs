@@ -71,7 +71,7 @@ namespace DeterminismHarness
         {
             Type t = p.ParameterType; string n = p.Name.ToLowerInvariant();
             value = null;
-            if (t.IsEnum) { value = enumValue ?? Enum.GetValues(t).GetValue(0); return true; }
+            if (t.IsEnum) { value = (enumValue != null && enumValue.GetType() == t) ? enumValue : Enum.GetValues(t).GetValue(0); return true; }
             if (t == typeof(DMesh3)) {
                 // (the second mesh of a method overlaps the first)
                 value = meshIndex == 0 ? Inputs.BumpySphere(8) : Inputs.Sphere(new Vector3d(0.6, 0.2, 0.1), 0.7, 6);
@@ -151,20 +151,53 @@ namespace DeterminismHarness
             int IEqualityComparer<object>.GetHashCode(object o) { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(o); }
         }
 
-        const int MaxDepth = 3, MaxElements = 100000;
+        const int MaxDepth = 6, MaxElements = 100000;
 
-        // timings, counters of work and memory, and free text are outside the observable result (DETERMINISM_PROOF.md section 2)
-        static readonly string[] Diagnostic = { "second", "millisecond", "elapsed", "time", "timing", "stat", "diagnostic", "phase", "memory",
-            "alloc", "profile", "message", "error", "reason", "log", "text", "name", "path", "description" };
+        // Timings, counters of work and memory, and free text are outside the observable result (DETERMINISM_PROOF.md
+        // section 2). A member is left out when one of the words of its name (split at capitals) is in DiagnosticWords,
+        // or its last word is "Time" (SolveTime, but not TimeOfImpact or TimeStep), or it is a string whose name has a
+        // word of TextWords (messages; their wording may carry numbers in the runtime's format). Whole words only:
+        // Status, RMSError, VertexThickness, TopologyChanges and the like are results.
+        static readonly HashSet<string> DiagnosticWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            "Seconds", "Milliseconds", "Ms", "Elapsed", "Ticks", "Timing", "Timings", "Stats", "Diagnostic", "Diagnostics",
+            "Memory", "Bytes", "Allocated", "Allocations", "Profile", "Profiler", "Stopwatch" };
+        static readonly HashSet<string> TextWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            "Message", "Messages", "Error", "Reason", "Warning", "Warnings", "Log", "Description", "Diagnosis" };
 
         // counters documented as approximate: PointCloudSurface.BandNodes ("two threads may evaluate the same node, so it
         // differs a little from run to run (the mesh does not)")
         static readonly string[] ApproximateCounters = { "BandNodes" };
 
-        static bool IsDiagnostic(string member)
+        internal static List<string> Words(string member)
         {
-            string n = member.ToLowerInvariant();
-            return Diagnostic.Any(d => n.Contains(d)) || ApproximateCounters.Contains(member);
+            var words = new List<string>();
+            int start = 0;
+            for (int i = 1; i <= member.Length; ++i) {
+                // a word ends before a capital that follows a lower-case letter or digit, or that starts a lower-case run (RMSError: RMS, Error)
+                bool cut = i == member.Length || member[i] == '_'
+                    || (char.IsUpper(member[i]) && (!char.IsUpper(member[i - 1]) || (i + 1 < member.Length && char.IsLower(member[i + 1]))));
+                if (!cut) continue;
+                if (i > start) words.Add(member.Substring(start, i - start));
+                start = (i < member.Length && member[i] == '_') ? i + 1 : i;
+            }
+            return words;
+        }
+
+        internal static bool IsDiagnostic(string member, Type type)
+        {
+            if (ApproximateCounters.Contains(member)) return true;
+            List<string> words = Words(member);
+            if (words.Count == 0) return false;
+            if (words.Any(w => DiagnosticWords.Contains(w))) return true;
+            if (words.Count > 1 && string.Equals(words[words.Count - 1], "Time", StringComparison.OrdinalIgnoreCase)) return true;
+            return type == typeof(string) && words.Any(w => TextWords.Contains(w));
+        }
+
+        static void Skipped(Trace t, string label, string why)
+        {
+            t.Section("not-traced"); AddString(t, label + ": " + why);
+            string note = "not traced: " + label + " (" + why + ")";
+            if (!t.Notes.Contains(note) && t.Notes.Count < 40) t.Notes.Add(note);
         }
 
         static void AddString(Trace t, string s)
@@ -179,7 +212,8 @@ namespace DeterminismHarness
         /// Traces a value under a label (the member path): numbers, enums, strings (hashed), meshes, the g3 value types by
         /// their fields, sequences element by element (dictionaries in the order of their keys where the keys are numbers or
         /// strings, else in enumeration order, which is then part of the result), and other objects of the library or the
-        /// examples by their public fields and properties in the order of their names, to MaxDepth.
+        /// examples (and tuples) by their public fields and properties in the order of their names, to MaxDepth. A BCL object it
+        /// does not know and a value below MaxDepth go to the section "not-traced" and a note.
         /// </summary>
         static void Add(Trace t, string label, object v, int depth, HashSet<object> visited)
         {
@@ -193,8 +227,11 @@ namespace DeterminismHarness
             if (type.IsEnum) { t.Add(Convert.ToInt64(v, CultureInfo.InvariantCulture)); return; }
             if (type.IsPrimitive) { t.Add(v is ulong ul ? (long)ul : Convert.ToInt64(v, CultureInfo.InvariantCulture)); return; }
             if (v is DMesh3 mesh) { if (visited.Add(mesh)) t.Add(mesh, label); else t.Add(-2); return; }
+            if (v is System.Numerics.BigInteger big) { foreach (byte x in big.ToByteArray()) t.Add((int)x); return; }
+            if (v is decimal dec) { foreach (int x in decimal.GetBits(dec)) t.Add(x); return; }
             if (v is Delegate || v is Type || v is MemberInfo || v is System.Threading.CancellationToken) return;
-            if (depth > MaxDepth) return;
+            // (what the trace does not follow is counted in the trace and named in a note, so that it is not skipped silently)
+            if (depth > MaxDepth) { Skipped(t, label, "deeper than " + MaxDepth + " levels"); return; }
             if (!type.IsValueType && !visited.Add(v)) { t.Add(-2); return; }
             if (v is IDictionary dict) {
                 var keys = dict.Keys.Cast<object>().ToList();
@@ -211,15 +248,17 @@ namespace DeterminismHarness
                 return;
             }
             string ns = type.Namespace ?? "";
-            if (!(ns == "g3" || ns == "gs" || ns.StartsWith("g3.", StringComparison.Ordinal))) return;       // (BCL objects: not followed)
+            bool tuple = type.IsGenericType && (type.FullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal)
+                || type.FullName.StartsWith("System.Tuple`", StringComparison.Ordinal) || type.GetGenericTypeDefinition() == typeof(KeyValuePair<,>));
+            if (!(tuple || ns == "g3" || ns == "gs" || ns.StartsWith("g3.", StringComparison.Ordinal))) { Skipped(t, label, "a " + type.FullName); return; }
             foreach (FieldInfo fi in type.GetFields(BindingFlags.Public | BindingFlags.Instance).OrderBy(x => x.Name, StringComparer.Ordinal)) {
-                if (IsDiagnostic(fi.Name)) continue;
+                if (IsDiagnostic(fi.Name, fi.FieldType)) continue;
                 Add(t, label + "." + fi.Name, fi.GetValue(v), depth + 1, visited);
             }
             // (properties of the g3 value types are derived values, eg Vector3d.Normalized: the fields are the value)
-            if (type.IsValueType) return;
+            if (type.IsValueType && !tuple) return;
             foreach (PropertyInfo pi in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).OrderBy(x => x.Name, StringComparer.Ordinal)) {
-                if (!pi.CanRead || pi.GetIndexParameters().Length != 0 || IsDiagnostic(pi.Name)) continue;
+                if (!pi.CanRead || pi.GetIndexParameters().Length != 0 || IsDiagnostic(pi.Name, pi.PropertyType)) continue;
                 object pv;
                 try { pv = pi.GetValue(v, null); }
                 catch (TargetInvocationException e) { t.Section(label + "." + pi.Name + ".threw"); AddString(t, (e.InnerException ?? e).GetType().FullName); continue; }

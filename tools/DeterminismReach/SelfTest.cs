@@ -27,6 +27,19 @@ namespace DeterminismReach
         public class ShapeDerived : ShapeBase { public override double Area() { return Math.Tanh(1); } }
         public class UsesShapeBase { public double Run(ShapeBase s) { return s.Area(); } }
 
+        // what the runtime and the BCL call back: static constructors, iterators, comparers, ToString
+        public class ViaStaticConstructor { public double Run() { return Table.Value; } static class Table { public static readonly double Value = Math.Exp(2); } }
+        public class OwnStaticConstructor { static readonly double v = Math.Log10(5); public double Run() { return v; } }
+        public class ViaIterator { public double Run() { double s = 0; foreach (double x in Items()) s += x; return s; } static IEnumerable<double> Items() { yield return Math.Sin(1); } }
+        public class ViaComparable { public void Run(Key[] keys) { Array.Sort(keys); } public struct Key : IComparable<Key> { public double V; public int CompareTo(Key o) { return Math.Atan(V).CompareTo(o.V); } } }
+        public class ViaToString { public string Run() { return string.Concat(new Named()); } class Named { public override string ToString() { return Math.Cos(1).ToString(); } } }
+        public class ViaGenericArgument { public int Run() { return Enumerable.Empty<Key2>().OrderBy(k => k).Count(); } struct Key2 : IComparable<Key2> { public int CompareTo(Key2 o) { return (int)Math.Sinh(1); } } }
+        public class ViaExplicitOutsideInterface { public object Run() { return new Item(); } class Item : IComparable { int IComparable.CompareTo(object o) { return (int)Math.Tanh(1); } } }
+        // inherited public methods are part of a type's surface
+        public class LibmBase { public double Angle(double x) { return Math.Acos(x); } }
+        public class InheritsLibm : LibmBase { public double Other() { return 1; } }
+        public class FloatConstant { public float Half() { return 0.5f; } }
+
         // dynamic dispatch: found by cha only
         public class Circle : IShape { public double Area() { return Math.Tan(1); } }
         public class Square : IShape { public double Area() { return 4; } }
@@ -89,6 +102,16 @@ namespace DeterminismReach
             expect("ViaGeneric", "libm", "libm");
             expect("ViaGenericMethod", "libm", "libm");
             expect("UsesShapeBase", "", "libm");
+            expect("ViaStaticConstructor", "libm", "libm");
+            expect("OwnStaticConstructor", "libm", "libm");
+            expect("ViaIterator", "libm", "libm");
+            expect("ViaComparable", "libm,sort", "libm,sort");
+            expect("ViaToString", "libm,text", "libm,text");
+            expect("ViaGenericArgument", "libm", "libm");
+            expect("ViaExplicitOutsideInterface", "libm", "libm");
+            expect("InheritsLibm", "libm", "libm");
+            expect("LibmBase", "libm", "libm");
+            expect("FloatConstant", "float", "float");
             expect("UsesShape", "", "libm");
             expect("UsesBase", "", "libm");
             expect("UsesConstrained", "", "libm");

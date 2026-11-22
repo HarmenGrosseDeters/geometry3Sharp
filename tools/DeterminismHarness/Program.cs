@@ -86,11 +86,11 @@ namespace DeterminismHarness
                 // runs serially in the order under test)
                 Trace reference = RunCase(c, true, 0, out Exception error, false);
                 if (error != null) { Console.WriteLine(c.Name + "\tERROR\t" + error.GetType().Name + ": " + error.Message.Replace('\n', ' ')); failed++; continue; }
-                string verdict = null;
+                string verdict = null; bool threw = false;
                 foreach (int order in orders) {
                     Trace t = RunCase(c, true, order, out error, false);
                     string name = (order == -1) ? "backwards" : "seed " + order;
-                    if (error != null) { verdict = name + ": " + error.GetType().Name + ": " + error.Message.Replace('\n', ' '); break; }
+                    if (error != null) { verdict = name + ": " + error.GetType().Name + ": " + error.Message.Replace('\n', ' '); threw = true; break; }
                     int k = 0, m = Math.Min(t.Values.Count, reference.Values.Count);
                     while (k < m && t.Values[k] == reference.Values[k]) ++k;
                     if (k == m && t.Values.Count == reference.Values.Count) continue;
@@ -103,6 +103,7 @@ namespace DeterminismHarness
                 bool isKnown = KnownOrderDependent.TryGetValue(c.Name, out string finding);
                 if (verdict == null && isKnown) { differ++; Console.WriteLine(c.Name + "\tNO LONGER DIFFERS\tremove it from KnownOrderDependent (" + finding + ")"); }
                 else if (verdict == null) { same++; Console.WriteLine(c.Name + "\tsame\t" + reference.Values.Count); }
+                else if (threw) { failed++; Console.WriteLine(c.Name + "\tERROR\t" + verdict); }
                 else if (isKnown) { known++; Console.WriteLine(c.Name + "\tKNOWN\t" + verdict + "; " + finding); }
                 else { differ++; Console.WriteLine(c.Name + "\tDIFFERS\t" + verdict); }
             }

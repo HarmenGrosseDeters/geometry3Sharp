@@ -34,14 +34,22 @@ Added for the cross-runtime study ([DETERMINISM_CROSS_RUNTIME_2026-11.md](../../
   makes the case record `unsupported` with a note, so a new example shows up in the comparison. The results (the return value,
   `out` parameters, meshes changed in place) are traced by reflection: numbers, enums, strings as an FNV-1a hash, meshes, the `g3`
   value types by their fields, sequences element by element, other library objects by their public fields and properties in
-  the order of their names, three levels deep. Members whose name marks a timing, a counter of work or free text
-  (`Seconds`, `Stats`, `Message`, ...) are left out, and so is `PointCloudSurface.BandNodes`, documented as approximate.
-- **`generators.*`**: every public `MeshGenerator` with a parameterless constructor, with its defaults.
+  the order of their names, six levels deep; `BigInteger`, `decimal` and tuples are traced by value. A member is left out
+  when a whole word of its name marks a timing or a counter of work (`Seconds`, `Elapsed`, `Stats`, `Bytes`, ..., or a last
+  word `Time`), or when it is a string named like a message (`Error`, `Reason`, `Message`, ...); `Status`, `RMSError`,
+  `TimeOfImpact` and the like are results. `PointCloudSurface.BandNodes`, documented as approximate, is left out too. What
+  the trace cannot follow (another BCL object, a value below the depth limit) is counted in the section `not-traced` and
+  named in a note of the run, so nothing is skipped silently.
+- **`generators.*`**: every public `MeshGenerator` with a parameterless constructor, with its defaults. Six of the 18 need
+  input that the defaults do not have (a curve, a polygon: the two revolve generators, `PointSplatsGenerator`,
+  `TriangulatedPolygonGenerator`, `TubeGenerator`, `VerticalGeneralizedCylinderGenerator`) and record only the exception
+  type; the note of the case says so.
 - **`boolean.open-winding`** (`CrossRuntime.cs`): a Boolean with an open input of more than 1000 boundary segments, the only case
   that reaches the hierarchical winding number, whose admission bound calls the platform `Math.Acos / Asin / Cos`.
 - **`winding.values`**: raw `DMeshAABBTree3.FastWindingNumber` / `WindingNumber` values (they end in `Math.Atan2`) and the
   inside decisions made from them.
-- **`probe.libm-constfold`** (a transcendental function of a constant against the same call on a value the JIT cannot see),
+- **`probe.libm-constfold`** (a transcendental function of a constant against the same call on a value the JIT cannot see,
+  in a method compiled with full optimization and in one compiled without),
   **`probe.linq-sum`** (LINQ `Sum / Average / Min / Max` against a loop), **`probe.round-remainder`** (`Math.Round` with digits and
   midpoint modes, `%`, `IEEERemainder`).
 

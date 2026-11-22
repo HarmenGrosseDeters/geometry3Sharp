@@ -3,12 +3,17 @@
 //   DeterminismReach report <library.dll> [--docs <dir or file> ...] [--harness <harness.dll>] [--tsv <file>] [--why <Type> <source>]
 //   DeterminismReach self-test
 // The call graph is read from the IL of the compiled library (Mono.Cecil). An edge is a call, a constructor call or a
-// method whose address is taken (a delegate or lambda that is created counts as called). Two graphs are kept:
+// method whose address is taken (a delegate or lambda that is created counts as called). A method that touches a type
+// (a call, a constructor, a field, a conversion, a local of that type) also reaches the type's static constructor and
+// its implementations of virtual members declared outside the library (IEnumerator.MoveNext of an iterator,
+// IComparable.CompareTo, Equals, GetHashCode, ToString, Dispose): the BCL calls those back. Two graphs are kept:
 //   static: a virtual or interface call reaches only the method named at the call site
 //   cha:    it also reaches every override and implementation in the library (class hierarchy analysis)
 // "static" is a lower bound of what an operation can reach (it misses dynamic dispatch), "cha" an upper bound for code
 // inside the library (it counts every implementation of an interface, also those the operation is never given). Neither
-// follows a delegate that a caller outside the library passes in, or reflection.
+// follows a delegate that a caller outside the library passes in, or reflection; hash-enum does not see an enumeration
+// by LINQ or through IEnumerable, text does not see string.Format or interpolation, float sees conversions and
+// constants only (README, "Limits").
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -81,13 +86,24 @@ namespace DeterminismReach
             int n = Methods.Count;
             Static = new List<int>[n]; Cha = new List<int>[n]; Direct = new HashSet<string>[n];
             Dictionary<MethodDefinition, List<MethodDefinition>> implementations = Implementations();
+            var callbacks = new Dictionary<TypeDefinition, List<int>>();
             for (int i = 0; i < n; ++i) {
                 Static[i] = new List<int>(); Cha[i] = new List<int>(); Direct[i] = new HashSet<string>(StringComparer.Ordinal);
                 MethodDefinition m = Methods[i];
                 if (terminal(m.DeclaringType)) { Direct[i].Add(Sources.CoreMath); continue; }
                 if (!m.HasBody) continue;
+                var touched = new HashSet<TypeDefinition>();
+                foreach (ParameterDefinition p in m.Parameters) Touch(p.ParameterType, touched);
+                Touch(m.ReturnType, touched);
                 foreach (Instruction ins in m.Body.Instructions) {
                     if (ins.OpCode == OpCodes.Conv_R4 || ins.OpCode == OpCodes.Ldc_R4) Direct[i].Add(Sources.Float);   // R2
+                    if (ins.Operand is TypeReference tr) Touch(tr, touched);
+                    else if (ins.Operand is FieldReference fr) Touch(fr.DeclaringType, touched);
+                    else if (ins.Operand is MethodReference mr) {
+                        Touch(mr.DeclaringType, touched);
+                        // (Array.Sort<Key>: the BCL calls Key.CompareTo)
+                        if (mr is GenericInstanceMethod gm) foreach (TypeReference a in gm.GenericArguments) Touch(a, touched);
+                    }
                     if (!(ins.Operand is MethodReference r)) continue;
                     MethodDefinition d = Resolve(r);
                     if (d == null) {
@@ -104,7 +120,67 @@ namespace DeterminismReach
                     if (dispatch && d.IsVirtual && implementations.TryGetValue(d, out List<MethodDefinition> impl))
                         foreach (MethodDefinition o in impl) Cha[i].Add(Index[o]);
                 }
+                foreach (TypeDefinition t in touched) {
+                    if (t == m.DeclaringType && m.IsConstructor && m.IsStatic) continue;
+                    if (!callbacks.TryGetValue(t, out List<int> list)) callbacks[t] = list = Callbacks(t);
+                    Static[i].AddRange(list); Cha[i].AddRange(list);
+                }
             }
+        }
+
+        void Touch(TypeReference t, HashSet<TypeDefinition> touched)
+        {
+            if (t == null) return;
+            if (t is GenericInstanceType g) foreach (TypeReference a in g.GenericArguments) Touch(a, touched);
+            if (t is TypeSpecification spec && !(t is GenericInstanceType)) { Touch(spec.ElementType, touched); return; }
+            if (t is GenericParameter) return;
+            TypeDefinition d = SafeResolve(t);
+            if (d != null) touched.Add(d);
+        }
+
+        // what the runtime or the BCL may call on a type that a method touches: its static constructor, and its methods
+        // that fill a virtual slot declared outside the module (an interface of the BCL, or a virtual method of object)
+        List<int> Callbacks(TypeDefinition t)
+        {
+            var list = new List<int>();
+            foreach (MethodDefinition m in t.Methods) {
+                if (m.IsConstructor && m.IsStatic) { list.Add(Index[m]); continue; }
+                if (!m.IsVirtual || m.IsAbstract) continue;
+                bool external = false;
+                foreach (MethodReference o in m.Overrides) if (SafeResolve(o) == null) external = true;      // explicit implementation of an outside interface
+                if (!external) {
+                    // an outside interface or base class of t (or of its bases) declares a member of this name and parameter count
+                    for (TypeDefinition c = t; c != null && !external; c = SafeResolve(c.BaseType)) {
+                        foreach (InterfaceImplementation ii in c.Interfaces)
+                            if (SafeResolve(ii.InterfaceType) == null && Declares(ii.InterfaceType, m)) external = true;
+                        if (c.BaseType != null && SafeResolve(c.BaseType) == null && DeclaresInHierarchy(c.BaseType, m)) external = true;
+                    }
+                }
+                if (external) list.Add(Index[m]);
+            }
+            return list;
+        }
+
+        static bool Declares(TypeReference outside, MethodDefinition m)
+        {
+            TypeDefinition d;
+            try { d = outside.Resolve(); } catch (AssemblyResolutionException) { d = null; }
+            // (an outside type that cannot be loaded: assume it declares the member)
+            if (d == null) return true;
+            if (d.Methods.Any(x => x.Name == m.Name && x.Parameters.Count == m.Parameters.Count)) return true;
+            return d.Interfaces.Any(i => Declares(i.InterfaceType, m));
+        }
+
+        static bool DeclaresInHierarchy(TypeReference outside, MethodDefinition m)
+        {
+            for (TypeReference c = outside; c != null;) {
+                TypeDefinition d;
+                try { d = c.Resolve(); } catch (AssemblyResolutionException) { return true; }
+                if (d == null) return true;
+                if (d.Methods.Any(x => x.IsVirtual && x.Name == m.Name && x.Parameters.Count == m.Parameters.Count)) return true;
+                c = d.BaseType;
+            }
+            return false;
         }
 
         public static IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module)
@@ -223,10 +299,22 @@ namespace DeterminismReach
             return found;
         }
 
-        /// <summary>The public surface of a type: its public and protected methods, constructors and accessors.</summary>
+        /// <summary>
+        /// The public surface of a type: its public and protected methods, constructors and accessors, and the public
+        /// and protected methods it inherits from base classes of the module.
+        /// </summary>
         public static IEnumerable<MethodDefinition> PublicMethods(TypeDefinition t)
         {
-            return t.Methods.Where(m => m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly);
+            for (TypeDefinition c = t; c != null;) {
+                foreach (MethodDefinition m in c.Methods)
+                    if (m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly) {
+                        if (c != t && m.IsConstructor && !m.IsStatic) continue;      // (a base constructor is reached through the type's own)
+                        yield return m;
+                    }
+                TypeDefinition b = null;
+                if (c.BaseType != null) try { b = c.BaseType.Resolve(); } catch (AssemblyResolutionException) { }
+                c = (b != null && b.Module == t.Module) ? b : null;
+            }
         }
     }
 

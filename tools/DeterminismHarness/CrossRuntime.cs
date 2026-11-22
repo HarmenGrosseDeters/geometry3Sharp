@@ -111,33 +111,69 @@ namespace DeterminismHarness
 
         // A JIT may evaluate a transcendental function of a constant at compile time, with its own library, and the call at
         // run time with the platform's: the same expression could then give two values in one process (and change with the
-        // tier). "equal" is 1 where the folded candidate and the run-time call agree; the values are in the trace as well.
+        // tier). The pairs (the call on a literal, the same call on a value the JIT cannot see) are computed twice: in a
+        // method compiled with full optimization at once (AggressiveOptimization, which skips the tiers; the body is inlined
+        // into it), where the JIT folds what it can, and in one compiled without optimization. "equal" is 1 where the
+        // two values of a pair agree; "optimized-equals-unoptimized" compares the two methods value by value.
         static Trace ProbeConstFold()
         {
+            var optimized = new List<double>(); var plain = new List<double>();
+            FoldOptimized(optimized); FoldUnoptimized(plain);
             var t = new Trace();
-            void pair(double folded, double runtime) { t.Section("value"); t.Add(folded); t.Add(runtime); t.Section("equal"); t.Add(BitConverter.DoubleToInt64Bits(folded) == BitConverter.DoubleToInt64Bits(runtime)); }
-            // (several rounds, so that a tiered JIT has replaced the first code by optimized code)
-            for (int round = 0; round < 200; ++round) {
-                if (round == 1) System.Threading.Thread.Sleep(300);
-                var keep = new Trace(); Trace was = t; if (round != 0 && round != 199) t = keep;
-                pair(Math.Sin(0.7853981633974483), Math.Sin(Opaque(0.7853981633974483)));
-                pair(Math.Cos(1e22), Math.Cos(Opaque(1e22)));
-                pair(Math.Tan(1.5707963267948966), Math.Tan(Opaque(1.5707963267948966)));
-                pair(Math.Exp(0.6931471805599453), Math.Exp(Opaque(0.6931471805599453)));
-                pair(Math.Log(3.0), Math.Log(Opaque(3.0)));
-                pair(Math.Pow(10.0, -5.0), Math.Pow(Opaque(10.0), Opaque(-5.0)));
-                pair(Math.Pow(2.0, 0.5), Math.Pow(Opaque(2.0), Opaque(0.5)));
-                pair(Math.Atan2(1.0, 3.0), Math.Atan2(Opaque(1.0), Opaque(3.0)));
-                pair(Math.Acos(0.3), Math.Acos(Opaque(0.3)));
-                pair(Math.Asin(0.3), Math.Asin(Opaque(0.3)));
-                pair(Math.Sinh(2.5), Math.Sinh(Opaque(2.5)));
-                pair(Math.Cosh(2.5), Math.Cosh(Opaque(2.5)));
-                pair(Math.Log10(7.0), Math.Log10(Opaque(7.0)));
-                pair(Math.Sqrt(2.0), Math.Sqrt(Opaque(2.0)));
-                pair(1.0 / 3.0 * 3.0 - 1.0, Opaque(1.0) / Opaque(3.0) * Opaque(3.0) - Opaque(1.0));
-                t = was;
-            }
+            foreach (List<double> values in new[] { optimized, plain })
+                for (int i = 0; i + 1 < values.Count; i += 2) {
+                    t.Section("value"); t.Add(values[i]); t.Add(values[i + 1]);
+                    t.Section("equal"); t.Add(BitConverter.DoubleToInt64Bits(values[i]) == BitConverter.DoubleToInt64Bits(values[i + 1]));
+                }
+            t.Section("optimized-equals-unoptimized");
+            for (int i = 0; i < optimized.Count; ++i) t.Add(BitConverter.DoubleToInt64Bits(optimized[i]) == BitConverter.DoubleToInt64Bits(plain[i]));
             return t;
+        }
+
+        // ((MethodImplOptions)512 is AggressiveOptimization, which the .NET Framework reference assemblies do not name; the
+        // .NET Framework JIT ignores it and optimizes as always)
+        [MethodImpl((MethodImplOptions)512 | MethodImplOptions.NoInlining)]
+        static void FoldOptimized(List<double> v) { FoldBody(v); }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        static void FoldUnoptimized(List<double> v)
+        {
+            v.Add(Math.Sin(0.7853981633974483)); v.Add(Math.Sin(Opaque(0.7853981633974483)));
+            v.Add(Math.Cos(1e22)); v.Add(Math.Cos(Opaque(1e22)));
+            v.Add(Math.Tan(1.5707963267948966)); v.Add(Math.Tan(Opaque(1.5707963267948966)));
+            v.Add(Math.Exp(0.6931471805599453)); v.Add(Math.Exp(Opaque(0.6931471805599453)));
+            v.Add(Math.Log(3.0)); v.Add(Math.Log(Opaque(3.0)));
+            v.Add(Math.Pow(10.0, -5.0)); v.Add(Math.Pow(Opaque(10.0), Opaque(-5.0)));
+            v.Add(Math.Pow(2.0, 0.5)); v.Add(Math.Pow(Opaque(2.0), Opaque(0.5)));
+            v.Add(Math.Atan2(1.0, 3.0)); v.Add(Math.Atan2(Opaque(1.0), Opaque(3.0)));
+            v.Add(Math.Acos(0.3)); v.Add(Math.Acos(Opaque(0.3)));
+            v.Add(Math.Asin(0.3)); v.Add(Math.Asin(Opaque(0.3)));
+            v.Add(Math.Sinh(2.5)); v.Add(Math.Sinh(Opaque(2.5)));
+            v.Add(Math.Cosh(2.5)); v.Add(Math.Cosh(Opaque(2.5)));
+            v.Add(Math.Log10(7.0)); v.Add(Math.Log10(Opaque(7.0)));
+            v.Add(Math.Sqrt(2.0)); v.Add(Math.Sqrt(Opaque(2.0)));
+            v.Add(1.0 / 3.0 * 3.0 - 1.0); v.Add(Opaque(1.0) / Opaque(3.0) * Opaque(3.0) - Opaque(1.0));
+        }
+
+        // (the same pairs, in the same order, as FoldUnoptimized)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void FoldBody(List<double> v)
+        {
+            v.Add(Math.Sin(0.7853981633974483)); v.Add(Math.Sin(Opaque(0.7853981633974483)));
+            v.Add(Math.Cos(1e22)); v.Add(Math.Cos(Opaque(1e22)));
+            v.Add(Math.Tan(1.5707963267948966)); v.Add(Math.Tan(Opaque(1.5707963267948966)));
+            v.Add(Math.Exp(0.6931471805599453)); v.Add(Math.Exp(Opaque(0.6931471805599453)));
+            v.Add(Math.Log(3.0)); v.Add(Math.Log(Opaque(3.0)));
+            v.Add(Math.Pow(10.0, -5.0)); v.Add(Math.Pow(Opaque(10.0), Opaque(-5.0)));
+            v.Add(Math.Pow(2.0, 0.5)); v.Add(Math.Pow(Opaque(2.0), Opaque(0.5)));
+            v.Add(Math.Atan2(1.0, 3.0)); v.Add(Math.Atan2(Opaque(1.0), Opaque(3.0)));
+            v.Add(Math.Acos(0.3)); v.Add(Math.Acos(Opaque(0.3)));
+            v.Add(Math.Asin(0.3)); v.Add(Math.Asin(Opaque(0.3)));
+            v.Add(Math.Sinh(2.5)); v.Add(Math.Sinh(Opaque(2.5)));
+            v.Add(Math.Cosh(2.5)); v.Add(Math.Cosh(Opaque(2.5)));
+            v.Add(Math.Log10(7.0)); v.Add(Math.Log10(Opaque(7.0)));
+            v.Add(Math.Sqrt(2.0)); v.Add(Math.Sqrt(Opaque(2.0)));
+            v.Add(1.0 / 3.0 * 3.0 - 1.0); v.Add(Opaque(1.0) / Opaque(3.0) * Opaque(3.0) - Opaque(1.0));
         }
 
         // LINQ's Sum / Average / Min / Max of doubles against the plain loop: a BCL that vectorizes them would add in another
