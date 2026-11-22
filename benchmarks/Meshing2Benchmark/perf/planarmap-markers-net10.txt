@@ -1,0 +1,12 @@
+oracle self-check: 481 checks passed
+runtime .NET 10.0.15, 4 cores
+family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,used_vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_used_vertex,delaunay_ms,snap_ms,snap_rounds,snapped_points,verdict
+soup,40,140,0,0.2,0,Success,220,220,427,320,3.4,3.4,0.9,15.47,0.6,,,,VALID (0.1 s)
+soup,40,140,0,0.2,0.0009765625,Success,219,219,425,319,23.1,23.1,7.4,105.45,0.5,14.4,2,219,INVALID: SubsegmentMarker x5; first: SubsegmentMarker: subsegment 39-218 has marker 5; expected 0 (0.3 s)
+soup,40,140,0,0.2,9.5367431640625E-07,Success,220,220,427,320,7.7,7.7,4.0,34.90,0.3,3.9,1,220,VALID (0.3 s)
+soup,125,1752,0,0.5,0,Success,2002,2002,3991,3629,17.1,17.1,9.2,8.56,4.5,,,,VALID (0.8 s)
+soup,125,1752,0,0.5,0.0009765625,Success,1930,1930,3846,3467,228.8,228.8,164.0,118.53,3.3,190.1,2,1930,INVALID: SubsegmentMarker x114; first: SubsegmentMarker: subsegment 1884-1882 has marker 5; expected 0 (3.6 s)
+soup,125,1752,0,0.5,9.5367431640625E-07,Success,2002,2002,3991,3629,191.0,191.0,81.2,95.42,3.5,91.7,1,2002,VALID (3.0 s)
+soup,250,6944,0,1.1,0,Success,7444,7444,14871,14138,65.3,65.3,33.5,8.77,11.2,,,,VALID (2.0 s)
+soup,250,6944,0,1.1,0.0009765625,Success,6870,6869,13723,12891,2261.9,2261.9,1251.6,329.29,14.1,1755.9,2,6870,INVALID: SubsegmentMarker x200; first: SubsegmentMarker: subsegment 3170-3171 has marker 3; expected 0 (24.6 s)
+soup,250,6944,0,1.1,9.5367431640625E-07,Success,7444,7444,14871,14138,650.9,650.9,506.9,87.45,7.3,647.6,1,7444,INVALID: SubsegmentMarker x1; first: SubsegmentMarker: subsegment 1092-1093 has marker 6; expected 0 (25.8 s)
