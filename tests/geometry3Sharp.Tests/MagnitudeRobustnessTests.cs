@@ -174,24 +174,8 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < a.Points.Count; ++i) Assert.Equal(a.Points[i], b.Points[i]);
         }
 
-        [Fact]
-        public void IntrinsicTriangulation_UnitScaleExponent_FollowsTheLongestEdge()
-        {
-            DMesh3 mesh = ShearedGrid();
-            Assert.Equal(IntrinsicTriangulation.EdgeExponent(mesh) + 37, IntrinsicTriangulation.EdgeExponent(Scaled(mesh, 37)));
-            Assert.Equal(new IntrinsicTriangulation(mesh).ScaleExponent + 37, new IntrinsicTriangulation(Scaled(mesh, 37)).ScaleExponent);
-        }
-
-        [Fact]
-        public void IntrinsicTriangulation_LengthDisparity_IsDetected()
-        {
-            // edges 2^-260 of the longest one: the fourth powers of their lengths leave the double range
-            Assert.False(new IntrinsicTriangulation(ShearedGrid()).HasLengthDisparity);
-            Assert.True(new IntrinsicTriangulation(HalfSliver()).HasLengthDisparity);
-        }
-
         // two triangles sharing an edge whose other edges are 2^-260 long
-        static DMesh3 HalfSliver()
+        public static DMesh3 HalfSliver()
         {
             var m = new DMesh3();
             double s = Math.Pow(2, -260);
@@ -314,20 +298,6 @@ namespace geometry3Sharp.Tests
         {
             var g = new MeshGeodesicDistance(HalfSliver()) { IntrinsicDelaunay = false };
             Assert.False(g.Compute(new[] { 0 }));
-        }
-
-        [Fact]
-        public void LengthDisparity_BelowTheSquareRangeOfTheLongestEdge_IsStillDetected()
-        {
-            // an edge 2^-600 of the longest: its square underflows to 0 (the length would read as 0), the disparity must still be seen
-            var m = new DMesh3();
-            double s = Math.Pow(2, -600);
-            m.AppendVertex(Vector3d.Zero); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(1, s, 0)); m.AppendVertex(new Vector3d(1, -s, 0));
-            m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 3, 1);
-            Assert.True(new IntrinsicTriangulation(m).HasLengthDisparity);
-            Assert.True(IntrinsicTriangulation.HasEdgeDisparity(m));
-            Assert.Equal(PolyhedralGeodesicStatus.DegenerateTriangles, new PolyhedralGeodesicDistance(m).Compute(new[] { 0 }));
-            Assert.False(new MeshGeodesicDistance(m).Compute(new[] { 0 }));
         }
 
         // ---------------------------------------------------------------------------------------------- PolyhedralGeodesicDistance
