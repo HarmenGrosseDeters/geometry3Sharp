@@ -203,3 +203,4 @@ is correct behaviour), terrain mutation survivors (#908), the `Acos` of `Terrain
    `Arrangement2d.find_intersecting_edges` (linear scan, TODO; no internal caller) and the bin grid of `MeshInsertUVPolyCurve` (minor).
 5. Mutation gate: the `terrain-overlay` survivors of master run 44013112256 were fixed in #1077 (merged, with the
    `rounding-4` and `rounding-7` ones; Exact Boolean 3.0 gate).
+6. Uncovered line (2026-11-22): the `SlopeViolation` return of the mixed cut+fill composite check in `TerrainSlopeDesign.cs` (after `bad.Count > 0`). It is reachable in principle, by the same mechanism as its covered single-run twin (`TerrainSlopeEarlyRegionCheckTests`): a clipped part of a realized needle gets new corners whose z are rounded again and can fail the exact check; no mixed input has been found. When terrain resumes, a mixed cut+fill needle test covers it (it is not on `unmeasurable_lines.json`).

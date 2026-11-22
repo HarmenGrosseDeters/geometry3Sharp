@@ -585,22 +585,12 @@
   },
   {
     "file": "mesh_ops/TerrainSlopeDesign.cs",
-    "text": "return fail(Statuses.SlopeViolation, FormattableString.Invariant($\"{bad.Count} triangles of the mixed composite's slope region failed the exact check\"));",
-    "after": [
-      "ProblemTriangles = bad;",
-      "if (bad.Count > 0) {"
-    ],
-    "reason": "reached by no input after about an hour of trying (the composite's clipped triangles never fail the exact check that each run already passed on its own pieces); kept as a guard, terrain work is on hold",
-    "approved_in": "#1331"
-  },
-  {
-    "file": "mesh_ops/TerrainSlopeDesign.cs",
     "text": "return fail(Statuses.Failed, FormattableString.Invariant($\"the realized slope surface folds over at edge {e}\"));",
     "after": [
       "if (runs_along(mesh.GetTriangle(et.a), ev.a, ev.b) == runs_along(mesh.GetTriangle(et.b), ev.a, ev.b))",
       "Index2i ev = mesh.GetEdgeV(e);"
     ],
-    "reason": "reached by no input after about an hour of trying (the realized slope surface came out consistently oriented in every attempt); kept as a guard, terrain work is on hold",
+    "reason": "invariant guard, by reading the code, not proven: Realize appends each triangle in the index order of the exact counter-clockwise triangulation of a planar subdivision (append_faces), so two triangles of an interior edge run in opposite directions whatever the rounded positions are (a rounded triangle that flips is caught by the Orient2d check above, not here), and the later edits (collapse, replay, needle flip, stitch) keep the orientation; DMesh3.AppendTriangle does not check orientation, so nothing else guards it; no input reached it in about an hour of trying",
     "approved_in": "#1331"
   }
 ]
