@@ -32,7 +32,7 @@ Need to preserve original triangles?
 
 - **Namespace & classes:** `gs.MeshAutoRepair`, `gs.MeshPostRepairCleanup`
 - **Input / mutability:** Operates on the mesh and produces a compacted mesh in `repair.Mesh` (pass `new DMesh3(mesh)` to keep the original intact; always read `repair.Mesh`).
-- **Guarantees & limits:** Welds coincident cracks, removes duplicate triangles, resolves bowties, fills holes, and optionally cleans up remaining degenerate triangles, folds, and inside-out components (`PostRepairCleanup = true`). Tolerances default to relative mode (`ToleranceMode = Relative`) based on the mesh bounding-box diagonal so results scale cleanly across units and UTM coordinates.
+- **Guarantees & limits:** Welds coincident cracks, removes duplicate triangles, resolves bowties, fills holes, and optionally cleans up remaining degenerate triangles, folds, and inside-out components (`PostRepairCleanup = true`). Tolerances default to relative mode (`ToleranceMode = Relative`) based on the mesh bounding-box diagonal so results scale cleanly across units and UTM coordinates. The cleanup collapses a needle (a triangle with `MaxAspectRatio` above 1000) between two interior vertices onto the end that is a corner or a crease (`CreaseAngleDeg`), else onto the end that keeps the volume best (before: the midpoint, which moved corners by half the edge), and skips it if the discarded vertex would move by more than `MaxCollapseDisplacement` (default 1e-4) of the diagonal. An edge with a boundary vertex keeps that vertex, a boundary edge still collapses to its midpoint.
 - **Example:** [MeshRepairExample.cs](../examples/MeshRepairExample.cs)
 
 ```csharp
