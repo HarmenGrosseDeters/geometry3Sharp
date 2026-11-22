@@ -42,18 +42,32 @@ namespace g3
     /// <summary>
     /// Reads the internal .g3mesh binary format written by <see cref="BinaryG3Writer"/>, appending each stored DMesh3
     /// to the builder. Only the BinaryReader overload is supported (the TextReader overload throws NotSupportedException).
-    /// Read errors throw; StandardMeshReader catches them and returns GenericReaderError.
+    /// Read errors throw; StandardMeshReader catches them and returns GenericReaderError. A vertex with a NaN or infinite
+    /// coordinate returns FileParsingError (unless <see cref="ReadOptions.AllowNonFiniteCoordinates"/> is set).
     /// </summary>
     public class BinaryG3Reader : IMeshReader
     {
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
             int nMeshes = reader.ReadInt32();
+            var meshes = new List<DMesh3>();
             for (int k = 0; k < nMeshes; ++k) {
                 DMesh3 m = new DMesh3();
                 gSerialization.Restore(m, reader);
-                builder.AppendNewMesh(m);
+                // a NaN or infinite vertex coordinate fails here (FileParsingError), like in the other readers, unless
+                // ReadOptions.AllowNonFiniteCoordinates is set
+                if (options == null || options.AllowNonFiniteCoordinates == false) {
+                    foreach (int vid in m.VertexIndices()) {
+                        Vector3d v = m.GetVertex(vid);
+                        if (ReadOptions.RejectsPosition(options, v.x, v.y, v.z))
+                            return ReadOptions.NonFinitePosition(v.x, v.y, v.z);
+                    }
+                }
+                meshes.Add(m);
             }
+            // (appended only when every mesh passed: no partial result on an error)
+            foreach (DMesh3 m in meshes)
+                builder.AppendNewMesh(m);
 
             return new IOReadResult(IOCode.Ok, "");
         }

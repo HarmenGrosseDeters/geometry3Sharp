@@ -156,6 +156,12 @@ namespace gs
         public bool PureQuads = false;
         /// <summary> the outcome of the pure-quad attempt of the last Compute(): NotRequested when PureQuads is false </summary>
         public PureQuadStatus PureQuadStatus = PureQuadStatus.NotRequested;
+        /// <summary>
+        /// DIAGNOSTIC ONLY, of the last Compute() with PureQuads = true (NaN otherwise, and when the attempt ended before or in the flow: an invalid input, a boundary, a failed setup, a flow without a solution): the lattice area of the integer
+        /// map of the pure-quad repair over the geometric area of the input (QuadFlowRepair.AreaRatio): about 1 for a map that covers the surface once, lower for a map
+        /// that lost lattice cells. It is not a fallback reason and does not change PureQuadStatus or Result; the value right after the flow is PureQuadAreaRatioAfterFlow
+        /// </summary>
+        public double PureQuadAreaRatio = double.NaN, PureQuadAreaRatioAfterFlow = double.NaN;
         /// <summary> the detection counters of the last pure-quad attempt: triangles of the repaired integer map with a negative determinant, and extracted quads that face away from the surface </summary>
         public int InvertedTriangles, FlippedQuads;
         /// <summary> seconds of the pure-quad attempt of the last Compute(): the offsets and the flow, then the subdivision and the local repair (the extraction is not counted here) </summary>
@@ -184,7 +190,7 @@ namespace gs
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
             CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
-            PureQuadStatus = PureQuadStatus.NotRequested; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
+            PureQuadStatus = PureQuadStatus.NotRequested; PureQuadAreaRatio = PureQuadAreaRatioAfterFlow = double.NaN; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");
@@ -234,6 +240,7 @@ namespace gs
                 PureQuadRepair = rep;
                 PureQuadStatus = rep.Run();
                 InvertedTriangles = rep.InvertedTriangles; FlippedQuads = rep.FlippedQuads;
+                PureQuadAreaRatio = rep.AreaRatio; PureQuadAreaRatioAfterFlow = rep.AreaRatioAfterFlow;
                 FlowSeconds = rep.FlowSeconds; RepairSeconds = rep.RepairSeconds;
                 if (PureQuadStatus == PureQuadStatus.Success) Result = rep.Result;
             }

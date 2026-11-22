@@ -20,7 +20,7 @@ The net48 target builds on Windows or with `-p:TestNet48=true`.
 
 The workflow `.github/workflows/determinism.yml` runs it on Linux x64 and arm64 (net10.0, parallel twice, serial,
 and with `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 on x64), on Windows x64 (net10.0, net48, net48 as a 32-bit process), on
-Windows arm64 (net10.0 and net48; a measurement, its failure does not stop the comparison) and optionally macOS arm64 and x64,
+Windows arm64 (net10.0 and net48; a standing leg since 2026-11-22: its failure fails the workflow) and optionally macOS arm64 and x64,
 then compares the traces. It is not part of the PR gate: it runs on pull requests that change
 the harness, `benchmarks/CoreMathBenchmark` or the workflow, and on demand.
 
@@ -59,7 +59,8 @@ kernels are on); the workflow also runs the cases with `DOTNET_EnableHWIntrinsic
 matrix of the note (groups of cases against pairs of configurations) from the trace directories of a run.
 
 `adversary` lists a case of `KnownOrderDependent` (`Program.cs`: a known finding, with its reference) as `KNOWN` and does not
-fail on it; it fails when such a case stops differing, so the list only shrinks.
+fail on it; it fails when such a case stops differing, so the list only shrinks. The list is empty since the fix of issue 1314
+(`LaplacianMeshSmoother`, `examples.Smoothing.Laplacian`).
 
 `scope_report.py <build log>` summarizes the G3D diagnostics of a library build with more files in the proof scope (what a
 stage of the determinism proof would have to register). The static counterpart of the cases is

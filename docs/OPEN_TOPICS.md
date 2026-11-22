@@ -1,6 +1,6 @@
 # Open topics
 
-One board of every open topic of geometry3Sharp, one line each, as of 2026-11-21 (Berlin). Open items only: done, closed and
+One board of every open topic of geometry3Sharp, one line each, as of 2026-11-22 (Berlin). Open items only: done, closed and
 rejected items are not listed. Every item in §§2–5 links to a draft plan PR (`plan/*`, holding `docs/plans/<slug>.md`,
 not to be merged as is). Maintenance rule: a session that opens, finishes or changes the state of a topic updates its row
 here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) and the design notes.
@@ -16,12 +16,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Rounding/repair: Thingi10K numbers for the #1096 cases | Procedural answer merged; real meshes not run | Owner: run `ResultVolumeIoU` on a runner or not | [repair](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1246 |
-| Rounding/repair: open inputs, inside / outside across patches | Measured, leaning no-go | Owner: name a use case for an opt-in large-hole label source | [note](design/INSIDE_OUTSIDE_OPEN_INPUTS.md), plan #1247 |
-| Alpha wrap: raw-size budget on by default | Off by default, recipe known (300k, coarsening 1.2) | Owner: want it on? Then one 800 run first | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1248 |
-| Tet: lower limit on `MaxRadiusEdgeRatio` | Work bound built; library limit not built | Owner: 1.5, 1.3 or none | [tet](design/TET_MESHING.md), plan #1249 |
-| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Owner: whether to do it, now that P4(b) is known | [tet](design/TET_MESHING.md), plan #1250 |
-| Tet: 839690 at alpha / 20 needs a boundary change | Beyond the slide cap | Owner: allow a larger boundary move or not | [tet](design/TET_MESHING.md), plan #1251 |
+| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)
@@ -74,7 +69,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 |---|---|---|---|
 | Rounding/repair: practical 3D snap rounding with a guarantee (HP 1) | No guarantee known; plateau variant a no-go; spike 2026-11-22 ([note](research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)): the known guarantee does not give clean results or keep more solids, leaning no build | Study only on a new lead | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1278 |
 | Boolean: open-operand speed, Lévy-style propagation (HP 8) | Correctness fixed (#528); speed open | Speed go; classification design review | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1279 |
-| Alpha wrap: provably valid sharp-feature recovery (HP 4) | Study done 2026-11-22: validity provable without the band (checked operations), recovery only a posteriori; K at 0.945 of the oracle | Owner: options 1-3 of the study | [study](research/PROVABLE_SHARP_WRAP_STUDY.md), [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1280 |
+| Alpha wrap: provably valid sharp-feature recovery (HP 4) | Study done 2026-11-22: validity provable without the band (checked operations), recovery only a posteriori; K at 0.945 of the oracle | Option 1 built 2026-11-22 ([validity theorem](design/ALPHA_WRAP_FEATURE_VALIDITY.md)); option 2 with #1237; option 3 not decided | [study](research/PROVABLE_SHARP_WRAP_STUDY.md), [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1280 |
 | Tet: proven dihedral floor on 100 % of inputs (HP 5, P5(b)) | 498 of 500 at default; no bound. Spike 2026-11-22: a uniform lattice proves 9.31° (10.78° per tet, validity then checked per run) with a rounded boundary, at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; chamfering gives no dihedral bound | Owner: stop (leaning) or an opt-in lattice mesher | [tet](design/TET_MESHING.md), [spike](research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), plan #1281 |
 | 2D meshing: small-angle cascade without a weaker guarantee (HP 6) | Exemption up to 60°; spike done 2026-11-22 ([note](research/MESHING2D_HP6_HP7_SPIKE_2026-11.md)) | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1282 |
 | 2D meshing: oracle speed, certifying design (HP 7) | Fast oracle at its stop rule; spike done 2026-11-22 ([note](research/MESHING2D_HP6_HP7_SPIKE_2026-11.md)) | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1283 |
@@ -84,7 +79,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Platform/QA/CI: golden masters across runtimes vs bit-for-bit | Studied 2026-11-22: two tiers proposed, the tier decided by static libm reachability | Owner decision on the policy | [spike](research/DETERMINISM_CROSS_RUNTIME_2026-11.md) section 6, [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15), plan #1287 |
 | Other: envelope-guaranteed simplification, the paper's algorithm (HP 10) | Envelope stopped 2026-11-01; spike 2026-11-22 ([note](research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md)): guaranteed, but 1.1-1.9x the triangles and mostly 5-98x the time of `MaxDeviation`; leaning no-go | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1288 |
 | Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule. Spike 2026-11-22 ([note](research/CONTOURING_ISOTOPY_SUBDIVISION_2026-11.md)): a composed proof for smooth fields by subdivision (its premise checked against Plantinga and Vegter's 2004 and 2007 papers); no-go for creases and for option C | Review of that proof, then the owner's decision on the note's options | [note](design/CONTOURING_TOPOLOGY.md), [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1289 |
-| Other: SIGGRAPH 2026 contouring (distance-grid dual contouring, subgrid marching tetrahedra) | Spike measured 2026-11-22; no code | Owner decision on the options | [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1297 |
+| Other: SIGGRAPH 2026 contouring (distance-grid dual contouring, subgrid marching tetrahedra) | Option 1 built (`TwoLevelMarchingTetrahedra`, `TpmsLattice.TwoLevelSheet`, owner go 2026-11-22); option 2 (certificate per level) next | Options 3 to 6: owner decision | [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1297 |
 | Other: open research questions (metamorphic testing, agent APIs, showcases) | Listed, not started | Pick one with a synergy | [research](roadmap/research.md#open-research-questions), plan #1290 |
 
 ## 6. Known limits and tails (documented, kept open on purpose)

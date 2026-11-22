@@ -58,6 +58,7 @@ class RunStryker(unittest.TestCase):
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)
+        self.assertIn("NOT RUN", summary)
         self.assertIn("config or the tools changed", summary)
         self.assertTrue(os.path.exists(os.path.join(self.work, "StrykerOutput", "skipped-full")))
         self.assertFalse(os.path.exists(os.path.join(self.work, "StrykerOutput", "full-run")))   # (so nothing is stored as a baseline)
