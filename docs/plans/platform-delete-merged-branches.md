@@ -3,22 +3,25 @@
 - **Board row:** OPEN_TOPICS.md §2 "Waiting for an owner decision", row "Platform/QA/CI: delete merged / superseded branches"
 - **Kind:** owner decision / owner action (decided 2026-11-17; owner executes the deletion)
 - **Tier:** S (branch hygiene + optional repo setting; no code change)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only. No branches deleted by this PR.
+- **Plan status:** draft, 2026-11-20 (Berlin). Plan only. No branches deleted by this PR. Updated 2026-11-22 (Berlin): the repository setting "Automatically delete head branches" is already on (`delete_branch_on_merge: true`), so option C is done; the branch counts below are refreshed. The owner deletion of the remaining candidates is still open.
 
 ## Current state
 
 - Decision recorded in [ROADMAP.md](../ROADMAP.md#open-decisions-owner) (owner 2026-11-17): the coordinator lists
   candidates (branches whose PRs are merged or closed, plus `claude/int256-spike`, `claude/collinear-shortcut`, and
   `claude/geogram-boolean-comparison-wip`), and the **owner deletes them**; `runs/*` data branches stay.
-- Live count on 2026-11-21 13:39 (Berlin) via `gh api --paginate repos/HarmenGrosseDeters/geometry3Sharp/branches`:
-  **149 remote branches total**:
+- Live count on 2026-11-22 20:21 (Berlin) via `git ls-remote --heads origin` and the open PRs' head branches:
+  **200 remote branches total** (149 on 2026-11-21):
   - `1` default branch (`master`) — **keep**
-  - `65` data branches (`runs/*`) — **keep** (per owner rule 2026-11-17)
-  - `9` plan draft-PR branches (`plan/*`, growing as plan PRs open) — **keep** while draft PRs are open
-  - `9` active open-PR branches — **keep**
-  - `65` **deletion candidates** (merged/closed PR branches, superseded `claude/*` / `agents/*` spikes, interim
-    `bench/*` snapshots, plus two legacy upstream branches `UnityPackage_Net3p5` and `UnityPackage_Net4p5` that should
-    be explicitly confirmed keep vs delete).
+  - `67` data branches (`runs/*`) — **keep** (per owner rule 2026-11-17)
+  - `46` plan draft-PR branches (`plan/*` with an open PR) — **keep** while draft PRs are open
+  - `9` other open-PR branches — **keep**
+  - `2` legacy upstream branches `UnityPackage_Net3p5` and `UnityPackage_Net4p5` — to be explicitly confirmed keep vs
+    delete
+  - `75` **deletion candidates** (no open PR: merged/closed PR branches, superseded `claude/*` / `agents/*` / `wip/*`
+    spikes, interim `bench/*` snapshots, and 11 `plan/*` branches whose plan PRs are closed).
+- GitHub "Automatically delete head branches" is on (`delete_branch_on_merge: true`, checked 2026-11-22), so a merged
+  PR's branch is deleted on merge; the candidates are what was left before, closed-unmerged PRs and branches without a PR.
 
 ## Trigger / decision needed
 
@@ -83,7 +86,8 @@ None.
      gh api -X DELETE "repos/HarmenGrosseDeters/geometry3Sharp/git/refs/heads/$b" && echo "deleted $b"
    done < candidates_to_delete.txt
    ```
-4. Optionally enable "Automatically delete head branches" in GitHub repo Settings -> General -> Pull Requests.
+4. ~~Optionally enable "Automatically delete head branches" in GitHub repo Settings -> General -> Pull Requests.~~
+   Already on (checked 2026-11-22).
 5. Close the row in `docs/OPEN_TOPICS.md` and `docs/ROADMAP.md` (one docs commit).
 
 ## Acceptance
