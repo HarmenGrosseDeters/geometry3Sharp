@@ -110,8 +110,8 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
 | gyroid, Schwarz P, Schwarz D, Neovius at 32 or 64 cells per period | 11 of 12 (the one left: Schwarz D, 64 cells, two periods, 41 cubes) |
 | the same four at 16 cells per period | 0 of 4 (17 to 841 cubes left) |
 | IWP and Lidinoid | 2 of 12 (IWP at two periods); 160 to 1483 cubes left in the others |
-| cubes that may hold a zero, both levels, all 28 runs | 278187: 86.6 % certified alone, 10.9 % in blocks, 2.8 % left |
-| refused cubes that a block covers | 79.5 % (30461 of 38315) |
+| cubes that may hold a zero, both levels, all 28 runs | 278187: 86.6 % certified alone, 10.6 % in blocks, 2.8 % left (the blocks hold 30461 cubes, those without a zero included) |
+| cubes that may hold a zero and are not certified alone: in a block | 78.9 % (29365 of 37219) |
 | cubes left, by the condition that failed last | 3549 direction (B3), 4305 block limit; none by node, edge, face, circle count or mesh |
 | time of the certificate against the mesher with its record | 29 to 306 times, median 158 times |
 | time per cube that may hold a zero | 0.44 to 1.28 ms, median 0.53 ms |
@@ -120,9 +120,10 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
 - No run is certified wrong by the benchmark's own view: the certified runs have two components (one per level); it
   does not check more than that. The tests have a sampling oracle.
 - The cost is far above the 10 % bar: the certificate takes about 160 times as long as the mesh (1.3 s to 25 s here
-  against 9 to 114 ms). It is a check to run on demand, not a part of meshing. Nothing was done for speed: every cube
+  against 7 to 114 ms). It is a check to run on demand, not a part of meshing. Nothing was done for speed: every cube
   that may hold a zero asks for interval enclosures on its nodes, 12 edges, 6 faces and its inside, each up to twice
   halved per axis, and nothing but the edge and face results is shared between cubes.
 - Why IWP and Lidinoid fail at one period was not diagnosed. Their walls have 12 components (IWP) and thin parts at
   the cap; the cubes left are counted under the block limit and the direction test.
-- 16 cells per period is too coarse for the direction test on these fields; 32 is enough for four of the six.
+- 16 cells per period is too coarse for the direction test on gyroid, Schwarz P, Schwarz D and Neovius; 32 is enough
+  for these four. IWP is certified at 16 cells per period (two periods) and not at 32 or 64 (one period).

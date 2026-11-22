@@ -163,7 +163,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SheetCertificateRunFailure.None, c.RunFailure);
             Assert.Empty(c.UncertifiedCells);
             Assert.True(c.SurfaceCells[0] > 500 && c.SurfaceCells[1] > 500);
-            Assert.Equal(c.SurfaceCells[0], c.CellStates[0].Count(s => s == 1 || s == 3) - c.CellStates[0].Count(s => s == 3) + c.CellsInBlocks[0] - ZeroFreeInBlocks(c, 0));
+            for (int level = 0; level < 2; ++level) {
+                Assert.Equal(c.CellsCertifiedAlone[level], c.CellStates[level].Count(s => s == 1));
+                Assert.Equal(c.CellsInBlocks[level], c.CellStates[level].Count(s => s == 3));
+                Assert.True(c.SurfaceCells[level] >= c.CellsCertifiedAlone[level] && c.SurfaceCells[level] <= c.CellsCertifiedAlone[level] + c.CellsInBlocks[level]);
+            }
             Assert.Equal("c=2;g=0+0", Signature(gen.Mesh));
             Assert.Equal(0, OracleViolations(f, gen, c));
             CheckBlocks(c, 24, 24, 24);
@@ -171,7 +175,6 @@ namespace geometry3Sharp.Tests
 
         // cubes in blocks that were zero-free or certified before the block took them in are counted as in the block: the
         // count of surface cubes is those certified alone plus the surface cubes in blocks (here: at least the alone ones)
-        static int ZeroFreeInBlocks(TwoLevelSheetCertificate c, int level) { return c.CellsInBlocks[level] - (c.SurfaceCells[level] - c.CellsCertifiedAlone[level]); }
 
         [Fact]
         public void AGyroidWall_IsCertified_AndNeedsBlocks()
@@ -344,6 +347,12 @@ namespace geometry3Sharp.Tests
             r.NodeFlags[r.NodeFlags.Length - 1] |= 32;
             Assert.True((Certify(f, gen).RunFailure & SheetCertificateRunFailure.MeshSide) != 0);
             r.NodeFlags[r.NodeFlags.Length - 1] &= 0xDF;
+            // a node where neither level is negative (no sampled field has one): the mesher skips its tetrahedra unseen
+            byte flags0 = r.NodeFlags[0];
+            r.NodeFlags[0] = 0;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.NodeFlags[0] = flags0;
+            Assert.True(Certify(f, gen).Certified);
             // the two counters of the record
             r.ClippedPolygonVertices = 1;
             Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
@@ -708,6 +717,19 @@ namespace geometry3Sharp.Tests
             Assert.Contains(cert.UncertifiedCells, u => u.Cell == new Vector3i(14, 7, 7) && u.Reason == SheetCertificateReason.BlockLimit);
         }
 
+        // the ids of edges and faces are distinct on a grid with more than 65536 nodes along an axis
+        [Fact]
+        public void EdgeAndFaceIds_AreDistinct_OnALongGrid()
+        {
+            var r = new TwoLevelMarchingTetrahedra.CertificateRecord { Nodes = new Vector3i(70000, 5, 4) };
+            Assert.NotEqual(TwoLevelSheetCertificate.Key(r, 0, 65536 + 5, 1, 1), TwoLevelSheetCertificate.Key(r, 0, 5, 2, 1));
+            Assert.NotEqual(TwoLevelSheetCertificate.Key(r, 0, 5, 1, 2), TwoLevelSheetCertificate.Key(r, 0, 5, 1 + 65536 % 5, 1));
+            var seen = new HashSet<long>();
+            foreach (int i in new[] { 0, 1, 4464, 65535, 65536, 65537, 69999 })
+                for (int j = 0; j < 5; ++j) for (int k = 0; k < 4; ++k) for (int axis = 0; axis < 3; ++axis)
+                    Assert.True(seen.Add(TwoLevelSheetCertificate.Key(r, axis, i, j, k)));
+        }
+
         [Fact]
         public void HasDirection_TriesTheMeanGradient_AndTheAxes()
         {
@@ -845,8 +867,6 @@ namespace geometry3Sharp.Tests
             Assert.True(TwoLevelSheetCertificate.OneSign(tiny(atZero + 1), new Vector3d(1, 0, 0)));
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.PositiveInfinity, 0, 0)));
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.NaN, 0, 0)));
-            Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.NaN, 0, 0)));
-            Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(double.PositiveInfinity, 0, 0)));
             // every enclosure of the list counts
             list.Add(new IntervalEnclosure { Gx = I(-1, 2), Gy = I(0, 0), Gz = I(-3, -2) });
             Assert.False(TwoLevelSheetCertificate.OneSign(list, new Vector3d(1, 0, 0)));

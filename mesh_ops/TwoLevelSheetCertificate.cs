@@ -72,7 +72,8 @@ namespace g3
     ///
     /// Never certified: a wall cut by a domain, a half width that varies, a level set through a node, a tangency or a second
     /// sheet that no block of the allowed size absorbs, a level set that leaves the grid.
-    /// Serial. Not thread-safe.
+    /// Serial but for the exact self-intersection test of the mesh (MeshRepairMetrics, whose answer does not depend on the
+    /// threads). Not thread-safe. Field.Enclose's Smooth flag is not read: the conditions are on the enclosures of the gradient.
     /// </summary>
     internal sealed class TwoLevelSheetCertificate
     {
@@ -80,7 +81,10 @@ namespace g3
         public IntervalImplicit3d Field;
         /// <summary> the mesher, after a Generate with RecordCertificateData and without a Domain </summary>
         public TwoLevelMarchingTetrahedra Mesher;
-        /// <summary> a cube, edge or face that fails as one box is cut into 2^t pieces per axis, t up to this </summary>
+        /// <summary>
+        /// a cube, edge or face that fails as one box is cut into 2^t pieces per axis, t up to this. Memory: up to 8^t enclosures
+        /// are kept per cube that may hold a zero while its level is tested (4.6 KB at 2, 300 KB at 4).
+        /// </summary>
         public int MaxTightening = 2;
         /// <summary> the largest side of a block, in cubes </summary>
         public int MaxBlockSide = 6;
@@ -143,7 +147,9 @@ namespace g3
 
             // the mesh side of Lemma 9 for the run: (T3), (T1), (T2), (T4)
             if (rec.ClippedPolygonVertices != 0 || rec.NonManifoldTriangles != 0) RunFailure |= SheetCertificateRunFailure.MeshSide;
-            foreach (byte flags in rec.NodeFlags) if ((flags & 48) != 0) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
+            // no node value of exactly 0, and one level negative at every node (the mesher skips a tetrahedron where a level is
+            // negative at no node, with whatever the other level has there; g - w and -g - w are never both non-negative)
+            foreach (byte flags in rec.NodeFlags) if ((flags & 48) != 0 || (flags & 3) == 0) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
             for (int vid = 0; vid < mesh.MaxVertexID; ++vid)
                 if (!VertexStrictlyInsideItsEdge(mesh.GetVertex(vid), rec.VertexA[vid], rec.VertexB[vid], rec.VertexLevel[vid])) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
             foreach (byte l in rec.TriangleLevel) if (l > 1) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
@@ -350,7 +356,8 @@ namespace g3
             }
         }
 
-        static long key(int axis, int i, int j, int k) { return axis + 4L * (i + 65536L * (j + 65536L * k)); }
+        // an id of the edge or face of an axis at a node: unique for every grid (a node id is below the mesher's limit of nodes)
+        internal static long Key(TwoLevelMarchingTetrahedra.CertificateRecord rec, int axis, int i, int j, int k) { return axis + 4L * (i + (long)rec.Nodes.x * (j + (long)rec.Nodes.y * k)); }
 
         /// <summary>
         /// d . g > 0 for every gradient of every enclosure: the lower bound of the interval product is positive. A d that is
@@ -389,7 +396,7 @@ namespace g3
         bool edge(int axis, int i, int j, int k)
         {
             bool r;
-            long id = key(axis, i, j, k);
+            long id = Key(rec, axis, i, j, k);
             if (edgeOk.TryGetValue(id, out r)) return r;
             r = false;
             int[] n = { i, j, k };
@@ -417,7 +424,7 @@ namespace g3
         bool face(int axis, int i, int j, int k)
         {
             bool r;
-            long id = key(axis, i, j, k);
+            long id = Key(rec, axis, i, j, k);
             if (faceOk.TryGetValue(id, out r)) return r;
             r = false;
             int u = (axis + 1) % 3, v = (axis + 2) % 3;
@@ -494,10 +501,10 @@ namespace g3
                         int[] q = (int[])p.Clone();
                         int[] c = new int[4]; long[] e = new long[4];
                         // corners in cyclic order 0 (lowest), 1 (+u), 2 (+u +v), 3 (+v); edge a joins the corners a and a + 1
-                        c[0] = flag(rec, level, q[0], q[1], q[2]); e[0] = key(u, q[0], q[1], q[2]); e[3] = key(v, q[0], q[1], q[2]);
-                        q[u]++; c[1] = flag(rec, level, q[0], q[1], q[2]); e[1] = key(v, q[0], q[1], q[2]);
+                        c[0] = flag(rec, level, q[0], q[1], q[2]); e[0] = Key(rec, u, q[0], q[1], q[2]); e[3] = Key(rec, v, q[0], q[1], q[2]);
+                        q[u]++; c[1] = flag(rec, level, q[0], q[1], q[2]); e[1] = Key(rec, v, q[0], q[1], q[2]);
                         q[v]++; c[2] = flag(rec, level, q[0], q[1], q[2]);
-                        q[u]--; c[3] = flag(rec, level, q[0], q[1], q[2]); e[2] = key(u, q[0], q[1], q[2]);
+                        q[u]--; c[3] = flag(rec, level, q[0], q[1], q[2]); e[2] = Key(rec, u, q[0], q[1], q[2]);
                         int crossed = 0, first = -1, second = -1;
                         for (int a = 0; a < 4; ++a) if (c[a] != c[(a + 1) % 4]) { ++crossed; if (first < 0) first = a; else second = a; }
                         if (crossed == 2) parent[find(e[first])] = find(e[second]);

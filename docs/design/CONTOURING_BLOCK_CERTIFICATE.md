@@ -489,7 +489,7 @@ Remarks.
 
 ## 4b. Built: `TwoLevelSheetCertificate` (2026-11-22)
 
-Internal, report only, serial: `mesh_ops/TwoLevelSheetCertificate.cs`, on the interface `IntervalImplicit3d` for the
+Internal, report only, serial (but for the exact self-intersection test of the mesh): `mesh_ops/TwoLevelSheetCertificate.cs`, on the interface `IntervalImplicit3d` for the
 field g and on the mesher's record (remark 6 of section 4a). If `Certified`, each of the two level sets g = +w and
 g = -w is a closed surface inside the grid, and the part of the mesh that belongs to it is isotopic to it by a map that
 keeps every certified cube and every block in place (Theorem 8 (b) with Lemma 9). Per level; the two together are not
@@ -517,19 +517,33 @@ covered (point 3 of section 4).
   it has one zero at most on the edge.
 - Both levels are tested with the gradient of g: every test asks for one sign of a derivative or for some direction d
   with d . g > 0, and -d does for -g what d does for g.
+- The face test on pieces: one direction d in the plane for all pieces of the face that may hold a zero. The argument
+  of remark 9 carries over to the face, a convex set: the level set in the face lies in those pieces, and there it
+  is a graph along d.
+- The diagonal of an alternating face is tested on a chain of boxes whose neighbours share a corner, from one end of
+  the diagonal to the other. Their union is a connected set without a zero that joins the two nodes inside the face,
+  so it separates the two other corners there; this is what the segment of (S2) is used for (the rounded diagonal
+  itself may pass beside a shared corner by an ulp).
+- The field's `Smooth` flag is not read: the conditions are on the enclosures of the gradient, as Theorem 8 is stated.
+  No test has a field with a crease.
+- "The mesh is the recorded run" is checked by counts, dense ids and the vertex positions only; a mesh edited after
+  the run with the same counts is not detected (internal use, on the mesher's own result).
+- One level is negative at every node (a recorded flag; g - w and -g - w are never both non-negative): the mesher
+  skips a tetrahedron where a level is negative at no node, and this check makes that skip harmless for the other level.
 - The mesh side is all or nothing for the run; the level-set side is per cube, and the cubes left are listed with the
   condition that failed last. The certified blocks are listed as ranges of cubes (`BlockBoxes`).
 - Measured (`benchmarks/ContouringSmoothCertificate`, mode `sheet`, `results/sheet.csv`): 13 of 28 walls around capped
   TPMS certified; 11 of 12 for gyroid, Schwarz P, Schwarz D and Neovius at 32 or 64 cells per period, none of these at
   16, 2 of 12 for IWP and Lidinoid (not diagnosed). Of the cubes that may hold a zero 86.6 % are certified alone,
-  10.9 % in blocks, 2.8 % are left (direction test or block limit). Cost: 29 to 306 times the time of the mesher,
+  10.6 % in blocks, 2.8 % are left (direction test or block limit). Cost: 29 to 306 times the time of the mesher,
   median 158 times, 0.5 ms per such cube; not optimized. It is a check on demand.
 - Tests: `TwoLevelSheetCertificateTests` (walls around a sphere and a gyroid; the mesh of another field, a level set
   closed inside a cube, two sheets through a cube, a node with the wrong sign, a self-intersecting mesh, a level set in
   the outermost layer, never certified; (S1) and (S2) on their own with an edge crossed twice, a closed curve in a face
   and a face with alternating signs at both parities of the split; the counts on every sign pattern of a cube; an
   oracle by sampling; invariance over `Similarity.All()`; reuse; blocks that merge, a block at the outermost layer, a node without a
-  certified sign). 88 hand mutants, all killed.
+  certified sign). 92 hand mutants: 91 killed, one equivalent (a 64-bit product in the id of an edge,
+  where the node id fits 32 bits because the record's flag array is indexed by it).
 
 ## 5. Review
 
