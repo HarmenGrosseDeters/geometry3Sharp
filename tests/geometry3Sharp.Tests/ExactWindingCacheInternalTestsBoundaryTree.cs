@@ -810,7 +810,7 @@ namespace geometry3Sharp.Tests
                 var b = new Vector3d(a.x + rnd.NextDouble() * 3 - 1.5, a.y, a.z);
                 Assert.Equal(0.0, ExactWindingCache.boundary_edge_angle_x(p, a, b));
                 Assert.Equal(0.0, ExactWindingCache.boundary_edge_angle_x(p, a, a));
-                Assert.False(double.IsNegative(ExactWindingCache.boundary_edge_angle_x(p, a, b)));
+                Assert.True(BitConverter.DoubleToInt64Bits(ExactWindingCache.boundary_edge_angle_x(p, a, b)) >= 0);     // (+0.0, not -0.0)
             }
         }
     }
