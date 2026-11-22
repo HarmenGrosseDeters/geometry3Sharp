@@ -56,6 +56,8 @@ namespace DeterminismHarness
             Kernel.AddTo(list);
             // ---- the exact building blocks of stage 1: SnapRounding2, ExactTriangulation2, TriangleBoxTree (Stage1.cs)
             Stage1.AddTo(list);
+            // ---- the arrangement and the Boolean as a whole, stage 2 (Stage2.cs)
+            Stage2.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
