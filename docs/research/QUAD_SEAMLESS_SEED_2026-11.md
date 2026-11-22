@@ -222,7 +222,7 @@ ScaleAndRotation, 15.9). Every clean result has the cones as its irregular verti
 genus 2 20-24 for 20).
 
 **No gain in the success rate is shown.** The seed moves some shapes to clean (the sphere, torus and genus 2 at the finer
-quads) and loses others (the sphere and genus 2 at the default, unclamped). The repair is used outside its contract (its
+quads) and loses others (at the default the sphere and genus 2 unclamped, and the torus in both columns). The repair is used outside its contract (its
 position solve assumes one edge length), so this says neither that the combination works nor that it cannot.
 
 Over the 54 runs of the 3B gate, success correlates only weakly with a small curl mass: 16 of the 27 runs with the
@@ -231,7 +231,7 @@ lower curl mass per face are `Success`, 9 of the 27 with the higher (`results_ga
 ### 3.5 Time
 
 One run each, 4 cores, the prototype not optimized: the oracle takes 0.14-0.59 s at 5.5-18k input vertices and
-0.65-3.2 s at 22-72k. `IntegrableFrames` in the same runs: Scale 0.04-0.21 s and 0.43-2.3 s, ScaleAndRotation
+0.60-3.2 s at 22-72k. `IntegrableFrames` in the same runs: Scale 0.04-0.21 s and 0.43-2.3 s, ScaleAndRotation
 0.16-0.68 s and 1.4-9.1 s. So the oracle costs about what Scale costs and less than ScaleAndRotation on the larger
 inputs. The two-scale Gauss-Newton is the slowest part of the prototype and was not timed.
 
@@ -324,8 +324,9 @@ measurement of the rotational holonomy that a cone metric leaves open.
 - The causes of the remaining irregular vertices (sampling of the seed, rounding, residual curl in the position
   field's frames) were not separated.
 - The unclamped oracle loses faces; its counts are flattered. The clamp of 0.7 was chosen on the same 9 shapes.
-- Face counts differ between the columns by up to 3 % at the default (the library's size field up to 14 % on the
-  aligned torus); the per-1000-faces numbers are given for that reason.
+- Face counts differ between the columns: the clamped oracle is within 3 % of the uniform lattice at the default, the
+  unclamped one up to 35 % below (capsule), the library's size field up to 14 % above (aligned torus, ScaleAndRotation;
+  11 % for the Scale cell of the table). The per-1000-faces numbers are given for that reason.
 - At genus above 0 the seam of the parallel field lies where the breadth-first tree puts it.
 - The two-scale numbers are a least-squares capacity with solves that stop at the step limit, not the paper's
   constrained solve, and have no mesh behind them.
