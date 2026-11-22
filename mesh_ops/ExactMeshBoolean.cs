@@ -4763,6 +4763,45 @@ namespace g3
         [ThreadStatic] static int[] antipodalTreeStack;
 
         /// <summary>
+        /// test hook for the four platform-libm calls of antipodal_tree_value (Acos, Asin, two Cos), which differ by an ulp between
+        /// C libraries: 0 = off; n &gt; 0 moves each result n ulps up, n &lt; 0 down (LibmPerturbRandomForTests: the direction
+        /// by the low bit of the value). They enter only the bound fullBound, which tree_decides compares with 0.999e-6, 0.1% below
+        /// the limit 1e-6 of the full sum, so a perturbation that flips the decision hands the piece to the full sum, which
+        /// decides the same threshold (the slack argument of DETERMINISM_CROSS_RUNTIME_2026-11.md, F2; ExactMeshBooleanTestsAntipodalTree)
+        /// </summary>
+        internal static int LibmPerturbForTests;
+        internal static bool LibmPerturbRandomForTests;
+        /// <summary> which of the four calls the hook moves, one bit each: 1 Acos, 2 Asin, 4 Cos(2 alpha), 8 Cos(beta) </summary>
+        internal static int LibmPerturbMaskForTests = 15;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static double libm_value(double v, int call)
+        {
+            int n = LibmPerturbForTests;
+            if (n == 0)
+                return v;
+            return (LibmPerturbMaskForTests & call) == 0 ? v : libm_moved(v, n, LibmPerturbRandomForTests);
+        }
+
+        // (a value that the move would take to zero, a subnormal below it, infinity or NaN stays: not reached with the
+        // arguments of the four calls, which are gated; the test hook only)
+        static double libm_moved(double v, int n, bool byLowBit)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            bool up = n > 0;
+            if (byLowBit && (bits & 1) != 0)
+                up = !up;
+            long k = Math.Abs((long)n);
+            if (v == 0)
+                return up ? k * double.Epsilon : -k * double.Epsilon;
+            // (the bit pattern of a double is monotone in |v|: away from zero adds, towards zero subtracts)
+            long magnitude = bits & long.MaxValue, moved = (v > 0) == up ? magnitude + k : magnitude - k;
+            if (moved <= 0 || moved >= 0x7FF0000000000000L)
+                return v;
+            return BitConverter.Int64BitsToDouble(v < 0 ? moved | long.MinValue : moved);
+        }
+
+        /// <summary>
         /// lever 1: whether the tree's value w (bound, and fullBound, the upper bound of the full sum's bound with the same
         /// ray) decides: the full sum then gives a value with this ray (fullBound below its limit 1e-6), the same threshold,
         /// and does not snap (design note section 2). Else the full sum runs as before
@@ -4837,11 +4876,11 @@ namespace g3
                             // (the full sum's terms of the node's segments: beta, the smallest angle between -x1 and a point
                             // of the cap, with the margin; hypot from below; |theta| of a term at most pi times its side's
                             // angle, at most its length over d - r)
-                            double gamma = Math.Acos(MathUtil.MinExact(1, minusX1U)), alpha = Math.Asin(MathUtil.MinExact(1, rd));
+                            double gamma = libm_value(Math.Acos(MathUtil.MinExact(1, minusX1U)), 1), alpha = libm_value(Math.Asin(MathUtil.MinExact(1, rd)), 2);
                             double beta = gamma - alpha - 1e-9 - eps;
                             int nk = t.Hi[k] - t.Lo[k];
                             if (beta > 0) {
-                                double hmin = Math.Sqrt(2 * (1 + Math.Cos(2 * alpha))) * (1 - Math.Cos(beta)) * (1 - 1e-12);
+                                double hmin = Math.Sqrt(2 * (1 + libm_value(Math.Cos(2 * alpha), 4))) * (1 - libm_value(Math.Cos(beta), 8)) * (1 - 1e-12);
                                 double tolU = tolNode * 1.01;
                                 // (at the exact point hypot is at least hmin - 2 tol: (num, den) move by at most sqrt 2 tol; the term's
                                 // error derivation needs hypot above 2 sqrt 2 tol, so at least 3 tolU here, whatever the gate's

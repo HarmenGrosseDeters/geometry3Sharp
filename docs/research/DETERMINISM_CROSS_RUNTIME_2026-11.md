@@ -136,9 +136,14 @@ value only where `fullBound <= 0.999e-6`. The values do not enter the winding nu
 Moving every result of the four calls by one ulp up, down or at random (a scratch copy of the library) changes no value of
 that case: not the mesh, not the status, not the winding number of any open piece. The argument why it cannot: a flip of
 `tree_decides` hands the piece to the full sum, whose own bound is then below 1e-6 by the factor 0.999, so it decides the
-same threshold with the same ray; that is form P4 with a stated slack. It is an argument, not a rule: G3E0004 is not
-scoped to `mesh_ops/ExactMeshBoolean.cs`, and DETERMINISM.md section 3 still says the exact code has no libm call. Stage 2
-has to register the three members (section 5).
+same threshold with the same ray; that is form P4 with a stated slack. The argument is now a test (2026-11-22, `ExactMeshBooleanTestsAntipodalLibmPerturbation`, hook
+`ExactMeshBoolean.LibmPerturbForTests` on the four results): 1 ulp up, down or by the low bit moves `fullBound` by up to 1e-6 of
+itself (`1 - cos beta` amplifies the ulp of a cosine near 1; measured 9.8e-7 at most) and flips none of the 1918 decisions of the test;
+2^20 ulps flip none and 2^30 ulps (values changed in the eighth digit) flip 2 to 4 of them, and in every case where either run decides, the full sum gives a value at
+the ray with its bound below 1e-6 and the same threshold. The tree's value and bound are bit-identical under every perturbation,
+and so are the Boolean's result mesh and the winding number of every open piece. A mutant that admits `fullBound <= 9e-6` fails the
+tests. It stays an argument plus a test, not a rule: G3E0004 is not scoped to `mesh_ops/ExactMeshBoolean.cs`; stage 2 has to
+register the three members (section 5).
 
 **F3. The winding number values of `DMeshAABBTree3` are libm values.** `FastWindingNumber` and `WindingNumber` end in
 `Math.Atan2` per triangle (`MathUtil.TriSolidAngle`, `FastWindingLeafKernel`). The consumers compare with 0.5; among the
