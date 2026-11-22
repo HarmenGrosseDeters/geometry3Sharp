@@ -1294,14 +1294,15 @@ namespace g3
         {
             int[] tris = treeTids.ToArray();
             bool skip = skipExact && exactAtStart != null;
-            long skipped = 0;
-            // (per triangle, in triangle order: deterministic without a lock)
+            // (per triangle, in triangle order: deterministic without a lock; the skipped triangles are marked per slot
+            // and counted afterwards, so the threads share no counter)
             var found = new List<Index2i>[tris.Length];
+            bool[] skippedAt = skip ? new bool[tris.Length] : null;
             gParallel.ForRange(tris.Length, (k) => {
                 int ta = tris[k];
                 // (an exact triangle's pairs with the others are found from those)
                 if (skip && exact_triangle(ta)) {
-                    System.Threading.Interlocked.Increment(ref skipped);
+                    skippedAt[k] = true;
                     return;
                 }
                 Index3i ia = Mesh.GetTriangle(ta);
@@ -1326,7 +1327,12 @@ namespace g3
                 });
                 found[k] = local;
             });
-            SkippedExactQueries += skipped;
+            if (skip) {
+                long skipped = 0;
+                foreach (bool b in skippedAt)
+                    if (b) ++skipped;
+                SkippedExactQueries += skipped;
+            }
             var pairs = new List<Index2i>();
             foreach (List<Index2i> local in found)
                 if (local != null)

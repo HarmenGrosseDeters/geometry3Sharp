@@ -152,6 +152,41 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, boolean.Rounding.SkippedExactQueries);
         }
 
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(7)]
+        public void SkippedExactQueries_CountsTheExactTriangles_SerialAndParallel(int serialOrder)
+        {
+            // the first search skips exactly the triangles whose three vertices are exact, counted per slot and summed
+            // afterwards: the count of a parallel run, and of serial runs in any order, is that number (a lost or a
+            // doubled count fails)
+            DMesh3 box = Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4), 6);
+            Func<int, bool> exact = (v) => v % 3 != 1;
+            long expected = box.TriangleIndices().Count(t => {
+                Index3i tv = box.GetTriangle(t);
+                return exact(tv.a) && exact(tv.b) && exact(tv.c);
+            });
+            Assert.True(expected > 0 && expected < box.TriangleCount, "the case needs exact and inexact triangles");
+            var parallel = new MeshRoundingRepair(new DMesh3(box)) { MaxPasses = 0, SharedPositionsTouch = true, ExactVertexF = exact };
+            parallel.Apply();
+            Assert.Equal(expected, parallel.SkippedExactQueries);
+            Assert.Equal(0, parallel.InitialIntersections);
+            var serial = new MeshRoundingRepair(new DMesh3(box)) { MaxPasses = 0, SharedPositionsTouch = true, ExactVertexF = exact };
+            gParallel.SerialOnThisThread = true;
+            gParallel.SerialOrderOnThisThread = serialOrder;
+            try {
+                serial.Apply();
+            } finally {
+                gParallel.SerialOnThisThread = false;
+                gParallel.SerialOrderOnThisThread = 0;
+            }
+            Assert.Equal(expected, serial.SkippedExactQueries);
+            // (Apply again on the same instance: the count starts from 0; the exact flags hold for the first Apply only)
+            parallel.Apply();
+            Assert.Equal(0, parallel.SkippedExactQueries);
+        }
+
         [Fact]
         public void WithoutSharedPositionsTouch_NoSkip()
         {
