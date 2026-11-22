@@ -37,8 +37,8 @@ namespace g3
     /// Intersection of a line and a segment (originally ported from WildMagic5). With the default
     /// <see cref="IntervalThreshold"/> of 0 the decision is exact: Point (the closed segment P0-P1 meets the line, exactly
     /// at a segment end if that end is on the line), Segment (the segment lies on the line, Quantity int.MaxValue) or
-    /// Empty, with no tolerance, the same at every 2^k scale; the line is the line through Origin and its second point
-    /// (Origin + 2^m Direction, rounded) and the segment ends are Segment2d.P0 and P1 (rounded from Center and Extent).
+    /// Empty, with no tolerance, the same at every 2^k scale; the line is the line through Origin along Direction exactly as given
+    /// and the segment ends are Segment2d.P0 and P1 (rounded from Center and Extent).
     /// <see cref="DotThreshold"/> is not used then. With an IntervalThreshold above 0 the old tolerance route runs
     /// (the segment is enlarged by the threshold, lines within DotThreshold of parallel count as parallel). Non-finite
     /// input is an InvalidQuery; a segment that collapsed to a point in the rounding of its ends takes the tolerance route.
@@ -158,15 +158,13 @@ namespace g3
             Vector2d o = line.Origin, a = segment.P0, b = segment.P1;
             if (IntrExact2d.IsFinite(o) == false || IntrExact2d.IsFinite(a) == false || IntrExact2d.IsFinite(b) == false)
                 return false;
-            Vector2d p = IntrExact2d.SecondPoint(o, line.Direction);
-            if (p == o)
-                return false;       // (the second point overflowed: no line)
             if (a == b) {
                 // a segment that collapsed to a point in the rounding of its ends: the tolerance route
                 find_tolerant();
                 return true;
             }
-            int sa = ExactPredicates.Orient2d(o, p, a), sb = ExactPredicates.Orient2d(o, p, b);
+            IntrExact2d.LineRef ln = IntrExact2d.LineRef.FromDirection(o, line.Direction);
+            int sa = ln.Side(a), sb = ln.Side(b);
             if (sa == 0 && sb == 0) {
                 Type = IntersectionType.Segment;        // (the segment lies on the line)
                 Quantity = int.MaxValue;
@@ -179,10 +177,9 @@ namespace g3
                 if (sa == 0) Point = a;
                 else if (sb == 0) Point = b;
                 else {
-                    double da = line.Direction.DotPerp(a - o), db = line.Direction.DotPerp(b - o);
-                    Point = a + IntrExact2d.CrossingFraction(da, db) * (b - a);
+                    Point = IntrExact2d.Lerp(a, b, IntrExact2d.FractionOnSegment(o, line.Direction, a, b));
                 }
-                Parameter = (Point - o).Dot(line.Direction);
+                Parameter = IntrExact2d.ParameterAlong(o, line.Direction, Point);
             }
             return true;
         }

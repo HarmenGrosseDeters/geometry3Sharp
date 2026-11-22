@@ -5,11 +5,11 @@ namespace g3
 	/// <summary>
 	/// Intersection of two lines (originally ported from WildMagic5). The decision is exact: Point (the lines cross),
 	/// Line (the same line) or Empty (parallel, apart), with no tolerance, the same at every 2^k scale. A line is the
-	/// line through <see cref="Line2d.Origin"/> and its second point (<see cref="Line2d.Origin"/> + 2^m
-	/// <see cref="Line2d.Direction"/>, rounded: the 2D counterpart of IntrRay3Triangle3's ray). <see cref="DotThreshold"/>
-	/// is only used by the static <see cref="Classify"/>. Non-finite input is an InvalidQuery. The crossing point and
-	/// parameters are computed in floating point from the exactly decided crossing (infinite for lines that are
-	/// parallel to within rounding).
+	/// line through <see cref="Line2d.Origin"/> along <see cref="Line2d.Direction"/> exactly as given (parallel is the exact sign of
+	/// cross(d1, d2), the same line the exact sign of cross(o2 - o1, d1)). <see cref="DotThreshold"/> is only used by the static
+	/// <see cref="Classify"/>. Non-finite input is an InvalidQuery, and so is a crossing that is not representable (lines that
+	/// are parallel to within rounding, crossing beyond the range of a double). The crossing point and parameters are computed
+	/// in floating point from the exactly decided crossing.
 	/// </summary>
 	public class IntrLine2Line2
     {
@@ -80,28 +80,22 @@ namespace g3
 				Result = IntersectionResult.InvalidQuery;
 				return false;
 			}
-			Vector2d p1 = IntrExact2d.SecondPoint(o1, line1.Direction), p2 = IntrExact2d.SecondPoint(o2, line2.Direction);
-			if (p1 == o1 || p2 == o2) {
-				// (the second point overflowed: no line)
-				Type = IntersectionType.Empty;
-				Result = IntersectionResult.InvalidQuery;
-				return false;
-			}
-			Type = IntrExact2d.LineLine(o1, p1, o2, p2);
+			Vector2d d1 = line1.Direction, d2 = line2.Direction;
+			Type = IntrExact2d.LineLine(o1, d1, o2, d2);
 			Vector2d s = Vector2d.Zero;
 			if (Type == IntersectionType.Point) {
-				double den = line1.Direction.DotPerp(line2.Direction);
-				Vector2d diff = o2 - o1;
-				double n1 = diff.DotPerp(line2.Direction), n2 = diff.DotPerp(line1.Direction);
-				if (den != 0) {
-					s.x = n1 / den;
-					s.y = n2 / den;
-				} else {
-					// the rounded cross product of the directions is 0, the exact one is not (the lines cross very far away):
-					// infinite parameters, with the sign of the exact one
-					int e = IntrExact2d.CrossSign(o1, IntrExact2d.SecondPoint(o1, line1.Direction), o2, IntrExact2d.SecondPoint(o2, line2.Direction));
-					s.x = n1 == 0 ? 0 : (n1 * e > 0 ? double.PositiveInfinity : double.NegativeInfinity);
-					s.y = n2 == 0 ? 0 : (n2 * e > 0 ? double.PositiveInfinity : double.NegativeInfinity);
+				// the parameters from the cross products (the denominator to about one rounding; the origins scaled by a power of
+				// two first, so that their difference cannot overflow). A crossing that is not representable is an invalid query.
+				double sc = IntrExact2d.ScaleFor(o1, o2, Vector2d.Zero);
+				Vector2d diff = o2 * sc - o1 * sc;
+				double den = IntrExact2d.AccurateCross(d1, d2) * sc;
+				s.x = IntrExact2d.AccurateCross(diff, d2) / den;
+				s.y = IntrExact2d.AccurateCross(diff, d1) / den;
+				Vector2d x = o1 + s.x * d1;
+				if (IntrExact2d.IsFinite(s) == false || IntrExact2d.IsFinite(x) == false) {
+					Type = IntersectionType.Empty;
+					Result = IntersectionResult.InvalidQuery;
+					return false;
 				}
 			}
 

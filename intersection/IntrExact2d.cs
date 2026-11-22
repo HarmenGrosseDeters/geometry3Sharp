@@ -11,20 +11,14 @@ namespace g3
     /// crossing, on the edge or segment it crosses (a few ulp across it, and along it as well as the angle of the crossing
     /// allows: about 1e-16 / sin(angle) relative).
     /// <para>
-    /// A line (Origin, Direction) is the line through Origin and its second point (ExactRayTriangle.SecondPoint of the
-    /// 3D classes: Origin + 2^m Direction, rounded), a segment the closed segment between Segment2d.P0 and P1 (the
-    /// rounded Center -/+ Extent Direction), a triangle the closed triangle of its corners.
+    /// A line (Origin, Direction) is the line through Origin along Direction, exactly as given (a side test is the exact sign
+    /// of cross(Direction, v - Origin)); a segment is the closed segment between Segment2d.P0 and P1 (the rounded
+    /// Center -/+ Extent Direction); a triangle is the closed triangle of its corners. The signs use differences of the input
+    /// doubles that are never rounded (the Orient3d of lifted points).
     /// </para>
     /// </summary>
     internal static class IntrExact2d
     {
-        /// <summary> the second point of the line through origin along direction (origin if not finite or direction is 0) </summary>
-        internal static Vector2d SecondPoint(Vector2d origin, Vector2d direction)
-        {
-            Vector3d p = ExactRayTriangle.SecondPoint(new Vector3d(origin.x, origin.y, 0), new Vector3d(direction.x, direction.y, 0));
-            return new Vector2d(p.x, p.y);
-        }
-
         internal static bool IsFinite(Vector2d v)
         {
             return (v.x - v.x) == 0 && (v.y - v.y) == 0;
@@ -40,17 +34,101 @@ namespace g3
         static int Cmp(double a, double b) { return a < b ? -1 : (a > b ? 1 : 0); }
 
         // ------------------------------------------------------------------------------------------------------------
-        // line / segment against line
+        // a line: through an origin along a direction, or through two points (both exact)
         // ------------------------------------------------------------------------------------------------------------
 
-        /// <summary>
-        /// Two lines (o1, p1) and (o2, p2): Point (+1: crossing), Line (0, the same line) or Empty (-1: parallel apart)
-        /// </summary>
-        internal static IntersectionType LineLine(Vector2d o1, Vector2d p1, Vector2d o2, Vector2d p2)
+        /// <summary> a line a + t d (the origin and the direction vector as given) or the line through the points a and b </summary>
+        internal struct LineRef
         {
-            if (CrossSign(o1, p1, o2, p2) != 0)
+            public Vector2d A, B, D;
+            public bool ByPoints;
+
+            public static LineRef FromDirection(Vector2d origin, Vector2d direction)
+            {
+                return new LineRef { A = origin, D = direction, ByPoints = false };
+            }
+            public static LineRef FromPoints(Vector2d a, Vector2d b)
+            {
+                // (the direction as halves of the two points: finite for finite points; its sign pattern is exact, its size is not used exactly)
+                return new LineRef { A = a, B = b, D = new Vector2d(0.5 * b.x - 0.5 * a.x, 0.5 * b.y - 0.5 * a.y), ByPoints = true };
+            }
+
+            /// <summary> the sign of cross(direction, v - origin): + if v is on the left of the line, exactly </summary>
+            public int Side(Vector2d v)
+            {
+                return ByPoints ? ExactPredicates.Orient2d(A, B, v) : CrossSign(Vector2d.Zero, D, A, v);
+            }
+
+            /// <summary> the sign of cross(q - p, direction) (the slope of the edge p-q against the line), exactly </summary>
+            public int Slope(Vector2d p, Vector2d q)
+            {
+                return ByPoints ? CrossSign(p, q, A, B) : CrossSign(p, q, Vector2d.Zero, D);
+            }
+        }
+
+        /// <summary>
+        /// Two lines (o1, d1) and (o2, d2) as given: Point (the lines cross), Line (the same line) or Empty (parallel, apart): the
+        /// exact signs of cross(d1, d2) and cross(o2 - o1, d1)
+        /// </summary>
+        internal static IntersectionType LineLine(Vector2d o1, Vector2d d1, Vector2d o2, Vector2d d2)
+        {
+            if (CrossSign(Vector2d.Zero, d1, Vector2d.Zero, d2) != 0)
                 return IntersectionType.Point;
-            return ExactPredicates.Orient2d(o1, p1, o2) == 0 ? IntersectionType.Line : IntersectionType.Empty;
+            return CrossSign(o1, o2, Vector2d.Zero, d1) == 0 ? IntersectionType.Line : IntersectionType.Empty;
+        }
+
+        /// <summary>
+        /// 2^-e for the largest coordinate magnitude of the points (a power of two, so that the scaling is exact), 1 for all zeros:
+        /// the points scaled by it have a largest coordinate in [1, 2), so differences and products of scaled values cannot overflow
+        /// </summary>
+        internal static double ScaleFor(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double m = Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Max(Math.Abs(b.x), Math.Abs(b.y)), Math.Max(Math.Abs(c.x), Math.Abs(c.y))));
+            if ((m > 0 && m - m == 0) == false)
+                return 1;
+            int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
+            if (e == 2046)
+                return BitConverter.Int64BitsToDouble(1L << 51);          // 2^-1023 (the largest coordinates, in [2^1023, 2^1024): scaled into [0.5, 1))
+            return (e > 0 && e < 2046) ? BitConverter.Int64BitsToDouble((long)(2046 - e) << 52) : 1;
+        }
+
+        /// <summary>
+        /// where the line (origin o, direction dir) crosses the segment p-q, as a fraction in [0, 1] of p to q, in floating point from the
+        /// rounded distances of p and q to the line (see CrossingFraction); the points are scaled by a power of two first, so that no
+        /// difference overflows
+        /// </summary>
+        internal static double FractionOnSegment(Vector2d o, Vector2d dir, Vector2d p, Vector2d q)
+        {
+            double sc = ScaleFor(o, p, q);
+            Vector2d os = o * sc;
+            // (the direction too, to a largest coordinate in [1, 2): the products cannot overflow; the fraction does not change)
+            dir *= ScaleFor(dir, Vector2d.Zero, Vector2d.Zero);
+            double dp = dir.DotPerp(p * sc - os), dq = dir.DotPerp(q * sc - os);
+            return CrossingFraction(dp, dq);
+        }
+
+        /// <summary> (p - o) . dir, with the points scaled by a power of two first (the difference cannot overflow), for the parameter of a point along a line </summary>
+        internal static double ParameterAlong(Vector2d o, Vector2d dir, Vector2d p)
+        {
+            double sc = ScaleFor(o, p, Vector2d.Zero);
+            return (p * sc - o * sc).Dot(dir) / sc;
+        }
+
+        /// <summary> a.x b.y - a.y b.x, to about one rounding of the result (the two products as exact sums of two doubles) </summary>
+        internal static double AccurateCross(Vector2d a, Vector2d b)
+        {
+            double h1, l1, h2, l2;
+            Expansion.TwoProduct(a.x, b.y, out h1, out l1);
+            Expansion.TwoProduct(a.y, b.x, out h2, out l2);
+            return (h1 - h2) + (l1 - l2);
+        }
+
+        /// <summary> p + w (q - p) without the difference (which may overflow): (1 - w) p + w q, p and q themselves for w = 0 and 1 </summary>
+        internal static Vector2d Lerp(Vector2d p, Vector2d q, double w)
+        {
+            if (w <= 0) return p;
+            if (w >= 1) return q;
+            return new Vector2d((1 - w) * p.x + w * q.x, (1 - w) * p.y + w * q.y);
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -67,17 +145,17 @@ namespace g3
         }
 
         /// <summary>
-        /// The interval of the line a-b in the closed triangle t, as its first and last candidate in the direction a to b
+        /// The interval of the line in the closed triangle t, as its first and last candidate in the direction of the line
         /// (equal for a single point). Returns 1 for an interval, 0 if the line misses the triangle, and -1 if the triangle
         /// is degenerate (collinear corners: the caller takes another route).
         /// </summary>
-        internal static int Interval(Vector2d a, Vector2d b, ref Triangle2d t, out Cand entry, out Cand exit)
+        internal static int Interval(ref LineRef line, ref Triangle2d t, out Cand entry, out Cand exit)
         {
             entry = exit = default(Cand);
             int o = ExactPredicates.Orient2d(t.V0, t.V1, t.V2);
             if (o == 0)
                 return -1;
-            int s0 = ExactPredicates.Orient2d(a, b, t.V0), s1 = ExactPredicates.Orient2d(a, b, t.V1), s2 = ExactPredicates.Orient2d(a, b, t.V2);
+            int s0 = line.Side(t.V0), s1 = line.Side(t.V1), s2 = line.Side(t.V2);
             if ((s0 > 0 && s1 > 0 && s2 > 0) || (s0 < 0 && s1 < 0 && s2 < 0))
                 return 0;
             int[] s = { s0, s1, s2 };
@@ -88,7 +166,7 @@ namespace g3
                 for (int k = 0; k < 3; ++k) {
                     if (s[k] * s[(k + 1) % 3] > 0)
                         continue;
-                    if (Entering(ref t, k, a, b, o)) entry = Cand.Edge(k); else exit = Cand.Edge(k);
+                    if (Entering(ref line, ref t, k, o)) entry = Cand.Edge(k); else exit = Cand.Edge(k);
                     ++crossed;
                 }
                 return crossed == 2 ? 1 : 0;
@@ -101,29 +179,29 @@ namespace g3
                     return 1;
                 }
                 // the edge i to j is crossed, the corner z is the other end
-                if (Entering(ref t, i, a, b, o)) { entry = Cand.Edge(i); exit = Cand.Vertex(z); }
+                if (Entering(ref line, ref t, i, o)) { entry = Cand.Edge(i); exit = Cand.Vertex(z); }
                 else { entry = Cand.Vertex(z); exit = Cand.Edge(i); }
                 return 1;
             }
-            // two corners on the line (three is a degenerate triangle): the edge between them, ordered along a to b
+            // two corners on the line (three is a degenerate triangle): the edge between them, ordered along the line
             int u, w;
             if (s0 != 0) { u = 1; w = 2; } else if (s1 != 0) { u = 0; w = 2; } else { u = 0; w = 1; }
-            bool uFirst = Along(a, b, t[u], t[w]) <= 0;
+            bool uFirst = Along(ref line, t[u], t[w]) <= 0;
             entry = Cand.Vertex(uFirst ? u : w);
             exit = Cand.Vertex(uFirst ? w : u);
             return 1;
         }
 
-        // the line a-b enters the triangle (interior on the left of CCW edges) at the crossing with the edge k to k + 1
-        static bool Entering(ref Triangle2d t, int k, Vector2d a, Vector2d b, int orientation)
+        // the line enters the triangle (interior on the left of CCW edges) at the crossing with the edge k to k + 1
+        static bool Entering(ref LineRef line, ref Triangle2d t, int k, int orientation)
         {
-            return CrossSign(t[k], t[(k + 1) % 3], a, b) * orientation > 0;
+            return line.Slope(t[k], t[(k + 1) % 3]) * orientation > 0;
         }
 
-        /// <summary> the order of two points p, q on the line a-b along a to b: -1 if p is before q </summary>
-        static int Along(Vector2d a, Vector2d b, Vector2d p, Vector2d q)
+        /// <summary> the order of two points p, q on the line along its direction: -1 if p is before q </summary>
+        static int Along(ref LineRef line, Vector2d p, Vector2d q)
         {
-            double dx = b.x - a.x, dy = b.y - a.y;
+            double dx = line.D.x, dy = line.D.y;
             if (Math.Abs(dx) >= Math.Abs(dy))
                 return Cmp(p.x, q.x) * (dx > 0 ? 1 : -1);
             return Cmp(p.y, q.y) * (dy > 0 ? 1 : -1);
@@ -132,22 +210,23 @@ namespace g3
         /// <summary> p is strictly before q along a to b (p, q on the line a-b) </summary>
         internal static bool Before(Vector2d a, Vector2d b, Vector2d p, Vector2d q)
         {
-            return Along(a, b, p, q) < 0;
+            LineRef line = LineRef.FromPoints(a, b);
+            return Along(ref line, p, q) < 0;
         }
 
         /// <summary>
-        /// The order of the candidate c along a to b against the end e of the segment (e = a if atEnd is false, else b):
-        /// -1 if c is before e, 0 if at e, +1 if after e
+        /// The order of the candidate c along the line through the two points a to b against the end e of the segment (e = a if atEnd
+        /// is false, else b): -1 if c is before e, 0 if at e, +1 if after e
         /// </summary>
-        internal static int Compare(Cand c, ref Triangle2d t, Vector2d a, Vector2d b, bool atEnd)
+        internal static int Compare(Cand c, ref Triangle2d t, ref LineRef line, bool atEnd)
         {
-            Vector2d e = atEnd ? b : a;
+            Vector2d e = atEnd ? line.B : line.A;
             if (c.Crossing == false)
-                return Along(a, b, t[c.Index], e);
+                return Along(ref line, t[c.Index], e);
             // the crossing x = a + u (b - a) with the edge k to k + 1: with ra, rb the orientations of a, b against the
             // edge (the edge line value at a and b, linear in u): u = -ra / (rb - ra), u - 1 = -rb / (rb - ra)
             Vector2d p = t[c.Index], q = t[(c.Index + 1) % 3];
-            int slope = CrossSign(p, q, a, b);      // the sign of rb - ra, not 0 for a crossed edge
+            int slope = line.Slope(p, q);      // the sign of rb - ra, not 0 for a crossed edge
             int r = ExactPredicates.Orient2d(p, q, e);
             return -r * slope;
         }
@@ -169,24 +248,13 @@ namespace g3
             return Math.Abs(dp) <= Math.Abs(dq) ? 0 : 1;
         }
 
-        /// <summary> the first point of the line a-b in the triangle (candidate c): the corner, or the crossing computed in floating point </summary>
-        internal static Vector2d PointOf(Cand c, ref Triangle2d t, Vector2d a, Vector2d b)
+        /// <summary> the point of the line in the triangle (candidate c): the corner, or the crossing computed in floating point </summary>
+        internal static Vector2d PointOf(Cand c, ref Triangle2d t, ref LineRef line)
         {
             if (c.Crossing == false)
                 return t[c.Index];
             Vector2d p = t[c.Index], q = t[(c.Index + 1) % 3];
-            // the distances of the edge ends to the line, with the exact signs (opposite): w = dp / (dp - dq)
-            Vector2d d = b - a;
-            // (d scaled by a power of two to a largest coordinate in [1, 2): the products below cannot overflow, and the
-            // fraction does not change)
-            double md = Math.Max(Math.Abs(d.x), Math.Abs(d.y));
-            if (md > 0 && md - md == 0) {
-                int e = (int)((BitConverter.DoubleToInt64Bits(md) >> 52) & 0x7FF);
-                if (e > 0 && e < 2046)
-                    d *= BitConverter.Int64BitsToDouble((long)(2046 - e) << 52);
-            }
-            double dp = d.DotPerp(p - a), dq = d.DotPerp(q - a);
-            return p + CrossingFraction(dp, dq) * (q - p);
+            return Lerp(p, q, FractionOnSegment(line.A, line.D, p, q));
         }
     }
 }

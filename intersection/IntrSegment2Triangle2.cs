@@ -40,7 +40,12 @@ namespace g3
 		/// caller that depends on it: the coplanar branch of the old IntrTriangle3Triangle3.Find (removed with its
 		/// floating-point route). Internal: not part of the public API.
 		/// </summary>
-		internal bool UseToleranceRoute;
+		bool useToleranceRoute;
+		internal bool UseToleranceRoute
+		{
+			get { return useToleranceRoute; }
+			set { useToleranceRoute = value; Result = IntersectionResult.NotComputed; }
+		}
 
 		public Vector2d Point0;
 		public Vector2d Point1;
@@ -98,7 +103,8 @@ namespace g3
 			    || IntrExact2d.IsFinite(triangle.V1) == false || IntrExact2d.IsFinite(triangle.V2) == false)
 				return false;
 			IntrExact2d.Cand entry = default(IntrExact2d.Cand), exit = default(IntrExact2d.Cand);
-			int r = (a == b) ? -1 : IntrExact2d.Interval(a, b, ref triangle, out entry, out exit);
+			IntrExact2d.LineRef ln = IntrExact2d.LineRef.FromPoints(a, b);
+			int r = (a == b) ? -1 : IntrExact2d.Interval(ref ln, ref triangle, out entry, out exit);
 			if (r < 0) {
 				find_tolerant();
 				return true;
@@ -108,33 +114,33 @@ namespace g3
 			if (r == 0)
 				return true;
 			// clip the interval [entry, exit] of the line to the segment [a, b]
-			bool lowIsA = IntrExact2d.Compare(entry, ref triangle, a, b, false) <= 0;      // (the line enters at or before a: the segment starts at a)
-			bool highIsB = IntrExact2d.Compare(exit, ref triangle, a, b, true) >= 0;       // (and leaves at or after b)
+			bool lowIsA = IntrExact2d.Compare(entry, ref triangle, ref ln, false) <= 0;      // (the line enters at or before a: the segment starts at a)
+			bool highIsB = IntrExact2d.Compare(exit, ref triangle, ref ln, true) >= 0;       // (and leaves at or after b)
 			bool single = false;
 			if (lowIsA && highIsB == false) {
-				int c = IntrExact2d.Compare(exit, ref triangle, a, b, false);
+				int c = IntrExact2d.Compare(exit, ref triangle, ref ln, false);
 				if (c < 0) return true;
 				single = (c == 0);
 			} else if (lowIsA == false && highIsB) {
-				int c = IntrExact2d.Compare(entry, ref triangle, a, b, true);
+				int c = IntrExact2d.Compare(entry, ref triangle, ref ln, true);
 				if (c > 0) return true;
 				single = (c == 0);
 			} else if (lowIsA == false && entry.Crossing == exit.Crossing && entry.Index == exit.Index) {
 				single = true;      // the line touches one corner of the triangle, within the segment
 			}
-			Vector2d lo = lowIsA ? a : IntrExact2d.PointOf(entry, ref triangle, a, b);
-			Vector2d hi = highIsB ? b : IntrExact2d.PointOf(exit, ref triangle, a, b);
+			Vector2d lo = lowIsA ? a : IntrExact2d.PointOf(entry, ref triangle, ref ln);
+			Vector2d hi = highIsB ? b : IntrExact2d.PointOf(exit, ref triangle, ref ln);
 			Point0 = lo;
-			Param0 = (lo - segment.Center).Dot(segment.Direction);
+			Param0 = IntrExact2d.ParameterAlong(segment.Center, segment.Direction, lo);
 			if (single) {
 				Quantity = 1;
 				Type = IntersectionType.Point;
 				// the point: a (the exit is at a), b (the entry is at b) or the corner the line touches
 				Point0 = lowIsA ? a : (highIsB ? b : lo);
-				Param0 = (Point0 - segment.Center).Dot(segment.Direction);
+				Param0 = IntrExact2d.ParameterAlong(segment.Center, segment.Direction, Point0);
 			} else {
 				Point1 = hi;
-				Param1 = (hi - segment.Center).Dot(segment.Direction);
+				Param1 = IntrExact2d.ParameterAlong(segment.Center, segment.Direction, hi);
 				Quantity = 2;
 				Type = IntersectionType.Segment;
 			}

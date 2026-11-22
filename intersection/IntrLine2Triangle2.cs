@@ -5,8 +5,7 @@ namespace g3
 	/// <summary>
 	/// Intersection of a line and a triangle (originally ported from WildMagic5). The decision is exact: Empty, Point (the
 	/// line touches the closed triangle in one corner) or Segment (a positive length), with exact orientation tests and no
-	/// tolerance, the same at every 2^k scale. The line is the line through Origin and its second point (Origin + 2^m
-	/// Direction, rounded). Corners are returned exactly, the crossing of the line with an edge in floating point (its
+	/// tolerance, the same at every 2^k scale. The line is the line through Origin along Direction exactly as given. Corners are returned exactly, the crossing of the line with an edge in floating point (its
 	/// Quantity and Type are exact). Non-finite input is an InvalidQuery. A degenerate triangle (collinear corners) takes
 	/// the old tolerance route (1e-8), as do the static helpers TriangleLineRelations and GetInterval.
 	/// </summary>
@@ -88,11 +87,9 @@ namespace g3
 			if (IntrExact2d.IsFinite(o) == false || IntrExact2d.IsFinite(triangle.V0) == false
 			    || IntrExact2d.IsFinite(triangle.V1) == false || IntrExact2d.IsFinite(triangle.V2) == false)
 				return false;
-			Vector2d p = IntrExact2d.SecondPoint(o, line.Direction);
-			if (p == o)
-				return false;       // (the second point overflowed: no line)
+			IntrExact2d.LineRef ln = IntrExact2d.LineRef.FromDirection(o, line.Direction);
 			IntrExact2d.Cand entry, exit;
-			int r = IntrExact2d.Interval(o, p, ref triangle, out entry, out exit);
+			int r = IntrExact2d.Interval(ref ln, ref triangle, out entry, out exit);
 			if (r < 0) {
 				find_tolerant();
 				return true;
@@ -102,14 +99,14 @@ namespace g3
 				Type = IntersectionType.Empty;
 				return true;
 			}
-			Point0 = IntrExact2d.PointOf(entry, ref triangle, o, p);
-			Param0 = (Point0 - o).Dot(line.Direction);
+			Point0 = IntrExact2d.PointOf(entry, ref triangle, ref ln);
+			Param0 = IntrExact2d.ParameterAlong(o, line.Direction, Point0);
 			if (entry.Crossing == exit.Crossing && entry.Index == exit.Index) {
 				Quantity = 1;
 				Type = IntersectionType.Point;
 			} else {
-				Point1 = IntrExact2d.PointOf(exit, ref triangle, o, p);
-				Param1 = (Point1 - o).Dot(line.Direction);
+				Point1 = IntrExact2d.PointOf(exit, ref triangle, ref ln);
+				Param1 = IntrExact2d.ParameterAlong(o, line.Direction, Point1);
 				Quantity = 2;
 				Type = IntersectionType.Segment;
 			}

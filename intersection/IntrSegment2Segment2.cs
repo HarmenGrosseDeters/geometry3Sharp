@@ -236,9 +236,8 @@ namespace g3
 				else {
 					// a proper crossing: on segment 1, from the distances of its ends to the line of segment 2 (in floating
 					// point, on the segment: the fraction is where the rounded distances change sign)
-					double da = segment2.Direction.DotPerp(a - segment2.Center), db = segment2.Direction.DotPerp(b - segment2.Center);
-					Point0 = a + IntrExact2d.CrossingFraction(da, db) * (b - a);
-					Parameter0 = (Point0 - segment1.Center).Dot(segment1.Direction);
+					Point0 = IntrExact2d.Lerp(a, b, IntrExact2d.FractionOnSegment(segment2.Center, segment2.Direction, a, b));
+					Parameter0 = IntrExact2d.ParameterAlong(segment1.Center, segment1.Direction, Point0);
 				}
 			} else {
 				Type = IntersectionType.Empty;
@@ -250,7 +249,7 @@ namespace g3
 		void set_point(Vector2d p, ref Vector2d point, ref double parameter)
 		{
 			point = p;
-			parameter = (p - segment1.Center).Dot(segment1.Direction);
+			parameter = IntrExact2d.ParameterAlong(segment1.Center, segment1.Direction, p);
 		}
 
 
