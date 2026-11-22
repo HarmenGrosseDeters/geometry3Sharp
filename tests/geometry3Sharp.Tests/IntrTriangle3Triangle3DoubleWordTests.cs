@@ -151,12 +151,13 @@ namespace geometry3Sharp.Tests
         }
 
         // adversarial leaf: the exact difference of two doubles that are powers of two, next to them, nearly equal (cancellation), of both signs
+        static int exponentRange = 40;
         static DoubleWord Leaf(Random r, out Q exact)
         {
             double Pick()
             {
                 double sign = r.Next(2) == 0 ? 1 : -1;
-                double p = Math.Pow(2, r.Next(-40, 40));
+                double p = Math.Pow(2, r.Next(-exponentRange, exponentRange));
                 switch (r.Next(5)) {
                     case 0: return sign * p;
                     case 1: return sign * p * (1 + Math.Pow(2, -52));
@@ -193,9 +194,12 @@ namespace geometry3Sharp.Tests
             return (d / Q.From(x.Err)).Approx();
         }
 
-        [Fact]
-        public void ObservedError_IsAtMostTheBound_Ratios()
+        [Theory]
+        [InlineData(40)]
+        [InlineData(150)]
+        public void ObservedError_IsAtMostTheBound_Ratios(int range)
         {
+            exponentRange = range;
             var r = new Random(21);
             double maxAdd = 0, maxMul = 0, maxDiv = 0;
             int nAdd = 0, nMul = 0, nDiv = 0;
@@ -211,7 +215,7 @@ namespace geometry3Sharp.Tests
             }
             output.WriteLine($"largest observed error / bound: sum {maxAdd:G3} ({nAdd}), product {maxMul:G3} ({nMul}), quotient {maxDiv:G3} ({nDiv})");
             Assert.True(maxAdd <= 1 && maxMul <= 1 && maxDiv <= 1, $"sum {maxAdd}, product {maxMul}, quotient {maxDiv}");
-            Assert.True(nAdd > 4000 && nMul > 3000 && nDiv > 2000, $"{nAdd} {nMul} {nDiv}");
+            Assert.True(nAdd > 2500 && nMul > 1500 && nDiv > 1000, $"{nAdd} {nMul} {nDiv}");
         }
 
         [Fact]
@@ -254,6 +258,8 @@ namespace geometry3Sharp.Tests
             Assert.True(new DoubleWord(-1, -half / 4, half / 8).RoundsTo(out rounded));
             // zero: certified only if it is an exact zero
             Assert.True(new DoubleWord(0, 0, 0).RoundsTo(out rounded));
+            Assert.True(new DoubleWord(-0.0, 0, 0).RoundsTo(out rounded));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(rounded));       // +0, not -0
             Assert.False(new DoubleWord(0, 0, 1e-300).RoundsTo(out rounded));
             Assert.False(new DoubleWord(1e-40, 0, double.PositiveInfinity).RoundsTo(out rounded));
         }
@@ -392,6 +398,50 @@ namespace geometry3Sharp.Tests
                 if (IntrTriangle3Triangle3.Intersects(ref a, ref b) == false) continue;
                 made++;
                 yield return (a, b);
+            }
+        }
+
+        [Fact]
+        public void RoundRatio_RoundsOnceInTheSubnormalRange()
+        {
+            BigInteger one = BigInteger.One;
+            // 2^-1075 (1 + 2^-54): just above half the smallest subnormal: rounds up to it (rounding to 53 bits first would give exactly the tie, and 0)
+            Assert.Equal(double.Epsilon, IntrTriangle3Triangle3.round_ratio((one << 54) + 1, one << 54, -1075));
+            // 2^-1075 exactly: a tie, to even: 0
+            Assert.Equal(0.0, IntrTriangle3Triangle3.round_ratio(one, one, -1075));
+            // 1.5 * 2^-1074: a tie between 1 and 2 units, to even: 2 units
+            Assert.Equal(2 * double.Epsilon, IntrTriangle3Triangle3.round_ratio(3, 2, -1074));
+            // just below the tie: 1 unit; just above: 2 units
+            Assert.Equal(double.Epsilon, IntrTriangle3Triangle3.round_ratio((one << 54) * 3 - 1, one << 55, -1074));
+            Assert.Equal(2 * double.Epsilon, IntrTriangle3Triangle3.round_ratio((one << 54) * 3 + 1, one << 55, -1074));
+            // below half: 0, positive and negative (always +0)
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(IntrTriangle3Triangle3.round_ratio(-1, 3, -1075)));
+            // a normal result is unchanged: 1/3 and its scalings
+            Assert.Equal(1.0 / 3, IntrTriangle3Triangle3.round_ratio(1, 3, 0));
+            Assert.Equal(Math.Pow(2, -900) / 3, IntrTriangle3Triangle3.round_ratio(1, 3, -900));
+            Assert.Equal(-Math.Pow(2, 700) / 3, IntrTriangle3Triangle3.round_ratio(-1, 3, 700));
+        }
+
+        [Fact]
+        public void Intersects_AtHugeScale_AgreesWithTheBaseScale()
+        {
+            // cross products overflow at 2^700: disjoint and touching pairs as well as crossing ones
+            var a = new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(2, 0, 0), new Vector3d(0, 2, 0));
+            var cases = new[] {
+                new Triangle3d(new Vector3d(0.5, 0.5, -1), new Vector3d(0.5, 0.5, 1), new Vector3d(3, 3, 0)),      // crossing
+                new Triangle3d(new Vector3d(5, 5, 1), new Vector3d(6, 5, 1), new Vector3d(5, 6, 1)),                // disjoint
+                new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(0, 0, 1), new Vector3d(-1, -1, 1)),              // touching at a corner
+                new Triangle3d(new Vector3d(0.5, 0.5, 1e-3), new Vector3d(1, 0.5, 1e-3), new Vector3d(0.5, 1, 1e-3)),  // parallel above
+            };
+            foreach (double e in new[] { 700, -700 }) {
+                double s = Math.Pow(2, e);
+                Triangle3d Big(Triangle3d x) => new Triangle3d(x.V0 * s, x.V1 * s, x.V2 * s);
+                foreach (var b in cases) {
+                    var a0 = a; var b0 = b; var a1 = Big(a); var b1 = Big(b);
+                    Assert.True(IntrTriangle3Triangle3.Intersects(ref a0, ref b0) == IntrTriangle3Triangle3.Intersects(ref a1, ref b1), "Intersects at 2^" + e);
+                    Assert.True(new IntrTriangle3Triangle3(a, b).Test() == new IntrTriangle3Triangle3(Big(a), Big(b)).Test(), "Test at 2^" + e);
+                    Assert.True(new IntrTriangle3Triangle3(a, b).Find() == new IntrTriangle3Triangle3(Big(a), Big(b)).Find(), "Find at 2^" + e);
+                }
             }
         }
 

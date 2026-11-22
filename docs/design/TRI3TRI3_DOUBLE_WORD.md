@@ -27,6 +27,8 @@ it can be one ulp off (example in the PR). `round_ratio` is used instead in this
 
 `u = 2^-53`. A `DoubleWord` is *normalized* if `|Lo| <= u |Hi|`.
 
+- **Strict IEEE double rounding** is assumed for every operation (SSE2 / ARM64 doubles, as for the rest of the exact code of the library): the error-free transforms are wrong with
+  extended-precision intermediates (a 32-bit .NET Framework process on x87); there is no 32-bit test run (see `ExactIntervals`, DETERMINISM_PROOF.md 5.3).
 - **TwoSum(a, b)**: `s = fl(a + b)`, `bb = s - a`, `e = (a - (s - bb)) + (b - bb)`; `s + e = a + b` exactly for every pair of doubles
   without overflow (Knuth/Moller; no ordering condition, which is why FastTwoSum is not used). `|e| <= u |s|`, so the output is normalized.
 - **TwoProduct(a, b)** (`Expansion.TwoProduct`, Dekker/Veltkamp split with the constant 2^27 + 1, no FMA): `x + y = a b` exactly if no

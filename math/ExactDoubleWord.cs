@@ -129,7 +129,9 @@ namespace g3
             double q2 = r.Hi / y.Hi;
             double qh, ql;
             TwoSum(q1, q2, out qh, out ql);
-            DoubleWord q = new DoubleWord(qh, ql, 0);
+            DoubleWord q = Checked(qh, ql, 0);
+            if (q.IsValid == false)
+                return Invalid;
             DoubleWord res = x - y * q;
             if (res.IsValid == false)
                 return Invalid;
@@ -151,9 +153,12 @@ namespace g3
             rounded = Hi;
             if (IsValid == false)
                 return false;
-            // an exact zero (no error, as the product of an exact zero, eg the difference of equal coordinates): certified
-            if (Hi == 0)
+            // an exact zero (no error, as the product of an exact zero, eg the difference of equal coordinates): certified,
+            // as +0 (a product of an exact zero and a negative value is -0)
+            if (Hi == 0) {
+                rounded = 0.0;
                 return Lo == 0 && Err == 0;
+            }
             double a = Math.Abs(Hi);
             long bits = BitConverter.DoubleToInt64Bits(a);
             // spacing above a: 2^(e - 52); just below a: the same, or half of it if a is a power of two

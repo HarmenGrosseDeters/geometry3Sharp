@@ -88,6 +88,7 @@ namespace g3
             Result = IntersectionResult.NoIntersection;
             Type = IntersectionType.Empty;
             Quantity = 0;
+            PolygonPoints = null;       // (not the polygon of an earlier Find() of this instance)
 
             // non-finite coordinates: no contact is defined
             if (finite(ref triangle0) == false || finite(ref triangle1) == false)
@@ -193,10 +194,10 @@ namespace g3
             int oa = odd_vertex(ref A, ref B), ob = odd_vertex(ref B, ref A);
             if (oa < 0 || ob < 0)
                 return false;
-            // the crossing edges that end in the other triangle
-            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero;
+            // the crossing edges that end in the other triangle (counted first: no arithmetic for a pair that is left to the exact route)
+            Vector3d[] cs = new Vector3d[4], ct = new Vector3d[4];
+            bool[] inA = new bool[4];
             int n = 0;
-            DoubleWord[] nA = null, nB = null;
             for (int side = 0; side < 2; ++side) {
                 bool first = side == 0;
                 int o = first ? oa : ob;
@@ -206,19 +207,25 @@ namespace g3
                         continue;
                     if (n == 2)
                         return false;
-                    Vector3d x;
-                    if (first) {
-                        if (nB == null) nB = plane_normal(ref B);
-                        x = crossing_point(s, t, ref B, nB);
-                    } else {
-                        if (nA == null) nA = plane_normal(ref A);
-                        x = crossing_point(s, t, ref A, nA);
-                    }
-                    if (n == 0) p0 = x; else p1 = x;
+                    cs[n] = s; ct[n] = t; inA[n] = first;
                     ++n;
                 }
             }
-            if (n != 2 || p0 == p1)
+            if (n != 2)
+                return false;       // (a contact has two qualifying points or none, section 5 of the design note: a guard)
+            DoubleWord[] nA = null, nB = null;
+            Vector3d[] pts = new Vector3d[2];
+            for (int k = 0; k < 2; ++k) {
+                if (inA[k]) {
+                    if (nB == null) nB = plane_normal(ref B);
+                    pts[k] = crossing_point(cs[k], ct[k], ref B, nB);
+                } else {
+                    if (nA == null) nA = plane_normal(ref A);
+                    pts[k] = crossing_point(cs[k], ct[k], ref A, nA);
+                }
+            }
+            Vector3d p0 = pts[0], p1 = pts[1];
+            if (p0 == p1)
                 return false;       // (equal after rounding: find_exact decides Point or Segment)
             Points[0] = p0;
             Points[1] = p1;
@@ -457,11 +464,18 @@ namespace g3
             int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
             BigInteger q = shift >= 0 ? BigInteger.DivRem(a << shift, den, out rem) : BigInteger.DivRem(a, den << -shift, out rem);
             int extra = (int)(ExactPoint3.BitLength(q) - 53);
+            // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074 (rounding to 53 bits first
+            // and then to the grid would round twice)
+            int unit = scaleExp - shift + extra;
+            if (unit < -1074)
+                extra += -1074 - unit;
             BigInteger low = q & ((BigInteger.One << extra) - 1), half = BigInteger.One << (extra - 1), mant = q >> extra;
             // above the midpoint, or on it with a nonzero remainder (the quotient was truncated), or a tie with an odd mantissa
             if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
                 mant += 1;
-            double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53: exact)
+            if (mant.IsZero)
+                return 0;
+            double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53, the unit is a double: exact)
             return negative ? -r : r;
         }
 
