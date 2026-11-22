@@ -48,7 +48,7 @@ values; it is not the optimum of the integer bi-directed problem where the relax
 
 Checks in the benchmark: the relaxed solution closes every equation (twice the residual plus the signed steps is zero, per row); the
 replay of the library's steps through reflection without the jumps reproduces the library's status and mesh on every run (0 mismatches
-in 120 runs); the frozen values the jumps wrote are read back after the library's flow (its balancing moves at most 2 frozen edges
+in 120 runs); the frozen values the jumps wrote are read back after the library's flow (its balancing moves at most 4 frozen edges
 per run and never resets them); the results are judged by the gate's independent check only.
 
 ## 2. Measurement
