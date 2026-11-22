@@ -27,6 +27,9 @@ Benchmark: [benchmarks/SelfIntersectionUntangle](../../benchmarks/SelfIntersecti
 - **Sign information is necessary.** Local pushes alone (the minimum translation per intersecting triangle pair)
   untangle 22 of 42; with a global sign (the winding number in front of each triangle) 40 of 42. Diffusing the
   displacement changes no count.
+- **Where it adds something beyond the exact resolve:** the resolve already gives the intended solid in 11 of 21
+  cases (unions, folds, coarse parts). In the other 10 winding > 0 is not the intent (6 inverted regions, 3 overlaps
+  that should stay apart, 1 heavy noise): untangling keeps the topology in all 10 and is closer to the intent in 4.
 - **Options** are in the last section. Leaning: nothing in the library now.
 
 ## 1. What the library already does (building blocks)
@@ -167,6 +170,22 @@ Readings:
 - **Open inputs:** after untangling, 37 of the 42 holed runs are repaired by the first stage (`MeshAutoRepair`, input
   triangles kept), 3 by the exact resolve, 2 are not untangled. Again no solidify and no wrap either way.
 - Time: the same order as the repair on these sizes (12 to 3104 triangles); the wrap takes 0.8 to 4.5 s.
+
+**Does the exact resolve already give the intended solid?** Per case, canonical frame (the rotated frame agrees in
+every "kept / changed"; last table of `summarize.py`):
+
+| group | cases | exact resolve (the repair) | what untangling adds |
+|---|---|---|---|
+| overlap that is meant as a union (no intent mesh: the boxes by half, both sphere pairs, the coplanar boxes) | 4 | the exact union, by definition the intended solid | nothing: it has to pull the parts apart (0.5 to 12 % of the diagonal; the boxes by half are not untangled) |
+| folds and flaps with the solid intact (one vertex moved on the sphere and in the flat face, 10 % of the vertices by 0.8 edges, the folded ridge) | 4 | intended solid: topology kept, volume 0.99 to 1.00 of the intent | nothing (distance to the intent within 10 % of the repair's, or worse) |
+| coarse CAD parts where no cell is cut off (boss edge, box corner, bracket) | 3 | topology kept; the volume is that of the damaged input (0.16 to 0.96) | nothing (volume 0.08 to 0.97, distance to the intent within 10 %) |
+| **inverted regions: a face pushed through the opposite wall** (sphere cap, the three pushed plates, both pocket floors) | 6 | **not the intent: a through-hole** (Euler characteristic 0 instead of 2), volume 0.86 to 0.94 | the topology in 6 of 6; closer to the intent in 2 (plates: 0.019 against 0.040, 0.059 against 0.127), equal in 3, farther in 1 (pocket floor by 2: 0.185 against 0.121, volume 1.36) |
+| overlap that is meant to stay apart (boxes overlapping by 1e-6, both helix tubes) | 3 | **not the intent: merged** (one component instead of two; a handle on the helix) | the topology in 3 of 3; closer in 2 (boxes: 0.0001 against 0.17; helix by 0.1 r: 0.017 against 0.020), equal in 1 |
+| heavy noise (10 % of the vertices by 1.5 edges) | 1 | **not the intent: genus 3**, volume 1.00 | the topology; the distance to the intent is 12 % worse |
+
+So the exact resolve gives the intended solid in 11 of 21 cases and untangling adds nothing there. It adds the
+topology in the other 10 (winding > 0 is not the intent: inverted regions, parts merged that should stay apart), and a
+geometry closer to the intent in 4 of those 10.
 
 **Upper bound on real meshes.** The recorded stages of the Thingi10K 400 set
 (`benchmarks/MeshRepairBenchmark/cases/robust_stages_2026-10-25.csv`, an older build; no mesh was fetched for this

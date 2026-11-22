@@ -55,6 +55,18 @@ def main(path):
     va = [abs(a[k]["vol"] - 1) for k in both]
     vb = [abs(b[k]["vol"] - 1) for k in both]
     print("median |volume / intent - 1|: untangled %.4f, repair %.4f" % (statistics.median(va), statistics.median(vb)))
+    print()
+    # per case (canonical frame): does the repair (exact resolve) give the solid of the intent, and what does untangling add
+    print("| class | case | repair: topology of the intent | repair: volume / intent | repair: H(intent) | untangled: volume / intent | untangled: H(intent) |")
+    print("|---|---|---|---|---|---|---|")
+    f = lambda x: "-" if x is None else "%.4f" % x
+    for r in rows:
+        if r["method"] != "robust repair" or r["frame"] != "id":
+            continue
+        u = [x for x in rows if x["method"] == "untangle signed+d0" and x["frame"] == "id" and x["case"] == r["case"]][0]
+        topo = "no intent" if r["itopo"] == "-" else ("kept" if r["topo"] == r["itopo"] else "changed (%s, intent %s)" % (r["topo"], r["itopo"]))
+        print("| %s | %s | %s | %s | %s | %s | %s |" % (r["cls"], r["case"], topo, f(r["vol"]), f(r["intent"]),
+              f(u["vol"]) if u["clean"] else "not untangled", f(u["intent"]) if u["clean"] else "-"))
 
 
 if __name__ == "__main__":
