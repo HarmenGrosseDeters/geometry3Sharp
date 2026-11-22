@@ -63,6 +63,14 @@ namespace g3
         internal bool PatchBound = false;
 
         /// <summary>
+        /// (with PatchBound, not with Certified) the patch bound also covers a triangle that boundary edges of the patch only touch
+        /// from outside: an edge of the triangle along a boundary or a crease of Target, a corner on one (point 4 of patch_bound's
+        /// comment). Without it every such piece is refused and split down to the size of the target triangles. Off by default (the
+        /// bounds of the other users stay as they are, bit for bit); the Reducer's MaxDeviation check sets it (issue 1317)
+        /// </summary>
+        internal bool PatchTouchingEdges = false;
+
+        /// <summary>
         /// (internal, MeshHausdorffDistance.CertifiedUpper) UpperBound is certified: never below the largest exact distance over the
         /// exact triangle with the given double corners, rounding included, if d_i are certified upper bounds of the corners' distances
         /// to their triangles n_i (CertifiedTriangleBounds.PointTriangleUpper). With PatchBound the patch bound used is
@@ -262,6 +270,18 @@ namespace g3
         //     slope of t and with 1 / angle at the corners of Q); thin Q (MinPatchShape) and steep t (MaxPatchSlope)
         //     are left out, so the slack stays below about 1e-7 of the coordinates. margin (1e-9 of Q's size) is
         //     for the 2D tests. The result is also never below the corners' distances (UpperBound).
+        //  4. Boundary edges that touch Q' (PatchTouchingEdges): let E be Q' eroded by g = margin, the points of Q' at
+        //     least g inside of all three edge lines (convex; not empty, because the inradius of a Q that passes
+        //     MinPatchShape is above 3e-5 of its size). A boundary edge whose two end points are both less than g / 2
+        //     inside of the same edge line of Q' lies in a half plane that does not meet E (the g / 2 between the two
+        //     is for the rounding of the 2D tests, about 1e-15 of Q's size); every other boundary edge must stay more
+        //     than margin away from Q', as in point 2. Then no boundary edge meets E, so w is constant on E, and it is
+        //     at least 1 if one point of E is covered: the centroid of Q' is tested against the triangles of S (a
+        //     centroid that the rounded test puts on an edge of a triangle of S has a covered point of E next to it).
+        //     Every x in Q' is within r = g / sin(a / 2) of E, a the smallest angle of Q' (the corner of Q' is the
+        //     farthest point), and sin(a / 2) >= sin(a) / 2 >= 1 / (2 shape), shape as in point 3. So with y in E
+        //     nearest to x and z the point of Target above y: d(x, Target) <= |x - y| + |h(z)| <= 2 g shape + hmax
+        //     (hmax is taken over the clip with all of Q', which contains E).
         // S grows from the corners' nearest triangles over shared edges, at most MaxPatchTriangles. +Infinity if
         // the coverage cannot be shown.
         internal double patch_bound(Vector3d p0, Vector3d p1, Vector3d p2, int n0, int n1, int n2)
@@ -290,6 +310,9 @@ namespace g3
                 if (s >= 0 && Target.IsTriangle(s) && state.ContainsKey(s) == false) { state[s] = 0; stack.Push(s); }
             double hmax = 0, rmax = 0;
             bool hasHeight = false;
+            // (PatchTouchingEdges) is the centroid of the triangle in a triangle of S?
+            Vector2d centroid = (q0 + q1 + q2) / 3;
+            bool centroidCovered = false;
             var clipped = new List<Vector3d>(9);
             var tmp = new List<Vector3d>(9);
             while (stack.Count > 0) {
@@ -323,6 +346,8 @@ namespace g3
                     hmax = Math.Max(hmax, Math.Abs(v.z));
                     hasHeight = true;
                 }
+                if (edge_side(ta.xy, tb.xy, centroid) >= 0 && edge_side(tb.xy, tc.xy, centroid) >= 0 && edge_side(tc.xy, ta.xy, centroid) >= 0)
+                    centroidCovered = true;
                 Index3i nb = Target.GetTriNeighbourTris(tid);
                 for (int k = 0; k < 3; ++k)
                     if (nb[k] >= 0 && state.ContainsKey(nb[k]) == false) { state[nb[k]] = 0; stack.Push(nb[k]); }
@@ -330,7 +355,8 @@ namespace g3
             // (no part of the triangle over S: not covered)
             if (hasHeight == false)
                 return double.PositiveInfinity;
-            // no boundary edge of S may meet the triangle
+            // no boundary edge of S may meet the triangle (with PatchTouchingEdges: the triangle eroded by margin, point 4)
+            bool touching = false;
             foreach (int tid in inS) {
                 Index3i tv = Target.GetTriangle(tid);
                 Index3i nb = Target.GetTriNeighbourTris(tid);
@@ -342,14 +368,20 @@ namespace g3
                         continue;
                     Vector3d a = Target.GetVertex(tv[k]) - p0, b = Target.GetVertex(tv[(k + 1) % 3]) - p0;
                     Vector2d sa = new Vector2d(a.Dot(ux), a.Dot(uy)), sb = new Vector2d(b.Dot(ux), b.Dot(uy));
-                    if (segment_meets_triangle(sa, sb, q0, q1, q2, margin))
+                    if (segment_meets_triangle(sa, sb, q0, q1, q2, margin) == false)
+                        continue;
+                    if (PatchTouchingEdges == false || centroidCovered == false
+                        || !(outside_edge(q0, q1, sa, sb, margin) || outside_edge(q1, q2, sa, sb, margin) || outside_edge(q2, q0, sa, sb, margin)))
                         return double.PositiveInfinity;
+                    touching = true;
                 }
             }
             // slack for the rounding of the projections and the clipped heights (relative to the coordinates, which
             // are taken relative to p0, and to the slope)
             double shape = scale * scale / nlen;       // about 1 / sin of the smallest angle, at most 1 / MinPatchShape
-            return hmax + 16 * MaxPatchSlope * shape * MathUtil.Epsilon * (scale + rmax + hmax);
+            double bound = hmax + 16 * MaxPatchSlope * shape * MathUtil.Epsilon * (scale + rmax + hmax);
+            // (point 4: the points of the triangle outside of its eroded part)
+            return touching ? bound + 2 * margin * shape : bound;
         }
 
         // ---- the certified patch bound (#848; docs/design/CERTIFIED_PATCH_BOUND.md) ----
@@ -618,6 +650,13 @@ namespace g3
         }
 
         // does the segment (a, b) come within margin of the closed triangle (q0, q1, q2) (counter-clockwise)?
+        // are both end points of the segment ab less than margin / 2 inside of the line pq (the inside is on its left)?
+        static bool outside_edge(Vector2d p, Vector2d q, Vector2d a, Vector2d b, double margin)
+        {
+            double limit = 0.5 * margin * p.Distance(q);
+            return edge_side(p, q, a) < limit && edge_side(p, q, b) < limit;
+        }
+
         static bool segment_meets_triangle(Vector2d a, Vector2d b, Vector2d q0, Vector2d q1, Vector2d q2, double margin)
         {
             // an end point inside, or the segment within margin of an edge

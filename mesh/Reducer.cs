@@ -224,6 +224,13 @@ namespace g3
         /// </summary>
         public double ReferenceNormalMinLength = 0.25;
 
+        /// <summary>
+        /// (tests, benchmarks) the MaxDeviation check also uses the patch bound of TriangleDeviationBounds (PatchBound with
+        /// PatchTouchingEdges): a new triangle that spans many reference triangles of a flat region is certified in one step
+        /// instead of being split down to their size (issue 1317: 76 s for a flat-faced cube of 4332 triangles). Read when the
+        /// deviation reference is set. False: the check as before
+        /// </summary>
+        internal bool DeviationPatchBound = true;
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
         /// <summary> (internal) the MaxDeviation check of a collapse splits the triangles it certifies across threads (the answer is the same) </summary>
@@ -560,7 +567,7 @@ namespace g3
         public void SetDeviationReference(DMesh3 reference)
         {
             deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
-            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound };
             reverseCoverage = null;     // (the reverse direction refers to the mesh at its start: MaxDeviationTwoSided then refuses)
         }
 
@@ -574,7 +581,7 @@ namespace g3
         internal void SetDeviationReference(DMeshAABBTree3 reference)
         {
             deviationTarget = reference;
-            deviationBounds = new TriangleDeviationBounds(reference.Mesh);
+            deviationBounds = new TriangleDeviationBounds(reference.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound };
         }
 
         // current triangles by grid cell, for PreventSelfIntersections

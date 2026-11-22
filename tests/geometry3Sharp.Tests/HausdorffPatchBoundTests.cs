@@ -418,5 +418,131 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(bt.Count(double.IsInfinity) - b0.Count(double.IsInfinity)) <= 2, s.Name);
             }
         }
+
+        // ---- PatchTouchingEdges: boundary edges of the patch that touch the triangle from outside (point 4 of patch_bound) ----
+
+        static double Touching(DMesh3 target, DMeshAABBTree3 tree, Vector3d a, Vector3d b, Vector3d c, bool touching = true)
+        {
+            return Patch(new TriangleDeviationBounds(target) { PatchTouchingEdges = touching, MaxPatchTriangles = 4096 }, tree, a, b, c);
+        }
+
+        // finite with the option only, never below the sampled distance, and at most slack above it. (a, b, c) is oriented as the
+        // target; the reversed triangle sees the target from below and gets no bound, as without the option
+        static void AssertTouching(DMesh3 target, DMeshAABBTree3 tree, Vector3d a, Vector3d b, Vector3d c, double slack, string what)
+        {
+            Assert.True(double.IsPositiveInfinity(Touching(target, tree, a, b, c, false)), what + ": finite without the option");
+            double u = Touching(target, tree, a, b, c), s = SampledMax(target, tree, a, b, c);
+            // (2e-8: a point on the target has a sampled distance of up to about 1e-8, the square root of the rounding of its square)
+            Assert.True(u >= s - 2e-8 && u <= s + slack, $"{what}: bound {u}, sampled {s}");
+            Assert.True(double.IsPositiveInfinity(Touching(target, tree, a, c, b)), what + ": reversed");
+        }
+
+        [Fact]
+        public void TouchingEdges_AlongBoundaryAndCrease_FiniteAndSound()
+        {
+            DMesh3 plate = Grid(0, 0, 1, 1, 21);
+            var tree = new DMeshAABBTree3(plate, true);
+            foreach (double h in new[] { 0, 0.01 }) {
+                // an edge on the plate's boundary, a corner on it, the whole plate's half (two edges on it, both corners)
+                AssertTouching(plate, tree, new Vector3d(0.1, 0, h), new Vector3d(0.9, 0, h), new Vector3d(0.5, 0.6, h), 1e-7, "edge on the boundary");
+                AssertTouching(plate, tree, new Vector3d(0.5, 0, h), new Vector3d(0.9, 0.5, h), new Vector3d(0.2, 0.7, h), 1e-7, "corner on the boundary");
+                AssertTouching(plate, tree, new Vector3d(0, 0, h), new Vector3d(1, 0, h), new Vector3d(1, 1, h), 1e-7, "half of the plate");
+            }
+            // tilted against the plate, the low edge on the boundary
+            AssertTouching(plate, tree, new Vector3d(0.1, 0, 0), new Vector3d(0.9, 0, 0), new Vector3d(0.5, 0.6, 0.02), 2e-5, "tilted");
+            // a cube: a face's half, its edges on the creases (the neighbouring faces are seen edge on and left out)
+            DMesh3 cube = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 9 }.Generate().MakeDMesh();
+            foreach (int v in cube.VertexIndices()) {
+                Vector3d p = cube.GetVertex(v);
+                cube.SetVertex(v, p / Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
+            }
+            var cubeTree = new DMeshAABBTree3(cube, true);
+            AssertTouching(cube, cubeTree, new Vector3d(-1, -1, 1), new Vector3d(1, -1, 1), new Vector3d(1, 1, 1), 1e-7, "half of a face");
+            AssertTouching(cube, cubeTree, new Vector3d(1, -1, -1), new Vector3d(1, 1, -1), new Vector3d(1, 0.25, 0.5), 1e-7, "an edge on a crease");
+            // a hole next to the triangle: one of its edges on the triangle's edge, the hole outside
+            DMesh3 hole = Grid(0, 0, 1, 1, 21, skip: (i, j) => i == 10 && j == 10);
+            var holeTree = new DMeshAABBTree3(hole, true);
+            AssertTouching(hole, holeTree, new Vector3d(0.2, 0.5, 0), new Vector3d(0.5, 0.1, 0), new Vector3d(0.8, 0.5, 0), 1e-7, "a hole outside");
+        }
+
+        [Fact]
+        public void TouchingEdges_RandomTrianglesOnTheBoundary_Sound()
+        {
+            DMesh3 plate = Grid(0, 0, 1, 1, 21, h: (x, y) => 0.002 * Math.Sin(9 * x) * Math.Cos(7 * y) * y);
+            var tree = new DMeshAABBTree3(plate, true);
+            var bounds = new TriangleDeviationBounds(plate) { PatchTouchingEdges = true, MaxPatchTriangles = 4096 };
+            var rand = new Random(17);
+            int finite = 0;
+            for (int k = 0; k < 300; ++k) {
+                // two corners on the boundary y = 0 (height 0 there), or one, or a corner a little outside or inside of it
+                double off = (k % 3 == 2) ? 1e-3 * (rand.NextDouble() - 0.5) : 0;
+                Vector3d a = new Vector3d(rand.NextDouble(), off, 0);
+                Vector3d b = (k % 3 == 0) ? new Vector3d(rand.NextDouble(), 0, 0) : new Vector3d(rand.NextDouble(), 0.6 * rand.NextDouble(), 0.01 * (rand.NextDouble() - 0.5));
+                Vector3d c = new Vector3d(rand.NextDouble(), 0.05 + 0.6 * rand.NextDouble(), 0.01 * (rand.NextDouble() - 0.5));
+                foreach (bool swap in new[] { false, true }) {
+                    double u = swap ? Patch(bounds, tree, a, c, b) : Patch(bounds, tree, a, b, c);
+                    if (double.IsPositiveInfinity(u)) continue;
+                    finite++;
+                    double s = SampledMax(plate, tree, a, b, c);
+                    Assert.True(u >= s - 1e-12, $"#{k}: bound {u} below the sampled max {s}; {a} {b} {c}");
+                }
+            }
+            // (the reversed triangles get none)
+            Assert.True(finite > 100, "finite: " + finite);
+        }
+
+        [Fact]
+        public void TouchingEdges_UncoveredParts_GiveNoBound()
+        {
+            DMesh3 plate = Grid(0, 0, 1, 1, 21);
+            var tree = new DMeshAABBTree3(plate, true);
+            // across the boundary: a corner outside by much, by a little (1e-6 of its size, above the margin of 1e-9)
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, new Vector3d(0.1, 0.2, 0), new Vector3d(0.9, 0.2, 0), new Vector3d(0.5, -0.3, 0))));
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, new Vector3d(0.1, 0.2, 0), new Vector3d(0.9, 0.2, 0), new Vector3d(0.5, -1e-6, 0))));
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, new Vector3d(0.1, -1e-6, 0), new Vector3d(0.9, -1e-6, 0), new Vector3d(0.5, 0.6, 0))));
+            // an edge on the boundary, the triangle on the outside: every boundary edge only touches it, but nothing is under it
+            Vector3d o0 = new Vector3d(0.1, 0, 0), o1 = new Vector3d(0.5, -0.6, 0), o2 = new Vector3d(0.9, 0, 0);
+            Assert.True(SampledMax(plate, tree, o0, o1, o2) > 0.5);
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, o0, o1, o2)));
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, o0, o2, o1)));
+            // a hole inside the triangle with one edge on the triangle's edge: its other edges are inside
+            DMesh3 hole = Grid(0, 0, 1, 1, 21, skip: (i, j) => i == 10 && j == 10);
+            var holeTree = new DMeshAABBTree3(hole, true);
+            Vector3d h0 = new Vector3d(0.2, 0.5, 0), h1 = new Vector3d(0.8, 0.5, 0), h2 = new Vector3d(0.5, 0.9, 0);
+            Assert.True(SampledMax(hole, holeTree, h0, h1, h2) > 0.01);
+            Assert.True(double.IsPositiveInfinity(Touching(hole, holeTree, h0, h1, h2)));
+            // a boundary edge through a corner region: outside of no single edge line
+            Assert.True(double.IsPositiveInfinity(Touching(plate, tree, new Vector3d(0.5, -0.01, 0), new Vector3d(0.9, 0.5, 0), new Vector3d(0.1, 0.5, 0))));
+        }
+
+        [Fact]
+        public void TouchingEdges_InvariantUnderSimilarities()
+        {
+            DMesh3 plate = Grid(0, 0, 1, 1, 21);
+            var tris = new List<Vector3d[]> {
+                new[] { new Vector3d(0.1, 0, 0.01), new Vector3d(0.9, 0, 0.01), new Vector3d(0.5, 0.6, 0.01) },
+                new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0) },
+                new[] { new Vector3d(0.5, 0, 0.002), new Vector3d(0.9, 0.5, 0.001), new Vector3d(0.2, 0.7, 0.003) },
+                new[] { new Vector3d(0.1, 0.2, 0), new Vector3d(0.9, 0.2, 0), new Vector3d(0.5, -0.3, 0) } };
+            Func<DMesh3, Func<Vector3d, Vector3d>, double[]> bounds = (target, f) => {
+                var tree = new DMeshAABBTree3(target, true);
+                return tris.Select(t => Touching(target, tree, f(t[0]), f(t[1]), f(t[2]))).ToArray();
+            };
+            double[] b0 = bounds(plate, p => p);
+            Assert.Equal(1, b0.Count(double.IsInfinity));
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 t = new DMesh3(plate);
+                MeshTransforms.PerVertexTransform(t, s.Apply);
+                double[] bt = bounds(t, s.Apply);
+                for (int k = 0; k < b0.Length; ++k) {
+                    if (s.IsExact)
+                        Assert.Equal(s.ApplyLength(b0[k]), bt[k]);       // bit for bit, scaled
+                    else if (double.IsInfinity(b0[k]) == false && double.IsInfinity(bt[k]) == false)
+                        Assert.True(Math.Abs(bt[k] / s.Scale - b0[k]) <= 1e-6 * 0.01 + 1e3 * s.Resolution(1), $"{s.Name} #{k}: {bt[k] / s.Scale} vs {b0[k]}");
+                }
+                // (the triangle across the boundary gets no bound in any frame)
+                Assert.True(double.IsPositiveInfinity(bt[3]), s.Name);
+            }
+        }
     }
 }
