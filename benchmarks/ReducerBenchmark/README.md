@@ -215,8 +215,62 @@ Findings:
   holds the triangle, 6-9 µs) decides 2-23 %. The linear box scan is 1-7 µs. The envelope's time is the best of 3
   passes, `IsWithin`'s one pass.
 - `envelope full` on terrain 80 (12800 triangles) did not finish in 10 minutes.
-- The built-in `MaxDeviation` is slow on flat inputs: a cube of 4332 triangles takes 76 s at 0.001 (the research note,
-  section 5).
+- The built-in `MaxDeviation` was slow on flat inputs: a cube of 4332 triangles took 76 s at 0.001 (the research note,
+  section 5); fixed in #1317, see "Flat inputs" below. The A and control times above are from before that fix.
+
+## Flat inputs (`flat`, issue 1317, November 2026)
+
+```
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- flat 3
+```
+
+`MaxDeviation` reductions as far as the check allows, with the check as before (`Reducer.DeviationPatchBound = false`, internal)
+and with the patch bound (the default since #1317): alternating rounds in alternating order, medians of 3 (the two slow
+flat cases run the old check once). "same": the two meshes are equal bit for bit (SHA-256, `ReducerHashes.Hash`). Linux
+container, 4 cores, net10.0, Release. Cube: a welded cube with flat faces; plate: a square grid in a tilted plane, with its
+boundary; the tolerance is relative to the bounding box diagonal.
+
+| mesh | triangles | tolerance | result | before (ms) | with the patch bound (ms) | speedup | meshes |
+|---|---|---|---|---|---|---|---|
+| cube 10 | 972 | 0.001 | 12 | 4001 | 1085 | 3.7x | same E896985B563B22D8 |
+| cube 10 | 972 | 0.01 | 12 | 1251 | 346 | 3.6x | same E896985B563B22D8 |
+| cube 20 | 4332 | 0.001 | 30 | 80499 (1 run) | 5804 | 13.9x | same DDA218CE48F925BD |
+| plate 16 | 512 | 0.001 | 4 | 3612 | 207 | 17.5x | same EFADC920C68112CF |
+| plate 16 | 512 | 0.01 | 4 | 1000 | 199 | 5.0x | same EFADC920C68112CF |
+| plate 32 | 2048 | 0.001 | 4 | 81568 (1 run) | 1754 | 46.5x | same D20227CB031342C0 |
+| bumpy sphere 40 | 18252 | 0.001 | 1706 | 3762 | 867 | 4.3x | same A33AAB648452F9D5 |
+| bumpy sphere 40 | 18252 | 0.003 | 518 | 2195 | 982 | 2.2x | same 54480AA7F6BDAC02 |
+| bumpy sphere 40 | 18252 | 0.01 | 146 | 999 | 924 | 1.1x | same 5517F93C4FE9AE73 |
+| terrain 80 | 12800 | 0.001 | 2941 | 1605 | 615 | 2.6x | same 18383482C6A74E79 |
+| terrain 80 | 12800 | 0.003 | 932 | 941 | 632 | 1.5x | same 7780CB9945676F4A |
+| terrain 80 | 12800 | 0.01 | 117 | 609 | 644 | 0.9x | same D4BBAF273B4AF1A6 |
+| bumpy sphere 130 | 199692 | 0.001 | 1670 | 28847 | 14224 | 2.0x | same 316E9F66F671A50C |
+| bumpy sphere 130 | 199692 | 0.003 | 512 | 14301 | 13198 | 1.1x | same 01444CB77C6BFFD8 |
+| bumpy sphere 130 | 199692 | 0.01 | 150 | 8564 | 8116 | 1.1x | same 2458A2BEBD4A4DD4 |
+| terrain 300 | 180000 | 0.001 | 3121 | 19991 | 11860 | 1.7x | same 33D1CAD15BB93B35 |
+| terrain 300 | 180000 | 0.003 | 924 | 9639 | 9428 | 1.0x | same A923C4FC33897780 |
+| terrain 300 | 180000 | 0.01 | 117 | 6993 | 7505 | 0.9x | same 4541EF545EB850C5 |
+
+What changed (`queries/TriangleDeviationBounds.cs`, `mesh/Reducer.cs`):
+- **Cause.** Without the patch bound, a new triangle that spans many reference triangles is split until the corners of
+  a piece have the same or neighbouring nearest triangles: down to the size of the reference triangles, however flat the
+  region is. On flat faces the new triangles are the largest (nothing but the flip test stops the reduction there), and a
+  collapse at a high-valence vertex checks tens of them.
+- **Patch bound in the check** (`PatchBound`): certifies a piece from the reference triangles under it in one step.
+- **Edges that touch** (`PatchTouchingEdges`, new; proof in point 4 of `patch_bound`'s comment): the patch bound gave
+  no bound for a piece with an edge or a corner on a mesh boundary or a crease, so every piece along them was still
+  split down. This is what makes the plate and the cube fast (plate 32 with the patch bound alone: 9.6 s).
+- **Only where it pays** (`PatchMinTargetSize = 1`, new): over reference triangles smaller than the tolerance a patch
+  has hundreds of them (about 50 µs per try), and plain subdivision stops at pieces of the tolerance's size anyway.
+  Without this gate the two 200k-triangle cases at 0.01 ran at 0.8x; with it they are within the noise of 1.0x
+  (0.9-1.1x here).
+- **Results.** The same meshes in all 18 rows, and in the library's tests. In principle the check can now certify a
+  collapse that the old one refused at its depth limit (`MaxDeviationDepth`); none of the cases shows one.
+
+What remains: the cube of 4332 triangles still takes 5.8 s and stops at 30 triangles (flip test), and the time grows
+faster than the input (plate 48, 4608 triangles: 7-9 s, measured with a larger patch limit, which made no difference). Each collapse at a high-valence vertex checks its whole fan
+again, and each check reads every reference triangle under it. Getting below that needs certificates that survive a
+collapse (a carried bound per triangle, owner decision 2026-11-01: not built).
 
 ## Speculative parallel certification (measured and closed, 2026-11-02)
 
