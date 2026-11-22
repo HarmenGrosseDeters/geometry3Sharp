@@ -76,7 +76,7 @@ Building blocks (search of the library, AGENT_WORKFLOW section 3):
 | size and rotation of the lattice | `PositionField.SpacingFactors`, `RotationAngles`; `IntegrableFrames` | one spacing per vertex only: a rectangular seed needs two |
 | quantization | - | new (T-mesh or decimated-mesh quantization; the flow of `MinCostFlow` is a part of Bi-MDF at most) |
 | extraction from an integer-grid map | - | new (QEx-style, exact predicates are there) |
-| pure quads on a lattice | `QuadFlowRepair` (stage 3B) | written for a uniform spacing; `PureQuads` with `SizeAdaptation` is `InvalidInput` today |
+| pure quads on a lattice | `QuadFlowRepair` (stage 3B) | none since #1293 (merged 2026-11-22, after this spike's runs): `PureQuads` with `SizeAdaptation` is allowed. The runs here are on master e340ef5c, where the repair was written for a uniform spacing and the combination was `InvalidInput` |
 
 Constraints: CPU only and netstandard2.0 + net10.0 are no issue (no dependency, `Math` and `SparseCholesky` only). Bit-for-bit
 determinism: the cone metric solve is a serial Newton iteration on a deterministic factorization, and its inputs are
@@ -222,8 +222,9 @@ ScaleAndRotation, 15.9). Every clean result has the cones as its irregular verti
 genus 2 20-24 for 20).
 
 **No gain in the success rate is shown.** The seed moves some shapes to clean (the sphere, torus and genus 2 at the finer
-quads) and loses others (at the default the sphere and genus 2 unclamped, and the torus in both columns). The repair is used outside its contract (its
-position solve assumes one edge length), so this says neither that the combination works nor that it cannot.
+quads) and loses others (at the default the sphere and genus 2 unclamped, and the torus in both columns). The repair is used outside its contract (on
+master e340ef5c its position solve assumes one edge length), so this says neither that the combination works nor that
+it cannot. #1293, merged after these runs, makes the combination part of the library; the table was not measured again.
 
 Over the 54 runs of the 3B gate, success correlates only weakly with a small curl mass: 16 of the 27 runs with the
 lower curl mass per face are `Success`, 9 of the 27 with the higher (`results_gate.txt`).
@@ -261,12 +262,12 @@ a lower clamp of the spacing.
   extrinsic curl mass; boundaries were not measured.
 - Needs: an owner go for a new opt-in mode (additive API).
 
-**2. 3B on a size field (effort M, risk medium).** Make `QuadFlowRepair` correct for a spacing per vertex and allow
-`PureQuads` with `SizeAdaptation`.
-- Measured: nothing in its favour yet (7-8 of 27 clean on the seeded lattice, 7 of 27 uniform), with the repair
-  outside its contract.
-- Risks: the position solve and the checks assume one edge length; the 54-run gate has to be measured again.
-- Needs: an owner decision (the combination is `InvalidInput` by decision today); the quad worker's files.
+**2. 3B on a size field (done in #1293; was effort M).** `PureQuads` with `SizeAdaptation` is allowed since #1293,
+merged on 2026-11-22 after the runs of this spike.
+- Measured here, on master e340ef5c before #1293 and with the repair outside its contract of that time: nothing in its
+  favour (7-8 of 27 clean on the seeded lattice, 7 of 27 uniform).
+- Now measurable inside the contract: the pure-quad success rate of the library's size field on the 54-run gate, and,
+  with option 1, of the cone-metric seed. Section 3.4 should be read as a measurement of the older repair only.
 
 **3. Holonomy constraints for genus above 0 (effort L on top of 1, risk medium-high).** Capouellez, Zorin 2024: shear
 coordinates, 2g dual loops, the minimum-norm Newton step; without flips first, Ptolemy flips for bad input later.
@@ -308,7 +309,7 @@ master. Not options 3, 4 or 5 now. Stopping (6) is also defensible.**
   the shapes where neither mode of `IntegrableFrames` is applied.
 - The gain is moderate, not a change of class: the result stays 4 to 9 times the cone count, and the pure-quad success
   rate did not move. If the goal is pure quads or the cone count, neither paper is the lever; the missing piece is the
-  quantization, which is option 5 (or an improved 3B) and an owner decision on direction.
+  quantization, which is option 5 (or a further improved 3B) and an owner decision on direction.
 - Option 4 has its one advantage (feature directions) outside what the benchmark can show, and its measured capacity
   over one scale is small. It should wait for a sharp-feature benchmark.
 
@@ -330,7 +331,7 @@ measurement of the rotational holonomy that a cone metric leaves open.
 - At genus above 0 the seam of the parallel field lies where the breadth-first tree puts it.
 - The two-scale numbers are a least-squares capacity with solves that stop at the step limit, not the paper's
   constrained solve, and have no mesh behind them.
-- The pure-quad table uses an internal class outside its contract.
+- The pure-quad table uses an internal class outside its contract, on master before #1293.
 - One run per configuration; the times are orders of magnitude.
 - The two predecessor Penner papers were read second-hand; the two 2025 papers and the supplement of the first in
   full.
