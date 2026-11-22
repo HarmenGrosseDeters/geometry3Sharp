@@ -94,8 +94,8 @@ Checks on the procedural solids (`results/spotcheck.md`, `results/boundcheck.md`
 
 ### Result of the second measurement (2026-11-22)
 
-Run: `fillet-abc.yml` on master, chunk 0050, 300 candidates, 2700 s detection budget. 63 models were scored before the
-budget ended (the prefix of the fixed sample order); 27 have fillet area under the heuristic, 36 have none. The models
+Run: `fillet-abc.yml` on master, chunk 0050, 300 candidates, a 2700 s budget (checked before each model, so the last
+model ends past it). 63 models were scored before the budget ended (the prefix of the fixed sample order); 27 have fillet area under the heuristic, 36 have none. The models
 have 1.6k to 93k triangles (median 31k); detection took 46 s per model on average (at most 211 s). The per-model CSV
 stays in the run's artifact and is not committed; only the aggregates below are recorded.
 
@@ -103,7 +103,7 @@ Precision and recall are area-weighted per model (tp / (tp + fp), tp / (tp + fn)
 models first. The mean precision over the 27 models with fillets is the fairest reading for the detector (a model without
 fillets has precision 0 as soon as anything is marked).
 
-| radius bound | precision, mean (27) | precision, pooled (63) | recall, mean (27) | recall, pooled (63) | models with precision >= 0.95 | models with recall >= 0.9 | non-fillet area marked, median |
+| radius bound | precision, mean (27) | precision, pooled (63) | recall, mean (27) | recall, pooled (63) | models with precision >= 0.95 | models with recall >= 0.9 | non-fillet area marked, median over 63 |
 |---|---|---|---|---|---|---|---|
 | 0.05 diagonal | 0.46 | 0.20 | 0.82 | 0.95 | 4 of 27 | 15 of 27 | 10 % |
 | 0.1 diagonal | 0.45 | 0.19 | 0.90 | 0.98 | 4 of 27 | 20 of 27 | 11 % |
@@ -112,8 +112,12 @@ fillets has precision 0 as soon as anything is marked).
 | 1 thickness | 0.45 | 0.23 | 0.82 | 0.88 | 4 of 27 | 15 of 27 | 5 % |
 | 2 thickness | 0.45 | 0.22 | 0.87 | 0.96 | 4 of 27 | 18 of 27 | 7 % |
 
-24 of the 36 models without a fillet get marks. **The stop rule (precision below 0.95 or recall below 0.9 without a
-principled fix) is met under every bound**: recall reaches the bar with the diagonal bounds, precision is about half of it.
+One model has no wall thickness, so the three thickness bounds give no verdict on it (62 models; the pooled values do not
+change, the medians over 62 are 3 / 6 / 9 %). 24 of the 36 models without a fillet get marks (23 under 0.5 thickness).
+**The stop rule (precision below 0.95 or recall below 0.9 without a principled fix) is met under every bound**: pooled
+recall reaches the bar with all three diagonal bounds, the mean only at 0.2 of the diagonal (0.901; 0.898 at 0.1);
+precision is about half of the bar. Only the ABC part of the planned set was run; the procedural variable-radius and
+curved-support solids were not, since a failure on the ABC part already decides the rule.
 The rule and the heuristic were fixed before the run and are not changed after it. The heuristic counts every curved
 patch that is not a fillet by its rule (bores, bosses, blends of other types) as a non-fillet, so part of the false marks
 may be fillet-like geometry the heuristic does not call a fillet. The procedural solids (where the detector left the
