@@ -1309,7 +1309,7 @@ namespace g3
             // (docs/research/ROUNDING_COST_2026-11.md section 5). Not for the full search of the check, which tests
             // every pair. The mesh does not change during the search (no edit is pending: the tree is the mesh)
             double[] axes = null;
-            if (skipExact && useAxes && tris.Length > 0) {
+            if (skipExact && useAxes) {
                 axes = new double[(long)TriangleSeparatingAxes.Stride * tris.Length];
                 gParallel.ForRange((tris.Length + TriangleBlock - 1) / TriangleBlock, (b) => {
                     int end = Math.Min(tris.Length, (b + 1) * TriangleBlock);
