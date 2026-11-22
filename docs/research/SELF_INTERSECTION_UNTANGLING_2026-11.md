@@ -258,3 +258,15 @@ Leaning: A now and D as the next step, because D costs one run and is the only m
 path. B and C only if the owner sees a use for connectivity-preserving repair; B before C, because C puts an
 unguaranteed stage in front of a guaranteed one. If the method sections of the two papers are wanted, the hosts
 `wonjongg.me` and `minarcik.com` need to be allowed for a reading session, or the PDFs supplied.
+
+## 6. Option D (decided 2026-11-22: A now, D as the measurement)
+
+Set up in `benchmarks/SelfIntersectionUntangle/Contours.cs` and the manual workflow
+`.github/workflows/untangle-contours.yml` (see the benchmark README): the contour is taken from the repair through
+public members, so nothing in the library changes. First procedural rows through the repair itself
+(`-- contour-probe`): 2 of 114 runs stop the solidify on a self-intersecting contour; both are untangled clean (largest
+move 4e-11 and 1.2e-4 of the diagonal) and their finished solidify is clean, the contact separation fixes neither, and
+one of the two is already clean after the solidify's own cleanup. A caution for option E: these inputs are open, and
+the finished solidify lies 5.2 % of the diagonal from them against 0.38 % for the wrap. A clean solidify instead of the
+wrap is then the worse repair, so the real-mesh run reports that distance next to the counts. The numbers of the
+36 Thingi10K meshes follow after the first run of the workflow.
