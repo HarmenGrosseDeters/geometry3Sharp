@@ -3230,7 +3230,7 @@ namespace Meshing2Acceptance
                         bool OnCut(List<(Pt a, Pt b)> cut, int i)
                         {
                             if (!(tube2.Sign > 0)) return false;
-                            foreach (var g in cut) if (e.Reference ? InTube(g.a, g.b, v[i]) : InTube(g.a, g.b, v[i], PtD(g.a), PtD(g.b), (o.VX[i], o.VY[i]))) return true;
+                            foreach (var g in cut) if (!Fast ? InTube(g.a, g.b, v[i]) : InTube(g.a, g.b, v[i], PtD(g.a), PtD(g.b), (o.VX[i], o.VY[i]))) return true;
                             return false;
                         }
                         bool NearEnd(int i, Pt end, (double x, double y) endD) => !FarFromPoint(i, endD) && Exact.Len2(v[i], end) <= tube2;
@@ -4148,7 +4148,7 @@ namespace Meshing2Acceptance
             /// the lower bound of InTube's filter, for a point instead of a segment </summary>
             bool FarFromPoint(int i, (double x, double y) pd)
             {
-                if (e.Reference || double.IsNaN(pd.x) || double.IsNaN(pd.y)) return false;
+                if (!Fast || double.IsNaN(pd.x) || double.IsNaN(pd.y)) return false;   // (Fast: the output doubles are the vertices exactly)
                 if (double.IsNaN(tubeHi)) tubeHi = tube2.Bounds(out _, out double t2h) && !double.IsInfinity(t2h) ? Math.Sqrt(t2h) * (1 + 1e-12) : double.PositiveInfinity;
                 if (double.IsInfinity(tubeHi)) return false;
                 double px = o.VX[i], py = o.VY[i];
