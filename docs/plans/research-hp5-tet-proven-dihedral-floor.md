@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Tet: proven dihedral floor on 100 % of inputs (HP 5, P5(b))"
 - **Kind:** research study (498 of 500 sample meshes reach >= 10° at default; trigger: a caller requiring a mathematical 100 % dihedral-angle guarantee on arbitrary inputs)
 - **Tier:** L (new lattice-based mesher: Labelle & Shewchuk 2007 Isosurface Stuffing + exact predicate/cut-cell proof; study first)
-- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), prototype modes `floor` and `floornoise` in `benchmarks/TetMeshBenchmark`): a uniform lattice proves 9.31° (10.78° per tet, validity then checked per run) with a rounded boundary, at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering gives no dihedral bound. Only the owner decision remains: stop (leaning) or an opt-in lattice mesher.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), prototype modes `floor` and `floornoise` in `benchmarks/TetMeshBenchmark`): a uniform lattice proves 9.31° (10.78° per tet, validity then checked per run) with a rounded boundary, at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering gives no dihedral bound. Owner decision 2026-11-22 ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22", "Stops"): option A of the note, stop; P5(a) (per-run certificate) stays the statement.
 
 ## Current state
 
@@ -22,7 +22,7 @@
 
 ## Trigger / decision needed
 
-Update 2026-11-22: the study is done; what remains is the owner decision on the [research note](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md) (stop, or an opt-in lattice mesher). The original trigger:
+Update 2026-11-22: the study is done ([research note](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)) and the owner chose its option A (stop; see the plan status). The original trigger:
 
 A hard FEM / certification requirement where P5(a)'s per-run check + 99.6 % empirical pass rate (498/500) is not enough
 and a **mathematically proven** dihedral lower bound (>= 10°) on 100 % of inputs is required, AND the caller accepts a
