@@ -17,6 +17,8 @@
 // Variants:
 //   A    the pipeline (MeshAlphaWrap 300 / 3000, simplification with the input kept clear)
 //   K    AlphaWrapFeaturePass on the raw wrap, then the simplification (variant KR of the probe)
+//   KG   K without the pass's gate "a crease point lies near the miter line of an input sharp edge" (MaxMiterDistance huge):
+//        creases come from the planes of the nearest input triangles alone (not in the default variant list)
 //   KC   K, then a corner step: for every corner of the network the nearest wrap vertices are offered the corner position with
 //        the pass's own TryMove (every exact check of the pass applies), then the simplification
 //   KCK  KC, then the pass a second time before the simplification (a bound for retries: the second round starts from the
@@ -55,7 +57,8 @@ static class Bound
                 using (var doc = JsonDocument.Parse(line)) done.Add(doc.RootElement.GetProperty("file").GetString() + "|" + doc.RootElement.GetProperty("variant").GetString());
         foreach (string name in cases) {
             if (variants.All(v => done.Contains(name + "|" + v))) continue;
-            Make(name, out DMesh3 input, out DMesh3 reference, out bool dirty);
+            DMesh3 input, reference; bool dirty;
+            try { Make(name, out input, out reference, out dirty); } catch (Exception e) { Console.Error.WriteLine(name + ": " + e.Message); continue; }
             double diag = input.CachedBounds.DiagonalLength, alpha = diag / RelAlpha, delta = diag / RelOffset;
             DMesh3 oracle = MiteredOffset(reference, delta, out double residual);
             Network net = new Network(oracle, alpha);
@@ -80,6 +83,7 @@ static class Bound
                     else {
                         sw.Restart();
                         var kp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), v.StartsWith("KO") ? reference : input, alpha, delta);
+                        if (v == "KG") kp.MaxMiterDistance = 1e9;
                         kp.Compute();
                         r["k_input_creases"] = kp.InputCreases; r["k_crease_snaps"] = kp.CreaseSnaps; r["k_splits"] = kp.Splits; r["k_flips"] = kp.Flips; r["k_rejected"] = kp.Rejected;
                         if (v.EndsWith("C") || v == "KCK") CornerStep(kp, net, alpha, delta, r);
