@@ -117,7 +117,7 @@ and with `SnapTolerance` 2^-20 and 2^-10 (the coordinates are in the unit square
 (one run where a row takes tens of seconds, as stated), the allocation of one run, and the oracle's verdict (`--judge`, M2 default
 expectations) on the cases up to 40 000 used output vertices. Every family of a run is warmed up three times at a small size on every
 path. Rows below about half a second still vary by tens of percent between runs. Linux container, 4 cores, .NET 10.0.15, nothing else
-running.
+running; library at master dc572439 (2026-11-22).
 
 *Used vertices.* The mesh keeps every input point as a vertex, also the ones merged into another (`InputToVertex`). The tables count
 the vertices that a triangle or a subsegment uses.
