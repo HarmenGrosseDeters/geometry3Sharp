@@ -104,8 +104,8 @@ jobs:
           DOTNET_TieredCompilation=0 $H run --out out/${{ matrix.name }}-net10-jit-notiered --serial
           dotnet build benchmarks/CoreMathBenchmark -c Release -f net10.0
           dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
-      # .NET Framework 4.8.1 runs natively on Windows arm64: the netstandard2.0 build of the library under its arm64 JIT
-      # (the header of the run prints the process architecture)
+      # the net48 harness on Windows arm64: the header of the run prints the process architecture. On the hosted runner it is
+      # X64 (the AnyCPU build runs as an emulated x64 process), so this is the x64 C runtime on another CPU, not the arm64 JIT
       - name: Run net48 (Windows arm64)
         if: runner.os == 'Windows'
         shell: bash
@@ -203,7 +203,7 @@ jobs:
             cmp linux-net10-serial $a-net10-serial
             cmp windows-net48-serial $a-net10-serial
           done
-          # Windows arm64: its .NET (the Windows C runtime again, on another architecture) and its .NET Framework (the arm64 JIT)
+          # Windows arm64: its .NET (the Windows C runtime again, on another architecture) and .NET Framework as an emulated x64 process
           if [ -d traces/windows-arm64-net10-serial ]; then cmp windows-net10-serial windows-arm64-net10-serial; fi
           if [ -d traces/windows-arm64-net48-serial ]; then
             cmp windows-arm64-net48-parallel windows-arm64-net48-serial
@@ -223,6 +223,20 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/DeterminismHarness -p 'test_measurement_rows.py'
           python3 tools/DeterminismHarness/measurement_rows.py traces
+      # which part of a result differs (the label of the first differing value and the count per label), for the documented
+      # operations and the winding numbers, on the pairs that separate runtime, operating system and architecture
+      - name: Differing parts of the documented operations
+        run: |
+          H="dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll"
+          detail() {
+            if [ ! -d traces/$1 ] || [ ! -d traces/$2 ]; then return; fi
+            echo "=== $1  vs  $2"
+            $H compare traces/$1 traces/$2 --brief | grep -E '^(examples|winding|param|probe\.libm-constfold|probe\.round-remainder)' | cut -c1-400 || true
+          }
+          detail windows-net10-serial windows-net48-serial
+          detail linux-net10-serial windows-net10-serial
+          detail linux-net10-serial macos-arm64-net10-serial
+          detail windows-net10-serial windows-arm64-net10-serial
 
   # Opt-in (workflow_dispatch input `suite`): the PR-tier tests on linux arm64. The suite runs on linux x64 (net10.0) and
   # Windows (net48) in ci.yml; this run shows which of its pinned values (hashes, fingerprints, golden rows) hold on a

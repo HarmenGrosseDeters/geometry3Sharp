@@ -13,39 +13,50 @@ The tools are in the PR: new cases of `tools/DeterminismHarness` (`Examples.cs`,
 ## 1. Answers
 
 1. **Inside one runtime (level L0), one documented operation is not deterministic today: `LaplacianMeshSmoother`** (finding
-   F1, section 3.3). Its result follows the order in which a parallel loop finishes; the same code is behind
-   `LaplacianMeshDeformer` and `LaplacianCurveDeformer`. Every other case, 184 of 185, is bit-identical between serial and
-   parallel, repeated processes, 1 to 8 processors, and backwards or permuted loop orders.
-2. **Across JIT configurations of one machine nothing changes**: with all vector instructions off (`DOTNET_EnableHWIntrinsic=0`,
-   which also turns the two `Vector256` kernels of the library and the hardware FMA of `CoreMath` off), without AVX2, without
-   tiered compilation and unoptimized (`JITMinOpts`), 184 of 184 cases have the same bits as the plain run (F1 aside). The
-   JIT does not contract `a * b + c`, vector width does not reach a result, and the tier does not either (section 3.2).
-3. **Across runtimes, operating systems and architectures, the platform libm is the only cause that reaches a result of a
-   documented operation** (section 3.4, the matrix of the PR's workflow run). Operations whose path has no transcendental
-   function, or only `CoreMath`'s, agree on every pair measured; the others agree wherever the two C libraries agree.
-4. **The static picture is worse than the harness suggested**: 53 of the 142 public types named in the documentation can
-   reach a platform libm function on static call edges (63 with dynamic dispatch), 18 of them without any harness case, and
-   one of the 53 is `ExactMeshBoolean` itself (finding F2: `Math.Acos / Asin / Cos` in the hierarchical winding number of
-   open inputs; an ulp there changes nothing, section 3.3, but the "no libm in the exact code" statement of DETERMINISM.md
-   section 3 is no longer true and no rule guards it).
-5. **Provable** (in the sense the owner fixed on 2026-11-13: a machine-checked reduction to listed assumptions and
+   F1, section 3.3, issue #1314). Its result follows the order in which a parallel loop finishes; the same code is behind
+   `LaplacianMeshDeformer` and `LaplacianCurveDeformer`. Every other case (183 of the 184, one of them different between
+   processes by design) is bit-identical between serial and parallel, repeated processes, 1 to 8 processors, and backwards or
+   permuted loop orders, on every runtime measured.
+2. **Across JIT configurations of one machine nothing changes**, on linux x64, Windows x64 and linux arm64: with all vector
+   instructions off (`DOTNET_EnableHWIntrinsic=0`, which also turns the two `Vector256` kernels of the library and the
+   hardware FMA of `CoreMath` off), without AVX2, without tiered compilation and unoptimized (`JITMinOpts`), every case has
+   the bits of the plain run. The JIT does not contract `a * b + c`, vector width does not reach a result, and the
+   optimization level does not either (section 3.2).
+3. **Linux x64 and linux arm64 agree on every case** except the bits of NaN results. **Across C libraries, 17 to 42 of the
+   183 cases differ per pair, and every one of them is on the list of cases that reach a platform libm function** or is a
+   known runtime fact (`Math.Min / Max` of zeros, casts, text formatting, `#if NET` branch flags). The differing documented
+   operations are the same nine or ten on every pair: `ContourLoft` (2 examples), `QuadRemesher`, `TpmsLattice`,
+   `UVAtlasGenerator` / `ConeFlattening` (3), ARAP and Tutte parameterization, the example's own point sampler, and against
+   .NET Framework also `QualityMesh2` (finding F5); plus 7 of the 12 mesh generators that run with defaults (F4).
+   The exact Boolean (15 cases, with the new open-input case), the exact building blocks, repair, alpha wrap, solidify,
+   `Remesher`, `Reducer`, both contouring operations, the geodesic family (`CoreMath`) and the terrain slope design agree on
+   **all** pairs: linux, Windows, macOS; x64 and arm64; .NET 10 and .NET Framework 4.8 (64-bit and 32-bit).
+4. **The C library also differs with the CPU, not only with the OS** (F6): the same .NET Framework x64 build gives other
+   `sin`, `cos`, `tan`, `exp`, `pow` bits on the Windows arm64 runner (an emulated x64 process) than on the x64 runner, and
+   macOS x64 differs from macOS arm64. "Same OS, same runtime" is therefore not a libm family.
+5. **The static picture is wider than the harness**: 56 of the 142 public types named in the documentation can reach a
+   platform libm function on static call edges (66 with dynamic dispatch), 18 of them without any harness case, and one of
+   the 56 is `ExactMeshBoolean` itself (finding F2: `Math.Acos / Asin / Cos` in the hierarchical winding number of open
+   inputs; an ulp there changes nothing, section 3.3, and the case agrees on all platforms, but the "no libm in the exact
+   code" statement of DETERMINISM.md section 3 is no longer true and no rule guards it).
+6. **Provable** (in the sense the owner fixed on 2026-11-13: a machine-checked reduction to listed assumptions and
    obligations): the exact Boolean, stage 2. Turning the scope on for `ExactMeshArrangement` and `ExactMeshBoolean` reports
    165 unlisted external members and 147 sites of restricted members (stage 1 started from 153 members), so it fits the
    plan's budget; the two open design points are the 36 members of `MeshRoundingRepair` it calls (3 259 lines of
    floating-point code outside every scope) and the libm calls of F2 (section 5).
-6. **Golden master** (section 6): everything else. The recommendation is two tiers, decided by a machine check and not by
-   the author: a bit-exact digest for operations whose reachable set has no platform libm (checked by `DeterminismReach`),
-   and for the rest a digest per libm family plus invariants, never a silent tolerance.
+7. **Golden master** (section 6): everything else. The recommendation is two tiers, decided by a machine check and not by
+   the author: a bit-exact digest for operations whose reachable set has no platform libm (checked by `DeterminismReach`
+   and confirmed by a harness case), and for the rest a digest per libm family plus invariants, never a silent tolerance.
 
 ## 2. What this study adds to the harness
 
-The harness had 99 cases, written one by one, and referenced 58 of the library's 677 public types. It now has 185 cases
+The harness had 98 cases, written one by one, and referenced 58 of the library's 677 public types. It now has 184 cases
 and references 141 types, 83 of the 142 documented ones.
 
 | cases | what | count |
 |---|---|---|
-| `examples.*` | every public static method of the compiled examples of `docs/OPERATIONS.md` (`docs/examples/*.cs`), on fixed arguments, results traced by reflection (return value, `out` parameters, meshes changed in place; timings, work counters and free text left out) | 63 |
-| `generators.*` | every public `MeshGenerator` with a parameterless constructor, with its defaults | 18 |
+| `examples.*` | every public static method of the compiled examples of `docs/OPERATIONS.md` (`docs/examples/*.cs`), on fixed arguments, results traced by reflection (return value, `out` parameters, meshes changed in place, public members six levels deep; members named as timings, work counters or messages left out by whole words, anything else the trace cannot follow counted in a section `not-traced`) | 63 |
+| `generators.*` | every public `MeshGenerator` with a parameterless constructor, with its defaults; 12 produce a mesh, 6 need a curve or polygon the defaults do not have and record only the exception type (both revolve generators, `PointSplatsGenerator`, `TriangulatedPolygonGenerator`, `TubeGenerator`, `VerticalGeneralizedCylinderGenerator`) | 18 |
 | `boolean.open-winding` | a Boolean with an open input of more than 1000 boundary segments: the only case that reaches F2 | 1 |
 | `winding.values` | raw `FastWindingNumber` / `WindingNumber` values and the inside decisions | 1 |
 | `probe.libm-constfold`, `probe.linq-sum`, `probe.round-remainder` | JIT constant folding of transcendental functions, LINQ sums against a loop, `Math.Round` with digits, `%`, `IEEERemainder` | 3 |
@@ -65,15 +76,18 @@ that line on .NET 10 and are not counted).
 
 | run against the serial run | identical / different (without `probe.hash-seeded`, which differs by design) |
 |---|---|
-| second serial process | 184 / 0 |
-| parallel | 184 / 0 |
-| `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 (parallel) | 184 / 0 each in this run; `examples.Smoothing.Laplacian` differed for 1 and 3 in an earlier run (F1 is a race) |
-| `DOTNET_EnableHWIntrinsic=0` (`Vector<double>.Count` 2, no `Vector128 / 256 / 512`, `FastWindingLeafKernel` off) | 184 / 0 |
-| `DOTNET_EnableAVX2=0` (128-bit vectors only) | 184 / 0 |
-| `DOTNET_JITMinOpts=1` | 184 / 0 |
-| `DOTNET_ReadyToRun=0 DOTNET_TieredPGO=0` | 184 / 0 |
-| `DOTNET_TieredCompilation=0` | 183 / 1: `examples.Smoothing.Laplacian` (F1; the timing of the threads changed, not the arithmetic) |
+| second serial process | 183 / 0 |
+| parallel | 183 / 0 |
+| `DOTNET_PROCESSOR_COUNT` 1, 2, 3, 8 (parallel) | 183 / 0 each in one series; `examples.Smoothing.Laplacian` differed for 1 and for 3 in two others (F1 is a race) |
+| `DOTNET_EnableHWIntrinsic=0` (`Vector<double>.Count` 2, no `Vector128 / 256 / 512`, `FastWindingLeafKernel` off) | 183 / 0 |
+| `DOTNET_EnableAVX2=0` (128-bit vectors only) | 183 / 0 |
+| `DOTNET_JITMinOpts=1` | 183 / 0 |
+| `DOTNET_ReadyToRun=0 DOTNET_TieredPGO=0` | 183 / 0 |
+| `DOTNET_TieredCompilation=0` | 183 / 0 serial; in one parallel run `examples.Smoothing.Laplacian` differed (F1; the timing of the threads changed, not the arithmetic) |
 | `adversary --seeds 5` (every `gParallel` loop backwards and in 5 permutations) | 183 same, 1 known to differ (F1), 0 new |
+
+(The local counts were taken before the review widened the trace of the example cases; the workflow run of section 3.4
+repeats the serial, parallel, processor-count and switch comparisons with the final code, with the same result.)
 
 ### 3.2 What the switches show, cause by cause
 
@@ -86,8 +100,12 @@ that line on .NET 10 and are not counted).
   `SparseCholeskyKernels` (the factorization behind the geodesics, ARAP, biharmonic, BFF) and `FastWindingLeafKernel`.
   30 documented types reach one of them. On, off and at 128 bits the results are the same; arm64, where `Vector256` is not
   accelerated, takes the scalar twins.
-- **Tiering, on-stack replacement, optimization level**: no effect. `probe.libm-constfold` compares a transcendental
-  function of a literal with the same call on a value the JIT cannot see: equal on every function, before and after tier-up.
+- **Tiering and optimization level**: no effect on any case (`TieredCompilation=0` compiles everything fully optimized
+  at the first call, `JITMinOpts=1` nothing). `probe.libm-constfold` compares a transcendental function of a literal with
+  the same call on a value the JIT cannot see, in a method compiled with full optimization and in one compiled without:
+  on linux x64 all 30 pairs are equal and the two methods agree. Its values differ between platforms as the `libm.*`
+  cases do; whether its equality flags hold on Windows and macOS is printed by the workflow step "Differing parts of the
+  documented operations" (section 3.4).
 - **The BCL's own vectorization**: `probe.linq-sum`: `Enumerable.Sum / Average` of doubles equal the plain loop.
 - **Parallel reductions and thread count**: no effect except F1.
 - **Hash ordering**: no effect on any case between two processes (the hashes of `BigInteger`, tuples and strings are
@@ -127,56 +145,126 @@ documented types that reach it are (`MeshRobustRepair`, `MeshAutoRepair`, `MeshR
 and the `SafeRounding` path, `MeshBatchQueries`, `MeshBoolean`, `MeshMeshCut`, `TpmsLattice`). `winding.values` records the
 raw values and the decisions separately (section 3.4).
 
-**F4. The generators with trigonometry make platform-dependent inputs.** `CappedCylinderGenerator`, `ConeGenerator`,
-`TubeGenerator`, the disc and revolve generators call `Math.Cos / Sin`. A mesh from them differs between platforms in the
-last bit of some vertices, and every operation passes that on (as the `*.libm-input` cases of the harness show for the
-Boolean, the remesher and dual contouring). This is the most likely way a user sees "the Boolean is not deterministic".
+**F4. The generators with trigonometry make platform-dependent inputs.** Seven of the twelve generators that run with
+their defaults differ between C libraries: `CappedCylinderGenerator`, `ConeGenerator`, `OpenCylinderGenerator`,
+`PuncturedDiscGenerator`, `Radial3DArrowGenerator`, `RoundRectGenerator`, `TrivialDiscGenerator` (`Math.Cos / Sin`). A mesh
+from them differs in the last bit of some vertices, and every operation passes that on (as the `*.libm-input` cases show
+for the Boolean, the remesher and dual contouring). This is the most likely way a user sees "the Boolean is not
+deterministic".
+
+**F5. `QualityMesh2` differs between .NET and .NET Framework** (`examples.Meshing2D.QualityDomainWithHole`: the same on
+linux and Windows .NET 10, different on .NET Framework 4.8). The refiner takes its angle bound from
+`Math.Sin(MinAngle * Math.PI / 180)` (`comp_geom/QualityMesh2.cs`), the one platform libm call on its path; the two C
+runtimes differ in `sin`. Which part of the result differs (the mesh or a reported value) is printed by the workflow step
+"Differing parts of the documented operations"; the 2D mesher's golden rows are checked by the benchmark in the linux job
+of `ci.yml` (.NET 10), so they do not see it. A candidate for the libm rule (one `CoreMath.Sin` call per `Compute`), or for a table of exact
+bounds.
+
+**F6. The C library's results depend on the CPU.** On the Windows arm64 runner the .NET Framework harness runs as an
+emulated x64 process (the header of the run says `X64`; there is no native arm64 .NET Framework leg), with the same C
+runtime binary as on the x64 runner, and 34 cases differ from the x64 runner: `libm.sin / cos / tan / exp / pow / sinh /
+cosh / tanh / acos / asin` and their consumers. .NET 10 on Windows arm64 differs from Windows x64 in `cos`, `exp`, `tan`
+and integer powers; macOS x64 differs from macOS arm64 in 8 of the 16 functions. The likely cause is a dispatch on the
+instruction sets of the machine inside the C runtime (not verified; the emulated process reports no FMA). Linux is the
+exception: glibc on x64 and on arm64 agree on all sampled arguments. A "libm family" in the sense of section 6 is
+therefore (C library, architecture, instruction sets), and only a function that does not call the C library is the same
+everywhere.
 
 ### 3.4 Across runtimes, operating systems and architectures
 
-The matrix comes from the determinism workflow run of this PR (GitHub-hosted runners only): linux x64 and arm64, Windows
-x64 with .NET 10 and .NET Framework 4.8 (64-bit and 32-bit), and new in this study Windows arm64 (.NET 10 and .NET
-Framework 4.8.1 under its arm64 JIT) and macOS x64 next to macOS arm64 (opt-in). `cross_matrix.py` prints it in the step
-"Cross-runtime matrix" of the job `compare`.
+Determinism workflow run 44987202489 (head b16ab53, GitHub-hosted runners, .NET 10.0.15 and .NET Framework 4.8.9363; the
+table is the output of `cross_matrix.py` in the step "Cross-runtime matrix" of the job `compare`, columns shortened; a cell
+is identical cases / cases, `probe.hash-seeded` left out). Runners: linux x64 (ubuntu-latest), linux arm64
+(ubuntu-24.04-arm), Windows x64 (windows-latest), Windows arm64 (windows-11-arm), macOS arm64 (macos-latest), macOS x64
+(macos-15-intel).
 
-*(Filled in from the run with the second push of this PR: see the PR description for the run id until then.)*
+Inside one runtime every cell is full: parallel = serial, 1 and 3 processors, no vector instructions (linux x64, Windows
+x64, linux arm64), no AVX2, no tiering, unoptimized (linux x64): 183 / 183 each.
+
+| group (cases) | linux = Windows, .NET 10 | Windows: .NET 10 = net48 | linux .NET 10 = Windows net48 | net48: x64 = x86 | linux: x64 = arm64 | Windows .NET 10: x64 = arm64 | linux = macOS arm64 | linux = macOS x64 | macOS: arm64 = x64 |
+|---|---|---|---|---|---|---|---|---|---|
+| `boolean` (15), `stage1` (12), `coremath` (2), `geodesic` (7), `terrain` (2), `alphawrap`, `repair`, `solidify`, `remesher`, `reducer`, `dualcontouring`, `marchingcubes` (1 each) | all | all | all | all | all | all | all | all | all |
+| `kernel` (10) | 10 | 9 | 9 | 8 | 10 | 10 | 10 | 10 | 10 |
+| `examples` (63) | 55 | 55 | 55 | 56 | 63 | 57 | 56 | 55 | 55 |
+| `generators` (18) | 11 | 11 | 12 | 12 | 18 | 18 | 11 | 11 | 11 |
+| `param` (5) | 3 | 3 | 4 | 4 | 5 | 3 | 3 | 2 | 2 |
+| `winding` (1) | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 1 |
+| `*.libm-input` (3) | 0 | 0 | 2 | 0 | 3 | 0 | 0 | 0 | 0 |
+| `libm` (16) | 2 | 6 | 2 | 5 | 16 | 12 | 2 | 2 | 8 |
+| `io` (2) | 2 | 1 | 1 | 2 | 2 | 2 | 2 | 2 | 2 |
+| `ledger` (2) | 2 | 1 | 1 | 2 | 1 | 1 | 1 | 2 | 1 |
+| `probe` (18) | 17 | 9 | 9 | 12 | 18 | 17 | 17 | 17 | 18 |
+
+The cases behind the cells that are not full:
+
+- **`examples`**, linux against Windows .NET 10 (8): `ContourLoft.LoftBranchingStack`, `ContourLoft.LoftFrustum`,
+  `PointCloud.SampleUnitSphere` (the example's own sampler), `QuadRemesh.Run`, `TpmsLattice.GyroidSheet`, `UVAtlas.Cones`,
+  `UVAtlas.CutAndFlatten`, `UVAtlas.Run`. Against .NET Framework also `Meshing2D.QualityDomainWithHole` (F5). The other
+  pairs differ in subsets of these nine. All nine are in the list of documented types that reach the platform libm
+  (section 4); the other 54 example cases agree on every pair, among them every exact Boolean, imprint and pipeline
+  example, repair, alpha wrap, the remesher and reducer, smoothing and deformation, offset, plane cut, hole filling, the
+  tet mesher, the terrain tools, point cloud normals and surface, I/O, and the intrinsic and geodesic examples.
+- **`generators`** (7, F4). Windows x64 and arm64 .NET 10 agree on them, linux x64 and arm64 too.
+- **`param`**: `param.arap` and `param.tutte` (known, DETERMINISM.md); `param.bff` differs in addition where macOS x64 or
+  the emulated .NET Framework process is on one side (its `Atan2` / `Cos`, identical on the four configurations of the
+  earlier measurement).
+- **`winding`**: `winding.values` differs between linux and macOS only (F3; the differing part is printed by the detail
+  step); it agrees between linux, Windows .NET 10 and .NET Framework.
+- **`kernel`, `ledger`, `io`, `probe`**: the known runtime facts of DETERMINISM_PROOF.md 5.3: the `#if NET` branch flag
+  (`kernel.limbsigns.path`), `Math.Min / Max` of zeros and NaN bits (`ledger.math`; the only case that differs between
+  linux x64 and arm64), casts, text formatting and parsing on .NET Framework, the x87 cases of the 32-bit process, and new:
+  `probe.round-remainder` differs between .NET 10 and .NET Framework (which part, `Math.Round` with digits or the midpoint
+  modes, is printed by the detail step; the library has 33 calls of `Math.Round` with a digits argument outside tools and
+  tests), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
+- **Windows arm64, .NET Framework** (not in the table): an emulated x64 process, 34 cases different from the x64 runner (F6).
+
+The same run's opt-in job on the previous head (run 44986300782, job `suite-arm64`) ran the PR-tier test suite
+(`Category!=Slow&Category!=Nightly`) on linux arm64: green. Every pinned value of the suite therefore holds on linux
+x64, Windows .NET Framework 4.8 (both in `ci.yml`) and linux arm64.
 
 ## 4. Static reachability: which operations can depend on which source
 
 The harness answers for the cases it has. `tools/DeterminismReach` reads the IL of the compiled library and answers for
-every public type whether its public methods can reach a source at all: `static` follows calls, constructor calls and
-created delegates, a lower bound; `cha` also follows a virtual or interface call to every implementation in the library,
-an upper bound for code inside the library. Output of
+every public type whether its public methods (the inherited ones included) can reach a source at all: `static` follows
+calls, constructor calls, created delegates, static constructors and the callbacks of the BCL into types a method touches
+(iterators, `CompareTo`, `ToString`); `cha` also follows a virtual or interface call to every implementation in the
+library. `static` is meant as a lower and `cha` as an upper bound for code inside the library; the limits of both are in
+the tool's README (delegates from outside, reflection, enumeration through LINQ, `string.Format`), so a "does not reach"
+is evidence to be confirmed by a harness case, not a proof. Output of
 `DeterminismReach report geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides --harness DeterminismHarness.dll`
 (14 756 methods, 677 public types, 142 named in the documentation):
 
 | source (rule of DETERMINISM_PROOF.md 5) | methods using it | public types reaching it, static / cha | documented types, static / cha | documented, static, without a harness case |
 |---|---|---|---|---|
-| platform libm (R1) | 165 | 136 / 175 | 53 / 63 | 18 |
+| platform libm (R1) | 165 | 145 / 181 | 56 / 66 | 18 |
 | `CoreMath` (correctly rounded) | 221 | 12 / 12 | 9 / 9 | 0 |
 | FMA outside `CoreMath` (R3) | 0 | 0 / 0 | 0 / 0 | 0 |
 | vector types (R3) | 12 | 48 / 71 | 30 / 34 | 5 |
-| `float` (R2) | 350 | 203 / 235 | 66 / 69 | 24 |
-| direct `Parallel`, threads (R12) | 15 | 121 / 141 | 61 / 61 | 17 |
+| `float` (R2) | 350 | 377 / 397 | 114 / 114 | 46 |
+| direct `Parallel`, threads (R12) | 15 | 122 / 142 | 61 / 61 | 17 |
 | `Interlocked` (R13) | 89 | 68 / 68 | 37 / 37 | 9 |
 | `Environment.ProcessorCount` (R9) | 9 | 31 / 31 | 20 / 20 | 1 |
 | clock (R9) | 90 | 35 / 35 | 20 / 20 | 2 |
 | `System.Random` (R9, R10) | 14 | 20 / 20 | 16 / 16 | 1 |
-| enumeration of a hash container (R8) | 190 | 111 / 117 | 51 / 53 | 16 |
-| unstable sorts (R11) | 169 | 134 / 135 | 63 / 64 | 18 |
-| parsing and formatting of doubles (R17) | 52 | 77 / 79 | 41 / 42 | 10 |
-| `Math.Min / Max` of doubles (R4) | 697 | 212 / 228 | 87 / 88 | 29 |
+| enumeration of a hash container (R8) | 190 | 124 / 130 | 53 / 55 | 17 |
+| unstable sorts (R11) | 169 | 135 / 136 | 63 / 64 | 18 |
+| parsing and formatting of doubles (R17) | 52 | 119 / 137 | 53 / 60 | 16 |
+| `Math.Min / Max` of doubles (R4) | 697 | 214 / 228 | 87 / 88 | 29 |
 
 Reading it:
 
 - "Reaches" is necessary for a dependence, not sufficient: `ExactMeshBoolean` reaches libm (F2) and is bit-identical;
+  the `float` and `text` rows are wide because a `ToString` or a `float` conversion of a touched type counts;
   `Remesher` reaches it through `TriangleHashGrid.level_size` (a grid size) and is bit-identical on the harness inputs.
   The table is the list of places that need either a measurement or an argument; today they have neither.
-- **89 documented types do not reach the platform libm on static edges** (79 not even with `cha`); for those the only
-  remaining L1 causes are the closed-world ones (R4 `Min / Max` of zeros, R5 casts, R6 `#if NET`, R17 text), which the
-  harness cases have not shown to differ on x64 or arm64. They are the candidates for a bit-exact contract.
-- The 18 documented types that reach libm and have no case: `CappedCylinderGenerator`, `ConeGenerator`, `TubeGenerator`
-  (run as `generators.*`, which reference the base class only), `FoldoverFreeParameterization`, `MeshBoolean`, `MeshMeshCut`,
+- **86 documented types do not reach the platform libm on static edges** (76 not even with `cha`); for those the only
+  remaining L1 causes are the closed-world ones (R4 `Min / Max` of zeros, R5 casts, R6 `#if NET`, R17 text, `Math.Round`
+  with digits), which no harness case of a documented operation has shown to differ. They are the candidates for a
+  bit-exact contract. The measurement agrees with the tool in both directions: every example case that differs across
+  platforms belongs to a type that reaches libm, and no case of a type that does not reach it differs.
+- The 18 documented types that reach libm and that the harness does not reference: `CappedCylinderGenerator`,
+  `ConeGenerator` (both run as `generators.*`, through the base class), `TubeGenerator` (its case only throws: no input),
+  `FoldoverFreeParameterization`, `MeshBoolean`, `MeshMeshCut`,
   `MeshChartSegmentation`, `MeshRoundingRepair`, `MeshPostRepairCleanup`, `ParameterizationDistortion`, `Polygon2d`,
   `TriangulationMesh2`, `MeshCurvature`, `MeshEnvelope`, `MeshWindingNumberGrid`, `PartitionedReducer`, `RemeshSizing`,
   `RemesherPro`.
@@ -256,14 +344,16 @@ the cheaper step for floating-point code is the harness-wide adversary this stud
 files use fingerprints, 15 golden rows or files, 7 digests; `benchmarks/Meshing2Benchmark/golden` holds the golden rows
 of the 2D mesher. `ci.yml` runs the suite on linux x64 (net10.0) and on Windows (net48), so **every pinned value in the
 suite already holds on two runtimes, two operating systems and two C libraries on x64**, or CI would be red. What no CI
-run covers is a second architecture and a third libm: the opt-in job `suite-arm64` of the determinism workflow
-(`workflow_dispatch`, input `suite`) runs the PR-tier suite on linux arm64 for that; its result is in the PR.
+run covered was a second architecture: the opt-in job `suite-arm64` of the determinism workflow (`workflow_dispatch`,
+input `suite`) runs the PR-tier suite on linux arm64, and it is green (section 3.4). Not run: the suite on Windows .NET 10
+and on macOS, the two C libraries that differ most from glibc in the harness.
 
 **The tension of the plan, measured.** The plan expects that floating-point operations with `System.Math` break strict
 hashes across platforms. On the harness inputs they mostly do not: `Remesher`, `Reducer`, `DualContouring`,
-`MarchingCubes`, the repair chain, alpha wrap and solidify are bit-identical on every pair measured although they are
-floating-point code, because their paths use only `+ - * /` and `sqrt` on those inputs. What differs is confined to
-transcendental functions whose value reaches a coordinate. So the boundary is not "exact against floating point" but
+`MarchingCubes`, the repair chain, alpha wrap, solidify, smoothing, deformation, offset, the tet mesher and the terrain
+tools are bit-identical on every pair measured (six operating system and architecture combinations, two runtimes)
+although they are floating-point code, because their paths use only `+ - * /` and `sqrt` on those inputs. What differs
+is confined to transcendental functions whose value reaches a coordinate (nine example cases, section 3.4). So the boundary is not "exact against floating point" but
 "reaches a platform libm value or not", and that is checkable by a tool (section 4) instead of by judgement.
 
 **Recommended policy** (for `ACCEPTANCE_STRATEGY.md` section 4 and `docs/QA.md`, after the owner's decision):
@@ -271,7 +361,7 @@ transcendental functions whose value reaches a coordinate. So the boundary is no
 | tier | which operation | what the golden master pins | who decides the tier |
 |---|---|---|---|
 | 1, bit-exact | no platform libm on its reachable set (`DeterminismReach`, `cha`), or only inside a proof scope with an argument (F2) | one digest of the full result, the same on every runtime, OS and architecture | the tool; a new libm edge fails the check |
-| 2, bit-exact per libm family | reaches a platform libm value | (a) the combinatorial result and every exact value in one digest for all platforms, where the operation promises them; (b) the coordinates as one digest **per libm family** (glibc, Windows CRT of .NET, CRT of .NET Framework, Apple), recorded from CI, never a tolerance alone; (c) an invariant with a derived bound across families (Hausdorff, volume, angle) | the tool puts it there; leaving tier 2 means `CoreMath` on the path (the libm rule, owner 2026-11-11) |
+| 2, bit-exact per libm family | reaches a platform libm value | (a) the combinatorial result and every exact value in one digest for all platforms, where the operation promises them; (b) the coordinates as one digest **per libm family**, recorded from CI, never a tolerance alone. A family is the C library with its architecture and instruction sets (F6), so in practice one digest per CI leg: linux (x64 = arm64), Windows .NET 10 x64, Windows .NET Framework x64; (c) an invariant with a derived bound across families (Hausdorff, volume, angle) | the tool puts it there; leaving tier 2 means `CoreMath` on the path (the libm rule, owner 2026-11-11) |
 | not a golden master | a defect of level L0 (F1) | nothing is pinned: the test is serial equals parallel equals adversary, and it stays red or `KNOWN` until fixed | the adversary |
 
 The rule that keeps tier 2 from hiding defects (the risk the plan names): **inside one runtime every operation is tier 1**.
@@ -295,32 +385,36 @@ clause 11 defines the reproducible subset this library's tier 1 already is.
 | 3 | **Stage 2 with decisions 1a and 2** (section 5) | the generated claim for the exact Boolean without rounding, with the rounding as a named assumption | L, one PR, about the size of stage 1 | file churn from Boolean PRs (plan #1241); F2's `CoreMath` variant needs an `Asin` port and a benchmark |
 | 4 | **Golden-master policy of section 6** with the reachability check as a CI step (a list of tier 1 types that may not gain a libm edge) | the tier is decided by a tool; a new `Math.Sin` on a tier 1 path fails CI instead of a hash on another platform months later | M: docs, one CI step, a baseline file | the `cha` bound puts operations with callbacks in tier 2; a baseline file is one more gate file |
 | 5 | **A libm adversary** (DETERMINISM_PROOF.md 6.2: every `Math.Sin` & co. behind a wrapper that moves the result by an ulp in tests) | on one machine, for every case: does a libm ulp reach the result (what F2's experiment did by hand for four sites) | M / L: 165 methods call libm directly; a wrapper in each, behind a test hook | touches many files once; no behaviour change |
-| 6 | **`CoreMath` in the generators and the winding number** (F3, F4) | cylinders, cones, tubes and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
+| 6 | **`CoreMath` in the generators, the `QualityMesh2` angle bound and the winding number** (F3, F4, F5) | cylinders, cones, discs, the 2D mesher and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
 | 7 | **Stage 2b (`MeshRoundingRepair` in scope) or stage 3** | a claim for floating-point code | L each, larger than stage 2 | no unique-answer argument; likely needs code changes |
 
-**Leaning.** 1 now (it is a defect, small, and the test exists). 2 is in this PR. Then 3 as planned, with decision 1a,
-and for F2 the `site` line with the perturbation test first and `CoreMath` only if the benchmark allows it. 4 with or
-right after stage 2, because the same tool then guards both. 5 only if 4 leaves too many operations in tier 2 without
-knowing whether they really differ. 6 for the generators when a caller asks for identical inputs across platforms; not for
-the winding number. 7 not now.
+**Leaning.** 1 now (it is a defect, small, and the test exists; issue #1314). 2 is in this PR. Then 3 as planned, with
+decision 1a, and for F2 the `site` line with the perturbation test first and `CoreMath` only if the benchmark allows it.
+4 with or right after stage 2, because the same tool then guards both. Of 6, the `QualityMesh2` bound first (one call per
+`Compute`, a measured difference, and the 2D mesher is the operation with golden rows), then the generators when a caller
+asks for identical inputs across platforms; not the winding number. 5 only if 4 leaves too many operations in tier 2
+without knowing whether they really differ. 7 not now.
 
 **Decisions asked of the owner**
 1. F1: fix now as a `bugfix` PR (results of the three Laplacian classes change in the last bits)?
 2. Stage 2 scope: the exact result only, with `MeshRoundingRepair` assumed (1a), or the rounded result too (1c, a second stage)?
 3. F2: an argued `site` with a perturbation test, or `CoreMath` in `antipodal_tree_value` (needs `Asin`, a benchmark)?
 4. The two-tier golden-master policy of section 6, with the tier decided by `DeterminismReach`?
-5. Windows arm64 as a standing leg of `determinism.yml` (it is a measurement leg in this PR: its failure does not fail the run)?
+5. F5: `CoreMath.Sin` for the angle bound of `QualityMesh2` under the libm rule (the result on .NET Framework changes where the bound decides)?
+6. Windows arm64 as a standing leg of `determinism.yml` (it is a measurement leg in this PR: its failure does not fail the run)?
 
 ## 8. Limits
 
 - One run per configuration on GitHub-hosted runners; the inputs are small (tens of milliseconds per case). Absence of a
   difference is evidence on these inputs. The reachability table is the complement: it lists where a difference is
   possible at all.
-- The example cases use one argument set each; the reflection trace follows public members three levels deep and skips
-  members named like timings, counters and text. A result that is only reachable through a method call (not a field or
+- The example cases use one argument set each; the reflection trace follows public members six levels deep and skips
+  members named like timings, counters and messages (by whole words; what else it cannot follow is counted and noted). A result that is only reachable through a method call (not a field or
   property) is not traced unless the example returns it.
 - `DeterminismReach` does not follow delegates passed in from outside the library, or reflection; `cha` counts
-  implementations an operation is never given. `float` is detected by conversions and constants only.
+  implementations an operation is never given; `hash-enum`, `text`, `float` and `parallel` see the direct forms only (the
+  tool's README, "Limits"). Six generator cases record only an exception. No native arm64 .NET Framework process was
+  measured (F6), and no .NET version other than 10.0.15.
 - The scratch experiments (the one-ulp perturbation of F2, the sort of F1, the stage 2 build) changed library code in a
   scratch copy only; nothing of them is in the PR. Their commands are in the PR description.
 - `DOTNET_EnableAVX512F` and `DOTNET_EnableFMA` had no effect on the reported instruction sets in .NET 10.0.15 and prove
