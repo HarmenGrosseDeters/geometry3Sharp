@@ -28,24 +28,25 @@ and SIMD filters, and lever 1a (no tree of all triangles), which is part (d).
 - **Upper bounds, end to end** (the part set to zero): the first search −5.5 % of the 33 operations and −31 % of a
   procedural set built to be the worst case; `near` −8.9 % and −2.8 %; tree and setup −1.5 % and −1.7 %.
 - **(b), the one candidate that pays: the separating axes of section 5.3, computed once per triangle** and used in the
-  first search only. Inside the rounding: −3.5 % of all 48 operations, −8.9 % on the procedural thin set, −5.0 % on the
+  full searches only (normally the first). Inside the rounding: −3.5 % of all 48 operations, −8.9 % on the procedural thin set, −5.0 % on the
   clean Thingi10K results, nothing on the dirty ones; 48 of 48 result hashes the same. Section 5.3 measured −1.6 % for
-  the same rule with the axes computed per pair.
+  the same rule with the axes computed per pair in every pair test.
 - **(b), tighter volumes do not pay.** Split-clipped sub-boxes (spatial splits) cut the box hits and the pair tests to
-  a third to a seventh on most thin-triangle results, and lose end to end (+3.5 %, one round): the sub-boxes and their tree are built for
-  all triangles, and a query walks the larger tree once per sub-box. An 18-DOP per triangle removes fewer pairs than
+  a third to a seventh on most thin-triangle results, and lose end to end as prototyped (+3.5 %, one round; clear on
+  the Thingi10K results, inside the noise on the procedural ones): the sub-boxes and their tree are built for all
+  triangles, and a query walks the larger tree once per sub-box. An 18-DOP per triangle removes fewer pairs than
   the axes at a similar cost.
-- **(b) and (c), a new finding: on one model of 16 the library's box tree is slow.** On 102375 a query visits 1123
+- **(b) and (c), a new finding: on one model the library's box tree is slow.** On 102375 a query visits 1123
   nodes of the Morton-ordered tree for 53 hits; a median-split tree visits 230. With the median split forced in the
   rounding, its three booleans take 5-26 % less (9.2 to 6.9 s for the union), same hashes. The median build is too
-  slow to be the fix (the other large results lose up to 2.5 times), and why the Morton order fails on this model is
+  slow to be the fix (other large results take up to 3 times as long), and why the Morton order fails on this model is
   not diagnosed.
 - **(c), `near` has three costs, and the largest is the linear list.** The list of triangles changed since the tree of
-  the changed triangles was built (125 entries per query) is 4.2 % of the 33 operations, the start tree 3.3 % (more
+  the changed triangles was built (about 100 entries per query) is 4.2 % of the 33 operations, the start tree 3.3 % (more
   than half of it on 102375), the rebuilds of the changed tree 0.9 %. Keeping the boxes of the list instead of
   computing them per query takes 17.7 % off the rounding of the 24 operations with many evaluations (62.9 to 51.8 s;
   their booleans −6.9 %, of which 5 points are the rounding), 48 of 48 hashes the same.
-- **(d) has no lever beyond lever 1a.** Tree and setup over all triangles are at most 1.5-1.7 % of the sets (11-15 %
+- **(d) has no lever beyond lever 1a.** Tree and setup over all triangles are 1.5-2.0 % of the sets (10-15 %
   on 1063860, where 98 % of the triangles are exact).
 
 ## 2. Cases and method
@@ -77,7 +78,7 @@ and SIMD filters, and lever 1a (no tree of all triangles), which is part (d).
   candidate sets (4 threads, the second round of each variant). Every variant must report the same intersecting pairs.
 - **A/B inside the rounding:** the same worktree with a switch per candidate (`G3_FIRST_SEARCH`, `G3_TREE_MEDIAN`,
   `G3_NEAR_PENDING`), one process per case and variant in turn, per operation the faster round; the result hash of
-  every round is compared with the base.
+  every round is compared with the base. The base runs first for each case.
 - Shares are of wall time at 4 threads and include the collections the code causes.
 
 ## 3. Where the rounding time goes on master
@@ -122,7 +123,7 @@ position map and the exact flags; "passes and later" is everything after the fir
 | 498458 union | 187 376 | 12.50 s | 3.76 s | 0.43 s | 0.10 s | 0.13 s | 3.09 s | 1.65 s |
 
 All 48 rows are in `cost_phases_*`. Summed over the 33 Thingi10K operations the first search is 19 % of the rounding
-and the passes with what follows them 73 %; over the 15 procedural ones 76 % and 19 %.
+and the passes with what follows them 76 %; over the 15 procedural ones 76 % and 19 %.
 
 ### 3.3 The first search: hits, enumeration, pair tests
 
@@ -142,7 +143,7 @@ and the passes with what follows them 73 %; over the 15 procedural ones 76 % and
 | 1368057 | 71 637 | 843 | 33.2M | 162 321 | 1.21 s | 0.30 s (25 %) |
 
 - The range of 46529be (20-355 hits, 855 on 1368057) is unchanged: 15-1506 here, 316 on 519511 union.
-- The enumeration is 19-37 % of the search. On one thread (519511 union): 3.4 of 11.2 s. So "the box-neighbour
+- The enumeration is 19-37 % of the search. So "the box-neighbour
   enumeration" of the roadmap is, in time, two thirds to four fifths pair tests on hits that are not neighbours. A
   better enumeration alone can save at most the pair tests and its own part; a cheaper rejection of a hit saves the
   pair tests only.
@@ -157,11 +158,12 @@ and the passes with what follows them 73 %; over the 15 procedural ones 76 % and
 | procedural, 15 | 121.7 s | 49.9 s | −31.3 % | −1.7 % | −2.8 % |
 
 Per operation the largest: first search 62 % of gear_500 intersection and 36 % of 519511 union; `near` 47 % of 119829
-union and 45 % of 102375 union; tree and setup 11-15 % of 1063860 union and difference. On the dirty Thingi10K
+union and 45 % of 102375 union; tree and setup 10-15 % of 1063860 union and difference. On the dirty Thingi10K
 operations the first search is 0-9 % and the bound is in `near` and the rest of the evaluations.
 
-These bounds decide the scale: on the study set nothing in (b) to (d) can reach 10 % of the summed booleans; (b) can on
-results with hundreds of box hits per query, (c) on results with many accepted edits.
+These bounds decide the scale: on the 33 Thingi10K operations no single part of (b) to (d) can reach 10 % of the summed
+booleans (together 16 %); over all 48 operations the first search is bounded by 14 % and the three parts by 23 %. (b)
+matters on results with hundreds of box hits per query, (c) on results with many accepted edits.
 
 ## 5. Part (b): candidates for the first search
 
@@ -198,8 +200,8 @@ intersection broad phase thin triangles", "spatial join oriented bounding volume
 ### 5.3 The first search outside the library
 
 `cull`, unions, 4 threads; time of the search, box hits per query, pair tests left. The builds are not in the times:
-the axes of all triangles take 9 to 150 ms (150 ms at most for the 520k triangles of 519511 union), the DOPs 3 to 95
-ms, the sub-boxes and their tree 0.2 to 1.0 s for k = 8.
+the axes of all triangles take 2 to 115 ms (`build_ms_axesf`), the DOPs 1 to 95 ms, the sub-boxes and their tree 0.04
+to 1.0 s for k = 8.
 
 | union | box (the library) | enumeration alone | box+axesf | box+dop | split, k = 8 | split+axesf |
 |---|---:|---:|---:|---:|---:|---:|
@@ -213,14 +215,16 @@ ms, the sub-boxes and their tree 0.2 to 1.0 s for k = 8.
 | 1368057 | 1.21 s, 843, 33.2M | 0.30 s | 0.72 s, 1.7M | 0.97 s, 18.7M | 2.95 s, 573, 22.3M | 2.63 s, 1.6M |
 | 102375 | 0.17 s, 53, 0.65M | 0.18 s | 0.16 s, 0.2M | 0.15 s, 0.35M | 0.39 s, 35, 0.44M | 0.39 s, 0.2M |
 
-Every variant reports the same intersecting pairs on all 16 unions (`same_pairs`; `cost_cull`).
+Every variant reports the same intersecting pairs on all 16 unions (`same_pairs`; `cost_cull`). Nine of the unions
+have no intersecting pair, so the evidence of the pair sets rests on the other seven (4 to 162 321 pairs); the
+enumeration-only variants test no pair.
 
 - **Axes:** 86-98 % of the pair tests go on the thin-triangle results, and the search takes 32-60 % less. What is left
   is the enumeration and the axis test itself, about equal.
 - **DOP:** 44-88 % of the pair tests; as fast as the axes where the result's faces are near the fixed directions
   (519511, 668056), slower where they are not (gear, fins, 1368057). It could run in front of the axes; not measured.
-- **Sub-boxes:** the hits drop to a third to a seventh (630 to 120, 316 to 48; 843 to 573 on 1368057), and the enumeration gets two to three times
-  slower: eight queries per triangle in a tree of five times the boxes (`split-enum` 0.92 against 0.45 s on gear_500,
+- **Sub-boxes:** the hits drop to a third to a seventh (630 to 120, 316 to 48; only 843 to 573 on 1368057), and the
+  enumeration gets two to three times slower: eight queries per triangle in a tree of five times the boxes (`split-enum` 0.92 against 0.45 s on gear_500,
   2.55 against 0.94 s on 519511). k = 2, 4, 16 on gear_500 and 519511 (`cost_parts`): 1.53 / 1.37 / 1.54 s and 2.76 /
   2.35 / 3.31 s; no k beats the axes on the plain boxes (0.94 and 1.65 s).
 
@@ -232,7 +236,7 @@ one for the others):
 | group | operations | base: booleans, rounding | axes | split | split+axes |
 |---|---:|---:|---:|---:|---:|
 | procedural thin (gear, cyl, fins, plate) | 12 | 111.2 s, 45.7 s | **−8.9 %**, rounding −21.3 % | +1.3 %, rounding −2.6 % | −1.0 %, rounding −1.5 % |
-| procedural control (sphere) | 3 | 0.7 s, 0.2 s | −3.0 % (0.02 s: noise) | +4.4 % | +51.8 % |
+| procedural control (sphere) | 3 | 0.7 s, 0.2 s | −3.0 % (0.02 s: noise) | +4.4 % (noise) | +51.8 % (0.4 s; one round, not looked into) |
 | Thingi10K rotated, clean | 15 | 48.7 s, 15.3 s | **−5.0 %**, rounding −12.7 % | +8.0 %, rounding +26.3 % | +9.1 %, rounding +28.2 % |
 | Thingi10K rotated, dirty | 18 | 180.1 s, 50.3 s | +0.3 %, rounding −1.7 % | +3.6 %, rounding +11.1 % | +3.5 %, rounding +10.1 % |
 | all | 48 | 340.6 s, 111.5 s | **−3.5 %**, rounding −11.3 % | +3.5 %, rounding +7.6 % | +2.9 %, rounding +8.0 % |
@@ -242,19 +246,23 @@ one for the others):
 
 The axes per operation, where the gain is: gear_500 6.97 / 7.82 / 6.67 to 5.98 / 5.86 / 5.06 s; fins_400 union 14.33
 to 11.80 s; cyl_8000 union 14.74 to 13.99 s; 519511 union 11.42 to 10.07 s (rounding 4.49 to 3.13 s); 668056 union
-3.31 to 2.95 s. Eight operations are 2-9 % slower in their faster round, within the spread of their base rounds; the two
-that are not, 668056 difference (1.99 to 2.11 s) and 119829 intersection (0.23 to 0.25 s), have the same rounding time
-with and without the axes (0.47 s, 0.05 s).
+3.31 to 2.95 s. Eight operations are 2-9 % slower in their faster round, seven of them within the spread of their base
+rounds; the one that is not, 119829 intersection (0.23 to 0.25 s), has the same rounding time with and without the
+axes (0.05 s).
 
 - **Against section 5.3:** there the prefilter computed its eight axes for every pair and ran in every pair test of the
-  rounding: −1.6 % in the sum, +12 to +30 % on 67709. Computed once per triangle and used in the first search only, it
-  costs 18-150 ms up front and nothing in the evaluations.
-- **The sub-boxes lose** once their build for all triangles is inside the measurement, also together with the axes.
-- **What the axes leave:** about half of the bound of section 4 on the thin-triangle results (−8.9 of −31 % on the
+  rounding: −1.6 % in the sum, +12 to +30 % on 67709. Computed once per triangle and used in the full searches only, it
+  costs 2-115 ms up front (as measured in `cull`) and nothing in the evaluations.
+- **The sub-boxes lose** once their build for all triangles is inside the measurement, also together with the axes:
+  on the Thingi10K results the rounding takes 11-26 % longer (the base rounds spread by about 1 %); on the procedural
+  thin set +1.3 % and −1.0 % are noise. One round, and the prototype inside the rounding allocates a set and a list
+  per query triangle where `cull` uses a stamp array, which counts against it; `cull` itself (5.3) shows no k at which
+  the sub-boxes beat the axes on plain boxes.
+- **What the axes leave:** they reach about 30 % of the bound of section 4 on the thin-triangle results (−8.9 of −31 % on the
   procedural set, −5.0 % on the clean Thingi10K operations, where the bound is −17 %). The rest is the
   enumeration of the hits and the axis test on each.
 
-### 5.5 Tree quality: one model in 16
+### 5.5 Tree quality: one model stands out
 
 `cull --visits --serial` (`cost_visits`): the nodes a query of the first search visits, the same hits.
 
@@ -266,7 +274,9 @@ with and without the axes (0.47 s, 0.05 s).
 | gear_500 | 630 | 454 | 804 | 1.65 s | 1.88 s |
 | 498458 | 26 | 104 | 100 | 0.34 s | 0.33 s |
 
-- On 15 of the 16 unions the two trees enumerate at the same speed (the Morton tree is the better one on gear_500). On
+- On four of these five unions the two trees enumerate at about the same speed (the Morton tree is the better one on
+  gear_500). At 4 threads on all 16 unions (`enum` against `own-enum` in `cost_cull`, one run) 102375 stands out with
+  6.5 times; the others are within a factor of 1.8 either way (1063860 15 against 27 ms, 42327 110 against 77 ms). On
   102375 the Morton tree visits five times the nodes; its triangles are of one size (box diagonal 1.5 in the median,
   3.6 at most, the mesh 173), so it is not a case of a few large boxes. Not diagnosed.
 - The same tree serves `near`: on 102375 union 2.9 of the 4.2 s of `near` are the start tree (45 µs per query against
@@ -274,7 +284,8 @@ with and without the axes (0.47 s, 0.05 s).
 - **Probe inside the rounding** (`G3_TREE_MEDIAN=1`: every tree the rounding builds uses the library's median split;
   three rounds): 102375 union 9.21 to 6.85 s, intersection 3.93 to 3.72 s, difference 5.31 to 4.68 s (rounding 6.39 to
   3.77, 2.76 to 2.44, 3.42 to 2.75 s); the same hashes. On the other results the probe loses, because the library's
-  median build is serial and slow on large inputs (fins_400 rounding 7.6 to 28.8 s; all 48 +24.6 %, one round, 48 of
+  median build is serial and slow on large inputs (fins_400 union: rounding 7.6 to 28.8 s, the boolean 2.5 times; its
+  intersection 2.9 times; all 48 +24.6 %, one round, 48 of
   48 hashes the same). So the gain on 102375 is the bound of a better tree there; a fix needs a build that is as fast
   as the Morton one, and first the reason why the Morton order fails on this model.
 - `TriangleBoxTree` also serves the boolean's own searches; whether they are slow on 102375 too was not measured.
@@ -300,17 +311,18 @@ inflate the times, section 2):
 
 All 24 operations with 0.15 s or more of `near` are in `cost_phases_*`.
 
-- **The linear list is the largest part.** A query computes the box of each listed triangle from the mesh (125 on
-  average, 60-70 ns each), 36 times per accepted edit on 67709. The diagnosis left open in section 5.5 of
+- **The linear list is the largest part.** A query computes the box of each listed triangle from the mesh (98 on
+  average over the 33 operations, 110-130 where `near` is heavy; 60-70 ns each), 36 times per accepted edit on 67709. The diagnosis left open in section 5.5 of
   SNAP_ROUNDING_3D.md ("the changed-triangle tree and its linear list are the suspects") is: the list first, the
   rebuilds second, and only where many edits are accepted.
 - **The rebuilds of the changed tree** matter where thousands of triangles are changed before the tree of the start is
   rebuilt (119829, 498458, plate): every 256 changes the tree of all changed triangles is rebuilt, 7000 of them.
 - **The tree of the start** is the cost on 102375 (section 5.5) and where a query has hundreds of hits (1368057).
 
-**Candidate: keep the boxes of the list.** `G3_NEAR_PENDING=cached` computes the boxes of the list once per state of
-the mesh (the version counter that every change raises) and compares six doubles per entry in a query; the same
-triangles in the same order. Checked with the library's own check of every `near` against a scan of all triangles
+**Candidate: keep the boxes of the list.** `G3_NEAR_PENDING=cached` computes the boxes of the list once per value of
+the version counter (which `mark_dirty` raises) and compares six doubles per entry in a query; the same triangles in
+the same order. It is correct only while every edit marks its triangles before the next `near`; the removal of a
+triangle alone does not raise the counter, so a build has to state and test that invariant. Checked with the library's own check of every `near` against a scan of all triangles
 (`CheckOnThisThread`, here `G3_CHECK_NEAR=1`) on the three operations of 486343 and of sphere_60: no difference, the
 same hashes.
 
@@ -381,16 +393,16 @@ Gains are of the whole boolean at 4 threads, per operation the faster round. "Id
 
 | # | Lever | Gain (measured) | Risk | Output | Size |
 |---|---|---|---|---|---|
-| 1 | **Cached separating axes in the first search** (5.4): the lemma of SNAP_ROUNDING_3D.md 5.3, the axes once per triangle, the first search only | −3.5 % of the 48 operations; −8.9 % procedural thin (gear −14 to −25 %), −5.0 % clean Thingi10K (519511 union −12 %), 0 on dirty results and on the control | a floating-point margin in the rounding (8u, checked with Z3; the guard against subnormal products is still to build): bounds review and a mutation run of the changed lines; 160 bytes per triangle for the time of the search | identical, 48 of 48 in three rounds | S-M: about 80 lines in `MeshRoundingRepair.cs`, its tests (invariance, reuse, determinism, a mutant per margin) |
+| 1 | **Cached separating axes in the first search** (5.4): the lemma of SNAP_ROUNDING_3D.md 5.3, the axes once per triangle, in the full searches only (not in the evaluations) | −3.5 % of the 48 operations; −8.9 % procedural thin (gear −14 to −25 %), −5.0 % clean Thingi10K (519511 union −12 %), 0 on dirty results and on the control | a floating-point margin in the rounding (8u, checked with Z3; the guard against subnormal products is still to build): bounds review and a mutation run of the changed lines; 160 bytes per triangle for the time of the search | identical, 48 of 48 in three rounds | S-M: about 80 lines in `MeshRoundingRepair.cs`, its tests (invariance, reuse, determinism, a mutant per margin) |
 | 2 | **Boxes of the linear list in `near` kept** (6) | rounding −17.7 % on the 24 operations with many evaluations, their booleans −5 % by the rounding alone (−6.9 % measured); 119829 union −15 %, 67709 union −9 % by the rounding alone; about −3.3 % of the 48 operations; 0 where few edits are evaluated | the boxes must follow every change of the mesh; the library's scan check covers it (`CheckOnThisThread`), and it must run in a test | identical, 48 of 48 (24 in two rounds) | S: about 30 lines, no new bound |
-| 3 | **Tree quality on 102375** (5.5): first the diagnosis, in `benchmarks/` | bound by a probe: −5 to −26 % on that model's three operations (rounding −12 to −41 %); 0 on the other 15 models | the cause is not known; a fix changes `TriangleBoxTree`, which every exact search uses (exact file, exact review), and must not slow the build | identical in the probe (48 of 48, one round); every caller must be independent of the order of the hits | S for the diagnosis; M-L for a build |
+| 3 | **Tree quality on 102375** (5.5): first the diagnosis, in `benchmarks/` | bound by a probe: −5 to −26 % on that model's three operations (rounding −12 to −41 %); no other model of the 16 shows the pattern | the cause is not known; a fix changes `TriangleBoxTree`, which every exact search uses (exact file, exact review), and must not slow the build | identical in the probe (48 of 48, one round); every caller must be independent of the order of the hits | S for the diagnosis; M-L for a build |
 | 4 | The changed tree by levels (6) | not built; bound 0.9 % of the 33 operations, 19 % of 119829 union (estimate: two thirds of it) | a third structure in `near` | identical by construction (the same set) | M |
-| 5 | Split-clipped sub-boxes; 18-DOP; grid; oriented boxes (5.2-5.4) | sub-boxes +3.5 % (a loss); DOP below the axes; the others not built, bounded by these | | identical | **closed** |
+| 5 | Split-clipped sub-boxes; 18-DOP; grid; oriented boxes (5.2-5.4) | sub-boxes +3.5 % as prototyped (a loss, one round); DOP below the axes; the others not built, bounded by these | | identical | **not recommended** |
 | 6 | Tree and setup over all triangles (7) | bound 1.5-2 % of both sets | | | **lever 1a**, nothing new |
 | 0 | Build nothing | | | | the speed stop as it stands |
 
-Leaning: under the speed stop, nothing here is urgent: on the study set (b) to (d) together are bounded by about 15 % of
-the summed booleans, and options 1 and 2 together reach about 7 % of the 48 operations (3.5 and 3.3 %; they act on
+Leaning: under the speed stop, nothing here is urgent: (b) to (d) together are bounded by 16 % of the summed booleans
+on the 33 Thingi10K operations (23 % on all 48), and options 1 and 2 together reach about 7 % of the 48 operations (3.5 and 3.3 %; they act on
 different results, so the gains add). If levers are built: option 2 first (the smallest change, no new bound, the
 library's own check covers it), then option 1 (the only candidate of (b) that pays; measured inside the rounding, its
 rule already proved). Option 3 should start as a diagnosis, because a slow tree on some inputs would also cost outside

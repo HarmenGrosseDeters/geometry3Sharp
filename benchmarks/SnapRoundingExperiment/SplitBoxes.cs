@@ -17,10 +17,10 @@
 // the two cuts. A crossing of edge (p, q) with the cut s is p_c + (q_c - p_c) (s - p_a) / (q_a - p_a), computed in
 // doubles as
 //     y~ = fl(p_c + fl(fl(q_c - p_c) * fl(fl(s - p_a) / fl(q_a - p_a))))
-// with |y~ - y| <= 16 u max(|p_c|, |q_c|), u = 2^-53: the quotient t has three roundings and 0 <= t <= 1, the
+// with |y~ - y| <= 14 u max(|p_c|, |q_c|), u = 2^-53: the quotient t has three roundings and 0 <= t <= 1, the
 // difference one, the product one, the sum one, so |y~ - y| <= (1 + u) (((1 + u)^5 - 1) |q_c - p_c| t + u |y|)
 // <= 6 u |q_c - p_c| + 2 u max(|p_c|, |q_c|) <= 14 u max(|p_c|, |q_c|) (|q_c - p_c| <= 2 max). The sub-box takes
-// [y~ - m, y~ + m] with m = fl(Pad max(|p_c|, |q_c|)), Pad = 32 u (twice the bound), cut to the edge's own extent
+// [y~ - m, y~ + m] with m = fl(Pad max(|p_c|, |q_c|)), Pad = 32 u (more than twice the bound), cut to the edge's own extent
 // [min(p_c, q_c), max(p_c, q_c)], which the crossing never leaves. Assumption, as in the separating-axis lemma: no
 // product underflows to a subnormal (the supported range of MeshRoundingRepair, [2^-200, 2^200], gives it here: the
 // operands are coordinate differences and a quotient in [0, 1]; a difference is exact when it is subnormal, and a

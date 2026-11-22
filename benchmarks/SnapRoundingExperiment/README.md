@@ -73,7 +73,7 @@ The measurement of [docs/research/ROUNDING_COST_2026-11.md](../../docs/research/
   in a throw-away worktree of master `57623890`: `G3_ROUNDING_PHASES=1` prints the phases of every `Apply`, the parts
   of `near` and the tree builds; `G3_FIRST_SEARCH=axes|split|split+axes` and `G3_TREE_MEDIAN=1` switch the candidates
   on inside the rounding. `trace/run_ab_phases.sh` runs the A/B, `trace/summarize_phases.py` prints the tables
-  (`phases`, `bound`, `near`, `ab`, `cull`).
+  (`phases`, `bound`, `near`, `ab`, `absum`, `cull`).
 - Raw output: `trace/results/cost_*_2026-11-22.jsonl` (and `.err` for the phase lines).
 
 ```sh

@@ -13,7 +13,7 @@
 #                            split-clipped sub-boxes of the triangles (SplitBoxes below) instead of one box per
 #                            triangle; the pairs it reports must be the same, so the result must be bit-identical
 #     G3_SPLIT_PARTS=<k>     the largest number of sub-boxes per triangle (default 8)
-#     G3_FIRST_SEARCH=axes   the first full search drops a pair before the pair test if the two triangles are apart along
+#     G3_FIRST_SEARCH=axes   every full search (normally one per Apply, the first) drops a pair before the pair test if the two triangles are apart along
 #                            one of their 8 cached axes (AxesOf / AxesApart below; SNAP_ROUNDING_3D.md section 5.3 with the
 #                            axes computed once per triangle instead of per pair)
 #     G3_FIRST_SEARCH=split+axes   both
