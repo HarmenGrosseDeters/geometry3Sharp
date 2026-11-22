@@ -215,7 +215,10 @@ input domain alone (not from a snapped domain, which would be the mesher's own c
   (`diff <= 2 perimeter sqrt(moved2)`), so only what really moved grants area; the probes and the sliver test use it as before.
 - **Boundary, input to output:** the eighth points of every input boundary edge lie within the tube of an output boundary edge, or
   within two tubes of another input edge (also a neighbour at an acute corner; both sides of a feature move by up to a pixel, so one up to two pixels wide may collapse, Q17,
-  and takes its boundary with it).
+  and takes its boundary with it). An input edge is a boundary edge here only where the domain lies on exactly one side of it: a part
+  outside the domain bounds nothing, and neither does a part with the domain on both sides (a border that two outer rings share, a
+  ring edge inside another outer ring). Until #1318 (2026-11-22) the second case was asked for an output boundary, so every mesh of
+  adjoining parcels on the grid was rejected; the chain of such a border is judged as a source (SegmentMissing), as before.
 - **Not applied** with an effective hole seed (the removed cell is bounded by constraints that the domain's ring edges do not list).
 - **Unchanged:** without a snap tolerance the comparison is exact (tube 2^-40); SegmentMissing, VertexUnused and TrianglesOnDegenerate
   keep their rules (O-H4, O-H5): a segment or point is excused only where the oracle's own images collapse it. What O-G did not excuse is
