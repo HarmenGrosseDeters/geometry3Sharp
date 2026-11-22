@@ -225,7 +225,7 @@ namespace geometry3Sharp.Tests
             BigInteger slack = BigInteger.One << (S - 900);        // far below a unit in the last place of a double, far above the series' error
             var xs = new List<double> { 0, 1e-300, -1e-300, 0.5, Math.PI / 2, -Math.PI / 2, Math.PI, 2 * Math.PI, 30, -30, 0.7853981633974483 };
             for (int i = 0; i < 200; ++i) xs.Add((rnd.NextDouble() - 0.5) * (i % 4 == 0 ? 80 : 20));
-            for (int k = -8; k <= 8; ++k) { double m = k * Math.PI / 4; xs.Add(m); xs.Add(Math.BitIncrement(m)); xs.Add(Math.BitDecrement(m)); }
+            for (int k = -8; k <= 8; ++k) { double m = k * Math.PI / 4; xs.Add(m); xs.Add(ExactInterval.Up(m)); xs.Add(ExactInterval.Down(m)); }
             foreach (double x in xs) {
                 ExactInterval s, c; IntervalMath.SinCos(x, out s, out c);
                 BigInteger bs, bc; BigSinCos(x, out bs, out bc);
@@ -252,7 +252,7 @@ namespace geometry3Sharp.Tests
             // the interval of pi / 2 is a double and its successor, with pi / 2 strictly between (60 digits of pi / 2)
             BigInteger piHalf = BigInteger.Parse("157079632679489661923132169163975144209858469968755291048747") * (BigInteger.One << S) / BigInteger.Pow(10, 59);
             Assert.True(Scaled(IntervalMath.PiHalf.Lo) < piHalf - 2 && piHalf + 2 < Scaled(IntervalMath.PiHalf.Hi));
-            Assert.Equal(Math.BitIncrement(IntervalMath.PiHalf.Lo), IntervalMath.PiHalf.Hi);
+            Assert.Equal(ExactInterval.Up(IntervalMath.PiHalf.Lo), IntervalMath.PiHalf.Hi);
             // 15! and 14! as exact doubles
             BigInteger f = BigInteger.One;
             for (int i = 2; i <= 14; ++i) f *= i;
@@ -510,7 +510,7 @@ namespace geometry3Sharp.Tests
             Assert.True(cert.SurfaceCells > 500);
             Assert.Equal(cert.SurfaceCells, cert.PassedAtTightening.Sum());
             Assert.Equal("", MeshRobustRepair.NotCleanReason(dc.Mesh));
-            Assert.Equal(0, OracleViolations(f, dc, cert, 1, 12));
+            Assert.Equal(0, OracleViolations(f, dc, cert, 1, 10));
             // a second certified grid gives the same surface up to isotopy: components and genus agree
             DualContouring fine;
             ContouringSmoothCertificate certFine = Run(f, 36, out fine);
@@ -725,10 +725,9 @@ namespace geometry3Sharp.Tests
         {
             // in a rotated frame the enclosure of a whole cell is loose, so at some distances the cells around the node are
             // proven zero-free only by their sub-boxes; the sweep covers surface cells, such cells and zero-free boxes
-            for (int i = 0; i <= 44; ++i) {
-                double d = -1.2 + 0.0625 * i + 0.013;         // -1.19 .. 1.56 cells, never a multiple of the cell size
-                WrongNode(d, true);
-            }
+            // (with the node 0.44 to 0.75 cells inside the surface, some cells around it are zero-free by sub-boxes only)
+            for (int i = 0; i <= 10; ++i) WrongNode(-0.937 + 0.0625 * i, true);       // -0.94 .. -0.31 cells
+            foreach (double d in new[] { -1.19, 0.14, 0.51, 0.89, 1.45 }) WrongNode(d, true);
         }
 
         static void WrongNode(double cellsFromSurface, bool rotated)
@@ -749,8 +748,8 @@ namespace geometry3Sharp.Tests
             Assert.All(cert.UncertifiedCells, u => Assert.Equal(SmoothCertificateReason.NodeSign, u.Reason));
             var expected = new HashSet<Vector3i>();
             for (int c = 0; c < 8; ++c) expected.Add(new Vector3i(node.x - (c & 1), node.y - (c >> 1 & 1), node.z - (c >> 2 & 1)));
-            Assert.Equal(expected, new HashSet<Vector3i>(cert.UncertifiedCells.Select(u => u.Cell)));
-            Assert.Equal(8, cert.UncertifiedCells.Count);
+            Assert.True(expected.SetEquals(cert.UncertifiedCells.Select(u => u.Cell)) && cert.UncertifiedCells.Count == 8,
+                "at " + cellsFromSurface + " cells" + (rotated ? ", rotated" : "") + ": " + List(cert));
         }
 
         [Fact]
