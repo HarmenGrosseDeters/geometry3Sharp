@@ -160,8 +160,8 @@ namespace g3
         /// </summary>
         internal static double CrossingFraction(double dp, double dq)
         {
-            bool finite = (dp - dp) == 0 && (dq - dq) == 0;
-            if (finite && ((dp < 0 && dq > 0) || (dp > 0 && dq < 0))) {
+            // (an overflowed value gives inf / inf = NaN, which fails the range test, or a quotient of 0, the nearer end)
+            if ((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
                 double w = dp / (dp - dq);
                 if (w >= 0 && w <= 1)
                     return w;
