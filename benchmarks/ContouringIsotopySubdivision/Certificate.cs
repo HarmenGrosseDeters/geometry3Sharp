@@ -134,8 +134,15 @@ sealed class GridCertificate
 
     // <g, g'> > 0 for every g in the enclosure of one sub-box and g' in that of another (or the same): any two points of
     // the cell lie in two such sub-boxes
+    // hand mutant for the truth check (README): G3_CIS_MUTANT=1 tests each sub-box against itself only, which is the classic
+    // mistake of squaring the gradient interval: it proves a gradient that does not vanish, not a small normal variation
+    static readonly bool mutant = Environment.GetEnvironmentVariable("G3_CIS_MUTANT") == "1";
     static bool pairwisePositive(Enc[] enc)
     {
+        if (mutant) {
+            foreach (Enc e in enc) if (!((Iv.Sqr(e.Gx) + Iv.Sqr(e.Gy) + Iv.Sqr(e.Gz)).Lo > 0)) return false;
+            return true;
+        }
         for (int a = 0; a < enc.Length; ++a)
             for (int b = a; b < enc.Length; ++b)
                 if (!(lowerDot(enc[a], enc[b]) > 0)) return false;

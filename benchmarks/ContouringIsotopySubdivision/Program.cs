@@ -25,33 +25,36 @@ static class Program
         public Vector3d Origin = new Vector3d(-1.113, -1.107, -1.103); public double Size = 2.2;
     }
 
-    static Case Make(string name, double k, int N, int seed)
+    // sc scales the whole case (lengths, origin, grid) by a power of two; the fields are built from the scaled parameters
+    static Case Make(string name, double k, int N, int seed, double sc = 1)
     {
         var c = new Case { Name = name, K = k, Seed = seed };
+        c.Origin *= sc; c.Size *= sc;
         double h = c.Size / N, w = k * h;
+        Func<double, double, double, Vector3d> V = (x, y, z) => new Vector3d(x * sc, y * sc, z * sc);
         switch (name) {
             // --- the feature-width families of benchmarks/ContouringTopology (CONTOURING_TOPOLOGY.md 2.1), k = width in cells
-            case "torus": c.Field = Fields.Torus(0.6, w / 2); c.Truth = "c=1;g=1"; break;
-            case "gap": c.Field = Fields.Min(Fields.Sphere(new Vector3d(0.45 + w / 2, 0, 0), 0.45), Fields.Sphere(new Vector3d(-0.45 - w / 2, 0, 0), 0.45)); c.Truth = "c=2;g=0+0"; break;
-            case "shell": c.Field = Fields.Max(Fields.Sphere(Vector3d.Zero, 0.8), Fields.Neg(Fields.Sphere(Vector3d.Zero, 0.8 - w))); c.Truth = "c=2;g=0+0"; break;
-            case "tunnel": c.Field = Fields.Max(Fields.Sphere(Vector3d.Zero, 0.8), Fields.Neg(Fields.Cylinder(w / 2))); c.Truth = "c=1;g=1"; break;
-            case "rod": c.Field = Fields.Min(Fields.Min(Fields.Sphere(new Vector3d(0.6, 0, 0), 0.3), Fields.Sphere(new Vector3d(-0.6, 0, 0), 0.3)), Fields.Capsule(0.6, w / 2)); c.Truth = "c=1;g=0"; break;
+            case "torus": c.Field = Fields.Torus(0.6 * sc, w / 2); c.Truth = "c=1;g=1"; break;
+            case "gap": c.Field = Fields.Min(Fields.Sphere(new Vector3d(0.45 * sc + w / 2, 0, 0), 0.45 * sc), Fields.Sphere(new Vector3d(-0.45 * sc - w / 2, 0, 0), 0.45 * sc)); c.Truth = "c=2;g=0+0"; break;
+            case "shell": c.Field = Fields.Max(Fields.Sphere(Vector3d.Zero, 0.8 * sc), Fields.Neg(Fields.Sphere(Vector3d.Zero, 0.8 * sc - w))); c.Truth = "c=2;g=0+0"; break;
+            case "tunnel": c.Field = Fields.Max(Fields.Sphere(Vector3d.Zero, 0.8 * sc), Fields.Neg(Fields.Cylinder(w / 2))); c.Truth = "c=1;g=1"; break;
+            case "rod": c.Field = Fields.Min(Fields.Min(Fields.Sphere(V(0.6, 0, 0), 0.3 * sc), Fields.Sphere(V(-0.6, 0, 0), 0.3 * sc)), Fields.Capsule(0.6 * sc, w / 2)); c.Truth = "c=1;g=0"; break;
             // --- smooth references
-            case "sphere": c.Field = Fields.Sphere(Vector3d.Zero, 0.7); c.Truth = "c=1;g=0"; break;
+            case "sphere": c.Field = Fields.Sphere(Vector3d.Zero, 0.7 * sc); c.Truth = "c=1;g=0"; break;
             // --- TPMS with a smooth cap, k = level, two periods across the box
-            case "gyroid": c.Field = Fields.CappedTpms(Fields.Tpms.Gyroid, 2 * Math.PI * 2 / 2.2, k, 0.9, 4); break;
-            case "schwarzp": c.Field = Fields.CappedTpms(Fields.Tpms.SchwarzP, 2 * Math.PI * 2 / 2.2, k, 0.9, 4); break;
-            case "diamond": c.Field = Fields.CappedTpms(Fields.Tpms.Diamond, 2 * Math.PI * 2 / 2.2, k, 0.9, 4); break;
+            case "gyroid": c.Field = Fields.CappedTpms(Fields.Tpms.Gyroid, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
+            case "schwarzp": c.Field = Fields.CappedTpms(Fields.Tpms.SchwarzP, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
+            case "diamond": c.Field = Fields.CappedTpms(Fields.Tpms.Diamond, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
             // --- near-singular: Cassini surfaces, k = b / a (1 is the singular one)
-            case "cassini": c.Field = Fields.Cassini(0.45, 0.45 * k); c.Truth = k > 1 ? "c=1;g=0" : k < 1 ? "c=2;g=0+0" : "singular"; break;
+            case "cassini": c.Field = Fields.Cassini(0.45 * sc, 0.45 * k * sc); c.Truth = k > 1 ? "c=1;g=0" : k < 1 ? "c=2;g=0+0" : "singular"; break;
             // --- degenerate position: a sphere through grid nodes (dyadic grid, f = 0 exactly at six nodes)
-            case "nodesphere": c.Origin = new Vector3d(-1.125, -1.125, -1.125); c.Size = 2.25; c.Field = Fields.SpherePoly(0.5625); c.Truth = "c=1;g=0"; break;
+            case "nodesphere": c.Origin = V(-1.125, -1.125, -1.125); c.Size = 2.25 * sc; c.Field = Fields.SpherePoly(0.5625 * sc); c.Truth = "c=1;g=0"; break;
             default: throw new ArgumentException(name);
         }
         if (seed >= 0) {
             var rnd = new Random(seed);
             Matrix3d R = Matrix3d.AxisAngleD(Vector3d.AxisX, rnd.NextDouble() * 360) * Matrix3d.AxisAngleD(Vector3d.AxisY, rnd.NextDouble() * 360) * Matrix3d.AxisAngleD(Vector3d.AxisZ, rnd.NextDouble() * 360);
-            c.Field = Fields.Moved(c.Field, R, new Vector3d(0.03 * rnd.NextDouble(), 0.03 * rnd.NextDouble(), 0.03 * rnd.NextDouble()));
+            c.Field = Fields.Moved(c.Field, R, V(0.03 * rnd.NextDouble(), 0.03 * rnd.NextDouble(), 0.03 * rnd.NextDouble()));
         }
         return c;
     }
@@ -72,9 +75,9 @@ static class Program
         public string ClassP = "-", ClassPSig = "-"; public int ClassPUncertified = -1; public double ClassPMs;
     }
 
-    static Row Run(string name, double k, int N, int seed, bool classP, bool subdivide = true, int maxT = 4, int maxTS = 3)
+    static Row Run(string name, double k, int N, int seed, bool classP, bool subdivide = true, int maxT = 4, int maxTS = 3, double sc = 1)
     {
-        Case c = Make(name, k, N, seed);
+        Case c = Make(name, k, N, seed, sc);
         double h = c.Size / N;
         var row = new Row { Name = name, K = k, Seed = seed, N = N, Truth = c.Truth };
 
@@ -149,6 +152,7 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length >= 1 && args[0] == "selftest") return SelfTest();
+        if (args.Length >= 1 && args[0] == "invariance") return Invariance();
         if (args.Length >= 4 && args[0] == "debug") {
             string[] p = args[1].Split(':'); int N = int.Parse(args[2]); int seed = int.Parse(args[3]);
             Case c = Make(p[0], p.Length > 1 ? double.Parse(p[1], Inv) : 0, N, seed);
@@ -220,6 +224,28 @@ static class Program
         return 2;
     }
 
+    // The verdicts are combinatorial, so scaling the whole case by 2^k must give the same row bit for bit (the times and the
+    // class P columns excluded): every interval operation, the widening by one unit in the last place and the grid coordinates
+    // scale exactly, as long as nothing underflows or overflows.
+    static int Invariance()
+    {
+        int different = 0, compared = 0;
+        var specs = new (string name, double k, int seed)[] { ("sphere", 0, 0), ("torus", 2, -1), ("torus", 2, 0), ("gap", 0.5, 0), ("tunnel", 2, 0), ("rod", 1, -1), ("gyroid", 0, -1), ("diamond", 0, -1), ("cassini", 1.01, 0), ("nodesphere", 0, -1) };
+        foreach (var sp in specs) {
+            string[] reference = null;
+            foreach (int e in new[] { 0, 10, -10, 40, -40 }) {
+                string[] cols = Line(Run(sp.name, sp.k, 32, sp.seed, false, true, 4, 3, Math.Pow(2, e))).Split(',');
+                string[] kept = cols.Take(38).Concat(cols.Skip(42).Take(1)).ToArray();        // without the four times and class P
+                if (reference == null) { reference = kept; continue; }
+                ++compared;
+                bool same = kept.SequenceEqual(reference);
+                if (!same) { ++different; Console.WriteLine("DIFFERENT " + sp.name + ":" + F(sp.k) + " seed " + sp.seed + " at 2^" + e + ": " + string.Join(" ", Enumerable.Range(0, kept.Length).Where(q => kept[q] != reference[q]).Select(q => Header.Split(',')[q < 38 ? q : 42] + " " + reference[q] + " -> " + kept[q]))); }
+            }
+        }
+        Console.WriteLine("invariance under 2^k scaling (k = 10, -10, 40, -40; N = 32): " + compared + " scaled runs compared with their unscaled run, " + different + " different");
+        return different == 0 ? 0 : 1;
+    }
+
     // Checks of the prototype itself: the enclosures hold at random points, and broken tests are caught (hand mutants).
     static int SelfTest()
     {
@@ -263,6 +289,32 @@ static class Program
                 }
             }
         Console.WriteLine("field enclosure failures: " + fieldFails + " in " + checkedBoxes + " boxes");
-        return fails + fieldFails == 0 ? 0 : 1;
+        // 3. a cell-level oracle for the C1 test: in every cell it passes, sampled gradients must be pairwise less than 90
+        // degrees apart (the hand mutant G3_CIS_MUTANT=1 fails here; the run-level truth check alone did not catch it)
+        int c1Fails = 0, c1Cells = 0;
+        foreach (var sp in new (string name, double k, int N, int seed)[] { ("torus", 1, 32, -1), ("torus", 2, 32, 0), ("gyroid", 0, 16, -1), ("cassini", 1.001, 16, 0), ("shell", 1, 16, 0) }) {
+            Case c = Make(sp.name, sp.k, sp.N, sp.seed);
+            double h = c.Size / sp.N;
+            var g = new GridCertificate { F = c.Field, Origin = c.Origin, H = h, N = sp.N, MaxT = 4, DoS = false };
+            g.Run();
+            for (int idx = 0; idx < g.Cell.Length; ++idx) {
+                if ((g.Cell[idx] & 2) == 0) continue;
+                ++c1Cells;
+                int i = idx % sp.N, j = (idx / sp.N) % sp.N, k = idx / (sp.N * sp.N);
+                var gs = new List<Vector3d>();
+                bool bad = false;
+                for (int q = 0; q < 40; ++q) {
+                    // corners first, then random points
+                    Vector3d u = q < 8 ? new Vector3d(q & 1, (q >> 1) & 1, (q >> 2) & 1) : new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                    Enc e = c.Field.At(c.Origin + h * new Vector3d(i + u.x, j + u.y, k + u.z));
+                    if (!e.Smooth) { bad = true; break; }
+                    gs.Add(new Vector3d(e.Gx.Mid, e.Gy.Mid, e.Gz.Mid));
+                }
+                foreach (var a in gs) foreach (var b in gs) if (!(a.Dot(b) > 0)) bad = true;
+                if (bad) ++c1Fails;
+            }
+        }
+        Console.WriteLine("C1 cells with sampled gradients 90 degrees or more apart: " + c1Fails + " of " + c1Cells);
+        return fails + fieldFails + c1Fails == 0 ? 0 : 1;
     }
 }
