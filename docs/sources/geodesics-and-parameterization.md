@@ -129,6 +129,8 @@ on the GitHub-hosted runner by `benchmarks/UVAtlasBenchmark` (workflow `uvatlas-
 
 Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
 
+The solvers (`solvers/`, including `CholeskyNestedDissection`) have no Stryker mutation shard; their tests are not mutation-gated (`docs/qa/mutation-and-coverage.md`).
+
 | Part | Source |
 |---|---|
 | Approximate minimum degree ordering on the quotient graph | P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989 |
@@ -136,3 +138,13 @@ Implemented from the papers and textbooks, no code taken over (not from CHOLMOD 
 | Symbolic factorization by the elimination tree, postordering (the analysis, `CholeskyAnalysis`, is shared by `SparseCholesky` and `SparseHermitianCholesky`; the tree is found from the pattern of A by Liu's row-wise algorithm with path compression, so the structure of L is computed once, for the postordered matrix) | J. Liu, *The Role of Elimination Trees in Sparse Factorization*, SIAM J. Matrix Anal. Appl. 1990; A. George, J. Liu, *Computer Solution of Large Sparse Positive Definite Systems*, 1981 |
 | Relaxed supernodes | C. Ashcraft, R. Grimes, *The Influence of Relaxed Supernode Partitions on the Multifrontal Method*, ACM TOMS 1989 |
 | Left-looking supernodal numeric factorization | E. Ng, B. Peyton, *Block Sparse Cholesky Algorithms on Advanced Uniprocessor Computers*, SIAM J. Sci. Comput. 1993 |
+
+### Preconditioner prototypes (`benchmarks/MultiscaleCholeskyProbe`, not in the library)
+
+Research probe of the spike [MULTISCALE_SPARSE_CHOLESKY_2026-11.md](../research/MULTISCALE_SPARSE_CHOLESKY_2026-11.md) (outcome: no build). Implemented from the papers only, no code read or taken over (the reference implementation of the multiscale incomplete Cholesky is GPL v3 and was never opened).
+
+| Part | Source |
+|---|---|
+| Multiscale incomplete Cholesky: coarse-to-fine ordering, pattern by distance against the smaller length scale, zero fill-in factorization with a diagonal shift | J. Chen, F. Schäfer, J. Huang, M. Desbrun, *Multiscale Cholesky Preconditioning for Ill-Conditioned Problems*, ACM Trans. Graph. 40(4), 2021; ordering and pattern theory: F. Schäfer, T. J. Sullivan, H. Owhadi, *Compression, Inversion, and Approximate PCA of Dense Kernel Matrices at Near-Linear Computational Complexity*, Multiscale Model. Simul. 19(2), 2021 |
+| Factorized sparse approximate inverse by one dense solve per row (the closed form of the KL minimisation, applied to the entries of A) | F. Schäfer, M. Katzfuss, H. Owhadi, *Sparse Cholesky Factorization by Kullback-Leibler Minimization*, SIAM J. Sci. Comput. 43(3), 2021; L. Yu. Kolotilina, A. Yu. Yeremin, *Factorized Sparse Approximate Inverse Preconditionings I. Theory*, SIAM J. Matrix Anal. Appl. 14(1), 1993 |
+| Seeded approximate elimination (one sampled edge per neighbour of the eliminated vertex, elimination by current degree, neighbours sorted by weight) | R. Kyng, S. Sachdeva, *Approximate Gaussian Elimination for Laplacians: Fast, Sparse, and Simple*, FOCS 2016; Y. Gao, R. Kyng, D. Spielman, *Robust and Practical Solution of Laplacian Equations by Approximate Elimination*, arXiv:2303.00709, 2023 |
