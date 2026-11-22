@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Other: batch query extras (Span overloads, early any-hit, all-hits, CLI)"
 - **Kind:** parked (not done by owner decision 2026-11-08/09; trigger: a concrete caller needing zero-copy `Span` slices, early-out `AnyHitBatch`, `AllHitsBatch`, or `g3cli raycast` / `inside`)
 - **Tier:** M (additive overloads in `spatial/MeshBatchQueries.cs`, optional internal early-out in `DMeshAABBTree.cs`, CLI commands)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): item 4 is answered on master by `g3cli query3d` (batch ray hits with `--any-hit`, nearest points, inside tests with `--inside crossings|winding_number|auto`, camera depth images; also an MCP tool; [analysis-commands.md](../../tools/g3cli/docs/analysis-commands.md#query3d-meshbatchqueries-dmeshaabbtree3)). Items 1-3 remain parked until a caller needs them.
 
 ## Current state
 
@@ -19,14 +19,14 @@
      early-out requires touching `DMeshAABBTree3` internals (which were frozen during the boolean merge queue in Nov 2026).
   3. **`AllHitsBatch`:** collect all ray-triangle intersections per ray (CSR offset array + hit buffer, zero per-ray
      allocations).
-  4. **CLI / MCP commands (`g3cli raycast`, `g3cli inside`):** check whether #707 (CLI/MCP update) already added them;
-     if not, expose batch raycast and point-in-mesh queries on mesh files.
+  4. **CLI / MCP commands (`g3cli raycast`, `g3cli inside`):** done as `g3cli query3d` (see the plan status); nothing
+     left to build for this item.
 
 ## Trigger / decision needed
 
 A concrete caller (Unity / Rhino / CAD plugin using `Span` slices, shadow/visibility ray batches wanting early-out
 `AnyHit`, penetration/CSG thickness queries wanting `AllHits`, or headless CLI/MCP users wanting `raycast` / `inside`).
-First verify whether `g3cli` already has `raycast`/`inside` before planning item (4).
+Item (4) is covered by `g3cli query3d` (verified 2026-11-22).
 
 ## Goal
 
