@@ -171,8 +171,8 @@ namespace gs
                 for (int i = 0; i < Of.Length; ++i) {
                     Vector3d o = O[L.ToCoarse[i]];
                     o -= L.Nrm[i].Dot(o - L.V[i]) * L.Nrm[i];
-                    // with PreserveCreases the prolongated point is also put on the lattice line (Kind 1: a crease and, in the same run, a boundary vertex alike, as Round() does
-                    // right after for every Kind 1 vertex); without the option the projection is left out, so the output stays bit for bit the one of the earlier code
+                    // with PreserveCreases the prolongated point is also put on the lattice line of a Kind 1 vertex (a crease and, in the same run, a boundary vertex alike; Update()
+                    // does the same for every Kind 1 vertex); without the option the projection is left out, so the output stays bit for bit the one of the earlier code
                     if (PreserveCreases && L.Kind[i] == 1) o -= L.Cb[i].Dot(o - L.V[i]) * L.Cb[i];
                     Of[i] = Round(o, L, i, s);
                 }
