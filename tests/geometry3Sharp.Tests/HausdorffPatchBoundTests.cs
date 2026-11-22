@@ -116,6 +116,51 @@ namespace geometry3Sharp.Tests
             bounds.PatchMinTargetSize = 2;
             Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0124));
             Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0126));
+            // exactly at the limits: tried at a size of exactly PatchMinTargetSize thresholds, and (with or without the option)
+            // not tried when the other bounds are exactly the threshold
+            double size = bounds.corner_triangle_size(na, nb, nc);
+            Assert.Equal(0.025, size, 12);
+            bounds.PatchMinTargetSize = 1;
+            Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, size));
+            Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, old));
+            bounds.PatchMinTargetSize = 0;
+            Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, old));
+            // 0: always tried, whatever the threshold (a NaN threshold is "not below it")
+            Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, double.NaN));
+        }
+
+        [Fact]
+        public void CornerTriangleSize_TheLargestOfTheValidCorners()
+        {
+            // three triangles of doubled areas 1, 4 and 9 (sizes 1, 2, 3)
+            var m = new DMesh3();
+            for (int k = 1; k <= 3; ++k)
+                m.AppendTriangle(m.AppendVertex(new Vector3d(10 * k, 0, 0)), m.AppendVertex(new Vector3d(10 * k + k, 0, 0)), m.AppendVertex(new Vector3d(10 * k, k, 0)));
+            var bounds = new TriangleDeviationBounds(m);
+            foreach (int[] p in new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 1 }, new[] { 1, 0, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 2, 1, 0 } })
+                Assert.Equal(3.0, bounds.corner_triangle_size(p[0], p[1], p[2]));
+            // each position counts, also triangle 0
+            Assert.Equal(2.0, bounds.corner_triangle_size(1, 0, 0));
+            Assert.Equal(2.0, bounds.corner_triangle_size(0, 1, 0));
+            Assert.Equal(2.0, bounds.corner_triangle_size(0, 0, 1));
+            Assert.Equal(1.0, bounds.corner_triangle_size(0, 0, 0));
+            // corners without a nearest triangle (-1) or with an id that is no triangle are left out
+            Assert.Equal(2.0, bounds.corner_triangle_size(-1, 1, 7));
+            Assert.Equal(1.0, bounds.corner_triangle_size(7, -1, 0));
+            Assert.Equal(0.0, bounds.corner_triangle_size(-1, -1, 7));
+        }
+
+        [Fact]
+        public void OutsideEdge_StrictlyLessThanHalfTheMarginInside()
+        {
+            // the line from (0, 0) to (2, 0), its inside above it; margin 0.5: the limit is a depth of 0.25
+            Vector2d p = new Vector2d(0, 0), q = new Vector2d(2, 0);
+            Assert.True(TriangleDeviationBounds.outside_edge(p, q, new Vector2d(0.5, -1), new Vector2d(1.5, 0), 0.5));
+            Assert.True(TriangleDeviationBounds.outside_edge(p, q, new Vector2d(0.5, 0.125), new Vector2d(1.5, 0.125), 0.5));
+            // a depth of exactly half the margin is not outside, at either end
+            Assert.False(TriangleDeviationBounds.outside_edge(p, q, new Vector2d(0.5, 0.25), new Vector2d(1.5, 0), 0.5));
+            Assert.False(TriangleDeviationBounds.outside_edge(p, q, new Vector2d(0.5, 0), new Vector2d(1.5, 0.25), 0.5));
+            Assert.False(TriangleDeviationBounds.outside_edge(p, q, new Vector2d(0.5, 1), new Vector2d(1.5, -1), 0.5));
         }
 
         [Fact]
@@ -439,6 +484,8 @@ namespace geometry3Sharp.Tests
         static void AssertTouching(DMesh3 target, DMeshAABBTree3 tree, Vector3d a, Vector3d b, Vector3d c, double slack, string what)
         {
             Assert.True(double.IsPositiveInfinity(Touching(target, tree, a, b, c, false)), what + ": finite without the option");
+            // (off is the default)
+            Assert.True(double.IsPositiveInfinity(Patch(new TriangleDeviationBounds(target) { MaxPatchTriangles = 4096 }, tree, a, b, c)), what + ": finite by default");
             double u = Touching(target, tree, a, b, c), s = SampledMax(target, tree, a, b, c);
             // (2e-8: a point on the target has a sampled distance of up to about 1e-8, the square root of the rounding of its square)
             Assert.True(u >= s - 2e-8 && u <= s + slack, $"{what}: bound {u}, sampled {s}");

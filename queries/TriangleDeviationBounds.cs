@@ -81,17 +81,18 @@ namespace g3
         internal double PatchMinTargetSize = 0;
 
         // the size of the largest of the corners' nearest triangles: the square root of its doubled area
-        double corner_triangle_size(int n0, int n1, int n2)
+        internal double corner_triangle_size(int n0, int n1, int n2)
         {
-            double a2 = 0;
-            for (int k = 0; k < 3; ++k) {
-                int t = (k == 0) ? n0 : ((k == 1) ? n1 : n2);
-                if (t < 0 || Target.IsTriangle(t) == false) continue;
-                Index3i tv = Target.GetTriangle(t);
-                Vector3d a = Target.GetVertex(tv.a);
-                a2 = Math.Max(a2, (Target.GetVertex(tv.b) - a).Cross(Target.GetVertex(tv.c) - a).Length);
-            }
-            return Math.Sqrt(a2);
+            return Math.Sqrt(Math.Max(doubled_area(n0), Math.Max(doubled_area(n1), doubled_area(n2))));
+        }
+
+        // (0 for an id that is no triangle of Target: no nearest triangle, -1)
+        double doubled_area(int tid)
+        {
+            if (Target.IsTriangle(tid) == false) return 0;
+            Index3i tv = Target.GetTriangle(tid);
+            Vector3d a = Target.GetVertex(tv.a);
+            return (Target.GetVertex(tv.b) - a).Cross(Target.GetVertex(tv.c) - a).Length;
         }
 
         /// <summary>
@@ -674,7 +675,7 @@ namespace g3
         }
 
         // are both end points of the segment ab less than margin / 2 inside of the line pq (the inside is on its left)?
-        static bool outside_edge(Vector2d p, Vector2d q, Vector2d a, Vector2d b, double margin)
+        internal static bool outside_edge(Vector2d p, Vector2d q, Vector2d a, Vector2d b, double margin)
         {
             double limit = 0.5 * margin * p.Distance(q);
             return edge_side(p, q, a) < limit && edge_side(p, q, b) < limit;
