@@ -195,7 +195,7 @@ tier is decided by a tool, not by the author (research note section 6, plan #128
 
 | tier | which operation | what the golden master pins | who decides |
 |---|---|---|---|
-| 1, bit-exact | no platform libm on its reachable set (`DeterminismReach`, the upper bound `cha`), or one with an argument and a test (F2: `ExactMeshBoolean`) | one digest of the full result, the same on every runtime, OS and architecture | `DeterminismReach tier` against `tools/DeterminismReach/tier1.txt`: a listed type that gains a libm edge fails the `linux` job of `determinism.yml` |
+| 1, bit-exact | no platform libm on its reachable set (`DeterminismReach`, the upper bound `cha`), or one with an argument and a test (F2: `ExactMeshBoolean`) | one digest of the full result, the same on every runtime, OS and architecture | `DeterminismReach tier` against `tools/DeterminismReach/tier1.txt`: a listed type that gains a libm edge fails `tier-rule.yml` (every pull request that changes library sources or the documented operations) and the `linux` job of `determinism.yml` |
 | 2, bit-exact per libm family | reaches a platform libm value | (a) the combinatorial result and every exact value, one digest for all platforms where the operation promises them; (b) the coordinates as one digest per libm family (linux x64 = arm64, Windows .NET 10, Windows .NET Framework, macOS), recorded from CI, never a tolerance alone; (c) an invariant with a derived bound across families (Hausdorff, volume, angle) | the tool puts it there; leaving tier 2 means `CoreMath` on the path (6a) or an argument |
 | not a golden master | a schedule dependence (level L0) | nothing is pinned: serial equals parallel equals adversary, red or `KNOWN` until fixed | the adversary |
 
@@ -205,10 +205,10 @@ appears only in (c), with its derivation. The input of a test is part of the pin
 `Math.Sin / Cos` is tier 2 by its input (the `.libm-input` cases; the `examples.*` cases build circles that way).
 
 **The tier-1 list** (`tools/DeterminismReach/tier1.txt`, the documented public types without a libm edge on the `cha` graph,
-77 on 2026-11-22). `DeterminismReach tier <library.dll> --docs docs/OPERATIONS.md --docs docs/guides --baseline
+78 on 2026-11-22). `DeterminismReach tier <library.dll> --docs docs/OPERATIONS.md --docs docs/guides --baseline
 tools/DeterminismReach/tier1.txt` exits with 1 for a listed type that reaches the platform libm (`VIOLATION`) or is no longer
 a documented public type (`STALE`), and lists documented types without a libm edge that are not listed yet; `--update`
-rewrites the list. The remedies of a violation, in this order: remove the libm call from the path (`CoreMath`, if the rule 6a
+rewrites the list (it drops a type that now reaches libm without an argument: the diff of the list is the review); `--tests tests/geometry3Sharp.Tests` (not wired into CI until the perturbation test of #1354 is merged) also checks that the argument of a type names a test class that exists. The remedies of a violation, in this order: remove the libm call from the path (`CoreMath`, if the rule 6a
 allows it: a measured difference); show by an argument and a perturbation test that it cannot reach the result and list the
 type with a `<TAB>argument: ...` line; or leave tier 1 deliberately (delete the line in the PR that adds the call, with the
 reason). The `cha` bound counts implementations an operation is never given, so an operation with callbacks can be tier 2

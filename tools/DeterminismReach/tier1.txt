@@ -52,6 +52,7 @@ PLYWriter
 ParameterizationResult
 PassagePin
 PointAABBTree3
+PointHashGrid3d
 PolyMeshIO
 PolyhedralGeodesicDistance
 Ray3f

@@ -152,6 +152,8 @@ namespace DeterminismReach
                 check("candidates", string.Join(",", r.Candidates) == "NewClean");
                 check("arguments not needed", string.Join(",", r.ArgumentsNotNeeded) == "ArguedGone");
                 check("not ok", !r.Ok);
+                check("a violation alone is not ok", !TierRule.Check(documented, TierBaseline.Parse("Clean\nGained\n")).Ok);
+                check("a stale type alone is not ok", !TierRule.Check(documented, TierBaseline.Parse("Clean\nRemoved\n")).Ok);
                 check("ok", TierRule.Check(documented, TierBaseline.Parse("Clean\nArgued\targument: t\n")).Ok);
                 TierBaseline updated = TierRule.Update(documented, baseline);
                 check("update", string.Join(",", updated.Tier1.Select(kv => kv.Key + "=" + kv.Value)) == "Argued=argument: test X,ArguedGone=argument: test Y,Clean=,NewClean=");
