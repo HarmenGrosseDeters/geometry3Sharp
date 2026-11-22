@@ -1,7 +1,7 @@
 # SafeRounding and thin solids: why real sheets vanish, and what rule would keep them (study, 2026-11-22)
 
-Status: **research note, no library code.** A design study of two linked items: issue #1216 (SafeRounding removes real
-thin solids and returns `Success`) and plan #1259 (a guaranteed 3D rounding after Devillers et al.). The removal
+Status: **research note, no library code; the rule is decided (owner 2026-11-22, end of section 8), not built.**
+A design study of two linked items: issue #1216 (SafeRounding removes real thin solids and returns `Success`) and plan #1259 (a guaranteed 3D rounding after Devillers et al.). The removal
 threshold, any output change and any new option are owner decisions; section 8 lists the options with a leaning.
 The owner's decision of 2026-11-22 on the pipeline audit ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22": the
 removal "gets an opt-out and a threshold, plus a criterion that does not change with rotation; removed parts are listed
@@ -525,6 +525,12 @@ is what the decision of 2026-11-22 asks for. That decision's "the result is not 
 applies to whatever the rule still removes. Option 2 is the fallback if the volume test is unwanted; option 6 is the follow-up
 for what both leave. Open for the owner in either: whether a result that removed only components below K ulps is
 "not clean" (under option 1, 816 of the 1171 results with a removal removed nothing else).
+
+**Decision (owner 2026-11-22, through the coordinator):** option 1, rule (d1), with K = 4 ulps and the factor 2 as
+the starting value. A result that removed only components below K ulps stays clean and reports the removal; any
+other removal makes the result not clean, as decided earlier that day; every removed component is reported with
+count, volume and thickness (option 0). The build is a separate tier-L PR after #1382, with a plan that settles the
+two cases of 5.4 first. Nothing of it is in this note's PR.
 
 ## 9. Interplay with `SolidBooleanPipeline.MinThickness`
 

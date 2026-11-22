@@ -17,13 +17,13 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
 | Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
-| Rounding/repair: the removal rule for thin and tiny components (#1216) | Study done 2026-11-22: cause and candidate rules measured; leaning "below 4 ulps, or still defective, or mangled" with a report of what goes | Owner: the rule, its ulp multiple and volume factor; whether a result that removed only unresolvable slivers is not clean | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216, [audit](research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
+| Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; a removal of only components below K ulps stays clean and is reported, any other removal makes the result not clean; every removed component is reported (count, volume, thickness). Study merged with #1397 | Build as a separate tier-L PR (outputs change: the 263 hashes, the cohorts, the rounding shards), after #1382 | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216, [audit](research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) |
 | Alpha wrap: feature pass K follow-ups (corners, split retries) | Scoped follow-ups, not scheduled | A PR when a caller needs sharper corners | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1237 |
 | Tet: P3 follow-ups | Open: boundary sizing, curvature size field, target element count | Scope with P4; one PR each | [tet](design/TET_MESHING.md), plan #1244 |
 | Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15), plan #1238 |

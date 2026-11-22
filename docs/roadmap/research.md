@@ -496,7 +496,9 @@ Ordered by expected value for the library.
      the frame. 463 of 1106 thin solids of the inputs are lost. Candidate "below 4 ulps, or still defective, or
      changed in volume by more than a factor 2" returns 324 of them, leaves no new result not clean on the measured
      sets and has one threshold in every frame; the other 139 are mangled by the degenerate-area test (a separate question). #1259: no-go (a grid
-     rounding would lose 439 of the 463 again). Rule, K and factor: owner decisions, open.
+     rounding would lose 439 of the 463 again). Decided 2026-11-22 (owner): that rule with K = 4 ulps and the
+     factor 2; a removal of only components below K ulps stays clean and is reported, any other removal makes the
+     result not clean; build as a separate tier-L PR after #1382.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
