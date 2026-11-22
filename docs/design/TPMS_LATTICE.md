@@ -371,3 +371,38 @@ Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWe
   blend of the stated `w`" holds for a delegate only if its bound and its rounding error (at most `8 u + 2 u s Wmax`) hold, which the library cannot check; the delegate must be pure and thread safe.
 - Test limits: the enclosure containment test samples near-surface points of the exact blend; the derived `Lh` (and so a dropped weight term) is pinned by an exact-value test
   and a sampled-gradient bound, not by a worst-case-node construction as for the single point of `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`.
+
+## 10. Thin sheet walls: `TwoLevelSheet` (owner go 2026-11-22; built)
+
+Marching cubes on `F = max((|f| - t) / Lw, d)` sees a wall only where a grid node lies inside it, so a wall thinner than about two
+cubes breaks up (section 5, "wall >= 2 h"). The spike [CONTOURING_SDF_SUBGRID_2026-11.md](../research/CONTOURING_SDF_SUBGRID_2026-11.md)
+measured the alternative that is built here: the two sides of the wall as the two levels `f = +t` and `f = -t` of the surface function.
+
+- **Option:** `TpmsLattice.TwoLevelSheet` (default false: the output of every existing call is unchanged). Sheet style only; `InvalidOptions`
+  with `Enclosure` (the enclosure recipe is a marching cubes recipe) and with a hybrid (`h` of section 9 is not of the form `|g| - w`).
+  It works with `WallThickness`, `VolumeFractionAt` (the half width then varies per node), `PhaseMap` / `Grade` and both domains.
+- **Contouring:** `TwoLevelMarchingTetrahedra` (`mesh_generators/TwoLevelMarchingTetrahedra.cs`, public) with `g = f / Lw`, `w = t / Lw` and the
+  domain distance d, on the same grid, shifts and retries as marching cubes. Each cube is split into five tetrahedra (alternating, so
+  neighbours share their face diagonals); `g - w`, `-g - w` and d are linear in a tetrahedron, and the result is the exact boundary of the
+  solid where all three are negative: per function the polygon of its zero plane in the tetrahedron, clipped by the other two.
+- **Why the two sides cannot meet:** `(g - w) + (-g - w) = -2 w < 0` at the nodes and so in the whole tetrahedron: where one is zero the other
+  is negative. The pieces of different tetrahedra have disjoint interiors. So the mesh is free of self-intersections by construction, at
+  any wall thickness; the exact check of `VerifySelfIntersections` still runs and is the certificate of the returned coordinates.
+- **Consistency across tetrahedra in floating point:** whether a function is negative at a crossing of another one on a grid edge is decided
+  by the order of the two crossing parameters on that edge only (with a fixed tie rule), never by evaluating the function at the point.
+  Every tetrahedron and polygon at an edge so sees one arrangement, and the two polygons that meet in a face agree on whether the face has
+  a vertex of both planes (the test `RimGuard_...` and the mutants "order of crossings swapped" and "tie rule ignored" pin it).
+- **Slivers:** two guards move node values, so the result stays the exact boundary of a piecewise linear solid. `SliverGuard` is the guard
+  of section 4 (a value within 1/256 of the mean change per crossing edge counts as inside). `RimGuard` is new: where the cut of the domain
+  and a side of the wall cross a grid edge within 1/512 of the edge, the domain value at one end is changed to separate them (measured on 800
+  clipped runs of four shapes, walls of 1.5 to 0.002 cells: 798 clean; without it about 10 % have triangles of almost no area). The two left
+  are walls of 0.002 cells, thinner than the guard.
+- **What is not claimed:** the topology of the true level sets (the grid must still resolve the surface itself, 8 to 16 cubes per period),
+  and nothing about a wall given as a single field that is not `|g| - w`. Measured against marching cubes at 16 divisions, 3 cubes wall:
+  volume fraction +2.5 % (marching cubes -2.5 %) against the sampled closed form, converging faster with the divisions.
+- **Cost:** about 2.5 times the triangles of marching cubes on the same grid and no field evaluation beyond the nodes; times in
+  [benchmarks/TpmsLattice](../../benchmarks/TpmsLattice/README.md).
+- **Tests:** `TwoLevelMarchingTetrahedraTests`, `TpmsLatticeTwoLevelTests` (thin walls clean and connected where marching cubes breaks up,
+  agreement on thick walls, invariance over `Similarity.All()` with the 2^k scales bit for bit, reuse, parallel equals serial, both guards).
+- **Found on the way, not changed:** with a `DomainMesh`, the distance outside the bounds of the mesh is a lower bound (the box distance), so
+  next to the bounds the cut lies up to a cube outside the mesh; marching cubes has the same (0.757 against a radius of 0.7 at 10 divisions).

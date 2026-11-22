@@ -76,12 +76,22 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void InvalidCombinations_AreRejected()
         {
-            TpmsLattice t = Make(true, 1); t.Style = TpmsStyle.SkeletalLow; t.WallThickness = 0; t.Compute();
-            Assert.Equal(TpmsStatus.InvalidOptions, t.Status);
-            t = Make(true, 1); t.Enclosure = true; t.Compute();
-            Assert.Equal(TpmsStatus.InvalidOptions, t.Status);
-            t = Make(true, 1); t.WallThickness = 0; t.SecondType = TpmsType.IWP; t.Blend = TpmsLattice.SigmoidBlend(0, 0.75, 0.5); t.Compute();
-            Assert.Equal(TpmsStatus.InvalidOptions, t.Status);
+            // each configuration is valid without the option and rejected, by the option's own check, with it
+            Action<Action<TpmsLattice>> expect = set => {
+                var t = new TpmsLattice { Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 16, VolumeFraction = 0.3,
+                    Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)), VerifySelfIntersections = false };
+                set(t);
+                t.Compute();
+                Assert.True(t.Status == TpmsStatus.Ok, t.Status + ": " + t.Message);
+                t.TwoLevelSheet = true;
+                t.Compute();
+                Assert.Equal(TpmsStatus.InvalidOptions, t.Status);
+                Assert.Contains("TwoLevelSheet", t.Message);
+                Assert.Null(t.Mesh);
+            };
+            expect(t => t.Style = TpmsStyle.SkeletalLow);
+            expect(t => t.Enclosure = true);
+            expect(t => { t.SecondType = TpmsType.IWP; t.Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5); });
         }
 
         [Fact]

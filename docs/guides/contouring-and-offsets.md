@@ -14,6 +14,7 @@ This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContour
 | Certified offset or inset of a closed, clean mesh | `gs.MeshOffset` | Dual contouring of exact distance field, proven band (`BandCertified`), sharp creases, exact self-intersection check |
 | Simple voxelized SDF offset of a mesh | `g3.MeshSignedDistanceGrid` + `g3.MarchingCubes` | Regular-grid offset ([OffsetSurfaceExample.cs](../examples/OffsetSurfaceExample.cs)); no certified enclosure |
 | Triangulated loft between two or more planar slice contours | `g3.ContourLoft`, `g3.ContourLoftStack` | Optimal triangulated bands, optional slope admissibility, branching/merging stacks, exact self-intersection check |
+| Wall around a level set, thinner than a grid cell (shell, sheet) | `g3.TwoLevelMarchingTetrahedra` | Both sides kept at any thickness, no self-intersections by construction, node values only; about 2.5x the triangles of marching cubes |
 | TPMS lattice (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) | `g3.TpmsLattice` | Sheet or skeletal solid in a box or closed mesh domain, graded/hybrid cells, certified clean |
 
 ---
@@ -91,5 +92,19 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
 - **Input / mutability:** Generates a new closed, manifold `DMesh3` inside an axis-aligned box or closed mesh domain.
 - **Capabilities:** Supports gyroid, Schwarz P, Schwarz D, Neovius, I-WP, and Lidinoid surfaces as sheet or skeletal solids, sized by volume fraction or sheet wall thickness. Supports linear period grading, hybrid blending of two lattice types across a plane with a sigmoid transition, and dyadic enclosure grids.
 - **Guarantees:** Returns `Ok` only when the generated mesh is closed, manifold, and passes the exact self-intersection check (unless self-intersection verification is explicitly disabled).
+- **Thin sheet walls:** marching cubes needs a wall of about two cubes. `TwoLevelSheet = true` (Sheet style, opt-in, default off) contours the two sides of the wall as two levels of the surface function with `TwoLevelMarchingTetrahedra` (below): walls down to a small fraction of a cube stay connected. Not with `Enclosure` or a hybrid.
 - **Example:** [TpmsLatticeExample.cs](../examples/TpmsLatticeExample.cs)
 - **Further reading:** [TPMS_LATTICE.md](../design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](../design/TPMS_GRADED_CELL.md)
+
+---
+
+## Walls Thinner Than a Cell (`TwoLevelMarchingTetrahedra`)
+
+- **Namespace & class:** `g3.TwoLevelMarchingTetrahedra`
+- **Input / mutability:** A field `Field` (g), a half width `HalfWidth` (w, or `HalfWidthF` per position), an optional `Domain` field (d, negative inside), `Bounds` and `CellSize`. Generates a new `DMesh3` of the solid `{|g| <= w}` cut to `{d <= 0}`.
+- **When to use:** The wall is thinner than about two grid cells (sheet lattices, shells, the band between two offsets of a smooth surface). `MarchingCubes` or `DualContouring` on the single field `|g| - w` see a wall only where a grid node falls inside it and return fragments.
+- **How it works:** The two sides are contoured as the two levels `g = +w` and `g = -w` on a grid of five tetrahedra per cube, with g, w and d interpolated linearly in each tetrahedron. The result is the exact boundary of the solid of those piecewise linear functions.
+- **Guarantees:** In a tetrahedron the two sides are planes that cannot meet, so both are kept at any thickness above zero; pieces of different tetrahedra have disjoint interiors, so the mesh has no self-intersections by construction; it is closed where the solid stays inside `Bounds`. One field evaluation per grid node. Parallel field evaluation equals serial bit for bit; power-of-two scales give the same mesh bit for bit.
+- **Limits:** No topology guarantee against the true level sets (it sees what the grid resolves of g, not of the wall). Triangles can be slivers where the wall is thinner than about 1/500 of a cell at a rim; `SliverGuard` (planes kept off grid nodes) and `RimGuard` (the domain's cut kept off the wall's crossings on grid edges) remove the other cases by moving node values slightly, so check `MeshRobustRepair.NotCleanReason` where a clean mesh is required. About 2.5 times the triangles of marching cubes on the same grid.
+- **Example:** [TwoLevelMarchingTetrahedraExample.cs](../examples/TwoLevelMarchingTetrahedraExample.cs)
+- **Further reading:** [CONTOURING_SDF_SUBGRID_2026-11.md](../research/CONTOURING_SDF_SUBGRID_2026-11.md) (measurements), [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) section 10, [benchmarks/TpmsLattice](../../benchmarks/TpmsLattice/README.md)

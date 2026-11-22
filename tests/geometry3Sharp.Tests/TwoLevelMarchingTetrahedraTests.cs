@@ -200,6 +200,41 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RimGuard_RemovesTheSliversOfARimNextToAGridEdge()
+        {
+            // without the guard this clipped gyroid has triangles of almost no area where the rim passes a grid edge
+            TwoLevelMarchingTetrahedra off = Make("gyroid", 0.3, Similarity.Identity);
+            off.RimGuard = 0;
+            off.Generate();
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(off.Mesh));
+            Assert.Equal(0, off.RimNodesMoved);
+            TwoLevelMarchingTetrahedra on = Make("gyroid", 0.3, Similarity.Identity);
+            on.Generate();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(on.Mesh));
+            Assert.InRange(on.RimNodesMoved, 1, 2000);
+            // the guard moves the cut of the domain by a small fraction of a cell only: nearly the same solid
+            Assert.InRange(Invariance.Volume(on.Mesh) / Invariance.Volume(off.Mesh), 0.999, 1.001);
+            Assert.Equal(off.Mesh.CachedBounds.Max.x, on.Mesh.CachedBounds.Max.x, 3);
+        }
+
+        [Fact]
+        public void CoincidentCrossings_WithoutTheRimGuard_StillGiveOneArrangement()
+        {
+            // the domain is exactly the outer side of the wall, so both cross every grid edge at the same parameter: the tie rule
+            // must give every tetrahedron the same order, or the pieces do not fit together (the triangles there have no area,
+            // which is what RimGuard is for; closed and manifold is the claim here)
+            const double w = 0.4 * H;
+            var gen = new TwoLevelMarchingTetrahedra {
+                Field = new Fn(p => p.Length - 0.7), HalfWidth = w, Domain = new Fn(p => (p.Length - 0.7) - w), RimGuard = 0,
+                Bounds = new AxisAlignedBox3d(-Vector3d.One - H * Shift, Vector3d.One), CellSize = H
+            };
+            gen.Generate();
+            Assert.Equal(0, gen.NonManifoldTriangles);
+            Assert.True(gen.Mesh.IsClosed());
+            Assert.Equal(2, MeshTopologySummary.Compute(gen.Mesh).Components);
+        }
+
+        [Fact]
         public void InvalidInput_Throws_AndCancelLeavesNoMesh()
         {
             TwoLevelMarchingTetrahedra gen = Make("shell", 1, Similarity.Identity);
