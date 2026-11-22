@@ -167,14 +167,21 @@ Remarks.
    diagonal of the face in the simplest case), and its test is an enclosure of f over boxes that cover the segment.
 8. **Sources.** Nothing new: Theorems 1, 2, 4, 5 and Lemmas 5.1, 5.2, 6.1, 6.2, 6.4 of this note with their sources
    (Brown 1960 and 1962, Clarke 1983).
-9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; written after the two
-   reviews). It is enough that d . g > 0 on a set of sub-boxes of R that covers every zero of f in R, each of them a
-   box. Along a line parallel to d, f increases strictly inside each of these sub-boxes. If the line met L in R
-   twice, take the first zero after the first one: just after the first zero f > 0 (the point lies in a listed
-   sub-box, and if it is on its far side, also in the next one, which then holds a zero and is listed), and just
-   before the second f < 0 by the same argument, with no zero in between: a contradiction. So the projection along d
-   is injective on L in R, which is what Theorem 4 uses; the local statements of Lemma 5.1 hold in a neighbourhood of
-   every point of L, which the listed sub-boxes around it cover.
+9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; checked independently on
+   2026-11-22 and rewritten after that check). It is enough that d . g > 0 for all g in G(S) for every
+   box S of a finite set of closed boxes in R that covers every zero of f in R. *Proof.* Let p be a zero in R, in the
+   listed box S. G(S) contains the generalized gradients at p, so by upper semicontinuity, as in Lemma 5.2, there is a
+   ball B around p with d . g >= delta > 0 at all its points; by Lemma 5.1 on the convex set B, f increases strictly
+   along d through p, and L is in B a Lipschitz graph along d. So on a line parallel to d, which meets the convex R
+   in a segment, every zero has a neighbourhood without another zero: the zeros on the segment are finitely many.
+   Were there two, take two consecutive ones: just after the first f > 0, just before the second f < 0, so there is a
+   zero between them, a contradiction. Hence the projection along d is injective on L in R, and L is near each of its
+   points in the interior of R a Lipschitz graph; at its points on the boundary of R Lemma 8.1 needs nothing of (B3).
+   That is all Theorem 8 uses: in (a), Theorem 4 needs the compact 2-manifold and the injective projection (L in R is
+   then locally, not globally, a Lipschitz graph); in (b), the local flatness inside D_1 is local, and the two
+   pieces of the boundary of R carry the two signs of f because each piece of R minus D_1 is connected and without a
+   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form, remark 2 reads: one partial derivative
+   keeps its sign on every listed sub-box, the same one with the same sign.
 
 ## 2. Lemma 7.1: the cell shape in Theorem 7
 
