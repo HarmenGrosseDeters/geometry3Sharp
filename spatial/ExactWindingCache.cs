@@ -483,7 +483,12 @@ namespace g3
                                         double rem = aAbsArr[k] * r / (dr * dr * dr);
                                         double vaErrTerm = 0.5 * vaErrArr[k] * absDx * invD3;
                                         double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;
-                                        double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps;
+                                        // the full sum charges 1e-12 per edge for its own evaluation error (the leaf rule below); the
+                                        // k = hi - lo edges that the node replaces are charged the same, so that the node's bound covers the
+                                        // full sum's evaluation error and not only its own: it grows with the chain, not with Len/dr (the
+                                        // curve's points and p are exact doubles here, so there is no Biot-Savart displacement term)
+                                        double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps
+                                            + 1e-12 * (double)(hiArr[k] - loArr[k]);
                                         if (!is_finite(chord) || !is_finite(halfOmega) || !is_finite(nodeErr))
                                             return false;
                                         sum += chord + halfOmega;

@@ -362,7 +362,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void BoundaryTree_ErrorBound_CoversTheSummationOrderOfALongBoundary_AndIsSound()
+        public void BoundaryTree_ErrorBound_CoversSummationOrderAndPerEdgeErrorOfALongBoundary_AndIsSound()
         {
             // The summation-order clause 7.5e-16 * N * sum|w| of bErr is the largest one for a long boundary (N = 40006 here and the point far away:
             // 1.9e-7 against about 1e-10 for the nodes), so a bound without it is below its own formula: pinned from
@@ -371,7 +371,8 @@ namespace geometry3Sharp.Tests
             ExactWindingCache cache = new DMeshAABBTree3(strip, true).GetExactWindingCache();
             cache.PrepareThresholdQueries();
             Assert.True(cache.HasBoundaryTree);
-            double lowerBound = 1.01 * 7.5e-16 * cache.BoundaryCount * (double)cache.BoundaryCount / MathUtil.TwoPI;
+            // (the summation-order clause, and the evaluation error 1e-12 per edge that the accepted node replaces: the whole chain)
+            double lowerBound = 1.01 * (7.5e-16 * cache.BoundaryCount * (double)cache.BoundaryCount + 1e-12 * cache.BoundaryCount) / MathUtil.TwoPI;
             var rnd = new Random(31);
             int used = 0;
             for (int i = 0; i < 200; ++i) {
