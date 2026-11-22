@@ -927,7 +927,7 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    [IMPRINT_CORPUS_2026-11.md](../research/IMPRINT_CORPUS_2026-11.md)): **decided, owner 2026-11-17, done (#1037, merged)**: both are `[Obsolete]` warnings (no error, no API break)
    pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
-   2026-11-15; Devillers et al. 2020 experiment parked, plan #1259; HP 1 study, plan #1278). Draft: Thingi10K full-corpus harness #385.
+   2026-11-15; Devillers et al. 2020 experiment parked, plan #1259; HP 1 study, plan #1278; spike of 2026-11-22 with measured upper bounds, leaning no build: [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certifying checker stage 3 / certified user mode / exact coplanar clip coordinates (plan #1256, spike note of 2026-11-22 above), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
    exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; stages 1b and 1c are on hold (plan #1254) and the materialized provenance stages are parked until
