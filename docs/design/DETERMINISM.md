@@ -60,9 +60,10 @@ partition dependence of reductions, no dictionary or sort order dependence showe
 sphere) used `Math.Sin / Cos`, which differ in 6 of its vertices between the runtimes; the Boolean passes input vertices
 through unchanged. In the second run `boolean.union.libm-input` shows `input-a: 6, mesh: 6` differing values, and with
 libm-free inputs all seven Boolean cases are bit-identical on linux net10, windows net10, windows net48 x64 and x86.
-The exact code has no libm call at all (no `Math.Sin Cos Tan Asin Acos Atan Atan2 Exp Log Pow` in `math/Exact*`,
+The exact code has one place with libm calls, which cannot change a result (below: `antipodal_tree_value`, the
+perturbation test); otherwise it has none (no `Math.Sin Cos Tan Asin Acos Atan Atan2 Exp Log Pow` in `math/Exact*`,
 `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*`; checked with grep), `BannedSymbols.txt` and G3E0001-3 keep FMA, float
-and hardware intrinsics out. So **the exact path does not depend on libm**; a result depends on the runtime only through
+and hardware intrinsics out. So **the exact path does not depend on libm** (the one exception does not reach a result); a result depends on the runtime only through
 inputs that were computed with libm before the call.
 
 **(b) The first libm call on the path of each differing case** (static reading of the call graph; the divergence is in

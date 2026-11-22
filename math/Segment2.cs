@@ -209,7 +209,8 @@ namespace g3
 
         /// <summary>
         /// Test if segments intersect. Returns true for parallel-line overlaps.
-        /// Returns same result as IntrSegment2Segment2.
+        /// Returns same result as IntrSegment2Segment2 on its tolerance route (IntervalThreshold above 0, as here
+        /// with intervalThresh and dotThresh); IntrSegment2Segment2 with the default threshold 0 decides exactly.
         /// </summary>
         public bool Intersects(ref Segment2d seg2, double dotThresh = double.Epsilon, double intervalThresh = 0)
         {

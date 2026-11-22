@@ -726,7 +726,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadStatus);
 
             // a failing pure-quad fallback with SizeAdaptation active also leaves no stale state for the next call
-            var qrFail = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.25, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, SignPenalty = false };
+            var qrFail = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.25, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, SignPenalty = false, PureQuadRetry = false };   // the first attempt alone: the second one repairs this fold
             Assert.Equal(QuadRemeshStatus.Success, qrFail.Compute());
             Assert.True(qrFail.SizeAdaptationApplied);
             Assert.NotEqual(PureQuadStatus.Success, qrFail.PureQuadStatus);

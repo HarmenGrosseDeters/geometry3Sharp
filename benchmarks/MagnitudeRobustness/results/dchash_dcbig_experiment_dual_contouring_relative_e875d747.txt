@@ -1,0 +1,190 @@
+STAGE dchash
+ordinary | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+ordinary | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+ordinary | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+ordinary | 1000 x sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash F30C0927EC1819C0
+ordinary | 1000 x sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash 23304848A19D9EA0
+ordinary | 1000 x sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash 58FD20FD593BFB80
+ordinary | box distance, default | 8 vertices, 12 triangles, closed True, volume 5.544000, hash B8D0D2C8FB93B8F5
+ordinary | box distance, Simplify off | 1216 vertices, 2428 triangles, closed True, volume 5.544000, hash A9475736E0083267
+ordinary | box distance, ExactHermite off | 1216 vertices, 2428 triangles, closed True, volume 5.513264, hash A53DE2C8D781C69B
+ordinary | torus distance, default | 1080 vertices, 2160 triangles, closed True, volume 2.177087, hash 4B54C3C060600EEE
+ordinary | torus distance, Simplify off | 4520 vertices, 9040 triangles, closed True, volume 2.181684, hash D32BD18E21097B97
+ordinary | torus distance, ExactHermite off | 4520 vertices, 9040 triangles, closed True, volume 2.178801, hash EC8D54915EBA880C
+ordinary | quartic blob, default | 224 vertices, 444 triangles, closed True, volume 6.460777, hash 575A30944372DB8A
+ordinary | quartic blob, Simplify off | 1328 vertices, 2652 triangles, closed True, volume 6.499071, hash 6B24ADD11FB93F45
+ordinary | quartic blob, ExactHermite off | 1328 vertices, 2652 triangles, closed True, volume 6.445207, hash 196BFEB6A6D0D70A
+ordinary | two spheres (min), default | 200 vertices, 396 triangles, closed True, volume 2.263918, hash AE84D73A319F8AED
+ordinary | two spheres (min), Simplify off | 882 vertices, 1760 triangles, closed True, volume 2.277307, hash 8FEBC9E56E54DB6A
+ordinary | two spheres (min), ExactHermite off | 882 vertices, 1760 triangles, closed True, volume 2.268749, hash 8D1AA6D7306DDE9E
+ordinary | plateau: max(sphere distance, 0) - 1e-3 clipped field, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+ordinary | plateau: max(sphere distance, 0) - 1e-3 clipped field, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+ordinary | plateau: max(sphere distance, 0) - 1e-3 clipped field, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-20 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-40 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-48 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-52 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-60 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-100 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^-140 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.187110, hash 54066FFA498C7676
+values x 2^-200 | sphere distance, default | 0 vertices, 0 triangles, closed False, volume 0.000000, hash 14650FB0739D0383
+values x 2^100 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+values x 2^200 | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+geometry x 2^-60, values of order 1 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.184664, hash 654F043A9C53AA42
+geometry x 2^60, values of order 1 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+geometry x 2^100, values of order 1 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+geometry x 2^200, values of order 1 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+field and geometry x 2^-100 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.184664, hash 654F043A9C53AA42
+field and geometry x 2^-60 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.184664, hash 654F043A9C53AA42
+field and geometry x 2^-48 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 9CA90E408D3419CD
+field and geometry x 2^262 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+field and geometry x 2^300 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+field and geometry x 2^400 (scaled back) | sphere distance, default | 254 vertices, 504 triangles, closed True, volume 4.186889, hash 7159768185B9FF6D
+level 1E-005 of exp(-40 r^2) (analytic volume 0.6468) | default | 62 vertices, 120 triangles, closed True, volume 0.641178, hash 7A249F11B2FD96D2
+level 1E-010 of exp(-40 r^2) (analytic volume 1.8295) | default | 140 vertices, 276 triangles, closed True, volume 1.823246, hash 3E363445554399FC
+level 1E-016 of exp(-40 r^2) (analytic volume 3.7026) | default | 272 vertices, 540 triangles, closed True, volume 3.706361, hash B1E6323845BA1AB6
+level 1E-020 of exp(-40 r^2) (analytic volume 5.1745) | default | 272 vertices, 540 triangles, closed True, volume 5.171422, hash 16797C6E414F4681
+level 1E-030 of exp(-40 r^2) (analytic volume 9.5061) | default | 272 vertices, 540 triangles, closed True, volume 9.453352, hash 7FDF47325D1124C5
+level 1E-040 of exp(-40 r^2) (analytic volume 14.6357) | default | 446 vertices, 888 triangles, closed True, volume 14.608431, hash 5D2839580288230A
+values x 2^-20 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-40 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-48 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-52 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-60 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-100 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^-140 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203463, hash B8F333C7CE74B1E4
+values x 2^-200 | sphere distance, Simplify off | 0 vertices, 0 triangles, closed False, volume 0.000000, hash 14650FB0739D0383
+values x 2^100 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+values x 2^200 | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+geometry x 2^-60, values of order 1 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203841, hash 5246B635331FC346
+geometry x 2^60, values of order 1 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+geometry x 2^100, values of order 1 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+geometry x 2^200, values of order 1 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+field and geometry x 2^-100 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203841, hash 5246B635331FC346
+field and geometry x 2^-60 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203841, hash 5246B635331FC346
+field and geometry x 2^-48 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203660, hash 7552D68BF262AC5A
+field and geometry x 2^262 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+field and geometry x 2^300 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+field and geometry x 2^400 (scaled back) | sphere distance, Simplify off | 1206 vertices, 2408 triangles, closed True, volume 4.203619, hash ECC4F7ED561218E4
+level 1E-005 of exp(-40 r^2) (analytic volume 0.6468) | Simplify off | 368 vertices, 732 triangles, closed True, volume 0.653860, hash 7F5237FE31148DAA
+level 1E-010 of exp(-40 r^2) (analytic volume 1.8295) | Simplify off | 680 vertices, 1356 triangles, closed True, volume 1.840306, hash C8C7E9D2DCD2CB21
+level 1E-016 of exp(-40 r^2) (analytic volume 3.7026) | Simplify off | 1112 vertices, 2220 triangles, closed True, volume 3.715427, hash 21B68F806F08EF96
+level 1E-020 of exp(-40 r^2) (analytic volume 5.1745) | Simplify off | 1400 vertices, 2796 triangles, closed True, volume 5.190230, hash 9716300B4DB5D321
+level 1E-030 of exp(-40 r^2) (analytic volume 9.5061) | Simplify off | 2096 vertices, 4188 triangles, closed True, volume 9.525109, hash 477421B7D840F493
+level 1E-040 of exp(-40 r^2) (analytic volume 14.6357) | Simplify off | 2792 vertices, 5580 triangles, closed True, volume 14.658114, hash 9FC98EBB03D8A016
+values x 2^-20 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-40 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-48 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-52 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-60 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-100 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^-140 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195616, hash DABFBCD677611B5F
+values x 2^-200 | sphere distance, ExactHermite off | 0 vertices, 0 triangles, closed False, volume 0.000000, hash 14650FB0739D0383
+values x 2^100 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+values x 2^200 | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.205714, hash 048F95783AD38F1B
+geometry x 2^-60, values of order 1 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.196058, hash C88D33E9DDF3246E
+geometry x 2^60, values of order 1 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+geometry x 2^100, values of order 1 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+geometry x 2^200, values of order 1 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195741, hash CC5446C9FDBD364F
+field and geometry x 2^-100 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.196058, hash C88D33E9DDF3246E
+field and geometry x 2^-60 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.196058, hash C88D33E9DDF3246E
+field and geometry x 2^-48 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.195795, hash 47F734B2CA8C1392
+field and geometry x 2^262 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.205714, hash 048F95783AD38F1B
+field and geometry x 2^300 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.205714, hash 048F95783AD38F1B
+field and geometry x 2^400 (scaled back) | sphere distance, ExactHermite off | 1206 vertices, 2408 triangles, closed True, volume 4.205714, hash 048F95783AD38F1B
+level 1E-005 of exp(-40 r^2) (analytic volume 0.6468) | ExactHermite off | 368 vertices, 732 triangles, closed True, volume 0.723302, hash CCA9EC2021B22F24
+level 1E-010 of exp(-40 r^2) (analytic volume 1.8295) | ExactHermite off | 680 vertices, 1356 triangles, closed True, volume 2.056609, hash B969C8788C3F6C73
+level 1E-016 of exp(-40 r^2) (analytic volume 3.7026) | ExactHermite off | 1112 vertices, 2220 triangles, closed True, volume 4.114623, hash AF6F8E6CC710E7D7
+level 1E-020 of exp(-40 r^2) (analytic volume 5.1745) | ExactHermite off | 1400 vertices, 2796 triangles, closed True, volume 5.647680, hash 54E27BEDA10EF2C1
+level 1E-030 of exp(-40 r^2) (analytic volume 9.5061) | ExactHermite off | 2096 vertices, 4188 triangles, closed True, volume 10.367370, hash DCA9BC010A2B494D
+level 1E-040 of exp(-40 r^2) (analytic volume 14.6357) | ExactHermite off | 2792 vertices, 5580 triangles, closed True, volume 15.706678, hash 99453B78DC94E0E6
+STAGE dchash done in 4.0 s
+STAGE dcbig
+AdaptiveDualContouring at 2^0: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^255: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^256: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^257: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^261: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^262: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^300: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+AdaptiveDualContouring at 2^400: uniform 296 vertices / 588 triangles, clusters 57, merged vertices 285, check rounds 1, rejected clusters 0, base repairs 0, result 68 / 132, closed True, volume / s^3 4.187532
+DualContouring above 2^100, default
+  field and geometry x 2^e
+    2^100 .. 2^511: exact
+    2^512 .. 2^513: 2 of 68 vertices moved (at most 2.2E-003 in unit lengths), 0 of 132 triangles with other indices
+    2^514: 284 vertices / 564 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  geometry x 2^e, values of order 1
+    2^100 .. 2^511: exact
+    2^512 .. 2^513: 2 of 68 vertices moved (at most 2.2E-003 in unit lengths), 0 of 132 triangles with other indices
+    2^514: 284 vertices / 564 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  values x 2^e, geometry of order 1
+    2^100 .. 2^1010: exact
+DualContouring above 2^100, Simplify off
+  field and geometry x 2^e
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^1010: exact
+DualContouring above 2^100, Simplify off, ResolveSelfIntersections off
+  field and geometry x 2^e
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 6 of 588 triangles with other indices
+    2^514: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 188 of 588 triangles with other indices
+    2^515 .. 2^1010: 14 of 296 vertices moved (at most 1.3E-001 in unit lengths), 280 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^1010: exact
+DualContouring above 2^100, ExactHermite off
+  field and geometry x 2^e
+    2^100 .. 2^129: exact
+    2^130: 253 of 296 vertices moved (at most 5.4E-002 in unit lengths), 36 of 588 triangles with other indices
+    2^131: 294 of 296 vertices moved (at most 1.3E-001 in unit lengths), 76 of 588 triangles with other indices
+    2^132: 295 of 296 vertices moved (at most 2.0E-001 in unit lengths), 112 of 588 triangles with other indices
+    2^133: 296 of 296 vertices moved (at most 2.0E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^134: 296 of 296 vertices moved (at most 2.6E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^135: 296 of 296 vertices moved (at most 2.5E-001 in unit lengths), 146 of 588 triangles with other indices
+    2^145 .. 2^513: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 152 of 588 triangles with other indices
+    2^514: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 210 of 588 triangles with other indices
+    2^515: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 298 of 588 triangles with other indices
+    2^516 .. 2^1010: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 300 of 588 triangles with other indices
+  geometry x 2^e, values of order 1
+    2^100 .. 2^512: exact
+    2^513: 8 of 296 vertices moved (at most 1.3E-001 in unit lengths), 10 of 588 triangles with other indices
+    2^514: 18 of 296 vertices moved (at most 1.3E-001 in unit lengths), 178 of 588 triangles with other indices
+    2^515 .. 2^1010: 18 of 296 vertices moved (at most 1.3E-001 in unit lengths), 276 of 588 triangles with other indices
+  values x 2^e, geometry of order 1
+    2^100 .. 2^129: exact
+    2^130: 253 of 296 vertices moved (at most 5.4E-002 in unit lengths), 36 of 588 triangles with other indices
+    2^131: 294 of 296 vertices moved (at most 1.3E-001 in unit lengths), 76 of 588 triangles with other indices
+    2^132: 295 of 296 vertices moved (at most 2.0E-001 in unit lengths), 112 of 588 triangles with other indices
+    2^133: 296 of 296 vertices moved (at most 2.0E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^134: 296 of 296 vertices moved (at most 2.6E-001 in unit lengths), 134 of 588 triangles with other indices
+    2^135: 296 of 296 vertices moved (at most 2.5E-001 in unit lengths), 146 of 588 triangles with other indices
+    2^145 .. 2^1010: 296 of 296 vertices moved (at most 1.6E-001 in unit lengths), 152 of 588 triangles with other indices
+DualContouring above 2^100, ParallelCompute off
+  field and geometry x 2^e
+    2^100 .. 2^511: exact
+    2^512 .. 2^513: 2 of 68 vertices moved (at most 2.2E-003 in unit lengths), 0 of 132 triangles with other indices
+    2^514: 284 vertices / 564 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  geometry x 2^e, values of order 1
+    2^100 .. 2^511: exact
+    2^512 .. 2^513: 2 of 68 vertices moved (at most 2.2E-003 in unit lengths), 0 of 132 triangles with other indices
+    2^514: 284 vertices / 564 triangles (unit: 68 / 132)
+    2^515 .. 2^1010: 296 vertices / 588 triangles (unit: 68 / 132)
+  values x 2^e, geometry of order 1
+    2^100 .. 2^1010: exact
+STAGE dcbig done in 9.1 s

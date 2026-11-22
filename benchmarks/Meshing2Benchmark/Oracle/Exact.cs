@@ -265,6 +265,18 @@ namespace Meshing2Acceptance
             return cross * cross / uu;
         }
 
+        /// <summary>
+        /// A triangle whose smallest angle theta has sin^2 = s lies below the floor arctan(sin phi / (2 - cos phi)) of Miller, Pav and
+        /// Walkington 2005 for an acute angle phi of sin^2 = S (0 &lt; S &lt; 1): sin^2 of the floor is S / (5 - 4 cos phi), so
+        /// theta is below it iff s (5 - 4 cos phi) &lt; S, that is 4 s cos phi &gt; 5 s - S with cos phi = sqrt(1 - S) &gt; 0. Where 5 s - S is
+        /// negative that holds; else both sides are squared: 16 s^2 (1 - S) &gt; (5 s - S)^2. Exact, no root.
+        /// </summary>
+        public static bool BelowMpwFloor(Q s, Q S)
+        {
+            Q rhs = s * 5 - S;
+            return rhs.Sign < 0 || s * s * 16 * (Q.One - S) > rhs * rhs;
+        }
+
         /// <summary>Convex hull of the points by monotone chain, counter-clockwise, strictly convex corners only.</summary>
         public static List<Pt> ConvexHull(IEnumerable<Pt> points)
         {

@@ -117,8 +117,12 @@ jobs:
         run: |
           dotnet build tools/MeshFuzzPilot -c Release
           MESH_FUZZ_DLL="$PWD/tools/MeshFuzzPilot/bin/Release/net10.0/MeshFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/MeshFuzzPilot -p 'test_*.py' -v
-      - name: Build the benchmarks and the predicate compiler
-        run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Build the benchmarks, the predicate compiler and the adversarial run of the error bound audit
+        run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj tools/ErrorBoundAudit/Adversarial/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Error bound audit (the derivations with their source anchors; the library's filters against ExactDyadic)
+        run: |
+          python3 -m unittest discover -s tools/ErrorBoundAudit -p 'test_*.py' -v
+          dotnet run --project tools/ErrorBoundAudit/Adversarial -c Release -f net10.0 --no-build -- 2000 1
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
         run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- ci
       - name: A changed golden row of the 2D mesher states a reason

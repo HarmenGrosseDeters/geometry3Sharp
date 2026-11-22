@@ -5,7 +5,8 @@
 //   fallback         PureQuadStatus is not Success and Result is the stage 2 mesh face for face (checked here)
 //   undetected bad   Success, but an independent check fails (must be 0), or a fallback whose Result is not the stage 2 mesh
 // plus the time gate (clean rows: PureQuads Compute() at most max(3 x stage 2 Compute(), 1 s)) and the quality gates of stage 3.
-//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>] [align=<x>]
+//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>] [align=<x>] [retry=0|1]
+// retry=0 switches the second pure-quad attempt off (QuadRemesher.PureQuadRetry, internal): the numbers before it existed.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -91,6 +92,7 @@ static class Program
         double minGain = A.ContainsKey("mingain") ? double.Parse(A["mingain"], CultureInfo.InvariantCulture) : 0.2;
         if (double.IsNaN(minGain) || double.IsInfinity(minGain)) throw new ArgumentOutOfRangeException("mingain", "mingain must be finite.");
         int repeat = A.ContainsKey("repeat") ? int.Parse(A["repeat"]) : 1;
+        bool retry = !A.ContainsKey("retry") || A["retry"] != "0";
         double? alignOverride = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : (double?)null;
         if (alignOverride.HasValue && (!(alignOverride.Value >= 0) || double.IsInfinity(alignOverride.Value))) throw new ArgumentOutOfRangeException("align", "align must be finite and >= 0.");
         Func<Vector3d, double> sphere = p => p.Length - 1;
@@ -123,6 +125,7 @@ static class Program
         var ratios = new List<double>(); var cleanTimes = new List<double>(); var fallbackTimes = new List<double>();
         var stageSum = new double[8]; var stageSumFb = new double[8]; string[] stageNames = { "setup", "flow prep", "flow (net + MCF)", "subdivision", "greedy", "SAT", "position solve", "extract" };
         var statusCount = new SortedDictionary<string, int>();
+        int retried = 0, retriedClean = 0; var retriedSeconds = new List<double>(); var firstTimes = new List<double>();
         var shapeClean = new Dictionary<string, int>();
         var shapeTotal = new Dictionary<string, int>();
         foreach (var (name, fn, s0, align, noise) in shapes) {
@@ -137,12 +140,14 @@ static class Program
                 for (int rep = 0; rep < repeat; ++rep) {
                     var a = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain };
                     var sw = Stopwatch.StartNew(); a.Compute(); double ta = sw.Elapsed.TotalSeconds;
-                    var b = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain };
+                    var b = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, SizeAdaptation = adaptMode, SizeAdaptationMinGain = minGain, PureQuadRetry = retry };
                     sw.Restart(); b.Compute(); double tb = sw.Elapsed.TotalSeconds;
                     if (ta < t2) { t2 = ta; q2 = a; }
                     if (tb < t3) { t3 = tb; q3 = b; }
                 }
                 total++; shapeTotal[name]++;
+                if (q3.PureQuadRetried) { retried++; retriedSeconds.Add(t3); if (q3.PureQuadStatus == PureQuadStatus.Success) retriedClean++; }
+                else if (q3.PureQuadStatus == PureQuadStatus.Success) firstTimes.Add(t3);
                 PolyMeshMetrics m2 = PolyMeshMetrics.Compute(q2.Result);
                 bool success = q3.PureQuadStatus == PureQuadStatus.Success;
                 statusCount.TryGetValue(q3.PureQuadStatus.ToString(), out int sc); statusCount[q3.PureQuadStatus.ToString()] = sc + 1;
@@ -171,15 +176,16 @@ static class Program
                     fallback++; fallbackTimes.Add(t3);
                     if (prof != null) { stageSumFb[0] += prof.SetupSeconds; stageSumFb[1] += prof.FlowPrepSeconds; stageSumFb[2] += prof.FlowNetSeconds; stageSumFb[3] += prof.SubdivisionSeconds; stageSumFb[4] += prof.GreedySeconds; stageSumFb[5] += prof.SatSeconds; stageSumFb[6] += prof.PositionSeconds; stageSumFb[7] += prof.ExtractSeconds; }
                 } else undetected++;
-                Console.WriteLine($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {input.VertexCount} | {sing} | {m2.IrregularVertices} | {(success ? m3.IrregularVertices + " (" + irrGate + ")" : "-")} | {(success ? F(100 * m3.QuadFraction, "F1") : "-")} | {p2} / {(success ? p3 : "-")} | {F(h2, "F2")} / {(success ? F(h3, "F2") : "-")} | {q3.PureQuadStatus} | {q3.InvertedTriangles} | {q3.FlippedQuads} | {F(t2, "F2")} | {F(t3, "F2")} | {F(t3 / t2, "F1")} | {(timeOk ? "ok" : "over")} | {cls} |");
+                Console.WriteLine($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {input.VertexCount} | {sing} | {m2.IrregularVertices} | {(success ? m3.IrregularVertices + " (" + irrGate + ")" : "-")} | {(success ? F(100 * m3.QuadFraction, "F1") : "-")} | {p2} / {(success ? p3 : "-")} | {F(h2, "F2")} / {(success ? F(h3, "F2") : "-")} | {q3.PureQuadStatus}{(q3.PureQuadRetried ? " (first: " + q3.PureQuadFirstStatus + ")" : "")} | {q3.InvertedTriangles} | {q3.FlippedQuads} | {F(t2, "F2")} | {F(t3, "F2")} | {F(t3 / t2, "F1")} | {(timeOk ? "ok" : "over")} | {cls} |");
                 if (profile && prof != null)
-                    Console.WriteLine($"PROF {name} {F(scale, "G3")}/{F(ratio, "G3")} {q3.PureQuadStatus} | t2 {F(t2, "F3")} pure {F(t3, "F3")} | setup {F(prof.SetupSeconds, "F3")} flowprep {F(prof.FlowPrepSeconds, "F3")} flownet {F(prof.FlowNetSeconds, "F3")} (arcs {prof.FlowArcs} nodes {prof.FlowNodes} H {prof.FlowCapacity} searches {prof.FlowSearches} settled {prof.FlowSettled}) subdiv {F(prof.SubdivisionSeconds, "F3")} (splits {prof.Splits}) greedy {F(prof.GreedySeconds, "F3")} sat {F(prof.SatSeconds, "F3")} (attempts {prof.SatAttempts} solved {prof.SatSolved} failed {prof.SatFailed} decisions {prof.SatDecisions}) pos {F(prof.PositionSeconds, "F3")} extract {F(prof.ExtractSeconds, "F3")} tri {prof.Triangles}");
+                    Console.WriteLine($"PROF {name} {F(scale, "G3")}/{F(ratio, "G3")} {q3.PureQuadStatus} | t2 {F(t2, "F3")} pure {F(t3, "F3")} | setup {F(prof.SetupSeconds, "F3")} flowprep {F(prof.FlowPrepSeconds, "F3")} (relaxation {F(prof.RelaxationSeconds, "F3")} arcs {prof.RelaxationArcs} searches {prof.RelaxationSearches} settled {prof.RelaxationSettled}) flownet {F(prof.FlowNetSeconds, "F3")} (arcs {prof.FlowArcs} nodes {prof.FlowNodes} H {prof.FlowCapacity} searches {prof.FlowSearches} settled {prof.FlowSettled}) subdiv {F(prof.SubdivisionSeconds, "F3")} (splits {prof.Splits}) greedy {F(prof.GreedySeconds, "F3")} sat {F(prof.SatSeconds, "F3")} (attempts {prof.SatAttempts} solved {prof.SatSolved} failed {prof.SatFailed} decisions {prof.SatDecisions}) pos {F(prof.PositionSeconds, "F3")} extract {F(prof.ExtractSeconds, "F3")} tri {prof.Triangles}");
             }
         }
         double Med(List<double> l) { if (l.Count == 0) return double.NaN; var c = l.OrderBy(x => x).ToList(); return c[c.Count / 2]; }
         double Max(List<double> l) { return l.Count == 0 ? double.NaN : l.Max(); }
         Console.WriteLine();
         Console.WriteLine($"runs {total}: clean {clean}, fallback {fallback}, undetected bad {undetected}; status counts: {string.Join(", ", statusCount.Select(kv => kv.Key + " " + kv.Value))}");
+        Console.WriteLine($"second attempt (retry={(retry ? 1 : 0)}): run on {retried} runs, Success on {retriedClean}; pure time of the runs with a second attempt: median {F(Med(retriedSeconds), "F2")} s, max {F(Max(retriedSeconds), "F2")} s, sum {F(retriedSeconds.Sum(), "F2")} s; of the runs clean on the first attempt: median {F(Med(firstTimes), "F2")} s, sum {F(firstTimes.Sum(), "F2")} s");
         Console.WriteLine("per-shape clean: " + string.Join(", ", shapes.Where(s => shapeTotal.ContainsKey(s.Item1)).Select(s => $"{s.Item1} {shapeClean[s.Item1]}/{shapeTotal[s.Item1]}")));
         Console.WriteLine($"clean rows: time gate (max(3 x stage 2, 1 s)) {gateTime}/{clean}; irregular gate {gateIrr}/{clean}; Hausdorff <= 0.5 s {gateHaus}/{clean}; corner p95 <= 15: {gateP95}/{clean} (stage 2 on the same rows {gateP95Stage2}/{clean})");
         Console.WriteLine($"ratio pure/stage 2 on clean rows: median {F(Med(ratios), "F1")}, max {F(Max(ratios), "F1")}; pure time clean rows: median {F(Med(cleanTimes), "F2")} s, max {F(Max(cleanTimes), "F2")} s; fallback rows: median {F(Med(fallbackTimes), "F2")} s, max {F(Max(fallbackTimes), "F2")} s");

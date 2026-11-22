@@ -86,6 +86,8 @@
     <InternalsVisibleTo Include="CoreMathBenchmark" />
     <!-- the topology certificate of the contouring (benchmarks/ContouringCertificate) -->
     <InternalsVisibleTo Include="ContouringCertificate" />
+    <!-- the certificate for contours of smooth fields and its interval interface (benchmarks/ContouringSmoothCertificate) -->
+    <InternalsVisibleTo Include="ContouringSmoothCertificateBenchmark" />
     <!-- the interval path of the CCD solver (benchmarks/CcdBenchmark) -->
     <InternalsVisibleTo Include="CcdBenchmark" />
     <!-- the width, time and windows of the certified geodesic oracle (benchmarks/GeodesicOracleBenchmark, #1058) -->
