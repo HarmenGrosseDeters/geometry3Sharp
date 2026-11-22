@@ -1,0 +1,50 @@
+parcels30_q20_default.speedscope.json oracle total (both runs) ms 8253
+  Run.Segments            56.8 % of the oracle; deciding  16.3 %, locating  83.7 % of the check
+  Domain..ctor            31.7 % of the oracle; deciding  64.5 %, locating  35.5 % of the check
+  Run.Marks                3.6 % of the oracle; deciding  48.6 %, locating  51.4 % of the check
+  Run.Conformity           3.1 % of the oracle; deciding  13.6 %, locating  86.4 % of the check
+  Run.Delaunay             1.7 % of the oracle; deciding   0.0 %, locating 100.0 % of the check
+  other                    1.6 % of the oracle; deciding  41.7 %, locating  58.3 % of the check
+  Run.Coverage             0.7 % of the oracle; deciding  35.9 %, locating  64.1 % of the check
+  Run.Filters              0.4 % of the oracle; deciding  68.4 %, locating  31.6 % of the check
+  all: deciding 33.0 %, locating 67.0 %
+coast2000_q20_default.speedscope.json oracle total (both runs) ms 15431
+  Run.Conformity          27.3 % of the oracle; deciding  61.0 %, locating  39.0 % of the check
+  Run.Segments            27.2 % of the oracle; deciding  60.8 %, locating  39.2 % of the check
+  Run.Coverage            19.1 % of the oracle; deciding  79.0 %, locating  21.0 % of the check
+  Run.Quality             15.3 % of the oracle; deciding  90.1 %, locating   9.9 % of the check
+  other                    4.7 % of the oracle; deciding  69.3 %, locating  30.7 % of the check
+  Run.Delaunay             2.7 % of the oracle; deciding   5.9 %, locating  94.1 % of the check
+  Domain..ctor             1.8 % of the oracle; deciding  74.2 %, locating  25.8 % of the check
+  Run.Marks                1.3 % of the oracle; deciding   0.0 %, locating 100.0 % of the check
+  all: deciding 66.9 %, locating 33.1 %
+coast2000_q20_cq.speedscope.json oracle total (both runs) ms 6711
+  Run.Segments            34.0 % of the oracle; deciding  28.6 %, locating  71.4 % of the check
+  Run.Conformity          24.5 % of the oracle; deciding  56.0 %, locating  44.0 % of the check
+  Run.Coverage            15.4 % of the oracle; deciding  83.5 %, locating  16.5 % of the check
+  Run.Quality             13.8 % of the oracle; deciding  87.3 %, locating  12.7 % of the check
+  other                    4.2 % of the oracle; deciding  68.8 %, locating  31.2 % of the check
+  Domain..ctor             3.6 % of the oracle; deciding  79.7 %, locating  20.3 % of the check
+  Run.Marks                3.2 % of the oracle; deciding   1.0 %, locating  99.0 % of the check
+  Run.Filters              0.6 % of the oracle; deciding  19.3 %, locating  80.7 % of the check
+  all: deciding 54.1 %, locating 45.9 %
+parcels30_q20_snap_1_64.speedscope.json oracle total (both runs) ms 36074
+  Run.Segments            78.8 % of the oracle; deciding  82.6 %, locating  17.4 % of the check
+  Run.Coverage            12.2 % of the oracle; deciding   3.9 %, locating  96.1 % of the check
+  Domain..ctor             7.0 % of the oracle; deciding  64.4 %, locating  35.6 % of the check
+  Run.Marks                0.7 % of the oracle; deciding  33.5 %, locating  66.5 % of the check
+  Run.Conformity           0.5 % of the oracle; deciding   7.4 %, locating  92.6 % of the check
+  Run.Delaunay             0.4 % of the oracle; deciding   1.1 %, locating  98.9 % of the check
+  other                    0.3 % of the oracle; deciding  41.4 %, locating  58.6 % of the check
+  Run.EdgesAndNeighbours   0.1 % of the oracle; deciding   0.0 %, locating 100.0 % of the check
+  all: deciding 70.5 %, locating 29.5 %
+wide_exponents.speedscope.json oracle total (both runs) ms 439
+  Run.Quality             41.4 % of the oracle; deciding  96.2 %, locating   3.8 % of the check
+  Run.Segments            19.8 % of the oracle; deciding  87.5 %, locating  12.5 % of the check
+  Run.Conformity          13.2 % of the oracle; deciding  15.9 %, locating  84.1 % of the check
+  other                    8.7 % of the oracle; deciding  28.4 %, locating  71.6 % of the check
+  Run.Delaunay             5.7 % of the oracle; deciding  38.9 %, locating  61.1 % of the check
+  Run.Marks                5.1 % of the oracle; deciding  79.7 %, locating  20.3 % of the check
+  Domain..ctor             3.8 % of the oracle; deciding   0.0 %, locating 100.0 % of the check
+  Run.Coverage             1.5 % of the oracle; deciding  78.8 %, locating  21.2 % of the check
+  all: deciding 69.1 %, locating 30.9 %

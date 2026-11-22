@@ -15,6 +15,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | [GEOGRAM_MEASUREMENTS_2026-11.md](GEOGRAM_MEASUREMENTS_2026-11.md) | Targeted measurements of high-priority ideas identified in the Geogram survey |
 | [GEOGRAM_SURVEY_2026-11.md](GEOGRAM_SURVEY_2026-11.md) | Detailed architectural survey of Geogram (BSD-3) algorithms relevant to `geometry3Sharp` |
 | [IMPRINT_CORPUS_2026-11.md](IMPRINT_CORPUS_2026-11.md) | Corpus evaluation of `ExactMeshImprint` on Thingi10K contact pairs |
+| [MESHING2D_HP6_HP7_SPIKE_2026-11.md](MESHING2D_HP6_HP7_SPIKE_2026-11.md) | 2D meshing spike: proven small-angle refinement rules against the library (HP 6) and a certifying checker against the oracle (HP 7), with measured upper bounds and ranked options |
 | [INTRINSIC_INTEGER_COORDINATES_2026-11.md](INTRINSIC_INTEGER_COORDINATES_2026-11.md) | Spike for integer (normal) coordinates in intrinsic triangulations: failure rate of the traced common subdivision, prototype, cost, options |
 | [METAMORPHIC_TESTING.md](METAMORPHIC_TESTING.md) | Metamorphic testing and fuzzing study for geometry kernels with falsification runs |
 | [SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md](SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) | End-to-end audit of `SolidBooleanPipeline` on a procedural adversarial corpus with an independent oracle: findings, measured options for the open owner items, ranked improvement PRs |

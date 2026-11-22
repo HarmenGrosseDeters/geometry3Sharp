@@ -615,10 +615,17 @@ Ordered by expected value for the library.
    - Open:
      - a region-based oracle excuse that is provably tight (the floor arcsin(sin(φ/2)/√2) near clusters);
      - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 1): the exemption of Miller, Pav and
+     Walkington 2005 is proven up to 26.45° with a floor of about φ, for circumcentres only; on 96 procedural inputs the library's
+     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Options with the owner; nothing is built.
 7. **Meshing2D oracle speed.**
    - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 2): a prototype checker of the core
+     (coverage, chains, constrained Delaunay) takes 1 to 13 % of the mesher's time where the oracle takes 15 to 477 times on procedural
+     inputs; most of the oracle's time there is per-source scans and the exact area, fixable without a certificate. Options with
+     the owner; nothing is built.
 8. **Open-operand classification in the exact booleans.**
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
      w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
