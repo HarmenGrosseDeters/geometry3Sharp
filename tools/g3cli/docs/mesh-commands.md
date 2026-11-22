@@ -54,7 +54,7 @@ g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute
 
 ### Orientation & SafeRounding Options
 
-- **Orientation (`boolean`):** Closed inputs with flipped faces fail with `inconsistent_orientation` unless `--orientation area_majority` is passed.
+- **Orientation (`boolean`):** Closed inputs with flipped faces fail with `inconsistent_orientation` unless `--orientation area_majority` is passed; `--orientation by_nesting` orients an embedded input that is closed modulo 2 by the parity of the crossings of one exact ray per component (the solid is what the surface encloses); `--count-inside-out` reports `boolean.inside_out_cells`.
 - **SafeRounding (on by default):** `--no-safe-rounding` disables repair after rounding (`boolean.rounding: null`). Tuning options: `--rounding-max-displacement` (default `1e-5` of diagonal), `--rounding-ulp-factor` (default `256`, for large/UTM coordinates), `--rounding-absolute-tolerance`, `--rounding-max-pair-tests` (default `5M`), `--rounding-defect-scale` (`50000`), `--rounding-max-growth` (`4`), `--strict-rounding` (fails with `rounding_not_clean` rather than writing defects).
 
 ### Additive Result Fields (`boolean` / `resolve`)
