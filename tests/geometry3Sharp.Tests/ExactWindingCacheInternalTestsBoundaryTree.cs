@@ -16,8 +16,8 @@ namespace geometry3Sharp.Tests
     /// bound is never "equivalent by margin": each reason below is about the values the code computes, not about a slack):
     ///  - (the early return `triCount == 0 || !is_finite(p)` of the two threshold queries is NOT equivalent under `&amp;&amp;`: a non-finite point
     ///    of a mesh with triangles would take the direct sum, which is NaN; killed by `ThresholdQueries_EmptyNonFiniteAndSoup`.)
-    ///  - the hook `TryEvaluateTreeBoundarySumX` guard `triCount == 0 || !is_finite(p)` (`&amp;&amp;`): a non-finite p fails `pm &lt;= 1e70` (NaN) and
-    ///    returns false there; an empty tree has no boundary tree and returns false below: the same false.
+    ///  - (the hook `TryEvaluateTreeBoundarySumX` guard `triCount == 0 || !is_finite(p)` under `&amp;&amp;` is killed: a fresh cache must not
+    ///    build its tree for a point that is not finite; `ResetBoundaryTreeStack` is killed by a query before the reset.)
     ///  - `Evaluate(p) &gt;= iso` / `Math.Abs(Evaluate(p)) &gt;= iso` in the non-finite-iso branch: for iso = +-infinity or NaN and a finite
     ///    Evaluate(p), `&gt;` and `&gt;=` agree. (The un-negated `!is_finite(iso)` is killed: the tree is built for a finite iso only.)
     ///  - `decided &gt;= 0` for `decided &gt; 0`: inside `if (decided != 0)`, decided is never 0.
@@ -595,6 +595,14 @@ namespace geometry3Sharp.Tests
             Assert.False(closed.TryEvaluateTreeBoundarySumX(new Vector3d(1, 2, 3), out _, out double err));
             Assert.True(double.IsPositiveInfinity(err));
             Assert.False(cache.TryEvaluateTreeBoundarySumX(new Vector3d(double.NaN, 0, 0), out _, out _));
+            // a point that is not finite is refused before the tree is built (a fresh cache stays without one)
+            ExactWindingCache fresh = new DMeshAABBTree3(Grid(160), true).GetExactWindingCache();
+            Assert.False(fresh.TryEvaluateTreeBoundarySumX(new Vector3d(double.NaN, 0, 0), out _, out _));
+            Assert.False(fresh.HasBoundaryTree);
+            Assert.False(fresh.TryEvaluateTreeBoundarySumX(new Vector3d(0, double.PositiveInfinity, 0), out _, out _));
+            Assert.False(fresh.HasBoundaryTree);
+            Assert.True(fresh.TryEvaluateTreeBoundarySumX(new Vector3d(0.2, 3, 4), out _, out _));
+            Assert.True(fresh.HasBoundaryTree);
             var empty = new DMeshAABBTree3(new DMesh3(), true).GetExactWindingCache();
             Assert.False(empty.TryEvaluateTreeBoundarySumX(new Vector3d(1, 2, 3), out _, out _));
         }
