@@ -137,9 +137,9 @@ Moving every result of the four calls by one ulp up, down or at random (a scratc
 that case: not the mesh, not the status, not the winding number of any open piece. The argument why it cannot: a flip of
 `tree_decides` hands the piece to the full sum, whose own bound is then below 1e-6 by the factor 0.999, so it decides the
 same threshold with the same ray; that is form P4 with a stated slack. The argument is now a test (2026-11-22, `ExactMeshBooleanTestsAntipodalLibmPerturbation`, hook
-`ExactMeshBoolean.LibmPerturbForTests` on the four results): 1 ulp up, down or by the low bit moves `fullBound` by up to 8e-8 of
-itself (`1 - cos beta` amplifies the ulp of a cosine near 1) and flips none of the 1920 decisions of the test; 2^20 and 2^30 ulps
-(values changed in the eighth digit) flip 0 to 4 of them, and in every case where either run decides, the full sum gives a value at
+`ExactMeshBoolean.LibmPerturbForTests` on the four results): 1 ulp up, down or by the low bit moves `fullBound` by up to 1e-6 of
+itself (`1 - cos beta` amplifies the ulp of a cosine near 1; measured 9.8e-7 at most) and flips none of the 1918 decisions of the test;
+2^20 ulps flip none and 2^30 ulps (values changed in the eighth digit) flip 2 to 4 of them, and in every case where either run decides, the full sum gives a value at
 the ray with its bound below 1e-6 and the same threshold. The tree's value and bound are bit-identical under every perturbation,
 and so are the Boolean's result mesh and the winding number of every open piece. A mutant that admits `fullBound <= 9e-6` fails the
 tests. It stays an argument plus a test, not a rule: G3E0004 is not scoped to `mesh_ops/ExactMeshBoolean.cs`; stage 2 has to

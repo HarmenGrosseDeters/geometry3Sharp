@@ -14,6 +14,7 @@ namespace geometry3Sharp.Tests
     /// on -x1 is what keeps whole turns out; the classification is the same mesh, bit for bit, with and without the tree.
     /// (The class name keeps the mutation shards' test filter, FullyQualifiedName~ExactMeshBooleanTests.)
     /// </summary>
+    [Collection("AntipodalLibmPerturbation")]
     public class ExactMeshBooleanTestsAntipodalTree
     {
         // a wavy closed loop (n segments) and an open chain, as segment pairs

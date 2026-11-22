@@ -12,13 +12,13 @@ namespace geometry3Sharp.Tests
     /// for fullBound, whose results differ by an ulp between C libraries. They do not enter the tree's value or its bound, only
     /// fullBound, and tree_decides compares that with 0.999e-6, 0.1% below the 1e-6 limit of the full sum. These tests move
     /// the four results through the test hook (ExactMeshBoolean.LibmPerturbForTests): by 1 ulp up, down and by the low bit of
-    /// the value, and by 2^20 and 2^30 ulps, and ask that no decision becomes unsafe. 1 ulp moves fullBound by up to 8e-8 of itself
+    /// the value, and by 2^20 and 2^30 ulps, and ask that no decision becomes unsafe. 1 ulp moves fullBound by up to 1e-6 of itself
     /// (the cosine of a small angle, 1 - cos beta, amplifies it) and flips no decision; 2^30 ulps (the values change in the
     /// eighth digit) move it by a factor of about 1 and flip a few decisions of about 1900, which stay safe: whichever way
     /// tree_decides goes, the full sum gives a value at the ray, below 1e-6, with the same threshold.
     /// (The class name keeps the mutation shards' test filter.)
-    /// (The collection: the hook is a static; a perturbation does not change a result, so a test of another class running
-    /// meanwhile would not see it either.)
+    /// (The collection: the hook is a static. A perturbation does not change a result, but it can change the counters of
+    /// antipodal_hierarchical, which ExactMeshBooleanTestsAntipodalTree compares between runs: both classes are in it.)
     /// </summary>
     [Collection("AntipodalLibmPerturbation")]
     public class ExactMeshBooleanTestsAntipodalLibmPerturbation
@@ -37,16 +37,49 @@ namespace geometry3Sharp.Tests
             yield return new object[] { 1 << 30, true };
         }
 
-        static void With(int ulps, bool byLowBit, Action a)
+        static void With(int ulps, bool byLowBit, Action a, int mask = 15)
         {
+            ExactMeshBoolean.LibmPerturbMaskForTests = mask;
             ExactMeshBoolean.LibmPerturbForTests = ulps;
             ExactMeshBoolean.LibmPerturbRandomForTests = byLowBit;
             try {
                 a();
             } finally {
                 ExactMeshBoolean.LibmPerturbForTests = 0;
+                ExactMeshBoolean.LibmPerturbMaskForTests = 15;
                 ExactMeshBoolean.LibmPerturbRandomForTests = false;
             }
+        }
+
+        // each of the four calls on its own moves fullBound (a hook that misses one would leave it out of every other test)
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(4)]
+        [InlineData(8)]
+        public void EveryCall_MovesFullBound(int mask)
+        {
+            var rand = new Random(767);
+            int moved = 0, compared = 0;
+            for (int trial = 0; trial < 12; ++trial) {
+                Vector3d[] segs = Tree.Chains(400 + rand.Next(1200), rand, false);
+                for (int k = 0; k < segs.Length; ++k)
+                    segs[k] = new Vector3d(Math.Round(segs[k].x * 1048576), Math.Round(segs[k].y * 1048576), Math.Round(segs[k].z * 1048576));
+                var tree = ExactMeshBoolean.AntipodalTree.Build(segs);
+                for (int q = 0; q < 80; ++q) {
+                    Vector3d p = new Vector3d(rand.NextDouble() * 6 - 3, rand.NextDouble() * 6 - 3, rand.NextDouble() * 2 - 1) * 1048576;
+                    Vector3d x1 = Tree.RandomUnit(rand);
+                    double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+                    if (ExactMeshBoolean.antipodal_tree_value(p, pm, x1, 0, segs, tree, 0.25, 0, 0, out _, out _, out double fb0) != 0)
+                        continue;
+                    double fb1 = 0;
+                    With(1 << 20, false, () => ExactMeshBoolean.antipodal_tree_value(p, pm, x1, 0, segs, tree, 0.25, 0, 0, out _, out _, out fb1), mask);
+                    compared++;
+                    if (fb0 != fb1)
+                        moved++;
+                }
+            }
+            Assert.True(compared > 300 && moved > 0, $"mask {mask}: {moved} of {compared} moved");
         }
 
         [Theory]
