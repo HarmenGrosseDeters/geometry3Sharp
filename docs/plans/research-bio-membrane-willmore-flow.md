@@ -1,6 +1,7 @@
 # Plan: membrane shapes (Helfrich energy, Willmore flow) as fairing and remeshing stress (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 7 of 7 (parked: only after an owner go for a curvature-energy fairing operator)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M/L (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@ Smoothing and fairing: `LaplacianMeshSmoother`, `LaplacianMeshDeformer`, `MeshCu
 
 ## Goal
 
+**Falsifiable question:** Would a discrete Willmore flow add an operator the library lacks, and does large curvature-driven motion break `Remesher`?
+
+**Counts as a result:** do not start without an owner go.
+
 Study a discrete Willmore / Helfrich flow (cell membranes, red blood cell shapes) as an opt-in fairing operator and as a stress test for remeshing under large, curvature-driven motion: stability of the discretisations in the papers, step size, conformal versus vertex-based flows, and which known equilibrium shapes (spheres, Clifford torus, biconcave discs) can serve as exact oracles.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

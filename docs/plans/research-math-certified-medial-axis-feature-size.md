@@ -1,6 +1,7 @@
 # Plan: certified medial axis and local feature size (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 3 of 7 (decides a roadmap question of the thin-solid work)
 - **Kind:** research study (study first, no library change)
 - **Tier:** L (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@
 
 ## Goal
 
+**Falsifiable question:** Can a certified lower bound on the local feature size replace the fixed thin-solid threshold of SafeRounding (#1216 option B) or the wrap offset, and at what cost on the procedural thin-solid fixtures of `MeshRoundingRepairTestsThinSolids`?
+
+**Counts as a result:** a go / no-go with the measured cost, or a proof that the bound cannot be had at that cost.
+
 Find what can be certified about the medial axis and the local feature size of a triangle mesh with interval or exact arithmetic (lower bounds on lfs, the lambda-medial axis as a stable subset), at what cost, and whether such a bound would make the thin-solid decisions of SafeRounding or the wrap offset provable.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

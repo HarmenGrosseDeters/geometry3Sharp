@@ -1,6 +1,7 @@
 # Plan: molecular surfaces (union of balls, solvent-excluded surface) as a stress family (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 4 of 7 (conditional: only worth it if it breaks our operators)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M/L (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@ Exact Boolean (`mesh_ops/ExactMeshBoolean.cs`), `SolidBooleanPipeline`, contouri
 
 ## Goal
 
+**Falsifiable question:** Do molecule-like ball sets (near-tangent spheres, coplanar circle arcs) make `ExactMeshBoolean`, `SolidBooleanPipeline`, contouring or `MeshAlphaWrap` fail, refuse wrongly or fall off a performance cliff?
+
+**Counts as a result:** an issue per failure with a minimal procedural repro; a literature summary without a run against the library does not count.
+
 Build a procedural generator of molecule-like ball sets (random packings with realistic radii and overlaps, chains, helices) and measure three routes to the union and to the solvent-excluded surface: chained exact Boolean of sphere meshes, contouring of the exact signed distance of the union (power diagram), and wrap. Report correctness against the analytic volume and area of the union where known, degeneracies hit (near-tangent spheres, coplanar circle arcs), and time. Propose a test family for the PR tier (<= 5 s) and one for the nightly tier.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

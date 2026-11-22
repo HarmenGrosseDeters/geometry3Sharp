@@ -1,6 +1,7 @@
 # Plan: convergence theorems of discrete curvature as test oracles (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 2 of 7 (best chance of finding real defects)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@
 
 ## Goal
 
+**Falsifiable question:** Which of `MeshCurvature`, `MeshPrincipalCurvature`, the cotangent Laplacian, `MeshGeodesicDistance` and `VectorHeatMethod` miss their proven convergence rate on refinement families of the sphere, torus and ellipsoid? For each miss: the input, the measured rate and the cause in our code.
+
+**Counts as a result:** an issue per defect with a minimal procedural repro, and the oracle tests proposed for the PR tier.
+
 Turn the proven convergence results into test oracles: on procedural surfaces with known curvature (sphere, torus, ellipsoid, graph surfaces) and refinement families for which the theorems hold (and ones for which they provably fail, e.g. Schwarz lantern), the measured error must fall at the proven rate. Name which operators meet their rate and which do not, with the inputs.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

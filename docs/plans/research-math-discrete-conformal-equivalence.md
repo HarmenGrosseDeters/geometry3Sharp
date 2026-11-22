@@ -1,6 +1,7 @@
 # Plan: discrete conformal equivalence on intrinsic triangulations (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 1 of 7 (highest: an open P1 problem, #1285)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M/L (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@ Parameterization today: `LSCMParameterization`, `SpectralConformalParameterizati
 
 ## Goal
 
+**Falsifiable question:** On procedural versions of the P1 collapse cases of #1285, does discrete conformal equivalence with intrinsic Delaunay flips, built on our `IntrinsicTriangulation` stack, give a foldover-free map where today's method collapses? Which steps (flip predicate, Ptolemy update) decide exactly, and where does double arithmetic fail?
+
+**Counts as a result:** a C# prototype in `benchmarks/` run on those cases, with the answer yes / no / partly and the measured cases.
+
 Decide whether discrete conformal equivalence with intrinsic Delaunay flips (a convex energy with a unique minimiser, so a parameterization with a proof of existence and no foldovers) fits our intrinsic data structures, which steps can be decided exactly (flip predicates, the Ptolemy update), and whether it solves the P1 cases of #1285.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

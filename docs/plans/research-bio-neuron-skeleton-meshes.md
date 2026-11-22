@@ -1,6 +1,7 @@
 # Plan: neuron-like branching meshes from skeletons as a stress family (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 5 of 7 (conditional: only worth it if it breaks our operators)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,18 @@ Loft and generators (`mesh_generators/GenCylGenerators.cs`, loft stage of `bench
 
 ## Goal
 
+**Falsifiable question:** Do branching tube structures with near-tangent branches make the exact Boolean, contouring or wrap fail, give the wrong genus or components, or fall off a performance cliff?
+
+**Counts as a result:** an issue per failure with a minimal procedural repro; a literature summary without a run against the library does not count.
+
 Build a procedural generator of branching tube structures in the style of SWC neuron skeletons (soma, dendrite trees, varying radii, near-tangent branches) and compare three routes to a closed surface: union of tubes with the exact Boolean, contouring of a convolution field, and wrap. Measure correctness (closed, manifold, the expected genus and components), near-tangent failures and time; propose a PR-tier family.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 

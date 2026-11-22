@@ -1,6 +1,7 @@
 # Plan: exact topology certificates (Betti numbers, discrete Morse theory) as Boolean and repair oracles (research study)
 
 - **Board row:** none yet (new research topic, owner 2026-11-22: mathematics and biology topics to be checked with Codex)
+- **Priority:** 6 of 7 (narrowed: only the gap `MeshTopologySummary` leaves)
 - **Kind:** research study (study first, no library change)
 - **Tier:** M (study and result note; any implementation is a separate PR after an owner go)
 - **Plan status:** draft, 2026-11-22 (Berlin). Plan only. Marked for Codex.
@@ -11,7 +12,16 @@
 
 ## Goal
 
-Design an exact, integer-only computation of b0, b1, b2 of a closed mesh (and of a solid with cavities via nesting), check it against Euler / Alexander duality, and measure which Boolean and repair test families gain a stronger oracle (e.g. a Difference that must create exactly one cavity). Note what it cannot see (e.g. knotting).
+**Falsifiable question:** `MeshTopologySummary` already gives components, Euler characteristic and genus, which fix b0, b1 and b2 of closed orientable manifolds. Only the gap is studied: which shell encloses which (cavity nesting) and Betti numbers of non-manifold results. Which Boolean and repair test families gain a check they do not have today?
+
+**Counts as a result:** the list of test families with the new check and the mutants or defects it would catch; no re-implementation of what `MeshTopologySummary` does.
+
+## How to run this study (owner 2026-11-22)
+
+- Problem first, not paper by paper: one PR for the whole plan, answering the falsifiable question above.
+- Run the probe against the library's C# code. Python only for a reference value the library cannot compute.
+- Search the library before building: do not re-measure what an existing class already gives (for example `SphericalFibonacciPointSet`, `MeshTopologySummary`).
+- Stop rule: if the first probe finds no defect and decides nothing, write a one-paragraph stop note and stop; do not widen the study.
 
 ## Scope
 
