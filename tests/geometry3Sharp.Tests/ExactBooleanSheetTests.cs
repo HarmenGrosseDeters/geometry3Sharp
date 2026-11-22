@@ -1182,6 +1182,115 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Witnesses_AreMinusOne_BeforeACompute_AndAfterASuccess()
+        {
+            var fresh = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 1.5, 1.5, 1.5), Ops.Difference);
+            Assert.Equal(-1, fresh.SheetWitnessMesh);
+            Assert.Equal(-1, fresh.SheetWitnessTriangle);
+            Assert.Equal(-1, fresh.SheetWitnessTriangle2);
+            Assert.Equal(Refusal.None, fresh.SheetReason);
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2));
+            Assert.True(op.Status == Status.Success, op.Error);
+            Assert.Equal(-1, op.SheetWitnessMesh);
+            Assert.Equal(-1, op.SheetWitnessTriangle);
+            Assert.Equal(-1, op.SheetWitnessTriangle2);
+        }
+
+        [Theory]
+        [InlineData(0, double.NaN)]
+        [InlineData(1, double.NaN)]
+        [InlineData(2, double.NaN)]
+        [InlineData(0, double.PositiveInfinity)]
+        [InlineData(1, double.NegativeInfinity)]
+        [InlineData(2, double.PositiveInfinity)]
+        public void SheetWithANonFiniteCoordinate_InOneComponentOnly_IsInvalidInput(int component, double value)
+        {
+            DMesh3 plate = Plate(0.5, -1, 2, -1, 2);
+            Vector3d v = plate.GetVertex(3);
+            v[component] = value;
+            plate.SetVertex(3, v);
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), plate);
+            Assert.Equal(Status.InvalidInput, op.Status);
+            Assert.Contains("non-finite", op.Error);
+            Assert.Equal(Refusal.None, op.SheetReason);
+            Assert.Null(op.Result);
+        }
+
+        [Fact]
+        public void SheetTrianglesWithTwoCornersAtOnePoint_AreNoEdgesOfTheSurfaceCheck()
+        {
+            // the plate and three triangles without area next to it, each with two corners at the same point p (vertices of their own) and a third corner
+            // of its own: the edge from p to p is no edge (three of them would be an edge with three triangles), and the other two edges of each run
+            // through the same two points in opposite directions. The sheet is a surface, and the plate cuts as before
+            DMesh3 sheet = Plate(0.5, -1, 2, -1, 2);
+            var p = new Vector3d(4, 0, 0.5);
+            for (int k = 0; k < 3; ++k) {
+                int a = sheet.AppendVertex(p), b = sheet.AppendVertex(p), c = sheet.AppendVertex(new Vector3d(5, k, 0.5));
+                Assert.True(sheet.AppendTriangle(a, b, c) >= 0);
+            }
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), sheet);
+            Assert.True(op.Status == Status.Success, op.Status + " " + op.SheetReason + " " + op.Error);
+            Assert.Equal(0.5, Volume(op.Result), 12);
+            ResultChecks.AssertClosed(op.Result);
+        }
+
+        [Fact]
+        public void NotSurface_AndOrientationInconsistent_NameTheLowestTriangleAtTheEdge()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            // a plate away from the junction (triangles 0 and 1), then three half-planes at the line x = y = 0.5 whose triangles have the line as their
+            // second or third edge (triangles 2, 3 and 4, then their other halves): the edge is used by 2, 3 and 4, and 2 is named
+            DMesh3 m = Plate(-3, -1, 2, -1, 2);
+            Vector3d a = new Vector3d(0.5, 0.5, -1), b = new Vector3d(0.5, 0.5, 2);
+            Vector3d[] far = { new Vector3d(2, 0.5, 2), new Vector3d(0.5, 2, 2), new Vector3d(-1, -1, 2) };
+            Vector3d[] farLow = { new Vector3d(2, 0.5, -1), new Vector3d(0.5, 2, -1), new Vector3d(-1, -1, -1) };
+            var top = new int[3]; var ia = new int[3];
+            for (int k = 0; k < 3; ++k) {
+                ia[k] = m.AppendVertex(a);
+                int ib = m.AppendVertex(b);
+                top[k] = m.AppendVertex(far[k]);
+                // (the line a-b is the edge from the second corner to the third (k = 0, 2) or from the third to the first (k = 1))
+                Assert.Equal(2 + k, k == 1 ? m.AppendTriangle(ib, top[k], ia[k]) : m.AppendTriangle(top[k], ib, ia[k]));
+            }
+            for (int k = 0; k < 3; ++k)
+                Assert.True((k == 1 ? m.AppendTriangle(ia[k], top[k], m.AppendVertex(farLow[k])) : m.AppendTriangle(top[k], ia[k], m.AppendVertex(farLow[k]))) >= 0);
+            ExactMeshBoolean op = Run(cube, m);
+            AssertRefused(op, Refusal.NotSurface, "Y junction after a plate");
+            Assert.Equal(1, op.SheetWitnessMesh);
+            Assert.Equal(2, op.SheetWitnessTriangle);
+            Assert.Contains("input 1 (a sheet)", op.Error);
+            Assert.Contains("triangle 2", op.Error);
+
+            // a 3 x 3 grid with the two triangles of the middle cell (8 and 9) flipped: the lowest triangle at an edge that two triangles run through in
+            // the same direction is 2 (the cell at x < 0, whose first triangle has the edge x = 0 as its second edge)
+            DMesh3 plate = Plate(0.5, -1, 2, -1, 2, true, 3);
+            foreach (int t in new[] { 8, 9 }) {
+                Index3i f = plate.GetTriangle(t);
+                Vector3d c = (plate.GetVertex(f.a) + plate.GetVertex(f.b) + plate.GetVertex(f.c)) / 3;
+                Assert.True(Math.Abs(c.x - 0.5) < 0.5 && Math.Abs(c.y - 0.5) < 0.5, "a triangle of the middle cell");
+                plate.SetTriangle(t, new Index3i(f.a, f.c, f.b));
+            }
+            ExactMeshBoolean flipped = Run(cube, plate);
+            AssertRefused(flipped, Refusal.OrientationInconsistent, "flipped cell");
+            Assert.Equal(1, flipped.SheetWitnessMesh);
+            Assert.Equal(2, flipped.SheetWitnessTriangle);
+            Assert.Contains("triangle 2", flipped.Error);
+        }
+
+        [Fact]
+        public void OpenWindingRecord_OnlyWhenAsked_AndTheOpenStepIsTimed()
+        {
+            // an open solid next to the cube (classified by generalized winding numbers): its per-piece record is kept only with RecordOpenWinding
+            foreach (bool record in new[] { false, true }) {
+                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Cup(0.25, 0.25, 1.25, 0.75, true) }, Ops.Difference) { RecordOpenWinding = record };
+                Assert.True(op.Compute(), op.Error);
+                Assert.Equal(record, op.OpenWindingPerPiece != null);
+                Assert.True(op.PhaseMilliseconds.ContainsKey("classification.open_us"));
+                Assert.False(op.PhaseMilliseconds.ContainsKey("classification.sheets_us"));
+            }
+        }
+
+        [Fact]
         public void TheSheetStep_IsTimed_OnlyWithASheet()
         {
             ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2));
