@@ -11,20 +11,26 @@
 //     --check                 NotCleanReason of every result (untimed)
 //     --cases <file>          instead of the tubes: the pairs A.off / B.off of the directories listed in the file (one per
 //                             line, as `profile` reads them; eg the T6 set)
-// The inputs are procedural: two closed tubes with a wobbling radius (no coplanar faces, general position), A along the
+// The inputs are procedural: two closed tubes with a wobbling radius (no coplanar faces but the two flat end caps, which
+// are far from the seam; general position), A along the
 // x axis, B rotated and shifted so that it passes through A near the origin. One JSON line per measurement:
 //   part "boolean":     ExactMeshBoolean with its phase timers (the rows of `profile`), per operation
 //                       with --local-rounding also a prototype of the rounding's first pair search without a tree of
 //                       all result triangles. Today (MeshRoundingRepair.intersecting_pairs_all, with the exact pairs of
 //                       docs/design/ROUNDING_EXACT_PAIRS.md skipped): a tree of all triangles, queried from the new ones
 //                       (those with a vertex that is no input vertex). The prototype: a tree of the new triangles only,
-//                       joined with itself, and every other triangle's box passed through it. Both list the same
-//                       candidate pairs (checked: "same_pairs"); timed on this thread, without the triangle tests
+//                       joined with itself, and every other triangle's box passed through it. Both enumerate the pairs
+//                       (new, any) with overlapping boxes, each once; "same_pairs" compares their numbers. "New" is by
+//                       position here, on the final result; the library decides by vertex identity at the start of Apply
+//                       (a crossing that rounds onto an input position is new there). Timed on this thread, without the
+//                       triangle tests
 //                       and "contacts": the count of positions with several vertices that ExactMeshBoolean takes of its
 //                       result (a Dictionary by position, on one thread), against the same count with an open-addressing
 //                       table of vertex ids (no allocation per vertex); both timed on this thread, the counts compared
+//                       (the two also run on a small mesh with shared positions and -0.0 at every start: ContactsSelfCheck)
 //   part "arrangement": ExactMeshArrangement of (A, B) and of each operand alone, with and without the operand
 //                       self-join (SelfIntersections): the self-join's cost, which a certified clean operand would not pay
+//                       ("same_pieces" compares the numbers of output pieces)
 //   part "traversal":   the box-tree work alone, serially: build, self-join traversal (box pairs listed, no triangle
 //                       test), the queries of A's triangles in B's tree: the most a faster (wide or packetised) tree
 //                       could take off
@@ -35,6 +41,8 @@
 //                       result is called without the rounding (the finding of the SolidBooleanPipeline audit, 2026-11-22)
 //   part "stamp":       the time to hash an operand's vertex bits and triangles (a 64-bit mix, and SHA-256): what a
 //                       content stamp would cost that proves an operand is the unchanged clean result of an earlier boolean
+//                       (timing only: a real stamp also hashes the vertex and triangle counts, so that the records cannot
+//                       be read as each other)
 // Run it under `taskset -c 0` with DOTNET_PROCESSOR_COUNT=1 for one thread. The report: perf/seam_levers_report.py.
 using System;
 using System.Collections.Generic;
@@ -48,7 +56,8 @@ using gs;
 static class SeamLevers
 {
     // a closed tube around the x axis, x in [-half, half], with k segments around and rings a cell apart; the radius
-    // wobbles smoothly along and around the tube, so that no two neighbouring triangles are coplanar. Oriented outward.
+    // wobbles smoothly along and around the tube, so that no two neighbouring triangles of the wall are coplanar (each end cap
+    // is a flat fan). Oriented outward.
     internal static DMesh3 Tube(int k, double half, double radius)
     {
         double h = 2 * Math.PI * radius / k;
@@ -140,6 +149,8 @@ static class SeamLevers
             else if (args[i] == "--cases") caseDirs.AddRange(System.IO.File.ReadAllLines(args[++i]).Select(l => l.Trim()).Where(l => l.Length > 0 && l.StartsWith("#") == false));
             else { Console.Error.WriteLine("unknown option " + args[i]); return 1; }
         }
+        repeat = Math.Max(1, repeat);
+        ContactsSelfCheck();
         var opOf = new Dictionary<string, ExactMeshBoolean.Operations> {
             ["union"] = ExactMeshBoolean.Operations.Union, ["intersection"] = ExactMeshBoolean.Operations.Intersection,
             ["difference"] = ExactMeshBoolean.Operations.Difference };
@@ -514,6 +525,24 @@ static class SeamLevers
             ["full_build_ms"] = fullBuild, ["full_query_ms"] = fullJoin, ["full_pairs"] = fullPairs,
             ["local_build_ms"] = localBuild, ["local_join_ms"] = localJoin, ["local_scan_ms"] = localScan, ["local_pairs"] = localPairs,
             ["same_pairs"] = fullPairs == localPairs };
+    }
+
+    // the two contact counts on a mesh that has contacts: two tetrahedra with a corner at one position (once as 0.0, once as
+    // -0.0), a third with two corners on positions of the first, and one apart; 3 positions hold several vertices
+    static void ContactsSelfCheck()
+    {
+        var m = new DMesh3();
+        Action<Vector3d, Vector3d, Vector3d, Vector3d> tet = (a, b, c, d) => {
+            int ia = m.AppendVertex(a), ib = m.AppendVertex(b), ic = m.AppendVertex(c), id = m.AppendVertex(d);
+            m.AppendTriangle(ia, ic, ib); m.AppendTriangle(ia, ib, id); m.AppendTriangle(ib, ic, id); m.AppendTriangle(ic, ia, id);
+        };
+        tet(new Vector3d(0.0, 0.0, 0.0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1));
+        tet(new Vector3d(-0.0, 0.0, -0.0), new Vector3d(-1, 0, 0), new Vector3d(0, -1, 0), new Vector3d(0, 0, -1));
+        tet(new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(2, 2, 0), new Vector3d(2, 2, 2));
+        tet(new Vector3d(5, 5, 5), new Vector3d(6, 5, 5), new Vector3d(5, 6, 5), new Vector3d(5, 5, 6));
+        Dictionary<string, object> counts = Contacts(m, 3, 1);
+        if ((bool)counts["same_count"] == false || (int)counts["contacts"] != 3)
+            throw new InvalidOperationException("the contact counts differ on the self-check mesh");
     }
 
     // the contact count of ExactMeshBoolean (count_contacts: a dictionary by position) and the same count with a flat table

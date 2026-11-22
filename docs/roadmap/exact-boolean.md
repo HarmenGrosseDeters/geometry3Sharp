@@ -841,8 +841,8 @@ embedding, C2a) and a certified mode for users are not scheduled.
 [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md), probes `BooleanComparison seam-levers`.
 On large operands with a small seam (procedural tubes, 634k triangles) 90-93 % of a union is work on unchanged triangles, and
 the rounding is the largest part of it. Ranked: a shared counter in the rounding's pair search (−4 % at 4 threads on that
-input); the rounding without a tree of all result triangles (prototype, same candidate pairs: −11 % on the seam union,
-−3.9 % on T6 at 1 thread) and then its setup scans; the serial tail (at most −12 % on T6 at 4 threads); EMBER lever 2
+input); the rounding without a tree of all result triangles (prototype, the same number of candidate pairs: at most −11 % on the seam union
+and −3.9 % on T6 at 1 thread, −2.8 % on T6 if the tree is simply built on the first edit) and then its setup scans; the serial tail (at most −12 % on T6 at 4 threads); EMBER lever 2
 with a content stamp (0 on raw single booleans, at most −24 % / −15 % at 1 / 4 threads on a T6-like step of certified
 operands; the stamp costs 1-2 % of the self-join); pass-through in classification and assembly. Dropped by their bounds:
 wide trees and packetised filters (≤ 4 %). A kernel with a weaker guarantee is an option for the owner only, not proposed.

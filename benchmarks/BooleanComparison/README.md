@@ -1243,7 +1243,7 @@ measurement; with `--cases <file>` it runs the same parts on pairs of case direc
 
 | part | what it measures |
 |---|---|
-| `boolean` | `ExactMeshBoolean` with its phase timers; the contact count by dictionary against a flat table; with `--local-rounding` the candidate pairs of the rounding's first search with a tree of all result triangles (today) against a tree of the new triangles only (the same pairs, checked) |
+| `boolean` | `ExactMeshBoolean` with its phase timers; the contact count by dictionary against a flat table; with `--local-rounding` the candidate pairs of the rounding's first search with a tree of all result triangles (today) against a tree of the new triangles only (the numbers of pairs are compared) |
 | `arrangement` | `ExactMeshArrangement` with and without the operand self-join, for the pair and for each operand |
 | `traversal` | the box-tree work alone: build, self-join traversal, queries of A in B |
 | `near` | the triangles whose box meets a box of the other operand, and the time to find them |

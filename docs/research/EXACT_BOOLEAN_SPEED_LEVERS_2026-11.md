@@ -26,13 +26,13 @@ overlapping operands, the least favourable set for this) the local set is still 
 
 | # | lever | measured upper bound, seam inputs (union, 634k triangles) | measured upper bound, T6 (294 booleans) | guarantees | effort / risk | verdict |
 |---|---|---|---|---|---|---|
-| 1a | Rounding proportional to the new triangles: no tree of all result triangles, setup scans only where needed | −32 % at 1 thread, −45 % at 4 (all of the rounding's far work); the tree alone, by prototype: **−11 % at 1 thread** | the tree alone, by prototype: **−3.9 % at 1 thread**; all of it: about −13 to −19 % (estimate, section 4.2) | kept: the rule of ROUNDING_EXACT_PAIRS.md already skips the pairs of unchanged triangles; only the structure around it changes. Bit-identical | M, tier M (`MeshRoundingRepair` is not an exact file); risk low for the tree, medium for the scans | **build first**, in two steps |
+| 1a | Rounding proportional to the new triangles: no tree of all result triangles, setup scans only where needed | −32 % at 1 thread, −45 % at 4 (all of the rounding's far work); the tree alone, by prototype: **at most −11 % at 1 thread** | the tree alone, by prototype: **at most −3.9 % at 1 thread** (−2.8 % on the booleans without an edit); all of it: about −14 to −19 % (estimate, section 4.2) | kept: the rule of ROUNDING_EXACT_PAIRS.md already skips the pairs of unchanged triangles; only the structure around it changes. Bit-identical | M, tier M (`MeshRoundingRepair` is not an exact file); risk low for the tree, medium for the scans | **build first**, in two steps |
 | 1b | Pass-through of untouched regions in classification and assembly | −16 % at 1 thread, −14 % at 4 | about −7 % (estimate) | kept, bit-identical ids required | L, exact files, ids must be reproduced | after 1a, only if a seam workload is a target |
 | 2 | Skip the operand self-join for operands certified clean (the library's own clean results, by a content stamp) | −20 % at 1 thread, −9 % at 4 | **0 on raw inputs**; a T6-like step with certified operands: −24 % at 1 thread, −15 % at 4 | kept only with a verified certificate (never a caller's flag); the stamp costs 1-2 % of the self-join it replaces | plan #1255, tier L | parked item, now with numbers; it unlocks nothing else on raw inputs |
-| 1 + 2 | Everything far from the seam free | −90 % at 1 thread, −93 % at 4 | – | as above | – | the ceiling, not a plan |
+| ceiling | All far work free (more than 1a + 1b + 2: setup and the trees of the far part stay even then) | −90 % at 1 thread, −93 % at 4 | – | as above | – | the ceiling, not a plan |
 | 3 | The serial tail: `ExactPlanarSimplify`, result vertices, `setup.points`, input checks, classification's serial steps, contact count | not split (the rounding dominates there, lever 1a) | serial share 16.5 % of the 4-thread time: **at most −12 %** at 4 threads if all of it scaled, realistically half; contact count by prototype −0.4 % | kept, bit-identical | M each, partly exact files | worth it for 12 threads; one small PR at a time |
-| 3x | (found on the way) the rounding's pair search increments one shared counter per skipped triangle from all threads | −4 % at 4 threads (72-114 ms → 11-47 ms of 1.37 s, measured with a scratch switch) | not measured | kept, a count only | S | **build**: a few lines |
-| 4 | Wide BVH, packetised double prefilters | traversal is 9 % of the union at 1 thread | traversal is at most 8.3 % of the unions at 1 thread: a tree twice as fast gives **≤ 4 %**; the SIMD filter spike measured 2 % | kept if scalar-identical | L, second code path per platform | **drop** (below the 10 % bar; 1a removes one of the three trees outright) |
+| 3x | (found on the way) the rounding's pair search increments one shared counter per skipped triangle from all threads | −4 % at 4 threads (72-114 ms → 11-47 ms of 1.37 s; a scratch switch, ten runs of one input) | not measured | kept, a count only | S | **build**: a few lines |
+| 4 | Wide BVH, packetised double prefilters | traversal is 9 % of the union at 1 thread | traversal is at most 8.3 % of the unions at 1 thread: a tree twice as fast gives **≤ 4 %** (≤ 6 % counting the traversal three times per pair, as the script does); the SIMD filter spike measured 2 % | kept if scalar-identical | L, second code path per platform | **drop** (below the 10 % bar; 1a removes one of the three trees outright) |
 | 5 | OPTION ONLY, not proposed: a separate fast kernel with a weaker guarantee | – | the repository's own runs: Manifold is 3.1-3.7x faster (geomean) and leaves 34 % of the operations (81 % on the size class) with degenerate triangles; dropping self-join and rounding from our pipeline gives at most 1.8x at 4 threads | **not kept** (no exactness on doubles, no clean result, no raw-soup handling) | a second product | owner decision whether such a product exists at all; this note does not recommend it |
 
 **Leaning.** Build 3x and 1a (first the tree, then the scans): they keep every guarantee by an argument that is already
@@ -44,16 +44,19 @@ the stated guarantees.
 ## 2. Setup and strata
 
 - **Machine:** the cloud container, 4 vCPU (no SMT), .NET 10.0.115, `DOTNET_TieredPGO=0` (#825). One thread:
-  `taskset -c 0` and `DOTNET_PROCESSOR_COUNT=1`. Noise between two runs of one configuration: about ±3 % of a set's total
-  (two T6 runs at 4 threads: 23 399 and 23 384 ms); single large cases vary more (the union of the longest tubes:
-  2345-2557 ms at 1 thread across four runs of this study).
+  `taskset -c 0` and `DOTNET_PROCESSOR_COUNT=1`. Run-to-run spread: the two T6 runs at 4 threads of this study are 23 399 and 23 384 ms (0.06 % apart, minutes apart in one
+  session); the earlier studies on this kind of container found ±3 % between runs of a set and 20-30 % between sessions
+  (EXACT_BOOLEAN_PERFORMANCE.md), so nothing below 3 % is read as a gain here. Single large cases vary more: the union of
+  the longest tubes took 2345-2778 ms at 1 thread over the six timings in the raw rows (best per run of three: 2467 and 2345).
 - **Library:** master ed93ef26 (2026-11-22), `SafeRounding` on (the default), warm process, the fastest run per boolean.
-- **Stratum S (seam), new:** two procedural closed tubes with a wobbling radius (no coplanar faces), 96 segments around,
+- **Stratum S (seam), new:** two procedural closed tubes with a wobbling radius (no coplanar faces but the flat end caps, far from the seam), 96 segments around,
   A along x, B thinner, rotated by 73° about (0.3, 0.5, 0.8) and shifted, so that it passes through A near the origin.
-  The half length (3, 12, 48) sets the size (40k, 159k, 634k input triangles in all); the seam is the same for every
-  length: 806 input triangles are split, 1364-1383 have a box that meets a box of the other operand. **The time above
+  The half length (3, 12, 48) sets the size (40k, 159k, 634k input triangles in all); the seam is the same geometry for every
+  length (the rings fall slightly differently): 804-806 input triangles are split, 1364-1383 have a box that meets a box of the other operand. **The time above
   the shortest pair is the work on triangles far from the seam** ("far work"). All 18 results (1 and 4 threads) are
-  rounding clean, `NotCleanReason == None`, and the hashes are equal at 1 and 4 threads.
+  rounding clean; the 9 results at 4 threads have `NotCleanReason == None` (`--check`), and the 1-thread results have the
+  same hashes. The longer unions and differences are not free of edits: the rounding makes 2-5 edits on each (0 on the
+  shortest pair and on the intersections).
 - **Stratum T6:** the 98 Thingi10K pairs of 1k-100k triangles, 294 booleans, fetched at run time into a scratch
   directory (nothing committed). Normal single booleans of raw, clean inputs, heavily overlapping (B is a rotated,
   shifted second model in the same unit box).
@@ -86,7 +89,7 @@ the stated guarantees.
   (282 ms at 1 thread, section 6). The 12 % "untimed" of PLANE_BASED_KERNEL_STUDY section 1 has the same cause in part.
 - **Against the earlier profiles:** the self-join is smaller (the `touch_only` filter, #1002), and the rounding is now as
   large as the pair search at 1 thread and the largest phase at 4 threads.
-- Allocation 13.7 GB (47 MB per boolean), GC pauses 720 ms (1.7 %) at 1 thread and 553-625 ms (2.4-2.7 %) at 4.
+- Allocation 13.7 GB (48 MB per boolean), GC pauses 720 ms (1.7 %) at 1 thread and 553-625 ms (2.4-2.7 %) at 4.
 
 ### 3.2 Seam inputs (union; `seam_levers_report.py seam`)
 
@@ -132,7 +135,7 @@ all 98 T6 pairs (1 thread; `TriangleBoxTree.Any` per triangle).
 
 ### 4.2 Lever 1a: the rounding (the largest part)
 
-Steps of `MeshRoundingRepair.Apply` on the union of the longest tubes (628 084 result triangles, 2015 new; a scratch
+Steps of `MeshRoundingRepair.Apply` on the union of the longest tubes (628 084 triangles when `Apply` starts, 628 078 in the result, 2015 new; a scratch
 probe with a Stopwatch per step, the best of three runs at 1 thread, the range of three at 4;
 `rounding_steps_tubes48_union.txt`):
 
@@ -157,9 +160,14 @@ has resolved every pair of input triangles, self-intersections of the operands i
 the *tests*, and queries the tree only from the new triangles; it still builds the tree of all triangles first.
 
 **Prototype** (`seam-levers --local-rounding`, in the benchmark): a tree of the new triangles only, joined with itself,
-and every other triangle's box passed through it once. It lists **the same candidate pairs** as today's structure on
-every boolean (9 of 9 tube booleans, 294 of 294 on T6), so the triangle tests, and with them the result, are the same.
-Timed on one thread, without the tests (they are identical on both sides):
+and every other triangle's box passed through it once. Both structures enumerate the pairs of a new triangle with any
+other triangle whose box overlaps, each pair once, so the candidate sets are equal by construction and the triangle tests,
+and with them the result, are the same. The probe checks the **numbers** of pairs: equal on every boolean (9 of 9 tube
+booleans, 294 of 294 on T6). Two limits of the probe: "new" is decided by position on the final result (a vertex that is
+no input vertex position), while the library decides by vertex identity when `Apply` starts (a crossing that rounds onto
+an input position is new there); on the one case compared, the union of the longest tubes, both give 2015 new triangles
+(628 084 − 626 069 skipped). And it is not compared against `intersecting_pairs_all` itself: `CheckOnThisThread` would do
+that in an implementation. Timed on one thread, without the tests (they are identical on both sides):
 
 | set (1 thread) | booleans | rounding ms | result triangles | of them new | tree of all + queries | tree of the new + join + scan | saved | of the rounding | of the boolean |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -175,16 +183,25 @@ Timed on one thread, without the tests (they are identical on both sides):
 ratios, not the absolute times.) At 4 threads the saving is smaller in share where the tree is built in parallel (from
 8192 boxes); it was not measured there.
 
+**These are upper bounds of step 1, not its expected gain.** The full tree also serves the queries of the edits, and a
+design that simply builds it on the first edit gains nothing on a boolean with an edit: the seam unions and differences
+of half 12 and 48 have 2-5 edits each (their saving would be 0), and on T6 the 40 booleans with edits hold 496 of the
+1779 ms, which leaves **−2.8 %** (1283 of 45 343 ms). To reach the bounds, the few queries of an edit must be served
+without the full tree, for example by the small tree plus one linear pass over the unchanged boxes per query (the probe's
+pass over 626k boxes takes 14 ms *with* a tree query each), and the full tree built only once the edits pass a threshold,
+as the dirty tree of #409 does at 256 changes. That design is not prototyped.
+
 **Bounds.**
 - Seam inputs: all of the rounding's far work is 1.33 of 3.74 µs per far triangle at 1 thread (36 % of the far work,
   −32 % of the longest union) and 1.04 of 2.15 µs at 4 (48 % of the far work, −45 % of the union).
 - T6, estimate: the unchanged result triangles of T6 (4.26 M of 4.73 M) at the tubes' rate give 5.7 s
-  of the 11.2 s rounding at 1 thread (−13 % of the set) and 4.4 s of the 6.7 s at 4 (−19 %). This transfers a per-triangle
+  of the 11.2 s rounding at 1 thread (−14 % of the set) and 4.4 s of the 6.7 s at 4 (−19 %). This transfers a per-triangle
   rate from one large result to many small ones and is not a measurement; the prototype's −3.9 % is.
 
 **What an implementation would have to settle** (not built here):
-- The full tree is also used by the edits (the queries of `improves`, the dirty tree, `false_contacts`). 215 edits in
-  294 T6 booleans (BOOLEAN_THREAD_SCALING.md section 2): build the full tree lazily, on the first edit.
+- The full tree is also used by the edits (the queries of `improves`, the dirty tree, `false_contacts`): 215 edits in
+  40 of the 294 T6 booleans, 2-5 on the longer tubes. See the paragraph on upper bounds above: a lazy tree alone gives
+  −2.8 % on T6 and nothing on the seam unions.
 - `component_scales` defines `maxLength` and the degenerate area; its value must be the same bit for bit.
 - `atPosition` restricted to the neighbourhood of new vertices must give the same `Contacts`, `InitialFalseContacts`
   and canonical ids wherever they are read.
@@ -214,8 +231,8 @@ builder (`ExactMeshResultBuilder`).
 ## 5. Lever 2: skip the self-join of certified clean operands
 
 The arrangement run with and without the operand self-join (`SelfIntersections`), on clean operands
-(`seam_levers_report.py selfjoin`): the pieces are the same in every case (98 of 98, 3 of 3), as the self-join finds
-nothing.
+(`seam_levers_report.py selfjoin`): the number of output pieces is the same in every case (98 of 98, 3 of 3; the probe compares counts, not the pieces), as the
+self-join finds nothing.
 
 | set | threads | arrangement with ms | without ms | self-join | of the arrangement | of the boolean |
 |---|---:|---:|---:|---:|---:|---:|
@@ -234,7 +251,18 @@ certificate for a raw operand costs the search it would save.
 operands, 48 ms as a 64-bit mix and 111 ms as SHA-256, against the 5665 ms of their self-joins: **0.8 % and 2.0 %**. So a
 stamp taken when a boolean returns a clean result and checked when the mesh comes back as an operand is affordable, and
 it does not depend on `DMesh3.Timestamp` (which a write to the public buffers bypasses). SHA-256 leaves no realistic
-collision; a 64-bit mix would be an accidental-collision argument only.
+collision if the stamp also covers the vertex and triangle counts (the probe hashes the bare records, which is enough
+for the timing but not injective); a 64-bit mix would be an accidental-collision argument only.
+
+Open points for a design (plan #1255), not settled here:
+- where the stamp lives. It must be something a caller cannot forge by setting a field (the plan's prepared-operand
+  handle, or a table inside the library keyed by the mesh instance); otherwise it is a caller's flag in disguise;
+- who pays for taking it: 1-2 % of a self-join on every clean result, also for callers who never chain, unless it is
+  taken on request;
+- that a clean result has no self-pair for the arrangement to find is an inference here (`NotCleanReason` runs an exact
+  self-intersection search; contacts at duplicated vertices need a look), and the measurement above is on raw T6 inputs,
+  not on boolean results. A test over the library's own results would have to show 0 self-pairs before anything is
+  skipped.
 
 **What it unlocks for lever 1.** With a certified operand the far triangles need no self-join (0.83 / 0.23 µs per far
 triangle at 1 / 4 threads). The trees (0.45 / 0.15 µs) are still read by the A × B queries and the winding rays, and the
@@ -262,11 +290,15 @@ What does not scale on T6 from 1 to 4 threads (4-thread ms, speed-up below 1.3):
   seam union is 47 % of the boolean and scales 1.34x). Lever 1a removes that work instead of spreading it over threads.
 - **Contact count, prototype:** the same count with an open-addressing table of vertex ids instead of
   `Dictionary<Vector3d, int>`: 282 → 109 ms over the 294 T6 booleans at 1 thread (**−0.4 %**), 44 → 18 ms on the seam
-  union; the counts are equal on all 294 + 18 results. Never slower, small: worth a few lines, not a PR of its own.
+  union; the counts are equal on all 294 + 18 results, but every one of them is 0 (no result of the two strata has a contact), so
+  this shows the timing only; the two counts are compared on a mesh with shared positions and −0.0 at every start of the
+  probe (`ContactsSelfCheck`, 3 contacts). Faster on every result above 5000 vertices, equal within 0.1 ms below; small:
+  worth a few lines, not a PR of its own.
 - **Allocation:** a 1 GB gen0 budget (`DOTNET_GCgen0size=0x40000000`) as the upper bound of "no allocation pressure":
-  T6 at 4 threads 23 384 → 22 807 ms (−2.5 %, inside the ±3 % noise). On the seam union the GC pauses are 92-158 ms of
+  T6 at 4 threads 23 384 → 22 807 ms (−2.5 %, nearly every phase 3-5 % faster: a small gain, below the 3 % this study
+  reads as one, from one run per side). On the seam union the GC pauses are 92-158 ms of
   1.4-2.5 s (4-12 %, 1.15 GB allocated; gen2 collections of the large arrays). So allocation-free variants are a lever
-  for large results only; they overlap with 1a (the rounding allocates 2.7 GB of the 13.7 GB on T6).
+  for large results only; they overlap with 1a (the rounding allocates 2.6 GB of the 13.7 GB on T6).
 
 ### 6.1 Lever 3x: a shared counter in the rounding's pair search
 
@@ -274,7 +306,9 @@ What does not scale on T6 from 1 to 4 threads (4-thread ms, speed-up below 1.3):
 On the seam union (626 069 skipped triangles) the search takes 27-76 ms at 1 thread and 72-114 ms at 4. With the
 increment left out (a scratch switch, `skip_counter_tubes48_union.txt`): 11-47 ms at 4 threads, unchanged at 1. About
 60 ms of 1370 ms (**−4 %** at 4 threads on this input; more with more threads). A count per block, summed in block
-order, gives the same `SkippedExactQueries`. Not measured on T6 (smaller results, fewer skipped triangles per boolean).
+order, gives the same `SkippedExactQueries`. The evidence is ten runs per side of one input (mean difference 61 ms); it is not
+measured on T6 (smaller results, fewer skipped triangles per boolean). Rank 1 below rests on its cost (a few lines), not
+on the size of the gain.
 
 ## 7. Lever 4: wide trees and packetised filters
 
@@ -282,11 +316,11 @@ The tree work alone, on one thread (`seam_levers_report.py tree`; box pairs list
 
 | set | tree build | self-join traversal | A in B queries | against the booleans |
 |---|---:|---:|---:|---|
-| T6, 98 pairs | 923 ms | 1399 ms (38.2 M box pairs) | 182 ms (5.1 M hits) | traversal 1581 ms = 8.3 % of the unions at 1 thread (less for the culled operations) |
+| T6, 98 pairs | 923 ms | 1399 ms (38.2 M box pairs) | 182 ms (5.1 M hits) | traversal 1581 ms = 8.3 % of the unions at 1 thread (18 943 ms; less for the culled operations; the script's line counts it three times per pair against all 294 booleans: 11.4 %, an overcount) |
 | tubes, half 48 | 278 ms | 217 ms (4.1 M box pairs) | 10 ms | traversal 9 % of the union |
 
 - **Bound:** a wide tree speeds up the traversal, not the build (the build is the Morton sort and would gain a collapse
-  step). With the traversal twice as fast: at most −4 % of a T6 union at 1 thread, less at 4 threads (the pairs phase
+  step). With the traversal twice as fast: at most −4 % of a T6 union at 1 thread (−6 % with the script's overcount), less at 4 threads (the pairs phase
   scales 2.9x) and for the other operations. The published gains for wide trees in collision detection are "up to
   50 %" on the proximity queries (section 8).
 - **Packetised double filters:** the SIMD `Orient3d` spike (no FMA, bit-identical per lane) measured −11 % of the pair
@@ -342,10 +376,10 @@ touched.
 | **#1253**, lead 1: the two unbuilt #1064 levers (centroid without `AddPoint`, exact `PlaneSide` kernel) on the tail case 42327 | their share on the normal stratum | **no** | not measured: both are classification work on one tail case; on T6 the whole classification is 4.5 % at 1 thread and 5.3 % at 4 (section 3.1), which caps anything inside it on the normal stratum |
 | **#1253**, lead 2: normal-cone certificate for the operand self-join | an upper bound of the skippable pairs | **in part** (a bound, not the probe of the plan) | a certificate replaces the triangle tests of the self-join, not its traversal. On T6 the self-join is 5665 ms per pass over the 98 pairs, of which 1399 ms are traversal (section 7): at most 75 % of it, so **at most −18 % at 1 thread and −11 % at 4** over the 294 booleans if the certificate itself were free; on the seam union at most −11 % at 1 thread. It stays the only exact lever for the self-join of a *raw* operand (lever 2 needs a certificate of cleanness). Its cost side (the certificate was slower than the tests in the Reducer, new error bounds in exact code) is unchanged, so the verdict "parked" stands |
 | **#1253**, lead 3: ABC chain step 3, where ours is 1.1-2.2x slower than Geogram and CGAL | a diagnosis | **no** (not measured; the ABC data was not fetched) | a hypothesis to test first: a step-3 operand is the result of step 2, so it is large, clean by our own check, and pays the full self-join, the trees and the rounding over all its triangles again; that is the profile of the seam stratum, where levers 2 and 1a remove 20 % and up to 32 % at 1 thread. `seam-levers --cases` runs every part of this study on the inputs that `chain-step` keeps: the first probe if the lead is reopened |
-| **#1255**: EMBER lever 2, skip self-pairs of certified operands | step 1 of the plan: the upper bound before any API code | **yes for T6-like steps and seam inputs**, not on ABC chains at 12 threads | section 5: at most −24 % at 1 thread and −15 % at 4 for a step with two certified operands, −20 % / −9 % on the seam union, 0 on raw single booleans; the pieces are the same with and without the self-join on all 101 clean pairs; a content stamp costs 0.8 % (64-bit mix) to 2.0 % (SHA-256) of the self-join, so the plan's "content hash" variant is affordable and no defensive copy of the mesh is needed |
+| **#1255**: EMBER lever 2, skip self-pairs of certified operands | step 1 of the plan: the upper bound before any API code | **yes for T6-like steps and seam inputs**, not on ABC chains at 12 threads | section 5: at most −24 % at 1 thread and −15 % at 4 for a step with two certified operands, −20 % / −9 % on the seam union, 0 on raw single booleans; the number of pieces is the same with and without the self-join on all 101 clean pairs; a content stamp costs 0.8 % (64-bit mix) to 2.0 % (SHA-256) of the self-join, so the plan's "content hash" variant is affordable and no defensive copy of the mesh is needed |
 | **#1258**, lever (b): box-neighbour enumeration of long thin tilted triangles in the first search | pairs a tighter bound would remove | **no** | not measured: neither stratum has such triangles (the tubes are well shaped). Lever 1a does not change the number of box neighbours per query; it removes the tree those queries run in for the unchanged triangles, so (b) stays a separate question for 519511, 1517923 and 668056 |
-| **#1258**, lever (c): the cost of `near` inside edit evaluations | a profile | **no** | not measured: T6 has 215 edits in 294 booleans and the tubes none; this is the rotated, dirty stratum |
-| **#1258**, lever (d): tree build and setup over all triangles when few vertices were rounded | the share of the full-mesh tree build | **yes**: this is lever 1a | sections 4.2 and 10: the tree alone is 15 % of the rounding on T6 (−3.9 % of the booleans at 1 thread) and 30 % on the seam union (−11 %), by a prototype that lists the same candidate pairs; the setup around it is the larger part on large results (table of steps). One correction to the plan: `MeshRoundingRepair.cs` is not in the exact-file list of `.editorconfig`, so the tier is M with the rounding mutation shards, not an exact-code review; `TriangleBoxTree` is not changed by 1a |
+| **#1258**, lever (c): the cost of `near` inside edit evaluations | a profile | **no** | not measured: T6 has 215 edits in 294 booleans and the tubes 2-5 per longer union or difference; this is the rotated, dirty stratum |
+| **#1258**, lever (d): tree build and setup over all triangles when few vertices were rounded | the share of the full-mesh tree build | **yes**: this is lever 1a | sections 4.2 and 10: the tree alone is 15 % of the rounding on T6 (at most −3.9 % of the booleans at 1 thread, −2.8 % with a tree built on the first edit) and 30 % on the seam union (at most −11 %), by a prototype that finds the same number of candidate pairs; the setup around it is the larger part on large results (table of steps). One correction to the plan: `MeshRoundingRepair.cs` is not in the exact-file list of `.editorconfig`, so the tier is M with the rounding mutation shards, not an exact-code review; `TriangleBoxTree` is not changed by 1a |
 | **#1258**, #837 lever 2 (rotated CAD class) | – | **no** | not measured |
 | **#1279**: open-operand speed, label propagation (HP 8) | a refreshed profile of the open cohort and a soundness argument | **no** | both strata here are closed operands; nothing in this study measures the generalized winding number path. Levers 1a and 3x act after the classification and apply to open results unchanged; lever 1b (pass-through of untouched regions) is the closed-input relative of the propagation asked for and gives no argument for open ones |
 
@@ -438,14 +472,14 @@ output is in the raw folder.
 
 | rank | PR | gain (bound → expected) | guarantee argument | effort | risk |
 |---|---|---|---|---|---|
-| 1 | **3x: count skipped triangles per block** in `intersecting_pairs_all` | seam union −4 % at 4 threads (measured with a switch); T6 not measured | a counter; `SkippedExactQueries` equal | S (hours) | low |
-| 2 | **1a, step 1: the first pair search without a tree of all triangles**; the full tree built on the first edit | prototype: seam union −11 %, T6 −3.9 % at 1 thread; expected about that | same candidate pairs (checked on 303 booleans), the existing lemma | S-M | low to medium: the lazy tree must serve every later query; `CheckOnThisThread` already compares searches |
-| 3 | **1a, step 2: setup scans proportional to the new triangles** (`atPosition`, anchors, `component_scales` from the operands, shared finite / range scans) | seam: up to the rest of the rounding's far work (−20 % at 1 thread, −30 % at 4); T6 estimate −9 to −15 %; expected half | each scan needs its own argument that the unchanged triangles cannot contribute; results bit-identical | M-L | medium: `Contacts`, false contacts and the scales are observable |
+| 1 | **3x: count skipped triangles per block** in `intersecting_pairs_all` | seam union −4 % at 4 threads (a switch, ten runs of one input); T6 not measured | a counter; `SkippedExactQueries` equal | S (hours) | low |
+| 2 | **1a, step 1: the first pair search without a tree of all triangles**; the full tree built on the first edit | bound by prototype: seam union −11 %, T6 −3.9 % at 1 thread; expected with a tree built on the first edit: T6 −2.8 %, seam unions with edits 0; the bound needs the edits' queries served without the full tree (section 4.2) | the same candidate set by construction (equal pair counts on 303 booleans), the existing lemma | S for the lazy tree, M with the edit queries | low to medium: every later query must be served; `CheckOnThisThread` already compares searches |
+| 3 | **1a, step 2: setup scans proportional to the new triangles** (`atPosition`, anchors, `component_scales` from the operands, shared finite / range scans) | seam: up to the rest of the rounding's far work (−21 % at 1 thread; about −30 % at 4, with the tree's 4-thread time taken from the step probe); T6 estimate −10 to −15 %; expected half | each scan needs its own argument that the unchanged triangles cannot contribute; results bit-identical | M-L | medium: `Contacts`, false contacts and the scales are observable |
 | 4 | **3: serial tail**, one step per PR, by size: `ExactPlanarSimplify` per region, result vertices, `setup.points`, input checks; the flat contact count on the way | T6 at 4 threads: bound −12 %, expected −6 %; more at 12 threads | bit-identical ids; determinism tests per new loop | M each | medium; exact files need the allow-list review |
 | 5 | **2: certified operands** (plan #1255, with the content stamp of section 5) | chained steps: bound −24 % at 1 thread, −15 % at 4; raw single booleans 0 | a verified stamp, never a flag | L | medium: API (additive), exact files |
 | 6 | **1b: pass-through in classification and assembly** | seam: −16 % / −14 %; T6 estimate −7 % | bit-identical ids | L | high |
 | – | 4 (wide tree, packets) | ≤ 4 % | – | L | dropped |
 | – | 5 (weaker-guarantee kernel) | 3-4x, by giving up the guarantees | none | a second product | not proposed; owner decision |
 
-Ranks 1-3 together bound the rounding on both strata, need no exact file and no API, and are the only levers that gain at
-every thread count on raw single booleans.
+Ranks 1-3 together bound the rounding on both strata and need no exact file and no API. Of the levers that gain on raw
+single booleans (1-4 and 6), they are the ones outside the exact files.
