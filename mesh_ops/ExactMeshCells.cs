@@ -328,10 +328,11 @@ namespace g3
                     for (int sb = sa + 1; sb < cells.ShellCount; ++sb) {
                         if (cells.MayNest(sa, sb) == false)
                             continue;
-                        int c0 = shell0[sa] ? shell0Cell[sa] : shell0[sb] ? shell0Cell[sb] : -1;
-                        int c1 = shell1[sa] ? shell1Cell[sa] : shell1[sb] ? shell1Cell[sb] : -1;
-                        if (c0 < 0 || c1 < 0)
-                            continue;
+                        if ((shell0[sa] || shell0[sb]) == false || (shell1[sa] || shell1[sb]) == false)
+                            continue;       // (one label on the two shells at most)
+                        // (the cells that name the two labels, for the witness)
+                        int c0 = shell0[sa] ? shell0Cell[sa] : shell0Cell[sb];
+                        int c1 = shell1[sa] ? shell1Cell[sa] : shell1Cell[sb];
                         result.ConflictingCells = 1;
                         result.Piece = first0[c0] / 2;
                         result.Piece2 = first1[c1] / 2;

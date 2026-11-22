@@ -491,6 +491,30 @@ namespace geometry3Sharp.Tests
             AssertRefused(Run(block, Joined(Plate(2, -1, 11, -1, 11), CapOnTheCavity(true))), Refusal.SidesInconsistent, "cavity shell first");
         }
 
+        // a square patch in the plane z = z, with its rim on the face of the block there (the cavity's top face z = 6, the block's top face z = 10): a
+        // coplanar patch labels the whole cell of the workpiece that it lies on, by the side its normal points to
+        static DMesh3 Patch(double z, double x0, double x1, bool up) { return Plate(z, x0, x1, x0, x1, up); }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void HollowBlock_OneLabelOnEachNestedShell_IsRefused_InEitherShellOrder(bool cavityFirst)
+        {
+            // the cavity's top face patched with the normal up (the material above it is in front: label 0 on the cavity's shell only) and the block's top
+            // face patched with the normal up too (the material is behind it: label 1 on the block's shell only): the two cells may be one region
+            DMesh3 outer = Box(0, 0, 0, 10, 10, 10), cavity = Reversed(Box(4, 4, 4, 6, 6, 6));
+            DMesh3 block = cavityFirst ? Joined(cavity, outer) : Joined(outer, cavity);
+            DMesh3 sheet = Joined(Patch(6, 4, 6, true), Patch(10, 0, 10, true));
+            ExactMeshBoolean op = Run(block, sheet);
+            AssertRefused(op, Refusal.SidesInconsistent, "label 0 on the cavity, 1 on the block, cavity first " + cavityFirst);
+            Assert.True(op.SheetWitnessTriangle >= 0 && op.SheetWitnessTriangle2 >= 0 && op.SheetWitnessTriangle != op.SheetWitnessTriangle2);
+            // the same label on both (the block's top face patched the other way: the material below the patch is in front): no contradiction, so the
+            // cut is decided; the uncut parts of the block would be refused otherwise: here every cell of both shells is marked
+            ExactMeshBoolean same = Run(block, Joined(Patch(6, 4, 6, true), Patch(10, 0, 10, false)));
+            Assert.True(same.Status == Status.Success, same.Status + " " + same.SheetReason + " " + same.Error);
+            Assert.Equal(1000.0 - 8.0, Volume(same.Result), 9);        // (both labels 0: all of the hollow block stays)
+        }
+
         [Fact]
         public void SiblingCavities_WithDifferentLabels_InABlockWhoseShellIsUnmarked_AreRefused()
         {
@@ -1004,6 +1028,21 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(1, op.SheetWitnessMesh);
                 Assert.True(op.SheetWitnessTriangle >= 0);
             }
+        }
+
+        [Theory]
+        [InlineData(0.1)]
+        [InlineData(0.7)]
+        public void AnInvertedBubbleOfTheSheet_FloatingInACell_IsRefused_WithTheFrontMarkAsWitness(double z)
+        {
+            // the bubble with inward normals: its inside is in front of its pieces (a 0 mark, no 1 mark: the witness is the front mark), the same
+            // refusal as for the outward bubble, whose floating cell carries a 1 mark only
+            DMesh3 sheet = Joined(Plate(0.5, -1, 2, -1, 2), Reversed(Box(0.25, 0.25, z, 0.75, 0.75, z + 0.2)));
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), sheet);
+            AssertRefused(op, Refusal.FloatingComponent, "inverted bubble at " + z);
+            Assert.Equal(1, op.SheetWitnessMesh);
+            Assert.True(op.SheetWitnessTriangle >= 0);
+            Assert.True(op.SheetConflictingCells >= 1);
         }
 
         [Theory]

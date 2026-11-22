@@ -114,6 +114,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ADegenerateProvidedPiece_WithTheEdgeTwice_IsHandledLikeTwoPieces_OrNotJoinedAlone()
+        {
+            // (the arrangement gives no such piece; the list of pieces is an input of Build, so the two degenerate paths are driven by hand)
+            Fan f = MakeFan(new[] { 0.0 }, new[] { true });
+            Index3i page = f.Tris[0];
+            // a piece (a, b, a) with the edge a-b of the page twice: the page and the degenerate piece are two pieces at the edge, joined as two
+            var two = new List<Index3i> { page, new Index3i(page.a, page.b, page.a) };
+            ExactMeshCells c = ExactMeshCells.Build(f.Arr, two, All(2, false), All(2, false));
+            Assert.Equal(c.Cell[0], c.Cell[3]);       // (front of the page, back of the degenerate piece)
+            Assert.Equal(c.Cell[2], c.Cell[1]);
+            Assert.NotEqual(c.Cell[0], c.Cell[1]);
+            Assert.Equal(2, c.CellCount);
+            // the degenerate piece alone: it is its own two pieces at the edge: no wedge, its sides stay two cells, and no free edge is reported for it
+            var alone = new List<Index3i> { new Index3i(page.a, page.b, page.a) };
+            ExactMeshCells e = ExactMeshCells.Build(f.Arr, alone, All(1, false), All(1, false));
+            Assert.Equal(2, e.CellCount);
+            Assert.Empty(e.FreeEdges);
+        }
+
+        [Fact]
         public void OnePage_AFreeEdgeOnEveryEdge_AndItsSidesAreOneCell()
         {
             Fan f = MakeFan(new[] { 0.0 }, new[] { true });
