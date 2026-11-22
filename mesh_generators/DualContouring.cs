@@ -39,6 +39,15 @@ namespace g3
     ///
     /// Notes:
     ///   - inside is where the field is greater than IsoValue (eg winding number); set InsideIsLess for SDFs
+    ///   - Supported input range (ExactHermite, the default): neither the size of the values of Implicit nor the size of the
+    ///     geometry is part of the result. c * Implicit (c > 0, IsoValue 0) has the mesh of Implicit, a field of order 1 on
+    ///     geometry of size 2^e has the scaled mesh, and a level set whose gradient is far below 2.2e-16 is contoured (the
+    ///     Hermite normal and the crossing tests are relative; 2^k scales give the same bits, tested for values times
+    ///     2^-100 .. 2^100, geometry times 2^-60 .. 2^200 and both together times 2^-100 .. 2^400). Limits: the grid stores
+    ///     the node values as float, so a value below 1.4e-45 is 0 (an empty or partial contour, no status) and values above
+    ///     1.7e38 are clamped; coordinates and CellSize need squares that are normal doubles (below about 2^500). With
+    ///     ExactHermite = false the tests are absolute as before 2026-11 (a node difference or a gradient below 2.2e-16 gives
+    ///     the middle of the edge and no normal): that mode is for fields whose values and gradient are of ordinary size.
     ///   - an ambiguous face between two single-patch cells (where the dual quads would share a non-manifold
     ///     edge) and a face between cells of different size get face vertices, so that their polygons become
     ///     fans that stay inside one cell each (Ju and Udeshi 2006, see FaceVertices): no quad is left out
@@ -308,7 +317,7 @@ namespace g3
                 Vector3i nb = e.End(F);
                 Vector3d pa = node_pos(e.Start), pb = node_pos(nb);
                 double fa = node_value(e.Start), fb = node_value(nb);
-                double t = (Math.Abs(fb - fa) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fa) / (fb - fa), 0, 1) : 0.5;
+                double t = values_differ(fa, fb) ? MathUtil.Clamp((IsoValue - fa) / (fb - fa), 0, 1) : 0.5;
                 Vector3d p = Vector3d.Lerp(pa, pb, t);
                 Vector3d hp, hn;
                 bool aInside = is_inside(fa);
@@ -323,9 +332,10 @@ namespace g3
                         if (is_inside(Implicit.Value(ref pm)) == aInside) lo = mid; else hi = mid;
                     }
                     Vector3d pe = Vector3d.Lerp(pa, pb, 0.5 * (lo + hi));
-                    hpoints[ci] = pe; hnormals[ci] = exact_gradient(pe).Normalized;
+                    hpoints[ci] = pe; hnormals[ci] = unit_normal(exact_gradient(pe));
                 } else {
-                    hpoints[ci] = p; hnormals[ci] = gradient(p).Normalized;
+                    // (ExactHermite = false keeps its output from before 2026-11, the absolute threshold of Normalized included)
+                    hpoints[ci] = p; hnormals[ci] = ExactHermite ? unit_normal(gradient(p)) : gradient(p).Normalized;
                 }
             };
             if (ParallelCompute)
@@ -802,6 +812,55 @@ namespace g3
         }
 
         Vector3d node_pos(Vector3i n) { return origin + h * new Vector3d(n.x, n.y, n.z); }
+        // v times the power of two that brings its largest component into [1, 2). The scaling is exact, so the direction of v and
+        // the sign of a dot product of two such vectors are those of the unscaled ones, without underflow or overflow of the products.
+        internal static Vector3d pow2_scaled(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return v;
+            long bits = BitConverter.DoubleToInt64Bits(m);
+            int k = (int)((bits >> 52) & 0x7FF) - 1023;
+            if (k == -1023) {
+                // subnormal: its exponent after an exact scaling by 2^64
+                bits = BitConverter.DoubleToInt64Bits(m * 18446744073709551616.0);
+                k = (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+            }
+            return new Vector3d(ExactPoint3.ScaleB(v.x, -k), ExactPoint3.ScaleB(v.y, -k), ExactPoint3.ScaleB(v.z, -k));
+        }
+
+        // The unit vector of a gradient of any magnitude. The size of a gradient is the scale of the field's values over the scale of
+        // the geometry, and neither is part of the level set. Where Vector3d.Normalized applies (a length above its absolute
+        // threshold, squares that do not overflow) it is used, so those normals keep their bits; otherwise the gradient is scaled
+        // by a power of two first.
+        internal static Vector3d unit_normal(Vector3d g)
+        {
+            double len = g.Length;
+            if (len > MathUtil.Epsilon && !double.IsInfinity(len)) return g.Normalized;
+            Vector3d w = pow2_scaled(g);
+            double wl = w.Length;
+            if (!(wl > 0) || double.IsInfinity(wl)) return Vector3d.Zero;      // a zero, NaN or infinite gradient: no normal
+            double inv = 1.0 / wl;
+            return new Vector3d(w.x * inv, w.y * inv, w.z * inv);
+        }
+
+        // MathUtil.Normal with edges of any length: the unit edge vectors come from unit_normal, so an edge below the absolute
+        // threshold of Vector3d.Normalize (2.2e-16, a contour of very small geometry) still has a direction. The cross product of the
+        // two unit vectors is normalized as there, so the normal of every other triangle keeps its bits.
+        internal static Vector3d triangle_normal(Vector3d v1, Vector3d v2, Vector3d v3)
+        {
+            Vector3d n = unit_normal(v2 - v1).Cross(unit_normal(v3 - v2));
+            n.Normalize();
+            return n;
+        }
+
+        // Do two node values differ enough to interpolate the crossing between them? With ExactHermite any difference counts (the
+        // size of the values is not part of the level set). With ExactHermite = false the test is the absolute one from before
+        // 2026-11, as that path's documented output: a smaller difference puts the crossing at the middle of the edge.
+        bool values_differ(double fa, double fb)
+        {
+            return ExactHermite ? fa != fb : Math.Abs(fb - fa) > MathUtil.Epsilon;
+        }
+
         bool is_inside(double f) { return InsideIsLess ? f < IsoValue : f > IsoValue; }
 
         static int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
@@ -2410,7 +2469,7 @@ namespace g3
             foreach (int i in segEdges) {
                 int j = (i + 1) % 4;
                 double fi = node_value(corner[i]), fj = node_value(corner[j]);
-                double t = (Math.Abs(fj - fi) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fi) / (fj - fi), 0.25, 0.75) : 0.5;
+                double t = values_differ(fi, fj) ? MathUtil.Clamp((IsoValue - fi) / (fj - fi), 0.25, 0.75) : 0.5;
                 pts.Add(Vector3d.Lerp(c[i], c[j], t));
             }
             if (pts.Count == 2) {
@@ -2479,8 +2538,8 @@ namespace g3
             // crease line, #800) loses against one without: its normal is rounding noise, and the triangle has no area. With both
             // splits degenerate (or neither) the agreement decides, as before
             bool degA = degenerate(p0, p1, p2) || degenerate(p0, p2, p3), degB = degenerate(p1, p2, p3) || degenerate(p1, p3, p0);
-            double splitA = MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
-            double splitB = MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
+            double splitA = triangle_normal(p0, p1, p2).Dot(triangle_normal(p0, p2, p3));
+            double splitB = triangle_normal(p1, p2, p3).Dot(triangle_normal(p1, p3, p0));
             bool byAgreement = splitA >= splitB;
             bool preferA = (degA != degB) ? degB : byAgreement;
             if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0)) {
