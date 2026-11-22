@@ -131,6 +131,50 @@ namespace geometry3Sharp.Tests
             Assert.True(Print(with.Result) == Print(reference.Result) && Print(with.Result) == Print(plain.Result), name);
         }
 
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Difference)]
+        public void ApartPairs_AreExactlyTheBoxPairsApartByTheAxesOfEitherTriangle(Ops op)
+        {
+            // the rounded, unrepaired result of a boolean, repaired directly (no exact vertices: every box pair of two
+            // triangles is a candidate once, from the triangle with the smaller id)
+            var (a, b) = Gears(20);
+            var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = false };
+            Assert.True(boolean.Compute(), boolean.Error);
+            DMesh3 m = boolean.Result;
+            // counted here over all pairs, with the axes of each triangle on its own
+            int[] tids = m.TriangleIndices().ToArray();
+            var tri = new Triangle3d[tids.Length]; var box = new AxisAlignedBox3d[tids.Length]; var degenerate = new bool[tids.Length];
+            var data = new double[TriangleSeparatingAxes.Stride * tids.Length];
+            for (int i = 0; i < tids.Length; ++i) {
+                Index3i tv = m.GetTriangle(tids[i]);
+                tri[i] = new Triangle3d(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c));
+                box[i] = new AxisAlignedBox3d(tri[i].V0); box[i].Contain(tri[i].V1); box[i].Contain(tri[i].V2);
+                degenerate[i] = ExactTriangleIntersection.IsDegenerate(ref tri[i]);
+                TriangleSeparatingAxes.Compute(tri[i].V0, tri[i].V1, tri[i].V2, data, TriangleSeparatingAxes.Stride * i);
+            }
+            long expected = 0, byOwnOnly = 0, byOtherOnly = 0;
+            for (int i = 0; i < tids.Length; ++i) {
+                if (degenerate[i]) continue;
+                for (int j = i + 1; j < tids.Length; ++j) {
+                    AxisAlignedBox3d x = box[i], y = box[j];
+                    if (x.Max.x < y.Min.x || x.Min.x > y.Max.x || x.Max.y < y.Min.y || x.Min.y > y.Max.y || x.Max.z < y.Min.z || x.Min.z > y.Max.z)
+                        continue;
+                    bool own = TriangleSeparatingAxes.Apart(data, TriangleSeparatingAxes.Stride * i, tri[j].V0, tri[j].V1, tri[j].V2);
+                    bool other = TriangleSeparatingAxes.Apart(data, TriangleSeparatingAxes.Stride * j, tri[i].V0, tri[i].V1, tri[i].V2);
+                    if (own || other) expected++;
+                    if (own && other == false) byOwnOnly++;
+                    if (other && own == false) byOtherOnly++;
+                }
+            }
+            // (both triangles' axes are needed: each drops pairs the other does not)
+            Assert.True(byOwnOnly > 100 && byOtherOnly > 100, $"{byOwnOnly} pairs apart by the first triangle's axes only, {byOtherOnly} by the second's");
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true };
+            r.Apply();
+            Assert.Equal(1, r.FullPairSearches);
+            Assert.Equal(expected, r.AxisApartPairs);
+        }
+
         [Fact]
         public void SerialEqualsParallel_Repeated()
         {
