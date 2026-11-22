@@ -120,7 +120,7 @@ namespace g3
         /// </summary>
         public static DoubleWord Div(DoubleWord x, DoubleWord y)
         {
-            if (y.IsValid == false || x.IsValid == false || y.Hi == 0)
+            if (y.IsValid == false || x.IsValid == false)
                 return Invalid;
             double q1 = x.Hi / y.Hi;
             DoubleWord r = x - y * Of(q1);

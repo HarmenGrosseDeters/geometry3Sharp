@@ -143,7 +143,7 @@ rational), and `Find` end points against the rounded crossings of the edges. Mut
 
 ## 6a. Mutation checks of the changed lines (local run, 16 mutants of `ExactDoubleWord.cs` and `find_transversal`/`round_ratio`)
 
-Killed (10): `Eps2` to `2^-106`; `<` to `<=` in `RoundsTo`; dropping `Err` from `RoundsTo`; the power-of-two lower gap; the `Eps2` term of the sum, of the product,
+Killed (12 of 16 at the first run, `passes_through` and `p0 == p1` after the tests added for them; one guard argued, one removed): `Eps2` to `2^-106`; `<` to `<=` in `RoundsTo`; dropping `Err` from `RoundsTo`; the power-of-two lower gap; the `Eps2` term of the sum, of the product,
 the residual error of the quotient; the exact-zero certificate; the range rule; and the two `round_ratio` variants (no sticky remainder; always round up at the midpoint).
 Survivors, argued:
 
@@ -153,7 +153,7 @@ Survivors, argued:
 - The coplanar-edge check (four `Orient3d` per hit) is removed: section 5 shows `p0 == p1` for a touching contact, which `FindTransversal_...` and `EdgeCrossingEdge_...` pin (a mutant that drops
   `p0 == p1` fails them). `p0 == p1` also covers a rounding collapse of a positive-length segment, for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): kept as a guard.
 - `n != 2` weakened to `n == 0`: the case `n == 1` does not occur (section 5: a contact has two qualifying points or none), so the check is a guard against a violated assumption, not covered by a test.
-- The `Div` guard `err(y) <= |yh| / 4` was redundant with the `den > 0` test (the residual bound is valid for any positive denominator) and is removed.
+- The `Div` guards `err(y) <= |yh| / 4` and `yh == 0` were redundant with the `den > 0` test (the residual bound is valid for any positive denominator; `yh == 0` gives `den <= 0`, and an infinite `q1` is `Invalid`) and are removed.
 - The factor `1 + 2^-48` on the bounds could not be told from 1 by any test and was removed; the explicit slack of `Eps2` over the derived bounds covers the rounding of the bounds (section 3).
 
 ## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
