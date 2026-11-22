@@ -135,6 +135,30 @@ step-3 lead; hard problem 4: lever 6 K stays opt-in (#736; a provably valid feat
 bound is restated against the peeled surface (no code change, P1 494/500 kept); the gate-change check (#1087, observe mode) and its label (#1094): the coordinator labels a change that keeps or tightens a check after reviewing the gate-file diff, the owner one that loosens a check or changes the gate check or the rule files, workers never set it, and a push after the label needs a fresh review ([QA.md](QA.md) 2.8a);
 MeshRobustRepair F1 go (done, #1101), F2 not now; Exact Boolean 4.0 stage 1 as option A, an opt-in API (merged #1107; 1b and 1c on hold, owner 2026-11-18); quad remeshing: stage 1 merged with the speed gate open (#1098), then a parallel `SparseCholesky` with an upper-bound check first (bit for bit, existing callers unchanged; #1103), the Hermitian form (#1099, done), stage 2 merged as quad-dominant with the missed gates open (#1100), stage 3B merged as opt-in (#1153), its follow-ups wait for the papers (owner 2026-11-18: unreachable); alpha wrap: an opt-in target triangle count keeping the guarantees, defaults unchanged, budget default off (merged #1106); boolean result classes: issue #1104 with procedural cases (PR #1105), class E option (a), an additive final-result volume IoU diagnostic in `MeshRobustRepair` with `Apply()` unchanged, with #1096 after the wrap target-count work; an opt-in helper for "exact boolean on triangle soups -> clean closed low-poly solid" (merged, #1112).
 
+Decided on 2026-11-22 (owner, through the coordinator):
+- **Pipeline audit (#1304):** SafeRounding's removal of small or thin solids gets an opt-out and a threshold, plus a criterion that does not
+  change with rotation; removed parts are listed and the result is not clean; F3 report only. ByNesting stays an explicit option (no automatic
+  fallback after an orientation refusal; the refusal names it). A region one input covers twice: refused under `Refuse`, reported under
+  `AutoRepair`. The default `Refuse` with explicit roles is confirmed. Triangle target: report the deviation now, a default limit later.
+- **Certified Boolean (#1310):** options B (stage 3 as a test-only extension of `BooleanCertificate`), A (document today's check) and D1; C parked.
+- **Contouring (#1305):** the two-level TpmsLattice opt-in plus a generator; the certificate in a new non-exact file.
+- **Determinism (#1306):** stage 2 for the exact result only, with MeshRoundingRepair as a named assumption; F2 an argued site with a
+  perturbation test; two-tier golden masters; ContourLoft on CoreMath; Windows arm64 a standing leg.
+- **Intrinsic triangulations (#1311):** an opt-in integer layer for flips and boundary splits; refinement only on demand.
+- **Quads:** #1301 option A (the area ratio reported, not a fallback reason); the CurvatureAlignment benchmark on capsule and cylinder;
+  `BoundarySpacingWeight` 0.05 (#1234).
+- **Stops:** tet HP5 option A; tie-order left at 498/500; snap rounding keeps SafeRounding (the per-result certificate documented); envelope
+  simplification; Boolean speed levers 3x and 1a (measured -2 % / 0 %, #1322 closed, #1323). Sharp wrap: option 1.
+- **Small items:** the `.g3mesh` reader refuses non-finite coordinates; PassageWrap refuses coordinates outside 2^+-128; TerrainSlopeDesign
+  768 / 1650 listed as unmeasurable with reasons; a mutation run skipped for a config or tool change shows as skipped, not success;
+  float32 STL at UTM: document recentring; the repair acceptance signal before a selection rule; `negative_volume` scaling.
+- **Tet:** no lower limit on `MaxRadiusEdgeRatio` (#1249, option A); 839690 at alpha / 20 keeps the slide cap (#1251, option A).
+  #1096: closed without the Thingi10K run (#1246, option A). #1221 keeps its touch tolerance (256 eps M); #1223 option C stays parked.
+- **Rows closed as decided earlier:** open inputs, inside / outside across patches (no use case, plan #1247); the alpha wrap's raw-size
+  budget stays off by default (plan #1248).
+- **New sessions:** a metamorphic bug hunt across operations, the tests above 20 s (#698), then the rounding cost (hard problem 3 b-d).
+- Parked: `MinThickness`, quad idea 2, tet P4(c); the #1154 default n waits for its numbers.
+
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
 ([sources-surveys.md](roadmap/sources-surveys.md#open)).
@@ -234,6 +258,7 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
   no further starts until the count is back below it.
 - **Suspended (owner 2026-11-12, after the weekly reset):** the limit above is out of force until the owner sets it
   again; the coordinator still starts one PR-sized topic per session and keeps parallel sessions off the same files.
+- **Owner 2026-11-22:** the session caps are ignored, and so are the usage warnings (the owner resets the usage at 100 %).
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are

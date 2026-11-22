@@ -16,12 +16,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Rounding/repair: Thingi10K numbers for the #1096 cases | Procedural answer merged; real meshes not run | Owner: run `ResultVolumeIoU` on a runner or not | [repair](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1246 |
-| Rounding/repair: open inputs, inside / outside across patches | Measured, leaning no-go | Owner: name a use case for an opt-in large-hole label source | [note](design/INSIDE_OUTSIDE_OPEN_INPUTS.md), plan #1247 |
-| Alpha wrap: raw-size budget on by default | Off by default, recipe known (300k, coarsening 1.2) | Owner: want it on? Then one 800 run first | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1248 |
-| Tet: lower limit on `MaxRadiusEdgeRatio` | Work bound built; library limit not built | Owner: 1.5, 1.3 or none | [tet](design/TET_MESHING.md), plan #1249 |
 | Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Owner: whether to do it, now that P4(b) is known | [tet](design/TET_MESHING.md), plan #1250 |
-| Tet: 839690 at alpha / 20 needs a boundary change | Beyond the slide cap | Owner: allow a larger boundary move or not | [tet](design/TET_MESHING.md), plan #1251 |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)

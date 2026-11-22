@@ -1141,6 +1141,10 @@ the bound, the parameter, the size bound, reuse and `MaxThreads`, `Similarity.Al
 all 8 runs here (4 inputs x alpha 12 and 40), 1.3 on 6 of 8, 1.2 on 4 of 8, 1.1 on 2 of 8, 1.0 on none; the g3cli `tetmesh` already refuses below 1.5. With (a) in place a library
 limit is no longer needed for the hang, only for the quality of the answer (a run cut at the bound has many bad tets); the owner can choose 1.5 (all
 measured runs end), 1.3 or none.
+
+**Owner 2026-11-22: none (option A, plan #1249).** No library lower limit: the termination threshold depends on the shape and alpha
+(the sphere ends at 1.1, box / 12 fails at 1.3), so a fixed number has no theorem behind it. The work bound (a) stops a runaway cleanly with
+`PointLimitReached` and `Targets.RadiusEdgeMet == false`; the g3cli `tetmesh` keeps its range [1.5, 1000].
 ### 17.11 The rescue lever for the meshes left at alpha / 40 (#1072, 2026-11-18)
 
 The 6 meshes of 17.8 below 10 degrees at the new default go to the parked lever of the backup branch `claude/tet-floor-last4`: a **rescue
@@ -1176,8 +1180,9 @@ reached the target skip the phase (the check of the bad tets costs one scan), so
 **Owner decision (2026-11-18): the rescue phase is on by default, `RescuePasses` = 150.** It changes the output of
 `MeshTetrahedralization` only for meshes that still have a tet below 10 degrees after the main passes. At the old alpha / 20 it gave 36 -> 38
 of 40 on the subset for +2 % time (rows `results/thingi10k-subset-stage2-ab-*-2026-11-17.csv`; at / 40 every subset mesh reaches the target
-in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap, which stays an
-owner decision.
+in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap. **Owner 2026-11-22: no boundary
+change (option A, plan #1251).** The 0.5-offset slide cap stays; alpha / 40 already solves 839690 (10 degrees, 0.68 s), and coarse alpha / 20
+runs on thin parts like it stay at about 6 degrees, a documented limit. An opt-in larger slide cap would only follow a caller that needs it.
 
 ### 17.12 Stage P3: interior size control (2026-11-19)
 

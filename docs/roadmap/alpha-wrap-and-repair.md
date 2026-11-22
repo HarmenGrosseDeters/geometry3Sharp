@@ -640,7 +640,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    inside, and a low `ResultVolumeIoU` with a small Hausdorff distance in both directions means a wall thinner than the offset or a
    hole far larger than alpha, not a defect of the reference; the diagnostic makes it visible, a result is not rejected on it.
    Thingi10K (77958, 79136, 87345) was not run for this (no mesh in the repository, no network in a PR test); `BENCH_REPAIR=robust
-   BENCH_FIDELITY=0` on a runner can add `ResultVolumeIoU` and `fm_oviou` for them if the owner wants the numbers on the real meshes (plan #1246).
+   BENCH_FIDELITY=0` on a runner can add `ResultVolumeIoU` and `fm_oviou` for them if the owner wants the numbers on the real meshes (plan #1246). **Owner 2026-11-22: closed without the run (option A):** the procedural
+   explanation stands.
    Also seen while building the reproducers: a 2.3k-triangle open soup of two spheres (holes of 60 degrees) took 21.9 s at the
    defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it; closed 2026-11-18).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above (plan #1273).
