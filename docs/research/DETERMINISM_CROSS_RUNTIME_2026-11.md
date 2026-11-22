@@ -368,7 +368,7 @@ although they are floating-point code, because their paths use only `+ - * /` an
 is confined to transcendental functions whose value reaches a coordinate (eight example cases, section 3.4). So the boundary is not "exact against floating point" but
 "reaches a platform libm value or not", and that is checkable by a tool (section 4) instead of by judgement.
 
-**Recommended policy** (for `ACCEPTANCE_STRATEGY.md` section 4 and `docs/QA.md`, after the owner's decision):
+**Recommended policy** (adopted by the owner on 2026-11-22: [DETERMINISM.md](../design/DETERMINISM.md) section 6b, the check `DeterminismReach tier` with `tools/DeterminismReach/tier1.txt`, a step of the `linux` job of `determinism.yml`):
 
 | tier | which operation | what the golden master pins | who decides the tier |
 |---|---|---|---|
