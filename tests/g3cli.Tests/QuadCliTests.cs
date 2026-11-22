@@ -357,6 +357,233 @@ namespace g3cli.Tests
             Assert.Equal(new[] { "auto", "obj", "ply" }, a["format"]["enum"].AsArray().Select(S).ToArray());
             Assert.Null(a["edge_length"]["default"]);
             Assert.Contains("1/30", S(a["edge_length"]["description"]));
+            Assert.Equal("off", S(a["size_adaptation"]["default"]));
+            Assert.Equal(new[] { "off", "scale", "scale_and_rotation" }, a["size_adaptation"]["enum"].AsArray().Select(S).ToArray());
+            Assert.Equal(0.0, D(a["curvature_alignment"]["default"]));
+            Assert.False(B(a["align_creases"]["default"]));
+            Assert.Equal(30.0, D(a["crease_angle"]["default"]));
+            Assert.Equal(30.0, D(a["corner_angle"]["default"]));
+        }
+
+        [Fact]
+        public void QualityMetrics_IncludeP95_AndDefaultSizeAdaptationIsOff()
+        {
+            string output = m.Path_("p95_default.obj");
+            var (exit, r) = Quad(m.Sphere, output, "--edge-length", Edge);
+            Assert.Equal(0, exit);
+            Assert.Equal("off", S(r["size_adaptation"]));
+            Assert.False(B(r["size_adaptation_applied"]));
+            Assert.Equal(0.0, D(r["curl_before"]));
+            Assert.Equal(0.0, D(r["curl_after"]));
+            Assert.Equal(1.0, D(r["min_spacing"]));
+            Assert.Equal(1.0, D(r["max_spacing"]));
+            Assert.Equal(0.0, D(r["timings_seconds"]["size_adaptation"]));
+            JsonNode cd = r["quad_quality"]["corner_deviation_degrees"];
+            Assert.True(D(cd["median"]) <= D(cd["p95"]) && D(cd["p95"]) <= D(cd["p99"]) && D(cd["p99"]) <= D(cd["max"]));
+            JsonNode asp = r["quad_quality"]["aspect"];
+            Assert.True(D(asp["median"]) <= D(asp["p95"]) && D(asp["p95"]) <= D(asp["p99"]) && D(asp["p99"]) <= D(asp["max"]));
+        }
+
+        string DenseSphere()
+        {
+            string path = m.Path_("dense_sphere.obj");
+            if (File.Exists(path)) return path;
+            DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 17 }.Generate().MakeDMesh();
+            var w = StandardMeshWriter.WriteMesh(path, s, WriteOptions.Defaults);
+            Assert.Equal(IOCode.Ok, w.code);
+            return path;
+        }
+
+        string SharpBoxFile()
+        {
+            string path = m.Path_("sharp_box.obj");
+            if (File.Exists(path)) return path;
+            var g = new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.7, 0.5)), EdgeVertices = 9 };
+            g.Generate();
+            var w = StandardMeshWriter.WriteMesh(path, g.MakeDMesh(), WriteOptions.Defaults);
+            Assert.Equal(IOCode.Ok, w.code);
+            return path;
+        }
+
+        [Theory]
+        [InlineData("scale")]
+        [InlineData("scale_and_rotation")]
+        public void SizeAdaptation_AppliesAndMatchesLibrary(string mode)
+        {
+            string input = DenseSphere();
+            string output = m.Path_("adapt_" + mode + ".obj");
+            var (exit, r) = Quad(input, output, "--edge-length", "0.25", "--size-adaptation", mode);
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["status"]));
+            Assert.Equal(mode, S(r["size_adaptation"]));
+            Assert.True(B(r["size_adaptation_applied"]));
+            Assert.True(D(r["curl_before"]) > 0);
+            Assert.True(D(r["curl_after"]) < D(r["curl_before"]));
+            Assert.True(D(r["min_spacing"]) > 0 && D(r["min_spacing"]) < D(r["max_spacing"]));
+            Assert.True(D(r["timings_seconds"]["size_adaptation"]) >= 0);
+            Assert.True(B(r["manifold"]));
+            Assert.True(B(r["closed"]));
+            // matches library directly
+            DMesh3 mesh = MeshFiles.Read(input, new List<string>());
+            var qr = new QuadRemesher(mesh) {
+                TargetEdgeLength = 0.25,
+                SizeAdaptation = mode == "scale" ? SizeAdaptationMode.Scale : SizeAdaptationMode.ScaleAndRotation
+            };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(qr.Result.FaceCount, I(r["faces"]["total"]));
+            Assert.Equal(qr.Result.VertexCount, I(r["vertices"]));
+        }
+
+        [Theory]
+        [InlineData("scale")]
+        [InlineData("scale_and_rotation")]
+        public void SizeAdaptation_WithPureQuads_IsAccepted_AndMatchesTheLibrary(string mode)
+        {
+            string output = m.Path_("adapt_pure_" + mode + ".obj");
+            var (exit, r) = Quad(m.Sphere, output, "--edge-length", Edge, "--size-adaptation", mode, "--pure-quads");
+            Assert.Equal(0, exit);
+            Assert.True(File.Exists(output));
+            DMesh3 mesh = MeshFiles.Read(m.Sphere, new List<string>());
+            var qr = new QuadRemesher(mesh) {
+                TargetEdgeLength = double.Parse(Edge, System.Globalization.CultureInfo.InvariantCulture), PureQuads = true,
+                SizeAdaptation = mode == "scale" ? SizeAdaptationMode.Scale : SizeAdaptationMode.ScaleAndRotation
+            };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.NotEqual(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+            Assert.Equal(qr.SizeAdaptationApplied, B(r["size_adaptation_applied"]));
+            Assert.Equal(qr.Result.FaceCount, I(r["faces"]["total"]));
+            Assert.Equal(qr.Result.VertexCount, I(r["vertices"]));
+        }
+
+        [Fact]
+        public void SizeAdaptation_UnknownValue_IsInvalidArguments()
+        {
+            string output = m.Path_("adapt_bad.obj");
+            var (exit, r) = Quad(m.Sphere, output, "--edge-length", Edge, "--size-adaptation", "bogus");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
+        }
+
+        string OpenPatchFile()
+        {
+            string path = m.Path_("open_patch.obj");
+            if (File.Exists(path)) return path;
+            var mesh = new DMesh3();
+            int n = 16;
+            int[,] ids = new int[n + 1, n + 1];
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double x = (double)i / n, y = (double)j / n;
+                    ids[i, j] = mesh.AppendVertex(new Vector3d(x, y, 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y)));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    mesh.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    mesh.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            var w = StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults);
+            Assert.Equal(IOCode.Ok, w.code);
+            return path;
+        }
+
+        string CylinderFile()
+        {
+            string path = m.Path_("aniso_cylinder.obj");
+            if (File.Exists(path)) return path;
+            var g = new CappedCylinderGenerator { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 2.0f, Slices = 24, NoSharedVertices = false };
+            g.Generate();
+            DMesh3 cyl = g.MakeDMesh();
+            var r = new Remesher(cyl) { SmoothSpeedT = 0.5 };
+            r.SetProjectionTarget(MeshProjectionTarget.Auto(new DMesh3(cyl)));
+            r.SetTargetEdgeLength(0.2);
+            for (int k = 0; k < 5; ++k) r.BasicRemeshPass();
+            var w = StandardMeshWriter.WriteMesh(path, new DMesh3(cyl, true), WriteOptions.Defaults);
+            Assert.Equal(IOCode.Ok, w.code);
+            return path;
+        }
+
+        [Fact]
+        public void FieldAndCornerOptions_WorkViaCli_AndMatchLibrary()
+        {
+            // --align-creases + --crease-angle: 30 aligns 90-degree edges, 100 disables them (must differ and match library)
+            string sharp = SharpBoxFile();
+            string outCrease30 = m.Path_("sharp_crease_30.obj"), outCrease100 = m.Path_("sharp_crease_100.obj");
+            var (exit, r) = Quad(sharp, outCrease30, "--edge-length", "0.25", "--align-creases", "--crease-angle", "30");
+            var (exit100, r100) = Quad(sharp, outCrease100, "--edge-length", "0.25", "--align-creases", "--crease-angle", "100");
+            Assert.Equal(0, exit);
+            Assert.Equal(0, exit100);
+            Assert.True(B(r["manifold"]));
+            Assert.True(B(r100["manifold"]));
+            Assert.NotEqual(File.ReadAllText(outCrease30), File.ReadAllText(outCrease100));
+            DMesh3 sharpMesh = MeshFiles.Read(sharp, new List<string>());
+            var qr = new QuadRemesher(sharpMesh) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 30 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            PolyMeshMetrics pm = PolyMeshMetrics.Compute(qr.Result);
+            Assert.Equal(pm.IsManifold && pm.BoundaryVertices == 0, B(r["closed"]));
+            Assert.Equal(qr.Result.FaceCount, I(r["faces"]["total"]));
+            Assert.Equal(qr.Result.VertexCount, I(r["vertices"]));
+
+            var qr100 = new QuadRemesher(sharpMesh) { TargetEdgeLength = 0.25, AlignCreases = true, CreaseAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, qr100.Compute());
+            Assert.Equal(qr100.Result.FaceCount, I(r100["faces"]["total"]));
+            Assert.Equal(qr100.Result.VertexCount, I(r100["vertices"]));
+
+            // --curvature-alignment: changes output on an anisotropic cylinder relative to default 0 and matches library
+            string cyl = CylinderFile();
+            string outCurv0 = m.Path_("cyl_curv0.obj"), outCurv3 = m.Path_("cyl_curv3.obj");
+            var (ec0, rc0) = Quad(cyl, outCurv0, "--edge-length", "0.35");
+            var (ec3, rc3) = Quad(cyl, outCurv3, "--edge-length", "0.35", "--curvature-alignment", "3");
+            Assert.Equal(0, ec0);
+            Assert.Equal(0, ec3);
+            Assert.True(B(rc3["manifold"]));
+            Assert.NotEqual(File.ReadAllText(outCurv0), File.ReadAllText(outCurv3));
+            DMesh3 cylMesh = MeshFiles.Read(cyl, new List<string>());
+            var qrc = new QuadRemesher(cylMesh) { TargetEdgeLength = 0.35, CurvatureAlignment = 3 };
+            Assert.Equal(QuadRemeshStatus.Success, qrc.Compute());
+            Assert.Equal(qrc.Result.FaceCount, I(rc3["faces"]["total"]));
+            Assert.Equal(qrc.Result.VertexCount, I(rc3["vertices"]));
+
+            // SizeAdaptation requested on a sharp box where curl does not drop enough -> applied false, spacing stays 1
+            string outNoAdapt = m.Path_("sharp_no_adapt.obj");
+            var (exitNa, rNa) = Quad(sharp, outNoAdapt, "--edge-length", "0.25", "--size-adaptation", "scale");
+            Assert.Equal(0, exitNa);
+            Assert.Equal("scale", S(rNa["size_adaptation"]));
+            Assert.False(B(rNa["size_adaptation_applied"]));
+            Assert.Equal(1.0, D(rNa["min_spacing"]));
+            Assert.Equal(1.0, D(rNa["max_spacing"]));
+
+            // --corner-angle: 30 vs 100 on an open patch with four 90-degree corners must differ and match library
+            string patch = OpenPatchFile();
+            string outCorner30 = m.Path_("patch_corner_30.obj"), outCorner100 = m.Path_("patch_corner_100.obj");
+            var (ep30, rp30) = Quad(patch, outCorner30, "--edge-length", "0.14", "--corner-angle", "30");
+            var (ep100, rp100) = Quad(patch, outCorner100, "--edge-length", "0.14", "--corner-angle", "100");
+            Assert.Equal(0, ep30);
+            Assert.Equal(0, ep100);
+            Assert.True(B(rp100["manifold"]));
+            Assert.NotEqual(File.ReadAllText(outCorner30), File.ReadAllText(outCorner100));
+            DMesh3 patchMesh = MeshFiles.Read(patch, new List<string>());
+            var qr2 = new QuadRemesher(patchMesh) { TargetEdgeLength = 0.14, CornerAngleDegrees = 100 };
+            Assert.Equal(QuadRemeshStatus.Success, qr2.Compute());
+            Assert.Equal(qr2.Result.FaceCount, I(rp100["faces"]["total"]));
+            Assert.Equal(qr2.Result.VertexCount, I(rp100["vertices"]));
+        }
+
+        [Theory]
+        [InlineData("--curvature-alignment", "-0.5")]
+        [InlineData("--curvature-alignment", "nan")]
+        [InlineData("--curvature-alignment", "inf")]
+        [InlineData("--crease-angle", "-1")]
+        [InlineData("--crease-angle", "181")]
+        [InlineData("--crease-angle", "nan")]
+        [InlineData("--corner-angle", "-1")]
+        [InlineData("--corner-angle", "181")]
+        [InlineData("--corner-angle", "nan")]
+        public void InvalidFieldOrCornerOption_ReturnsInvalidArguments_NothingWritten(string flag, string value)
+        {
+            string output = m.Path_("bad_opt_" + flag.TrimStart('-') + "_" + value + ".obj");
+            var (exit, r) = Quad(m.Sphere, output, "--edge-length", Edge, flag, value);
+            AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
         }
     }
 }

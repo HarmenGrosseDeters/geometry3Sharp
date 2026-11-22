@@ -1,0 +1,8 @@
+# 20000 pairs per family; per method: wrong decisions | wrong corner counts | results not equal to the rounded exact corners | farther than 1 ulp | largest deviation (ulps of the largest coordinate) | ms for all pairs
+family | intersecting | point or segment | exact: ms, max bits | IntrTriangle2Triangle2.Find | IntrTriangle3Triangle3.Find (coplanar)
+lattice 0..4 (shared corners, collinear edges) | 15969 | 3343 | 180.5, 7 | 3343 | 8 | 9245 | 17 | 3 | 16.8 | 0 | 0 | 0 | 0 | 0 | 223.4
+lattice 0..16 | 13322 | 476 | 140.8, 12 | 475 | 3 | 11927 | 489 | 47.5 | 6.0 | 0 | 0 | 0 | 0 | 0 | 167.9
+uniform doubles in [0, 1) | 12878 | 0 | 623.9, 182 | 0 | 0 | 12707 | 3929 | 1.9E+04 | 4.0 | 0 | 0 | 0 | 0 | 0 | 257.7
+uniform doubles in [0, 1) + 1e6 | 12878 | 0 | 566.8, 120 | 0 | 0 | 12673 | 6620 | 1.98E+04 | 5.9 | 0 | 0 | 0 | 0 | 0 | 303.4
+a triangle and its copy turned by 1e-9 about a corner | 20000 | 0 | 573.3, 175 | 0 | 5389 | 19780 | 16175 | 3.98E+09 | 5.7 | 0 | 0 | 0 | 0 | 0 | 254.0
+a corner at the midpoint of the other's edge (T-junction) | 18297 | 1406 | 801.7, 178 | 1541 | 5007 | 16536 | 5513 | 1.2E+04 | 4.6 | 0 | 0 | 0 | 0 | 0 | 277.2

@@ -79,6 +79,7 @@ namespace gs
         double[] vInEdgeT;
 
 
+        /// <param name="mesh"> input triangle mesh to build the intrinsic triangulation on </param>
         /// <param name="mollifyFactor"> minimum triangle inequality margin, relative to the mean edge length </param>
         public IntrinsicTriangulation(DMesh3 mesh, double mollifyFactor = 1e-6)
         {

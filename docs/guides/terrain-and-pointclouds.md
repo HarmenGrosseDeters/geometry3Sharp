@@ -6,7 +6,8 @@ This guide covers height grids (DGM/DTM) and error-certified TIN generation (`He
 
 ## Height Grids (DGM / DTM) & Certified TINs
 
-- **Namespace & classes:** `g3.HeightGrid`, `g3.HeightGridReader`, `g3.HeightGridWriter`, `gs.TerrainGridTin`, `g3.TerrainBreakline`
+- **Namespace & classes:** `g3.HeightGrid`, `g3.HeightGridReader`, `g3.HeightGridWriter`, `gs.TerrainGridTin`, `gs.TerrainBreakline`
+- **Example:** [TerrainToolsExample.cs](../examples/TerrainToolsExample.cs)
 - **Input / mutability:** Reads regular-lattice XYZ ASCII and ESRI ASCII Grid (`.asc`) rasters with no-data gaps (status codes instead of exceptions).
 - **Guarantees & limits:**
   - `HeightGrid.BuildMesh` builds the full 2-triangles-per-cell grid TIN.
@@ -76,12 +77,15 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success
 | Terrain dual contouring & safety lines | `gs.TerrainDualContouring`, `gs.TerrainSafetyLines` | Deterministic overlap removal; bounded safety-line certification (`MaxCertifySteps`, `MaxSourcePoints`, `MaxRefinedTriangles`) |
 | LiDAR ground classification | `gs.ClothSimulationFilter` | Separates ground vs. non-ground points from 3D point clouds (Zhang et al. 2016) |
 
+- **Example:** [TerrainToolsExample.cs](../examples/TerrainToolsExample.cs)
+
 ---
 
 ## Point Cloud Processing
 
 Read and write point sets via `StandardMeshReader` / `StandardMeshWriter` using `.xyz` (`x y z` or `x y z nx ny nz`) or face-less `.ply` (loads as a vertex-only `DMesh3`).
 
+- **Example:** [PointCloudExample.cs](../examples/PointCloudExample.cs)
 - **Further reading:** [POINT_CLOUD_RECONSTRUCTION.md](../design/POINT_CLOUD_RECONSTRUCTION.md)
 
 ### 1. Alpha Wrapping Point Clouds (`MeshAlphaWrap`)

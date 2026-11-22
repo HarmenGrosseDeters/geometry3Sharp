@@ -1,0 +1,59 @@
+| shape | scale / ratio | S | faces (stage 2) | irregular (stage 2) | curl mass C | C per 1000 faces | PureQuadStatus |
+|---|---|---|---|---|---|---|---|
+| sphere | 1 / 0.5 | 8 | 1274 | 75 | 64.9 | 50.9 | Success |
+| sphere | 0.8 / 0.5 | 8 | 1997 | 98 | 84.5 | 42.3 | BudgetExceeded |
+| sphere | 1.25 / 0.5 | 8 | 831 | 67 | 54.6 | 65.8 | BudgetExceeded |
+| sphere | 1.5 / 0.5 | 8 | 565 | 48 | 45.7 | 80.9 | Success |
+| sphere | 1 / 0.35 | 8 | 1258 | 64 | 64.9 | 51.6 | BudgetExceeded |
+| sphere | 1 / 0.7 | 8 | 1275 | 69 | 66.8 | 52.4 | Success |
+| torus | 1 / 0.5 | 12 | 1413 | 76 | 72.2 | 51.1 | Success |
+| torus | 0.8 / 0.5 | 12 | 2185 | 104 | 89.1 | 40.8 | OrientationFolds |
+| torus | 1.25 / 0.5 | 12 | 893 | 48 | 59.0 | 66.1 | BudgetExceeded |
+| torus | 1.5 / 0.5 | 12 | 621 | 60 | 50.0 | 80.6 | OrientationFolds |
+| torus | 1 / 0.35 | 12 | 1418 | 66 | 71.2 | 50.2 | Success |
+| torus | 1 / 0.7 | 12 | 1394 | 75 | 73.6 | 52.8 | Success |
+| torus-align10 | 1 / 0.5 | 0 | 1399 | 106 | 88.9 | 63.5 | Success |
+| torus-align10 | 0.8 / 0.5 | 0 | 2183 | 116 | 110.5 | 50.6 | Success |
+| torus-align10 | 1.25 / 0.5 | 0 | 890 | 79 | 71.5 | 80.3 | Success |
+| torus-align10 | 1.5 / 0.5 | 0 | 616 | 56 | 60.2 | 97.7 | Success |
+| torus-align10 | 1 / 0.35 | 0 | 1400 | 93 | 88.5 | 63.2 | Success |
+| torus-align10 | 1 / 0.7 | 0 | 1376 | 108 | 89.9 | 65.3 | Success |
+| bumpy | 1 / 0.5 | 16 | 3532 | 174 | 138.6 | 39.2 | BudgetExceeded |
+| bumpy | 0.8 / 0.5 | 16 | 5569 | 228 | 174.4 | 31.3 | BudgetExceeded |
+| bumpy | 1.25 / 0.5 | 16 | 2293 | 139 | 110.7 | 48.3 | BudgetExceeded |
+| bumpy | 1.5 / 0.5 | 14 | 1590 | 107 | 91.7 | 57.7 | Success |
+| bumpy | 1 / 0.35 | 16 | 3554 | 169 | 139.7 | 39.3 | BudgetExceeded |
+| bumpy | 1 / 0.7 | 16 | 3537 | 173 | 137.4 | 38.8 | BudgetExceeded |
+| filleted-box | 1 / 0.5 | 8 | 1732 | 16 | 29.0 | 16.7 | Success |
+| filleted-box | 0.8 / 0.5 | 8 | 2710 | 22 | 31.4 | 11.6 | BudgetExceeded |
+| filleted-box | 1.25 / 0.5 | 8 | 1106 | 22 | 23.5 | 21.2 | Success |
+| filleted-box | 1.5 / 0.5 | 8 | 743 | 27 | 23.2 | 31.2 | Success |
+| filleted-box | 1 / 0.35 | 8 | 1723 | 8 | 23.6 | 13.7 | Success |
+| filleted-box | 1 / 0.7 | 8 | 1750 | 27 | 30.4 | 17.4 | Success |
+| noisy-sphere | 1 / 0.5 | 8 | 1272 | 92 | 99.3 | 78.1 | BudgetExceeded |
+| noisy-sphere | 0.8 / 0.5 | 8 | 1994 | 123 | 135.5 | 67.9 | BudgetExceeded |
+| noisy-sphere | 1.25 / 0.5 | 8 | 828 | 60 | 69.6 | 84.1 | Success |
+| noisy-sphere | 1.5 / 0.5 | 8 | 579 | 59 | 58.2 | 100.5 | BudgetExceeded |
+| noisy-sphere | 1 / 0.35 | 8 | 1286 | 96 | 116.1 | 90.3 | BudgetExceeded |
+| noisy-sphere | 1 / 0.7 | 8 | 1271 | 112 | 94.5 | 74.3 | BudgetExceeded |
+| capsule | 1 / 0.5 | 8 | 1089 | 91 | 72.6 | 66.7 | BudgetExceeded |
+| capsule | 0.8 / 0.5 | 8 | 1731 | 129 | 92.3 | 53.3 | BudgetExceeded |
+| capsule | 1.25 / 0.5 | 8 | 729 | 66 | 57.7 | 79.2 | BudgetExceeded |
+| capsule | 1.5 / 0.5 | 10 | 496 | 50 | 46.6 | 93.9 | BudgetExceeded |
+| capsule | 1 / 0.35 | 10 | 1079 | 69 | 72.7 | 67.4 | BudgetExceeded |
+| capsule | 1 / 0.7 | 12 | 1103 | 82 | 70.8 | 64.2 | BudgetExceeded |
+| genus2 | 1 / 0.5 | 20 | 2619 | 148 | 133.2 | 50.9 | Success |
+| genus2 | 0.8 / 0.5 | 20 | 4077 | 203 | 166.1 | 40.7 | Success |
+| genus2 | 1.25 / 0.5 | 20 | 1688 | 120 | 106.8 | 63.3 | Success |
+| genus2 | 1.5 / 0.5 | 20 | 1168 | 80 | 90.0 | 77.1 | Success |
+| genus2 | 1 / 0.35 | 20 | 2617 | 128 | 132.7 | 50.7 | Success |
+| genus2 | 1 / 0.7 | 20 | 2596 | 127 | 134.4 | 51.8 | Success |
+| capped-cylinder | 1 / 0.5 | 8 | 1280 | 85 | 90.0 | 70.3 | BudgetExceeded |
+| capped-cylinder | 0.8 / 0.5 | 8 | 2005 | 105 | 109.4 | 54.6 | BudgetExceeded |
+| capped-cylinder | 1.25 / 0.5 | 8 | 825 | 65 | 67.1 | 81.3 | BudgetExceeded |
+| capped-cylinder | 1.5 / 0.5 | 8 | 571 | 59 | 53.2 | 93.2 | BudgetExceeded |
+| capped-cylinder | 1 / 0.35 | 8 | 1265 | 88 | 80.9 | 63.9 | BudgetExceeded |
+| capped-cylinder | 1 / 0.7 | 8 | 1276 | 94 | 85.3 | 66.8 | OrientationFolds |
+
+curl mass per 1000 faces: Success (25 runs) median 51.8, range 13.7-97.7; other statuses (29 runs) median 66.1, range 11.6-100.5
+lower half by curl per face: 16 of 27 Success; upper half: 9 of 27

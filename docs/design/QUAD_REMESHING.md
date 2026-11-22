@@ -288,16 +288,16 @@ Owner decisions (2026-11-17, after this study):
 matches theory (8 x +1/4 on the sphere, the filleted box and the noisy sphere; 0 on the curvature-aligned torus and on
 the noisy aligned torus, 12 singular faces on the smoothest torus); bit-for-bit under 2^k scales; deterministic.
 
-**Speed gate (owner 2026-11-17): met on the sphere and the torus, open on the noisy torus.** Stage 1 as first merged took
+**Speed gate: met on all benchmark shapes, including the noisy torus (updated 2026-11-20; `#1136`, `#1141`, `#1143`).** Stage 1 as first merged took
 5.3-6.7 s per 55-60k vertices (serial: 3.9 s of sparse Cholesky and 0.8-1.6 s of solves). The sequence that brought it down, all
 bit-identical to the code before it (golden hashes in the tests): the n x n complex Hermitian factorization
-(`SparseHermitianCholesky`), the parallel pre/post loops, bit-identical vector kernels for the dense dot products of both
-Cholesky classes (four products at once, `SparseCholeskyKernels`, `SparseHermitianCholeskyKernels`), and one shared ordering and
-symbolic analysis with the structure of L computed once (`CholeskyAnalysis`). End to end, `CrossFieldBenchmark h=0.017`, one
-thread, best of 3 (s, before / after the vector kernels of `SparseHermitianCholesky`, measured on master 464988c8 and
-f4f7de6f):
+(`SparseHermitianCholesky`, `#1099`), the parallel pre/post loops, bit-identical vector kernels for the dense dot products of both
+Cholesky classes (four products at once, `SparseCholeskyKernels`, `SparseHermitianCholeskyKernels`, `#1103`), one shared ordering and
+symbolic analysis with the structure of L computed once (`CholeskyAnalysis`), **parallel solves** (`#1136`), **parallel numeric factorization** (`#1141`), and parallel `ParamMesh` triangle frames / bowtie check (`#1143`).
 
-| shape | field | V | solves | before | after |
+Serial baseline after the vector kernels (`CrossFieldBenchmark h=0.017`, one thread, best of 3, master 464988c8 vs f4f7de6f):
+
+| shape | field | V | solves | before | after (serial) |
 |---|---|---|---|---|---|
 | sphere | smoothest | 54944 | 6 | 1.61 | 1.36 |
 | sphere | aligned | 54944 | 6 | 1.71 | 1.37 |
@@ -306,26 +306,9 @@ f4f7de6f):
 | noisy torus | smoothest | 60712 | 34 | 3.24 | 2.90 |
 | noisy torus | aligned | 60712 | 21 | 2.43 | 2.16 |
 
-That is 1.2-1.4 s per 50k vertices on the sphere and the torus, serial (the gate is 2 s per 50k on 4 cores), and 1.8-2.4 s per 50k
-on the noisy torus (21 to 34 solves; the smoothest one is the only case over the gate, even serial). The index histograms are unchanged.
+With parallel solves (`#1136`) and parallel numeric factorization (`#1141`) on 4 cores, `noisy-torus smoothest` (60,712 V, 34 solves) drops to **1.96 s** (**1.61 s per 50k vertices**, `noisy-torus aligned`: 1.48 s, `sphere smoothest`: ~0.75-0.85 s), meeting the 2 s per 50k vertices gate on every shape. The index histograms and bits are unchanged.
 
-Where the time goes now (the same runs with temporary stopwatch prints, s; sphere / torus smoothest / noisy torus smoothest):
-minimum degree ordering 0.22 / 0.24 / 0.23, rest of the analysis 0.08, numeric factorization 0.48 / 0.5 / 0.5, solves 0.28 (6) /
-0.5 (14) / 1.2 (34), everything else (frames, curvature, assembly, per-face results) 0.33 / 0.35 / 0.33; total 1.4 / 1.7 / 2.9.
-The levers that remain, with their upper bounds (none is built; the speed sequence stopped here, owner 2026-11-17, because the
-gate is met serially on the sphere and the torus and the pipeline is paused at stage 3B):
-- **Parallel solves**: the solves are 20 % (sphere) to 40 % (noisy torus) of the total. The solve tree has a critical path of about a
-  third of its serial time (a subtree-parallel bound of 2.4x to 3x on 4 cores, about 4x with parallel dense blocks), but parallel
-  subtrees scatter into shared ancestor entries, so a fixed order needs per-supernode contribution buffers applied in the serial
-  order. Upper bound for the noisy torus: 1.2 s to about 0.4 s.
-- **Parallel numeric factorization**: 0.5 s; one root supernode holds 36-56 % of the numeric time of the real 2n form (the same
-  shape for the n x n form), so subtree parallelism alone gives only 1.4x and the dense kernels inside the large supernodes need
-  parallel work as well (bit-identical is feasible: update order per supernode fixed from the structure, rows pipelined behind earlier rows
-  with the dot order of every entry unchanged). Upper bound 0.5 s to about 0.15 s on 4 cores. A nested dissection ordering would
-  give 1.8x fewer flops and half the critical path, but it changes the factor and the results (an owner decision).
-- **The ordering** (approximate minimum degree): 0.22-0.26 s, 8-16 % of the total; a faster implementation with the same result
-  saves at most that, about half of it realistically.
-- **The rest** (0.33 s): per-vertex and per-face loops, parallel with `gParallel` without changing a bit.
+What remains in the solver (not scheduled, gate met): the serial approximate minimum degree ordering (0.20-0.25 s; a parallel version would have to keep the exact permutation) and the 25 serial top supernodes of the solves; a nested dissection ordering would give 1.8x fewer flops and a shorter critical path, but changes the factor and the results (owner decision).
 Numbers and the method: [benchmarks/SparseCholeskyBenchmark/README.md](../../benchmarks/SparseCholeskyBenchmark/README.md).
 
 ### 4.2 Stage 2 status (2026-11-17): built, the irregular-vertex gate is the no-go
@@ -468,6 +451,31 @@ box at scale 1.25: 0.52 s), corner deviation p95 <= 15 degrees on 17 / 25 (stage
 option is useful as an opt-in only. Largest stage on clean rows and on fallbacks: the min-cost flow (50 % / 54 % of the attempt), then the
 SAT (20 % / 40 %); the numbers are in the benchmark README.
 
+**Fold diagnosis (`runs/quad-folds`, `benchmarks/QuadFoldDiagnosis`, 2026-11-19, measurement only):** on the 54 gate runs, raising the SAT budget 10x or 100x saves **0 / 26** `BudgetExceeded` rows (only 2 / 3 `OrientationFolds`), confirming the fallbacks are structural rather than budget-limited. Nearly 100 % of persistent folds are locally un-inverted by taking back one flow correction, and folds are distributed across the surface rather than concentrated at seams; however, two penalized flow re-solves on persistent folds only lift clean runs from **25 / 54 to 28 / 54** while more than doubling total time (21.9 s -> 46.6 s). Owner plan (2026-11-20): build stage 4 sharp features next, then run an upper-bound spike of the 3B flow on the size-adapted position field (`IntegrableFrames`).
+
+### 4.4a Stage 3B flow and sizing update (2026-11-21)
+
+Three targeted improvements in `QuadFlowRepair` and `QuadRemesher` cut the stage 3B fallback rate on the 54-run `QuadFlow3BGate` suite from **54 % to 20 %** (uniform spacing) and **11 %** (with `SizeAdaptation = ScaleAndRotation`), with **0 undetected bad** and default (`PureQuads = false`) output unchanged bit for bit:
+
+1. **Geometric sign reference (`rGeoA`) for `SignPenalty`:** previously `StepCost` checked `b * rA < 0`, where `rA ≈ (o_v - o_u) / s` collapses to `±0.01` smoothing noise on every converged `d = (0, 0)` edge, randomly blocking valid flow steps and inducing 100–500 inverted triangles right out of `SolveFlow`. Using the geometric edge projection `rGeoA[e] = 0.5 * ((P[v] - P[u]) · q_u / s_u + (P[v] - P[u]) · b / s_v)` for `SignPenalty` (while keeping `rA` for `MarginalCost`) drops flow-induced folds near zero and reduces total SAT time across clean rows from `0.65 s` to `0.04–0.08 s`.
+2. **Cost-guided fixed-edge balancing:** in `SolveFlow()`, each balancing round now picks the lowest-cost unbalanced edge (preferring `|d| <= 1`) instead of repeatedly adjusting the first unbalanced edge up to `|d| = 8..9`, preventing artificial capacity blowups (`H = 10`) and extra supply.
+3. **Local spacing (`SizeAdaptation` + `PureQuads`) and nearest-triangle flip check:** `BuildOffsets()` and `SolvePositions()` now scale by `PositionField.SpacingFactors` (`s * spc[v]`), lifting the `InvalidInput` block between `SizeAdaptation` and `PureQuads`. `Extract()` checks unprojected quad normals, projected quad normals against cluster normals, and projected quad normals against the nearest input triangle at the quad center (`0` undetected bad).
+
+Measured (`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=0`, `adapt=1`, `adapt=2`, 54 runs, net10.0 Release, single-run `repeat=1`):
+
+| configuration | clean / fallback / bad | per-shape clean (of 6): sph / tor / tor10 / bmp / box / nsp / cap / g2 / cyl | time gate (clean) | irregular gate | Hausdorff <= 0.5 s | corner p95 <= 15 deg | ratio med / max | SAT sum clean (s) |
+|---|---|---|---|---|---|---|---|---|
+| baseline (`adapt=0`, 2026-11-19) | 25 / 29 / 0 | 3 / 3 / 6 / 1 / 5 / 1 / 0 / 6 / 0 | 25 / 25 | 25 / 25 | 24 / 25 | 17 / 25 | 2.6 / 8.9 | 0.65 |
+| updated (`adapt=0`, uniform) | **43 / 11 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / 0 | 41 / 43 | **43 / 43** | 41 / 43 | 20 / 43 | 2.5 / 5.3 | **0.04** |
+| updated (`adapt=1`, `Scale`) | **43 / 11 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / 0 | **43 / 43** | **43 / 43** | **42 / 43** | 26 / 43 | 1.6 / 3.0 | **0.05** |
+| updated (`adapt=2`, `ScaleAndRotation`) | **48 / 6 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / **5** | **48 / 48** | **48 / 48** | 42 / 48 | **29 / 48** | **1.4 / 2.0** | **0.08** |
+
+Notes on the balancing and the flip check: `GreedyWorkLimit` counts heap operations (initial pushes, pops and re-pushes after a move; before the heap it counted edge visits), and the selection is the lowest-cost improving move, not the first one in edge order. The nearest-triangle flip check in `Extract()` is conservative on walls thinner than the edge length (the nearest input triangle to a quad midpoint can lie on the far side of the wall): such a quad counts as flipped and the result falls back to stage 2, never a wrong success.
+
+Approximation with `SizeAdaptation`: the integer offsets are counts in the local lattice units, and `SolvePositions` turns the three offsets of a triangle into 3D with one spacing per triangle (the one at its frame vertex), so the target vectors are only approximately right where the spacing gradient is large; this is why the Hausdorff and corner gates pass on fewer rows with `ScaleAndRotation` (42 / 48 and 29 / 48) than the fallback rate suggests. The "54 % to 11 %" headline counts only the fallbacks, not the quality gates of the accepted rows (table above). A zero-area nearest input triangle skips only the surface-orientation part of the flip check (the cluster-normal checks stay).
+
+Remaining limit (`capsule`, 1/6): with `CurvatureAlignment = 0`, all four `+1/4` singularities sit tightly clustered at each hemispherical cap (`unbal = 25..107`) with no cut edges crossing the barrel; by Stokes' theorem the barrel circumference integral is locked to the small sum of fixed cap edges, causing the flow to collapse the barrel regardless of flow costs. On `capped-cylinder`, `ScaleAndRotation` resolves the cap/barrel spacing mismatch (`0.45..1.58 s`) and raises clean runs from `0/6` to `5/6`.
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
@@ -536,7 +544,28 @@ field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOf
 - **Open boundaries:** boundary vertices' `phi` columns are eliminated directly in `Linearize` (fixing Gauss-Newton stalling on `open-patch` with `ScaleAndRotation`, which previously stalled at curl 2.1 -> 1.9 and was not applied), and `IntegrableFrames.BoundarySpacingWeight` (default `0.05`, with an exact KKT projection for the mean-zero gauge) regularizes boundary log spacing toward 0. Measured via `dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- adapt=1|2` (`master 976ef22` -> branch): `sphere-cap` `Scale` one-sided Hausdorff drops from **0.64 s to 0.37 s** (inside the 0.5 s gate; quads 94.4 -> 94.8 %); `sphere-cap` `ScaleAndRotation` improves from 88 -> **65** irregular vertices, 95.0 -> **96.2 %** quads, and corner p95 18.3 -> **13.4** degrees (Hausdorff 0.37 s); `open-patch` `ScaleAndRotation` is now applied (9 -> 7 irregular, 99.2 -> 99.5 % quads, corner p95 4.9 -> 2.7 degrees, Hausdorff 0.05 s). Closed shapes are bit-identical (`digest=1`).
 - **User sizing field (opt-in):** `IntegrableFrames.SizeFunction` (`Func<Vector3d, double>`, compatible with `RemeshSizing.FromWallThickness`) and `SizeWeight` (default `1.0`), wired onto `QuadRemesher.SizeFunction` (default `null`). Invalid samples (`NaN`, `<= 0`, infinity) are ignored and counted in `InvalidSizeSamples`. When at least one used vertex has a valid sample and `SizeWeight > 0`, the mean-log-spacing = 0 gauge is omitted so absolute edge lengths are preserved, and `QuadRemesher` applies the field without requiring the `SizeAdaptationMinGain` curl drop (combining `SizeFunction` with `PureQuads` returns `InvalidInput`).
 
-Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), features in the solver.
+
+Since 2026-11-21 (§4.4a), `SizeAdaptation` and `SizeFunction` combine with `PureQuads` (`QuadFlowRepair` uses the per-vertex spacing in both `BuildOffsets` and `SolvePositions`). Not done, so open: the dislocations that remain (about half) in stage 2, features in the solver.
+
+Research spike 2026-11-22 ([QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md), `benchmarks/QuadSeamlessSeedSpike`): a spacing and rotation from a conformal cone metric with the field's cones (an oracle for a seamless-parametrization seed, spacing clamped at 0.7, same cell count) cuts the irregular vertices of 9 closed shapes from 863 (uniform) and 493 (the best of Scale and ScaleAndRotation) to 407, against 88 singular faces; the pure-quad success rate did not move in an exploratory run; options and leaning are in the note, nothing is built.
+
+### 4.6 Stage 4 built (2026-11-21): sharp feature / crease preservation, opt-in
+
+Built as `PositionField.PreserveCreases` and `QuadRemesher.PreserveCreases` (default `false`: output is bit for bit identical to without the option) with `CreaseAngleDegrees` (default `30`):
+
+- **Detection & classification (`PositionField.BuildFinest`):** interior sharp edges above `CreaseAngleDegrees` from `MeshTopology.CreaseEdges` (matching `CrossField.AlignCreases`) are marked as feature edges alongside boundary edges. Smooth crease vertices (crease degree 2, turn `<= CornerAngleDegrees`, not on an open boundary) get `Kind = 1` (lattice line along the crease tangent `D`, perpendicular removed via `Cb = N x D`); crease junctions (degree != 2), sharp crease corners (turn `> CornerAngleDegrees`), and boundary-crease junctions get `Kind = 2` (fixed lattice points).
+- **Hierarchy & extraction:** in `Coarsen()`, `Kind = 1` vertices merge only along feature edges (`AB`) and `Kind = 2` corners never merge. During prolongation, `Kind = 1` vertices project onto `Cb` as well as `N`. In `QuadRemesher.Extract`, crease/corner clusters take both position and normal from their highest-kind members (so interior faces do not skew crease vertex normals in `BuildFaces`), and `CleanupGraph` keeps higher-kind corner and crease positions and normals fixed against interior collapses. When `QuadRemesher.Field` is `null` and `PreserveCreases` is `true`, `CrossField` is computed with `AlignCreases = true` and `CreaseAngleDegrees`. `CreaseAngleDegrees` is the one threshold of the field and of the lattice constraints; `CornerAngleDegrees` also classifies the crease corners (a crease vertex where the crease turns by more than it is a fixed lattice point); `PreserveCreases` implies `AlignCreases` for the computed field. `PreserveCreases` together with `PureQuads` is `InvalidInput` (the repair does not keep the feature curves: on a sharp box the combination used to report `PureQuadStatus.Success` with the feature coverage falling from 100 % to about 41 % and the feature Hausdorff rising from 0 to 0.59); making the repair keep feature curves is the Phase 4c measurement. Known limit: a zero-area input triangle has a zero normal, so all its edges count as creases (`MeshTopology`) and its vertices become lattice constraints with `PreserveCreases`; clean degenerate triangles first.
+
+Measured against the stage 4 feature gates (`> 95 %` feature length coverage within `0.1 s` and `10 deg`, feature angle p95 `<= 10 deg`, feature Hausdorff `<= 0.1 s`, manifold) via `dotnet run -c Release --project benchmarks/QuadRemeshBenchmark -- sharp=1 creases=0|1` (net10.0 Release; procedural CAD shapes isotropically remeshed at `h = 0.5 s` with `PreventNormalFlips = true, MinTriangleQuality = 0.2, PreserveBoundaryAndFeatures`):
+
+| shape | s | creases=0: cov % / ang p95 / feat Haus / surf Haus / quads % | creases=1: cov % / ang p95 / feat Haus / surf Haus / quads % | manifold |
+|---|---|---|---|---|
+| sharp-box | 0.1 | 1.4 / 22.8 / 0.565 s / 0.40 s / 97.3 | **100.0 / 0.0 / 0.000 s / 0.03 s / 99.5** | yes |
+| sharp-cylinder | 0.1 | 14.6 / 21.9 / 0.505 s / 0.30 s / 92.9 | **99.5 / 1.7 / 0.052 s / 0.08 s / 92.3** | yes |
+| l-profile | 0.08 | 57.1 / 2.4 / 0.520 s / 0.31 s / 95.9 | **100.0 / 0.0 / 0.000 s / 0.02 s / 98.5** | yes |
+| gear | 0.06 | 17.4 / 6.6 / 0.596 s / 0.42 s / 91.7 | **100.0 / 0.0 / 0.000 s / 0.04 s / 91.8** | yes |
+
+All four shapes meet every stage 4 gate at both `scale=1` and `scale=0.5` (`sharp-box` 100.0 % / 0.0 deg / 0.000 s; `sharp-cylinder` 99.2 % / 1.3 deg / 0.049 s; `l-profile` 100.0 % / 0.0 deg / 0.010 s; `gear` 100.0 % / 0.0 deg / 0.000 s, 95.2 % quads). Tests: `QuadCreasePreservationTests` (all four CAD shapes, exact 8 box corners, 120-deg sharp ridge prism, open L-bent sheet with boundary-crease junctions, degree-1 endpoint / degree-2 sharp turn / degree-4 junction classification, `PositionField` multi-level zero-sweep constraint check, explicit `Field`, threshold/smooth bit-identity, `SizeAdaptation` `Scale` and `ScaleAndRotation` composition with `SizeAdaptationApplied == true`, `Similarity.All()`, determinism, reuse).
 
 ## 5. Limits and recommendation
 

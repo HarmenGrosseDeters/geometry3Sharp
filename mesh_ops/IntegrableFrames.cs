@@ -11,7 +11,7 @@ namespace gs
         Success = 0,
         /// <summary> no mesh, a failed cross field, a target edge length that is not positive and finite, or invalid settings </summary>
         InvalidInput = 1,
-        /// <summary> no triangle without a field singularity, or the solver found no usable step (the result is the uniform spacing) </summary>
+        /// <summary> no vertex with a field, no triangle without a field singularity, non-finite edge vectors, or the initial Cholesky factorization failed (the result stays the uniform spacing) </summary>
         NoSolution = 2
     }
 
@@ -100,6 +100,8 @@ namespace gs
         public int TrianglesUsed, StepsTaken;
         /// <summary> vertices with a field where SizeFunction returned a valid (positive, finite) or invalid (NaN, non-positive, infinite) value; both 0 when SizeFunction is null; reset by Compute() </summary>
         public int ValidSizeSamples, InvalidSizeSamples;
+        /// <summary> valid SizeFunction samples whose log ratio to TargetEdgeLength was clamped to [-log(MaxSpacingRatio), log(MaxSpacingRatio)]: the requested size is not reached there (a target more than MaxSpacingRatio times larger or smaller than TargetEdgeLength is silently limited); a subset of ValidSizeSamples; reset by Compute() </summary>
+        public int ClampedSizeSamples;
         public double MinSpacing = 1, MaxSpacing = 1;
         /// <summary> the largest rotation in degrees </summary>
         public double MaxRotationUsedDegrees;
@@ -114,7 +116,7 @@ namespace gs
         public IntegrableFramesStatus Compute()
         {
             Status = IntegrableFramesStatus.Success; Error = null; Spacing = null; Rotation = null;
-            CurlBefore = CurlAfter = 0; UnknownsPerVertex = 0; SizeTargetApplied = false; TrianglesUsed = 0; StepsTaken = 0; ValidSizeSamples = InvalidSizeSamples = 0; MinSpacing = MaxSpacing = 1; MaxRotationUsedDegrees = 0; Seconds = 0;
+            CurlBefore = CurlAfter = 0; UnknownsPerVertex = 0; SizeTargetApplied = false; TrianglesUsed = 0; StepsTaken = 0; ValidSizeSamples = InvalidSizeSamples = ClampedSizeSamples = 0; MinSpacing = MaxSpacing = 1; MaxRotationUsedDegrees = 0; Seconds = 0;
             if (Mesh == null || Field == null || !Field.Success) return Fail(IntegrableFramesStatus.InvalidInput, "a successful cross field is required");
             double s = TargetEdgeLength;
             if (!(s > 0) || double.IsInfinity(s)) return Fail(IntegrableFramesStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
@@ -175,7 +177,9 @@ namespace gs
                 for (int i = 0; i < n; ++i) {
                     double h = SizeFunction(V[i]);
                     if (h > 0 && !double.IsInfinity(h)) {
-                        targetSig[i] = Math.Max(-maxSig, Math.Min(maxSig, Math.Log(h / s)));
+                        double lg = Math.Log(h / s);
+                        if (lg > maxSig || lg < -maxSig) ClampedSizeSamples++;
+                        targetSig[i] = Math.Max(-maxSig, Math.Min(maxSig, lg));
                         hasTarget[i] = true;
                         ValidSizeSamples++;
                         if (used[i]) validUsedTargets++;

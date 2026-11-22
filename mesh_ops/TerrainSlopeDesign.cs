@@ -959,7 +959,7 @@ namespace gs
             return (r) => r >= maxReach ? top[bins] : top[BinOf(r, w, bins)];
         }
 
-        /// <summary> the bin of a distance d >= 0 in bins of width w, 0..bins: 0 for d <= 0 and for NaN, on every runtime (#804) </summary>
+        /// <summary> the bin of a distance d >= 0 in bins of width w, 0..bins: 0 for d &lt;= 0 and for NaN, on every runtime (#804) </summary>
         internal static int BinOf(double d, double w, int bins)
         {
             return !(d > 0) ? 0 : (int)Math.Min(bins, Math.Ceiling(d / w));

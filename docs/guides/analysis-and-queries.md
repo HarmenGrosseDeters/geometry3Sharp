@@ -6,8 +6,8 @@ This guide covers mesh measurements, 3D spatial trees and batch queries (`DMeshA
 
 ## Core Measurements & 3D Spatial Queries
 
-- **Namespace & classes:** `g3.MeshMeasurements`, `g3.MeshQueries`, `g3.DMeshAABBTree3`, `g3.PointHashGrid3d<T>`, `g3.PointAABBTree3`, `gs.MeshBatchQueries`
-- **Examples:** [MeasurementsExample.cs](../examples/MeasurementsExample.cs), [SpatialQueriesExample.cs](../examples/SpatialQueriesExample.cs), [PointQueriesExample.cs](../examples/PointQueriesExample.cs)
+- **Namespace & classes:** `g3.MeshMeasurements`, `g3.MeshQueries`, `g3.DMeshAABBTree3`, `g3.PointHashGrid3d<T>`, `g3.PointAABBTree3`, `g3.MeshBatchQueries`
+- **Examples:** [MeasurementsExample.cs](../examples/MeasurementsExample.cs), [SpatialQueriesExample.cs](../examples/SpatialQueriesExample.cs), [PointQueriesExample.cs](../examples/PointQueriesExample.cs), [BatchQueriesAndCcdExample.cs](../examples/BatchQueriesAndCcdExample.cs)
 - **Further reading:** [BATCH_QUERIES.md](../design/BATCH_QUERIES.md)
 
 ```csharp
@@ -26,6 +26,7 @@ double winding = tree.WindingNumber(point);    // ~1 inside, ~0 outside (works o
 
 - **Watertight exact ray hits (`IntrRay3Triangle3` / `FindNearestHitTriangle`):** Hit/miss decisions use exact `Orient3d` predicates with no parallel epsilon; rays hitting shared edges or vertices never leak through cracks, and ties return the lowest triangle ID (matching linear search and invariant under power-of-two scaling).
 - **Exact parity `IsInside`:** Uses symbolic perturbation (Simulation of Simplicity) so rays passing through edges or vertices count each crossing once. Valid for closed meshes without self-intersections; use `WindingNumber` or `FastWindingNumber` on open or broken meshes.
+- **Exact ray-plus-boundary `WindingNumber` & `MeshWindingNumberGrid`:** Uses an exact symbolically perturbed `+x` ray plus the coupled Antipodal/FEWN exterior-edge boundary sum (`ExactPredicates.Orient2d`/`Orient3d`), returning exact integers in `O(log F)` on closed meshes (including unwelded closed STL soups), reusing one `+x` line traversal per row in `MeshWindingNumberGrid`, and remaining `2^k` scale-invariant across extreme/mixed exponents.
 - **Scale-free `DMeshAABBTree3` & `FastWindingNumber`:** Bounding boxes are stored in `double` (accurate at UTM coordinates) with scale-relative padding (`2^-40`), and `FastWindingNumber` is scale-free across `2^-200..2^200`. Rebuild trees after modifying their mesh.
 - **Batch queries (`MeshBatchQueries`):** Evaluates large sets of rays (including pinhole camera depth images), nearest-point queries, and inside tests in parallel with deterministic order-independent output.
 
@@ -63,12 +64,12 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 | Task | Classes | Output & key guarantees | Example |
 |---|---|---|---|
 | Certified Hausdorff distance | `gs.MeshHausdorffDistance` | Proven `LowerBound` and `UpperBound` within `Tolerance`; scale-free power-of-two internal frame | [DistancesExample.cs](../examples/DistancesExample.cs) |
-| Signed/unsigned deviation map | `gs.MeshDeviation`, `gs.DeviationStatistics` | Per-vertex signed distance (pseudo-normal or winding sign), area-weighted stats, optional certified Hausdorff bound | — |
+| Signed/unsigned deviation map | `gs.MeshDeviation`, `gs.DeviationStatistics` | Per-vertex signed distance (pseudo-normal or winding sign), area-weighted stats, optional certified Hausdorff bound | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
 | Multi-metric mesh fidelity comparison | `gs.MeshFidelityMetrics` | F-score, Chamfer, normal consistency & reversed share, sharp-edge Chamfer/recall, outer volume IoU, curvature fidelity, topology changes | [FidelityMetricsExample.cs](../examples/FidelityMetricsExample.cs) |
 | Discrete vertex curvature | `gs.MeshCurvature` | Mean (`H`) and Gaussian (`K`) curvature per vertex (Meyer et al. 2003: mixed Voronoi areas, cotan normal, angle deficit); no NaN/Inf output | — |
 | Triangle quality & topology summary | `gs.TriangleQualityStatistics`, `gs.MeshTopologySummary` | Verdict quality percentiles (min/max angle, aspect ratio, scaled Jacobian, condition), genus, Euler characteristic, components | [FidelityMetricsExample.cs](../examples/FidelityMetricsExample.cs) |
-| Wall thickness | `gs.MeshWallThickness` | Per-vertex / per-triangle thickness via inward watertight ray, shape diameter function (SDF), or largest inscribed ball | — |
-| Geometric primitive fitting | `gs.PrimitiveFit3` | Fits plane, sphere, cylinder, or cone to 3D points (optional normals) via deterministic RANSAC + Levenberg-Marquardt | — |
+| Wall thickness | `gs.MeshWallThickness` | Per-vertex / per-triangle thickness via inward watertight ray, shape diameter function (SDF), or largest inscribed ball | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
+| Geometric primitive fitting | `g3.PrimitiveFit3` | Fits plane, sphere, cylinder, or cone to 3D points (optional normals) via deterministic RANSAC + Levenberg-Marquardt | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
 
 ### Notes on Key Metrics
 
@@ -80,6 +81,7 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 
 ## Continuous Collision Detection (CCD)
 
-- **Namespace & classes:** `gs.ContinuousCollision`, `gs.MeshSweepCollision`
+- **Namespace & classes:** `g3.ContinuousCollision`, `g3.MeshSweepCollision`
 - **Purpose:** Exact/conservative continuous collision queries for moving triangles and rigid/linearly sweeping meshes (first time of impact without tunneling).
+- **Example:** [BatchQueriesAndCcdExample.cs](../examples/BatchQueriesAndCcdExample.cs)
 - **Further reading:** [CCD.md](../design/CCD.md)

@@ -2464,7 +2464,7 @@ namespace g3
 
             // [TODO] vertex_edges!!!
 
-            /** shift triangles **/
+            /* shift triangles */
 
             // find first free triangle, and last valid triangle
             int iLastT = MaxTriangleID - 1, iCurT = 0;
@@ -2511,7 +2511,7 @@ namespace g3
             if (triangle_groups != null)
                 triangle_groups.resize(TriangleCount);
 
-            /** shift edges **/
+            /* shift edges */
 
             // find first free edge, and last used edge
             int iLastE = MaxEdgeID - 1, iCurE = 0;

@@ -1,7 +1,8 @@
 # Open topics
 
-One board of every open topic of geometry3Sharp, one line each, as of 2026-11-19 (Berlin). Open items only: done, closed and
-rejected items are not listed. Maintenance rule: a session that opens, finishes or changes the state of a topic updates its row
+One board of every open topic of geometry3Sharp, one line each, as of 2026-11-21 (Berlin). Open items only: done, closed and
+rejected items are not listed. Every item in §§2–5 links to a draft plan PR (`plan/*`, holding `docs/plans/<slug>.md`,
+not to be merged as is). Maintenance rule: a session that opens, finishes or changes the state of a topic updates its row
 here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) and the design notes.
 
 ## 1. In progress (a session is working on it)
@@ -15,75 +16,76 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Rounding/repair: Thingi10K numbers for the #1096 cases | Procedural answer merged; real meshes not run | Owner: run `ResultVolumeIoU` on a runner or not | [repair](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15) |
-| Rounding/repair: open inputs, inside / outside across patches | Measured, leaning no-go | Owner: name a use case for an opt-in large-hole label source | [note](design/INSIDE_OUTSIDE_OPEN_INPUTS.md) |
-| Alpha wrap: raw-size budget on by default | Off by default, recipe known (300k, coarsening 1.2) | Owner: want it on? Then one 800 run first | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15) |
-| Tet: lower limit on `MaxRadiusEdgeRatio` | Work bound built; library limit not built | Owner: 1.5, 1.3 or none | [tet](design/TET_MESHING.md) |
-| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Owner: whether to do it, now that P4(b) is known | [tet](design/TET_MESHING.md) |
-| Tet: 839690 at alpha / 20 needs a boundary change | Beyond the slide cap | Owner: allow a larger boundary move or not | [tet](design/TET_MESHING.md) |
-| Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner) |
+| Rounding/repair: Thingi10K numbers for the #1096 cases | Procedural answer merged; real meshes not run | Owner: run `ResultVolumeIoU` on a runner or not | [repair](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1246 |
+| Rounding/repair: open inputs, inside / outside across patches | Measured, leaning no-go | Owner: name a use case for an opt-in large-hole label source | [note](design/INSIDE_OUTSIDE_OPEN_INPUTS.md), plan #1247 |
+| Alpha wrap: raw-size budget on by default | Off by default, recipe known (300k, coarsening 1.2) | Owner: want it on? Then one 800 run first | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15), plan #1248 |
+| Tet: lower limit on `MaxRadiusEdgeRatio` | Work bound built; library limit not built | Owner: 1.5, 1.3 or none | [tet](design/TET_MESHING.md), plan #1249 |
+| Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Owner: whether to do it, now that P4(b) is known | [tet](design/TET_MESHING.md), plan #1250 |
+| Tet: 839690 at alpha / 20 needs a boundary change | Beyond the slide cap | Owner: allow a larger boundary move or not | [tet](design/TET_MESHING.md), plan #1251 |
+| Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Alpha wrap: feature pass K follow-ups (corners, split retries) | Scoped follow-ups, not scheduled | A PR when a caller needs sharper corners | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Tet: P3 follow-ups | Open: boundary sizing, curvature size field, target element count | Scope with P4; one PR each | [tet](design/TET_MESHING.md) |
-| Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15) |
-| Platform/QA/CI: coverage gate red on master | `coverage.yml` failed in every run 2026-11-18/19 | Diagnose the uncovered lines, add tests | [platform](roadmap/platform.md#open-for-the-future-2026-11-15) |
-| Platform/QA/CI: tests above 20 s in some full runs | Open; thread-pool starvation suspected | Diagnose per test, split or fix | #698 |
-| Platform/QA/CI: determinism proof stage 2 | Unblocked (3.0 done); planned as one L PR | `ExactMeshArrangement`, `ExactMeshBoolean` as a closed world | [proof](design/DETERMINISM_PROOF.md) |
-| Platform/QA/CI: determinism stage 1 obligations O2-O5 | Open (O1 done) | Small fixes or arguments, with stage 2 | [proof](design/DETERMINISM_PROOF.md) |
-| Platform/QA/CI: narrowed mutation filters in CI | Filters for 4 shards checked in | Generate after the nightly full run; renew the rest | [platform](roadmap/platform.md) |
-| Other: TPMS Lidinoid formula, primary-source check | Citation verified, paper not opened | Read the paper, update SOURCES.md | [research](roadmap/research.md) |
+| Alpha wrap: feature pass K follow-ups (corners, split retries) | Scoped follow-ups, not scheduled | A PR when a caller needs sharper corners | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1237 |
+| Tet: P3 follow-ups | Open: boundary sizing, curvature size field, target element count | Scope with P4; one PR each | [tet](design/TET_MESHING.md), plan #1244 |
+| Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15), plan #1238 |
+| Platform/QA/CI: coverage gate red on master | `coverage.yml` failed in every run 2026-11-18/19 (last 4 runs through 2026-11-21 green — verify & close) | Diagnose the uncovered lines, add tests | [platform](roadmap/platform.md#open-for-the-future-2026-11-15), plan #1239 |
+| Platform/QA/CI: tests above 20 s in some full runs | Open; thread-pool starvation suspected | Diagnose per test, split or fix | #698, plan #1243 |
+| Platform/QA/CI: determinism proof stage 2 | Unblocked (3.0 done); planned as one L PR | `ExactMeshArrangement`, `ExactMeshBoolean` as a closed world | [proof](design/DETERMINISM_PROOF.md), plan #1241 |
+| Platform/QA/CI: determinism stage 1 obligations O2-O5 | Open (O1 done) | Small fixes or arguments, with stage 2 | [proof](design/DETERMINISM_PROOF.md), plan #1240 |
+| Platform/QA/CI: narrowed mutation filters in CI | Filters for 4 shards checked in | Generate after the nightly full run; renew the rest | [platform](roadmap/platform.md), plan #1242 |
+| Other: TPMS Lidinoid formula, primary-source check | Citation verified, paper not opened | Read the paper, update SOURCES.md | [research](roadmap/research.md), plan #1245 |
 
 ## 4. Parked or on hold by owner decision
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Boolean: all speed work (#1064 levers, normal-cone certificate, ABC chain step 3 lead) | Stopped, owner 2026-11-16 | New levers need the owner's go | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16) |
-| Boolean: Exact Boolean 4.0 stages 1b and 1c | On hold, owner 2026-11-18 | A concrete use case for provenance | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16) |
-| Boolean: EMBER lever 2 (skip self-pairs in chains) | Parked, owner 2026-11-16 | A caller that chains booleans | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16) |
-| Boolean: certifying checker stage 3, certified user mode, exact coplanar clip coordinates | Not scheduled | A use case | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16) |
-| Rounding/repair: `MeshRobustRepair` F2 | Not now, owner 2026-11-17 | Owner go | [study](design/ROBUST_REPAIR_SCALE_FREE_STUDY.md) |
-| Rounding/repair: rounding cost levers (hard problem 3 b-d, #837 lever 2) | Not scheduled under the speed stop | Speed go from the owner | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Rounding/repair: guaranteed rounding experiment (Devillers et al. 2020) | Not now, owner 2026-11-17 | Gain on real data beyond the RC4b cases | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16) |
-| Alpha wrap: remove `external/cgal_wrap.cpp`, then a second reference (alecjacobson/alpha-wrap) | Kept while comparisons use CGAL; second reference not now | Remove in its own PR once unused | [wrap](roadmap/alpha-wrap-and-repair.md#other-open-items) |
-| Quad: stage 3B follow-ups (exact flow network, flow on the size field, features, boundaries) | Opt-in 3B merged (#1153); follow-ups on hold, papers unreachable | Paper access | [quad](design/QUAD_REMESHING.md) |
-| 2D meshing: research items (Terminator, matched shells, grading placement, Chew-2) | Parked, owner 2026-11-16 | A real input or use case | [2D](roadmap/meshing2d.md#open-for-the-future-2026-11-15) |
-| 2D meshing: fast-oracle leftovers and stmlf | Parked; stmlf blocked on inputs | Inputs, or PR CI getting slower | [2D](roadmap/meshing2d.md#open-for-the-future-2026-11-15) |
-| 2D meshing: `.poly` reader keeps crossing segment groups as constraints only | Parked | A use case | [2D](roadmap/meshing2d.md#open) |
-| Geodesics/param: certified biharmonic mode | Parked, owner 2026-11-16 | Owner go; gates #980 (100k) and #976 (20 s tail) | #976, #980 |
-| Geodesics/param: RDR stage 1b (restricted Voronoi cells) | Not now, owner 2026-11-17 | Owner go | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17) |
-| Terrain: slope envelope, 3D blocks, berms, ramps beyond R1, GeoTIFF reader, showcase | Later, owner 2026-11-17 | A terrain use case | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15) |
-| Terrain: sector polygons E1, S1, R2 | Parked, owner 2026-11-16 | Terrain resumes | [sectors](design/TERRAIN_SECTORS.md) |
-| Terrain: §11 performance follow-ups, RoundToGrid, internal quadtree uses | Parked until a real case or terrain resumes | Upper bound first | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15) |
-| Platform/QA/CI: NativeAOT package | No, owner 2026-11-17 | None | [index](ROADMAP.md#now) |
-| Platform/QA/CI: .NET 11 migration | Later, owner 2026-11-12 | Owner schedules it | [platform](roadmap/platform.md#open) |
-| Platform/QA/CI: a third net48 test shard | Only if shard b stays the critical path | Queue wait measurement | [platform](roadmap/platform.md#open-for-the-future-2026-11-15) |
-| Other: Remesher `RejectInvertingPasses` cheaper snapshot | Parked as owner options, 2026-11-17 | Owner picks labels + undo log or buffers | [note](design/INVERSION_GUARD_SNAPSHOT.md) |
-| Other: TPMS transitions keeping wall thickness (Ren 2021, Gao 2022) | Later; papers must be provided | Owner provides the papers | [research](roadmap/research.md) |
-| Other: batch query extras (Span overloads, early any-hit, all-hits, CLI) | Not done by owner decision | A caller | [batch](design/BATCH_QUERIES.md) |
-| Other: dual contouring coarse-first construction | Idea, opt-in, not scheduled | Bounds on the implicit | [DC](design/DC_ADAPTIVE_SIMPLIFICATION.md) |
-| Other: unread sources (permissive libraries, PaMO, RWTH, Minkowski, Sci. Rep.) | Documented only | An item that needs one; licence / patent check | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17) |
+| Boolean: all speed work (#1064 levers, normal-cone certificate, ABC chain step 3 lead) | Stopped, owner 2026-11-16; study of the levers under the full guarantees 2026-11-22 ([note](research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md): ranked list, nothing scheduled) | New levers need the owner's go | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16), plan #1253 |
+| Boolean: Exact Boolean 4.0 stages 1b and 1c | On hold, owner 2026-11-18 | A concrete use case for provenance | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16), plan #1254 |
+| Boolean: EMBER lever 2 (skip self-pairs in chains) | Parked, owner 2026-11-16 | A caller that chains booleans | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16), plan #1255 |
+| Boolean: certifying checker stage 3, certified user mode, exact coplanar clip coordinates | Not scheduled | A use case | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16), plan #1256, spike [BOOLEAN_CERTIFIED_MODE_2026-11.md](research/BOOLEAN_CERTIFIED_MODE_2026-11.md) (2026-11-22, options with the owner) |
+| Rounding/repair: `MeshRobustRepair` F2 | Not now, owner 2026-11-17 | Owner go | [study](design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), plan #1257 |
+| Rounding/repair: rounding cost levers (hard problem 3 b-d, #837 lever 2) | Not scheduled under the speed stop | Speed go from the owner | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1258 |
+| Rounding/repair: guaranteed rounding experiment (Devillers et al. 2020) | Not now, owner 2026-11-17; spike 2026-11-22: upper bounds measured, leaning no build (owner decision open) | Gain on real data beyond the RC4b cases | [boolean](roadmap/exact-boolean.md#after-30-owner-2026-11-16), plan #1259, [spike](research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md) |
+| Alpha wrap: remove `external/cgal_wrap.cpp`, then a second reference (alecjacobson/alpha-wrap) | Kept while comparisons use CGAL; second reference not now | Remove in its own PR once unused | [wrap](roadmap/alpha-wrap-and-repair.md#other-open-items), plan #1260 |
+| Quad: stage 3B follow-ups (exact flow network, flow on the size field, features, boundaries) | Opt-in 3B merged (#1153); `runs/quad-folds` measured (10x/100x SAT budget 0/26, penalized re-solve 25 -> 28/54 at >2x time); owner 2026-11-20: stage 4 features first, then size-adapted flow spike; paper-based flow follow-ups on hold | Features (stage 4), size-adapted flow spike, or paper access | [quad](design/QUAD_REMESHING.md), plan #1261 |
+| 2D meshing: research items (Terminator, matched shells, grading placement, Chew-2) | Parked, owner 2026-11-16 | A real input or use case | [2D](roadmap/meshing2d.md#open-for-the-future-2026-11-15), plan #1262 |
+| 2D meshing: fast-oracle leftovers and stmlf | Parked; stmlf blocked on inputs | Inputs, or PR CI getting slower | [2D](roadmap/meshing2d.md#open-for-the-future-2026-11-15), plan #1263 |
+| 2D meshing: `.poly` reader keeps crossing segment groups as constraints only | Parked | A use case | [2D](roadmap/meshing2d.md#open), plan #1264 |
+| Geodesics/param: certified biharmonic mode | Parked, owner 2026-11-16 | Owner go; gates #980 (100k) and #976 (20 s tail) | #976, #980, plan #1265 |
+| Geodesics/param: RDR stage 1b (restricted Voronoi cells) | Not now, owner 2026-11-17 | Owner go | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17), plan #1266 |
+| Terrain: slope envelope, 3D blocks, berms, ramps beyond R1, GeoTIFF reader, showcase | Later, owner 2026-11-17 | A terrain use case | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15), plan #1267 |
+| Terrain: sector polygons E1, S1, R2 | Parked, owner 2026-11-16 | Terrain resumes | [sectors](design/TERRAIN_SECTORS.md), plan #1268 |
+| Terrain: §11 performance follow-ups, RoundToGrid, internal quadtree uses | Parked until a real case or terrain resumes | Upper bound first | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15), plan #1269 |
+| Platform/QA/CI: NativeAOT package | No, owner 2026-11-17 | None | [index](ROADMAP.md#now), plan #1270 |
+| Platform/QA/CI: .NET 11 migration | Later, owner 2026-11-12 | Owner schedules it | [platform](roadmap/platform.md#open), plan #1271 |
+| Platform/QA/CI: a third net48 test shard | Only if shard b stays the critical path | Queue wait measurement | [platform](roadmap/platform.md#open-for-the-future-2026-11-15), plan #1272 |
+| Other: Remesher `RejectInvertingPasses` cheaper snapshot | Parked as owner options, 2026-11-17 | Owner picks labels + undo log or buffers | [note](design/INVERSION_GUARD_SNAPSHOT.md), plan #1273 |
+| Other: TPMS transitions keeping wall thickness (Ren 2021, Gao 2022) | Later; papers must be provided | Owner provides the papers | [research](roadmap/research.md), plan #1274 |
+| Other: batch query extras (Span overloads, early any-hit, all-hits, CLI) | Not done by owner decision | A caller | [batch](design/BATCH_QUERIES.md), plan #1275 |
+| Other: dual contouring coarse-first construction | Idea, opt-in, not scheduled | Bounds on the implicit | [DC](design/DC_ADAPTIVE_SIMPLIFICATION.md), [bound at N = 512](research/CONTOURING_SDF_SUBGRID_2026-11.md#7b-plan-1276-coarse-first-construction-of-the-grid), plan #1276 |
+| Other: unread sources (permissive libraries, PaMO, RWTH, Minkowski, Sci. Rep.) | Documented only | An item that needs one; licence / patent check | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17), plan #1277 |
 
 ## 5. Research / hard open problems (no known solution; a study first)
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Rounding/repair: practical 3D snap rounding with a guarantee (HP 1) | No guarantee known; plateau variant a no-go | Study only on a new lead | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Boolean: open-operand speed, Lévy-style propagation (HP 8) | Correctness fixed (#528); speed open | Speed go; classification design review | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Alpha wrap: provably valid sharp-feature recovery (HP 4) | Pass K opt-in; no proof | Study of a hybrid with guarantees | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Tet: proven dihedral floor on 100 % of inputs (HP 5, P5(b)) | 498 of 500 at default; no bound | Lattice method only if a proof is required | [tet](design/TET_MESHING.md) |
-| 2D meshing: small-angle cascade without a weaker guarantee (HP 6) | Exemption up to 60° | Provably tight region excuse, or a new rule | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| 2D meshing: oracle speed, certifying design (HP 7) | Fast oracle at its stop rule | Certifying-algorithm design per part | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Geodesics/param: integer (normal) coordinates | Not needed by current operations | Study when an exact common subdivision is needed | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15) |
-| Geodesics/param: P1 collapse, virtual fan vertices | Documented limitation | Study | [param](roadmap/parameterization-geodesics.md#open) |
-| Platform/QA/CI: determinism across runtimes and CPUs (HP 11) | Stages 0-1 merged | Stage 2, then the #929 measurement | [proof](design/DETERMINISM_PROOF.md) |
-| Platform/QA/CI: golden masters across runtimes vs bit-for-bit | Lead untried | Study | [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15) |
-| Other: envelope-guaranteed simplification, the paper's algorithm (HP 10) | Envelope stopped 2026-11-01; Phase 5 #2 open | A cheap certified per-collapse bound | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model) |
-| Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule | Reviewed proof before any build | [note](design/CONTOURING_TOPOLOGY.md) |
-| Other: open research questions (metamorphic testing, agent APIs, showcases) | Listed, not started | Pick one with a synergy | [research](roadmap/research.md#open-research-questions) |
+| Rounding/repair: practical 3D snap rounding with a guarantee (HP 1) | No guarantee known; plateau variant a no-go; spike 2026-11-22 ([note](research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)): the known guarantee does not give clean results or keep more solids, leaning no build | Study only on a new lead | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1278 |
+| Boolean: open-operand speed, Lévy-style propagation (HP 8) | Correctness fixed (#528); speed open | Speed go; classification design review | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1279 |
+| Alpha wrap: provably valid sharp-feature recovery (HP 4) | Study done 2026-11-22: validity provable without the band (checked operations), recovery only a posteriori; K at 0.945 of the oracle | Owner: options 1-3 of the study | [study](research/PROVABLE_SHARP_WRAP_STUDY.md), [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1280 |
+| Tet: proven dihedral floor on 100 % of inputs (HP 5, P5(b)) | 498 of 500 at default; no bound. Spike 2026-11-22: a uniform lattice proves 9.31° (10.78° per tet, validity then checked per run) with a rounded boundary, at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; chamfering gives no dihedral bound | Owner: stop (leaning) or an opt-in lattice mesher | [tet](design/TET_MESHING.md), [spike](research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), plan #1281 |
+| 2D meshing: small-angle cascade without a weaker guarantee (HP 6) | Exemption up to 60°; spike done 2026-11-22 ([note](research/MESHING2D_HP6_HP7_SPIKE_2026-11.md)) | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1282 |
+| 2D meshing: oracle speed, certifying design (HP 7) | Fast oracle at its stop rule; spike done 2026-11-22 ([note](research/MESHING2D_HP6_HP7_SPIKE_2026-11.md)) | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1283 |
+| Geodesics/param: integer (normal) coordinates | Spike done 2026-11-22: traced subdivision fails in 6 % (flips) / 15 % (refined) of adversarial runs, integer prototype in none | Owner decision on the options of the [research note](research/INTRINSIC_INTEGER_COORDINATES_2026-11.md) | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15), plan #1284 |
+| Geodesics/param: P1 collapse, virtual fan vertices | Documented limitation | Study | [param](roadmap/parameterization-geodesics.md#open), plan #1285 |
+| Platform/QA/CI: determinism across runtimes and CPUs (HP 11) | Stages 0-1 merged | Stage 2, then the #929 measurement | [proof](design/DETERMINISM_PROOF.md), plan #1286 |
+| Platform/QA/CI: golden masters across runtimes vs bit-for-bit | Lead untried | Study | [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15), plan #1287 |
+| Other: envelope-guaranteed simplification, the paper's algorithm (HP 10) | Envelope stopped 2026-11-01; spike 2026-11-22 ([note](research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md)): guaranteed, but 1.1-1.9x the triangles and mostly 5-98x the time of `MaxDeviation`; leaning no-go | Owner decision on the note's options | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1288 |
+| Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule | Reviewed proof before any build | [note](design/CONTOURING_TOPOLOGY.md), [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1289 |
+| Other: SIGGRAPH 2026 contouring (distance-grid dual contouring, subgrid marching tetrahedra) | Spike measured 2026-11-22; no code | Owner decision on the options | [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1297 |
+| Other: open research questions (metamorphic testing, agent APIs, showcases) | Listed, not started | Pick one with a synergy | [research](roadmap/research.md#open-research-questions), plan #1290 |
 
 ## 6. Known limits and tails (documented, kept open on purpose)
 
@@ -102,7 +104,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Alpha wrap: wrap pipelines above 20 s (18 Thingi10K cases) | Regression rule only | Runtime watch | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15) |
 | Alpha wrap: raw wrap pinch caps, p01 about 2° below CGAL | Documented | None | [wrap](roadmap/alpha-wrap-and-repair.md#other-open-items) |
 | Tet: 38781 and 282598 stay at 9.4° / 9.5° | Rescue phase does not reach them | None | [tet](design/TET_MESHING.md) |
-| Quad: missed stage 2 gates, ragged open boundary, 3B fallback in 54 % | Gate restated; size field and 3B opt-in | None | [quad](design/QUAD_REMESHING.md) |
+| Quad: missed stage 2 gates, curved open boundaries (sphere-cap; straight open-boundary bug fixed in #1179), 3B fallback in 54 % | Gate restated; size field and 3B opt-in | None | [quad](design/QUAD_REMESHING.md) |
 | 2D meshing: oracle on wide-exponent inputs, 2-4.4 s per input | Documented limit | Profile, if it matters | [2D](roadmap/meshing2d.md#open-for-the-future-2026-11-15) |
 | Geodesics/param: heat-method drift at rotated UTM (R16) | Diagnosed, fix deferred (#1165) | None | [sweep](ROBUSTNESS_SWEEP.md) |
 | Geodesics/param: foldover-free torus fallback | Proven limit of fixed-boundary untangling | None | [param](roadmap/parameterization-geodesics.md#open) |
