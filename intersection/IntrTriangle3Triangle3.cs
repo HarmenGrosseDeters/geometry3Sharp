@@ -20,12 +20,12 @@ namespace g3
     /// <para>A degenerate triangle (exactly collinear or coincident corners) is a segment or a point; for such input
     /// <see cref="Find"/> reports only whether the triangles touch (<see cref="IntersectionType.Unknown"/>, no contact
     /// points), and <see cref="Test"/> sets <see cref="Type"/> to <see cref="IntersectionType.Unknown"/> for a hit.</para>
-    /// <para>The contact of a crossing pair is computed from exactly decided candidates. In the general crossing (no
-    /// corner of one triangle in the plane of the other, no crossing edge of one coplanar with a crossing edge of the
-    /// other, planes not nearly parallel) the two end points are computed in floating point from the crossing edges, a
-    /// few ulp for well conditioned input; <see cref="Type"/> and <see cref="Quantity"/> are exact. All other pairs
-    /// (touching contacts, coplanar and nearly parallel pairs) get their crossing coordinates from exact
-    /// determinants, rounded once to double.</para>
+    /// <para>The contact is computed from exactly decided candidates, and each coordinate of a contact point is the exact
+    /// value rounded once to the nearest double (ties to even): the general crossing (no corner in the plane of the other
+    /// triangle, no coplanar crossing edges) selects its two end points with exact signs and rounds them with certified
+    /// double-word arithmetic (<c>docs/design/TRI3TRI3_DOUBLE_WORD.md</c>), falling back to exact arithmetic where the certificate
+    /// does not decide; all other pairs (touching contacts, coplanar and nearly parallel pairs) use exact determinants.
+    /// Both routes give the same doubles.</para>
     /// </remarks>
     public class IntrTriangle3Triangle3
     {
