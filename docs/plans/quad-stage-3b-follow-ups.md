@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Quad: stage 3B follow-ups (exact flow network, flow on the size field, features, boundaries)"
 - **Kind:** parked (on hold, owner 2026-11-18: reference papers unreachable; trigger: paper access + caller need)
 - **Tier:** L (integer-map / min-cost-flow repair, sharp-feature constraints, open-boundary alignment; new algorithm design)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): PR #1229 (Phase 0 fixes) is merged; item 4 (collapse length 0.6) is merged (#1173, default `CollapseLength = 0.6`); item 2 is unblocked (`SizeAdaptation` with `PureQuads` no longer `InvalidInput`, QUAD_REMESHING.md 4.4a); the 3B fallback rate on `QuadFlow3BGate` fell from 54 % to 20 % (uniform) and 11 % (`ScaleAndRotation`) by flow fixes, not by the exact network of item 1; for item 3, stage 4 (`PreserveCreases`, quad-dominant) is built, and feature curves and open boundaries as fixed lines of the 3B flow were measured and stopped as a documented limit (4.7). See [QUAD_REMESHING.md](../design/QUAD_REMESHING.md) sections 4.4a, 4.4d, 4.6, 4.7.
 
 ## Current state
 
@@ -12,16 +12,21 @@
     `SparseCholesky` kernels #1103), `PositionField` / `QuadRemesher` / `PolyMeshMetrics` (#1100), opt-in
     `SizeAdaptation` (`Scale` / `ScaleAndRotation`, halves irregular vertices on closed smooth shapes), opt-in
     `QuadRemesher.PureQuads` (stage 3B integer-map repair with fallback and `PureQuadStatus`, #1153), `g3cli quad`.
-  - Note: PR #1229 (open, Phase 0 fixes: `PositionSeconds`, initial Cholesky `NoSolution`, projected `FlippedQuads`, doc
-    sync) should settle before any quad follow-up starts.
+  - Note: PR #1229 (Phase 0 fixes: `PositionSeconds`, initial Cholesky `NoSolution`, projected `FlippedQuads`, doc
+    sync) is merged (2026-11-22).
 - Open gaps parked under Stage 3B follow-ups (`QUAD_REMESHING.md` §4.5 / §5):
-  1. **Exact QuadriFlow min-cost-flow network:** current stage 3B falls back to stage 2 in 54 % of cases; the exact
-     minimum-cost network flow formulation of Huang et al. (2018) was unreachable during #1153.
-  2. **Flow on the size field (`SizeAdaptation` + `PureQuads`):** currently returns `InvalidInput` because 3B's flow
-     assumes uniform spacing.
-  3. **Sharp features and open boundaries:** ragged open boundaries (stage 2/3B) and CAD sharp creases are not aligned
-     in the cross/position fields or flow network.
-  4. **Collapse length `0.4 -> 0.6`:** noted by owner (2026-11-19) as a separate small PR after pure-quads.
+  1. **Exact QuadriFlow min-cost-flow network:** stage 3B fell back to stage 2 in 54 % of cases at #1153; after the
+     flow and sizing update (2026-11-21, QUAD_REMESHING.md 4.4a) it is 20 % uniform and 11 % with `ScaleAndRotation`
+     (0 undetected bad), plus an internal second attempt with the fixed variables freed (4.4d). The exact
+     minimum-cost network flow formulation of Huang et al. (2018) was unreachable during #1153 and is not built.
+  2. **Flow on the size field (`SizeAdaptation` + `PureQuads`):** the `InvalidInput` block is lifted (2026-11-21,
+     local spacing in `BuildOffsets` / `SolvePositions`, QUAD_REMESHING.md 4.4a); the target vectors are only
+     approximate where the spacing gradient is large.
+  3. **Sharp features and open boundaries:** stage 4 (`PreserveCreases`, quad-dominant, opt-in) meets the sharp CAD
+     feature gates (QUAD_REMESHING.md 4.6). In the 3B flow, open boundaries and crease curves as fixed lattice lines
+     were measured on 2026-11-22 and stopped (4.7, documented limit): `PureQuads` stays closed meshes only and is
+     exclusive with `PreserveCreases`; a new attempt needs a new owner go with its own upper-bound study.
+  4. **Collapse length `0.4 -> 0.6`:** done, merged in #1173 (owner approved 2026-11-19; default `CollapseLength = 0.6`).
 
 ## Trigger / decision needed
 
@@ -92,5 +97,5 @@ Knöppel et al. (2013, paper). Never GPL (QEx, MIQ, CoMISo). Cite in `docs/sourc
 
 ## Risks and open questions
 
-- PR #1229 must merge first so Phase 0 fixes (`FlippedQuads`, `NoSolution`) are in the baseline.
+- PR #1229 (Phase 0 fixes `FlippedQuads`, `NoSolution`) is merged, so they are in the baseline.
 - Exact flow networks can still fail on non-orientable or high-curl regions: keep the honest `PureQuadStatus` fallback.
