@@ -808,5 +808,35 @@ class SkippedOnPr(unittest.TestCase):
         self.assertEqual([], self.run_cli("report", "[]", "--summary"))
 
 
+    def test_the_arithmetic_gate_keeps_its_full_run(self):
+        exact = self.exact_source("config")
+        before, after = self.pr(CONFIGS["config"][0], exact)
+        self.assertEqual(("full", []), (after[0], [s for s in after[2] if s == "arithmetic"]))
+
+    def test_a_config_that_only_moved_its_spans_is_not_skipped(self):
+        # (select_shards.py main: such a config is not in `changed` but in `moved`, mode source)
+        arithmetic, mesh = select([], CONFIGS, moved={"mesh-planar"})
+        self.assertEqual([{"shard": "planar", "mode": "source"}], mesh)
+        self.assertEqual((arithmetic, mesh, []), skip_on_pr(arithmetic, mesh, CONFIGS, []))
+
+    def test_the_selection_agrees_with_the_gate_command_of_the_job(self):
+        # run_stryker.sh asks `select_shards.py gate <config>` with the same changed paths: a shard is skipped here exactly when
+        # that answers `no`, kept when it answers `gate`
+        for names, extra in ((("mesh-boolean-1", "mesh-planar", "config"), (self.exact_source("mesh-boolean-1"),)),
+                             (("mesh-boolean-1", "mesh-planar", "mesh-fixed", "config"), ("tests/mutation/run_stryker.sh",)),
+                             (("mesh-boolean-1", "mesh-planar", "config"), ())):
+            changed = [CONFIGS[n][0] for n in names] + list(extra)
+            _, (a2, mesh2, skipped) = self.pr(*changed)
+            kept = {"arithmetic"} if a2 != "none" else set()
+            kept |= {m["shard"] for m in mesh2}
+            for n in names:
+                shard = shard_name(n)
+                answer = self.run_cli("gate", CONFIGS[n][0], stdin="\n".join(changed) + "\n")[0]
+                if shard in skipped:
+                    self.assertEqual("no", answer, shard)
+                else:
+                    self.assertEqual("gate", answer, shard)
+                    self.assertIn(shard, kept)
+
 if __name__ == "__main__":
     unittest.main()
