@@ -430,7 +430,9 @@ namespace geometry3Sharp.Tests
         // ---- the validity statement of docs/design/ALPHA_WRAP_FEATURE_VALIDITY.md: one test per premise the pass must check ----
 
         // a closed bipyramid; with degenerate, the face (bot, l0, l3) is replaced by three triangles around a vertex m on the
-        // edge bot-l0: (bot, l0, m) is then exactly collinear (m its midpoint), or a thin proper triangle (m moved off the edge)
+        // edge bot-l0: (bot, l0, m) is then exactly collinear (m its midpoint), or a thin proper triangle (m moved off the edge).
+        // (The degenerate variant is not a valid input of the pass, twice over: the collinear triangle, and m on the edge of
+        // the neighbour (bot, l1, l0), a T-junction; it is the state the refusal is for)
         static DMesh3 Bipyramid(bool withM, bool degenerate, out int top)
         {
             DMesh3 m = new DMesh3();
@@ -534,6 +536,29 @@ namespace geometry3Sharp.Tests
                 if (expected && !Reducer.TrianglesTouch(new DMeshAABBTree3(m, true), faces)) inside++;
             }
             Assert.True(meet > 500 && apart > 500 && inside > 100, $"the cases cover both answers and the inside case: {meet} / {apart} / {inside}");
+            // the union of two tetrahedra: met iff one of them is met
+            int both = 0;
+            for (int it = 0; it < 1000; ++it) {
+                var corners = new Vector3d[8];
+                for (int k = 0; k < 8; ++k) corners[k] = 8 * pt(4);
+                var tri = new Triangle3d(pt(40), pt(40), pt(40));
+                if (ExactPredicates.Orient3d(corners[0], corners[1], corners[2], corners[3]) == 0 || ExactPredicates.Orient3d(corners[4], corners[5], corners[6], corners[7]) == 0
+                    || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                bool e0 = !Separated(corners.Take(4).ToArray(), new[] { tri.V0, tri.V1, tri.V2 }), e1 = !Separated(corners.Skip(4).ToArray(), new[] { tri.V0, tri.V1, tri.V2 });
+                DMesh3 m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(tri.V0), m.AppendVertex(tri.V1), m.AppendVertex(tri.V2));
+                Assert.True((e0 || e1) == Reducer.TetrahedraMeet(new DMeshAABBTree3(m, true), corners), $"pair {it}");
+                if (e0 != e1) both++;
+            }
+            Assert.True(both > 100, $"pairs where exactly one tetrahedron is met: {both}");
+            // a flat tetrahedron (the unit square's corners) has no interior and is covered by its faces: a triangle in its
+            // plane inside the square meets it, the same triangle one unit above does not
+            foreach (double z in new[] { 0.0, 1.0 }) {
+                DMesh3 m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(new Vector3d(0.25, 0.25, z)), m.AppendVertex(new Vector3d(0.5, 0.25, z)), m.AppendVertex(new Vector3d(0.25, 0.5, z)));
+                Assert.Equal(z == 0, Reducer.TetrahedraMeet(new DMeshAABBTree3(m, true),
+                    new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0) }));
+            }
         }
 
         // two convex point sets with integer coordinates: is there an axis (face normals, edge cross products) on which their

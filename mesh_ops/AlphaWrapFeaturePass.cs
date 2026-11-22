@@ -529,9 +529,12 @@ namespace gs
         // ---- geometry helpers ----
 
         /// <summary>
-        /// a new triangle of an operation: its unit normal, false if it is too thin for one in floating point or exactly
-        /// degenerate (collinear corners, by exact predicates). The exact test makes "no operation creates a degenerate
-        /// triangle" independent of any rounding argument about the floating-point threshold
+        /// a new triangle of an operation: its unit normal, false if it is too thin for one in floating point or degenerate
+        /// by the library's exact test (ExactTriangleIntersection.IsDegenerate: collinear corners). So "no operation creates
+        /// a degenerate triangle" is decided by the same test that clear() applies to the rest triangles, and rests on that
+        /// test's prefilter (pinned by IsDegenerate_PrefilterThreshold), not on a second threshold of its own. On every
+        /// input found the floating-point normal alone refuses collinear corners too (the cross product of exactly parallel
+        /// edge vectors carries only the rounding of the subtractions, about 1e-16 of the scale)
         /// </summary>
         internal static bool NotDegenerate(Triangle3d t, out Vector3d n)
         {

@@ -9,7 +9,8 @@ both are in the study.
 
 ## 1. Statement
 
-Notation: the input I (a triangle set; degenerate triangles count as their segment or point), a triangle mesh R.
+Notation: the input I, the set of the input mesh's triangles (degenerate ones count as their segment or point; vertices
+without a triangle are not part of I, and `MeshRobustRepair` removes them before the wrap), and a triangle mesh R.
 
 **Hypotheses on the mesh handed to the pass.**
 
@@ -21,7 +22,8 @@ The raw result of `MeshAlphaWrap` satisfies them: it is closed, manifold and fre
 strictly inside (its class guarantees), and its triangles are facets of a 3D Delaunay triangulation, which has no
 collinear facet.
 
-**Theorem (pass K).** If R satisfies (H1)-(H3), then after `AlphaWrapFeaturePass.Compute()`, completed or cancelled at
+**Theorem (pass K).** If R satisfies (H1)-(H3) and the sweep test is on (`CheckSweep`, the default; the switch exists for
+tests, and without it (H3) is not preserved), then after `AlphaWrapFeaturePass.Compute()`, completed or cancelled at
 any point, and after any sequence of `TryMove` calls, the mesh again satisfies (H1)-(H3). No property of which operations
 are tried, in which order, or with which targets is used.
 
@@ -46,8 +48,12 @@ In each case a triangulated disk D of R is replaced by a triangulated disk D' wi
 `DMesh3.SplitEdge` / `DMesh3.FlipEdge`, which keep a closed manifold closed and manifold; the flip is tried only if the
 edge (c, d) does not exist (`Mesh.FindEdge`), and an operation `DMesh3` refuses changes nothing.
 
-**(H2) stays.** Each new triangle passes `NotDegenerate` (a floating-point normal exists, and the corners are not
-collinear by exact predicates), so no degenerate triangle enters the mesh. `clear` then tests, with exact predicates
+**(H2) stays.** Each new triangle passes `NotDegenerate` (a floating-point normal exists, and the triangle is not
+degenerate by `ExactTriangleIntersection.IsDegenerate`), so no degenerate triangle enters the mesh. (`IsDegenerate` decides
+collinearity with exact orientation predicates behind a floating-point prefilter, "the squared normal is above 1e-24 of
+the squared scale: not degenerate"; that prefilter is existing library code with its own test,
+`IsDegenerate_PrefilterThreshold`, and this proof takes `IsDegenerate` as the definition's decision procedure. It adds no
+threshold of its own.) `clear` then tests, with exact predicates
 (`TriangleTriangleFilter.IntersectsBeyondShared`), every pair of new triangles and every new triangle against every
 unchanged triangle whose box meets its box (the grid holds every triangle of the mesh and is updated by every kept
 operation): the operation is kept only if no pair meets beyond its shared vertices and edges. That test is defined for
@@ -87,21 +93,24 @@ then collapses edges with a `Reducer` that has `PreventSelfIntersections` and `K
 
 ## 4. The premises and their tests
 
-| premise | check in the code | test (fails if the check is removed) |
+| premise | check in the code | tests; **bold**: fails if the check is removed (mutation run 2026-11-22, or by its own counter-case) |
 |---|---|---|
-| new triangles against the unchanged ones, a degenerate neighbour included | `clear`: grid query, exact test; refusal next to a degenerate rest triangle | `TryMove_NextToADegenerateRestTriangle_IsRefused` (new; the pass used to skip such a triangle) |
-| no degenerate new triangle | `NotDegenerate` | `NotDegenerate_RefusesCollinearCorners_Exactly` (new; see the remark below) |
-| no input triangle meets the swept region, containment included | `Reducer.TetrahedraMeet` | `TetrahedraMeet_AgreesWithTheSeparatingAxisOracle` (new: an independent separating-axis oracle on integer coordinates; it requires more than 500 meeting cases, more than 500 apart and more than 100 wholly inside), `TryMove_RefusesToSweepOverInput`, `TryMove_SweepFaceTest_FindsAnInputTriangleInASideFace` |
-| new triangles do not touch the input, degenerate input included | `Reducer.TrianglesTouch` | `TryMove_RefusesToCutTheInput_OrComeTooClose`, `TryMove_RefusesToCutADegenerateInputTriangle` |
-| the pipeline's simplification | `Reducer.KeepClearOf`, `SimplifyWithin`'s final check | `Pipeline_PassThenSimplification_KeepsTheGuarantees` (new: the conclusion, by exact tests that are not the pipeline's own), `AlphaWrapNoContactTests`, `ReducerSweptClearTests` |
+| new triangles against the unchanged ones, a degenerate neighbour included | `clear`: grid query, exact test; refusal next to a degenerate rest triangle | **`TryMove_NextToADegenerateRestTriangle_IsRefused`** (new; the pass used to skip such a triangle) |
+| no degenerate new triangle | `NotDegenerate` | `NotDegenerate_RefusesCollinearCorners_Exactly` (new; pins the contract, no teeth against the old code: see the remark below) |
+| no input triangle meets the swept region, containment included | `Reducer.TetrahedraMeet` | **`TetrahedraMeet_AgreesWithTheSeparatingAxisOracle`** (new: an independent separating-axis oracle on integer coordinates, single tetrahedra and pairs; it requires more than 500 meeting cases, more than 500 apart and more than 100 wholly inside; flat tetrahedra by two fixed cases), **`TryMove_RefusesToSweepOverInput`**, **`TryMove_SweepFaceTest_FindsAnInputTriangleInASideFace`** |
+| new triangles do not touch the input, degenerate input included | `Reducer.TrianglesTouch` | **`TryMove_RefusesToCutTheInput_OrComeTooClose`**, **`TryMove_RefusesToCutADegenerateInputTriangle`** |
+| the pipeline's simplification | `Reducer.KeepClearOf`, `SimplifyWithin`'s final check | **`AlphaWrapNoContactTests`** (without the input the simplification crosses it), **`ReducerSweptClearTests`**; `Pipeline_PassThenSimplification_KeepsTheGuarantees` (new: states the conclusion after the pass by exact tests that are not the pipeline's own; no teeth of its own, because after the pass a simplification without the input does not cross this input) |
 | the theorem's conclusion on a real wrap | - | `LShape_RecoversTheConcaveCrease_KeepsTheGuarantees`, `FeaturePass_Cancel_LeavesACleanMesh`, `FeaturePass_Invariance` |
 
 **Remark on `NotDegenerate`.** Before this note the pass decided "not degenerate" by a floating-point normal alone
 (length above 1e-12 of the longest squared edge). No input was found on which that test accepts exactly collinear
-corners (the rounding error of the cross product of two exactly parallel edge vectors is about 1e-16 of that scale; a
-search over 10 million exactly collinear triples, the underflow range included, found none), so the exact test added
-here changes no result and its removal is an equivalent mutant: the new test pins the contract, it cannot fail on the
-old code. The exact test is there so that the proof needs no rounding argument (and no error-bound review).
+corners: for exactly parallel edge vectors the two products of each cross-product component are the same real number,
+so only the rounding of the subtractions contributes, about 1e-16 of that scale (a search over 10 million exactly
+collinear triples, the underflow range included, found none). So the `IsDegenerate` call added here changes no result
+and its removal is an equivalent mutant: the new test pins the contract, it cannot fail on the old code. The call is
+there so that the pass and its proof use one decision of "degenerate", the library's, for new and rest triangles alike,
+instead of a second floating-point threshold with its own rounding argument. The rounding argument that remains is
+`IsDegenerate`'s prefilter (existing, tested); this change adds no error bound.
 
 ## 5. What is not covered
 
