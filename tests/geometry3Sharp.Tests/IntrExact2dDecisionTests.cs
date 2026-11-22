@@ -568,7 +568,7 @@ namespace geometry3Sharp.Tests
                 Expect e = LineLine(o1, d1, o2, d2);
                 Assert.Equal(e.Kind != 0, hit);
                 if (hit && f.Type == IntersectionType.Point) {
-                    Assert.True(IsFiniteV(f.Point) && double.IsFinite(f.Segment1Parameter) && double.IsFinite(f.Segment2Parameter), "finite point");
+                    Assert.True(IsFiniteV(f.Point) && IsFin(f.Segment1Parameter) && IsFin(f.Segment2Parameter), "finite point");
                     double size = 1 + Math.Abs(f.Point.x) + Math.Abs(f.Point.y);
                     Assert.True(Near(e.P0, f.Point, 1e-9) || size > 1e6, "point " + f.Point + " against the oracle");
                     points++;
@@ -576,7 +576,8 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(points > 1000, "points " + points);
         }
-        static bool IsFiniteV(Vector2d v) => double.IsFinite(v.x) && double.IsFinite(v.y);
+        static bool IsFin(double d) => d - d == 0;
+        static bool IsFiniteV(Vector2d v) => IsFin(v.x) && IsFin(v.y);
 
         [Theory]
         [InlineData(1e307)]
@@ -591,10 +592,10 @@ namespace geometry3Sharp.Tests
             Assert.True(ss.Find());
             Assert.Equal(IntersectionType.Point, ss.Type);
             Assert.True(IsFiniteV(ss.Point0) && Math.Abs(ss.Point0.x) <= 1e-12 * s && Math.Abs(ss.Point0.y) <= 1e-12 * s, "segment-segment " + ss.Point0);
-            Assert.True(double.IsFinite(ss.Parameter0));
+            Assert.True(IsFin(ss.Parameter0));
             var ls = new IntrLine2Segment2(new Line2d(new Vector2d(-0.9 * s, 0), Vector2d.AxisX), new Segment2d(Vector2d.Zero, v, e));
             Assert.True(ls.Find());
-            Assert.True(IsFiniteV(ls.Point) && double.IsFinite(ls.Parameter), "line-segment " + ls.Point);
+            Assert.True(IsFiniteV(ls.Point) && IsFin(ls.Parameter), "line-segment " + ls.Point);
             var tri = new Triangle2d(new Vector2d(-0.9 * s, -0.9 * s), new Vector2d(0.9 * s, -0.9 * s), new Vector2d(0, 0.9 * s));
             var lt = new IntrLine2Triangle2(new Line2d(new Vector2d(-0.9 * s, 0), Vector2d.AxisX), tri);
             Assert.True(lt.Find());
