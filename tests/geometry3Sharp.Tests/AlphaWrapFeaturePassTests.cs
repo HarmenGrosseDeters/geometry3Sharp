@@ -426,5 +426,156 @@ namespace geometry3Sharp.Tests
             // (the wrap itself may have a few; the pass adds none there)
             Assert.Equal(sharpNearCylinder(w.Result), sharpNearCylinder(p.Mesh));
         }
+
+        // ---- the validity statement of docs/design/ALPHA_WRAP_FEATURE_VALIDITY.md: one test per premise the pass must check ----
+
+        // a closed bipyramid; with degenerate, the face (bot, l0, l3) is replaced by three triangles around a vertex m on the
+        // edge bot-l0: (bot, l0, m) is then exactly collinear (m its midpoint), or a thin proper triangle (m moved off the edge)
+        static DMesh3 Bipyramid(bool withM, bool degenerate, out int top)
+        {
+            DMesh3 m = new DMesh3();
+            top = m.AppendVertex(new Vector3d(0, 0, 1));
+            int[] l = { m.AppendVertex(new Vector3d(1, 0, 0.5)), m.AppendVertex(new Vector3d(0, 1, -0.5)),
+                m.AppendVertex(new Vector3d(-1, 0, 0.5)), m.AppendVertex(new Vector3d(0, -1, -0.5)) };
+            int bot = m.AppendVertex(new Vector3d(0, 0, -1.5));
+            for (int k = 0; k < 4; ++k) {
+                m.AppendTriangle(top, l[k], l[(k + 1) % 4]);
+                if (k == 3 && withM) continue;
+                m.AppendTriangle(bot, l[(k + 1) % 4], l[k]);
+            }
+            if (withM) {
+                int mid = m.AppendVertex(degenerate ? new Vector3d(0.5, 0, -0.5) : new Vector3d(0.5, -0.03125, -0.5));
+                m.AppendTriangle(bot, l[0], mid); m.AppendTriangle(mid, l[0], l[3]); m.AppendTriangle(bot, mid, l[3]);
+            }
+            Assert.True(m.IsClosed());
+            return m;
+        }
+
+        // premise "the new triangles are tested against every unchanged triangle": the exact test beyond shared vertices is not
+        // defined for a degenerate triangle, and the pass used to skip such a rest triangle, leaving the pair untested. An
+        // operation next to one is now refused; the same move next to a thin proper triangle, and without the extra vertex, passes
+        [Fact]
+        public void TryMove_NextToADegenerateRestTriangle_IsRefused()
+        {
+            DMesh3 input = PolyCube(1, 1, 1, (i, j, k) => true);
+            MeshTransforms.Scale(input, 0.125); MeshTransforms.Translate(input, new Vector3d(-0.0625, -0.0625, -0.25));
+            // (scale: a power of two, under which exact collinearity and every exact test are unchanged)
+            Func<bool, bool, double, bool> tryMoveAt = (withM, degenerate, scale) => {
+                DMesh3 m = Bipyramid(withM, degenerate, out int top);
+                DMesh3 inp = new DMesh3(input);
+                MeshTransforms.Scale(m, scale); MeshTransforms.Scale(inp, scale);
+                if (withM) {
+                    Index3i dt = m.GetTriangle(m.TriangleCount - 3);
+                    Triangle3d d = new Triangle3d(m.GetVertex(dt.a), m.GetVertex(dt.b), m.GetVertex(dt.c));
+                    Assert.Equal(degenerate, ExactTriangleIntersection.IsDegenerate(ref d));
+                }
+                var p = new AlphaWrapFeaturePass(m, inp, 0.5 * scale, 0.01 * scale) {
+                    MinAngleFloorDegrees = 0, MaxAngleCeilingDegrees = 180, MaxNormalTurnDegrees = 180, MinDistance = 0 };
+                Assert.True(p.Prepare());
+                bool moved = p.TryMove(top, new Vector3d(0, 0, 1.25 * scale));
+                Assert.Equal((moved ? 1.25 : 1.0) * scale, p.Mesh.GetVertex(top).z);
+                return moved;
+            };
+            foreach (double scale in new[] { 1.0, 1024.0, 1.0 / 1024 }) {
+                Assert.True(tryMoveAt(false, false, scale), $"the plain bipyramid, scale {scale}");
+                Assert.True(tryMoveAt(true, false, scale), $"a thin proper triangle in the neighbourhood, scale {scale}");
+                Assert.False(tryMoveAt(true, true, scale), $"an exactly degenerate triangle in the neighbourhood, scale {scale}");
+            }
+        }
+
+        // premise "no operation creates a degenerate triangle", decided exactly: collinear corners are refused whatever the
+        // floating-point normal says (also far from the origin and with unequal spacing), a triangle too thin for a
+        // floating-point normal is refused as well, a proper one is accepted with its unit normal
+        [Fact]
+        public void NotDegenerate_RefusesCollinearCorners_Exactly()
+        {
+            Vector3d n;
+            Assert.False(AlphaWrapFeaturePass.NotDegenerate(new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1), new Vector3d(3, 3, 3)), out n));
+            Vector3d far = new Vector3d(1e6, -2e6, 3e6), d = new Vector3d(0.125, 0.375, -0.0625);
+            var collinear = new Triangle3d(far, far + 3 * d, far + 7 * d);
+            Assert.True(ExactTriangleIntersection.IsDegenerate(ref collinear));
+            Assert.False(AlphaWrapFeaturePass.NotDegenerate(collinear, out n));
+            // off the line by one unit in the last place: exactly a triangle, too thin for a normal
+            var thin = new Triangle3d(Vector3d.Zero, 3 * d, new Vector3d(7 * d.x, 7 * d.y, Math.BitIncrement(7 * d.z)));
+            Assert.False(ExactTriangleIntersection.IsDegenerate(ref thin));
+            Assert.False(AlphaWrapFeaturePass.NotDegenerate(thin, out n));
+            Assert.True(AlphaWrapFeaturePass.NotDegenerate(new Triangle3d(far, far + new Vector3d(1, 0, 0), far + new Vector3d(0, 1, 0)), out n));
+            Assert.Equal(new Vector3d(0, 0, 1), n);
+        }
+
+        // premise "no input triangle meets the swept tetrahedra": Reducer.TetrahedraMeet (exact faces, then corners strictly
+        // inside) against an oracle that shares no code with it, the separating-axis test of a tetrahedron and a triangle on
+        // small integer coordinates (every product exact in double): they meet iff no axis separates them strictly. Touching
+        // counts as meeting. Many cases touch a face, an edge or a vertex, or lie wholly inside
+        [Fact]
+        public void TetrahedraMeet_AgreesWithTheSeparatingAxisOracle()
+        {
+            var rng = new Random(20261122);
+            Func<int, Vector3d> pt = (r) => new Vector3d(rng.Next(-r, r + 1), rng.Next(-r, r + 1), rng.Next(-r, r + 1));
+            Func<Vector3d, Vector3d> whole = (p) => new Vector3d(Math.Round(p.x), Math.Round(p.y), Math.Round(p.z));
+            int meet = 0, apart = 0, inside = 0;
+            for (int it = 0; it < 4000; ++it) {
+                Vector3d a = 8 * pt(4), b = 8 * pt(4), c = 8 * pt(4), d = 8 * pt(4);
+                if (ExactPredicates.Orient3d(a, b, c, d) == 0) continue;
+                // every third triangle small and near the tetrahedron's centroid, so that some lie wholly inside it
+                bool small = it % 3 == 0;
+                Vector3d o = small ? whole((a + b + c + d) / 4) : Vector3d.Zero;
+                int r = small ? 2 : 40;
+                var tri = new Triangle3d(o + pt(r), o + pt(r), o + pt(r));
+                if (ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                bool expected = !Separated(new[] { a, b, c, d }, new[] { tri.V0, tri.V1, tri.V2 });
+                DMesh3 m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(tri.V0), m.AppendVertex(tri.V1), m.AppendVertex(tri.V2));
+                bool got = Reducer.TetrahedraMeet(new DMeshAABBTree3(m, true), new[] { a, b, c, d });
+                Assert.True(expected == got, $"case {it}: tetrahedron {a} {b} {c} {d}, triangle {tri.V0} {tri.V1} {tri.V2}: oracle {expected}, TetrahedraMeet {got}");
+                if (expected) meet++; else apart++;
+                // wholly inside: no face of the tetrahedron is touched, only the corner test can find it
+                var faces = new List<Triangle3d> { new Triangle3d(a, b, c), new Triangle3d(a, b, d), new Triangle3d(b, c, d), new Triangle3d(c, a, d) };
+                if (expected && !Reducer.TrianglesTouch(new DMeshAABBTree3(m, true), faces)) inside++;
+            }
+            Assert.True(meet > 500 && apart > 500 && inside > 100, $"the cases cover both answers and the inside case: {meet} / {apart} / {inside}");
+        }
+
+        // two convex point sets with integer coordinates: is there an axis (face normals, edge cross products) on which their
+        // projections are strictly apart?
+        static bool Separated(Vector3d[] tet, Vector3d[] tri)
+        {
+            var axes = new List<Vector3d>();
+            int[][] f = { new[] { 0, 1, 2 }, new[] { 0, 1, 3 }, new[] { 1, 2, 3 }, new[] { 2, 0, 3 } };
+            foreach (int[] q in f) axes.Add((tet[q[1]] - tet[q[0]]).Cross(tet[q[2]] - tet[q[0]]));
+            axes.Add((tri[1] - tri[0]).Cross(tri[2] - tri[0]));
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j)
+                for (int k = 0; k < 3; ++k) axes.Add((tet[j] - tet[i]).Cross(tri[(k + 1) % 3] - tri[k]));
+            foreach (Vector3d ax in axes) {
+                if (ax == Vector3d.Zero) continue;
+                double minA = tet.Min(p => p.Dot(ax)), maxA = tet.Max(p => p.Dot(ax)), minB = tri.Min(p => p.Dot(ax)), maxB = tri.Max(p => p.Dot(ax));
+                if (maxA < minB || maxB < minA) return true;
+            }
+            return false;
+        }
+
+        // the pipeline statement: the pass, then the simplification with the input kept clear (the Reducer's checked collapses),
+        // keeps the wrap's guarantees on the final mesh (closed, manifold, no self-intersections, no contact with the input,
+        // the input enclosed), checked by exact tests that are not the pipeline's own. The simplification changes the mesh after
+        // the pass, so the statement rests on its checks too; those have their own tests with teeth (AlphaWrapNoContactTests:
+        // without the input the simplification crosses it; ReducerSweptClearTests: a collapse that jumps over a small part).
+        // Here, after the pass, a simplification without the input does not cross these plates (the pass has put the wrap's
+        // vertices on the convex creases' miter lines), so this test states the conclusion and does not repeat those
+        [Fact]
+        public void Pipeline_PassThenSimplification_KeepsTheGuarantees()
+        {
+            DMesh3 input = MeshRobustRepairTests.ThinPlates(6);
+            MeshAlphaWrap w = Wrap(input, 100);
+            var pass = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), input, w.UsedAlpha, w.UsedOffset);
+            Assert.True(pass.Compute());
+            Assert.True(pass.CreaseSnaps + pass.Splits + pass.Flips > 0, "the pass changed the wrap");
+            int before = pass.Mesh.TriangleCount;
+            DMesh3 simplified = MeshRobustRepair.SimplifyWithin(new DMesh3(pass.Mesh, true), 0.5 * w.UsedOffset, 0.5 * w.UsedOffset, true, () => false,
+                out int _, MeshRobustRepair.WrapSimplifyMinQuality, true, MeshRobustRepair.WrapSimplifySlabs, 0, null, input);
+            Assert.NotNull(simplified);
+            Assert.True(simplified.TriangleCount < before, "the simplification collapsed edges");
+            AssertGuarantees(simplified, input, 0, "the pass, then the simplification");       // (the simplified wrap: no distance floor)
+            Assert.Equal(0, AlphaWrapNoContactTests.Crossings(simplified, input));
+        }
     }
 }

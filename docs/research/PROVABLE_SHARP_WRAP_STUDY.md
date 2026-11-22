@@ -107,6 +107,11 @@ sequence. (The intermediate surfaces need not be embedded: only the winding numb
 
 ### 4.3 What pass K has, and the gaps to a written theorem
 
+**Update 2026-11-22 (option 1 built):** the gaps 1 to 4 below are closed and the theorem with its proof is in
+[ALPHA_WRAP_FEATURE_VALIDITY.md](../design/ALPHA_WRAP_FEATURE_VALIDITY.md). Gap 3 turned out to be theoretical: no input was
+found on which the floating-point test accepts exactly collinear corners; the exact test was added so that the proof needs
+no rounding argument. Gap 5 (the band) stays open by decision. The text below is the state before.
+
 K's `try_move`, its split and its flip check (2) and (3) with `TriangleTriangleFilter.IntersectsBeyondShared`,
 `Reducer.TrianglesTouch` and `Reducer.TetrahedraMeet` (exact predicates), plus angle floors and a normal-turn limit that
 the proof does not need. The gaps:

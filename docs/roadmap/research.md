@@ -562,6 +562,9 @@ Ordered by expected value for the library.
      features (0.00, welding restores the clean result), overlapping boxes 0.80-0.82 against 0.94-0.96 with the union's
      creases given; the direct mitered offset is valid on 64 / 65. Leaning: write the
      validity theorem, cheap levers into #1237, no weighted-Delaunay wrap.
+     Option 1 built 2026-11-22 (owner go): [ALPHA_WRAP_FEATURE_VALIDITY.md](../design/ALPHA_WRAP_FEATURE_VALIDITY.md), the theorem
+     with its proof and one test per premise; the pass now refuses an operation next to a degenerate triangle and decides
+     the non-degeneracy of new triangles exactly. The band stays open; option 2 comes with #1237, option 3 is not decided.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
    - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
      B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),
