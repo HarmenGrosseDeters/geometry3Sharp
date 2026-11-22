@@ -213,7 +213,12 @@ namespace geometry3Sharp.Tests
                 // (try_zip and try_strip: the survivors of the scheduled run 44217581261)
                 ["stryker-mesh-rounding-13"] = new[] { "FullyQualifiedName~MeshRoundingRepairZipSurvivorTests" },
                 ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
-                    serialWork + "Field_Clean" },
+                    serialWork + "Field_Clean",
+                    // (the separating axes in intersecting_pairs_all: the pairs they drop counted against all box pairs, the
+                    // check of a dropped pair, the size limit; about 2 s)
+                    "FullyQualifiedName~RoundingSeparatingAxesTests.ApartPairs_AreExactlyTheBoxPairsApartByTheAxesOfEitherTriangle",
+                    "FullyQualifiedName~RoundingSeparatingAxesTests.CheckMode_EveryDroppedPairIsTestedExactly_CountsAreThoseWithoutTheAxes",
+                    "FullyQualifiedName~RoundingSeparatingAxesTests.AboveTheSizeLimit_NoAxes_SameResult" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
                     // (pair_budget, RC4a)
                     "FullyQualifiedName~SafeRoundingBudgetTests" },

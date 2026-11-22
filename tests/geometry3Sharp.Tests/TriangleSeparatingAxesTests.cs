@@ -323,6 +323,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TransitionOfTheAbsoluteMargin_IntervalsEncloseTheExactProjections()
+        {
+            // magnitudes where Gamma s is around 2^-1021 (the sum with Tiny stops being exact) with products that are
+            // subnormal next to normal ones: the interval still encloses every exact projection
+            var r = new Random(17);
+            int inexact = 0;
+            for (int i = 0; i < 20000; ++i) {
+                double scale = Math.Pow(2, -975 + r.Next(10));          // s around 2^-975 .. 2^-966: Gamma s around 2^-1025 .. 2^-1016
+                var a = new Vector3d(Math.Pow(2, -500) * (1 + r.NextDouble()), Math.Pow(2, -520 - r.Next(40)) * (1 + r.NextDouble()), Math.Pow(2, -540 - r.Next(30)) * (r.NextDouble() - 0.5));
+                var x = new Vector3d[3];
+                for (int c = 0; c < 3; ++c)
+                    x[c] = new Vector3d(scale * Math.Pow(2, 500) * (2 * r.NextDouble() - 1), Math.Pow(2, -500) * (2 * r.NextDouble() - 1), Math.Pow(2, -480) * (2 * r.NextDouble() - 1));
+                double lo, hi;
+                TriangleSeparatingAxes.Interval(a.x, a.y, a.z, x[0], x[1], x[2], out lo, out hi);
+                BigInteger blo = Dot(new Vector3d(lo, 0, 0), new Vector3d(1, 0, 0)), bhi = Dot(new Vector3d(hi, 0, 0), new Vector3d(1, 0, 0));
+                foreach (Vector3d v in x) {
+                    BigInteger p = Dot(a, v);
+                    Assert.True(blo < p && p < bhi, $"case {i}: an exact projection outside the interval");
+                    double t = a.y * v.y;
+                    if (t != 0 && Math.Abs(t) < 2.2250738585072014e-308) inexact++;
+                }
+            }
+            Assert.True(inexact > 1000, $"{inexact} subnormal products");
+        }
+
+        [Fact]
         public void SubnormalProducts_TiedExactly_ComputedDifferent_NotApart()
         {
             // products near 2^-1070 are rounded to multiples of 2^-1074 and the relative margin 8u s underflows to zero:

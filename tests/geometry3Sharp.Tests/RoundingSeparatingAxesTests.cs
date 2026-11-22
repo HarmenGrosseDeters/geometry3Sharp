@@ -176,6 +176,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AboveTheSizeLimit_NoAxes_SameResult()
+        {
+            Assert.Equal(int.MaxValue / TriangleSeparatingAxes.Stride, MeshRoundingRepair.DefaultMaxAxesTriangles);
+            Assert.Equal(MeshRoundingRepair.DefaultMaxAxesTriangles, MeshRoundingRepair.MaxAxesTriangles);
+            Func<Ops, DMesh3> rounded = (op) => {
+                var (a, b) = Gears(20);
+                var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = false };
+                Assert.True(boolean.Compute(), boolean.Error);
+                return boolean.Result;
+            };
+            DMesh3 with = rounded(Ops.Union), atLimit = new DMesh3(with), above = new DMesh3(with);
+            int n = with.TriangleCount;
+            var r0 = new MeshRoundingRepair(with) { SharedPositionsTouch = true };
+            r0.Apply();
+            Assert.True(r0.AxisApartPairs > 0);
+            try {
+                // (the limit is the largest count that still takes the axes)
+                MeshRoundingRepair.MaxAxesTriangles = n;
+                var r1 = new MeshRoundingRepair(atLimit) { SharedPositionsTouch = true };
+                r1.Apply();
+                Assert.Equal(r0.AxisApartPairs, r1.AxisApartPairs);
+                MeshRoundingRepair.MaxAxesTriangles = n - 1;
+                var r2 = new MeshRoundingRepair(above) { SharedPositionsTouch = true };
+                r2.Apply();
+                Assert.Equal(0, r2.AxisApartPairs);
+            } finally {
+                MeshRoundingRepair.MaxAxesTriangles = MeshRoundingRepair.DefaultMaxAxesTriangles;
+            }
+            Assert.Equal(Print(with), Print(atLimit));
+            Assert.Equal(Print(with), Print(above));
+        }
+
+        [Fact]
         public void SerialEqualsParallel_Repeated()
         {
             Func<ExactMeshBoolean> make = Case("gear 40 Union");

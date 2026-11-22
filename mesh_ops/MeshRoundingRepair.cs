@@ -521,6 +521,11 @@ namespace g3
         // the results must be the same)
         [ThreadStatic] internal static bool NoSeparatingAxesOnThisThread;
         bool useAxes = true;
+        // a full pair search over more triangles than this takes no separating axes (20 doubles per triangle in one
+        // array: its length and the offsets into it are ints; the search then tests every box pair, as before). For
+        // tests: set lower
+        internal const int DefaultMaxAxesTriangles = int.MaxValue / TriangleSeparatingAxes.Stride;
+        internal static volatile int MaxAxesTriangles = DefaultMaxAxesTriangles;
         // for tests: the queries of near compared with a scan (CheckOnThisThread)
         internal long NearChecks;
         // for tests: the builds of the tree of the changed triangles in the last Apply
@@ -1309,8 +1314,8 @@ namespace g3
             // (docs/research/ROUNDING_COST_2026-11.md section 5). Not for the full search of the check, which tests
             // every pair. The mesh does not change during the search (no edit is pending: the tree is the mesh)
             double[] axes = null;
-            if (skipExact && useAxes) {
-                axes = new double[(long)TriangleSeparatingAxes.Stride * tris.Length];
+            if (skipExact && useAxes && tris.Length <= MaxAxesTriangles) {
+                axes = new double[TriangleSeparatingAxes.Stride * tris.Length];
                 gParallel.ForRange((tris.Length + TriangleBlock - 1) / TriangleBlock, (b) => {
                     int end = Math.Min(tris.Length, (b + 1) * TriangleBlock);
                     for (int i = b * TriangleBlock; i < end; ++i) {

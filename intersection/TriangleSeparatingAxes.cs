@@ -47,11 +47,18 @@ namespace g3
     /// error is then at most 2^-1075 in absolute terms (sums and differences of doubles are exact when their result is
     /// subnormal). So in general |p~ - p| &lt;= (3u + 3u^2 + u^3) S + 3 (1 + u)^2 2^-1075 and s~ &gt;= (1 - u)^3 S -
     /// 3 2^-1075, and fl(Gamma s~) may lose another 2^-1075 where it is subnormal. Tiny = 2^-1072 = 8 2^-1075 covers
-    /// these: where fl(Gamma s~) is below 2^-1021 the sum with Tiny is exact, and m~ &gt;= 8u (1 - u)^3 S - 8u 3 2^-1075 -
-    /// 2^-1075 + 8 2^-1075 &gt; 4u S + 4 2^-1075; where it is 2^-1021 or more the sum may round Tiny away, and then the
-    /// part of the margin beyond the relative bound, (8 (1 - u)^3 - 3 - 3u - u^2) u S &gt; (4 / 8) fl(Gamma s~) &gt;= 2^-1022,
-    /// covers the 4 2^-1075 by itself. With Tiny a triangle in a plane through the origin (all projections on its
-    /// normal exactly zero) has the interval (-Tiny, Tiny), not none.
+    /// these. With g = fl(Gamma s~): where g + Tiny is below 2^-1021 the sum is exact (every double below 2^-1021 is a
+    /// multiple of 2^-1074), and m~ &gt;= 8u (1 - u)^3 S - 8u 3 2^-1075 - 2^-1075 + 8 2^-1075 &gt; 4u S + 4 2^-1075. Where
+    /// g + Tiny is 2^-1021 or more, g is at least 2^-1021 - 2^-1072 and normal (so exact), the rounded sum is not below
+    /// g (rounding is monotonic) but may round Tiny away, and then the part of the margin beyond the relative bound,
+    /// (8 (1 - u)^3 - 3 - 3u - u^2) u S &gt; (4 / 8) g &gt; 2^-1023, covers the 4 2^-1075 by itself. With Tiny a triangle
+    /// in a plane through the origin (all projections on its normal exactly zero) has the interval (-Tiny, Tiny), not
+    /// none.
+    ///
+    /// The model. Every operation is rounded once to a double (SSE2 and NEON code: x64, arm64, and x86 on .NET Core and
+    /// later). The x87 code of a 32-bit .NET Framework process keeps intermediates with a wider exponent range and
+    /// rounds a subnormal result a second time when it is stored: the relative steps 1 to 6 are unchanged there (the
+    /// precision control is 53 bits), the underflow paragraph is not proved for it.
     ///
     /// Overflow, values that are not finite. With finite magnitudes the projections are finite (|p~| &lt;= s~), and an
     /// interval end that overflows is -inf below or +inf above: still an enclosure. A coordinate, an axis component or a
