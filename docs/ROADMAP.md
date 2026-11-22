@@ -54,7 +54,7 @@ the future" list, ordered by priority; this section names only what is in flight
 
 - **Exact Boolean 3.0: complete (2026-11-18).** Every touched mutation shard has a full run above its threshold on master, and no
   mutated file changed after its run: arrangement-1..4, boolean-1/3..7 and rounding-1..12 in run 44217581261 (3ee7afea);
-  rounding-13 (tests of #1125) and boolean-2 in 44295650298 (739e0458); terrain-overlay in 44267014937 (57623890);
+  rounding-13 (tests of #1125) and boolean-2 in 44295650298 (739e0458); terrain-overlay in 44267014937 (5b99848d);
   exact-arithmetic, imprint, planar and hausdorff in 44313345652 (822ac229); envelope-3, terrain-arith and terrain-kernel in
   44136162368; geodesic-1/2 in 44104242651; uv-* in 44092331961; the other envelope shards, fixed and generated in 44013112256.
   The boolean CsCheck families and fuzz targets of #1038 are merged (#1120). Exact booleans are now in maintenance mode (owner 2026-11-16);
