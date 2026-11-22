@@ -1,0 +1,76 @@
+corpus: 21 cases x 2 frames, 0 defects
+input | frame | resolution | solidify result | triangles | pairs | untangled | rounds | max move / cell | max move / diagonal
+plate, thickness 0.02 | id | 24 | failed
+plate, thickness 0.02 | id | 48 | failed
+plate, thickness 0.02 | id | 96 | clean | 88
+plate, thickness 0.02 | rot | 24 | clean | 42
+plate, thickness 0.02 | rot | 48 | clean | 964
+plate, thickness 0.02 | rot | 96 | clean | 5926
+plate, thickness 0.05 | id | 24 | failed
+plate, thickness 0.05 | id | 48 | clean | 28
+plate, thickness 0.05 | id | 96 | clean | 34
+plate, thickness 0.05 | rot | 24 | clean | 288
+plate, thickness 0.05 | rot | 48 | clean | 2110
+plate, thickness 0.05 | rot | 96 | clean | 7388
+two crossing plates, thickness 0.02 | id | 24 | failed
+two crossing plates, thickness 0.02 | id | 48 | failed
+two crossing plates, thickness 0.02 | id | 96 | clean | 88
+two crossing plates, thickness 0.02 | rot | 24 | clean | 48
+two crossing plates, thickness 0.02 | rot | 48 | clean | 932
+two crossing plates, thickness 0.02 | rot | 96 | clean | 11576
+two crossing plates, thickness 0.05 | id | 24 | failed
+two crossing plates, thickness 0.05 | id | 48 | clean | 84
+two crossing plates, thickness 0.05 | id | 96 | clean | 86
+two crossing plates, thickness 0.05 | rot | 24 | clean | 362
+two crossing plates, thickness 0.05 | rot | 48 | clean | 3722
+two crossing plates, thickness 0.05 | rot | 96 | clean | 18242
+three plates through each other, thickness 0.03 | id | 24 | clean | 28
+three plates through each other, thickness 0.03 | id | 48 | failed
+three plates through each other, thickness 0.03 | id | 96 | clean | 204
+three plates through each other, thickness 0.03 | rot | 24 | clean | 272
+three plates through each other, thickness 0.03 | rot | 48 | clean | 3436
+three plates through each other, thickness 0.03 | rot | 96 | self-intersections | 22162 | 20 | yes | 1 | 1.84e-11 | 1.91e-13
+hollow box, wall 0.03 | id | 24 | clean | 30
+hollow box, wall 0.03 | id | 48 | clean | 64
+hollow box, wall 0.03 | id | 96 | clean | 26
+hollow box, wall 0.03 | rot | 24 | clean | 694
+hollow box, wall 0.03 | rot | 48 | clean | 8336
+hollow box, wall 0.03 | rot | 96 | clean | 49398
+thin helix tube, r 0.03, pitch 0.1 | id | 24 | clean | 164
+thin helix tube, r 0.03, pitch 0.1 | id | 48 | clean | 1582
+thin helix tube, r 0.03, pitch 0.1 | id | 96 | clean | 7024
+thin helix tube, r 0.03, pitch 0.1 | rot | 24 | clean | 224
+thin helix tube, r 0.03, pitch 0.1 | rot | 48 | clean | 1588
+thin helix tube, r 0.03, pitch 0.1 | rot | 96 | clean | 7826
+helix tube, turns overlap by 0.1 r | id | 24 | clean | 1334
+helix tube, turns overlap by 0.1 r | id | 48 | clean | 5036
+helix tube, turns overlap by 0.1 r | id | 96 | clean | 15810
+helix tube, turns overlap by 0.1 r | rot | 24 | clean | 1252
+helix tube, turns overlap by 0.1 r | rot | 48 | clean | 4828
+helix tube, turns overlap by 0.1 r | rot | 96 | clean | 15770
+open sheet (one face of a box) | id | 24 | failed
+open sheet (one face of a box) | id | 48 | failed
+open sheet (one face of a box) | id | 96 | failed
+open sheet (one face of a box) | rot | 24 | failed
+open sheet (one face of a box) | rot | 48 | failed
+open sheet (one face of a box) | rot | 96 | failed
+box without its top | id | 24 | clean | 276
+box without its top | id | 48 | clean | 1150
+box without its top | id | 96 | clean | 3744
+box without its top | rot | 24 | clean | 504
+box without its top | rot | 48 | clean | 1200
+box without its top | rot | 96 | clean | 3556
+fin 0.02 on a box | id | 24 | clean | 12
+fin 0.02 on a box | id | 48 | clean | 40
+fin 0.02 on a box | id | 96 | clean | 40
+fin 0.02 on a box | rot | 24 | clean | 236
+fin 0.02 on a box | rot | 48 | clean | 656
+fin 0.02 on a box | rot | 96 | self-intersections | 2222 | 4 | yes | 1 | 6.27e-11 | 6.53e-13
+comb: 5 fins 0.02, gap 0.04 | id | 24 | failed
+comb: 5 fins 0.02, gap 0.04 | id | 48 | failed
+comb: 5 fins 0.02, gap 0.04 | id | 96 | clean | 270
+comb: 5 fins 0.02, gap 0.04 | rot | 24 | clean | 1764
+comb: 5 fins 0.02, gap 0.04 | rot | 48 | clean | 13982
+comb: 5 fins 0.02, gap 0.04 | rot | 96 | self-intersections | 79408 | 20 | yes | 1 | 6.85e-9 | 7.13e-11
+
+solidify runs: 72; closed with self-intersections as the only defect: 3; of those untangled clean: 3
