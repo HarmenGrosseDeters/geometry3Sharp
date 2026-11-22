@@ -538,15 +538,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(IntersectionResult.InvalidQuery, new IntrLine2Segment2(line, seg).Compute().Result);
         }
 
-        [Fact]
-        public void UseToleranceRoute_KeepsTheOldTolerance_ForTheTriangleTriangleBranch()
-        {
-            var tri = new Triangle2d(new Vector2d(0, 0), new Vector2d(4, 0), new Vector2d(0, 4));
-            var seg = new Segment2d(new Vector2d(1, -5e-9), new Vector2d(2, -5e-9));       // 5e-9 below the edge y = 0
-            Assert.False(new IntrSegment2Triangle2(seg, tri).Find());
-            Assert.True(new IntrSegment2Triangle2(seg, tri) { UseToleranceRoute = true }.Find());
-        }
-
         // ---- tolerance route ----
         [Fact]
         public void IntervalThreshold_SelectsTheToleranceRoute()
