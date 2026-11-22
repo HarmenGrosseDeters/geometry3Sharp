@@ -14,7 +14,7 @@ algebraic law, an invariance or its documented result contract on small solids b
 ## 1. Result in five lines
 
 1. **No defect of the exact Boolean.** 587 680 Boolean runs on 10 100 generated cases of the final harness (and 3200 cases of
-   the exploration before), 1 392 542 relations checked: every exact relation holds as an equality of rational numbers, in
+   the exploration before), 1 755 922 relations checked: every exact relation holds as an equality of rational numbers, in
    every family, including the rotated near-degenerate ones.
 2. **One defect of the test harness, fixed here:** the certifying checker (`BooleanCertificate.Cover`) ran out of memory after
    100 s on a result of 4 triangles (section 4). The library computed that Boolean in 1 ms.
@@ -117,18 +117,18 @@ The Nightly seeds (from 1000); the output lines of the run, as a table:
 
 | Family | Cases | Boolean runs | Relations | Failed | Results reported not clean (intersections / degenerate / false contacts / scale disparity) | Thin inside-out components | Complement steps not representable | Triangles the certificate could not cover | Pipeline refusals | Time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `coplanar` | 400 | 32 400 | 83 997 | 0 | 3 (3 / 0 / 0 / 0) | 1 | 0 | 0 | 0 | 56 s |
-| `shared` | 800 | 64 364 | 166 690 | 0 | 2 (0 / 1 / 0 / 1) | 1 | 436 | 0 | 0 | 43 s |
-| `ulp` | 400 | 32 133 | 83 181 | 0 | 12 (1 / 8 / 2 / 3) | 0 | 267 | 1155 | 3 | 78 s |
-| `slab` | 400 | 32 306 | 83 420 | 0 | 298 (0 / 0 / 0 / 298) | 0 | 94 | 34 | 0 | 47 s |
-| `shells` | 400 | 32 400 | 83 840 | 0 | 1 (1 / 0 / 0 / 0) | 0 | 0 | 0 | 0 | 49 s |
-| `generic` | 400 | 32 221 | 83 463 | 0 | 0 | 0 | 179 | 0 | 0 | 61 s |
-| `rotated` | 250 | 20 026 | 51 711 | 0 | 74 (3 / 2 / 0 / 69) | 0 | 204 | 682 | 2 | 139 s |
+| `coplanar` | 400 | 32 400 | 108 397 | 0 | 3 (3 / 0 / 0 / 0) | 1 | 0 | 0 | 0 | 55 s |
+| `shared` | 800 | 64 364 | 215 054 | 0 | 2 (0 / 1 / 0 / 1) | 1 | 436 | 0 | 0 | 47 s |
+| `ulp` | 400 | 32 133 | 106 114 | 0 | 12 (1 / 8 / 2 / 3) | 0 | 267 | 1155 | 3 | 84 s |
+| `slab` | 400 | 32 306 | 106 526 | 0 | 298 (0 / 0 / 0 / 298) | 0 | 94 | 34 | 0 | 50 s |
+| `shells` | 400 | 32 400 | 108 240 | 0 | 1 (1 / 0 / 0 / 0) | 0 | 0 | 0 | 0 | 49 s |
+| `generic` | 400 | 32 221 | 107 684 | 0 | 0 | 0 | 179 | 0 | 0 | 64 s |
+| `rotated` | 250 | 20 026 | 65 987 | 0 | 74 (3 / 2 / 0 / 69) | 0 | 196 | 682 | 2 | 147 s |
 | `open` | 2000 | 48 000 | 60 000 | 0 | 0 | 0 | 0 | 0 | 0 | 48 s |
-| total | 5050 | 293 850 | 696 302 | 0 | 390 | 2 | 1180 | 1871 | 5 | 8.7 min |
+| total | 5050 | 293 850 | 878 002 | 0 | 390 | 2 | 1172 | 1871 | 5 | 9.1 min |
 
-A second run of the same seeds gave the same counts in every column. The seeds from 5000: 5050 cases, 293 830 Boolean runs,
-696 240 relations, 0 failed (383 results reported not clean, 5 thin inside-out components, 8 pipeline refusals).
+An earlier run of the same seeds, before the checker was tightened in review, gave the same counts of Boolean runs and of every exception. The seeds from 5000: 5050 cases, 293 830 Boolean runs,
+877 920 relations, 0 failed (383 results reported not clean, 5 thin inside-out components, 8 pipeline refusals).
 
 The columns right of "Failed" are the documented exceptions of section 5: counted, not failed. A result "reported not clean"
 has `RoundingClean` false with `Status` `Success`, which is the documented answer where the rounding cannot repair within its
@@ -139,7 +139,7 @@ Tiers:
 
 - **PR tier**: `ExactBooleanFuzzTests.Smoke`, seeds from 0, 3 to 24 cases per family, up to 2 s each here in a loaded run (limit 5 s).
 - **Nightly**: `ExactBooleanFuzzTests.Campaign`, seeds from 1000, 250 to 2000 cases per family; the run is the check (a fuzzing
-  campaign finds by volume): 43 to 139 s per family, 8.7 minutes for all here, of the nightly job's 90.
+  campaign finds by volume): 47 to 147 s per family, 9.1 minutes for all here, of the nightly job's 90.
 - Other seeds locally: `FUZZ_FROM=5000 FUZZ_COUNT=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter
   "FullyQualifiedName~ExactBooleanFuzzTests.Campaign"`.
 - A failure prints the case as code (`FuzzCase.ToCode`: the coordinates as bit patterns). It is reduced by hand to a procedural
