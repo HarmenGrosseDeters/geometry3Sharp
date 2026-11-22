@@ -3,11 +3,11 @@
 - **Board row:** Not yet listed in [OPEN_TOPICS.md](../OPEN_TOPICS.md) (direct follow-up to PR `#1294` and SIGGRAPH 2026 audit PR `#1292`)
 - **Kind:** high-ROI follow-up (opt-in exact winding on `FastWindingNumber` callers + hierarchical boundary acceleration in `ExactWindingCache` for open meshes with large `|∂M|`; changing existing FWN defaults changes output bits and requires an owner decision)
 - **Tier:** M/L (Part A is M: opt-in exact winding wiring; Part B is L if certified error bounds are added to `ExactWindingCache`'s boundary hierarchy)
-- **Plan status:** draft, 2026-11-21 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-21 (Berlin); updated 2026-11-22 (Berlin): PR `#1294` merged on 2026-11-22; Parts A and B are implemented in open PR `#1298`. The plan closes when `#1298` merges.
 
 ## Current state
 
-- PR `#1294` replaces the legacy Jacobson `WindingCache` in [`DMeshAABBTree3.WindingNumber`](../../spatial/DMeshAABBTree.cs) with an exact ray-plus-boundary `ExactWindingCache` (Antipodal / FEWN decomposition with exact `Orient2d`/`Orient3d` symbolic perturbation) and adds `+x` row-ray reuse to [`MeshWindingNumberGrid`](../../spatial/MeshWindingNumberGrid.cs).
+- PR `#1294` (merged 2026-11-22) replaces the legacy Jacobson `WindingCache` in [`DMeshAABBTree3.WindingNumber`](../../spatial/DMeshAABBTree.cs) with an exact ray-plus-boundary `ExactWindingCache` (Antipodal / FEWN decomposition with exact `Orient2d`/`Orient3d` symbolic perturbation) and adds `+x` row-ray reuse to [`MeshWindingNumberGrid`](../../spatial/MeshWindingNumberGrid.cs).
 - Measured on PR `#1294` (`ExactWindingBenchmark`, 20k-triangle sphere, 64³ grid):
   - **Closed point queries:** `0.41 ms` exact vs. `2.10 ms` `FastWindingNumber` (**5.1x faster** and exact, with **1.8x faster** cache build and zero dipole error vs. `6.48e-2` FWN error).
   - **Unwelded closed STL soup point queries:** `0.40 ms` exact vs. `1.76 ms` FWN (**4.4x faster** and exact).
@@ -20,8 +20,9 @@
 
 ## Trigger / decision needed
 
-- **Prerequisite:** Merge PR `#1294` first (avoid stacking before base lands).
-- **Part A (opt-in exact winding on callers):** Ready to start immediately after PR `#1294` merges; preserves default `FastWindingNumber` hashes (`SolidifyBenchmark`, `MeshRepairBenchmark`).
+- **Prerequisite:** done; PR `#1294` merged on 2026-11-22.
+- **Implementation:** open PR `#1298` carries Part A and Part B (certified `BoundaryTree` in `ExactWindingCache`); review and merge of `#1298` is what remains.
+- **Part A (opt-in exact winding on callers):** in PR `#1298`; preserves default `FastWindingNumber` hashes (`SolidifyBenchmark`, `MeshRepairBenchmark`).
 - **Part B (hierarchical boundary sum in `ExactWindingCache`):** Decide whether to expose (i) certified exact threshold query `IsInsideExactWinding(p, iso)` (bit-identical to exact `WindingNumber(p) > iso` via certified interval bound, reusing the proof in [EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md](../design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md)), and/or (ii) an opt-in approximate boundary tolerance `FastExactWinding` for large `|∂M|`.
 
 ## Goal
