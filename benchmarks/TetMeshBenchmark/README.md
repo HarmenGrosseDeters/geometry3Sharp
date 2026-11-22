@@ -297,3 +297,39 @@ Round 2 (a cap on the split attempts only, `MaxSplitAttemptsPerVertex`, not kept
 (baseline 4) and 73 / 84 / 106 at the floor 30 (baseline 107), saving 13 / 11 / 4 % and 31 / 23 / 14 % of the time: the slow meshes spend 50 to 60 % of their time in the
 operations a split cap does not bound.
 
+## Dihedral-floor spike: a lattice mesher next to `MeshTetrahedralization` (`floor`, `floornoise`; 2026-11-22)
+
+Research spike for HP 5 / P5(b) ([docs/research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../../docs/research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md), which has
+the tables and the reading). `Stuffing.cs` is a prototype of uniform isosurface stuffing (Labelle and Shewchuk 2007, from the paper's text), not
+library code. `floor [relativeCell ...]` runs `MeshTetrahedralization` (default, and with `CreaseAngleDegrees` 30) and the lattice (cell = diagonal /
+relativeCell) on the 8 procedural inputs and 13 inputs with acute creases, thin parts and near contacts; the columns are `TetFiles.Header` plus the
+largest dihedral angle and the input's smallest dihedral angle. `floornoise [seeds]` checks the angle bound on random labels and cut points.
+
+```
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 20 40 80
+G3_STUFF_OURS=0 G3_STUFF_ALPHA=0.24999,0.41189 dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 20 40 80
+G3_STUFF_OURS=0 G3_STUFF_OFFSET=0 dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 40 80
+G3_STUFF_FILE=<mesh> dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floor 40 80 160
+python3 benchmarks/TetMeshBenchmark/compare/summarize_floor_spike.py benchmarks/TetMeshBenchmark/results/tet-floor-spike-*2026-11-22.csv
+dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
+```
+
+Rows (2026-11-22, the 4-core cloud container, Release, net10.0): `results/tet-floor-spike-2026-11-22.csv` (the 10.78 degree parameters),
+`-safe-` (0.24999 / 0.41189), `-offset0-` (the input surface instead of its offset), `-thingi2-` (38781 and 282598, fetched by hand, not kept).
+Summary (`summarize_floor_spike.py`, first file):
+
+```
+ours      crease=0   inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 168.4 | tets median 6028 | time median 0.22 s max 0.95 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00057
+ours      crease=30  inputs 21 meshed 21 valid 21 | min dihedral worst 10.00 median 10.02, all>=10: 21 | max dihedral worst 169.0 | tets median 6028 | time median 0.28 s max 0.49 | dev_in max: median 0.0017 worst 0.1847, mean: median 0.00111
+stuffing  cell=20    inputs 21 meshed 20 valid 19 | min dihedral worst 15.23 median 21.02, all>=10: 20 | max dihedral worst 152.5 | tets median 9787 | time median 0.19 s max 0.60 | dev_in max: median 0.0240 worst 0.3747, mean: median 0.01169 | per input against ours (median of ratios): tets 1.23, dev_in max 10.65, dev_in mean 14.97, time 0.75 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 593
+stuffing  cell=40    inputs 21 meshed 20 valid 20 | min dihedral worst 15.91 median 20.41, all>=10: 20 | max dihedral worst 157.2 | tets median 75248 | time median 0.81 s max 2.30 | dev_in max: median 0.0136 worst 0.2002, mean: median 0.00532 | per input against ours (median of ratios): tets 9.47, dev_in max 6.53, dev_in mean 9.12, time 3.11 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 4684
+stuffing  cell=80    inputs 21 meshed 21 valid 21 | min dihedral worst 16.16 median 20.79, all>=10: 21 | max dihedral worst 156.8 | tets median 563180 | time median 3.31 s max 9.92 | dev_in max: median 0.0050 worst 0.1833, mean: median 0.00175 | per input against ours (median of ratios): tets 69.48, dev_in max 1.80, dev_in mean 2.67, time 15.13 | inverted background tets 0, rule conflicts 0, quadruple-zero discarded 24928
+```
+
+`floornoise 20`:
+
+```
+alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,inverted_tets,inverted_background,rule_conflicts,quadzero_discarded
+0.28511,0.39882,20,773644,14.4636,159.3380,0,0,0,298902
+0.24999,0.41189,20,776780,12.5600,151.6538,0,0,0,295760
+```

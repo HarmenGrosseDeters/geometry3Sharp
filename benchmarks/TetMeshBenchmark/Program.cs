@@ -58,6 +58,10 @@ static class Program
             Console.WriteLine(TetFiles.Header);
             // the wrap is serial (one thread); the evaluation is not timed
             Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
+        } else if (mode == "floor") {           // floor [relativeCell ...]: the dihedral-floor spike (Stuffing.cs): a lattice mesher next to MeshTetrahedralization
+            return Stuffing.Main(args, Procedural());
+        } else if (mode == "floornoise") {      // floornoise [seeds]: the lattice mesher's angle bound on random labels and cut points
+            return Stuffing.Noise(args);
         } else if (mode == "maxdih") {          // maxdih <file|proc> <alpha> <floor> <G> [nohdr]: stage 2 with and without MaxDihedralDegrees (MaxDihedral.cs)
             return MaxDihedralSample.Run(args, Procedural());
         } else if (mode == "refine") {          // refine [file|proc] [relativeAlpha] [relativeOffset]: stage 1 (MeshTetrahedralization), same row as eval

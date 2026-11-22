@@ -961,6 +961,10 @@ angle below about 60 degrees"), and real wrap surfaces have acute angles (10.1).
 practical form is (a): measure and report per run, and keep the corpus evidence (P1) as the claim; the proof route is (b) and
 gives up the conforming wrap boundary.
 
+Spike 2026-11-22 on P5(b) ([research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)): the paper's 10.7 degrees holds per tet
+but only with parameters under which tets may overlap on an unresolved surface; the parameters that are safe on every input prove 9.31 degrees.
+Measured with a benchmark prototype: the bound holds everywhere, at 10 to 70 times the default's tets for comparable fidelity. Leaning: not built.
+
 ### 17.4 Recommended order
 
 1. **P1** first: one default and one runner run close the floor part of gap 3 on the subset (40 of 40 at either candidate) and
