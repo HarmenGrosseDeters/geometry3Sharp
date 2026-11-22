@@ -67,9 +67,6 @@ namespace DeterminismHarness
         // them as KNOWN and does not fail on them; it fails when one of them stops differing (the entry is then removed), so
         // the list can only shrink. A new case that differs fails the command as before.
         static readonly Dictionary<string, string> KnownOrderDependent = new Dictionary<string, string>(StringComparer.Ordinal) {
-            // PackedSparseMatrix.Square appends the entries of the squared matrix in the order the blocks finish; the row
-            // order of the nonzeros, and with it the summation order of every later product, follows the schedule
-            { "examples.Smoothing.Laplacian", "LaplacianMeshSmoother: PackedSparseMatrix.Square (docs/research/DETERMINISM_CROSS_RUNTIME_2026-11.md, finding F1)" },
         };
 
         static int Adversary(string[] args)

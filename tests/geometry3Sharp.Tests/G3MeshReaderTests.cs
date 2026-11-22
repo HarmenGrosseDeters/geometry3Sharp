@@ -323,5 +323,51 @@ namespace geometry3Sharp.Tests
             // (quadratic: several seconds; linear: tens of milliseconds)
             Assert.True(timer.ElapsedMilliseconds < 2000, timer.ElapsedMilliseconds + " ms");
         }
+
+        [Theory]
+        [InlineData(0, double.NaN)] [InlineData(1, double.NaN)] [InlineData(2, double.NaN)]
+        [InlineData(0, double.PositiveInfinity)] [InlineData(1, double.PositiveInfinity)] [InlineData(2, double.PositiveInfinity)]
+        [InlineData(0, double.NegativeInfinity)] [InlineData(1, double.NegativeInfinity)] [InlineData(2, double.NegativeInfinity)]
+        public void NonFiniteCoordinate_IsAReadError(int axis, double value)
+        {
+            DMesh3 mesh = TestMesh();
+            Vector3d v = mesh.GetVertex(3);
+            v[axis] = value;
+            mesh.SetVertex(3, v);
+            DMesh3Builder builder;
+            IOReadResult r = Read(Store(mesh), out builder);
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Contains("non-finite vertex coordinate", r.message);
+            Assert.Empty(builder.Meshes);
+        }
+
+        [Fact]
+        public void NonFiniteIsolatedVertexInTheSecondMesh_IsAReadError_AndAppendsNothing()
+        {
+            var stream = new MemoryStream();
+            var writer = new BinaryWriter(stream);
+            writer.Write(2);
+            gSerialization.Store(TestMesh(), writer);
+            DMesh3 bad = TestMesh();
+            bad.AppendVertex(new Vector3d(1, double.NegativeInfinity, 2));
+            gSerialization.Store(bad, writer);
+            writer.Flush();
+            DMesh3Builder builder;
+            IOReadResult r = Read(stream.ToArray(), out builder);
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Empty(builder.Meshes);
+        }
+
+        [Fact]
+        public void NonFiniteCoordinate_ReadsWhenAllowed()
+        {
+            DMesh3 mesh = TestMesh();
+            mesh.SetVertex(3, new Vector3d(double.NaN, 1, double.PositiveInfinity));
+            var builder = new DMesh3Builder();
+            var options = new ReadOptions { AllowNonFiniteCoordinates = true };
+            IOReadResult r = StandardMeshReader.ReadFile(new MemoryStream(Store(mesh), false), "g3mesh", options, builder);
+            Assert.True(r.code == IOCode.Ok, r.message);
+            Assert.True(double.IsNaN(builder.Meshes.Single().GetVertex(3).x));
+        }
     }
 }
