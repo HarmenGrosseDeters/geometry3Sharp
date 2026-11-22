@@ -46,8 +46,7 @@ sessions, combined mutation gates).
 
 ## Before every push
 
-Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
-`ci.yml`): re-read the diff and push. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
+Docs-only changes (only `*.md` files) run `python3 tools/check_docs.py` locally and trigger the fast `.github/workflows/docs.yml` check in CI; the full library CI (`.github/workflows/ci.yml`) skips them. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
 `GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests; `docs/design/DETERMINISM_PROOF.md`,
 whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests. A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
@@ -83,7 +82,18 @@ python3 -m unittest discover -s tools -p 'test_trx_durations.py'
 python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
 python3 -m unittest discover -s tools -p 'test_gate_check.py'
 python3 -m unittest discover -s tools -p 'test_review_triggers.py'
+python3 -m unittest discover -s tools -p 'test_check_docs.py'
+python3 tools/check_docs.py
 ```
+
+Where documentation changes go (enforced by `tools/check_docs.py` — avoid growing monolith files or dumping ad-hoc files into `docs/` root):
+- User-facing operation docs & contracts: `docs/guides/<topic>.md` (+ link in `docs/OPERATIONS.md`, compiled example in `docs/examples/`). Keep table rows `<= 500` chars; put details in subsections.
+- CLI / MCP commands: `tools/g3cli/docs/<domain>.md` (+ one-line index row in `tools/g3cli/README.md`).
+- Design specs & studies: `docs/design/<NAME>.md` (+ entry in `docs/design/README.md`).
+- Academic papers & third-party licenses: matching domain file in `docs/sources/<domain>.md` (+ entry in `docs/sources/README.md`).
+- QA policy & test-tier rules: matching page in `docs/qa/<topic>.md` (+ entry in `docs/qa/README.md`).
+- Performance baselines, research notes, and historical audits: `docs/perf/`, `docs/research/`, and `docs/archive/` (+ entry in their `README.md`).
+- Open topics & status tracking: `docs/OPEN_TOPICS.md` and `docs/roadmap/<domain>.md`.
 
 A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
 the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workflow checks it (run from `tests/mutation`):
