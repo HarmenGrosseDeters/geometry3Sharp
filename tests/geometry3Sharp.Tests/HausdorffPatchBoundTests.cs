@@ -519,6 +519,12 @@ namespace geometry3Sharp.Tests
             Vector3d h0 = new Vector3d(0.2, 0.5, 0), h1 = new Vector3d(0.8, 0.5, 0), h2 = new Vector3d(0.5, 0.9, 0);
             Assert.True(SampledMax(hole, holeTree, h0, h1, h2) > 0.01);
             Assert.True(double.IsPositiveInfinity(Touching(hole, holeTree, h0, h1, h2)));
+            // the hole reaches into the triangle by d: by less than half the margin (3e-10 here) the bound is finite and must
+            // cover the strip over the hole (the term 2 margin shape of point 4); by more there is no bound
+            Vector3d s0 = new Vector3d(0.2, 0.55 - 1e-10, 0), s1 = new Vector3d(0.8, 0.55 - 1e-10, 0);
+            double us = Touching(hole, holeTree, s0, s1, h2);
+            Assert.True(us >= 1e-10 && us < 1e-8, "bound over the strip: " + us);
+            Assert.True(double.IsPositiveInfinity(Touching(hole, holeTree, new Vector3d(0.2, 0.55 - 4e-10, 0), new Vector3d(0.8, 0.55 - 4e-10, 0), h2)));
             // a boundary edge through a corner region: outside of no single edge line
             Assert.True(double.IsPositiveInfinity(Touching(plate, tree, new Vector3d(0.5, -0.01, 0), new Vector3d(0.9, 0.5, 0), new Vector3d(0.1, 0.5, 0))));
         }

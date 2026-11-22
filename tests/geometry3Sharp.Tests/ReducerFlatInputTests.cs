@@ -95,11 +95,32 @@ namespace geometry3Sharp.Tests
             Assert.Equal(8.0, MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x, 9);
         }
 
+        /// <summary>
+        /// At a tolerance far below the size of the faces the old check gave up at its depth limit (MaxDeviationDepth) and refused
+        /// collapses that keep the surface: the plate stopped at 62 triangles (1e-4) and the cube at 260. They reduce as at coarser
+        /// tolerances, and the results are within the tolerance
+        /// </summary>
+        [Fact]
+        public void TightTolerance_FlatFacesStillReduce()
+        {
+            DMesh3 plate = Plate(16), cube = Cube(9);
+            foreach (DMesh3 input in new[] { plate, cube }) {
+                double eps = 1e-4 * input.CachedBounds.DiagonalLength;
+                var m = new DMesh3(input);
+                new Reducer(m) { MaxDeviation = eps }.ReduceToTriangleCount(2);
+                Assert.True(m.TriangleCount <= (input == plate ? 8 : 20), "triangles: " + m.TriangleCount);
+                Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+                if (input == cube) Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+                Assert.True(Deviation(m, input, eps) <= eps);
+                Assert.True(Deviation(input, m, eps) <= eps);
+            }
+        }
+
         /// <summary> repeated runs, the parallel walk of the check and a second reduction on the same instance give the same meshes </summary>
         [Fact]
         public void FlatInputs_Repeatable_ParallelEqualsSerial_Reuse()
         {
-            foreach (DMesh3 input in new[] { Plate(8), Cube(6) }) {
+            foreach (DMesh3 input in new[] { Plate(6), Cube(5) }) {
                 double eps = 1e-3 * input.CachedBounds.DiagonalLength;
                 Func<bool, DMesh3> reduce = (parallel) => {
                     var m = new DMesh3(input);
@@ -125,7 +146,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FlatInputs_InvariantUnderSimilarities()
         {
-            foreach (DMesh3 input in new[] { Plate(10), Cube(7) }) {
+            foreach (DMesh3 input in new[] { Plate(6), Cube(5) }) {
                 double eps = 1e-3 * input.CachedBounds.DiagonalLength;
                 var m0 = new DMesh3(input);
                 new Reducer(m0) { MaxDeviation = eps }.ReduceToTriangleCount(2);

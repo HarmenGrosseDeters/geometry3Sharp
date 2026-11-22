@@ -229,7 +229,9 @@ namespace g3
         /// PatchTouchingEdges): a new triangle that spans many reference triangles of a flat region is certified in one step
         /// instead of being split down to their size (issue 1317: 76 s for a flat-faced cube of 4332 triangles); tried where the
         /// reference triangles are at least MaxDeviation in size (PatchMinTargetSize). Read when the deviation reference is set.
-        /// False: the check as before
+        /// The check accepts at least the collapses it accepted before, and more only where the old check gave up at
+        /// MaxDeviationDepth: a new triangle larger than about 1000 MaxDeviation over a flat region (eg a flat face at a
+        /// tolerance of 1e-4 of its size) was refused although it lies within the tolerance. False: the check as before
         /// </summary>
         internal bool DeviationPatchBound = true;
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>

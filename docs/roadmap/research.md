@@ -653,7 +653,7 @@ Ordered by expected value for the library.
       1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
       for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
       `MaxDeviation` took 76 s on a flat-faced cube of 4332 triangles; fixed in #1317 (patch bound in the check, also along
-      boundaries and creases: 5.8 s, the same meshes; 1.0-4.3x on the curved benchmark cases).
+      boundaries and creases: 5.8 s, the same meshes at the benchmark tolerances; 0.9-4.3x on the curved benchmark cases).
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner

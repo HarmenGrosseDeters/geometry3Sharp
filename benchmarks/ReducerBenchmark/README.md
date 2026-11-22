@@ -264,8 +264,12 @@ What changed (`queries/TriangleDeviationBounds.cs`, `mesh/Reducer.cs`):
   has hundreds of them (about 50 µs per try), and plain subdivision stops at pieces of the tolerance's size anyway.
   Without this gate the two 200k-triangle cases at 0.01 ran at 0.8x; with it they are within the noise of 1.0x
   (0.9-1.1x here).
-- **Results.** The same meshes in all 18 rows, and in the library's tests. In principle the check can now certify a
-  collapse that the old one refused at its depth limit (`MaxDeviationDepth`); none of the cases shows one.
+- **Results.** The same meshes in all 18 rows, and in the library's tests. The check accepts every collapse the old one
+  accepted, and more only where the old one gave up at its depth limit (`MaxDeviationDepth = 10`): a new triangle larger
+  than about 1000 tolerances over a flat region was refused although it lies within the tolerance. So at tolerances far
+  below the size of flat faces the results change, to fewer triangles (the independent review's runs, one-sided
+  deviation of the new results within the tolerance): cube 9 at 1e-4: 260 -> 12 triangles; plate 16 at 1e-4: 62 -> 4, at
+  1e-5: 512 (no reduction) -> 4; a wavy plate at 1e-4: 243 -> 231. Test: `ReducerFlatInputTests.TightTolerance_FlatFacesStillReduce`.
 
 What remains: the cube of 4332 triangles still takes 5.8 s and stops at 30 triangles (flip test), and the time grows
 faster than the input (plate 48, 4608 triangles: 7-9 s, measured with a larger patch limit, which made no difference). Each collapse at a high-valence vertex checks its whole fan

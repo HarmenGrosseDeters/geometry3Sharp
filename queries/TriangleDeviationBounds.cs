@@ -673,7 +673,6 @@ namespace g3
             }
         }
 
-        // does the segment (a, b) come within margin of the closed triangle (q0, q1, q2) (counter-clockwise)?
         // are both end points of the segment ab less than margin / 2 inside of the line pq (the inside is on its left)?
         static bool outside_edge(Vector2d p, Vector2d q, Vector2d a, Vector2d b, double margin)
         {
@@ -681,6 +680,7 @@ namespace g3
             return edge_side(p, q, a) < limit && edge_side(p, q, b) < limit;
         }
 
+        // does the segment (a, b) come within margin of the closed triangle (q0, q1, q2) (counter-clockwise)?
         static bool segment_meets_triangle(Vector2d a, Vector2d b, Vector2d q0, Vector2d q1, Vector2d q2, double margin)
         {
             // an end point inside, or the segment within margin of an edge

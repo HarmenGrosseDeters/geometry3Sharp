@@ -71,6 +71,7 @@ static class FlatInputs
                 t[0].Sort(); t[1].Sort();
                 double t0 = t[0][t[0].Count / 2], t1 = t[1][t[1].Count / 2];
                 bool same = ReducerHashes.Hash(res[0]) == ReducerHashes.Hash(res[1]);
+                if (!same) Environment.ExitCode = 1;
                 Console.WriteLine($"| {name} | {input.TriangleCount} | {rel} | {res[1].TriangleCount} | {t0:F0}{(once ? " (1 run)" : "")} | {t1:F0} | {t0 / t1:F1}x | {(same ? "same" : "DIFFERENT")} {ReducerHashes.Hash(res[1])} |");
             }
     }
