@@ -706,11 +706,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(0.04)]      // the node next to the surface: all eight cells around it are crossed
-        [InlineData(1.5)]       // one to two cells away: cells proven zero-free one by one
-        [InlineData(4.3)]       // far away: inside a block of cells proven zero-free as a whole (not 4.0: the surface would pass through a node)
-        [InlineData(-1.5)]
-        public void OneNodeWithTheWrongSign_RefusesExactlyTheEightCellsAroundIt(double cellsFromSurface)
+        [InlineData(0.04, false)]      // the node next to the surface: all eight cells around it are crossed
+        [InlineData(1.5, false)]       // one to two cells away: cells proven zero-free one by one
+        [InlineData(4.3, false)]       // far away: inside a block of cells proven zero-free as a whole (not 4.0: the surface would pass through a node)
+        [InlineData(-1.5, false)]
+        public void OneNodeWithTheWrongSign_RefusesExactlyTheEightCellsAroundIt(double cellsFromSurface, bool rotated)
+        {
+            WrongNode(cellsFromSurface, rotated);
+        }
+
+        [Fact]
+        public void OneNodeWithTheWrongSign_InARotatedFrame_AtManyDistances()
+        {
+            // in a rotated frame the enclosure of a whole cell is loose, so at some distances the cells around the node are
+            // proven zero-free only by their sub-boxes; the sweep covers surface cells, such cells and zero-free boxes
+            for (int i = 0; i <= 44; ++i) {
+                double d = -1.2 + 0.0625 * i + 0.013;         // -1.19 .. 1.56 cells, never a multiple of the cell size
+                WrongNode(d, true);
+            }
+        }
+
+        static void WrongNode(double cellsFromSurface, bool rotated)
         {
             const int n = 24;
             double h = 2.2 / n;
@@ -718,7 +734,7 @@ namespace geometry3Sharp.Tests
             Vector3d at = new Vector3d(Shift.x + h * node.x, Shift.y + h * node.y, Shift.z + h * node.z);
             // a sphere whose surface passes at the given distance from the node, on the axis through its centre
             Vector3d centre = at - new Vector3d(0.4 + cellsFromSurface * h, 0, 0);
-            var sphere = new Sphere(centre, 0.4);
+            TestField sphere = rotated ? (TestField)new Moved(new Sphere(Similarity.Rotated.Inverse(centre), 0.4), Similarity.Rotated) : new Sphere(centre, 0.4);
             DualContouring clean = Contour(sphere, Shift, 2.2, n);
             Assert.True(Certify(sphere, clean).Certified);
             var f = new FlippedAt(sphere, at);
