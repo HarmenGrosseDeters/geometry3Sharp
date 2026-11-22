@@ -582,5 +582,15 @@
     ],
     "reason": "dead code: the private method to_polygon has no caller anywhere (the line was flagged only because a later commit touched it); deleting it is a library change left to a separate PR",
     "approved_in": "#1208"
+  },
+  {
+    "file": "mesh_ops/TerrainSlopeDesign.cs",
+    "text": "return fail(Statuses.Failed, FormattableString.Invariant($\"the realized slope surface folds over at edge {e}\"));",
+    "after": [
+      "if (runs_along(mesh.GetTriangle(et.a), ev.a, ev.b) == runs_along(mesh.GetTriangle(et.b), ev.a, ev.b))",
+      "Index2i ev = mesh.GetEdgeV(e);"
+    ],
+    "reason": "invariant guard, by reading the code, not proven: Realize appends each triangle in the index order of the exact counter-clockwise triangulation of a planar subdivision (append_faces), so two triangles of an interior edge run in opposite directions whatever the rounded positions are (a rounded triangle that flips is caught by the Orient2d check above, not here), and the later edits (collapse, replay, needle flip, stitch) keep the orientation; DMesh3.AppendTriangle does not check orientation, so nothing else guards it; no input reached it in about an hour of trying",
+    "approved_in": "#1331"
   }
 ]
