@@ -14,6 +14,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | [GEOGRAM_SURVEY_2026-11.md](GEOGRAM_SURVEY_2026-11.md) | Detailed architectural survey of Geogram (BSD-3) algorithms relevant to `geometry3Sharp` |
 | [IMPRINT_CORPUS_2026-11.md](IMPRINT_CORPUS_2026-11.md) | Corpus evaluation of `ExactMeshImprint` on Thingi10K contact pairs |
 | [METAMORPHIC_TESTING.md](METAMORPHIC_TESTING.md) | Metamorphic testing and fuzzing study for geometry kernels with falsification runs |
+| [SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md](SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) | End-to-end audit of `SolidBooleanPipeline` on a procedural adversarial corpus with an independent oracle: findings, measured options for the open owner items, ranked improvement PRs |
 | [PLANE_BASED_KERNEL_STUDY_2026-11.md](PLANE_BASED_KERNEL_STUDY_2026-11.md) | Feasibility study of a plane-based (EMBER-style) boolean kernel (concluded no-go) |
 | [QUAD_SHEAF_OBSTRUCTION_2026-11.md](QUAD_SHEAF_OBSTRUCTION_2026-11.md) | Spike: cellular-sheaf / cohomology diagnostics of the pure-quad fallbacks (predictor, area invariant, upper bounds, options) |
 | [UNTAPPED_SCIENCE_GEOMETRY_2026-11.md](UNTAPPED_SCIENCE_GEOMETRY_2026-11.md) | Cross-disciplinary survey and ROI evaluation of untapped 2021–2026 math, physics, biology, and chemistry research for computational geometry |
