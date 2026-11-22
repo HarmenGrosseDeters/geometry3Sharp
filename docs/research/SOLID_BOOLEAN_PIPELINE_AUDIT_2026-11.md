@@ -286,21 +286,30 @@ keep such solids with a guarantee, and at what cost, is the subject of the 3D sn
 checker of "the right point set up to the rounding bound" (the certifying checker spike) would flag exactly this drop;
 both have the two reproducers.
 
-What the snap rounding spike found so far (its message of 2026-11-22; branch `research/snap-rounding-3d-guarantee`, tool
-`benchmarks/SnapRoundingExperiment`, its own numbers, not re-run here): both cases reproduce at `ExactMeshBoolean` level
-with the same thresholds. The cause is the removal rule, not the rounding: the same repair with `RemoveTinyComponents`
-off ends clean (`IsClean`, the component still there) on all 8 removed cases it ran, down to the rotated slab of 2^-35,
-so these solids are representable and clean in doubles. The rule is needed elsewhere: on 74 generated results with
-removed slivers the same probe is clean on 12 and not clean on 62. A guaranteed grid rounding (Devillers et al.) would
-not fix it: on the grid that fits the present bounds (about 2^-19 of the diagonal) it keeps the slab only from about two
-cells of thickness (2^-16 here) and not the cube, at 16 to 258 times the triangles. (The two spikes differ on whether a
-kept solid reads as clean: the repair's own `IsClean` says yes, `NotCleanReason` on the plainly rounded result says
-"degenerate triangles"; the degenerate criterion relative to the whole result is the difference.) The certifying
-checker spike has not reported yet.
+What the snap rounding spike found (its corrected message of 2026-11-22; branch `research/snap-rounding-3d-guarantee`,
+`docs/research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md` section 4.2, tool `benchmarks/SnapRoundingExperiment`; its own
+numbers, not re-run here): both cases reproduce at `ExactMeshBoolean` level with the same thresholds.
+
+- **Slabs:** the removal rule ("thin and edited") loses them, not the rounding. With `RemoveTinyComponents` off the six
+  rotated slabs of 2^-15 to 2^-35 end clean with their volume unchanged: they are representable and clean in doubles.
+- **Cubes:** a changed removal rule does not help. With the removal off the repair ends clean only by collapsing the cube
+  to a tetrahedron of 1.85 times (2^-9) or 245 times (2^-11) its volume, because its triangles are below the degenerate
+  area of the whole result. The cube needs a degenerate test relative to the component (not studied there). This agrees
+  with the speed spike: the removal and the clean verdict are one criterion.
+- **The rule is needed elsewhere:** of 74 generated results with removed slivers, the same probe is clean on 12 (7 keep
+  the slivers unchanged, 5 only as inflated solids) and not clean on 62.
+- **A guaranteed grid rounding would not fix it:** the only proven scheme (Devillers et al. 2018), on the grid that fits
+  the present bounds (about 2^-17 of the size for the slab case), keeps the slab from about two cells of thickness
+  (2^-15, 2^-16), may merge it at one cell and merges it below, at 16 to 258 times the triangles and with every vertex
+  moved (that spike's inference from the paper's steps; the paper says nothing about solids).
+
+For option (c) this means two separate changes: the thin rule for edited components (slabs), and the degenerate area
+relative to the component instead of the whole result (small well-shaped solids). The certifying checker spike has not
+reported yet.
 
 **Leaning: (a) at once.** For (b) and (c) the owner decides; the leaning is the opt-in refusal of (b) now and, for (c),
-the speed spike's rule for untouched input components (it removes the case nobody intended, a valid input solid deleted
-from a union) once the degenerate criterion that goes with it is settled.
+a degenerate area relative to the component, so that a valid input solid is no longer deleted from a union (the case
+nobody intended); the thin rule for slabs is the real trade-off (12 clean against 62 not clean without it).
 
 ### 4.6 float32 STL at UTM coordinates
 
