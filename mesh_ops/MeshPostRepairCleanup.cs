@@ -10,7 +10,7 @@ namespace gs
     /// Cleanup pass to run after MeshAutoRepair (see MeshAutoRepair.PostRepairCleanup). Fixes defects
     /// that AutoRepair leaves behind or introduces:
     ///   - duplicate (two-sided) triangle pairs
-    ///   - degenerate triangles (collapse needles, flip caps)
+    ///   - degenerate triangles (collapse needles onto a corner or the end that keeps the volume, bounded by MaxCollapseDisplacement; flip caps)
     ///   - folded edges (flip, only if it reduces the local fold count)
     ///   - bowtie vertices
     ///   - inside-out closed components that are not cavities of another component
@@ -36,6 +36,17 @@ namespace gs
         public double MaxAspectRatio = 1000;
         /// <summary> edges whose two triangle normals differ by more than this (degrees) are folds </summary>
         public double FoldAngleDeg = 175;
+        /// <summary>
+        /// a collapse of an edge between two interior vertices (#1363) moves the discarded vertex onto the kept one, that is by the length of the edge;
+        /// the collapse is skipped if that is more than this fraction of the reference diagonal (the diagonal of DegenerateAreaFactor), so a needle
+        /// cannot move the surface by more. 0 or less: no bound
+        /// </summary>
+        public double MaxCollapseDisplacement = 1e-4;
+        /// <summary>
+        /// a vertex with an edge whose two triangle normals differ by more than this (degrees) is a corner or a crease: of the two ends of a collapsed
+        /// edge between interior vertices the one that is a corner or a crease is kept (#1363)
+        /// </summary>
+        public double CreaseAngleDeg = 20;
         /// <summary> maximum number of degenerate-triangle / fold passes (stops earlier when a pass changes nothing) </summary>
         public int MaxPasses = 10;
 
@@ -83,6 +94,8 @@ namespace gs
                 : Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
             areaEps = DegenerateAreaFactor * diag * diag;
             foldCos = Math.Cos(FoldAngleDeg * MathUtil.Deg2Rad);
+            creaseCos = Math.Cos(CreaseAngleDeg * MathUtil.Deg2Rad);
+            refDiag = diag;
 
             RemovedDuplicates = DisconnectedBowties = FixedDegenerate = FixedFolds = FlippedComponents = 0;
 
@@ -99,7 +112,7 @@ namespace gs
             FlippedComponents = fix_inverted_components(Mesh);
         }
 
-        double areaEps, foldCos;
+        double areaEps, foldCos, creaseCos, refDiag;
 
 
         // Two triangles with the same vertex set must be oppositely oriented (otherwise the edges
@@ -244,7 +257,9 @@ namespace gs
         }
 
 
-        // collapse to the midpoint (or a boundary vertex), rejecting collapses that flip neighbours
+        // collapse an edge, rejecting collapses that flip neighbours. Between two interior vertices (#1363) onto one of its ends, the one that is a corner
+        // or a crease, else the one that keeps the volume best (the midpoint moved a corner by half the edge), and not if the discarded vertex moves by more than
+        // MaxCollapseDisplacement of the diagonal; an edge with a boundary vertex keeps that vertex, a boundary edge collapses to its midpoint (as before)
         bool try_collapse(int eid)
         {
             if (!Mesh.IsEdge(eid))
@@ -253,19 +268,86 @@ namespace gs
             bool bdryA = Mesh.IsBoundaryVertex(ev.a), bdryB = Mesh.IsBoundaryVertex(ev.b);
             if (bdryA && bdryB && !Mesh.IsBoundaryEdge(eid))
                 return false;
+            Index2i et = Mesh.GetEdgeT(eid);
+            if (!bdryA && !bdryB)
+                return try_collapse_to_end(ev, et);
             int keep = bdryB && !bdryA ? ev.b : ev.a;
             int discard = keep == ev.a ? ev.b : ev.a;
             Vector3d newPos = (bdryA != bdryB) ? Mesh.GetVertex(keep) : (Mesh.GetVertex(ev.a) + Mesh.GetVertex(ev.b)) * 0.5;
-
-            Index2i et = Mesh.GetEdgeT(eid);
             if (creates_flip(keep, discard, newPos, et) || creates_flip(discard, keep, newPos, et))
                 return false;
+            return collapse_into(keep, discard, newPos);
+        }
 
+        bool collapse_into(int keep, int discard, Vector3d newPos)
+        {
             DMesh3.EdgeCollapseInfo info;
             if (Mesh.CollapseEdge(keep, discard, out info) != MeshResult.Ok)
                 return false;
             Mesh.SetVertex(keep, newPos);
             return true;
+        }
+
+        bool try_collapse_to_end(Index2i ev, Index2i et)
+        {
+            Vector3d pa = Mesh.GetVertex(ev.a), pb = Mesh.GetVertex(ev.b);
+            if (MaxCollapseDisplacement > 0 && pa.Distance(pb) > MaxCollapseDisplacement * refDiag)
+                return false;
+            bool fa = is_feature(ev.a), fb = is_feature(ev.b);
+            bool aFirst;
+            if (fa != fb)
+                aFirst = fa;
+            else {
+                // (the same origin for both: the volume of the patch changes, not its sum over the closed mesh)
+                Vector3d o = (pa + pb) * 0.5;
+                double va = Math.Abs(collapse_volume_change(ev.a, ev.b, pa, o, et)), vb = Math.Abs(collapse_volume_change(ev.b, ev.a, pb, o, et));
+                aFirst = va < vb || (va == vb && (pa.x < pb.x || (pa.x == pb.x && (pa.y < pb.y || (pa.y == pb.y && pa.z <= pb.z)))));
+            }
+            for (int k = 0; k < 2; ++k) {
+                int keep = (k == 0) == aFirst ? ev.a : ev.b, discard = keep == ev.a ? ev.b : ev.a;
+                Vector3d newPos = keep == ev.a ? pa : pb;
+                if (creates_flip(keep, discard, newPos, et) || creates_flip(discard, keep, newPos, et))
+                    continue;
+                return collapse_into(keep, discard, newPos);
+            }
+            return false;
+        }
+
+        // a corner or a crease: an edge at the vertex whose two (not degenerate) triangles differ in direction by more than CreaseAngleDeg
+        bool is_feature(int vid)
+        {
+            foreach (int eid in Mesh.VtxEdgesItr(vid)) {
+                Index2i et = Mesh.GetEdgeT(eid);
+                if (et.b == DMesh3.InvalidID || is_bad(et.a) || is_bad(et.b))
+                    continue;
+                if (Mesh.GetTriNormal(et.a).Dot(Mesh.GetTriNormal(et.b)) < creaseCos)
+                    return true;
+            }
+            return false;
+        }
+
+        // six times the change of the volume under the patch of the triangles of two vertices when discard moves onto keep (at newPos), seen from the origin o
+        double collapse_volume_change(int keep, int discard, Vector3d newPos, Vector3d o, Index2i removedT)
+        {
+            double sum = 0;
+            var seen = new HashSet<int>();
+            for (int k = 0; k < 2; ++k) {
+                int v = k == 0 ? keep : discard;
+                foreach (int tid in Mesh.VtxTrianglesItr(v)) {
+                    if (seen.Add(tid) == false)
+                        continue;
+                    Index3i t = Mesh.GetTriangle(tid);
+                    Vector3d p0 = Mesh.GetVertex(t.a) - o, p1 = Mesh.GetVertex(t.b) - o, p2 = Mesh.GetVertex(t.c) - o;
+                    sum -= p0.Dot(p1.Cross(p2));
+                    if (tid == removedT.a || tid == removedT.b)
+                        continue;
+                    Vector3d q0 = (t.a == keep || t.a == discard ? newPos : Mesh.GetVertex(t.a)) - o;
+                    Vector3d q1 = (t.b == keep || t.b == discard ? newPos : Mesh.GetVertex(t.b)) - o;
+                    Vector3d q2 = (t.c == keep || t.c == discard ? newPos : Mesh.GetVertex(t.c)) - o;
+                    sum += q0.Dot(q1.Cross(q2));
+                }
+            }
+            return sum;
         }
 
         bool creates_flip(int vid, int vOther, Vector3d newPos, Index2i removedT)
