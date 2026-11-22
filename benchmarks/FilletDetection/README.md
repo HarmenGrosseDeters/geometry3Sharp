@@ -91,3 +91,33 @@ Checks on the procedural solids (`results/spotcheck.md`, `results/boundcheck.md`
 - The sectional angle of the heuristic is measured on triangle normals and is short by one facet step, and the workflow's
   time budget (default 2400 s of detection) can end the run before 250 models are scored; the sample order is fixed, so the
   scored models are a prefix of it, and the summary says how many.
+
+### Result of the second measurement (2026-11-22)
+
+Run: `fillet-abc.yml` on master, chunk 0050, 300 candidates, 2700 s detection budget. 63 models were scored before the
+budget ended (the prefix of the fixed sample order); 27 have fillet area under the heuristic, 36 have none. The models
+have 1.6k to 93k triangles (median 31k); detection took 46 s per model on average (at most 211 s). The per-model CSV
+stays in the run's artifact and is not committed; only the aggregates below are recorded.
+
+Precision and recall are area-weighted per model (tp / (tp + fp), tp / (tp + fn)); "pooled" sums the areas over all 63
+models first. The mean precision over the 27 models with fillets is the fairest reading for the detector (a model without
+fillets has precision 0 as soon as anything is marked).
+
+| radius bound | precision, mean (27) | precision, pooled (63) | recall, mean (27) | recall, pooled (63) | models with precision >= 0.95 | models with recall >= 0.9 | non-fillet area marked, median |
+|---|---|---|---|---|---|---|---|
+| 0.05 diagonal | 0.46 | 0.20 | 0.82 | 0.95 | 4 of 27 | 15 of 27 | 10 % |
+| 0.1 diagonal | 0.45 | 0.19 | 0.90 | 0.98 | 4 of 27 | 20 of 27 | 11 % |
+| 0.2 diagonal | 0.45 | 0.18 | 0.90 | 0.98 | 4 of 27 | 21 of 27 | 11 % |
+| 0.5 thickness | 0.47 | 0.23 | 0.43 | 0.46 | 3 of 27 | 1 of 27 | 3 % |
+| 1 thickness | 0.45 | 0.23 | 0.82 | 0.88 | 4 of 27 | 15 of 27 | 5 % |
+| 2 thickness | 0.45 | 0.22 | 0.87 | 0.96 | 4 of 27 | 18 of 27 | 7 % |
+
+24 of the 36 models without a fillet get marks. **The stop rule (precision below 0.95 or recall below 0.9 without a
+principled fix) is met under every bound**: recall reaches the bar with the diagonal bounds, precision is about half of it.
+The rule and the heuristic were fixed before the run and are not changed after it. The heuristic counts every curved
+patch that is not a fillet by its rule (bores, bosses, blends of other types) as a non-fillet, so part of the false marks
+may be fillet-like geometry the heuristic does not call a fillet. The procedural solids (where the detector left the
+rod and the bore unmarked) do not show which share that is. Telling the two apart would need a label source this project
+does not have; without it there is no principled fix in the sense of the rule. Outcome: the analysis
+class (option A of the [study](../../docs/research/DEFILLET_SPIKE_2026-11.md)) is not built, and with it the label
+consumers (option B).

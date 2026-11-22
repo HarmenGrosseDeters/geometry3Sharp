@@ -39,6 +39,13 @@ full. The authors' code is AGPL-3.0 (with CGAL and libigl): licence checked firs
 second measurement on real CAD tessellations; no-go for the paper's detection pipeline; reconstruction only as a later,
 separate step.** Options at the end.
 
+**Outcome of the second measurement (2026-11-22): stop, nothing is built.** On 63 ABC models (27 with fillets under the
+project's heuristic) the medial-ball detector reaches recall 0.90 with a bound of 0.1 or 0.2 of the diagonal, but a mean
+precision of only 0.45 (4 of 27 models at 0.95 or more), and it marks 24 of the 36 models that have no fillet. The stop rule
+fixed before the run (precision below 0.95 or recall below 0.9) is met under all six bounds, so option A, and the options
+B and C that build on its labels, are not built (option D). Numbers and reading:
+[benchmarks/FilletDetection](../../benchmarks/FilletDetection/README.md#result-of-the-second-measurement-2026-11-22).
+
 ## 1. Prior art and building blocks
 
 ### The paper
