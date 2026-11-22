@@ -80,9 +80,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.macos && '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"windows-arm64","os":"windows-11-arm","optional":true},{"name":"macos-arm64","os":"macos-latest"},{"name":"macos-x64","os":"macos-15-intel","optional":true}]' || '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"windows-arm64","os":"windows-11-arm","optional":true}]') }}
+        include: ${{ fromJSON(inputs.macos && '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"windows-arm64","os":"windows-11-arm"},{"name":"macos-arm64","os":"macos-latest"},{"name":"macos-x64","os":"macos-15-intel","optional":true}]' || '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"windows-arm64","os":"windows-11-arm"}]') }}
     runs-on: ${{ matrix.os }}
-    # windows-arm64 and macos-x64 are measurements, not part of the check: a failure there does not stop `compare`
+    # windows-arm64 is a standing leg (owner 2026-11-22; green on the runs of #1306 and #1328: 44993751694, 44997948786); only
+    # macos-x64 is a measurement, whose failure does not stop `compare`
     continue-on-error: ${{ matrix.optional == true }}
     timeout-minutes: 30
     steps:
