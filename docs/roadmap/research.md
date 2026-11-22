@@ -555,6 +555,13 @@ Ordered by expected value for the library.
    - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measured 2026-11-09, result below) can change it.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
+   - Study 2026-11-22 ([PROVABLE_SHARP_WRAP_STUDY.md](../research/PROVABLE_SHARP_WRAP_STUDY.md), plan #1280; options with the
+     owner): validity is an invariant of exactly checked moves, splits and flips (pass K has it up to four small gaps, without the band);
+     recovery has no a-priori proof on a wrap. Upper bound on 65 procedural CAD-like cases: K covers 0.945 of the
+     mitered-offset creases within 0.25 offsets (oracle 1.0), corners 0 -> 0.81-0.86 with one checked move; soups get no
+     features (0.00, welding restores the clean result), overlapping boxes 0.80-0.82 against 0.94-0.96 with the union's
+     creases given; the direct mitered offset is valid on 64 / 65. Leaning: write the
+     validity theorem, cheap levers into #1237, no weighted-Delaunay wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
    - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
      B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),
@@ -615,10 +622,17 @@ Ordered by expected value for the library.
    - Open:
      - a region-based oracle excuse that is provably tight (the floor arcsin(sin(φ/2)/√2) near clusters);
      - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 1): the exemption of Miller, Pav and
+     Walkington 2005 is proven up to 26.45° with a floor of about φ, for circumcentres only; on 96 procedural inputs the library's
+     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Options with the owner; nothing is built.
 7. **Meshing2D oracle speed.**
    - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 2): a prototype checker of the core
+     (coverage, chains, constrained Delaunay) takes 1 to 13 % of the mesher's time where the oracle takes 15 to 477 times on procedural
+     inputs; most of the oracle's time there is per-source scans and the exact area, fixable without a certificate. Options with
+     the owner; nothing is built.
 8. **Open-operand classification in the exact booleans.**
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
      w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
@@ -648,6 +662,11 @@ Ordered by expected value for the library.
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
+    - **Spike 2026-11-22** ([research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md),
+      `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
+      1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
+      for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
+      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner

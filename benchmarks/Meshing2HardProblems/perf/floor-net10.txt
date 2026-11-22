@@ -1,0 +1,17 @@
+$ Meshing2HardProblems floor --slack 0.05 --phi-min 20 --phi-max 20.0001
+floor lemma: phi in [20, 20.0001] degrees, k in [1, 1], c in [-4, 6] x [-5, 5] without discs of 0.01 around a and b, slack 0.05 on the cotangent
+boxes 50733, proved 25367, undecided at depth 60: 0, deepest 38
+PROVED on the box (to the slack)
+$ Meshing2HardProblems floor --slack 0.05 --phi-min 20 --phi-max 21
+floor lemma: phi in [20, 21] degrees, k in [1, 1], c in [-4, 6] x [-5, 5] without discs of 0.01 around a and b, slack 0.05 on the cotangent
+boxes 52038095, proved 26019048, undecided at depth 60: 0, deepest 51
+PROVED on the box (to the slack)
+$ Meshing2HardProblems floor --slack 0.05 --phi-min 40 --phi-max 60
+floor lemma: phi in [40, 60] degrees, k in [1, 1], c in [-4, 6] x [-5, 5] without discs of 0.01 around a and b, slack 0.05 on the cotangent
+boxes 145368971, proved 72684486, undecided at depth 60: 0, deepest 52
+PROVED on the box (to the slack)
+$ Meshing2HardProblems floor --slack 0.05 --phi-min 0.5 --phi-max 60
+floor lemma: phi in [0.5, 60] degrees, k in [1, 1], c in [-4, 6] x [-5, 5] without discs of 0.01 around a and b, slack 0.05 on the cotangent
+boxes 200000015, proved 99999993, undecided at depth 60: 15, deepest 55
+first undecided box: phi [6.1217, 6.12216] degrees, k [1, 1], c [1.00336, 1.0034] x [0.183411, 0.183487]
+NOT PROVED: undecided boxes remain
