@@ -91,6 +91,8 @@ static class Program
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
             case "eval": return Eval(args[1]);
             case "nary": return Nary.Run(args.Skip(1).ToArray());
+            case "certify": return Certify.Run(args.Skip(1).ToArray());
+            case "coplanar-clip": return CoplanarClip.Run(args.Skip(1).ToArray());
             case "profile": return Profile.Run(args.Skip(1).ToArray());
             case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
             case "envelope": return EnvelopeBench.Run(args.Skip(1).ToArray());
