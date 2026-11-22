@@ -21,7 +21,7 @@
   - `75` **deletion candidates** (no open PR: merged/closed PR branches, superseded `claude/*` / `agents/*` / `wip/*`
     spikes, interim `bench/*` snapshots, and 11 `plan/*` branches whose plan PRs are closed).
 - GitHub "Automatically delete head branches" is on (`delete_branch_on_merge: true`, checked 2026-11-22), so a merged
-  PR's branch is deleted on merge; the candidates are what was left before, closed-unmerged PRs and branches without a PR.
+  PR's branch is deleted on merge from now on; the setting does not touch the existing candidates.
 
 ## Trigger / decision needed
 
