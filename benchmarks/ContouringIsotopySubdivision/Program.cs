@@ -45,6 +45,10 @@ static class Program
             // --- TPMS with a smooth cap, k = level, two periods across the box
             case "gyroid": c.Field = Fields.CappedTpms(Fields.Tpms.Gyroid, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
             case "schwarzp": c.Field = Fields.CappedTpms(Fields.Tpms.SchwarzP, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
+            // a TPMS cut by a ball (a crease at the cut), as a lattice clipped to a domain
+            case "gyroidclip": c.Field = Fields.Max(Fields.CappedTpms(Fields.Tpms.Gyroid, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 0), Fields.Sphere(Vector3d.Zero, 0.8 * sc)); break;
+            case "schwarzpclip": c.Field = Fields.Max(Fields.CappedTpms(Fields.Tpms.SchwarzP, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 0), Fields.Sphere(Vector3d.Zero, 0.8 * sc)); break;
+            case "diamondclip": c.Field = Fields.Max(Fields.CappedTpms(Fields.Tpms.Diamond, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 0), Fields.Sphere(Vector3d.Zero, 0.8 * sc)); break;
             case "diamond": c.Field = Fields.CappedTpms(Fields.Tpms.Diamond, 2 * Math.PI * 2 / 2.2 / sc, k, 0.9 * sc, 4); break;
             // --- near-singular: Cassini surfaces, k = b / a (1 is the singular one)
             case "cassini": c.Field = Fields.Cassini(0.45 * sc, 0.45 * k * sc); c.Truth = k > 1 ? "c=1;g=0" : k < 1 ? "c=2;g=0+0" : "singular"; break;
@@ -150,9 +154,49 @@ static class Program
             r.ClassP, r.ClassPUncertified.ToString(Inv), r.ClassPSig, F(r.ClassPMs, "0") });
     }
 
+    // The share of the cells refused by the cell test (S0)-(S3) that box-shaped blocks cover (Blocks.cs, Theorem 8).
+    // blocks [maxSide] [name:level:seed:N ...]
+    static int BlocksMode(string[] args)
+    {
+        int maxSide = args.Length > 1 ? int.Parse(args[1], Inv) : 6;
+        var specs = new List<string>();
+        for (int a = 2; a < args.Length; ++a) specs.Add(args[a]);
+        if (specs.Count == 0)
+            foreach (string name in new[] { "sphere", "torus", "gyroid", "schwarzp", "diamond", "gyroidclip", "schwarzpclip", "diamondclip" })
+                foreach (int N in new[] { 32, 64 })
+                    foreach (int seed in new[] { -1, 1 })
+                        specs.Add(name + ":" + (name == "torus" ? "8" : "0") + ":" + seed + ":" + N);
+        Console.WriteLine("name,level,seed,n,surface_cells,s_cells,refused,covered,left,covered_pct,s_certified,certified_with_blocks,blocks,cells_in_blocks,largest_block,zero_free_blocks,"
+            + "left_node,left_edge,left_face,left_direction,left_circles,left_outer,side1,side2,side3,side4,side5,side6,side7,cell_test_ms,blocks_ms,block_evaluations");
+        foreach (string spec in specs) {
+            string[] p = spec.Split(':');
+            double k = double.Parse(p[1], Inv); int seed = int.Parse(p[2], Inv), N = int.Parse(p[3], Inv);
+            Case c = Make(p[0], k, N, seed);
+            var g = new GridCertificate { F = c.Field, Origin = c.Origin, H = c.Size / N, N = N, MaxT = 0 };
+            var sw = Stopwatch.StartNew();
+            g.Run();
+            double cellMs = sw.Elapsed.TotalMilliseconds;
+            var bc = new BlockCoverage { G = g, MaxSide = maxSide };
+            sw.Restart();
+            bc.Run();
+            double blockMs = sw.Elapsed.TotalMilliseconds;
+            int left = bc.Refused - bc.Covered;
+            Console.WriteLine(string.Join(",", new string[] {
+                p[0], F(k, "0.####"), seed.ToString(Inv), N.ToString(Inv), g.SurfaceCells.ToString(Inv), g.SCells.ToString(Inv), bc.Refused.ToString(Inv), bc.Covered.ToString(Inv), left.ToString(Inv),
+                bc.Refused == 0 ? "-" : F(100.0 * bc.Covered / bc.Refused, "0.0"), g.SCertified ? "yes" : "no", g.SurfaceCells > 0 && left == 0 && g.OuterSurfaceCells == 0 ? "yes" : "no",
+                bc.Blocks.ToString(Inv), bc.CellsInBlocks.ToString(Inv), bc.LargestBlock.ToString(Inv), bc.ZeroFreeBlocks.ToString(Inv),
+                bc.FailBy[1].ToString(Inv), bc.FailBy[2].ToString(Inv), bc.FailBy[3].ToString(Inv), bc.FailBy[4].ToString(Inv), bc.FailBy[5].ToString(Inv), bc.FailBy[6].ToString(Inv),
+                bc.SizeHistogram[1].ToString(Inv), bc.SizeHistogram[2].ToString(Inv), bc.SizeHistogram[3].ToString(Inv), bc.SizeHistogram[4].ToString(Inv), bc.SizeHistogram[5].ToString(Inv), bc.SizeHistogram[6].ToString(Inv), bc.SizeHistogram[7].ToString(Inv),
+                F(cellMs, "0"), F(blockMs, "0"), bc.Evaluations.ToString(Inv) }));
+            Console.Out.Flush();
+        }
+        return 0;
+    }
+
     static int Main(string[] args)
     {
         if (args.Length >= 1 && args[0] == "selftest") return SelfTest();
+        if (args.Length >= 1 && args[0] == "blocks") return BlocksMode(args);
         if (args.Length >= 1 && args[0] == "invariance") return Invariance();
         if (args.Length >= 4 && args[0] == "debug") {
             string[] p = args[1].Split(':'); int N = int.Parse(args[2]); int seed = int.Parse(args[3]);

@@ -9,7 +9,7 @@ proof step with its own review before any code. This note is that step. It is th
 there the level set is a mesh and a block is any ball of cells, tested by counting; here the level set is that of a
 function and a block is a box, tested by one direction. It also settles the cell shape (hypothesis (P3) of Theorem 7),
 which the review of #1392 left as "a reading of the premise, not a proved margin". Status: **written and independently
-reviewed on 2026-11-22 (section 5); nothing is built.**
+reviewed on 2026-11-22 (section 5); Lemma 7.1 is built, Theorem 8 is not.**
 
 Why blocks for class S: Theorem 5 refuses a cell whose edge may be crossed twice or whose face may carry a closed curve
 of L, that is every tangency of L with the grid, at every resolution ((S1), (S2)). On the capped TPMS of the spike these
@@ -24,14 +24,17 @@ Short answer:
   grid cells. A block is certified by (B0) to (B2) on its boundary (Theorem 5's node, edge and face tests), one partial
   derivative of constant sign on the block and at most one circle of L on its boundary. The proof adds no error bound.
 - **Theorems 1, 2, 4, 5, 6 and 8 need boxes, not cubes** (remark 5); a certificate by Theorem 5 or 8 has no cell-shape
-  condition. Theorem 7 still needs cubes, through its premise, until Lemma 7.1 is adopted.
+  condition. Theorem 7 needs cubes through its premise; Lemma 7.1 removes that.
 - **Lemma 7.1** (section 2): the smooth certificate of #1392 (Theorem 7) keeps its premise for exact cubes and gets a
   proved margin instead of the tolerance (P3): the negative products of the gradient test are multiplied by the square
-  of the largest spacing ratio. That is a small code change with a new bound; today's code is short of the lemma by a
-  margin of about twice its `CellShapeTolerance` on that test (2^-19 at the default, 2^-9 at the largest setting).
+  of the largest spacing ratio. Built on 2026-11-22 (`ContouringSmoothCertificate.SpacingRatioSquared`); the code of
+  #1392 was short of the lemma by a margin of about twice its tolerance on that test.
+- **Measured** (section 3a): box blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period (five
+  of six runs complete) and about a third overall (9 to 56 % per run) for a TPMS clipped by a ball; box blocks grown
+  this way do not close a clipped lattice.
 - **Open** (sections 3 and 4): the mesh side for marching cubes and for marching tetrahedra on cubes (lemmas of their
-  own; a finite check for the tetrahedra is done here), the two levels of a wall together, and a measurement of how
-  many refused cells box blocks cover, which comes before any build.
+  own; a finite check for the tetrahedra is done here), the two levels of a wall together, and the rim of a clipped
+  lattice.
 
 ## 1. Theorem 8
 
@@ -165,6 +168,23 @@ Remarks.
    diagonal of the face in the simplest case), and its test is an enclosure of f over boxes that cover the segment.
 8. **Sources.** Nothing new: Theorems 1, 2, 4, 5 and Lemmas 5.1, 5.2, 6.1, 6.2, 6.4 of this note with their sources
    (Brown 1960 and 1962, Clarke 1983).
+9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; checked independently on
+   2026-11-22 and rewritten after that check). It is enough that d . g > 0 for all g in G(S) for every
+   box S of a finite set of closed boxes in R that covers every zero of f in R. *Proof.* Let p be a zero in R, in the
+   listed box S. G(S) contains the generalized gradients at p, so by upper semicontinuity, as in Lemma 5.2, there is a
+   ball B around p with d . g >= delta > 0 at all its points; by Lemma 5.1 on the convex set B, f increases strictly
+   along d through p, and L is in B a Lipschitz graph along d. So on a line parallel to d, which meets the convex R
+   in a segment, every zero has a neighbourhood without another zero: the zeros on the segment are finitely many.
+   Were there two, take two consecutive ones: just after the first f > 0, just before the second f < 0, so there is a
+   zero between them, a contradiction. Hence the projection along d is injective on L in R, and L is near each of its
+   points in the interior of R a Lipschitz graph; at its points on the boundary of R Lemma 8.1 needs nothing of (B3).
+   That is all Theorem 8 uses: in (a), Theorem 4 needs the compact 2-manifold and the injective projection (L in R is
+   then locally, not globally, a Lipschitz graph); in (b), the local flatness inside D_1 is local, and the two
+   pieces of the boundary of R carry the two signs of f because each piece of R minus D_1 is connected and without a
+   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form an axis is no longer the only candidate
+   for d (enclosures [2, 3] x [-1, 1] and [-1, 1] x [2, 3] admit d = (1, 1) and no axis); a sufficient test, for
+   instance: one partial derivative
+   keeps its sign on every listed sub-box, the same one with the same sign.
 
 ## 2. Lemma 7.1: the cell shape in Theorem 7
 
@@ -204,17 +224,16 @@ interpolates the node coordinates on each axis; it is isotopic to the identity i
 PL surface compatible with K with the pattern of the node signs and the chosen pairing. Steps (4) to (6) of Theorem 7
 with Psi(M~) in the place of M: D ~ Psi(M~) ~ M~ ~ zero set of f~ ~ L. ∎
 
-What this changes. The premise PV is now used for exact cubes only, so the second of the three "read, not quoted"
-points of section 7.13 goes away. The code of #1392 tests A+(1) and accepts spacings within 2^-20: between that and the
-lemma lie the cells with 0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second
-sum: 2^-19 at the default `CellShapeTolerance` of 2^-20, about 2^-9 at `MaxCellShapeTolerance` = 2^-10
-(only cells with a gradient component through 0 are affected). Closing
-it is a small change with a new bound, so it needs the exact review: compute an upper bound rho^2 of (M / m)^2 from the
-node coordinates (outward rounded), multiply the negative products of the gradient test by it, rounded down. Then the
-tolerance is no longer a refusal: the millimetre grid at UTM coordinates (M / m about 1 + 2e-6) is tested with
-rho^2 about 1 + 4e-6 and certified unless a cell passes the gradient test by less than that. The alternative, exact
-cubes only, would refuse every grid on which `origin + h * i` is rounded (h not a power of two, or an origin far
-from 0 against h), UTM coordinates among them; it is not needed.
+What this changed (built 2026-11-22). The premise PV is used for exact cubes only, so the second of the three "read,
+not quoted" points of section 7.13 went away. The code of #1392 tested A+(1) and accepted spacings within a tolerance
+(2^-20 by default, 2^-10 at most): between that and the lemma lay the cells with
+0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second sum (only cells
+with a gradient component through 0 were affected). Now the factor rho^2 is the smallest double that is at least
+(M / m)^2, from exact differences of the node coordinates (exactly 1 for exact cubes), the negative products of the
+gradient test are multiplied by it and rounded down, and the tolerance and its option are gone. The millimetre grid at
+UTM coordinates (M / m about 1 + 2e-6) is tested with rho^2 about 1 + 4e-6 and certified unless a cell passes the
+gradient test by less than that. The alternative, exact cubes only, would refuse every grid on which `origin + h * i`
+is rounded (h not a power of two, or an origin far from 0 against h), UTM coordinates among them; it is not needed.
 
 ## 3. What is missing for a certificate of `TpmsLattice`
 
@@ -229,14 +248,54 @@ from 0 against h), UTM coordinates among them; it is not needed.
 - *The choice of blocks* is the implementation's: the clusters of cells refused by (S1) or (S2), covered by boxes, grown
   until (B0) to (B2) hold on the boundary, merged or shrunk until the interiors are disjoint. The theorem holds for any
   choice.
-- *It is not measured.* The spike measured Theorem 5's cell test without blocks. Whether small boxes with one circle and
-  one signed partial derivative cover the refused cells of a clipped TPMS is open; for meshes, box blocks covered much
-  less than general blocks (section 7.10's estimate: 31 to 40 %), because silhouette bands run diagonally. For a
-  function the refused edges should be single edges near the silhouette curve, not a band: a grid line next to the
-  silhouette meets L twice, but the two points mostly lie in different grid edges, each with one crossing and a sign
-  change, and only where both fall into one edge is that edge crossed twice. So small boxes around such edges are
-  plausible. The measurement comes before a
-  build: the spike's prototype has the tests (S0) to (S3) and can count the boxes that pass (B0) to (B3).
+- *Measured (2026-11-22), level-set side only: box blocks close the gap for smooth lattices and not for clipped
+  ones.* Section 3a.
+
+## 3a. Measurement: how many refused cells do box blocks cover?
+
+[benchmarks/ContouringIsotopySubdivision](../../benchmarks/ContouringIsotopySubdivision/README.md), mode `blocks`
+(`Blocks.cs`, `results/blocks.csv`): the spike's cell test (S0) to (S3), then every refused surface cell as the seed
+of a box that grows by one layer on the sides that carry a failing node, edge or face, until (B0) to (B3) pass or the
+box exceeds 6 cells per side or reaches the outer layer; overlapping boxes are merged into their bounding box. (B3) in
+the form of remark 9. Only the level-set side: the contour's count in a block (Lemma 6.4) is not measured, so
+"complete" below means that every surface cell is certified or lies in a passing block, not that the contour is
+certified. 42 runs, axis-aligned and rotated, one machine (40 in the table; the two runs of two spheres half a cell
+apart are in no row: nothing refused in one, 157 of 178 covered in the other).
+
+| Set | Runs | Refused by the cell test (of the surface cells) | Covered by blocks | Left (of the surface cells) | Runs complete: cell test -> with blocks |
+|---|---|---|---|---|---|
+| capped TPMS (gyroid, Schwarz P, D), 32 cells per period | 6 | 6.2 % | 96.5 % | 0.21 % | 0 -> 5 |
+| capped TPMS, 16 cells per period | 6 | 15.2 % | 84.9 % | 2.3 % | 0 -> 1 |
+| smooth controls (sphere, torus, thick shell) | 8 | 2.3 % | 100 % | 0 | 2 -> 8 |
+| **TPMS clipped by a ball** (a crease at the cut), 32 cells per period | 6 | 22.0 % | 32.6 % | 14.9 % | 0 -> 0 |
+| TPMS clipped by a ball, 16 cells per period | 6 | 39.7 % | 22.4 % | 30.9 % | 0 -> 0 |
+| creases (tunnel, rod: 3 cells wide) | 4 | 5.6 % | 74.3 % | 1.4 % | 0 -> 1 |
+| thin controls (torus and shell of half a cell) | 4 | 69.0 % | 0.1 % | 69.0 % | 0 -> 0 |
+
+- **Smooth lattices: the blocks work.** At 32 cells per period five of six runs are complete, the sixth (Schwarz D,
+  rotated) leaves 220 of 19 876 surface cells, all for a missing direction. The blocks are small: of the 2 169 blocks
+  of the twelve smooth TPMS runs, 1 854 are two cells wide, 302 wider and 13 one cell. The block step costs 7 to 27 %
+  of the cell test there.
+- **Clipped lattices: box blocks grown this way do not close them.** About a third of the refused cells overall
+  (32.6 % at 32 cells per period, 22.4 % at 16), between 9 and 56 % per run, and no run complete. Of the seeds left at
+  32 cells per period, 13 442 fail by an edge, 1 999 by a face, 1 904 by the direction. Of the 5 196 blocks, 2 956
+  are one cell (a cell that passes when each edge and face may use its own tightening). The coverage rises slowly
+  with the size limit (limit 3, 6, 10: 36, 39 and 46 % on one clipped gyroid). Only this one greedy growth rule was
+  measured.
+- *An explanation, not a measurement* (the results do not record where the refused cells lie): at the cut the field
+  is a `max` of two pieces, and an edge near the rim is refused whenever the two pieces' derivatives along it differ
+  in sign (it may enter the solid through one piece and leave through the other). That would hold along the whole rim
+  for a fixed share of the edges, so the refusals would be a band along a curve, as the silhouette bands of meshes
+  (section 7.10's estimate), and a box that takes in a stretch of the band meets it again on its own boundary.
+- The thin controls stay refused, as they must.
+- Not measured: wrong contours (the contour's side is not in the prototype), and the cost against a contouring.
+
+**What follows.** For a level of a smooth field (a lattice with a smooth cap, a level g = +-w of
+`TwoLevelMarchingTetrahedra` without a domain) Theorem 8 is worth building: it turns "2 to 15 % of the cells refused
+at every resolution" into complete runs at 32 cells per period. For a lattice clipped to a domain, box blocks grown
+this way do not close the gap. If the explanation above is right, the rim needs blocks that follow a curve (general
+balls of cells, for which the convexity arguments of remark 1 do not hold) or a statement for two surfaces that cross
+(the wall and the cut, each smooth); neither exists here, and another growth rule for boxes was not tried.
 
 ## 4. The per-level certificate of `TwoLevelMarchingTetrahedra` (the queued brief): covered and open
 
@@ -319,8 +378,8 @@ a test).
 ## 6. Next steps (for the coordinator and the owner)
 
 1. Coordinator's review of this proof.
-2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (small, exact review).
-3. A measurement before any build of blocks: on the spike's prototype (`benchmarks/ContouringIsotopySubdivision`,
-   which has (S0) to (S3)), the share of refused cells of capped and clipped TPMS that boxes with (B0) to (B3) cover.
+2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (done 2026-11-22).
+3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels; box blocks
+   grown this way do not close a lattice clipped to a domain.
 4. The mesh-side lemma for the mesher that is to be certified (marching tetrahedra: point 1 of section 4; marching
    cubes: section 3), then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
