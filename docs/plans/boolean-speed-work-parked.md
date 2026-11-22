@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Boolean: all speed work (#1064 levers, normal-cone certificate, ABC chain step 3 lead)"
 - **Kind:** parked (trigger needed: owner lifts the 2026-11-16 boolean speed stop)
 - **Tier:** L (touches `mesh_ops/ExactMesh*` / exact predicates / error bounds: bounds review + incremental mutation gate)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): a study of the levers under the full guarantees is done ([EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md): ranked list, measurement only, nothing scheduled); of this plan's leads it bounds lead 2 and leaves leads 1 and 3 unmeasured (section 8a). Levers 3x and 1a were stopped by the owner on 2026-11-22 (measured −2 % / 0 %, PR `#1323`). Still parked; new levers need the owner's go.
 
 ## Current state
 
@@ -18,8 +18,14 @@
      Volino & Magnenat-Thalmann (1994) normal-cone culling for self-intersections; estimated −7 to −10 % at 12 threads
      (unmeasured; at or below the 10 % stop bar), needs new exact error bounds, and the same certificate was slower in
      the Reducer.
+     Bound 2026-11-22 ([speed levers study](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md) section 8a): on T6
+     the self-join is 5665 ms per pass, of which 1399 ms are traversal, so a free certificate gives at most −18 % at 1
+     thread and −11 % at 4 over the 294 booleans (seam union at most −11 % at 1 thread); verdict "parked" stands.
   3. **ABC chain step 3 lead** ([GEOGRAM_BOOLEAN_COMPARISON_2026-11.md](../research/GEOGRAM_BOOLEAN_COMPARISON_2026-11.md)):
      on step 3 of ABC chains (operands sharing A's surface), ours is 1.1-2.2x slower than Geogram and CGAL; undiagnosed.
+     The 2026-11-22 study did not measure it (the ABC data was not fetched); its hypothesis (a step-3 operand pays the
+     full self-join, trees and rounding again, as on the seam stratum) and first probe (`seam-levers --cases`) are in
+     section 8a.
 
 ## Trigger / decision needed
 
