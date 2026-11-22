@@ -48,6 +48,7 @@ namespace gs
         public CommonSubdivisionStatus Status;
         /// <summary> null on success; otherwise the first inconsistency found </summary>
         public string Error;
+        /// <summary> the faces; empty unless Status is Success </summary>
         public List<Face> Faces = new List<Face>();
         /// <summary> positions of the subdivision vertices: the triangulation vertices first (by vertex index), then the edge crossings </summary>
         public List<Vector3d> Points = new List<Vector3d>();
@@ -99,8 +100,9 @@ namespace gs
         /// intrinsic triangle must be tiled by its faces (areas to a relative 1e-6), no trace may cross an
         /// input edge of its own end vertex (a false crossing: the areas do not show it), and in every input
         /// triangle the outer boundary must be a cycle of the arrangement on its own, so that every edge of
-        /// the result has a face on both sides (or one, on the input boundary); otherwise Status is
-        /// Inconsistent. Here the combinatorics come from the traces, which are exact up to rounding. With integer
+        /// the result has a face on both sides (or one, on the input boundary), and every intrinsic triangle must
+        /// have a face (one without area passes the area check with none); otherwise Status is Inconsistent and
+        /// Faces is empty. Here the combinatorics come from the traces, which are exact up to rounding. With integer
         /// coordinates (EnableIntegerCoordinates, while HasIntegerCoordinates) nothing is traced: the
         /// combinatorics come from the integers, exact for this triangulation, the crossings lie on their input
         /// edges in the order the integers give (a face can have the area 0 where two coincide up to rounding),
@@ -118,6 +120,7 @@ namespace gs
             var edgeLabels = new Dictionary<(int, int, int), Label>();   // (canonical halfedge, point a, point b) -> label
             Func<string, IntrinsicCommonSubdivision> fail = (msg) => {
                 if (R.Status == CommonSubdivisionStatus.Success) { R.Status = CommonSubdivisionStatus.Inconsistent; R.Error = msg; }
+                R.Faces.Clear();        // some checks run while or after the faces are built: no faces on a failure (#1335)
                 return R;
             };
             Func<int, int> canonical = (ih) => (inTwin[ih] >= 0 && inTwin[ih] < ih) ? inTwin[ih] : ih;
@@ -425,9 +428,11 @@ namespace gs
                 }
             }
             double[] itArea = new double[F];
+            bool[] itHasFace = new bool[F];
             for (int f = 0; f < faceTri.Count; ++f) {
                 if (faceTri[f] < 0) return fail("face in input triangle " + inTid[faceInput[f]] + " without intrinsic triangle");
                 itArea[faceTri[f]] += faceArea[f];
+                itHasFace[faceTri[f]] = true;
                 var face = new IntrinsicCommonSubdivision.Face() {
                     InputTriangle = inTid[faceInput[f]], IntrinsicTriangle = faceTri[f], Corners = faceCorners[f], Area = faceArea[f],
                     Barycentric = new Vector3d[faceCorners[f].Length]
@@ -441,6 +446,11 @@ namespace gs
                 R.MaxIntrinsicAreaError = Math.Max(R.MaxIntrinsicAreaError, err);
             }
             if (R.MaxIntrinsicAreaError > 1e-6) return fail("faces do not sum to the intrinsic triangle areas (relative error " + R.MaxIntrinsicAreaError + ")");
+            // An intrinsic triangle whose lengths give the area 0 passes the area check without any face: eg the
+            // sliver between a vertex that counts as on an input boundary edge (inserted within the snap of it) and
+            // that edge, whose three sides all run along the edge (#1335).
+            for (int it = 0; it < F; ++it)
+                if (itHasFace[it] == false) return fail("intrinsic triangle " + it + " has no face");
             return R;
         }
 
