@@ -207,10 +207,13 @@ With `PreventSelfIntersections` (`envelope psi`, eps = 0.003 of the diagonal):
 
 Findings:
 - The envelope reduction is guaranteed (every result triangle is inside the envelope; measured deviation 0.57-0.65 eps),
-  but it stops at 1.13-1.93x the triangles of A on the curved inputs and takes 1.4-98x the time (cube: the same 12
-  triangles, 39-119x; 7-27x against the control, because the hook checks before the flip test).
-- 88-98 % of its queries run the full test (0.9-5.8 ms); the paper's fast path (one polyhedron holds the triangle,
-  6-8 µs) decides 2-12 %. The linear box scan is 1-7 µs.
+  but it stops at 1.13-1.93x the triangles of A on the curved inputs and takes 5-98x the time in 5 of the 6 curved
+  runs (1.4x in terrain 40 at 0.001, which barely reduces and where A's single run looks inflated: 2.8x against the
+  control). Cube: the same 12 triangles, 39-119x; 7-27x against the control, which checks before the flip test and
+  has no shared query cache.
+- 77-98 % of its queries run the full test (0.8-5.8 ms when it ends inside); the paper's fast path (one polyhedron
+  holds the triangle, 6-9 µs) decides 2-23 %. The linear box scan is 1-7 µs. The envelope's time is the best of 3
+  passes, `IsWithin`'s one pass.
 - `envelope full` on terrain 80 (12800 triangles) did not finish in 10 minutes.
 - The built-in `MaxDeviation` is slow on flat inputs: a cube of 4332 triangles takes 76 s at 0.001 (the research note,
   section 5).
