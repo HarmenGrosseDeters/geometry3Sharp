@@ -97,7 +97,7 @@ added again), and `|y'| >= |yh| - |yl| - ey`. So
 
     Err(q) = (|res.Hi + res.Lo| + res.Err) / (|yh| - |yl| - ey) (1 + 2^-48),
 
-valid whenever the denominator `|yh| - |yl| - ey` is positive (else `Invalid`). Since `q` agrees with `x / y` to about `2^-104`
+valid whenever the denominator `|yh| - |yl| - ey` is positive and `ey <= |yh| / 4` (else `Invalid`): with that guard the denominator is at least `0.7 |yh|`, so the two roundings that compute it (each at most `u` relative to its result, which is at least `0.7 |yh|`) cost at most `3 u` relative, inside the `ErrUp` margin. Without the guard `fl(fl(|yh| - |yl|) - ey)` can be larger than the true value by any factor (`y = (1, -2^-54, err 1 - 2^-53)`: computed `2^-53`, true `2^-54`), `Div_ByAnUncertainDenominator_...`. Since `q` agrees with `x / y` to about `2^-104`
 relative (two correction steps), `Err` is about `2^-100` relative; the bound itself is valid for any `q`.
 
 ## 4. Certification of the rounding (`RoundsTo`)
@@ -154,7 +154,8 @@ Survivors, argued:
 - The coplanar-edge check (four `Orient3d` per hit) is removed: section 5 shows `p0 == p1` for a touching contact, which `FindTransversal_...` and `EdgeCrossingEdge_...` pin (a mutant that drops
   `p0 == p1` fails them). `p0 == p1` also covers a rounding collapse of a positive-length segment, for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): kept as a guard.
 - `n != 2` weakened to `n == 0`: the case `n == 1` does not occur (section 5: a contact has two qualifying points or none), so the check is a guard against a violated assumption, not covered by a test.
-- The `Div` guards `err(y) <= |yh| / 4` and `yh == 0` were redundant with the `den > 0` test (the residual bound is valid for any positive denominator; `yh == 0` gives `den <= 0`, and an infinite `q1` is `Invalid`) and are removed.
+- The `Div` guard `err(y) <= |yh| / 4` is needed (without it the rounded denominator can exceed the true one); `yh == 0` gives `den <= 0` and an infinite `q1` is `Invalid`, so that guard stays removed.
+- A product whose error underflows to 0 while an operand error is not 0 (`x = 0 +- 1e-300`, `y = 1e-100`) would have been a certified zero, whose sign the exact route may give differently: the error is floored at the smallest double (`Product_WhoseErrorUnderflows_...`). The same floor applies to the quotient (`x.Err / |y|` can underflow: `0 +- 1e-300` divided by `1e100`).
 - The factor `1 + 2^-48` (`ErrUp`) is needed for the operand-error terms (section 3); the tests with exact operands at plus and minus `Err` fail without it.
 
 ### Stryker run (22 November 2026, `tests/mutation/stryker-config.json`, the spans of the exact route and `ExactDoubleWord.cs`, 224 mutants)

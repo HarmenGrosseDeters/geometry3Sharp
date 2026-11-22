@@ -31,8 +31,11 @@ namespace g3
         internal const double Eps2 = 7.888609052210118e-31;
         /// <summary>
         /// 1 + 2^-48 = 1 + 32 u: applied to the final Err of every operation, so that the rounding of the arithmetic that computes
-        /// Err (at most 12 operations on non-negative numbers, each below (1 + u), so Err is rounded down by at most a factor
-        /// 1 - 12 u) cannot make it smaller than the real bound, for any of its terms (the operand errors too)
+        /// Err cannot make it smaller than the real bound, for any of its terms (the operand errors too). The roundings on non-negative
+        /// numbers, each by a factor within 1 +- u: a sum 5 (|xh| + |yh|, Eps2 times it, the sum of the three terms), a product 11
+        /// (Mag twice, four products of an error with a magnitude, Eps2 times |xh yh| with the product, the sums), a quotient 5 on top
+        /// of the 4 of the sum inside res.Err (Mag + Err, the denominator twice, the quotient, ErrUp). At most 12, so Err is rounded
+        /// down by at most a factor 1 - 12 u
         /// </summary>
         const double ErrUp = 1.0000000000000035527136788005;
         const double MinMagBits = 3.2033329522929615e-145;     // 2^-480
@@ -114,6 +117,9 @@ namespace g3
             TwoSum(ch, cl3, out zh, out zl);
             double ax = x.Mag, ay = y.Mag;
             double err = (ax * y.Err + ay * x.Err + x.Err * y.Err + Eps2 * Math.Abs(x.Hi * y.Hi)) * ErrUp;
+            // (an operand error that is not 0 must not vanish into a certified exact zero: the bound is at least the smallest double)
+            if (err == 0 && (x.Err > 0 || y.Err > 0))
+                err = double.Epsilon;
             // (the product of the heads may be below the range even if both are in it: Checked)
             return Checked(zh, zl, err);
         }
@@ -141,11 +147,18 @@ namespace g3
             DoubleWord res = x - y * q;
             if (res.IsValid == false)
                 return Invalid;
+            // (y.Err up to a quarter of |yh|: then the denominator |yh| - |yl| - err(y) is at least 0.7 |yh| and its rounding, at most 2 u
+            // relative, is covered by ErrUp; a larger error is not certified)
+            if (y.Err > 0.25 * Math.Abs(y.Hi))
+                return Invalid;
             double den = Math.Abs(y.Hi) - Math.Abs(y.Lo) - y.Err;
             if (den <= 0)
                 return Invalid;
             // (res.Err already carries the errors of x and of y q, so x.Err and |q| y.Err are not added again)
             double err = (res.Mag + res.Err) / den * ErrUp;
+            // (the quotient of a tiny error by a large denominator can underflow too: the floor of the product)
+            if (err == 0 && (x.Err > 0 || y.Err > 0))
+                err = double.Epsilon;
             return Checked(qh, ql, err);
         }
 

@@ -191,7 +191,7 @@ namespace geometry3Sharp.Tests
             // the denominator 1 +- 1: may be zero
             Assert.False(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 1)).IsValid);
             Assert.False(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 1.5)).IsValid);
-            Assert.True(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 0.5)).IsValid);
+            Assert.True(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 0.25)).IsValid);
             Assert.False(DoubleWord.Div(DoubleWord.Invalid, DoubleWord.Of(1)).IsValid);
             Assert.False(DoubleWord.Div(DoubleWord.Of(1), DoubleWord.Invalid).IsValid);
             Assert.False(DoubleWord.Div(DoubleWord.Of(1), DoubleWord.Of(0)).IsValid);
@@ -202,6 +202,38 @@ namespace geometry3Sharp.Tests
         }
 
         // ---- direct tests of the values the operations compute (not through the bound) ----
+
+        [Fact]
+        public void Div_ByAnUncertainDenominator_IsInvalid_NotAnUnderestimate()
+        {
+            // y = (1, -2^-54, err 1 - 2^-53): the denominator |yh| - |yl| - err is 2^-54 exactly, but fl(fl(1 - 2^-54) - err) is 2^-53 (twice as large,
+            // so the bound would be half the real one); an error above a quarter of |yh| is not certified at all
+            var y = new DoubleWord(1, -Math.Pow(2, -54), 1 - Math.Pow(2, -53));
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), y).IsValid);
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 0.26)).IsValid);
+            // just inside: valid, and the bound holds for operands at the extremes of their errors
+            var y2 = new DoubleWord(1, -Math.Pow(2, -54), 0.25);
+            var x2 = new DoubleWord(1, 0, 0.125);
+            var z = DoubleWord.Div(x2, y2);
+            Assert.True(z.IsValid);
+            foreach (int kx in Ks) foreach (int ky in Ks)
+                Assert.True(Within(z, At(x2, kx) / At(y2, ky)), $"{kx} {ky}");
+        }
+
+        [Fact]
+        public void Product_WhoseErrorUnderflows_IsNotACertifiedZero()
+        {
+            // x = 0 +- 1e-300, y = 1e-100: the error 1e-400 underflows to 0; the head is 0 (the exact route may give -0 or +0)
+            var x = new DoubleWord(0, 0, 1e-300);
+            var y = DoubleWord.Of(1e-100);
+            var z = x * y;
+            Assert.True(z.Err > 0);
+            double r;
+            Assert.False(z.RoundsTo(out r));
+            Assert.True((y * x).Err > 0);
+            var w = DoubleWord.Div(new DoubleWord(0, 0, 1e-300), DoubleWord.Of(1e300 * 1e-200));
+            Assert.True(w.IsValid == false || w.Err > 0);
+        }
 
         [Fact]
         public void Mag_IsTheSumOfTheMagnitudesOfTheWords()
