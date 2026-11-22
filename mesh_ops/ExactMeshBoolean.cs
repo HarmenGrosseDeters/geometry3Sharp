@@ -254,7 +254,10 @@ namespace g3
         /// component (the exact signed crossings of a ray from its centroid into its front side with the other triangles of the
         /// mesh) is odd and negative, so that the front of the surface is inside the solid it bounds (a consistently inverted cube:
         /// 1, and its solid is empty). Computed only with CountInsideOutCells (else 0), in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
-        /// embedded input (the solid is then what the surface encloses). Exact, no tolerance; for an input that self-intersects
+        /// embedded input (the solid is then what the surface encloses). ByNesting does not change it for an input that is not
+        /// embedded (SelfIntersectingPairs of its own arrangement above 0): such an input keeps its given orientation, so a
+        /// consistently oriented, self-intersecting input with an inside-out part (eg a box with a face pushed through the opposite
+        /// one) is counted in every mode. Exact, no tolerance; for an input that self-intersects
         /// it reads the one triangle of each component, so a component that is inside-out only in part is not seen. An
         /// overlapping or nested shell with the right orientation for the winding number (eg a cavity wall given outward: its
         /// front is inside the solid, the winding number there is 1) is not counted: that is a union, not an inversion.
@@ -266,6 +269,12 @@ namespace g3
         /// known whether they are inside-out; not part of InsideOutCells. SolidBooleanPipeline refuses them like inside-out ones
         /// </summary>
         public int InsideOutUndecided;
+        // (internal, for the messages of SolidBooleanPipeline) per input of Compute(): its part of InsideOutCells (null without
+        // CountInsideOutCells), and with Orientation = ByNesting the SelfIntersectingPairs of its own one-mesh arrangement (0:
+        // embedded, so nesting oriented it; > 0: not embedded, the given orientation stayed; -1: not closed modulo 2, not tested);
+        // null in the other modes
+        internal int[] InsideOutCellsOfInput;
+        internal int[] NestingSelfIntersectingPairsOfInput;
         // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
         // as a ray that finds no direction does)
         internal Action<int> CountRayObserverForTests;
@@ -661,6 +670,8 @@ namespace g3
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             SplitBowtieVertices = 0;
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
+            InsideOutCellsOfInput = null;
+            NestingSelfIntersectingPairsOfInput = null;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
@@ -706,6 +717,7 @@ namespace g3
                     return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
             if (Orientation == OrientationModes.ByNesting) {
                 // (each input on its own: its nesting is that of its own triangles; the ray is exact, see nest_input)
+                NestingSelfIntersectingPairsOfInput = new int[inputs.Count];
                 for (int m = 0; m < inputs.Count; ++m) {
                     string nestError;
                     BooleanStatus nestStatus = nest_input(inputs[m], m, ref prepared[m], out nestError);
@@ -1127,6 +1139,8 @@ namespace g3
             PreparedInput p = prepare_input(mesh, nest, CountInsideOutCells);
             if (nest.Stopped)
                 return BooleanStatus.Cancelled;
+            if (NestingSelfIntersectingPairsOfInput != null)
+                NestingSelfIntersectingPairsOfInput[m] = nest.Tested ? nest.SelfIntersectingPairs : -1;
             if (nest.Inconsistent > 0) {
                 error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex: " +
                     "self-intersections or coincident faces), and " + nest.Inconsistent + " of its triangles disagree with the orientation of the rest of their component: " +
@@ -1173,6 +1187,8 @@ namespace g3
             ExactMeshBoolean one;               // the instance whose arrangement is the one-mesh arrangement of mesh
             int[] triangleOf;                   // per triangle id of mesh: its index in that arrangement
             bool begun;
+            /// <summary> the one-mesh arrangement was computed (the mesh is closed modulo 2); Embedded and SelfIntersectingPairs are meaningful only then </summary>
+            public bool Tested => begun && !Stopped;
             /// <summary> the arrangement of the mesh has no pair of triangles that meet beyond a common edge or vertex </summary>
             public bool Embedded;
             /// <summary> cancelled while the arrangement was computed </summary>
@@ -1263,6 +1279,7 @@ namespace g3
         int count_inside_out(PreparedInput[] prepared)
         {
             int count = 0;
+            InsideOutCellsOfInput = new int[prepared.Length];
             for (int m = 0; m < prepared.Length; ++m) {
                 PreparedInput p = prepared[m];
                 if (p.ComponentStart == null)
@@ -1287,8 +1304,10 @@ namespace g3
                             InsideOutUndecided++;
                             break;
                         }
-                        if (chi < 0 && (chi & 1) != 0)
+                        if (chi < 0 && (chi & 1) != 0) {
                             count++;
+                            InsideOutCellsOfInput[m]++;
+                        }
                         break;
                     }
                 }

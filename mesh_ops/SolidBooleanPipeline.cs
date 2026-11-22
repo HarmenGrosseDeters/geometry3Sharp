@@ -297,7 +297,10 @@ namespace gs
         /// false (default): an input that is closed and consistently oriented but inside-out (eg a cube whose faces all point
         /// inward, an empty solid for the boolean) fails the run with Status InsideOutInput instead of being taken as an empty
         /// solid silently. true: such an input is used as it is (Report.InsideOutCells still counts it). Orientation = ByNesting
-        /// derives the solid the surface encloses instead (see ExactMeshBoolean.OrientationModes)
+        /// derives the solid the surface encloses instead for an input that is embedded (no self-intersections); a closed input
+        /// that self-intersects keeps its given orientation under ByNesting (see ExactMeshBoolean.OrientationModes), so a part of it
+        /// that is inside-out stays so and is refused again: the Error then names the self-intersections, and a closed copy that
+        /// the input repair produced (Report.RepairedInputs)
         /// </summary>
         public bool AllowInsideOutInputs = false;
 
@@ -597,7 +600,7 @@ namespace gs
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutCells + " component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); " +
-                    "orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs", total);
+                    InsideOutAdvice(op, active, Report.RepairedInputs), total);
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
@@ -1116,6 +1119,39 @@ namespace gs
                 }
                 return false;
             }
+        }
+
+        // The advice of the InsideOutInput refusal, per input with inside-out components (active[k]: the pipeline's index of the
+        // boolean's input k). Orientation = ByNesting derives the enclosed solid only for an embedded input: one whose own
+        // arrangement has self-intersecting pairs keeps its given orientation (ExactMeshBoolean.OrientationModes.ByNesting), so for
+        // it the advice names the self-intersections, and a repaired copy as what the repair produced. ByNesting is recommended
+        // where it was not tried, with the self-intersections as its condition when the boolean found some
+        internal static string InsideOutAdvice(ExactMeshBoolean op, List<int> active, List<SolidBooleanInputRepair> repaired)
+        {
+            int[] cells = op.InsideOutCellsOfInput, pairs = op.NestingSelfIntersectingPairsOfInput;
+            var parts = new List<string>();
+            bool nestingCanHelp = false;
+            for (int k = 0; cells != null && k < cells.Length; ++k) {
+                if (cells[k] == 0)
+                    continue;
+                int i = k < active.Count ? active[k] : k;
+                if (op.Orientation != ExactMeshBoolean.OrientationModes.ByNesting || pairs == null || pairs[k] <= 0) {
+                    nestingCanHelp = true;
+                    continue;
+                }
+                SolidBooleanInputRepair r = repaired.Find(x => x.Index == i);
+                parts.Add("input " + i + (r != null ? " (the closed copy that the input repair " + r.Method + " produced from the open input)" : "") +
+                    " self-intersects (" + pairs[k] + " pairs of its triangles meet beyond a common edge or vertex), so Orientation = ByNesting cannot orient it " +
+                    "(its given orientation stays) and " + cells[k] + " of its components are inside-out at least in part; fix the self-intersections" +
+                    (r != null ? " (close the input before the boolean)" : ""));
+            }
+            if (nestingCanHelp || parts.Count == 0) {
+                string nesting = op.Orientation == ExactMeshBoolean.OrientationModes.ByNesting ? "orient them" :
+                    "orient them (Orientation = ByNesting derives the enclosed solid" +
+                    (op.SelfIntersectingPairs > 0 ? " of an input without self-intersections; the inputs have " + op.SelfIntersectingPairs + " self-intersecting pairs" : "") + ")";
+                parts.Add(nesting);
+            }
+            return string.Join("; ", parts) + " or set AllowInsideOutInputs";
         }
 
         ExactMeshBoolean runBoolean(List<DMesh3> meshes)
