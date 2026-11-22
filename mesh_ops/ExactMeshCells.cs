@@ -21,7 +21,8 @@ namespace g3
     ///
     /// A local cell is one connected region of the workpiece's interior that the included pieces bound; two local cells that
     /// lie in one cell (a cavity inside a cell, another shell inside a cell) are not recognized as one: that needs the nesting
-    /// of the shells, which is not part of this layer (such a configuration is refused by the caller's rule, not guessed).
+    /// of the shells, which is not part of this layer: such a configuration is refused by <see cref="Label"/>, not guessed (a cell without a mark
+    /// next to another shell, or two shells whose boxes nest that carry both labels: the box test errs towards "may nest", so it is conservative).
     /// </summary>
     internal sealed class ExactMeshCells
     {
@@ -44,11 +45,16 @@ namespace g3
         /// <summary> the relative padding of the shell boxes (the input doubles of the corners are the arrangement's points rounded: the true box lies within a few ulps of it); the test errs towards "may nest" </summary>
         internal const double NestingPad = 1e-9;
 
+        static bool NotNumber(AxisAlignedBox3d box)
+        {
+            return double.IsNaN(box.Min.x) || double.IsNaN(box.Min.y) || double.IsNaN(box.Min.z) || double.IsNaN(box.Max.x) || double.IsNaN(box.Max.y) || double.IsNaN(box.Max.z);
+        }
+
         /// <summary> can shell a lie inside shell b, or b inside a (the box of one holds the box of the other)? </summary>
         internal bool MayNest(int a, int b)
         {
-            if (ShellBox == null)
-                return true;        // (no geometry known: err towards "may nest")
+            if (ShellBox == null || NotNumber(ShellBox[a]) || NotNumber(ShellBox[b]))
+                return true;        // (no geometry known, or a corner that is not a number: err towards "may nest")
             return ShellBox[a].Contains(ShellBox[b]) || ShellBox[b].Contains(ShellBox[a]);
         }
 
@@ -301,7 +307,9 @@ namespace g3
             // (shells that may nest: two cells of different shells are joined by no edge, so they may be one region of material (a cavity inside the
             // first input), and a 0 mark on one and a 1 mark on the other may be a contradiction that only the nesting of the shells could show: refused,
             // as an uncut cell is, when the box of one shell holds the box of the other and both labels occur on the two. Shells that cannot nest
-            // (disjoint boxes) are independent. A legitimate cut through a hollow body, with both labels on the nested shells, is refused too)
+            // (disjoint boxes) are independent: two sibling cavities of one block with different labels are seen only through the block's shell
+            // (each nests with it), and if that shell is unmarked, by the uncut cell below (ShellCount > 1 always refuses it): do not relax that
+            // rule without a nesting layer. A legitimate cut through a hollow body, with both labels on the nested shells, is refused too)
             if (cells.ShellCount > 1) {
                 var shell0 = new bool[cells.ShellCount];
                 var shell1 = new bool[cells.ShellCount];

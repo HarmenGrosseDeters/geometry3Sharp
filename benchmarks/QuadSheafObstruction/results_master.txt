@@ -1,0 +1,95 @@
+| shape | scale / ratio | tris | sing. | status | folds (library) | cells: geometric | library map / geometric | relaxed map / geometric | defect triangles | defect mass | curl mass | energy (curl) | energy (defect) | max corr. | hot edges % | relaxed folds | relaxed thin % | t pure (s) | t sheaf (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | 1 / 0.5 | 12776 | 8 | Success | 0 | 1256 | 0.890 | 0.970 | 72 | 76 | 87.6 | 66.9 | 119.0 | 0.62 | 0.07 | 0 | 0.00 | 0.49 | 0.12 |
+| sphere | 0.8 / 0.5 | 19936 | 8 | BudgetExceeded | 22 | 1963 | 0.941 | 0.972 | 101 | 110 | 112.4 | 91.5 | 175.4 | 0.67 | 0.03 | 0 | 0.00 | 0.54 | 0.13 |
+| sphere | 1.25 / 0.5 | 8204 | 8 | BudgetExceeded | 13 | 803 | 0.845 | 0.967 | 65 | 72 | 74.6 | 43.2 | 91.5 | 0.49 | 0.00 | 0 | 0.00 | 0.31 | 0.04 |
+| sphere | 1.5 / 0.5 | 5706 | 8 | Success | 0 | 558 | 0.785 | 0.956 | 55 | 58 | 63.0 | 40.3 | 82.6 | 0.57 | 0.02 | 0 | 0.00 | 0.23 | 0.04 |
+| sphere | 1 / 0.35 | 26016 | 8 | BudgetExceeded | 15 | 1256 | 0.884 | 0.976 | 69 | 72 | 86.6 | 52.9 | 108.7 | 0.52 | 0.01 | 0 | 0.00 | 0.50 | 0.16 |
+| sphere | 1 / 0.7 | 6506 | 8 | Success | 0 | 1255 | 1.050 | 0.963 | 68 | 70 | 92.2 | 76.7 | 113.3 | 0.78 | 0.17 | 0 | 0.00 | 0.10 | 0.04 |
+| torus | 1 / 0.5 | 14052 | 12 | Success | 0 | 1380 | 0.959 | 0.985 | 77 | 80 | 97.1 | 31.0 | 88.6 | 0.53 | 0.01 | 0 | 0.04 | 0.17 | 0.09 |
+| torus | 0.8 / 0.5 | 21964 | 12 | OrientationFolds | 1 | 2158 | 0.940 | 0.988 | 93 | 96 | 118.1 | 41.8 | 110.6 | 0.52 | 0.01 | 1 | 0.02 | 0.31 | 0.13 |
+| torus | 1.25 / 0.5 | 8964 | 12 | BudgetExceeded | 10 | 883 | 1.127 | 0.982 | 55 | 56 | 79.6 | 20.9 | 59.6 | 0.52 | 0.01 | 0 | 0.03 | 0.34 | 0.05 |
+| torus | 1.5 / 0.5 | 6196 | 12 | OrientationFolds | 1 | 613 | 0.816 | 0.971 | 55 | 60 | 68.8 | 25.1 | 67.2 | 0.52 | 0.01 | 2 | 0.13 | 0.19 | 0.03 |
+| torus | 1 / 0.35 | 28508 | 12 | Success | 0 | 1381 | 0.923 | 0.988 | 75 | 76 | 94.4 | 25.9 | 92.2 | 0.37 | 0.00 | 0 | 0.01 | 0.34 | 0.23 |
+| torus | 1 / 0.7 | 7142 | 12 | Success | 0 | 1379 | 0.996 | 0.982 | 77 | 84 | 99.2 | 32.0 | 86.2 | 0.57 | 0.05 | 0 | 0.03 | 0.07 | 0.03 |
+| torus-align10 | 1 / 0.5 | 14052 | 0 | Success | 0 | 1380 | 1.020 | 0.935 | 95 | 98 | 97.4 | 151.4 | 231.6 | 0.27 | 0.00 | 0 | 0.00 | 0.17 | 0.09 |
+| torus-align10 | 0.8 / 0.5 | 21964 | 0 | Success | 0 | 2158 | 1.012 | 0.936 | 110 | 112 | 119.3 | 239.9 | 323.5 | 0.29 | 0.00 | 0 | 0.00 | 0.23 | 0.15 |
+| torus-align10 | 1.25 / 0.5 | 8964 | 0 | Success | 0 | 883 | 0.999 | 0.932 | 76 | 78 | 80.0 | 97.0 | 147.8 | 0.29 | 0.00 | 0 | 0.00 | 0.08 | 0.03 |
+| torus-align10 | 1.5 / 0.5 | 6196 | 0 | Success | 0 | 613 | 1.004 | 0.932 | 51 | 52 | 68.2 | 68.2 | 94.4 | 0.27 | 0.00 | 0 | 0.00 | 0.09 | 0.03 |
+| torus-align10 | 1 / 0.35 | 28508 | 0 | Success | 0 | 1381 | 1.004 | 0.937 | 94 | 94 | 94.5 | 153.0 | 229.1 | 0.19 | 0.00 | 0 | 0.00 | 0.30 | 0.16 |
+| torus-align10 | 1 / 0.7 | 7142 | 0 | Success | 0 | 1379 | 0.929 | 0.932 | 91 | 94 | 100.4 | 154.4 | 208.0 | 0.36 | 0.00 | 0 | 0.00 | 0.07 | 0.03 |
+| bumpy | 1 / 0.5 | 35832 | 16 | BudgetExceeded | 20 | 3523 | 0.826 | 0.949 | 164 | 176 | 185.9 | 315.1 | 444.0 | 0.92 | 0.07 | 1 | 0.00 | 0.83 | 0.26 |
+| bumpy | 0.8 / 0.5 | 55724 | 16 | BudgetExceeded | 48 | 5506 | 0.702 | 0.948 | 212 | 226 | 231.7 | 501.4 | 683.6 | 0.89 | 0.06 | 0 | 0.00 | 1.51 | 0.46 |
+| bumpy | 1.25 / 0.5 | 22810 | 16 | BudgetExceeded | 14 | 2255 | 0.716 | 0.948 | 132 | 142 | 150.5 | 206.7 | 309.3 | 0.79 | 0.09 | 0 | 0.00 | 0.54 | 0.14 |
+| bumpy | 1.5 / 0.5 | 15918 | 14 | Success | 0 | 1565 | 0.845 | 0.939 | 113 | 122 | 125.1 | 159.3 | 238.1 | 0.73 | 0.11 | 0 | 0.00 | 0.37 | 0.13 |
+| bumpy | 1 / 0.35 | 73048 | 16 | BudgetExceeded | 194 | 3524 | 0.736 | 0.949 | 178 | 188 | 184.5 | 314.8 | 487.9 | 0.72 | 0.03 | 0 | 0.00 | 1.48 | 0.57 |
+| bumpy | 1 / 0.7 | 18266 | 16 | BudgetExceeded | 5 | 3523 | 0.696 | 0.948 | 157 | 170 | 189.2 | 323.2 | 428.8 | 1.18 | 0.22 | 1 | 0.01 | 0.59 | 0.12 |
+| filleted-box | 1 / 0.5 | 18180 | 8 | Success | 0 | 1754 | 1.003 | 0.996 | 19 | 22 | 35.7 | 6.1 | 24.6 | 0.29 | 0.00 | 0 | 0.00 | 0.14 | 0.11 |
+| filleted-box | 0.8 / 0.5 | 28486 | 8 | BudgetExceeded | 8 | 2742 | 0.979 | 0.997 | 30 | 34 | 38.4 | 5.9 | 31.1 | 0.27 | 0.00 | 0 | 0.00 | 0.47 | 0.20 |
+| filleted-box | 1.25 / 0.5 | 11320 | 8 | Success | 0 | 1122 | 0.891 | 0.995 | 27 | 30 | 29.4 | 4.1 | 32.4 | 0.27 | 0.00 | 0 | 0.00 | 0.12 | 0.07 |
+| filleted-box | 1.5 / 0.5 | 7868 | 8 | Success | 0 | 778 | 0.923 | 0.993 | 22 | 24 | 28.0 | 3.3 | 23.0 | 0.27 | 0.00 | 0 | 0.00 | 0.08 | 0.04 |
+| filleted-box | 1 / 0.35 | 35284 | 8 | Success | 0 | 1755 | 0.932 | 0.998 | 18 | 20 | 28.3 | 4.1 | 18.3 | 0.21 | 0.00 | 0 | 0.00 | 0.38 | 0.23 |
+| filleted-box | 1 / 0.7 | 9056 | 8 | Success | 0 | 1751 | 0.935 | 0.994 | 31 | 34 | 38.4 | 6.0 | 31.9 | 0.32 | 0.00 | 0 | 0.00 | 0.09 | 0.03 |
+| noisy-sphere | 1 / 0.5 | 12776 | 8 | BudgetExceeded | 16 | 1292 | 0.479 | 0.890 | 92 | 98 | 142.0 | 217.5 | 278.1 | 1.07 | 0.20 | 6 | 0.08 | 0.51 | 0.06 |
+| noisy-sphere | 0.8 / 0.5 | 19936 | 8 | BudgetExceeded | 49 | 2019 | 1.151 | 0.897 | 118 | 124 | 195.0 | 296.4 | 392.2 | 1.25 | 0.10 | 2 | 0.03 | 1.25 | 0.12 |
+| noisy-sphere | 1.25 / 0.5 | 8204 | 8 | Success | 0 | 827 | 0.824 | 0.942 | 66 | 70 | 100.6 | 49.8 | 95.1 | 0.51 | 0.01 | 0 | 0.00 | 0.10 | 0.05 |
+| noisy-sphere | 1.5 / 0.5 | 5706 | 8 | BudgetExceeded | 28 | 574 | 0.568 | 0.905 | 64 | 66 | 84.0 | 76.8 | 128.8 | 0.74 | 0.20 | 0 | 0.00 | 0.28 | 0.03 |
+| noisy-sphere | 1 / 0.35 | 26016 | 8 | BudgetExceeded | 271 | 1292 | 1.178 | 0.865 | 102 | 106 | 167.5 | 276.7 | 367.3 | 1.14 | 0.11 | 19 | 0.09 | 1.81 | 0.17 |
+| noisy-sphere | 1 / 0.7 | 6506 | 8 | BudgetExceeded | 154 | 1291 | 0.602 | 0.873 | 94 | 100 | 132.8 | 253.4 | 320.3 | 1.28 | 0.48 | 2 | 0.05 | 0.38 | 0.03 |
+| capsule | 1 / 0.5 | 11042 | 8 | BudgetExceeded | 126 | 1079 | 0.176 | 0.737 | 102 | 114 | 104.9 | 542.1 | 633.4 | 2.38 | 0.94 | 2 | 0.02 | 0.62 | 0.07 |
+| capsule | 0.8 / 0.5 | 17052 | 8 | BudgetExceeded | 124 | 1686 | 0.098 | 0.679 | 133 | 138 | 134.0 | 1013.6 | 1122.5 | 3.46 | 0.72 | 5 | 0.03 | 0.65 | 0.10 |
+| capsule | 1.25 / 0.5 | 6988 | 8 | BudgetExceeded | 65 | 690 | 0.072 | 0.709 | 86 | 90 | 85.0 | 373.8 | 446.9 | 2.26 | 0.93 | 3 | 0.04 | 0.39 | 0.03 |
+| capsule | 1.5 / 0.5 | 4802 | 10 | BudgetExceeded | 23 | 479 | 0.098 | 0.779 | 65 | 70 | 70.6 | 194.4 | 250.1 | 1.70 | 0.96 | 0 | 0.00 | 0.31 | 0.02 |
+| capsule | 1 / 0.35 | 22404 | 10 | BudgetExceeded | 74 | 1079 | 0.154 | 0.731 | 87 | 90 | 86.0 | 544.2 | 618.2 | 1.97 | 0.68 | 6 | 0.03 | 0.68 | 0.13 |
+| capsule | 1 / 0.7 | 5576 | 12 | BudgetExceeded | 49 | 1078 | 0.150 | 0.744 | 90 | 96 | 91.7 | 503.0 | 573.9 | 2.83 | 1.76 | 0 | 0.02 | 0.34 | 0.02 |
+| genus2 | 1 / 0.5 | 26334 | 20 | Success | 0 | 2581 | 1.065 | 0.986 | 141 | 150 | 176.8 | 50.5 | 162.6 | 0.38 | 0.00 | 2 | 0.02 | 0.56 | 0.18 |
+| genus2 | 0.8 / 0.5 | 40976 | 20 | Success | 0 | 4033 | 0.969 | 0.987 | 179 | 188 | 219.1 | 76.9 | 216.6 | 0.39 | 0.00 | 0 | 0.01 | 0.51 | 0.31 |
+| genus2 | 1.25 / 0.5 | 16754 | 20 | Success | 0 | 1651 | 0.933 | 0.986 | 121 | 132 | 143.4 | 33.5 | 126.1 | 0.34 | 0.00 | 0 | 0.01 | 0.43 | 0.08 |
+| genus2 | 1.5 / 0.5 | 11676 | 20 | Success | 0 | 1146 | 1.056 | 0.982 | 83 | 88 | 121.4 | 24.3 | 82.9 | 0.32 | 0.00 | 0 | 0.02 | 0.11 | 0.07 |
+| genus2 | 1 / 0.35 | 53452 | 20 | Success | 0 | 2582 | 0.991 | 0.988 | 135 | 138 | 174.1 | 47.9 | 159.1 | 0.30 | 0.00 | 1 | 0.01 | 0.69 | 0.42 |
+| genus2 | 1 / 0.7 | 13306 | 20 | Success | 0 | 2579 | 0.889 | 0.984 | 120 | 132 | 180.1 | 52.4 | 133.2 | 0.42 | 0.00 | 0 | 0.02 | 0.15 | 0.06 |
+| capped-cylinder | 1 / 0.5 | 13012 | 8 | BudgetExceeded | 188 | 1277 | 0.433 | 0.887 | 92 | 96 | 117.9 | 265.9 | 335.7 | 1.39 | 0.32 | 0 | 0.00 | 0.44 | 0.08 |
+| capped-cylinder | 0.8 / 0.5 | 20342 | 8 | BudgetExceeded | 169 | 2001 | 0.649 | 0.895 | 115 | 120 | 138.3 | 394.8 | 470.8 | 1.54 | 0.38 | 4 | 0.02 | 1.88 | 0.10 |
+| capped-cylinder | 1.25 / 0.5 | 8290 | 8 | BudgetExceeded | 10 | 814 | 0.687 | 0.874 | 70 | 72 | 84.3 | 178.8 | 231.6 | 1.05 | 0.43 | 1 | 0.02 | 0.40 | 0.04 |
+| capped-cylinder | 1.5 / 0.5 | 5700 | 8 | BudgetExceeded | 27 | 563 | 0.363 | 0.871 | 62 | 66 | 67.5 | 132.2 | 190.4 | 1.23 | 0.54 | 0 | 0.00 | 0.30 | 0.05 |
+| capped-cylinder | 1 / 0.35 | 26606 | 8 | BudgetExceeded | 52 | 1283 | 0.559 | 0.916 | 98 | 104 | 100.1 | 192.2 | 271.7 | 0.84 | 0.07 | 2 | 0.01 | 0.64 | 0.15 |
+| capped-cylinder | 1 / 0.7 | 6576 | 8 | OrientationFolds | 2 | 1269 | 0.491 | 0.869 | 90 | 96 | 111.2 | 298.9 | 359.5 | 1.50 | 1.22 | 2 | 0.03 | 0.20 | 0.03 |
+
+runs 54: clean 25, fallback 29; status counts: BudgetExceeded 26, OrientationFolds 3, Success 25; antisymmetry violations of the rebuilt complex: 0
+time: pure-quad attempts of the fallback rows 18.68 s (their stage 2 alone 2.46 s), of the clean rows 6.06 s; the sheaf analysis of all rows 6.37 s
+library map area / geometric area: clean rows min 0.785 median 0.959 max 1.065; fallback rows min 0.072 median 0.687 max 1.178
+
+## Ranking power for 'fallback' (AUC: 0.5 chance, 1 perfect; in sample)
+| quantity (before the flow) | AUC | rows right with the best threshold | median clean | median fallback |
+|---|---|---|---|---|
+| defect mass / cell | 0.67 | 35 / 54 | 0.0581 | 0.0758 |
+| curl mass / cell | 0.65 | 37 / 54 | 0.0698 | 0.0876 |
+| energy (curl) / cell | 0.82 | 42 / 54 | 0.0225 | 0.15 |
+| energy (defect) / cell | 0.81 | 42 / 54 | 0.0724 | 0.215 |
+| max correction | 0.92 | 46 / 54 | 0.339 | 1.07 |
+| hot edges share | 0.89 | 45 / 54 | 0 | 0.00198 |
+| relaxed folds share | 0.75 | 40 / 54 | 0 | 4.55E-05 |
+| relaxed thin share | 0.68 | 38 / 54 | 0 | 0.000179 |
+| 1 - relaxed area ratio | 0.81 | 42 / 54 | 0.0178 | 0.103 |
+| singular faces | 0.52 | 35 / 54 | 8 | 8 |
+| triangles | 0.50 | 32 / 54 | 1.33E+04 | 1.71E+04 |
+| triangles per cell (input resolution) | 0.50 | 31 / 54 | 10.2 | 10.2 |
+| (always the majority class) | 0.50 | 29 / 54 | | |
+
+## Where the folds of the library's final map lie (1778 fold triangles of the fallback rows; radius 1.5 s)
+| marked set (input triangles) | folds within the radius of the set | share of the surface within the radius (weighted by the folds of the row) | enrichment |
+|---|---|---|---|
+| singular faces | 17.5 % | 3.7 % | 4.67 |
+| defect triangles | 43.3 % | 33.1 % | 1.31 |
+| correction >= 0.5 | 19.8 % | 5.5 % | 3.61 |
+| relaxed folds | 6.9 % | 1.1 % | 6.02 |
+| relaxed thin | 8.1 % | 1.3 % | 6.24 |
+
+per shape (folds; then per set: folds within the radius % / surface within the radius %):
+- bumpy: 281 folds; singular faces 6 / 3; defect triangles 30 / 25; correction >= 0.5 7 / 3; relaxed folds 1 / 0; relaxed thin 1 / 0
+- capped-cylinder: 448 folds; singular faces 28 / 4; defect triangles 48 / 31; correction >= 0.5 35 / 7; relaxed folds 20 / 1; relaxed thin 20 / 1
+- capsule: 461 folds; singular faces 9 / 3; defect triangles 30 / 31; correction >= 0.5 13 / 5; relaxed folds 1 / 1; relaxed thin 1 / 1
+- filleted-box: 8 folds; singular faces 100 / 2; defect triangles 100 / 5; correction >= 0.5 0 / 0; relaxed folds 0 / 0; relaxed thin 0 / 0
+- noisy-sphere: 518 folds; singular faces 22 / 5; defect triangles 57 / 42; correction >= 0.5 23 / 7; relaxed folds 6 / 3; relaxed thin 9 / 3
+- sphere: 50 folds; singular faces 8 / 4; defect triangles 42 / 31; correction >= 0.5 0 / 1; relaxed folds 0 / 0; relaxed thin 0 / 0
+- torus: 12 folds; singular faces 25 / 10; defect triangles 58 / 32; correction >= 0.5 0 / 1; relaxed folds 0 / 0; relaxed thin 8 / 2

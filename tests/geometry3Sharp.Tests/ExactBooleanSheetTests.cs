@@ -492,6 +492,44 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SiblingCavities_WithDifferentLabels_InABlockWhoseShellIsUnmarked_AreRefused()
+        {
+            // two cavities with disjoint boxes (they cannot nest in each other), a cap on each, one pointing into its pocket (label 1 outside it) and
+            // one away (label 0): the material outside the caps is one region with both labels. The block's shell carries no mark, so the refusal is
+            // the uncut cell of it (the nesting test pairs each cavity only with the block): this test pins that dependency
+            DMesh3 block = Joined(Joined(Box(0, 0, 0, 10, 10, 10), Reversed(Box(1, 1, 1, 3, 3, 3))), Reversed(Box(6, 6, 6, 8, 8, 8)));
+            Func<double, bool, DMesh3> cap = (c, into) => {
+                var m = new DMesh3();
+                int b0 = m.AppendVertex(new Vector3d(c + 0.5, c + 0.5, c + 2)), b1 = m.AppendVertex(new Vector3d(c + 1.5, c + 0.5, c + 2)), b2 = m.AppendVertex(new Vector3d(c + 1.5, c + 1.5, c + 2)),
+                    b3 = m.AppendVertex(new Vector3d(c + 0.5, c + 1.5, c + 2)), a = m.AppendVertex(new Vector3d(c + 1, c + 1, c + 3));
+                m.AppendTriangle(b0, b1, a); m.AppendTriangle(b1, b2, a); m.AppendTriangle(b2, b3, a); m.AppendTriangle(b3, b0, a);
+                return into ? Reversed(m) : m;
+            };
+            ExactMeshBoolean op = Run(block, Joined(cap(1, true), cap(6, false)));
+            Assert.True(op.Status == Status.SheetRefused, op.Status + " " + op.Error);
+            Assert.NotEqual(Refusal.None, op.SheetReason);
+            Assert.Null(op.Result);
+        }
+
+        [Theory]
+        [MemberData(nameof(FrameNames))]
+        public void HollowBlock_Refusals_AreInvariantUnderSimilarities(string frame)
+        {
+            Similarity s = Similarity.ByName(frame);
+            DMesh3 plate = Plate(2, -1, 11, -1, 11);
+            foreach (var sheet in new[] { Joined(plate, CapOnTheCavity(true)), Joined(plate, CapOnTheCavity(false)), Plate(5, -1, 11, -1, 11) }) {
+                ExactMeshBoolean op = Run(Invariance.Transformed(HollowBlock(), s), Invariance.Transformed(sheet, s));
+                Assert.True(op.Status == Status.SheetRefused, frame + ": " + op.Status + " " + op.Error);
+                Assert.Equal(Refusal.SidesInconsistent, op.SheetReason);
+            }
+            // shells that cannot nest: fine in every frame
+            ExactMeshBoolean ok = Run(Invariance.Transformed(TwoCubes(new Vector3d(0, 0, 0), new Vector3d(5, 0, 0)), s), Invariance.Transformed(Plate(0.5, -1, 7, -1, 2), s));
+            Assert.True(ok.Status == Status.Success, frame + ": " + ok.Status + " " + ok.SheetReason + " " + ok.Error);
+        }
+
+        public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
+
+        [Fact]
         public void TwoShells_WhoseBoxesDoNotNest_AreIndependent_AndBothLabelsAreFine()
         {
             // two cubes with disjoint boxes, both cut by one plate: both labels occur on the two shells, which cannot nest: fine (the hollow block
