@@ -293,6 +293,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Contains_AProbeExactlyAtTheTouchDistance_IsSkipped()
+        {
+            // the cube [0, 4]^3: touch = 256 * 2^-52 * 4 = 2^-42, a probe at that depth is at the distance exactly (the closest point of the
+            // wall is straight below it): "within" includes the boundary, so it is skipped
+            double depth;
+            double touch = SolidBooleanPipeline.ShellIndex.Touch(Box(0, 0, 0, 4, 4, 4).GetBounds());
+            Assert.Equal(Math.Pow(2, -42), touch);
+            Assert.False(ProbeContained(0.0, touch, out depth));
+            Assert.Equal(touch, depth);
+            Assert.True(ProbeContained(0.0, 2 * touch, out depth));
+        }
+
+        [Fact]
+        public void TwoEqualShellsAroundACavity_TheFirstOwnsIt()
+        {
+            // two identical blocks (a doubled shell) and a cavity in both: the first of equal volume keeps the cavity, the later one
+            // does not take it over; the first solid is the block with the cavity (volume 64 - 8), the second the plain block
+            DMesh3 m = Shells((Box(0, 0, 0, 4, 4, 4), false), (Box(0, 0, 0, 4, 4, 4), false), (Box(1, 1, 1, 3, 3, 3), true));
+            DMesh3 rest;
+            var removed = Removed(m, out rest, 100.0);
+            Assert.Equal(2, removed.Count);
+            Assert.Equal(2, removed[0].Shells);
+            Assert.Equal(56, removed[0].Volume, 9);
+            Assert.Equal(1, removed[1].Shells);
+            Assert.Equal(64, removed[1].Volume, 9);
+        }
+
+        [Fact]
         public void BoxHolds_AllowsTheRoundingOfAMovedBox_NotMore()
         {
             // a cavity that touches the shell from inside has a box that sticks out of the shell's by the rounding of its
