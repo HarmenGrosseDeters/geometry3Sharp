@@ -817,7 +817,7 @@ def boundary_lengths(c, r):
        ['double q = 4 * Math.PI * d * d;', 'return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));',
         'return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;', 'return g * (1 + 1e-12);',
         'cost = g * (1 + 1e-12) * diam;'],
-       'the computed term against min(length / (4 pi d^2), count / (2 pi d))',
+       'the computed term against min(length / (4 pi d^2), count / (2 pi d)) (MathUtil.MinExact since the determinism proof stage 2: it equals Math.Min where both operands are non-negative and finite, as here, so the model is unchanged)',
        'one term; q and length / q normal (the callers have d >= 1e-3 s and the grid\'s tiny gate); the sums of terms are finding F4',
        'the callers\' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path')
 def far_term(c, r):
