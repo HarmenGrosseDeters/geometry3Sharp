@@ -133,6 +133,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AreasInTheUnitsOfTheMesh_AreInfiniteBeyondTheirRange_WhileLengthsAreFinite()
+        {
+            // the squares of the units leave the double range from about 2^512: the public areas are +infinity, the lengths, angles and
+            // flips are exact (computed in unit scale), and the accessors never give NaN
+            DMesh3 mesh = Scaled(ShearedGrid(), 700);
+            var T = new IntrinsicTriangulation(mesh);
+            T.FlipToDelaunay();
+            Assert.True(double.IsPositiveInfinity(T.TriangleArea(0)));
+            Assert.All(T.VertexAreas(), a => Assert.False(double.IsNaN(a)));
+            for (int h = 0; h < T.HalfedgeCount; ++h) Assert.True(T.Length(h) > 0 && !double.IsInfinity(T.Length(h)));
+            Assert.Equal(0, new IntrinsicTriangulation(Scaled(ShearedGrid(), -700)).TriangleArea(0));
+        }
+
+        [Fact]
+        public void QuadRemesher_AfterARefusal_ResetsEveryResultField()
+        {
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
+            var q = new QuadRemesher(mesh) { TargetEdgeLength = 0.3, Parallel = false, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, q.Compute());
+            Assert.True(q.FieldSeconds > 0 && q.Result != null);
+            q.Mesh = HalfSliver();
+            Assert.Equal(QuadRemeshStatus.InvalidInput, q.Compute());
+            Assert.Null(q.Result); Assert.Null(q.Positions);
+            Assert.Equal(0, q.FieldSeconds); Assert.Equal(0, q.PositionSeconds); Assert.Equal(0, q.ExtractSeconds);
+            Assert.Equal(PureQuadStatus.NotRequested, q.PureQuadStatus);
+            Assert.Equal(0, q.FlowSeconds); Assert.Equal(0, q.InvertedTriangles);
+            Assert.True(double.IsNaN(q.PureQuadAreaRatio));
+        }
+
+        [Fact]
         public void IntrinsicTriangulation_ReuseTwice_GivesTheSameResult()
         {
             var T = new IntrinsicTriangulation(Scaled(ShearedGrid(), 300));

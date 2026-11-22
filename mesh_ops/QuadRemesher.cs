@@ -187,7 +187,11 @@ namespace gs
         public DPolyMesh Result;
         /// <summary> seconds of the last Compute(): the cross field (0 if given), the position field, the extraction with its cleanup </summary>
         public double FieldSeconds, PositionSeconds, ExtractSeconds;
-        /// <summary> the position field of the last run (for inspection) </summary>
+        /// <summary>
+        /// the position field of the last Compute(). For a mesh whose longest edge is outside [1, 2) the remesher runs on a copy scaled by a
+        /// power of two (see Compute()): then this field refers to that copy and is in its unit scale, not in the units of Mesh
+        /// (Result is in the units of Mesh)
+        /// </summary>
         public PositionField Positions;
 
         public QuadRemesher(DMesh3 mesh) { Mesh = mesh; }
@@ -245,18 +249,19 @@ namespace gs
             return Status;
         }
 
+        // the state of a run that has not started (every result field of the last Compute)
         void ResetResults()
-        {
-            Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
-        }
-
-        QuadRemeshStatus ComputeCore()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
             CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
             PureQuadStatus = PureQuadFirstStatus = PureQuadStatus.NotRequested; PureQuadRetried = false; PureQuadAreaRatio = PureQuadAreaRatioAfterFlow = double.NaN; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
+        }
+
+        QuadRemeshStatus ComputeCore()
+        {
+            ResetResults();
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");

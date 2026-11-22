@@ -106,7 +106,7 @@ namespace g3
             double best = double.PositiveInfinity; int bestCorner = -1, bestE = -1, bestSide = -1, bestOrigin = -1; double bestSx = 0, bestSy = 0, bestPx = 0, bestPy = 0;
             for (int k = 0; k < 3; ++k) {
                 int v = tri[k];
-                double dv = Down(Distance[v]);                        // NaN beyond MaxDistance (dist[] holds tentative values there)
+                double dv = (dist[v] <= maxDistU && dist[v] < double.PositiveInfinity) ? dist[v] : double.NaN;                        // NaN beyond MaxDistance (dist[] holds tentative values there)
                 if (!(dv < double.PositiveInfinity)) continue;
                 double c = dv + Down(p - Mesh.GetVertex(v)).Length;
                 if (c < best) { best = c; bestCorner = v; bestE = -1; }

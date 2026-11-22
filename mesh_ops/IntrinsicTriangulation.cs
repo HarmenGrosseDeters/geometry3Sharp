@@ -200,7 +200,7 @@ namespace gs
             return w;
         }
 
-        /// <summary> area of triangle t, in the units of the mesh (squared) </summary>
+        /// <summary> area of triangle t, in the units of the mesh (squared): +infinity (or 0) where the square of the units leaves the double range, beyond about 2^+-510 </summary>
         public double TriangleArea(int t)
         {
             return scaleExp == 0 ? TriangleAreaU(t) : ExactPoint3.ScaleB(TriangleAreaU(t), 2 * scaleExp);
@@ -572,7 +572,7 @@ namespace gs
             return L;
         }
 
-        /// <summary> lumped (barycentric) vertex areas, in vertex indices </summary>
+        /// <summary> lumped (barycentric) vertex areas, in vertex indices and the units of the mesh (squared; +infinity beyond about 2^512, see TriangleArea) </summary>
         public double[] VertexAreas()
         {
             double[] a = VertexAreasU();

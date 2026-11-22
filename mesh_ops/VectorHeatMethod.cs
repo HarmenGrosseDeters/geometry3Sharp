@@ -73,6 +73,7 @@ namespace gs
         IntrinsicTriangulation triangulation;
 
         /// <summary> diffusion time of the last computation </summary>
+        /// <summary> the diffusion time of the last solve, in the units of the mesh (squared): +infinity beyond about 2^512 (the solves use the unit scale and are not affected) </summary>
         public double DiffusionTime { get; private set; }
         double diffusionTimeU;              // DiffusionTime in the unit scale of the triangulation (the squared edge length unit)
 

@@ -42,7 +42,7 @@ namespace gs
             public int[] Corners;
             /// <summary> corners as barycentric coordinates in the input triangle </summary>
             public Vector3d[] Barycentric;
-            /// <summary> area (in the input triangle; with mollification in its mollified geometry) </summary>
+            /// <summary> area (in the input triangle; with mollification in its mollified geometry), in the units of the mesh (squared); a face area beyond the double range makes the extraction Inconsistent (coordinates beyond about 2^500) </summary>
             public double Area;
         }
 
