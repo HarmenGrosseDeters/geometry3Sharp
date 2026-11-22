@@ -11,7 +11,7 @@ namespace gs
         Success = 0,
         /// <summary> no mesh, a failed cross field, a target edge length that is not positive and finite, or invalid settings </summary>
         InvalidInput = 1,
-        /// <summary> no triangle without a field singularity, or the solver found no usable step (the result is the uniform spacing) </summary>
+        /// <summary> no vertex with a field, no triangle without a field singularity, non-finite edge vectors, or the initial Cholesky factorization failed (the result stays the uniform spacing) </summary>
         NoSolution = 2
     }
 
@@ -147,7 +147,7 @@ namespace gs
             // unknowns per vertex: sigma, and phi only if the rotation is solved for (a scale-only solve has no use for phi: half the unknowns)
             int u = useRot || ForceTwoUnknowns ? 2 : 1;
             UnknownsPerVertex = u;
-            SparseCholesky chol = null; bool refactor = true;
+            SparseCholesky chol = null; bool refactor = true; bool factorFailed = false;
             var w = new Vector2d[m]; var B = new double[m][];
             for (int step = 0; step < Iterations; ++step) {
                 Linearize(tri, edgeVec, sig, phi, useRot, w, B);
@@ -173,7 +173,7 @@ namespace gs
                                     }
                     }
                     for (int i = 0; i < u * n; ++i) chol.Add(i, i, Damping);
-                    if (!chol.Factorize()) break;
+                    if (!chol.Factorize()) { factorFailed = true; break; }
                     refactor = false;
                 }
                 var d = new double[u * n];
@@ -198,6 +198,10 @@ namespace gs
                 if (alpha != InitialStepFactor || (step + 1) % RefactorEvery == 0) refactor = true;
                 cost = newCost; CurlAfter = newCurl; StepsTaken++;
                 if (gain < StopTolerance) break;
+            }
+            if (factorFailed && StepsTaken == 0) {
+                Seconds = sw.Elapsed.TotalSeconds;
+                return Fail(IntegrableFramesStatus.NoSolution, "the normal equations could not be factorized: " + chol.Error);
             }
             // the gauge: mean log spacing 0 (a step keeps the mean, a clamp may not)
             double mean = 0; for (int i = 0; i < n; ++i) if (used[i]) mean += sig[i]; mean /= nUsed;
