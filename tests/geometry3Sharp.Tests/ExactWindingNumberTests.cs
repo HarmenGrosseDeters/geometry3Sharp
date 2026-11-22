@@ -607,7 +607,7 @@ namespace geometry3Sharp.Tests
                 })).ToArray();
                 // Block on the pool tasks instead of awaiting them (issue #698): the continuation of an await goes back to
                 // xUnit's MaxConcurrencySyncContext, whose worker threads run the other test classes, so it resumed only at
-                // the end of the full run (410-544 s on CI, 0.1 s alone). The tasks themselves run on the thread pool.
+                // the end of the full run (410-544 s on CI, 0.01 s alone). The tasks themselves run on the thread pool.
                 Task.WaitAll(tasks);
                 double[][] all = tasks.Select(t => t.Result).ToArray();
 
