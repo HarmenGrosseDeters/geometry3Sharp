@@ -32,9 +32,9 @@ Short answer:
 - **Measured** (section 3a): box blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period (five
   of six runs complete) and about a third overall (9 to 56 % per run) for a TPMS clipped by a ball; box blocks grown
   this way do not close a clipped lattice.
-- **Open** (sections 3 and 4): the mesh side for marching cubes and for marching tetrahedra on cubes (lemmas of their
-  own; a finite check for the tetrahedra is done here), the two levels of a wall together, and the rim of a clipped
-  lattice.
+- **The mesh side for marching tetrahedra on cubes** is written: Lemma 9 (section 4a).
+- **Open** (sections 3 and 4): the mesh side for marching cubes (a lemma of its own), the two levels of a wall
+  together, and the rim of a clipped lattice.
 
 ## 1. Theorem 8
 
@@ -370,7 +370,8 @@ Hypotheses:
 
 - (T0) no tetrahedron edge on the boundary of the grid is crossed (read from the signs; M then stays off the grid's
   boundary);
-- (T1) no a_n is 0 (so "inside" is the sign of a_n);
+- (T1) no a_n is 0 (so "inside" is the sign of a_n; the proof below does not use it, (T2) already keeps a vertex off
+  a node: it is there for the certificate's comparison of signs, section 4 point 2);
 - (T2) every vertex on a cube edge lies strictly between the two nodes of the edge and has their other two
   coordinates; every vertex on a face diagonal has the face's constant coordinate and lies strictly inside the face's
   rectangle (exact comparisons of doubles; the vertex need not be exactly on the diagonal);
@@ -438,7 +439,7 @@ faces of c; an open triangle and an open side that is not in a face lie in the i
 all lie on the arcs. So the interior of each disk is in the interior of c.
 
 Every point of M has a disk neighbourhood in M (inside a cube by (C); on a face or an edge the disks of the two or
-four cubes fit along the arcs), so M is a closed surface where it does not reach the grid's boundary. ∎
+four cubes fit along the arcs), so M is a closed surface, in the interior of the grid by (T0). ∎
 
 Remarks.
 
@@ -448,7 +449,8 @@ Remarks.
    coordinate is. The proof therefore uses only (T2) and never that a vertex is on its diagonal or that a polygon is
    planar, and it takes (T4) from the exact test instead of the construction.
 2. **Zeros and the guard.** A value of exactly 0 counts as outside for the mesher; (T1) refuses it. `SliverGuard`
-   removes zeros (a value below its threshold becomes negative) except when the level changes sign on no grid edge
+   removes zeros (a value below its threshold becomes negative, a small positive one too: the node then has another
+   sign than the field, section 4 point 2) except when the level changes sign on no grid edge
    or the threshold underflows to 0. The position a + t (b - a) can round onto a node, or one unit past it, also for
    a t inside (0, 1): (T2) tests the position, not t.
 3. **In a block** (Theorem 8 (c) for this mesher). The count P - A + Z of Lemma 6.4 becomes: the cell complex above
@@ -467,7 +469,14 @@ Remarks.
    is needed: on an edge that both levels cross, the mesher orders the two crossings by two separately rounded
    quotients, and although the other level is inside at the crossing in exact arithmetic, a reversal by rounding is
    not excluded by proof (none was found in 6e6 random trials of values as the mesher computes them; for values a few
-   units apart a reversal exists). A reversal clips a polygon.
+   units apart a reversal exists). A reversal clips a polygon. The mesher has three more places where a polygon
+   could vanish, before any vertex is made: it skips a cube, and returns early from a tetrahedron, if one of its
+   functions is negative at none of the nodes, and it skips a triangle with two equal vertices. Without a `Domain`
+   none of them can drop a polygon of a level: where the stored g - w is not negative, g >= w, so the stored -g - w
+   is at most -2 w < 0, and the guard only lowers values; so at every node one of the two functions is negative, and
+   a cube or tetrahedron that a level crosses has a node where that level is not negative, hence the other one is.
+   And the vertices of a polygon are on different tetrahedron edges, so no two are equal. These three need no
+   counter; "triangles left out" is the count of triangles the mesh refused.
 7. **Theorem 8 (c) for this mesher**: with Lemma 9 in the place of Theorem 2 and remark 3 in the place of Lemma 6.4;
    (T0) in the place of what (H1) gives for the boundary of the grid.
 
@@ -506,5 +515,5 @@ path (two crossings on one edge ordered by rounded quotients) can make (T3) fals
 2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (done 2026-11-22).
 3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels; box blocks
    grown this way do not close a lattice clipped to a domain.
-4. The mesh-side lemma for the mesher that is to be certified (marching tetrahedra: point 1 of section 4; marching
-   cubes: section 3), then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
+4. The mesh-side lemma for the mesher that is to be certified: written for marching tetrahedra, Lemma 9 (section
+   4a); open for marching cubes (section 3). Then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
