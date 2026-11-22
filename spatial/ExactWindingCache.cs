@@ -449,12 +449,12 @@ namespace g3
                     int k = stack[--sp];
                     int left = leftArr[k];
                     if (left >= 0) {
-                        int st = node_query(tree, k, p, pm, out NodeQuery nq);
+                        int st = node_query(tree, k, p, pm, null, out double nChord, out double nHalfOmega, out double nErr);
                         if (st < 0)
                             return false;
                         if (st > 0) {
-                            sum += nq.Chord + nq.HalfOmega;
-                            err += nq.NodeErr;
+                            sum += nChord + nHalfOmega;
+                            err += nErr;
                             continue;
                         }
                         if (sp + 2 > stack.Length) {
@@ -483,7 +483,7 @@ namespace g3
         }
 
         /// <summary> The terms of one tree node seen from p (the shared source of the query and of the test hook) </summary>
-        internal struct NodeQuery
+        internal sealed class NodeQuery
         {
             public bool Accepted;
             public double D, Dr, CoordEps, Eps, CosA, MinusX1U;                     // the cap test: Accepted needs R &lt; 0.25 D, MinusX1U &lt; CosA - Eps
@@ -496,9 +496,10 @@ namespace g3
         /// them), 0 = descend, -1 = the query is outside the certified range (the caller falls back on the full sum).
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int node_query(BoundaryTree tree, int k, Vector3d p, double pm, out NodeQuery q)
+        static int node_query(BoundaryTree tree, int k, Vector3d p, double pm, NodeQuery dbg, out double chord, out double halfOmega, out double nodeErr)
         {
-            q = default(NodeQuery);
+            // (dbg is null on the query path: the clause terms are written for the test hook only)
+            chord = 0.0; halfOmega = 0.0; nodeErr = 0.0;
             double dx = tree.Cx[k] - p.x;
             double dy = tree.Cy[k] - p.y;
             double dz = tree.Cz[k] - p.z;
@@ -510,31 +511,33 @@ namespace g3
             double dn = Math.Sqrt(dd);
             double d = dn * (1.0 - 1e-15);
             double r = tree.R[k];
-            q.D = d;
+            if (dbg != null) dbg.D = d;
             if (!(r < 0.25 * d))
                 return 0;
             double dr = d - r;
             double coordEps = 2.3e-16 * (pm + tree.M1[k]) / dr;
-            q.Dr = dr; q.CoordEps = coordEps;
+            if (dbg != null) { dbg.Dr = dr; dbg.CoordEps = coordEps; }
             if (!(coordEps < 1e-6))
                 return 0;
             double rd = r / d;
             double cosA = Math.Sqrt(1.0 - rd * rd);
             double minusX1U = dx / dn;
             double eps = 1e-9 + 16.0 * coordEps;
-            q.CosA = cosA; q.MinusX1U = minusX1U; q.Eps = eps;
+            if (dbg != null) { dbg.CosA = cosA; dbg.MinusX1U = minusX1U; dbg.Eps = eps; }
             if (!(minusX1U < cosA - eps))
                 return 0;
             Vector3d a0 = tree.Verts[tree.Lo[k]];
             Vector3d ak = tree.Verts[tree.Hi[k]];
-            double chord = (a0.x == ak.x && a0.y == ak.y && a0.z == ak.z)
+            chord = (a0.x == ak.x && a0.y == ak.y && a0.z == ak.z)
                 ? 0.0
                 : boundary_edge_angle_x(p, a0, ak);
             double invD3 = 1.0 / (dd * dn);
             double vx = tree.Vx[k], vy = tree.Vy[k], vz = tree.Vz[k];
-            double halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;
+            halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;
             double absDx = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dz);
             double rem = tree.AAbs[k] * r / (dr * dr * dr);
+            // (the soundness test checks vaErrTerm against the exact rounding error of va and finds a slack of about 2: a
+            // factor 0.5 on it still passes; do not tighten it without a proof)
             double vaErrTerm = 0.5 * tree.VaErr[k] * absDx * invD3;
             double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;
             // The bound has to cover |chord + dipole - (the computed full sum over the node's edges)|, so it holds the
@@ -543,12 +546,12 @@ namespace g3
             // that the node replaces are charged the same. It grows with the chain, not with Len / dr: the vertices and p are
             // exact doubles here and the reference sum uses the same ones, so there is no displacement term as in the
             // grid-based tree of ExactMeshBoolean (design note 4b, which describes that tree).
-            double nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps
+            nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps
                 + 1e-12 * (double)(tree.Hi[k] - tree.Lo[k]);
-            q.Chord = chord; q.HalfOmega = halfOmega; q.Rem = rem; q.VaErrTerm = vaErrTerm; q.DipScale = dipScale; q.NodeErr = nodeErr;
+            if (dbg != null) { dbg.Chord = chord; dbg.HalfOmega = halfOmega; dbg.Rem = rem; dbg.VaErrTerm = vaErrTerm; dbg.DipScale = dipScale; dbg.NodeErr = nodeErr; }
             if (!is_finite(chord) || !is_finite(halfOmega) || !is_finite(nodeErr))
                 return -1;
-            q.Accepted = true;
+            if (dbg != null) dbg.Accepted = true;
             return 1;
         }
 
@@ -570,7 +573,8 @@ namespace g3
                 return null;
             var info = new NodeInfo();
             double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
-            info.Status = node_query(tree, k, p, pm, out info.Query);
+            info.Query = new NodeQuery();
+            info.Status = node_query(tree, k, p, pm, info.Query, out _, out _, out _);
             info.Center = new Vector3d(tree.Cx[k], tree.Cy[k], tree.Cz[k]);
             info.R = tree.R[k]; info.VaErr = tree.VaErr[k]; info.AAbs = tree.AAbs[k];
             info.HalfVa = new Vector3d(tree.Vx[k], tree.Vy[k], tree.Vz[k]);
