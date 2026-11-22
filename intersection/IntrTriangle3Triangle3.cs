@@ -474,7 +474,7 @@ namespace g3
             if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
                 mant += 1;
             if (mant.IsZero)
-                return 0;
+                return negative ? -0.0 : 0.0;       // (underflow to zero keeps the sign, as IEEE division does)
             double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53, the unit is a double: exact)
             return negative ? -r : r;
         }

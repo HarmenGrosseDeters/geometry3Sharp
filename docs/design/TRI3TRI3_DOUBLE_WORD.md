@@ -48,9 +48,11 @@ Each bound is stated for normalized operands with errors `ex`, `ey` (`|X' - X| <
 for) and is derived below with `gamma` terms: a computed `fl(a op b)` has `|fl - exact| <= u |fl|` (no underflow, section 2).
 `Err` is then computed in floating point from non-negative terms (at most 12 operations, each with relative error `<= u`), so the
 computed value is at least `(1 - 12 u)` times the real value of the formula. The constant `Eps2 = 2^-100 = 64 u^2` exceeds each derived
-error bound below by a factor of at least 6.4, and `6.4 (1 - 12 u) > 1`: the rounding of the arithmetic on the bounds is absorbed by
-that explicit factor, and no further constant is needed (an earlier version multiplied by `1 + 2^-48`; no test can tell the difference,
-so it was dropped rather than argued as a margin). In the formulas the propagation terms are `ex + ey + Eps2 (|xh| + |yh|)` for a sum
+error bound below by a factor of at least 6.4, which absorbs the rounding of the `Eps2` term only. The other terms (the operand errors
+`ex`, `ey`, `|X| ey`, ...) have no such slack, so the final `Err` of every operation is multiplied by `ErrUp = 1 + 2^-48 = 1 + 32 u`: the computed
+value of the formula is at least `(1 - 12 u)` times the real one (at most 12 operations on non-negative numbers), and `(1 + 32 u)(1 - 12 u) > 1`,
+so the stored `Err` is never below the real bound. (Without it: `x = (1, 0, Err 1)` plus `y = (1, 0, Err 2^-53)` stores `Err = 1` after rounding,
+and the exact value can be `3 + 2^-53`. The tests `ErrorBound_HoldsAtTheOperandErrorExtremes_*` use exact operands at plus and minus `Err`.) In the formulas the propagation terms are `ex + ey + Eps2 (|xh| + |yh|)` for a sum
 (relative to the operands' magnitudes, not to the result, which may cancel), `|X| ey + |Y| ex + ex ey + Eps2 |xh yh|` for a product,
 and the residual formula of section 3.3 for a quotient.
 
@@ -88,13 +90,12 @@ errors, `|X' Y' - X Y| <= |X| ey + |Y| ex + ex ey` (`|X| <= |xh| + |xl|`, `Mag`)
 `q1 = fl(xh / yh)`, `r = x - y q1` (with `*` and `-` above), `q2 = fl(rh / yh)`, `q = q1 + q2` (TwoSum, exact), `res = x - y q` (certified).
 The bound does not depend on how good `q` is: the exact values `x'`, `y'` satisfy `x' / y' - q = (x' - q y') / y'`, and
 
-    |x' - q y'| <= |x - q y| + ex + |q| ey   (|x - q y| the exact residual of the computed values)
-                 <= |res.Hi + res.Lo| + res.Err + ex + |q| ey
+    |x' - q y'| <= |res.Hi + res.Lo| + res.Err
 
-(the exact residual `x - q y` differs from the computed `res` by at most `res.Err`, as `res` is a certified sum and product of
-the exact operands `x`, `y`, `q`), and `|y'| >= |yh| - |yl| - ey`. So
+(`res = x - y q` is a certified difference and product of the operands, so `res.Err` already contains `ex` and `|q| ey`: they are not
+added again), and `|y'| >= |yh| - |yl| - ey`. So
 
-    Err(q) = (|res.Hi + res.Lo| + res.Err + ex + |q| ey) / (|yh| - |yl| - ey),
+    Err(q) = (|res.Hi + res.Lo| + res.Err) / (|yh| - |yl| - ey) (1 + 2^-48),
 
 valid whenever the denominator `|yh| - |yl| - ey` is positive (else `Invalid`). Since `q` agrees with `x / y` to about `2^-104`
 relative (two correction steps), `Err` is about `2^-100` relative; the bound itself is valid for any `q`.
@@ -154,7 +155,15 @@ Survivors, argued:
   `p0 == p1` fails them). `p0 == p1` also covers a rounding collapse of a positive-length segment, for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): kept as a guard.
 - `n != 2` weakened to `n == 0`: the case `n == 1` does not occur (section 5: a contact has two qualifying points or none), so the check is a guard against a violated assumption, not covered by a test.
 - The `Div` guards `err(y) <= |yh| / 4` and `yh == 0` were redundant with the `den > 0` test (the residual bound is valid for any positive denominator; `yh == 0` gives `den <= 0`, and an infinite `q1` is `Invalid`) and are removed.
-- The factor `1 + 2^-48` on the bounds could not be told from 1 by any test and was removed; the explicit slack of `Eps2` over the derived bounds covers the rounding of the bounds (section 3).
+- The factor `1 + 2^-48` (`ErrUp`) is needed for the operand-error terms (section 3); the tests with exact operands at plus and minus `Err` fail without it.
+
+### Stryker run (22 November 2026, `tests/mutation/stryker-config.json`, the spans of the exact route and `ExactDoubleWord.cs`, 224 mutants)
+
+Score 94.2 %. The survivors (13), none of them in a bound by margin alone except where stated:
+- `round_ratio`: `num.Sign <= 0` (zero returns before), `shift >= 0` against `> 0` (a shift by 0 is the identity), `unit <= -1074` (adds 0), `q >>> extra` (the quotient is positive),
+  `den.Sign <= 0` (a zero denominator does not occur). The `Conditional (true)` mutant at the choice of the shift direction (the numerator more than 2^55 times the denominator) also survived the run, although `RoundRatio_...` has a case for it (`one << 200` over 3): open, to be looked at with the first CI mutation run.
+- `Checked`: `err <= inf`: `IsValid` reads `Err`, so a value with an infinite `Err` is invalid either way. `Div`: `||` to `&&` of the validity test (an invalid operand makes `r` or `res` invalid by propagation: the same result), `den <= 0` to `den < 0` (`den == 0` gives an infinite or NaN `Err`, rejected by `Checked`).
+- By the margin `ErrUp` (32 u against at most 12 u of rounding) only, so no test separates them: `Mag` with `-` (relative `2^-52`), `t -= xl yl` (`2^-106` of the product), `|yh| + |yl|` in the denominator and `|res.Lo|` with `-` in the quotient bound (relative `2^-52`). A mutant of this size needs the bound to be tight to `u`, which the derivation does not claim; each is covered 15 times over by the margin.
 
 ## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
 
@@ -163,5 +172,5 @@ Survivors, argued:
 | random mesh-like, median / p90 | 759 / 923 ns | 952 / 1632 ns |
 | axis-aligned lattice, median / p90 | 894 / 1098 ns | 1034 / 11088 ns |
 
-Fallback to the exact route: 0 of 40000 points (random), 4.8 % (axis-aligned: exact-zero coordinates cannot be certified). The exact route
+Fallback to the exact route: 0 of 40000 points (random), 4.8 % (axis-aligned: a coordinate that is zero by construction, eg `s.x = t.x = 0`, does certify; a zero produced by an interior crossing, where the terms cancel with a non-zero `Err`, cannot be certified). The exact route
 costs 3.2 to 7.7 us per point, so an approach without a certificate (plain double with a bound that falls back more often) cannot be cheaper.

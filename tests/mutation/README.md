@@ -14,6 +14,7 @@ the next ones) and `exact-mesh` (the exact mesh pipeline, [below](#exact-mesh-pi
 - `math/ExactPredicates.cs`
 - `math/ExactPoint3.cs`
 - `math/AdaptivePredicates.cs`
+- `math/ExactDoubleWord.cs` and the arithmetic of the exact route of `intersection/IntrTriangle3Triangle3.cs` (two spans: `plane_normal` to `crossing_exact`, `grid` to `lerp`; move them when the file changes; the routing `find_transversal` and `odd_vertex` are guards behind which `find_exact` decides, not mutated), tests `IntrTriangle3Triangle3DoubleWordTests`, `IntrTriangle3Triangle3ExactDecisionTests`
 
 The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests`,
 `ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests` and `ExactOrient3dKernelTests`. A new test

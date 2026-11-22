@@ -96,6 +96,111 @@ namespace geometry3Sharp.Tests
             return x;
         }
 
+        // ---- the bound with operands that themselves carry an error: exact operands at the extremes of [value - Err, value + Err] ----
+
+        static Q At(DoubleWord x, int k) => Value(x) + Q.From(x.Err) * new Q(k, 1 << 20);      // k / 2^20 of the way to the edge (k = +-2^20: the edge)
+
+        static DoubleWord WithError(Random r)
+        {
+            double hi = (r.NextDouble() * 1.5 + 0.5) * Math.Pow(2, r.Next(-20, 20)) * (r.Next(2) == 0 ? -1 : 1);
+            double lo = hi * Math.Pow(2, -r.Next(54, 70)) * (r.NextDouble() * 2 - 1);
+            // errors from far below the rounding of the result to a large part of the value
+            double err = Math.Abs(hi) * Math.Pow(2, -r.Next(3, 110)) * (r.NextDouble() + 0.5);
+            return new DoubleWord(hi, lo, err);
+        }
+
+        static readonly int[] Ks = { -(1 << 20), 1 << 20, 0, -(1 << 19), 1 << 18 };
+
+        [Fact]
+        public void ErrorBound_HoldsAtTheOperandErrorExtremes_Sum()
+        {
+            // x = 1 +- 1, y = 1 +- 2^-53: the exact value 3 + 2^-53 is 1 + 2^-53 above the computed sum 2, which the rounded Err (1) must still cover
+            var a = new DoubleWord(1, 0, 1); var b = new DoubleWord(1, 0, DoubleWord.U);
+            var sum = a + b;
+            Assert.True(Within(sum, At(a, 1 << 20) + At(b, 1 << 20)), "sum err " + sum.Err);
+            var r = new Random(401);
+            for (int i = 0; i < 4000; i++) {
+                var x = WithError(r); var y = WithError(r);
+                var z = x + y;
+                if (z.IsValid == false) continue;
+                foreach (int kx in Ks) foreach (int ky in Ks)
+                    Assert.True(Within(z, At(x, kx) + At(y, ky)), $"sum {i} {kx} {ky}");
+            }
+        }
+
+        [Fact]
+        public void ErrorBound_HoldsAtTheOperandErrorExtremes_Product()
+        {
+            var r = new Random(402);
+            int valid = 0;
+            for (int i = 0; i < 4000; i++) {
+                var x = WithError(r); var y = WithError(r);
+                var z = x * y;
+                if (z.IsValid == false) continue;
+                valid++;
+                foreach (int kx in Ks) foreach (int ky in Ks)
+                    Assert.True(Within(z, At(x, kx) * At(y, ky)), $"product {i} {kx} {ky}");
+            }
+            Assert.True(valid > 3500);
+            // the operand terms alone: x = 1 +- 2^-20, y = 1 +- 2^-53 (the term |y| ex is the largest, rounded down by the sum)
+            var a = new DoubleWord(1, 0, Math.Pow(2, -20)); var b = new DoubleWord(1, 0, DoubleWord.U);
+            var p = a * b;
+            Assert.True(Within(p, At(a, 1 << 20) * At(b, 1 << 20)));
+        }
+
+        [Fact]
+        public void ErrorBound_HoldsAtTheOperandErrorExtremes_Quotient()
+        {
+            var r = new Random(403);
+            int valid = 0;
+            for (int i = 0; i < 4000; i++) {
+                var x = WithError(r); var y = WithError(r);
+                var z = DoubleWord.Div(x, y);
+                if (z.IsValid == false) continue;
+                valid++;
+                foreach (int kx in Ks) foreach (int ky in Ks)
+                    Assert.True(Within(z, At(x, kx) / At(y, ky)), $"quotient {i} {kx} {ky}");
+            }
+            Assert.True(valid > 3000, "valid " + valid);
+        }
+
+        [Fact]
+        public void Range_IncludesItsEnds_AndRejectsWhatIsBeyond()
+        {
+            double lo = Math.Pow(2, -480), hi = Math.Pow(2, 480);
+            Assert.True(DoubleWord.Of(lo).IsValid);
+            Assert.True(DoubleWord.Of(hi).IsValid);
+            Assert.True(DoubleWord.Of(-lo).IsValid);
+            Assert.True(DoubleWord.Of(-hi).IsValid);
+            Assert.False(DoubleWord.Of(Up(hi)).IsValid);
+            Assert.False(DoubleWord.Of(Down(lo)).IsValid);
+            Assert.True(DoubleWord.Of(Up(lo)).IsValid);
+            Assert.True(DoubleWord.Of(Down(hi)).IsValid);
+            Assert.True(DoubleWord.Of(0).IsValid);
+            Assert.False(DoubleWord.Of(double.NaN).IsValid);
+            Assert.False(DoubleWord.Of(double.PositiveInfinity).IsValid);
+            Assert.False((new DoubleWord(1, 0, double.PositiveInfinity) + DoubleWord.Of(1)).IsValid);
+            Assert.False((DoubleWord.Of(1) * new DoubleWord(1, 0, double.PositiveInfinity)).IsValid);
+        }
+        static double Up(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1);
+        static double Down(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) - 1);
+
+        [Fact]
+        public void Div_OfTheErrorsOfItsOperands_IsCertified_AndInvalidForADenominatorThatMayBeZero()
+        {
+            // the denominator 1 +- 1: may be zero
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 1)).IsValid);
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 1.5)).IsValid);
+            Assert.True(DoubleWord.Div(DoubleWord.Of(1), new DoubleWord(1, 0, 0.5)).IsValid);
+            Assert.False(DoubleWord.Div(DoubleWord.Invalid, DoubleWord.Of(1)).IsValid);
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), DoubleWord.Invalid).IsValid);
+            Assert.False(DoubleWord.Div(DoubleWord.Of(1), DoubleWord.Of(0)).IsValid);
+            // the low word counts against the denominator: (1, -2^-53) has |y'| = 1 - 2^-53 at best
+            var y = new DoubleWord(1, -DoubleWord.U, 0);
+            var q = DoubleWord.Div(DoubleWord.Of(1), y);
+            Assert.True(q.IsValid && Within(q, Q.From(1) / (Q.From(1) - Q.From(DoubleWord.U))));
+        }
+
         [Fact]
         public void Add_ErrBoundsTheError()
         {
@@ -414,8 +519,13 @@ namespace geometry3Sharp.Tests
             // just below the tie: 1 unit; just above: 2 units
             Assert.Equal(double.Epsilon, IntrTriangle3Triangle3.round_ratio((one << 54) * 3 - 1, one << 55, -1074));
             Assert.Equal(2 * double.Epsilon, IntrTriangle3Triangle3.round_ratio((one << 54) * 3 + 1, one << 55, -1074));
-            // below half: 0, positive and negative (always +0)
-            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(IntrTriangle3Triangle3.round_ratio(-1, 3, -1075)));
+            // below half: 0, positive and negative (the sign of the quotient is kept, as in IEEE division)
+            Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(IntrTriangle3Triangle3.round_ratio(-1, 3, -1075)));
+            // below half, positive: +0 (not -0)
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(IntrTriangle3Triangle3.round_ratio(1, 3, -1075)));
+            // a numerator much larger than the denominator (a negative shift of the denominator) and the exact and the odd tie
+            Assert.Equal(Math.Pow(2, 200) / 3 * 3 / 3, IntrTriangle3Triangle3.round_ratio(one << 200, 3, 0) * 3 / 3, 0);
+            Assert.Equal((double)(one << 100) / 3, IntrTriangle3Triangle3.round_ratio(one << 100, 3, 0));
             // a normal result is unchanged: 1/3 and its scalings
             Assert.Equal(1.0 / 3, IntrTriangle3Triangle3.round_ratio(1, 3, 0));
             Assert.Equal(Math.Pow(2, -900) / 3, IntrTriangle3Triangle3.round_ratio(1, 3, -900));

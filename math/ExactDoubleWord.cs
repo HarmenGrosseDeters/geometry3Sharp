@@ -29,8 +29,14 @@ namespace g3
         /// operations of non-negative numbers, a factor of at most 1 - 12 u below the real value, and 6.4 (1 - 12 u) &gt; 1)
         /// </summary>
         internal const double Eps2 = 7.888609052210118e-31;
-        const double MinMagBits = 3.054936363499605e-145;     // 2^-480
-        const double MaxMagBits = 3.273390607896142e144;      // 2^480
+        /// <summary>
+        /// 1 + 2^-48 = 1 + 32 u: applied to the final Err of every operation, so that the rounding of the arithmetic that computes
+        /// Err (at most 12 operations on non-negative numbers, each below (1 + u), so Err is rounded down by at most a factor
+        /// 1 - 12 u) cannot make it smaller than the real bound, for any of its terms (the operand errors too)
+        /// </summary>
+        const double ErrUp = 1.0000000000000035527136788005;
+        const double MinMagBits = 3.2033329522929615e-145;     // 2^-480
+        const double MaxMagBits = 3.1217485503159922e144;      // 2^480
 
         public DoubleWord(double hi, double lo, double err) { Hi = hi; Lo = lo; Err = err; }
 
@@ -86,7 +92,7 @@ namespace g3
             TwoSum(sh, c, out vh, out vl);
             double w = tl + vl;
             TwoSum(vh, w, out zh, out zl);
-            double err = x.Err + y.Err + Eps2 * (Math.Abs(x.Hi) + Math.Abs(y.Hi));
+            double err = (x.Err + y.Err + Eps2 * (Math.Abs(x.Hi) + Math.Abs(y.Hi))) * ErrUp;
             return Checked(zh, zl, err);
         }
 
@@ -107,7 +113,7 @@ namespace g3
             double zh, zl;
             TwoSum(ch, cl3, out zh, out zl);
             double ax = x.Mag, ay = y.Mag;
-            double err = ax * y.Err + ay * x.Err + x.Err * y.Err + Eps2 * Math.Abs(x.Hi * y.Hi);
+            double err = (ax * y.Err + ay * x.Err + x.Err * y.Err + Eps2 * Math.Abs(x.Hi * y.Hi)) * ErrUp;
             // (the product of the heads may be below the range even if both are in it: Checked)
             return Checked(zh, zl, err);
         }
@@ -115,7 +121,7 @@ namespace g3
         /// <summary>
         /// x / y by two corrections, certified by the residual (section 3.3): q1 = fl(xh / yh), q = q1 + fl(rh / yh) with
         /// r = x - q1 y, then the exact identity x'/y' - q = (x' - q y') / y' gives the error from a certified residual
-        /// x - q y: |x'/y' - q| &lt;= (|x - q y| + err(x - q y) + err(x) + |q| err(y)) / (|yh| - |yl| - err(y)). Requires
+        /// x - q y: |x'/y' - q| &lt;= (|x - q y| + err(x - q y)) / (|yh| - |yl| - err(y)), where err(x - q y) already contains err(x) and |q| err(y). Requires
         /// that denominator to be positive, else Invalid. The quotient's own rounding is not assumed to be small: it only costs a larger bound.
         /// </summary>
         public static DoubleWord Div(DoubleWord x, DoubleWord y)
@@ -138,8 +144,8 @@ namespace g3
             double den = Math.Abs(y.Hi) - Math.Abs(y.Lo) - y.Err;
             if (den <= 0)
                 return Invalid;
-            double qmag = Math.Abs(qh) + Math.Abs(ql);
-            double err = (Math.Abs(res.Hi) + Math.Abs(res.Lo) + res.Err + x.Err + qmag * y.Err) / den;
+            // (res.Err already carries the errors of x and of y q, so x.Err and |q| y.Err are not added again)
+            double err = (Math.Abs(res.Hi) + Math.Abs(res.Lo) + res.Err) / den * ErrUp;
             return Checked(qh, ql, err);
         }
 
