@@ -585,7 +585,7 @@ namespace geometry3Sharp.Tests
             Assert.True(T.EnableIntegerCoordinates());
             int top = T.VertexIndex(apex), flips = 0;
             for (int round = 0; round < 2; ++round) {
-                int h = Enumerable.Range(0, T.HalfedgeCount).FirstOrDefault(x => T.Tail(x) == top && T.Head(x) != top && T.FlipEdge(x), -1);
+                int h = Enumerable.Range(0, T.HalfedgeCount).Where(x => T.Tail(x) == top && T.Head(x) != top && T.FlipEdge(x)).DefaultIfEmpty(-1).First();
                 if (h < 0) break;
                 Assert.True(S.FlipEdge(h));
                 flips++;
