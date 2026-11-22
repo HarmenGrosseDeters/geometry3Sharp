@@ -595,8 +595,11 @@ Open:
       and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
       `claude/lever4-arrangement-allocs`: the reuse constructor, the check for a released tree, two tests, and the
       allow-list entry. Build it together with the call and a benchmark row.
-- **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
-  coordinates stay open, not scheduled.
+- **Exact coplanar triangle intersection:** closed for the boolean and the 3D query (owner 2026-11-22, option D1 of the
+  certified-mode spike): the boolean's coplanar crossings are exact implicit points (`ComputeExactVertices`) and
+  `IntrTriangle3Triangle3.Find` returns the exact polygon rounded once. `IntrTriangle2Triangle2` stays the unchanged
+  floating-point legacy class, documented as such; its dead private caller `GetCoplanarIntersection` is removed.
+  An exact 2D clip (options D2 / D3) has no caller and is not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
   solver, exact convex polyhedron cutting, small filters, the procedural star-shaped test corpus.
 
@@ -658,8 +661,8 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
 - [x] **Exact coplanar triangle intersection** (no longer deferred: `DMeshAABBTree3.TestIntersection` / `FindAllIntersections`
   and `MeshQueries.TrianglesIntersection` call it). `IntrTriangle3Triangle3` decides coplanar, nearly parallel and sliver pairs with
   `ExactTriangleIntersection`, and `Find()` builds the contact from exactly decided pieces, rounding only the crossing points, so
-  `Test()` and `Find()` agree (row R, item 2b, #253). The 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
-  coordinates stay open.
+  `Test()` and `Find()` agree (row R, item 2b, #253). `IntrTriangle2Triangle2` stays the unchanged floating-point legacy class
+  (documented on it; exact route: `IntrTriangle3Triangle3` with `ReportCoplanarIntersection`; closed 2026-11-22, D1).
 
 #### Phase 2 items on exact booleans
 
@@ -839,13 +842,15 @@ open are the output size and a local scheme; a 2-3 day falsification experiment)
 the first stage). Owner 2026-11-17: (2) stages 1-2 (stage 1 the test-only checker of the classification and selection, C3 + C4;
 stage 2 closedness and coverage, C1 + C5) are to be built as a correctness oracle for the robustness round; the experiment of (1) is not now (its gain on real data is the five RC4b cases).
 Built (merged 2026-11-17 as #1061, [QA.md 2.4a](../QA.md)): the checker (C0 inputs and culling, C1, C3, C4, C5 closedness and coverage)
-is the oracle of the boolean property campaigns and of a Nightly corpus; stage 3 (a simple exact recheck of the
-embedding, C2a) and a certified mode for users are not scheduled.
+is the oracle of the boolean property campaigns and of a Nightly corpus; a certified mode for users is not scheduled.
+Stage 3 (owner go 2026-11-22, option B of the spike note below): the embedding of the arrangement's pieces (C2) is checked
+in `BooleanCertificate`, test-only, exact signs only (no filter, no new error bound); components the rounding removed are
+listed, and a result with such parts is not reported as clean (owner 2026-11-22).
 Spike 2026-11-22 (owner go, plan #1256): [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) measures a
 C2a prototype (`benchmarks/BooleanComparison certify`: 0.4-8.5 times the boolean with a filter, 14-100 times with BigInteger; the
 whole checker as built 16-570 times), estimates a certified user mode at about 3-16 times the boolean (an extrapolation) for a narrow class, and finds
 the coplanar clip coordinates already exact in the boolean and in `IntrTriangle3Triangle3` (open only in the legacy
-`IntrTriangle2Triangle2`). Options are with the owner; nothing is scheduled.
+`IntrTriangle2Triangle2`). Owner 2026-11-22: options A, B and D1 approved (A: [guide](../guides/booleans-and-imprint.md), B: stage 3 above, D1: the 2D class documented as legacy, dead caller removed); C (certified user mode) parked, D2 / D3 not scheduled.
 
 **Speed levers under the full guarantees: study (owner go for a study 2026-11-22; nothing scheduled, every lever needs the owner's go).**
 [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md), probes `BooleanComparison seam-levers`.
@@ -928,7 +933,7 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15; Devillers et al. 2020 experiment parked, plan #1259; HP 1 study, plan #1278; spike of 2026-11-22 with measured upper bounds, leaning no build: [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)). Draft: Thingi10K full-corpus harness #385.
-9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certifying checker stage 3 / certified user mode / exact coplanar clip coordinates (plan #1256, spike note of 2026-11-22 above), mesh-kernel ideas.
+9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certified user mode (option C of plan #1256, spike note of 2026-11-22 above; stage 3 is built, exact coplanar clip coordinates: option D1), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
    exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; stages 1b and 1c are on hold (plan #1254) and the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups

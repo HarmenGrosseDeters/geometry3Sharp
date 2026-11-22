@@ -33,14 +33,16 @@ namespace g3
 
         /// <summary>
         /// The second point of the ray's line: origin + 2^m direction, with 2^m chosen from the exponents of the largest
-        /// coordinates of origin and direction so that the scaled direction is at least twice the origin's largest
-        /// coordinate (so p != origin, and the rounding of the sum changes the line's direction by at most about
-        /// 2^-51 relative). 2^m depends only on the exponent difference, so scaling origin and direction by 2^k (or the
+        /// coordinates of origin and direction so that the scaled direction's largest coordinate is greater than the
+        /// origin's largest coordinate (at least 2^(e+1) for mo in [2^e, 2^(e+1)), so p != origin, and the rounding of
+        /// the sum changes the line's direction by at most about 2^-51 relative). The shift is not clamped: it reaches
+        /// +-2098 over the double range. 2^m depends only on the exponent difference, so scaling origin and direction by 2^k (or the
         /// origin alone, with the 2^k scaled into 2^m) scales p by 2^k exactly, as long as the scaled direction and p
         /// stay normal before and after the scaling: in the subnormal range 2^m direction rounds to the subnormal grid,
         /// so p, and with it the ray, is a different one for scaled inputs (and on 32-bit .NET Framework, x87, the
         /// rounding of the subnormal sum differs from SSE2: docs/design/DETERMINISM_PROOF.md 5.3). Returns origin if
-        /// the direction is 0 or a value is not finite (no hits then).
+        /// the direction is 0 or a value is not finite (no hits then), and, as a last case, if p overflows (an origin
+        /// within a factor 2 of double.MaxValue with the direction ahead of it).
         /// </summary>
         public static Vector3d SecondPoint(Vector3d origin, Vector3d direction)
         {
@@ -51,9 +53,10 @@ namespace g3
                 return origin;
             int m = 0;
             if (mo > 0) {
-                // largest coordinate of 2^m direction in [2^(e(mo)+1), 2^(e(mo)+2)): at least 2 mo
+                // largest coordinate of 2^m direction in [2^(e(mo)+1), 2^(e(mo)+2)), so greater than mo < 2^(e(mo)+1).
+                // No clamp: for finite values m = e(mo) - e(md) + 1 lies in [-2098, 2098] (exponents -1074 .. 1023),
+                // and ScaleB takes the whole range; a clamp makes the scaled direction too small or zero (#1348)
                 m = exponent(mo) - exponent(md) + 1;
-                m = Math.Max(-2000, Math.Min(2000, m));
             }
             Vector3d p;
             if (m >= -1022 && m <= 1023) {

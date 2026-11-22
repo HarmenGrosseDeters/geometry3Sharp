@@ -62,6 +62,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 | [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
+| [QuadFlow3BSat](QuadFlow3BSat/README.md) | Research spike: the local SAT instances of the stage 3B repair decided by a clause-learning solver (search or problem), DIMACS dump of the obstructions |
 
 ## Contouring, Offsets, Lofting & Lattices
 
@@ -73,6 +74,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [DualContouringSimplification](DualContouringSimplification/README.md) | Adaptive octree simplification triangle count vs. error for `DualContouring` |
 | [ContouringCertificate](ContouringCertificate/README.md) | Stage 1–3 topology certification evaluation for contouring |
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
+| [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
