@@ -17,7 +17,8 @@
 // field magnitude), a discrete conformal metric with these cone angles (Springborn, Schroeder, Pinkall, "Conformal Equivalence of Triangle
 // Meshes", 2008: Newton on the convex energy, fixed connectivity, no flips), the cross field that is parallel in that flat metric (breadth
 // first over the faces, one global rotation fitted to the input field) and from both a spacing exp(-u) and a rotation per vertex. Its
-// frames close up exactly in the flat metric, so what the position field still gets wrong with them is rounding, not integrability.
+// frames close up exactly in the flat metric; the position field sees them through per-vertex frames in the tangent planes, where
+// they are not curl-free (table 1), so the remaining irregular vertices are not attributed to one cause here.
 //
 //   dotnet run -c Release --project benchmarks/QuadSeamlessSeedSpike -- [only=<regex>] [scale=1] [ratio=0.5] [minsp=0.7] [aniso=0] [gate=1]
 using System;
