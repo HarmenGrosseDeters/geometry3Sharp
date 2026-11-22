@@ -124,6 +124,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [CONSERVATIVE_MC_AUDIT.md](CONSERVATIVE_MC_AUDIT.md) | Prerequisite audit for conservative Marching Cubes (`LinearEdges`) |
 | [CONSERVATIVE_MC_RELATIVE_ERROR.md](CONSERVATIVE_MC_RELATIVE_ERROR.md) | Relative-error bridge for conservative Marching Cubes |
 | [CONTOURING_TOPOLOGY.md](CONTOURING_TOPOLOGY.md) | Topology certification study for iso-surface contouring |
+| [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) | Proof step: class S on box-shaped blocks (Theorem 8), the cell shape of the smooth certificate (Lemma 7.1), what a lattice or marching-tetrahedra certificate still needs |
 | [DC_ADAPTIVE_SIMPLIFICATION.md](DC_ADAPTIVE_SIMPLIFICATION.md) | Adaptive octree simplification for `DualContouring` |
 | [DC_INTERSECTION_FREE.md](DC_INTERSECTION_FREE.md) | Intersection-free dual contouring (face-vertex fans) |
 | [MESH_OFFSET.md](MESH_OFFSET.md) | Certified mesh offsetting (`MeshOffset`) |

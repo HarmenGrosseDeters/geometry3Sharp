@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **class S for smooth fields built as an internal certificate (section 7.13, Theorem 7, 2026-11-22);** **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **class S for smooth fields built as an internal certificate (section 7.13, Theorem 7, 2026-11-22);** **class S on box-shaped blocks and the cell shape: proof step written (section 7.14, Theorem 8 and Lemma 7.1, 2026-11-22), not built;** **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. The study changed no library code (stage 1 did, #779); the study's measurement is
@@ -513,7 +513,8 @@ gives the second route (Theorem 5: locally flat spheres and Brown's theorems); i
 
 ### 7.3 Theorem 2: the dual contouring mesh is compatible
 
-Setting: a uniform grid; a sign at every node; for every cell the marching-cubes *patches*, the cycles of
+Setting: a grid of boxes between node coordinates that increase strictly on each axis (the uniform grid is one; the
+proof uses no equal spacings, section 7.14); a sign at every node; for every cell the marching-cubes *patches*, the cycles of
 sign-changing edges of the cell given by the signs and the face rule (on a face with four sign-changing edges, which
 two are joined); one vertex v_p per patch p. Around a sign-changing edge e lie four cells c_1 .. c_4 in cyclic order,
 c_i and c_(i+1) sharing the face f_i that contains e; let p_i be the patch of c_i through e and v_i its vertex. The
@@ -1261,7 +1262,8 @@ L), whatever the angle; a cell that holds two sheets (a wall, gap or tube below 
 f; a node on the level set; a surface that leaves the grid. There is no partial statement: one refused cell voids the
 claim for the whole contour, because the isotopy of the premise is not cell by cell. A lattice clipped to a domain
 (`TpmsLattice`) has a crease at the cut and is therefore outside this theorem; the route to it is Theorem 5 on
-box-shaped blocks (owner decision 2026-11-22, a proof step of its own).
+box-shaped blocks (owner decision 2026-11-22, a proof step of its own: section 7.14, which also replaces (P3) by a
+proved margin, Lemma 7.1).
 
 **The implementation** (internal, report only, no public API): `ContouringSmoothCertificate` (`mesh_ops/`), on the
 interface `IntervalImplicit3d` with `IntervalMath` and `IntervalTpms` (`implicit/IntervalImplicit.cs`). Non-exact files;
@@ -1305,3 +1307,12 @@ at 32 cells per period, I-WP at 16 and 32, Schwarz D at 64; not the gyroid and S
 cells fail), and not Neovius and the Lidinoid at 16 or 32 (loose gradient enclosures). The serial certificate takes 1.1
 to 11 times a contouring that evaluates the field in plain doubles on the certified runs, the parallel one 0.4 to 2.9
 times.
+
+### 7.14 Theorem 8 and Lemma 7.1: box-shaped blocks for class S, and the cell shape (2026-11-22)
+
+A proof step of its own, in [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) (written and
+independently reviewed 2026-11-22; nothing built). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
+Theorem 6, certified by one signed partial derivative and at most one circle of L on the block; tangencies with the
+grid, which Theorem 5 refuses at every resolution, move inside a block, and creases stay covered. No theorem of this
+note needs cubes. **Lemma 7.1**: Theorem 7 holds without (P3) if the negative products of its gradient test are
+weighted by the square of the largest spacing ratio; the premise PV is then used for exact cubes only.
