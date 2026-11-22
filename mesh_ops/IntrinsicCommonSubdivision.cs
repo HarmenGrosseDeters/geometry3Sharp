@@ -9,12 +9,16 @@ namespace gs
     /// <summary> outcome of IntrinsicTriangulation.ExtractCommonSubdivision </summary>
     public enum CommonSubdivisionStatus
     {
-        /// <summary> the faces tile every input triangle and every intrinsic triangle (areas checked) </summary>
+        /// <summary>
+        /// the faces tile every input triangle and every intrinsic triangle (areas checked). From integer
+        /// coordinates (IntrinsicTriangulation.EnableIntegerCoordinates): the coordinates are consistent and the
+        /// faces tile every input triangle; MaxIntrinsicAreaError is reported and not checked.
+        /// </summary>
         Success,
         /// <summary>
         /// the traced intrinsic edges are not consistent (eg two crossings of an input edge in the wrong
         /// order, a trace ending in the wrong input triangle, or a trace that crosses an input edge of its
-        /// own end vertex: a false crossing); Error says where. The faces are not reliable.
+        /// own end vertex: a false crossing), or the integer coordinates are; Error says where. No faces.
         /// </summary>
         Inconsistent
     }
@@ -96,11 +100,16 @@ namespace gs
         /// input edge of its own end vertex (a false crossing: the areas do not show it), and in every input
         /// triangle the outer boundary must be a cycle of the arrangement on its own, so that every edge of
         /// the result has a face on both sides (or one, on the input boundary); otherwise Status is
-        /// Inconsistent. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021) would make the
-        /// combinatorics exact; here they come from the traces, which are exact up to rounding.
+        /// Inconsistent. Here the combinatorics come from the traces, which are exact up to rounding. With integer
+        /// coordinates (EnableIntegerCoordinates, while HasIntegerCoordinates) nothing is traced: the
+        /// combinatorics come from the integers, exact for this triangulation, the crossings lie on their input
+        /// edges in the order the integers give (a face can have the area 0 where two coincide up to rounding),
+        /// the faces must tile every input triangle (to a relative 1e-6), and MaxIntrinsicAreaError is reported
+        /// but not checked.
         /// </summary>
         public IntrinsicCommonSubdivision ExtractCommonSubdivision()
         {
+            if (hN != null) return extract_from_integers();
             var R = new IntrinsicCommonSubdivision();
             for (int v = 0; v < N; ++v) R.Points.Add(VertexPosition(v));
             var edgePts = new Dictionary<int, List<SubPoint>>();        // canonical input halfedge -> points on it

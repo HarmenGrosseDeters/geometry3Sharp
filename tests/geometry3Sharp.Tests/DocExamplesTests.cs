@@ -560,6 +560,12 @@ namespace geometry3Sharp.Tests
             DMesh3 overlay = IntrinsicTriangulationExample.CommonSubdivision(T, out status);
             Assert.Equal(CommonSubdivisionStatus.Success, status);
             Assert.Equal(MeshMeasurements.AreaT(mesh, mesh.TriangleIndices()), MeshMeasurements.AreaT(overlay, overlay.TriangleIndices()), 9);
+
+            // from integer coordinates: flips and boundary splits only
+            DMesh3 exact = IntrinsicTriangulationExample.DelaunayCommonSubdivision(mesh, out status);
+            Assert.Equal(CommonSubdivisionStatus.Success, status);
+            Assert.True(exact.TriangleCount > mesh.TriangleCount);
+            Assert.Equal(MeshMeasurements.AreaT(mesh, mesh.TriangleIndices()), MeshMeasurements.AreaT(exact, exact.TriangleIndices()), 9);
         }
 
         [Fact]

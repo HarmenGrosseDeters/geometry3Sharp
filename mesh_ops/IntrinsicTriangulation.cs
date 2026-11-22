@@ -406,10 +406,13 @@ namespace gs
             double phiK = add_angle(vk, hAngle[hc], vScale[vk] * angK);
             double phiL = add_angle(vl, hAngle[tc], vScale[vl] * angL);
 
+            long crossedTwice = hN != null ? flipped_coordinate_twice(ha, ta) : 0;
+
             // new triangles: slot (ha, hb, hc) = (k->l, l->j, j->k), slot (ta, tb, tc) = (l->k, k->i, i->l)
             relocate(new[] { hb, tc, hc, tb }, new[] { hc, hb, tb, tc });
             set_he(ha, vk, ta, lkl, phiK);
             set_he(ta, vl, ha, lkl, phiL);
+            if (hN != null) set_flipped_coordinates(ha, ta, crossedTwice);
             // vertex halfedges on the flipped edge: i->j is gone (i->l, now in tc), j->i too (j->k, now in hc)
             if (vHe[vi] == ha) vHe[vi] = tc;
             if (vHe[vj] == ta) vHe[vj] = hc;

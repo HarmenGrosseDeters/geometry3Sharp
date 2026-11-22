@@ -427,6 +427,7 @@ namespace gs
             if (trace_to(corner == 0 ? a : corner == 1 ? b : c, corner == 0 ? phA : corner == 1 ? phB : phC,
                     corner == 0 ? lap : corner == 1 ? lbp : lcp, out lt, out lp, out ld) == false)
                 return -1;
+            drop_integer_coordinates();         // (not covered: the extraction traces from here on)
             int f1 = add_face(), f2 = add_face();
             int p = add_vertex(false);
             relocate(new[] { h1, h2 }, new[] { 3 * f1, 3 * f2 });
@@ -472,6 +473,9 @@ namespace gs
             int lt = -1; Vector2d lp = Vector2d.Zero, ld = Vector2d.Zero;
             if (!boundary && trace_to(s <= 0.5 ? i : j, s <= 0.5 ? hAngle[h] : hAngle[ta], s <= 0.5 ? lim : lmj, out lt, out lp, out ld) == false)
                 return -1;
+            // (integer coordinates: only the split of a boundary edge is covered)
+            if (boundary == false) drop_integer_coordinates();
+            long crossed = hN != null ? Math.Max(pos(hN[hb]), pos(hN[hc])) : 0;
             int m = add_vertex(boundary);
             int f2 = add_face();
             int g2 = boundary ? -1 : add_face();
@@ -490,6 +494,7 @@ namespace gs
             }
             vHe[m] = 3 * f2;
             init_vertex_signposts(m);
+            if (hN != null) set_boundary_split_coordinates(h, 3 * f2, 3 * f2 + 2, crossed);
             if (boundary) {
                 // directly on the input boundary edge: signpost 0 (m -> j) runs along it
                 double tm = ti + s * (tj - ti);
@@ -562,6 +567,12 @@ namespace gs
             for (int m = 0; m < n; ++m) {
                 oV[m] = hV[from[m]]; oT[m] = hTwin[from[m]]; oL[m] = hLen[from[m]]; oA[m] = hAngle[from[m]];
             }
+            if (hN != null) {
+                // the integer coordinates move with the records
+                int[] oN = new int[n], oR = new int[n];
+                for (int m = 0; m < n; ++m) { oN[m] = hN[from[m]]; oR[m] = hR[from[m]]; }
+                for (int m = 0; m < n; ++m) { hN[to[m]] = oN[m]; hR[to[m]] = oR[m]; }
+            }
             var vfix = new List<KeyValuePair<int, int>>();
             for (int m = 0; m < n; ++m)
                 if (vHe[oV[m]] == from[m]) vfix.Add(new KeyValuePair<int, int>(oV[m], to[m]));
@@ -589,6 +600,7 @@ namespace gs
                 int cap = Math.Max(3 * (F + 1), 2 * hV.Length);
                 Array.Resize(ref hV, cap); Array.Resize(ref hTwin, cap);
                 Array.Resize(ref hLen, cap); Array.Resize(ref hAngle, cap);
+                if (hN != null) { Array.Resize(ref hN, cap); Array.Resize(ref hR, cap); }
             }
             return F++;
         }
