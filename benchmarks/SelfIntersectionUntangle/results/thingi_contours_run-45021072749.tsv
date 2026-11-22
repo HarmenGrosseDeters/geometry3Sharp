@@ -1,0 +1,37 @@
+input	triangles	apply	path	passed_through_triangles	repair_ms	contour	contour_triangles	contour_defects	pairs	cell_per_diag	separate_moved	separate_reason	untangle_reason	untangle_no_self_intersections	untangle_rounds	untangle_pairs_left	untangle_move_per_diag	untangle_move_per_cell	untangle_ms	finish_raw	finish_separated	finish_untangled	finish_untangled_triangles	h_wrap_to_input	h_finished_untangled_to_input	h_not_converged
+37010.stl	13247	True	AlphaWrap	0	9836	self-intersecting	71444	self-intersections	436	7.81e-3	0	self-intersections	clean	True	2	0	1.47e-3	1.88e-1	3549	self-intersections	-	clean	33562	2.65e-3	1.05e-1	0
+46244.stl	448	True	AlphaWrap	0	7213	self-intersecting	60200	degenerate triangles, self-intersections	1571	7.81e-3	0	degenerate triangles	clean	True	3	0	1.98e-3	2.54e-1	3211	self-intersections	-	clean	10762	2.69e-3	1.58e-1	0
+48950.stl	65858	True	Solidify	0	9941	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+56106.stl	5192	True	ExactResolve	0	1276	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+76966.stl	33802	True	ExactResolve	0	3603	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+96373.stl	656	True	AlphaWrap	0	18841	self-intersecting	151540	degenerate triangles, self-intersections	804	7.81e-3	0	degenerate triangles	clean	True	2	0	6.17e-4	7.89e-2	8007	self-intersections	-	clean	17100	2.48e-3	1.54e-2	0
+126542.stl	39704	True	ExactResolve	0	2994	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+229959.stl	13880	False	Solidify	0	14194	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+1038436.stl	3082	True	ExactResolve	0	2568	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+37415.stl	13340	True	Solidify	0	15999	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+46542.stl	574	True	Solidify	0	3604	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+49038.stl	3508	True	ExactResolve	0	2135	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+72002.stl	81278	True	ExactResolve	0	6152	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+79020.stl	25306	True	ExactResolve	0	2331	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+106620.stl	47520	True	Solidify	0	22252	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+163738.stl	3188	True	Solidify	0	7215	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+277709.stl	32471	True	ExactResolve	0	2881	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+1102667.stl	12159	True	ExactResolve	0	6422	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+39298.stl	34169	True	ExactResolve	0	4735	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+47878.stl	1311	True	AlphaWrap	0	16271	not stopped on self-intersections (self-intersections)	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+51474.stl	1698	True	AlphaWrap	0	11091	self-intersecting	67200	degenerate triangles, self-intersections	47	7.81e-3	0	degenerate triangles	degenerate triangles	True	2	0	2.21e-3	2.83e-1	1549	self-intersections	-	-	-	2.68e-3	-	0
+75846.obj	78629	True	Solidify	0	10146	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+87345.stl	20032	True	AlphaWrap	0	18828	self-intersecting	69770	degenerate triangles, self-intersections	70	1.95e-3	0	degenerate triangles	degenerate triangles	True	1	0	1.02e-3	5.23e-1	591	self-intersections	-	-	-	3.57e-3	-	0
+110378.stl	16435	True	ExactResolve	0	2670	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+170991.stl	16583	False	Solidify	0	16028	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+425320.stl	9875	True	ExactResolve	0	2888	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+1505037.stl	38513	True	Solidify	0	44164	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+45561.stl	8107	True	AlphaWrap	0	11388	not stopped on self-intersections (solidify failed)	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+47979.stl	7241	True	ExactResolve	0	1422	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+55928.stl	88353	True	Solidify	0	5096	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+75946.stl	2376	True	ExactResolve	0	955	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+91138.stl	344	True	Solidify	0	2219	not stopped on self-intersections ()	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+116060.stl	33878	True	ExactResolve	0	6311	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+201957.stl	1272	True	ExactResolve	0	1090	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+939893.stl	17712	True	ExactResolve	0	1538	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+1681239.stl	3068	True	ExactResolve	0	1310	no solidify	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-

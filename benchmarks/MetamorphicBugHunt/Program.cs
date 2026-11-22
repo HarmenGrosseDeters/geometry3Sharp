@@ -11,7 +11,8 @@ namespace MetamorphicBugHunt
     /// Metamorphic bug hunt (docs/research/METAMORPHIC_BUG_HUNT_2026-11.md): relations and operation chains on procedural inputs,
     /// every Success checked independently (Checks.cs). One line per check: PASS / FAIL / SLOW / INFO, the stage, the case, the detail.
     /// Usage: MetamorphicBugHunt [-v] [stage ...]   (no stage: all; -v also prints the PASS lines)
-    /// Stages: boolean chain deep repair wrap contour mesh2d findings
+    /// Stages: boolean chain deep repair wrap contour mesh2d findings (docs/research/METAMORPHIC_BUG_HUNT_2026-11.md), and of the second
+    /// hunt (docs/research/METAMORPHIC_BUG_HUNT_2_2026-11.md): io loft contour2 geodesic intrinsic quad wrap2 mesh2d2 tet robust findings2
     /// </summary>
     public static class Program
     {
@@ -59,6 +60,17 @@ namespace MetamorphicBugHunt
                 ("contour", ContourStage.Run),
                 ("mesh2d", Mesh2Stage.Run),
                 ("findings", FindingsStage.Run),
+                ("io", IoStage.Run),
+                ("loft", LoftStage.Run),
+                ("contour2", Contour2Stage.Run),
+                ("geodesic", GeodesicStage.Run),
+                ("intrinsic", IntrinsicStage.Run),
+                ("quad", QuadStage.Run),
+                ("wrap2", Wrap2Stage.Run),
+                ("mesh2d2", Mesh2OptionsStage.Run),
+                ("tet", TetStage.Run),
+                ("robust", RobustStage.Run),
+                ("findings2", RobustStage.Findings),
             };
             foreach (var (name, run) in stages) {
                 if (want.Count > 0 && !want.Contains(name)) continue;

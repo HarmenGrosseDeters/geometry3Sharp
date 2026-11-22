@@ -423,6 +423,15 @@ Problems where the library already has a head start and that could be researched
   `benchmarks/MetamorphicBugHunt`): relations and chains Boolean → repair → remesh / reduce / quad / tet, the wrap, contouring,
   the offset and the 2D mesher on procedural inputs, every Success checked independently. One defect (#1337: `MeshRobustRepair`
   changes the solid of a clean one-part mesh); the other stages hold. Totals and what is left in the note.
+  **Exact Boolean fuzz 2026-11-22** ([research/EXACT_BOOLEAN_FUZZ_2026-11.md](../research/EXACT_BOOLEAN_FUZZ_2026-11.md), `ExactBooleanFuzzTests`,
+  harness `tests/geometry3Sharp.Tests/Harness/BooleanFuzz*.cs`): generated near-degenerate solids (coplanar, shared, offsets of a unit in the
+  last place, thin slabs, nested shells, rotated, open) and the set identities as exact equalities of a surface fingerprint. No defect of
+  `ExactMeshBoolean`; one of the test certificate (out of memory on a sliver result, fixed); a smoke per family in the PR tier, the campaign Nightly.
+  **Bug hunt 2, 2026-11-22** ([research/METAMORPHIC_BUG_HUNT_2_2026-11.md](../research/METAMORPHIC_BUG_HUNT_2_2026-11.md), the stages
+  `io` to `findings2` of the same harness, `tests/geometry3Sharp.Tests/MetamorphicBugHunt2Tests.cs`): the wrap and `PassageWrap`, the
+  feature pass, the tet, quad and 2D meshers, contouring and `TpmsLattice`, `ContourLoft`, readers and writers, the geodesic family and the
+  intrinsic triangulation. 9491 checks hold under the standing relations; three findings from new relations (#1375, #1376, #1377): `TpmsLattice.DomainMesh` with id gaps (a mesh with id gaps is the same solid), `DualContouring` on a field of small
+  values (a field times a constant has the same level set), and success with a wrong result outside undocumented magnitude ranges.
   **A1 and P1 built 2026-11-16** (#988, merged 2026-11-16, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows; fixed in #1027, closed 2026-11-17) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above; closed 2026-11-17 by #1028 as a documented tolerance limit, not a fix). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
@@ -489,6 +498,16 @@ Ordered by expected value for the library.
      triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid thin slabs SafeRounding drops when rotated (pipeline audit,
      #1304) stay clean and unchanged when its removal rule is switched off: a rule decision, not a rounding one (the
      small cube of that audit is lost to the degenerate-area test instead). Leaning: no build; the owner's decisions on the options are open.
+   - Study 2026-11-22 of #1216 and plan #1259 ([ROUNDING_THIN_SOLIDS_2026-11.md](../research/ROUNDING_THIN_SOLIDS_2026-11.md),
+     no library code): SafeRounding removes a closed component that is thinner than 1e-5 of the diagonal and has an
+     edit anywhere (2976 of 2976 such components on 3 529 procedural cases, 0 of 732 without an edit); the issue's
+     sheet goes for two contractions of 7.6e-11, and the thinnest sheet kept moves by seven orders of magnitude with
+     the frame. 463 of 1106 thin solids of the inputs are lost. Candidate "below 4 ulps, or still defective, or
+     changed in volume by more than a factor 2" returns 324 of them, leaves no new result not clean on the measured
+     sets and has one threshold in every frame; the other 139 are mangled by the degenerate-area test (a separate question). #1259: no-go (a grid
+     rounding would lose 439 of the 463 again). Decided 2026-11-22 (owner): that rule with K = 4 ulps and the
+     factor 2; a removal of only components below K ulps stays clean and is reported, any other removal makes the
+     result not clean; build as a separate tier-L PR after #1382.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
@@ -551,6 +570,15 @@ Ordered by expected value for the library.
      variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
      triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
      (d) the tree and the setup over all triangles where few are rounded.
+   - Study 2026-11-22 (owner go; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md); options with the
+     owner, nothing built): re-measured on `57623890`, the rounding is 3-77 % of a boolean on the 33 operations (median
+     22 %, 26 % of the sum). Upper bounds end to end: first search −5.5 % (−31 % on a procedural thin-triangle set),
+     `near` −8.9 %, tree and setup −1.5 %. (b) is two thirds to four fifths pair tests on box hits, not their
+     enumeration; the separating axes of section 5.3 computed once per triangle give −3.5 % of 48 operations (−8.9 % on
+     the thin set), hashes the same; split-clipped sub-boxes lose (+3.5 %), k-DOPs are weaker. On 102375 the Morton
+     tree visits five times the nodes of a median split (probe: −5 to −26 % on its booleans; not diagnosed). (c) the
+     linear list of `near` is its largest part; keeping its boxes gives −17.7 % of the rounding on the 24 operations
+     with many evaluations, hashes the same. (d) is lever 1a, below 2 %.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:

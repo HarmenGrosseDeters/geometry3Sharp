@@ -60,6 +60,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [CrossFieldBenchmark](CrossFieldBenchmark/README.md) | `CrossField` solve times and smoothness on procedural closed shapes |
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
+| [QuadIntegerJumps](QuadIntegerJumps/README.md) | Research spike: integer jumps on the frozen edges of the stage 3B flow of `QuadRemesher.PureQuads` (relaxed bi-directed flow), against the gate runs |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 | [FilletDetection](FilletDetection/README.md) | Research spike: fillet detectors (curvature, DeFillet's Voronoi rolling balls, medial balls) and sharp-edge reconstruction on procedural filleted CAD solids with a known answer |
@@ -75,6 +76,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [DualContouringIntersections](DualContouringIntersections/README.md) | Intersection-free dual contouring evaluation and upper-bound checks |
 | [DualContouringSimplification](DualContouringSimplification/README.md) | Adaptive octree simplification triangle count vs. error for `DualContouring` |
 | [ContouringCertificate](ContouringCertificate/README.md) | Stage 1–3 topology certification evaluation for contouring |
+| [ContouringSmoothCertificate](ContouringSmoothCertificate/README.md) | Cost and yield of the internal topology certificate for contours of smooth implicit fields (capped TPMS functions) |
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
 | [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
@@ -124,5 +126,6 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [net48-compare](net48-compare/README.md) | Side-by-side runtime comparison of `.NET Framework 4.8` vs. `.NET 10.0` |
 | [MetamorphicFalsification](MetamorphicFalsification/README.md) | Metamorphic relation falsification runs over core geometry operations |
-| [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher) on procedural inputs with independent checks of every Success |
+| [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; second hunt: `PassageWrap`, feature pass, quad, `TpmsLattice`, `ContourLoft`, readers and writers, geodesics, intrinsic triangulation) on procedural inputs with independent checks of every Success |
+| [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |

@@ -1,0 +1,4 @@
+{"case":"scale:41:Union","tris":27486,"components":1,"ms_boolean":219.9,"ms_rounding":108,"ms_pass":2.412,"check":189.039}
+{"case":"scale:81:Union","tris":107276,"components":1,"ms_boolean":851.2,"ms_rounding":438,"ms_pass":21.503,"check":189.088}
+{"case":"scale:161:Union","tris":423736,"components":1,"ms_boolean":1686.3,"ms_rounding":551,"ms_pass":28.019,"check":189.1}
+{"case":"scale:161:Difference","tris":387896,"components":1,"ms_boolean":1914.8,"ms_rounding":709,"ms_pass":24.611,"check":157.797}

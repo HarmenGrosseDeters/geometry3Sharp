@@ -34,6 +34,9 @@ static class Program
 
     static int Main(string[] args)
     {
+        // (the removal of thin and tiny components, #1216: ThinSolids.cs, docs/research/ROUNDING_THIN_SOLIDS_2026-11.md)
+        if (args.Length >= 2 && args[0] == "thin")
+            return ThinSolids.Run(args.Skip(1).ToArray());
         if (args.Length >= 2 && args[0] == "list") {
             foreach (string c in Cases(args[1]))
                 Console.WriteLine(c);
@@ -56,13 +59,15 @@ static class Program
             Console.WriteLine(GuaranteeBound.Run(args[1], ba, bb, bop));
             return 0;
         }
+        if (args.Length == 3 && args[0] == "gen")
+            return ProceduralThin.Gen(args[1], args[2]);
         if (args.Length >= 3 && args[0] == "cull")
             return CandidateCulling.Run(args.Skip(1).ToArray());
         Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck");
         return 1;
     }
 
-    static IEnumerable<string> Cases(string set)
+    internal static IEnumerable<string> Cases(string set)
     {
         switch (set) {
             case "clusters":
@@ -113,7 +118,7 @@ static class Program
     }
 
     // the operands of a case (B is empty for the self-unions)
-    static (DMesh3 a, DMesh3 b, Ops op) Input(string name)
+    internal static (DMesh3 a, DMesh3 b, Ops op) Input(string name)
     {
         string[] p = name.Split(':');
         switch (p[0]) {

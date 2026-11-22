@@ -295,7 +295,7 @@ static class GuaranteeBound
     }
 
     // a triangle as its three positions, rotated so that the smallest comes first (the orientation is kept)
-    static (Vector3d, Vector3d, Vector3d) Key(DMesh3 m, int t)
+    internal static (Vector3d, Vector3d, Vector3d) Key(DMesh3 m, int t)
     {
         Index3i tv = m.GetTriangle(t);
         Vector3d a = m.GetVertex(tv.a), b = m.GetVertex(tv.b), c = m.GetVertex(tv.c);

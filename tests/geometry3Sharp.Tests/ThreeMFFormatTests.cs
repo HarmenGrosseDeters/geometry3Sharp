@@ -318,5 +318,86 @@ namespace geometry3Sharp.Tests
             Read(MakePackage(Model("<object id=\"1\" type=\"model\"><mesh><vertices><vertex x=\"a\" y=\"0\" z=\"0\"/></vertices></mesh></object>", "")), out r);
             Assert.Equal(IOCode.FileParsingError, r.code);
         }
+
+        // ---------------------------------------------------------------- byte-reproducible packages (owner 2026-11-22)
+
+        static byte[] WritePackage(DMesh3 mesh, bool combine = false)
+        {
+            var ms = new MemoryStream();
+            WriteOptions options = WriteOptions.Defaults;
+            options.bCombineMeshes = combine;
+            IOWriteResult r = new ThreeMFWriter().Write(ms, new List<WriteMesh> { new WriteMesh(mesh, "part"), new WriteMesh(mesh, "copy") }, options);
+            Assert.Equal(IOCode.Ok, r.code);
+            return ms.ToArray();
+        }
+
+        /// <summary> the (time, date) fields of every local file header (PK 03 04: offsets 10, 12) and central directory entry (PK 01 02: offsets 12, 14) </summary>
+        static List<(ushort time, ushort date)> ZipTimeStamps(byte[] zip)
+        {
+            var stamps = new List<(ushort, ushort)>();
+            // the central directory lists every entry; its offset and size are in the end record (PK 05 06), the last 22 bytes without a comment
+            int end = zip.Length - 22;
+            Assert.True(zip[end] == 0x50 && zip[end + 1] == 0x4B && zip[end + 2] == 5 && zip[end + 3] == 6, "no end of central directory record");
+            int count = BitConverter.ToUInt16(zip, end + 10), pos = BitConverter.ToInt32(zip, end + 16);
+            for (int i = 0; i < count; ++i) {
+                Assert.True(zip[pos] == 0x50 && zip[pos + 1] == 0x4B && zip[pos + 2] == 1 && zip[pos + 3] == 2, "no central directory entry");
+                stamps.Add((BitConverter.ToUInt16(zip, pos + 12), BitConverter.ToUInt16(zip, pos + 14)));
+                int local = BitConverter.ToInt32(zip, pos + 42);
+                Assert.True(zip[local] == 0x50 && zip[local + 1] == 0x4B && zip[local + 2] == 3 && zip[local + 3] == 4, "no local file header");
+                stamps.Add((BitConverter.ToUInt16(zip, local + 10), BitConverter.ToUInt16(zip, local + 12)));
+                pos += 46 + BitConverter.ToUInt16(zip, pos + 28) + BitConverter.ToUInt16(zip, pos + 30) + BitConverter.ToUInt16(zip, pos + 32);
+            }
+            return stamps;
+        }
+
+        /// <summary>
+        /// Every zip entry of a written package carries 1980-01-01 00:00:00 (DOS date 0x0021, time 0), not the time of the write: the
+        /// time stamp fields are read from the raw headers, so the test does not depend on the clock, and through ZipArchive.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Write_EveryZipEntry_HasTheFixedTime(bool combine)
+        {
+            byte[] package = WritePackage(AttributeSphere(new Vector3d(1, 2, 3)), combine);
+            List<(ushort time, ushort date)> stamps = ZipTimeStamps(package);
+            Assert.Equal(6, stamps.Count);      // [Content_Types].xml, _rels/.rels, 3D/3dmodel.model: a central and a local header each
+            foreach (var (time, date) in stamps) {
+                Assert.Equal(0, time);
+                Assert.Equal(0x0021, date);     // ((1980 - 1980) << 9) | (1 << 5) | 1
+            }
+            using (var zip = new ZipArchive(new MemoryStream(package), ZipArchiveMode.Read)) {
+                Assert.Equal(3, zip.Entries.Count);
+                foreach (ZipArchiveEntry e in zip.Entries)
+                    Assert.Equal(new DateTime(1980, 1, 1, 0, 0, 0), e.LastWriteTime.DateTime);
+            }
+        }
+
+        /// <summary>
+        /// Two writes of the same meshes give the same bytes, the package still reads back as the same mesh bit for bit, and the read
+        /// meshes write the same package again, for every member of Similarity.All(). (Two writes within one 2 s tick of the zip
+        /// time stamp were the same bytes before the fixed time too: Write_EveryZipEntry_HasTheFixedTime is the test of the change.)
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Write_Twice_SameBytes_AndTheSameMeshBack(string similarity)
+        {
+            DMesh3 mesh = Invariance.Transformed(AttributeSphere(Vector3d.Zero), Similarity.ByName(similarity));
+            byte[] first = WritePackage(mesh), second = WritePackage(mesh);
+            Assert.True(first.SequenceEqual(second), "two writes of one mesh differ");
+            IOReadResult r;
+            List<DMesh3> back = Read(first, out r);
+            Assert.Equal(IOCode.Ok, r.code);
+            Assert.Equal(2, back.Count);
+            foreach (DMesh3 b in back) {
+                AssertSameTopology(mesh, b);
+                Assert.Equal(0, MaxPositionError(mesh, b));
+                Assert.True(b.IsClosed());
+            }
+            // a second generation: the read meshes write the same package again
+            var again = new MemoryStream();
+            Assert.Equal(IOCode.Ok, new ThreeMFWriter().Write(again, new List<WriteMesh> { new WriteMesh(back[0], "part"), new WriteMesh(back[1], "copy") }, WriteOptions.Defaults).code);
+            Assert.True(first.SequenceEqual(again.ToArray()), "the package of the read meshes differs from the first");
+        }
     }
 }

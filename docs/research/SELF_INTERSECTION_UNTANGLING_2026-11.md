@@ -270,3 +270,31 @@ one of the two is already clean after the solidify's own cleanup. A caution for 
 the finished solidify lies 5.1 % of the diagonal from them against 0.37 % for the wrap. A clean solidify instead of the
 wrap is then the worse repair, so the real-mesh run reports that distance next to the counts. The numbers of the
 36 Thingi10K meshes follow after the first run of the workflow.
+
+### Result of the Thingi10K run (2026-11-22, workflow run 45021072749)
+
+Raw rows: `benchmarks/SelfIntersectionUntangle/results/thingi_contours_run-45021072749.tsv`; tables in the benchmark
+README. All 36 meshes gave a row; the run took about 6 minutes of compute.
+
+- **The wrap is rarer than the recorded runs say.** On today's master the 36 meshes end in the exact resolve 18 times,
+  in the solidify 11 times and in the wrap 7 times. So the upper bound of any step before the wrap is 7 meshes of the
+  list, not 31.
+- **5 of the 7 wraps have a raw self-intersecting contour** (the other two: one solidify failed, one was not stopped
+  and its finished result self-intersects). 4 of the 5 also have degenerate triangles.
+- **The existing contact separation fixes none** (it moves no vertex): these are not coincident vertices.
+- **The prototype removes every self-intersection in 5 of 5** (1 to 3 rounds); 3 are then clean by `NotCleanReason`,
+  2 keep degenerate triangles. The 3 clean ones also finish clean, so the repair would return a solidify there
+  instead of the wrap. The finished solidify without any change is clean in 0 of 5.
+- **They are crossings, not contacts:** the largest vertex move is 6.2e-4 to 2.2e-3 of the diagonal, 0.08 to 0.52 of
+  a cell. The procedural hint of moves near 1e-10 does not carry over.
+- **The result is the worse repair.** For the 3 that finish clean, the finished solidify lies 10.5 %, 15.8 % and
+  1.5 % of the diagonal from the input; the wrap of the same mesh lies 0.27 %, 0.27 % and 0.25 %. The solidify is
+  farther in 3 of 3, by a factor of 6 to 59.
+
+**Reading for option E: no-go on these numbers.** A step between the solidify and the wrap would change at most 5 of
+the 36 meshes (3 for certain), and where it works it replaces a result 0.25 % from the input by one 1.5 to 16 % away.
+The reason is not the untangling (its moves are at most 0.2 % of the diagonal) but the solidify itself: for these open
+or not closed inputs the level set of the generalized winding number is a coarse stand-in for the surface, which is
+why the repair prefers the wrap in the first place. Small sample (3 distances), one direction of the distance only,
+and two of the five contours were not finished; none of that can turn a factor of 6 to 59 around. Option E stays the
+owner's decision.
