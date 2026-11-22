@@ -35,6 +35,13 @@ namespace g3
 		}
 
 
+		/// <summary>
+		/// Selects the old tolerance route (1e-8 on the distances to the line) instead of the exact decision, for the one
+		/// caller that depends on it: the coplanar branch of the old IntrTriangle3Triangle3.Find (removed with its
+		/// floating-point route). Internal: not part of the public API.
+		/// </summary>
+		internal bool UseToleranceRoute;
+
 		public Vector2d Point0;
 		public Vector2d Point1;
 		public double Param0;
@@ -67,7 +74,9 @@ namespace g3
 				return false;
 			}
 
-			if (find_exact() == false) {
+			if (UseToleranceRoute) {
+				find_tolerant();
+			} else if (find_exact() == false) {
 				Type = IntersectionType.Empty;
 				Result = IntersectionResult.InvalidQuery;
 				return false;
