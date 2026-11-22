@@ -1261,6 +1261,19 @@ namespace geometry3Sharp.Tests
             Assert.Contains("input 1 (a sheet)", op.Error);
             Assert.Contains("triangle 2", op.Error);
 
+            // three triangles at one edge after the plate, the edge as their first, second or third edge, in either direction: triangle 2 is named
+            for (int corner = 0; corner < 3; ++corner)
+                foreach (bool forward in new[] { true, false }) {
+                    DMesh3 y = Plate(-3, -1, 2, -1, 2);
+                    for (int k = 0; k < 3; ++k) {
+                        int[] v = { y.AppendVertex(forward ? a : b), y.AppendVertex(forward ? b : a), y.AppendVertex(far[k]) };
+                        Assert.Equal(2 + k, y.AppendTriangle(v[(3 - corner) % 3], v[(4 - corner) % 3], v[(5 - corner) % 3]));
+                    }
+                    ExactMeshBoolean junction = Run(cube, y);
+                    AssertRefused(junction, Refusal.NotSurface, "junction, edge " + corner + ", forward " + forward);
+                    Assert.Equal(2, junction.SheetWitnessTriangle);
+                }
+
             // a 3 x 3 grid with the two triangles of the middle cell (8 and 9) flipped: the lowest triangle at an edge that two triangles run through in
             // the same direction is 2 (the cell at x < 0, whose first triangle has the edge x = 0 as its second edge)
             DMesh3 plate = Plate(0.5, -1, 2, -1, 2, true, 3);
@@ -1343,6 +1356,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(3, op.Counts["sheet_cells"]);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AFlapOnAFaceOfTheWorkpiece_ThePieceIsAWallWithTheInteriorOnItsOneSide(bool inwardFirst)
+        {
+            // a flap (one triangle twice, with opposite orientations) in the top face of the cube, before the cube in the mesh: the piece there is a
+            // triangle of the flap, with three triangles of the workpiece on it. With the flap's downward triangle first, the piece looks into the cube:
+            // the winding number is 1 in front of it and 0 behind it (+1 - 2 across the other two). It is a wall, and only its front is in the cube
+            var flap = new DMesh3();
+            int a = flap.AppendVertex(new Vector3d(0.25, 0.25, 1)), b = flap.AppendVertex(new Vector3d(0.75, 0.25, 1)), c = flap.AppendVertex(new Vector3d(0.25, 0.75, 1));
+            Assert.True((inwardFirst ? flap.AppendTriangle(a, c, b) : flap.AppendTriangle(a, b, c)) >= 0);
+            Assert.True((inwardFirst ? flap.AppendTriangle(a, b, c) : flap.AppendTriangle(a, c, b)) >= 0);
+            DMesh3 workpiece = Joined(flap, Box(0, 0, 0, 1, 1, 1));
+            foreach (bool up in new[] { true, false }) {
+                ExactMeshBoolean op = Run(workpiece, Plate(0.5, -1, 2, -1, 2, up));
+                Assert.True(op.Status == Status.Success, "up " + up + ": " + op.Status + " " + op.SheetReason + " " + op.Error);
+                Assert.Equal(0.5, Volume(op.Result), 12);
+                Assert.True(ExactMeshBoolean.IsWindingClosed(op.Result));
+                Assert.Equal(up ? 0.75 : 0.25, Centroid(op.Result).z, 12);
+                Assert.Equal(3, op.Counts["sheet_cells"]);
+            }
+        }
+
         [Fact]
         public void SheetOnAFaceAgainstTheFacesOrientation_FoldedIntoTheWorkpiece_MarksTheCellInFrontOfIt()
         {
@@ -1382,6 +1418,12 @@ namespace geometry3Sharp.Tests
             int lower = Math.Min(three.SheetWitnessTriangle, three.SheetWitnessTriangle2), upper = Math.Max(three.SheetWitnessTriangle, three.SheetWitnessTriangle2);
             Assert.InRange(lower, 0, 1);
             Assert.InRange(upper, 4, 5);
+            // (the same reversed, two down and one up: there the first cell has the two layers' front marks, here their back marks)
+            ExactMeshBoolean reversed = Run(cube, Joined(Joined(Plate(0.5, -1, 2, -1, 2, false), Plate(0.5, -1.5, 2.5, -1.5, 2.5, false)), Plate(0.5, -2, 3, -2, 3)));
+            AssertRefused(reversed, Refusal.SidesInconsistent, "three layers, reversed");
+            Assert.InRange(Math.Min(reversed.SheetWitnessTriangle, reversed.SheetWitnessTriangle2), 0, 1);
+            Assert.InRange(Math.Max(reversed.SheetWitnessTriangle, reversed.SheetWitnessTriangle2), 4, 5);
+            Assert.NotEqual(three.SheetWitnessTriangle < 2, reversed.SheetWitnessTriangle < 2);
         }
 
         // sheets for the box [0,2] x [0,1] x [0,1] with one refusal each (the sheets do not meet each other)
@@ -1418,15 +1460,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(0, true)]
-        [InlineData(1, true)]
-        [InlineData(2, true)]
-        [InlineData(3, true)]
-        [InlineData(0, false)]
-        [InlineData(1, false)]
-        [InlineData(2, false)]
-        [InlineData(3, false)]
-        public void RimInsideTheWorkpiece_TheWitnessIsTheStartOfTheFreeEdge_AndATriangleOfTheSheet(int quarterTurns, bool up)
+        [InlineData(0, true, true)]
+        [InlineData(1, true, true)]
+        [InlineData(2, true, true)]
+        [InlineData(3, true, true)]
+        [InlineData(0, false, true)]
+        [InlineData(1, false, true)]
+        [InlineData(2, false, true)]
+        [InlineData(3, false, true)]
+        [InlineData(0, true, false)]
+        [InlineData(1, true, false)]
+        [InlineData(2, true, false)]
+        [InlineData(3, true, false)]
+        [InlineData(0, false, false)]
+        [InlineData(1, false, false)]
+        [InlineData(2, false, false)]
+        [InlineData(3, false, false)]
+        public void RimInsideTheWorkpiece_TheWitnessIsTheStartOfTheFreeEdge_AndATriangleOfTheSheet(int quarterTurns, bool up, bool lowHalf)
         {
             // the half plate z = 0.5 whose free edge runs through the middle of the cube, turned by quarter turns about the cube's axis: the free edge inside
             // the cube is one segment between two faces of the cube; the witness is the corner the edge starts at, in the direction of the sheet's triangle
@@ -1437,13 +1487,14 @@ namespace geometry3Sharp.Tests
                 for (int k = 0; k < quarterTurns; ++k) { double t = x; x = -y; y = t; }
                 return new Vector3d(x + 0.5, y + 0.5, p.z);
             };
-            DMesh3 plate = Plate(0.5, -1, 0.5, -1, 2, up);
+            // (lowHalf: the plate at x < 0.5, its rim is the second edge of its first triangle; else at x > 0.5, the rim the third edge of its second)
+            DMesh3 plate = lowHalf ? Plate(0.5, -1, 0.5, -1, 2, up) : Plate(0.5, 0.5, 2, -1, 2, up);
             foreach (int v in plate.VertexIndices())
                 plate.SetVertex(v, turn(plate.GetVertex(v)));
             ExactMeshBoolean op = Run(cube, plate);
             AssertRefused(op, Refusal.RimInsideWorkpiece, "half plate");
             // (unturned, normals up: the plate is at x < 0.5, its rim x = 0.5 runs towards +y, and enters the cube at y = 0)
-            Vector3d start = turn(new Vector3d(0.5, up ? 0 : 1, 0.5));
+            Vector3d start = turn(new Vector3d(0.5, up == lowHalf ? 0 : 1, 0.5));
             Assert.Equal(start, op.SheetWitnessPoint);
             Assert.Equal(1, op.SheetWitnessMesh);
             Assert.InRange(op.SheetWitnessTriangle, 0, 1);
@@ -1490,6 +1541,33 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(2, op.SheetConflictingCells);
                 Assert.Contains("2 part(s) of sheet 1 float", op.Error);
             }
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void FloatingComponent_ABubbleWithAnEdgeOnAFaceOfTheWorkpiece_OnlyItsInsideFloats(bool inverted)
+        {
+            // the plate (triangles 0 and 1) and a prism (2 to 9) above it whose one edge lies in the face x = 0 of the cube: around that edge the cell
+            // outside the prism is joined to the cube's wall, so only the prism's inside floats. It has one mark, the back mark of the prism's triangles
+            // (their normals point away from it) or, inverted, their front mark: the witness is a triangle of the prism in both cases. (The inverted
+            // prism is under the plate: the cell around it is behind its triangles and behind the plate, which agrees)
+            var s = new Soup();
+            double z = inverted ? 0.25 : 0.75;
+            Vector3d a0 = new Vector3d(0, 0.25, z), b0 = new Vector3d(0.25, 0.25, z + 0.125), c0 = new Vector3d(0.25, 0.25, z - 0.125);
+            Vector3d a1 = new Vector3d(0, 0.75, z), b1 = new Vector3d(0.25, 0.75, z + 0.125), c1 = new Vector3d(0.25, 0.75, z - 0.125);
+            s.Tri(a0, c0, b0);                       // y = 0.25 (normal -y)
+            s.Tri(a1, b1, c1);                       // y = 0.75
+            s.Quad(a0, b0, b1, a1);                  // the upper side
+            s.Quad(a0, a1, c1, c0);                  // the lower side
+            s.Quad(b0, c0, c1, b1);                  // x = 0.25
+            Assert.True(Volume(s.Mesh) > 0, "the prism's normals point outwards");
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), Joined(Plate(0.5, -1, 2, -1, 2), inverted ? Reversed(s.Mesh) : s.Mesh));
+            AssertRefused(op, Refusal.FloatingComponent, "prism on a face, inverted " + inverted);
+            Assert.Equal(1, op.SheetWitnessMesh);
+            Assert.InRange(op.SheetWitnessTriangle, 2, 9);
+            Assert.Equal(1, op.SheetConflictingCells);
+            Assert.Contains("1 part(s) of sheet 1 float", op.Error);
         }
 
         [Fact]
