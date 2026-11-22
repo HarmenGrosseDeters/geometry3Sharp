@@ -18,7 +18,7 @@ RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the con
 BO = ["boolean-%d" % i for i in range(1, 8)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
-                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline"}
+                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding"}
 
 
 def run(*changed):
@@ -122,6 +122,13 @@ class SelectShards(unittest.TestCase):
             self.assertEqual(("none", {"hausdorff": "source"}), run(f))
         self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "HausdorffCertifiedUpperTests.cs"))
         self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "MeshDeviationTests.cs"))
+
+    def test_exact_winding_shard(self):
+        # the exact winding number cache (#1294): the error bounds of finish_edge_angle and the exact leaf paths
+        self.assertEqual(("none", {"exact-winding": "source"}), run("spatial/ExactWindingCache.cs"))
+        for f in ("ExactWindingNumberTests.cs", "ExactWindingCacheInternalTests.cs", "FastWindingExpansionUsedTests.cs",
+                  "WindingNumberTests.cs", "WindingEdgeCaseTests.cs"):
+            self.assertEqual(("none", {"exact-winding": "tests"}), run(TESTS + f), f)
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])

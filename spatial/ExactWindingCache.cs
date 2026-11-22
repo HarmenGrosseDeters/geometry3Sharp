@@ -1258,6 +1258,13 @@ namespace g3
                 double num = p2 - p1;
                 double dotYZ = ay * by + az * bz;
                 double den = da * db + dotYZ;
+                // Error bounds. The rounded products are monotone in their exact values, so sign(num) is never wrong, only
+                // num == 0 can be spurious; the bound decides when num / den count as 0 and the exact predicates decide (the
+                // rounded differences ay, az, by, bz are the noise). 1e-12 is far above the 1e-15 relative error of the terms
+                // while they are normal numbers. Range: it is not a bound when a product is below about 2^-1074 * 1e12
+                // (5e-312), where the rounding to the subnormal grid (absolute error up to 2^-1075) exceeds 1e-12 relative.
+                // The fast path (|yz| >= 2^-200) reaches that with, eg, |ay| about 2^-200 and |bz| below 2^-822; an edge
+                // like that is decided by atan2 of the rounded num and den where they are within that grid of 0.
                 double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));
                 double denErr = 1e-12 * (da * db + Math.Abs(ay * by) + Math.Abs(az * bz));
                 return finish_edge_angle(p, a, b, num, den, numErr, denErr, dotYZ);
