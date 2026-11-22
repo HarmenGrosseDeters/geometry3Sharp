@@ -114,8 +114,8 @@ namespace gs
 
         /// <summary>
         /// Off (default): Result is the quad-dominant mesh of stage 2, bit for bit as without this option. On: the pure-quad repair
-        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, no triangle of the integer
-        /// map is inverted (exact), the repair stays in its budget, the extracted mesh is a manifold of quads only, no quad is flipped)
+        /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, the repair stays in its
+        /// budget, no triangle of the integer map is inverted (exact), the extracted mesh is a manifold of quads only, no quad is flipped)
         /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
         /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
         /// PureQuadStatus names the first failed check. Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
@@ -158,7 +158,6 @@ namespace gs
             var sw = System.Diagnostics.Stopwatch.StartNew();
             CrossField cf = Field;
             if (cf == null) { cf = new CrossField(Mesh); cf.Compute(); FieldSeconds = sw.Elapsed.TotalSeconds; }
-            sw.Restart();
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
             if (SizeAdaptation != SizeAdaptationMode.Off) {
@@ -173,6 +172,7 @@ namespace gs
                     SizeAdaptationApplied = true; MinSpacing = fr.MinSpacing; MaxSpacing = fr.MaxSpacing;
                 }
             }
+            sw.Restart();
             Positions = pf;
             if (pf.Compute() != PositionFieldStatus.Success) return Fail(QuadRemeshStatus.PositionFieldFailed, pf.Error);
             PositionSeconds = sw.Elapsed.TotalSeconds; sw.Restart();
@@ -282,8 +282,8 @@ namespace gs
 
         /// <summary>
         /// edges shorter than this (in units of the edge length, of the local spacing with SizeAdaptation) are collapsed by the cleanup: their end points are one point. Default 0.6 (owner
-        /// 2026-11-19; it was 0.4): the ragged boundary of an open mesh is a row of short edges, 0.6 removes them (open patch 32 -> 17 irregular
-        /// vertices, 95.8 -> 98.3 % quads), and the closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.5)
+        /// 2026-11-19; it was 0.4): collapses short boundary edges (open patch 32 -> 17 irregular vertices before #1179, 9 / 99.2 % quads after #1179),
+        /// and closed shapes change by at most 2 irregular vertices (QUAD_REMESHING.md 4.2)
         /// </summary>
         public double CollapseLength = 0.6;
         /// <summary> short edges collapsed and valence 2 vertices removed by the last Compute() </summary>
@@ -343,7 +343,6 @@ namespace gs
             int nv = g.Pos.Count;
             // neighbours around each vertex, counter-clockwise about the normal, from the first neighbour
             var order = new int[nv][];
-            var start = new int[nv + 1];
             for (int k = 0; k < nv; ++k) {
                 List<int> nb = g.Adj[k];
                 if (nb.Count == 0) { order[k] = new int[0]; continue; }

@@ -1000,8 +1000,7 @@ namespace gs
                     // geometric check (self-scaled by exact powers of two and NaN-safe): unprojected and projected quad normals against
                     // cluster normals and the nearest input triangle (ignoring genuinely zero-area input triangles)
                     Vector3d pa = sum[A] / cnt[A], pc2 = sum[C2] / cnt[C2], pb = sum[B] / cnt[B], pc1 = sum[C1] / cnt[C1];
-                    Vector3d fn = SafeCross(SafeDiff(pb, pa), SafeDiff(pc1, pc2));
-                    Vector3d sn = ScaleUnit(nsum[A] + nsum[B] + nsum[C1] + nsum[C2]);
+                    Vector3d sn = nsum[A] + nsum[B] + nsum[C1] + nsum[C2];
                     Vector3d qa = outMesh.GetVertex(va), qc2 = outMesh.GetVertex(vc2), qb = outMesh.GetVertex(vb), qc1 = outMesh.GetVertex(vc1);
                     Vector3d pfn = SafeCross(SafeDiff(qb, qa), SafeDiff(qc1, qc2));
                     int ntMid = tree.FindNearestTriangle(0.25 * qa + 0.25 * qb + 0.25 * qc1 + 0.25 * qc2);
@@ -1013,7 +1012,7 @@ namespace gs
                         if (!tn.IsFinite) nearFlip = true;
                         else if (tn.x != 0 || tn.y != 0 || tn.z != 0) nearFlip = !(pfn.Dot(tn) > 0);
                     }
-                    Quads++; if (!(fn.Dot(sn) > 0) || !(pfn.Dot(sn) > 0) || nearFlip) FlippedQuads++;
+                    Quads++; if (IsQuadFlipped(pa, pc2, pb, pc1, qa, qc2, qb, qc1, sn) || nearFlip) FlippedQuads++;
                 } else {
                     foreach (var tr in l) leftover.Add(new[] { tr.a, tr.b, tr.c });
                     UnpairedTriangles += l.Count;
@@ -1023,6 +1022,14 @@ namespace gs
             // the second gate, on the extracted mesh
             Status = CheckExtracted(outMesh, BadTriangles, UnpairedTriangles, FlippedQuads);
             if (Status == PureQuadStatus.Success) Result = outMesh;
+        }
+
+        /// <summary> true if the quad (a, c2, b, c1) faces away from (or is degenerate/non-finite against) sn either before or after projection onto the input; self-scaled by exact powers of two and NaN-safe </summary>
+        internal static bool IsQuadFlipped(Vector3d pa, Vector3d pc2, Vector3d pb, Vector3d pc1, Vector3d qa, Vector3d qc2, Vector3d qb, Vector3d qc1, Vector3d sn)
+        {
+            Vector3d u = ScaleUnit(sn);
+            double d0 = SafeCross(SafeDiff(pb, pa), SafeDiff(pc1, pc2)).Dot(u), d1 = SafeCross(SafeDiff(qb, qa), SafeDiff(qc1, qc2)).Dot(u);
+            return !(d0 > 0) || double.IsInfinity(d0) || !(d1 > 0) || double.IsInfinity(d1);
         }
 
         static Vector3d SafeDiff(Vector3d b, Vector3d a)

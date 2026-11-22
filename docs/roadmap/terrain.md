@@ -192,11 +192,11 @@ Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, sh
 #855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15: the extreme frame runs in Nightly; its cost
 is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
-1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner).
+1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner) (plan #1268).
 2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks,
-   berms and inter-ramp checks and the GeoTIFF reader.
-3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
-4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes): (1) `TerrainSafety`'s
+   berms and inter-ramp checks and the GeoTIFF reader (plan #1267).
+3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding; plan #1269).
+4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes; plan #1269): (1) `TerrainSafety`'s
    segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
    `TerrainVolumeDifference`'s height check (`DMeshAABBTree3`) to `TriangleQuadtree2d`. First step when terrain resumes: an
    upper-bound measurement on procedural inputs, including a long-segment worst case; a PR only above the 10 % bar. Not now:

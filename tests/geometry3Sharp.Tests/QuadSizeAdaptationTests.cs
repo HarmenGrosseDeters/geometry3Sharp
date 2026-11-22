@@ -775,5 +775,48 @@ namespace geometry3Sharp.Tests
             // fewer steps lower the curl less than the default
             Assert.True(fr.CurlAfter > Run("sphere", SizeAdaptationMode.Scale).CurlAfter);
         }
+
+        [Fact]
+        public void Frames_FactorizationFailure_ReturnsNoSolution()
+        {
+            // A strictly flat square has zero curl, so J*1 = 0 and J^T J is singular; a damping below Cholesky's pivot
+            // threshold (1e-14 * diag) makes the initial factorization fail, which must report NoSolution rather than Success.
+            var m = new DMesh3();
+            m.AppendVertex(new Vector3d(0, 0, 0));
+            m.AppendVertex(new Vector3d(1, 0, 0));
+            m.AppendVertex(new Vector3d(1, 1, 0));
+            m.AppendVertex(new Vector3d(0, 1, 0));
+            m.AppendTriangle(0, 1, 2);
+            m.AppendTriangle(0, 2, 3);
+            var cf = new CrossField(m);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var fr = new IntegrableFrames(m, cf) { TargetEdgeLength = 1, UseRotation = false, Damping = 1e-20 };
+            Assert.Equal(IntegrableFramesStatus.NoSolution, fr.Compute());
+            Assert.False(fr.Success);
+            Assert.NotNull(fr.Error);
+            Assert.Equal(0, fr.StepsTaken);
+            Assert.True(fr.Seconds >= 0);
+            foreach (int v in m.VertexIndices()) Assert.Equal(1.0, fr.Spacing[v]);
+        }
+
+        [Fact]
+        public void SizeAdaptation_PositionSeconds_ExcludesSizeAdaptationTime()
+        {
+            // Force repeated factorizations in IntegrableFrames and few position sweeps so SizeSeconds dominates;
+            // PositionSeconds must measure only the position field, not include SizeSeconds.
+            var fr = new IntegrableFrames(null, null) { Iterations = 20, RefactorEvery = 1, StopTolerance = 0 };
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = SizeOf("sphere"), SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, Frames = fr, Sweeps = 5 };
+            var wall = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            wall.Stop();
+            CheckResult(qr.Result, "position-seconds");
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.True(qr.SizeSeconds > 0, "SizeSeconds " + qr.SizeSeconds);
+            // Structural, not a comparison of two timings: the disjoint phases cannot sum to more than the wall time
+            // of the whole run (a PositionSeconds that included SizeSeconds would exceed it by about SizeSeconds).
+            Assert.True(qr.PositionSeconds >= 0);
+            Assert.True(qr.SizeSeconds + qr.PositionSeconds + qr.ExtractSeconds <= wall.Elapsed.TotalSeconds + 1e-3,
+                "phases " + qr.SizeSeconds + " + " + qr.PositionSeconds + " + " + qr.ExtractSeconds + " exceed wall " + wall.Elapsed.TotalSeconds);
+        }
     }
 }
