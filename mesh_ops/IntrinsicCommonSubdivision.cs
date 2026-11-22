@@ -386,7 +386,7 @@ namespace gs
                         outer++;
                         continue;
                     }
-                    if (area <= 0) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
+                    if (!(area > 0)) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
                     int fid = faceTri.Count;
                     int ft = -1;
                     foreach (int x in cyc) {

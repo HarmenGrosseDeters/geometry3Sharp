@@ -104,6 +104,8 @@ namespace geometry3Sharp.Tests
         [InlineData(300)]
         [InlineData(400)]
         [InlineData(500)]
+        [InlineData(512)]
+        [InlineData(1000)]
         public void AreaChecks_AreNaNSafe_AtOverflowingScales(int exponent)
         {
             DMesh3 mesh = ShearedGrid(1.0, 0.25, Similarity.Identity);
