@@ -114,9 +114,7 @@ F:g3.JitHints.Optimize ; [body:3dd723fa4a5af9a7] constant MethodImplOptions.Aggr
 F:g3.Vector2d.x ; [body:1195a7826c7403b2] a field: storage
 F:g3.Vector2d.y ; [body:11929f826c71c043] a field: storage
 M:g3.Vector2d.#ctor(System.Double,System.Double) ; [body:67fbbd1267914fc9] stores the two values
-M:g3.Vector2d.Dot(g3.Vector2d) ; [body:9407816e008ebe94] x * v.x + y * v.y, separately rounded (T1)
 M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; [body:80b01501bd1629ea] componentwise ==, exact
-M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; [body:a8c249362a9cb462] componentwise -, one rounding each (T1)
 F:g3.Vector3d.x ; [body:1195a7826c7403b2] a field: storage
 F:g3.Vector3d.y ; [body:11929f826c71c043] a field: storage
 F:g3.Vector3d.z ; [body:118f27826c6ebe84] a field: storage
