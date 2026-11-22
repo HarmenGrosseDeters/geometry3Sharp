@@ -159,6 +159,9 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- the fallback contract
 
+        // the forced fold of the first attempt alone (the second attempt, the retry with the freed fixed variables, repairs most of them)
+        static void FirstAttemptWithoutSignPenalty(QuadRemesher q) { q.SignPenalty = false; q.PureQuadRetry = false; }
+
         static void AssertFallback(QuadRemesher qr, QuadRemesher stage2, string what)
         {
             Assert.NotEqual(PureQuadStatus.Success, qr.PureQuadStatus);
@@ -175,7 +178,7 @@ namespace geometry3Sharp.Tests
             // the sign-aware flow cost is what keeps the sphere fold free: the plain marginal cost folds
             string name = "sphere";
             QuadRemesher good = RunCase(name);
-            QuadRemesher bad = RunCase(name, true, q => q.SignPenalty = false);
+            QuadRemesher bad = RunCase(name, true, FirstAttemptWithoutSignPenalty);
             QuadRemesher stage2 = RunCase(name, false);
             Assert.Equal(PureQuadStatus.Success, good.PureQuadStatus);
             AssertFallback(bad, stage2, name);
@@ -203,10 +206,11 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(0.2)]
         [InlineData(0.29)]
-        public void CappedCylinder_FallsBackNaturally_WithoutAnyHook(double s)
+        public void CappedCylinder_FirstAttemptAlone_FallsBackNaturally(double s)
         {
-            // a closed mesh with the default options (no test hook) whose pure-quad attempt ends in the geometric gate: the stage 2 mesh comes back
-            QuadRemesher qr = Run("cylinder", s);
+            // a closed mesh whose first pure-quad attempt ends in the geometric gate (no hook but the one that switches the second attempt off): the stage 2 mesh comes back
+            QuadRemesher qr = Run("cylinder", s, 0, true, q => q.PureQuadRetry = false);
+            Assert.False(qr.PureQuadRetried);
             QuadRemesher stage2 = Run("cylinder", s, 0, false);
             AssertFallback(qr, stage2, "cylinder " + s);
             Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadStatus);
@@ -250,8 +254,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Fallback_CountersAndStatus_AreRepeatable()
         {
-            QuadRemesher a = Run("sphere", 0.29, 0, true, q => q.SignPenalty = false);
-            QuadRemesher b = Run("sphere", 0.29, 0, true, q => { q.SignPenalty = false; q.Parallel = false; q.ChunkSize = 8; });
+            QuadRemesher a = Run("sphere", 0.29, 0, true, FirstAttemptWithoutSignPenalty);
+            QuadRemesher b = Run("sphere", 0.29, 0, true, q => { FirstAttemptWithoutSignPenalty(q); q.Parallel = false; q.ChunkSize = 8; });
             Assert.NotEqual(PureQuadStatus.Success, a.PureQuadStatus);
             Assert.Equal(a.PureQuadStatus, b.PureQuadStatus);
             Assert.Equal(a.InvertedTriangles, b.InvertedTriangles);
@@ -295,7 +299,7 @@ namespace geometry3Sharp.Tests
             int fallbacks = 0;
             var cases = new (string name, double s, bool signPenalty)[] {
                 ("sphere", 0.2, true),
-                ("sphere", 0.29, false),     // SignPenalty=false forces an orientation fold fallback on a closed mesh
+                ("sphere", 0.27, false),     // SignPenalty=false forces an orientation fold fallback on a closed mesh (0.27: the second attempt fails too)
                 ("cap", 0.2, true),          // open mesh falls back with FlowInfeasible
             };
             foreach (var c in cases) {
@@ -333,6 +337,8 @@ namespace geometry3Sharp.Tests
             AssertFallback(qr, stage2, name);
             Assert.Equal(PureQuadStatus.FlowInfeasible, qr.PureQuadStatus);
             Assert.Equal(0.0, qr.RepairSeconds);                  // stopped at the setup: no flow, no subdivision
+            Assert.False(qr.PureQuadRetried);                     // and no second attempt: it would stop at the same place
+            Assert.Equal(PureQuadStatus.FlowInfeasible, qr.PureQuadFirstStatus);
         }
 
         [Fact]
@@ -573,7 +579,7 @@ namespace geometry3Sharp.Tests
                 AssertSame(first, qr.Result);
             }
             // a failing repair on the same instance, then a good one: no state is kept
-            var q = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.29, PureQuads = true, SignPenalty = false };
+            var q = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.29, PureQuads = true, SignPenalty = false, PureQuadRetry = false };
             q.Compute();
             Assert.NotEqual(PureQuadStatus.Success, q.PureQuadStatus);
             Assert.True(q.InvertedTriangles > 0);
@@ -588,6 +594,8 @@ namespace geometry3Sharp.Tests
         [InlineData("sphere", 0.29)]        // success
         [InlineData("sphere", 0.20)]        // success
         [InlineData("cylinder", 0.22)]      // success
+        [InlineData("cylinder", 0.2)]       // success of the second attempt
+        [InlineData("sphere", 0.39)]        // success of the second attempt
         [InlineData("box", 0.25)]
         public void PureQuads_AreTheSameSerialAndParallelAndRepeated(string name, double s)
         {
@@ -606,6 +614,10 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(serial.PureQuadRepair.Offsets(), r.PureQuadRepair.Offsets());
                 Assert.Equal(serial.PureQuadRepair.SatDecisions, r.PureQuadRepair.SatDecisions);
                 Assert.Equal(serial.PureQuadRepair.Splits, r.PureQuadRepair.Splits);
+                Assert.Equal(serial.PureQuadRetried, r.PureQuadRetried);
+                Assert.Equal(s == 0.2 && name == "cylinder" || s == 0.39, r.PureQuadRetried);        // the two rows of the second attempt
+                Assert.Equal(serial.PureQuadFirstStatus, r.PureQuadFirstStatus);
+                Assert.Equal(serial.PureQuadRepair.FrozenEdgesChanged, r.PureQuadRepair.FrozenEdgesChanged);
                 AssertSame(serial.Result, r.Result);
             }
         }
@@ -868,7 +880,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, qr.InvertedTriangles); Assert.Equal(0, qr.FlippedQuads);
             Assert.Equal(1.0, PolyMeshMetrics.Compute(qr.Result).QuadFraction);
             // the runs that fail after the flow report it too (the ones that end before the flow have NaN), and never as a reason: the status is the old one
-            QuadRemesher bad = RunCase("sphere", true, q => q.SignPenalty = false);
+            QuadRemesher bad = RunCase("sphere", true, FirstAttemptWithoutSignPenalty);
             Assert.NotEqual(PureQuadStatus.Success, bad.PureQuadStatus);
             Assert.True(!double.IsNaN(bad.PureQuadAreaRatio) && !double.IsNaN(bad.PureQuadAreaRatioAfterFlow));
             AssertSame(RunCase("sphere", false).Result, bad.Result);       // the fallback is still the stage 2 mesh
@@ -906,6 +918,273 @@ namespace geometry3Sharp.Tests
             QuadRemesher parallel = Run("torus-aligned", Cases["torus-aligned"].s, Cases["torus-aligned"].align, true, q => { q.Parallel = true; q.ChunkSize = 3; });
             Assert.Equal(BitConverter.DoubleToInt64Bits(serial.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(parallel.PureQuadAreaRatio));
             Assert.Equal(BitConverter.DoubleToInt64Bits(serial.PureQuadAreaRatioAfterFlow), BitConverter.DoubleToInt64Bits(parallel.PureQuadAreaRatioAfterFlow));
+        }
+
+        // ---------------------------------------------------------------- the second attempt (the fixed variables of the flow freed)
+
+        static void AssertCleanPureQuads(QuadRemesher qr, string name, double s, int euler)
+        {
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            Assert.Equal(0, CheckMap(qr, true));
+            Assert.True(qr.Result.Validate().IsValid, name);
+            for (int v = 0; v < qr.Result.VertexCount; ++v) Assert.True(qr.Result.GetVertex(v).IsFinite);
+            PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
+            Assert.Equal(1.0, m.QuadFraction);
+            Assert.True(m.IsManifold, name);
+            Assert.Equal(0, m.BoundaryVertices);
+            Assert.Equal(euler, m.EulerCharacteristic);
+            Assert.True(m.Quads >= 40, name + ": " + m.Quads + " quads");
+            Assert.True(Invariance.Volume(qr.Result.ToDMesh3(out _)) > 0, name + ": inward");
+            Assert.True(OneSidedHausdorff(qr.Result, Shape(name)) <= 0.5 * s, name + ": Hausdorff");
+            Assert.InRange(qr.PureQuadAreaRatio, 0.75, 1.35);      // the map covers the surface about once
+        }
+
+        [Theory]
+        [InlineData("cylinder", 0.2, PureQuadStatus.FlippedFaces, 2)]
+        [InlineData("cylinder", 0.29, PureQuadStatus.FlippedFaces, 2)]
+        [InlineData("cylinder", 0.19, PureQuadStatus.OrientationFolds, 2)]
+        [InlineData("sphere", 0.39, PureQuadStatus.BudgetExceeded, 2)]
+        [InlineData("torus", 0.38, PureQuadStatus.OrientationFolds, 0)]
+        public void SecondAttempt_AfterAFallback_GivesCleanPureQuads(string name, double s, PureQuadStatus first, int euler)
+        {
+            // default options, no hook: the first attempt falls back for the reason named, the second one (the fixed variables of the flow take the
+            // rounded values of the relaxation in which they are free) passes every check
+            QuadRemesher qr = Run(name, s);
+            Assert.True(qr.PureQuadRetried);
+            Assert.Equal(first, qr.PureQuadFirstStatus);
+            AssertCleanPureQuads(qr, name, s, euler);
+            Assert.True(qr.PureQuadRepair.FreeFrozenEdges);
+            Assert.True(qr.PureQuadRepair.FrozenEdges > 0);
+            Assert.InRange(qr.PureQuadRepair.FrozenEdgesChanged, 1, qr.PureQuadRepair.FrozenEdges);
+            Assert.Same(qr.PureQuadRepair.Result, qr.Result);
+            Assert.Equal(qr.PureQuadRepair.AreaRatio, qr.PureQuadAreaRatio);
+            // few irregular vertices, as for a first attempt that succeeds
+            int sing = FieldOf(name).SingularFaces.Count;
+            QuadRemesher stage2 = Run(name, s, 0, false);
+            Assert.True(PolyMeshMetrics.Compute(qr.Result).IrregularVertices <= sing + (int)Math.Floor(0.1 * PolyMeshMetrics.Compute(stage2.Result).IrregularVertices), name);
+            // without the second attempt: the fallback of before, with the same first status
+            QuadRemesher old = Run(name, s, 0, true, q => q.PureQuadRetry = false);
+            AssertFallback(old, stage2, name);
+            Assert.Equal(first, old.PureQuadStatus);
+            Assert.False(old.PureQuadRetried);
+            Assert.False(old.PureQuadRepair.FreeFrozenEdges);
+            Assert.Equal(0, old.PureQuadRepair.FrozenEdgesChanged);
+            // the times of both attempts are counted (the first attempt has a flow, and here a repair too, so both sums are larger than the second's part)
+            Assert.True(qr.FlowSeconds > qr.PureQuadRepair.FlowSeconds && qr.RepairSeconds > qr.PureQuadRepair.RepairSeconds);
+        }
+
+        [Theory]
+        [InlineData("sphere", 0.29, 0)]
+        [InlineData("sphere", 0.2, 0)]
+        [InlineData("torus", 0.18, 0)]
+        [InlineData("torus-aligned", 0.2, 10)]
+        [InlineData("box", 0.25, 0)]
+        [InlineData("cylinder", 0.18, 0)]
+        [InlineData("cylinder", 0.22, 0)]
+        [InlineData("cylinder", 0.26, 0)]
+        public void SecondAttempt_IsNotRun_WhenTheFirstSucceeds_AndTheResultIsTheSameBitForBit(string name, double s, double align)
+        {
+            QuadRemesher with = Run(name, s, align), without = Run(name, s, align, true, q => q.PureQuadRetry = false);
+            Assert.Equal(PureQuadStatus.Success, without.PureQuadStatus);
+            Assert.Equal(PureQuadStatus.Success, with.PureQuadStatus);
+            Assert.Equal(PureQuadStatus.Success, with.PureQuadFirstStatus);
+            Assert.False(with.PureQuadRetried);
+            Assert.False(with.PureQuadRepair.FreeFrozenEdges);
+            Assert.Equal(0, with.PureQuadRepair.FrozenEdgesChanged);
+            Assert.Equal(without.PureQuadRepair.Offsets(), with.PureQuadRepair.Offsets());
+            Assert.Equal(without.PureQuadRepair.SatDecisions, with.PureQuadRepair.SatDecisions);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(without.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(with.PureQuadAreaRatio));
+            AssertSame(without.Result, with.Result);
+        }
+
+        [Theory]
+        [InlineData("sphere", 0.27)]
+        [InlineData("torus", 0.3)]
+        public void SecondAttempt_ThatFailsToo_ReportsTheFirstAttempt_AndGivesTheStage2Mesh(string name, double s)
+        {
+            // without the sign penalty both attempts keep folds here: everything reported is the first attempt's, as without the second
+            QuadRemesher both = Run(name, s, 0, true, q => q.SignPenalty = false);
+            QuadRemesher firstOnly = Run(name, s, 0, true, FirstAttemptWithoutSignPenalty);
+            QuadRemesher stage2 = Run(name, s, 0, false);
+            Assert.True(both.PureQuadRetried);
+            AssertFallback(both, stage2, name);
+            Assert.Equal(firstOnly.PureQuadStatus, both.PureQuadStatus);
+            Assert.Equal(both.PureQuadFirstStatus, both.PureQuadStatus);
+            Assert.False(both.PureQuadRepair.FreeFrozenEdges);
+            Assert.Equal(firstOnly.PureQuadRepair.Offsets(), both.PureQuadRepair.Offsets());
+            Assert.Equal(firstOnly.InvertedTriangles, both.InvertedTriangles);
+            Assert.Equal(firstOnly.FlippedQuads, both.FlippedQuads);
+            Assert.True(both.InvertedTriangles > 0);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(firstOnly.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(both.PureQuadAreaRatio));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(firstOnly.PureQuadAreaRatioAfterFlow), BitConverter.DoubleToInt64Bits(both.PureQuadAreaRatioAfterFlow));
+        }
+
+        [Fact]
+        public void SecondAttempt_Compute_CanBeCalledAgain()
+        {
+            // two runs on one instance, then a length where the first attempt succeeds, then back: no state of the second attempt is kept
+            var qr = new QuadRemesher(Shape("cylinder")) { Field = FieldOf("cylinder"), TargetEdgeLength = 0.2, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.PureQuadRetried);
+            AssertCleanPureQuads(qr, "cylinder", 0.2, 2);
+            DPolyMesh first = qr.Result; int[] offsets = qr.PureQuadRepair.Offsets(); QuadFlowRepair firstRepair = qr.PureQuadRepair;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.PureQuadRetried);
+            Assert.NotSame(first, qr.Result); Assert.NotSame(firstRepair, qr.PureQuadRepair);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadFirstStatus);
+            Assert.Equal(offsets, qr.PureQuadRepair.Offsets());
+            AssertSame(first, qr.Result);
+            AssertSame(Run("cylinder", 0.2).Result, qr.Result);        // and the same as a fresh instance
+            qr.TargetEdgeLength = 0.22;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.PureQuadRetried);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadFirstStatus);
+            AssertSame(Run("cylinder", 0.22).Result, qr.Result);
+            qr.TargetEdgeLength = 0.2;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.PureQuadRetried);
+            AssertSame(first, qr.Result);
+            qr.PureQuads = false;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.PureQuadRetried);
+            Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadFirstStatus);
+        }
+
+        [Fact]
+        public void SecondAttempt_WithSizeAdaptation_Compute_CanBeCalledAgain()
+        {
+            // the local spacing of SizeAdaptation and the second attempt on one instance: the first attempt fails (FlippedFaces), the second is clean;
+            // a second Compute() gives the same mesh, and switching the size field off and on again leaves no state of either
+            const double s = 0.25;
+            var qr = new QuadRemesher(Shape("cylinder")) { Field = FieldOf("cylinder"), TargetEdgeLength = s, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.True(qr.PureQuadRetried);
+            Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadFirstStatus);
+            AssertCleanPureQuads(qr, "cylinder", s * qr.MaxSpacing, 2);
+            Assert.True(qr.PureQuadRepair.FreeFrozenEdges);
+            DPolyMesh first = qr.Result; int[] offsets = qr.PureQuadRepair.Offsets(); QuadFlowRepair firstRepair = qr.PureQuadRepair;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied && qr.PureQuadRetried);
+            Assert.NotSame(first, qr.Result); Assert.NotSame(firstRepair, qr.PureQuadRepair);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(offsets, qr.PureQuadRepair.Offsets());
+            AssertSame(first, qr.Result);
+            // without the second attempt this input is the stage 2 fallback
+            var old = new QuadRemesher(Shape("cylinder")) { Field = FieldOf("cylinder"), TargetEdgeLength = s, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, PureQuadRetry = false };
+            Assert.Equal(QuadRemeshStatus.Success, old.Compute());
+            Assert.Equal(PureQuadStatus.FlippedFaces, old.PureQuadStatus);
+            // the size field off on the same instance: the same as a fresh instance; and on again: the first mesh
+            qr.SizeAdaptation = SizeAdaptationMode.Off;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.SizeAdaptationApplied);
+            QuadRemesher fresh = Run("cylinder", s);
+            Assert.Equal(fresh.PureQuadStatus, qr.PureQuadStatus);
+            Assert.Equal(fresh.PureQuadRetried, qr.PureQuadRetried);
+            AssertSame(fresh.Result, qr.Result);
+            qr.SizeAdaptation = SizeAdaptationMode.ScaleAndRotation;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied && qr.PureQuadRetried);
+            AssertSame(first, qr.Result);
+        }
+
+        [Theory, MemberData(nameof(Frames))]
+        public void SecondAttempt_IsInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            const string shape = "cylinder"; const double s = 0.2;
+            QuadRemesher baseRun = Run(shape, s);
+            Assert.True(baseRun.PureQuadRetried);
+            Assert.Equal(PureQuadStatus.Success, baseRun.PureQuadStatus);
+            DMesh3 t = Invariance.Transformed(Shape(shape), sim);
+            var cf = new CrossField(t);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(t) { Field = cf, TargetEdgeLength = sim.Scale * s, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            if (sim.IsExact) {
+                // a power of two scale: the same first status, the same relaxation and rounding (integers), the same mesh bit for bit, scaled
+                Assert.True(qr.PureQuadRetried);
+                Assert.Equal(baseRun.PureQuadFirstStatus, qr.PureQuadFirstStatus);
+                Assert.Equal(baseRun.PureQuadStatus, qr.PureQuadStatus);
+                Assert.Equal(baseRun.PureQuadRepair.FrozenEdges, qr.PureQuadRepair.FrozenEdges);
+                Assert.Equal(baseRun.PureQuadRepair.FrozenEdgesChanged, qr.PureQuadRepair.FrozenEdgesChanged);
+                Assert.Equal(baseRun.PureQuadRepair.Offsets(), qr.PureQuadRepair.Offsets());
+                AssertSame(baseRun.Result, qr.Result, sim.Scale);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(baseRun.PureQuadAreaRatio), BitConverter.DoubleToInt64Bits(qr.PureQuadAreaRatio));
+            } else {
+                // another rounding: a clean pure-quad mesh of about the same size (by the first or the second attempt), or a valid stage 2
+                // mesh after two attempts
+                Assert.True(qr.Result.Validate().IsValid);
+                if (qr.PureQuadStatus != PureQuadStatus.Success) { Assert.True(qr.PureQuadRetried); Assert.False(qr.PureQuadRepair.FreeFrozenEdges); return; }
+                Assert.Equal(qr.PureQuadRetried, qr.PureQuadRepair.FreeFrozenEdges);
+                PolyMeshMetrics a = PolyMeshMetrics.Compute(baseRun.Result), b = PolyMeshMetrics.Compute(qr.Result);
+                Assert.Equal(1.0, b.QuadFraction);
+                Assert.True(b.IsManifold);
+                Assert.Equal(0, b.BoundaryVertices);
+                Assert.Equal(a.EulerCharacteristic, b.EulerCharacteristic);
+                Assert.InRange(b.Faces, 0.7 * a.Faces, 1.4 * a.Faces);
+                Assert.Equal(0, qr.InvertedTriangles);
+                for (int v = 0; v < qr.Result.VertexCount; ++v) Assert.True(qr.Result.GetVertex(v).IsFinite);
+                Assert.True(OneSidedHausdorff(qr.Result, t) <= 0.5 * sim.Scale * s, name + ": Hausdorff");
+            }
+        }
+
+        [Fact]
+        public void Repair_FreeFrozenEdges_ChangesOnlyFixedVariables_AndNothingWithoutThem()
+        {
+            // the repair alone: the flag makes the capped cylinder clean, and reports what it did
+            QuadFlowRepair plain = Repair("cylinder", 0.2), freed = Repair("cylinder", 0.2, 0, r => r.FreeFrozenEdges = true);
+            Assert.Equal(PureQuadStatus.FlippedFaces, plain.Status);
+            Assert.Equal(PureQuadStatus.Success, freed.Status);
+            Assert.Equal(plain.FrozenEdges, freed.FrozenEdges);
+            Assert.True(plain.FrozenEdges > 0);
+            Assert.Equal(0, plain.FrozenEdgesChanged);
+            Assert.InRange(freed.FrozenEdgesChanged, 1, freed.FrozenEdges);
+            Assert.True(freed.AreaRatioAfterFlow > plain.AreaRatioAfterFlow);       // the freed map keeps more of the lattice
+            // a field without a holonomy on any cycle of the dual tree has no fixed variable: the flag changes nothing
+            var c = Cases["torus-aligned"];
+            QuadFlowRepair a = Repair("torus-aligned", c.s, c.align), b = Repair("torus-aligned", c.s, c.align, r => r.FreeFrozenEdges = true);
+            Assert.Equal(0, a.FrozenEdges); Assert.Equal(0, b.FrozenEdges); Assert.Equal(0, b.FrozenEdgesChanged);
+            Assert.Equal(a.Offsets(), b.Offsets());
+            Assert.Equal(PureQuadStatus.Success, b.Status);
+            // the relaxation runs at the start range of the variables whatever capacity the network flow needs afterwards
+            QuadFlowRepair fine = Repair("sphere", 0.05, 0, r => r.FreeFrozenEdges = true);
+            Assert.True(fine.FrozenEdgesChanged > 0);
+            Assert.NotEqual(PureQuadStatus.FlowInfeasible, fine.Status);
+            // its counters: one flow on four nodes per triangle; the searches are counted, never timed
+            Assert.Equal(0, plain.RelaxationArcs); Assert.Equal(0L, plain.RelaxationSettled); Assert.Equal(0.0, plain.RelaxationSeconds);
+            Assert.True(freed.RelaxationArcs > 0 && freed.RelaxationSearches > 0 && freed.RelaxationSettled > 0 && freed.RelaxationSeconds > 0);
+            Assert.True(freed.RelaxationSeconds <= freed.FlowPrepSeconds);
+            // the work stays near linear in the triangles (each search stops at the first deficit; 15 to 80 settled nodes per triangle on the gate runs)
+            foreach (QuadFlowRepair r in new[] { freed, fine })
+                Assert.True(r.RelaxationSettled < 200L * r.Triangles, $"relaxation settled {r.RelaxationSettled} nodes in {r.RelaxationSearches} searches for {r.Triangles} triangles");
+        }
+
+        [Fact]
+        public void RoundHalfStep_RoundsAHalfTowardsTheRealOffset()
+        {
+            // even: the exact step
+            Assert.Equal(1, QuadFlowRepair.RoundHalfStep(0, 2, -5.0));
+            Assert.Equal(-2, QuadFlowRepair.RoundHalfStep(1, -6, 9.0));
+            Assert.Equal(1, QuadFlowRepair.RoundHalfStep(1, 0, 0.0));
+            // odd: the two neighbours of v + x2 / 2, the one nearer to r
+            Assert.Equal(1, QuadFlowRepair.RoundHalfStep(0, 1, 0.9));        // 0.5 -> 1
+            Assert.Equal(0, QuadFlowRepair.RoundHalfStep(0, 1, 0.1));        // 0.5 -> 0
+            Assert.Equal(-1, QuadFlowRepair.RoundHalfStep(0, -1, -0.9));     // -0.5 -> -1
+            Assert.Equal(0, QuadFlowRepair.RoundHalfStep(0, -1, -0.1));      // -0.5 -> 0
+            Assert.Equal(2, QuadFlowRepair.RoundHalfStep(0, 3, 1.9));        // 1.5 -> 2
+            Assert.Equal(1, QuadFlowRepair.RoundHalfStep(0, 3, 1.2));        // 1.5 -> 1
+            Assert.Equal(-2, QuadFlowRepair.RoundHalfStep(0, -3, -1.9));     // -1.5 -> -2
+            Assert.Equal(-1, QuadFlowRepair.RoundHalfStep(0, -3, -1.2));     // -1.5 -> -1
+            Assert.Equal(-1, QuadFlowRepair.RoundHalfStep(-2, 3, -0.9));     // -0.5 -> -1 from v = -2
+            // a tie, or a real offset that is not a number: the neighbour on the side of the start value
+            Assert.Equal(0, QuadFlowRepair.RoundHalfStep(0, 1, 0.5));
+            Assert.Equal(0, QuadFlowRepair.RoundHalfStep(0, -1, -0.5));
+            Assert.Equal(1, QuadFlowRepair.RoundHalfStep(0, 3, 1.5));
+            Assert.Equal(-1, QuadFlowRepair.RoundHalfStep(0, -3, double.NaN));
         }
     }
 }
