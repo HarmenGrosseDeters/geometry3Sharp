@@ -14,8 +14,8 @@ arXiv 2302.04908, for several curves) give the reviewed proof that options B and
 
 | Option | Does the method give the proof? | What was measured |
 |---|---|---|
-| **B, smooth fields** (TPMS, analytic shapes, a level of one C1 function, a `min` / `max` whose pieces are active in different cells) | **Yes, by composition.** The premise was checked against both of Plantinga and Vegter's papers (section 4.3): it holds for the published form of the test and not for the pairwise tightening. If every cell of the uniform grid passes C0 or C1 and the node signs are certified, Plantinga and Vegter's theorem gives level set ~ marching-cubes-type mesh, and our Theorems 1 and 2 give that mesh ~ the `DualContouring` output (section 4). No edge or face test is needed, so the tangencies with the grid that Theorem 5 refuses are covered. The published 3D argument for the regular grid is a geometric sketch of about two pages, in the journal version too | section 5: the whole run certified in 26 of 176 runs with the published form of the test (28 with a pairwise tightening that the paper does not cover), never on a wrong contour (for 5 and 6 of them the truth is the certified run itself); capped TPMS at 32 cells per period 2 of 3 (3 of 3 tightened; Theorem 5's cell test: 0 of 3, 97.5 % of the cells); the test alone costs 0.3 to 0.5 times the contouring there |
-| **B, non-smooth level sets** (creases of CSG, offset creases, thin walls given as one field) | **No.** C1 is false at every depth at a crease of 90 degrees or more, and the theorem is stated for C1 functions. Theorem 5 (a cone below 180 degrees, Clarke gradients) stays the proof there. Burr and Byrd's test for several curves is planar; nothing exists for surfaces | section 5: tunnel and rod (creases): 0 of 36 runs; every leaf left open four levels below the grid holds a non-smooth point |
+| **B, smooth fields** (TPMS, analytic shapes, a level of one C1 function, a `min` / `max` where every cell that meets a piece boundary is zero-free) | **Yes, by composition.** The premise was checked against both of Plantinga and Vegter's papers (section 4.3): it holds for the published form of the test and not for the pairwise tightening. If every cell of the uniform grid passes C0 or C1 and the node signs are certified, Plantinga and Vegter's theorem gives level set ~ marching-cubes-type mesh, and our Theorems 1 and 2 give that mesh ~ the `DualContouring` output (section 4). No edge or face test is needed, so the tangencies with the grid that Theorem 5 refuses are covered. The published 3D argument for the regular grid is a geometric sketch of about two pages, in the journal version too | section 5: the whole run certified in 26 of 176 runs with the published form of the test (28 with a pairwise tightening that the paper does not cover), never on a wrong contour (for 5 and 6 of them the truth is the certified run itself); capped TPMS at 32 cells per period 2 of 3 (3 of 3 tightened; Theorem 5's cell test: 0 of 3, 97.5 % of the cells); the test alone costs 0.3 to 0.5 times the contouring there |
+| **B, non-smooth level sets** (creases of CSG, offset creases, thin walls given as one field) | **No.** C1 is false at every depth at a crease of 90 degrees or more, and the theorem is stated for smooth functions (its authors: not for surfaces that are not C1). Theorem 5 (a cone below 180 degrees, Clarke gradients) stays the proof there. Burr and Byrd's test for several curves is planar; nothing exists for surfaces | section 5: tunnel and rod (creases): 0 of 36 runs; every leaf left open four levels below the grid holds a non-smooth point |
 | **C, winding number of a broken mesh** | **No.** The two things option C misses (enclosures of w and of grad w; any statement at a defect edge) are not supplied by a subdivision method, and in the clean regions the level set is the input's triangles, where C1 fails and the exact class P test is the right tool | not measured (nothing to run) |
 
 Leaning (section 8): have the composed proof reviewed (a docs step, now with both papers read); if it holds, build
@@ -117,8 +117,9 @@ rule for a certificate (`RecordCertificateData`, `ContourGrid()`, internal). The
 
 - Ω is the box of the contouring grid and K the uniform grid on it. Its node coordinates are the doubles
   `origin + h * i` as `DualContouring` computes them; the cells are the closed boxes between consecutive coordinates.
-- f is locally Lipschitz on a neighbourhood of Ω: a C1 function, or `min` / `max` of C1 functions. L is its zero set
-  in Ω. D is the raw `DualContouring` mesh on K (no cleanup, no simplification).
+- f is locally Lipschitz on a neighbourhood of Ω: a smooth (C-infinity) function, or `min` / `max` of smooth functions.
+  L is its zero set in Ω. D is the raw `DualContouring` mesh on K (no cleanup, no simplification), contoured at iso
+  value 0. For pieces that are only C1 (a capsule) the claim needs the premise in its C1 reading (section 4.3, row 4).
 - For a cell c, **Z(c)**: f has no zero in c. **A(c)**: f is C1 on a neighbourhood of c (one piece is strictly active on
   all of c, hence near it) and <grad f(p), grad f(q)> > 0 for all p, q in c. **A+(c)**: A(c), and an axis-aligned box
   G that contains every gradient of f on c has a positive interval inner product with itself (the published form of
@@ -131,11 +132,17 @@ rule for a certificate (`RecordCertificateData`, `ContourGrid()`, internal). The
 - (P1) every cell satisfies Z or A+ (the published form). The weaker "Z or A" is not covered (point 5 of section
   4.3).
 - (P2) every cell of the outermost layer satisfies Z.
+- (P3) the cells are cubes up to a stated tolerance: the largest and the smallest spacing of consecutive node
+  coordinates, over all three axes, differ by a factor of at most 1 + 2^-20 (an exact comparison of doubles). The
+  published argument is for a "uniform cubic grid" and uses the shape of the cell (a dip of the surface through a
+  face cannot reach the opposite face); it tolerates a bounded aspect ratio, not an arbitrary one, and the computed
+  coordinates `origin + h * i` are equally spaced only up to rounding.
 - (M) D satisfies (H1) to (H4) of Theorem 2 of the design note (vertices strictly in their cells, manifold, no
   self-intersection, no polygon left out).
 
 **Claim (Theorem 7, on the premise PV of section 4.3).** L is a closed C1 surface in the interior of Ω, and D is
-ambient isotopic to L.
+isotopic to L, in the sense in which the premise gives an isotopy (ambient, if its deformations are read as ambient;
+section 4.3).
 
 No regularity is assumed: A(c) with p = q says grad f is not 0 on every cell that L meets, so 0 is a regular value
 near L. A lower bound of |grad f| on L and the absence of singular points are what makes the tests *pass* at a finite
@@ -145,21 +152,28 @@ resolution; they are not needed for soundness.
 
 1. **L is a closed surface.** By (P1), L lies in the A cells, where f is C1 with a gradient that does not vanish:
    L is a C1 surface (implicit function theorem). By (P2) it is compact without boundary inside Ω.
-2. **Reduction to a C1 function.** Let S be the closed set of points of Ω where f is not C1. S meets no A cell, so it
-   has a positive distance δ from their union, and its δ-neighbourhood lies in Z cells only, where |f| >= ε > 0
-   (compact cells without a zero). Replace f in a smaller neighbourhood of S by a mollified f that differs from it by
-   less than ε / 2, blended with a C1 cutoff. The new function is C1, has the same zero set and the same sign at every
-   point, and equals f on the A cells. So Z and A hold for it, with the same node signs; from here f is C1.
+2. **Reduction to a smooth function.** Let S be the closed set of points of Ω where f is not smooth (the piece
+   boundaries). S meets no A cell (one piece is strictly active on a neighbourhood of an A cell), so it has a positive
+   distance δ from their union, and its δ-neighbourhood lies in Z cells only, where |f| >= ε > 0 (compact cells without
+   a zero). Replace f in a smaller neighbourhood of S by a mollified f that differs from it by less than ε / 2, blended
+   with a smooth cutoff. The new function is smooth (away from S the old one is a single smooth piece), has the same
+   zero set and the same sign at every point, and equals f on a neighbourhood of the A cells. So Z, A+ and the node
+   signs carry over, and f can be extended beyond Ω without zeros, because its sign is constant on the connected outer
+   layer (P2): its zero set is bounded, as the premise asks. From here f is smooth.
 3. **Level set to a marching-cubes-type mesh (premise PV).** Plantinga and Vegter's statement for the regular grid K
    (their section 5): let M be the mesh with one vertex on every edge of K whose end nodes differ in sign,
    arcs on the faces, on a face with alternating signs either of the two pairings (the same for both cells), and one
-   disk per loop of arcs on a cell. Then M is ambient isotopic to L.
+   disk per loop of arcs on a cell. Then M is isotopic to L.
 4. **The contour is compatible.** By Theorem 2 with (M) and (P0), D is compatible with K ((E), (F), (C) of the design
    note, section 7.1); its pattern is the sign-changing edges and the face rule of `cell_patches` (inside corners stay
    apart).
-5. **Mesh to mesh.** Take for M the pairing of D's face rule. M is a PL surface that meets every edge of K at most
-   once, every face in arcs between edge points, and every cell in disjoint disks: it is compatible with K, with D's
-   pattern. Theorem 1 (two compatible surfaces with the same pattern are ambient isotopic): D ~ M.
+5. **Mesh to mesh.** Take for M the pairing of D's face rule (admissible: it depends on the signs of the face only,
+   so both cells agree). The paper's triangulation of a loop may touch the cell's boundary (a triangle edge between
+   two edge midpoints of one face lies in that face); push the interior of every disk slightly into its cell, an
+   isotopy that fixes the loops. M is then a closed PL surface that meets every edge of K at most once, every face in
+   arcs between edge points, and every cell in disjoint disks with their interiors inside: it is compatible with K,
+   with D's pattern, and by (P2) it avoids the outer layer, as D does. Theorem 1 (two compatible surfaces with the
+   same pattern are ambient isotopic): D ~ M.
 6. D ~ M ~ L. ∎ (sketch)
 
 What this uses and does not use, against Theorem 5: no edge test (S1), no face test (S2), no count of circles (S3);
@@ -184,7 +198,7 @@ reviewer was asked to check, and what the papers say (quotes from the 2004 text;
 | 2 | Either pairing on a face with alternating signs | **holds** | "There are two ways to connect these vertices pairwise"; "Since both choices lead to the same isotopic approximation, we can choose either of them, as long as the triangulations for both cells fit together." The authors' own choice is by direction (segments parallel to (1,1,0), (1,0,1), (0,1,1)); "cells have at most one ambiguous face" |
 | 3 | The mesh of a cell is one disk per loop | **holds on the regular grid** | Figure 7 gives the triangulation of the 9 possible corner-sign configurations (5 of the 14 are excluded by the test), each loop closed by a disk. Section 6: "we close each loop with triangles, constructing a disk for each chain of edges", except two nested loops, which occur only at a 2:1 face of the octree |
 | 4 | Function class; the surface inside the box | **holds as stated, with our reading for C1** | "smooth function", 0 a regular value, S bounded, the tree "initialized to a bounding box". The argument uses the mean value theorem and parametrizability, so C1 is what it needs; the 2007 conclusion speaks of "the set of C1-surfaces" as the class the method covers. A zero at a grid node: "considering F to be strictly positive whenever F ≥ 0", which is `DualContouring`'s rule here (inside is f < 0) |
-| 5 | Is the weaker fact A (pairwise only) enough? | **not supported** | The proof uses more than the pairwise fact: "for each cell where 0 ∈ □F(C) the surface S is parametrizable in the direction of one of the axes". The excluded configurations, the block of two cells at an ambiguous face ("Both cubes are therefore parametrizable in the vertical direction") and the removal of a closed curve on a face all rest on it. That is A+, which any inclusion function gives when its interval product excludes 0; the pairwise tightening does not give it |
+| 5 | Is the weaker fact A (pairwise only) enough? | **not supported** | The proof uses more than the pairwise fact: "for each cell where 0 ∈ □F(C) the surface S is parametrizable in the direction of one of the axes". The excluded configurations 5, 8, 12 and 14, the block of two cells at an ambiguous face ("Both cubes are therefore parametrizable in the vertical direction") and the removal of a closed curve on a face all rest on it. That is A+, which any inclusion function gives when its interval product excludes 0; the pairwise tightening does not give it |
 
 What follows for this note:
 
@@ -208,8 +222,17 @@ What follows for this note:
 - **Refined grids** (2007, section 6): the octree proof subdivides a balanced octree to a complete one in steps and
   shows that the isotopy class does not depend on the signs at the new nodes; a cell with two nested loops gets an
   annulus. This is what option 5 would have to match with `DualContouring`'s two-level grid; it is not used here.
-- **Isotopy.** The paper says "regularly isotopic", meaning "equivalent to the curve or surface under continuous
-  deformation within the embedding space", which is the ambient isotopy Theorem 1 composes with.
+- **Isotopy.** The paper says "regularly isotopic", glossed as "equivalent to the curve or surface under continuous
+  deformation within the embedding space". Its proof deforms the surface (linear interpolation along a graph
+  direction, cell by cell or in a block of cells) and does not construct an isotopy of space. Each of its moves is
+  supported in a block and extends to one, but that extension is an added argument, not the paper's text. Theorem 7
+  therefore claims an isotopy, and an ambient one only with that reading as part of the premise.
+- **The thinnest point of the premise.** Configuration 13 is excluded by looking "at the diagonal pairs" with the
+  remark that "the inner product condition does not depend on a particular coordinate system". That remark is true of
+  the pairwise fact and not of the interval test, and the pairwise fact gives no parametrizability along a diagonal.
+  "Cells have at most one ambiguous face", which the either-pairing step uses, rests on these exclusions. The
+  independent review (section 4.6) could neither prove nor refute this step; a build should carry a cell-level check
+  that a certified cell has one of the nine admitted configurations, and refuse it otherwise.
 - The papers also note that the result need not be close in Hausdorff distance and that at a singularity the
   subdivision does not terminate. On balancing the extended abstract says it "is not necessary for an isotopic
   result"; the journal version weakens that to "We believe it is not necessary".
@@ -224,24 +247,28 @@ only err towards "fail":
 
 | Where | What is computed | Why it is sound |
 |---|---|---|
-| Arithmetic | +, -, *, /, square root: round to nearest, then one unit in the last place outward on both ends (the rule of `ExactInterval`) | IEEE 754 rounds these five correctly, so the exact result is within half a unit of the computed one. No directed rounding mode and no FMA is used; a fused multiply-add would only make a result more accurate, never leave the widened interval |
+| Arithmetic | +, -, *, /, square root: round to nearest, then one unit in the last place outward on both ends (the rule of `ExactInterval`) | IEEE 754 rounds these five correctly, so the exact result is within half a unit of the computed one. No directed rounding mode is used, and every operation is rounded and widened on its own, so there is no expression a compiler could fuse into a multiply-add (the .NET JIT does not contract them either). Flush-to-zero and denormals-are-zero modes must be off (the .NET default) |
 | sin, cos | argument reduced by an integer multiple of an *interval* that contains pi / 2 (a double and its successor), then a Taylor polynomial with its Lagrange remainder, in the same arithmetic; over an interval, the hull of the two ends plus +-1 wherever a multiple test cannot exclude an extremum | no libm call, so no unspecified error and the same bits on every runtime; any integer in the reduction is sound, a bad one only widens |
 | Enclosure of f and grad f over a box | the natural interval extension of the formula | inclusion holds by induction over the operations |
 | `min` / `max` | one piece if its enclosure is strictly below (above) the other's over the box; else the hull of both and the box is marked not smooth | requirement (i) of the design note's Theorem 5: never decided from a point value. A cell is A only if no sub-box is marked: the pieces' strict regions are open and disjoint, the cell is connected, so one piece is active on all of it |
 | A square root or division at 0 | the whole line, and the box is marked not smooth | requirement (ii) |
 | Tightening | a cell is cut into 2^t sub-boxes per axis. Z: every sub-box excludes 0. A+: the hull of the sub-boxes' gradient enclosures, as one box, has a positive interval inner product with itself. A: the lower bound of the inner product is positive for **every pair** of sub-boxes (any two points lie in two of them) | the sub-boxes cover the cell exactly: their coordinates are `origin + (h / 2^t) * j`, and `(h / 2^t) * (i 2^t) = h * i` in doubles, so the breakpoints of level t contain the grid's own |
 | Node signs (P0) | the enclosure of f at the node's doubles excludes 0 (by more than 1e-30, because the contouring keeps node values as `float`) | the prototype feeds the midpoint of that enclosure to the contouring, so its sign is the certified one. A build must either take the contouring's node signs from the certified evaluation or compare them (the offset probe did the latter) |
+| Cell shape (P3) | the largest and smallest spacing of consecutive node coordinates, compared exactly | a comparison of doubles; fails for a cell size within a few million units in the last place of the coordinates, which no practical grid has |
 | Grid | cells are defined by the computed coordinates, not by ideal ones | nothing to round: the complex *is* the doubles |
 
 In one sentence: the node signs (P0) and the two cell tests are certified under outward rounding, with no dependency
 on FMA or on a rounding mode. **Range:** soundness holds over the whole double range. A subnormal result is still
-widened by one spacing (2^-1074), which encloses the exact value, as `ExactInterval` documents; an overflow gives an
-infinite bound, and a NaN the whole line, both of which fail a test. What is *not* kept outside the normal range is
+widened by one spacing (2^-1074), which encloses the exact value, as `ExactInterval` documents; an overflow gives a
+bound that is still a true bound (the largest double or infinity; a test may pass on it, soundly), and a NaN gives
+the whole line, which fails every test because the tests are written as "not (lower bound > 0)". What is *not* kept outside the normal range is
 the invariance under scaling (section 5.5), and the node values must stay inside the `float` range the contouring
 stores them in (the certificate's 1e-30 margin refuses a node below it).
 
-What the prototype does **not** establish, and a build must: (P0) is checked at the nodes of the cells that are not
-proven zero-free only (a node deep inside a zero-free region whose value is below the `float` range would be seen as
+What the prototype does **not** establish, and a build must: (P3) is not checked; the node-sign margin is right for
+iso value 0 only (`DualContouring` compares the `float` node value with `IsoValue`, so for another iso value the
+contouring's signs must be taken from, or compared with, the certified ones at every node); (P0) is checked at the
+nodes of the cells that are not proven zero-free only (a node deep inside a zero-free region whose value is below the `float` range would be seen as
 outside by the contouring; not reachable with the fields here); and (M) is read from the public flags of
 `DualContouring` only (closed, `SelfIntersectionFree`, no non-manifold triangle), not from its certificate data for
 (H1) and (H4). The `pv_certified` column is the level-set side alone; every certified run here also has a clean mesh.
@@ -276,6 +303,30 @@ certificate data of `DualContouring`); the prototype reads only the public flags
   Theorem 5 cells in one grid) is plausible (a Theorem 5 cell has no excursion through its faces) and unproven.
 - **Refined grids.** For the two-level grid the published 2:1 rules would have to be matched with `DualContouring`'s
   transitions (face and edge vertices, refine factors above 2). Not done.
+
+### 4.6 Independent review of the composition (2026-11-22)
+
+After the owner's decision to build on the published premise, a fresh agent reviewed sections 4.1 to 4.5 against the
+2004 paper and the design note's Theorems 1 and 2, without the author's reasoning. It did not have the 2007 text, so
+what section 4.3 attributes to the journal version is the author's reading alone. Verdict: no step of the composition
+fails; it holds, conditional on the paper, once four hypotheses are stated. All findings were checked by the author
+and are worked in above:
+
+| Finding | Disposition |
+|---|---|
+| The paper is for a "smooth function"; the note invoked it for C1 | step 2 now produces a smooth function (pieces smooth), so the premise is used as stated; C1-only pieces need the C1 reading |
+| "Ambient" is not what the paper states | the claim is an isotopy; ambient only with the stated reading (section 4.3) |
+| The cell shape is a hypothesis (cubes, or a bounded aspect ratio) | hypothesis (P3) with an exact check |
+| The paper's mesh may touch the cell boundary; compatibility was asserted | step 5 pushes the disks into the cells |
+| The exclusion of configuration 13 is argued with the pairwise fact | recorded as the thinnest point of the premise; a build checks the configuration of every certified cell |
+| The node-sign margin holds for iso value 0 only; (H1) and (H4) are not read by the prototype | stated in section 4.4 as duties of a build |
+| The FMA and overflow sentences were wrong as worded | reworded in section 4.4 |
+| "Bounded" needs f without zeros outside the box; the `min` / `max` row of section 1 was loose | step 2 and section 1 |
+
+What remains a premise after the review: the regular-grid argument of the paper itself (a two-page sketch, with the
+exclusion of five configurations and the either-pairing claim), its reading as an ambient isotopy, its tolerance of
+cells that are cubes only up to rounding, everything attributed to the 2007 text, and Theorems 1 and 2 as reviewed
+earlier.
 
 ## 5. Measurements
 
@@ -452,7 +503,7 @@ Verdicts of the 98 runs with a class P result (16 and 32 cells; 4 more have no u
   empty; the certificate refuses every node there (its 1e-30 margin) and certifies nothing. So the range is: every
   interval operation and the one-unit widening scale exactly while no intermediate value is subnormal or overflows
   (in the subnormal range the widening no longer scales, and the enclosure stays sound but is no longer the scaled
-  one); an overflow gives an infinite bound, which fails a test and never passes one; and node values must stay within
+  one); an overflow gives a bound that is still true (so a pass on it is sound); and node values must stay within
   the `float` range the contouring uses, with the margin above.
 - **Checks of the prototype** (`-- selftest`): 0 failures of the sin / cos enclosures at 200 000 points and
   intervals; 0 failures of value and gradient enclosures of all fields in 88 000 random boxes; 0 of 1 467 PV cells
