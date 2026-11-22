@@ -207,6 +207,11 @@ namespace MetamorphicBugHunt
                 }
                 catch (Exception e) { Program.Report(S, c, "threw " + e.GetType().Name + ": " + e.Message); }
             }
+            // the sheet's realized fraction converges to the target with the resolution (the wall is 0.7 cubes at 8 divisions)
+            foreach (int div in new[] { 8, 16, 32 }) {
+                TpmsLattice l = Lattice(TpmsType.Gyroid, TpmsStyle.Sheet, 1, box, 0.3, div); l.VerifySelfIntersections = false; l.Compute();
+                Program.Info(S, $"tpms gyroid sheet, target 0.3, divisions {div}", $"{l.Status}, fraction {l.RealizedVolumeFraction:F4}, mean wall {l.MeanWallThickness:F4}");
+            }
             // fractions across the range, thin walls included: Ok is a solid, anything else has no mesh
             foreach (double fr in new[] { 0.02, 0.05, 0.1, 0.5, 0.9, 0.98 })
             foreach (int div in new[] { 4, 8, 13 }) {

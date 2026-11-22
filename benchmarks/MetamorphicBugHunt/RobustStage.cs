@@ -12,8 +12,8 @@ namespace MetamorphicBugHunt
     /// power of two has the same level set; (3) the input scaled by 2^e far beyond 2^10: the result is the scaled result bit
     /// for bit, or a failure status (an INFO line names the first exponents where a module stops being exact; a success with
     /// another result is a finding, see findings2).
-    /// Stage findings2: H2-F1 (TpmsLattice, a domain mesh with id gaps), H2-F2 (DualContouring, a field of small values),
-    /// H2-F3 (success with a wrong result outside an undocumented range). Its FAIL lines stay until the issues are fixed.
+    /// Stage findings2: H2-F1 (#1375: TpmsLattice, a domain mesh with id gaps), H2-F2 (#1376: DualContouring, a field of small
+    /// values), H2-F3 (#1377: success with a wrong result outside an undocumented range). Its FAIL lines stay until the issues are fixed.
     /// </summary>
     public static class RobustStage
     {
@@ -55,6 +55,14 @@ namespace MetamorphicBugHunt
             return mc.Mesh;
         }
 
+        // (a field that is far from linear along a cube edge: the crossing by bisection)
+        static DMesh3 McBisection(Func<Vector3d, double> f, AxisAlignedBox3d box, double cell, double iso)
+        {
+            var mc = new MarchingCubes { Implicit = new Field { F = f, Box = box }, Bounds = box, CubeSize = cell, IsoValue = iso, RootMode = MarchingCubes.RootfindingModes.Bisection, RootModeSteps = 20 };
+            mc.Generate();
+            return mc.Mesh;
+        }
+
         static DMesh3 Dc(Func<Vector3d, double> f, AxisAlignedBox3d box, double cell, bool simplify = true, bool insideIsLess = true, double iso = 0)
         {
             var dc = new DualContouring { Implicit = new Field { F = f, Box = box }, Bounds = box, CellSize = cell, InsideIsLess = insideIsLess, Simplify = simplify, IsoValue = iso };
@@ -71,16 +79,17 @@ namespace MetamorphicBugHunt
                     DMesh3 g = Gaps(m, out Dictionary<int, int> map);
                     Program.Report(S, c + " | the gap mesh is the same clean solid", !g.IsCompact && Checks.Solid(g) == "" && Checks.Volume(g) == Checks.Volume(m) ? "" : "the helper is wrong");
                     var wa = new MeshAlphaWrap(new DMesh3(m)); wa.Compute(); var wb = new MeshAlphaWrap(g); wb.Compute();
-                    Program.Report(S, c + " | MeshAlphaWrap", wa.Status == wb.Status ? BooleanStage.SameBits(wa.Result, wb.Result, 1) : $"{wa.Status} vs {wb.Status}");
+                    Program.Report(S, c + " | MeshAlphaWrap", wa.Status == MeshAlphaWrap.WrapStatus.Success && wa.Status == wb.Status ? BooleanStage.SameBits(wa.Result, wb.Result, 1) : $"{wa.Status} vs {wb.Status}");
                     var ta = new MeshTetrahedralization(new DMesh3(m)) { RelativeAlpha = 20 }; ta.Compute(); var tb = new MeshTetrahedralization(g) { RelativeAlpha = 20 }; tb.Compute();
                     Program.Report(S, c + " | MeshTetrahedralization", ta.Status == tb.Status && tb.Result != null && ta.Result.Tets.Count == tb.Result.Tets.Count && ta.Result.Vertices.SequenceEqual(tb.Result.Vertices) ? "" : $"{ta.Status} vs {tb.Status}, or other tets");
                     var qa = new QuadRemesher(new DMesh3(m)) { TargetEdgeLength = 0.25 }; qa.Compute(); var qb = new QuadRemesher(g) { TargetEdgeLength = 0.25 }; qb.Compute();
-                    Program.Report(S, c + " | QuadRemesher", qa.Status == qb.Status ? (qb.Result == null ? "" : PolyChecks.Manifold(qb.Result, out _, out _)) : $"{qa.Status} vs {qb.Status}");
+                    // (the tube of 80 triangles is too coarse for the remesher: NoFaces for both, nothing to compare)
+                    if (name != "tube") Program.Report(S, c + " | QuadRemesher (status, a manifold polygon mesh)", qa.Status == QuadRemeshStatus.Success && qa.Status == qb.Status ? (qb.Result == null ? "" : PolyChecks.Manifold(qb.Result, out _, out _)) : $"{qa.Status} vs {qb.Status}");
                     if (qa.Status == QuadRemeshStatus.Success && qa.Result.FaceCount != qb.Result.FaceCount) Program.Info(S, c + " | QuadRemesher", $"{qb.Result.FaceCount} faces vs {qa.Result.FaceCount} (another vertex order, O3)");
                     var pin = new PassagePin(new[] { new Vector3d(0, 0, -0.8), new Vector3d(0, 0, 0.8) }, 0.2);
                     if (name == "tube") {
                         var pa = new PassageWrap(new DMesh3(m)); pa.Pins.Add(pin); pa.Compute(); var pb = new PassageWrap(g); pb.Pins.Add(pin); pb.Compute();
-                        Program.Report(S, c + " | PassageWrap", pa.Status == pb.Status ? BooleanStage.SameBits(pa.Result, pb.Result, 1) : $"{pa.Status} vs {pb.Status}");
+                        Program.Report(S, c + " | PassageWrap", pa.Status == PassageWrap.PassageStatus.Success && pa.Status == pb.Status ? BooleanStage.SameBits(pa.Result, pb.Result, 1) : $"{pa.Status} vs {pb.Status}");
                     }
                     var ra = new MeshRobustRepair(new DMesh3(m)) { AlphaWrapSharpFeatures = true }; var rb = new MeshRobustRepair(g) { AlphaWrapSharpFeatures = true };
                     bool oa = ra.Apply(), ob = rb.Apply();
@@ -93,7 +102,7 @@ namespace MetamorphicBugHunt
                     Program.Report(S, c + " | TracePath", Program.Rel("length", gb.TracePath(map[t]).Length, ga.TracePath(t).Length, 0));
                     var ha = new MeshGeodesicDistance(m); ha.Compute(new[] { s }); var hb = new MeshGeodesicDistance(g); bool hok = hb.Compute(new[] { map[s] });
                     same = hok ? "" : "Compute() false";
-                    foreach (int v in m.VertexIndices()) if (same == "" && Math.Abs(ha.Distance[v] - hb.Distance[map[v]]) > 1e-12) same = $"vertex {v}: {ha.Distance[v]:R} vs {hb.Distance[map[v]]:R}";
+                    foreach (int v in m.VertexIndices()) if (same == "" && !(Math.Abs(ha.Distance[v] - hb.Distance[map[v]]) <= 1e-12)) same = $"vertex {v}: {ha.Distance[v]:R} vs {hb.Distance[map[v]]:R}";
                     Program.Report(S, c + " | MeshGeodesicDistance", same);
                     var fa = new MeshGeodesicPath(m); fa.Compute(s, t); var fb = new MeshGeodesicPath(g); fb.Compute(map[s], map[t]);
                     Program.Report(S, c + " | MeshGeodesicPath", fa.Status == fb.Status ? Program.Rel("length", fb.Length, fa.Length, 0) : $"{fa.Status} vs {fb.Status}");
@@ -173,8 +182,9 @@ namespace MetamorphicBugHunt
                     if (r.StartsWith("exact")) { lo = Math.Min(lo, e); hi = Math.Max(hi, e); }
                     else { line.Add($"2^{e}: {r}"); if (r.StartsWith("another") || r.StartsWith("threw")) falseSuccess = true; }
                 }
-                // from 2^-100 to 2^100 every module of the hunt gives the scaled result bit for bit; DualContouring only from 2^-44
-                // (H2-F2: below it the same vertices with other quad diagonals, then an empty mesh), PassageWrap from 2^-60 on this
+                // from 2^-100 to 2^100 every module of the hunt gives the scaled result (VectorHeatMethod: up to rounding, 1e-6);
+                // DualContouring is exact at 2^-30 and not at 2^-48 (H2-F2: the same vertices with other quad diagonals, then an
+                // empty mesh), PassageWrap from 2^-60 on this
                 // input (the wrap's documented range: a nonzero coordinate of the tube, sin(pi) * 2^-100, is below 2^-128)
                 int from = name == "DualContouring" ? -30 : name == "PassageWrap" ? -60 : -100;
                 bool inside = true;
@@ -213,7 +223,7 @@ namespace MetamorphicBugHunt
             }
             // H2-F2: DualContouring loses the surface of a field whose values are small
             DMesh3 dc0 = Dc(Sdf, UnitBox, 0.125), dn0 = Dc(Sdf, UnitBox, 0.125, false), mc0 = Mc(Sdf, UnitBox, 0.125);
-            foreach (int e in new[] { -50, -52, -60, -150 }) {
+            foreach (int e in new[] { -50, -52, -60, -140, -150 }) {
                 double c = Math.Pow(2, e);
                 DMesh3 dc = Dc(p => c * Sdf(p), UnitBox, 0.125), dn = Dc(p => c * Sdf(p), UnitBox, 0.125, false), mc = Mc(p => c * Sdf(p), UnitBox, 0.125);
                 Program.Info(F, $"H2-F2 field 2^{e} x (|p| - 1)", $"MarchingCubes {mc.TriangleCount} triangles, volume {Checks.Volume(mc):R}; DualContouring {dc.TriangleCount} triangles{(dc.TriangleCount > 0 ? $", volume {Checks.Volume(dc):R}" : "")}; Simplify off {dn.TriangleCount} triangles{(dn.TriangleCount > 0 ? $", volume {Checks.Volume(dn):R}" : "")}");
@@ -225,8 +235,15 @@ namespace MetamorphicBugHunt
                 var big = new AxisAlignedBox3d(new Vector3d(-2.5, -2.5, -2.5), new Vector3d(2.5, 2.5, 2.5));
                 Func<Vector3d, double> gauss = p => Math.Exp(-40 * p.LengthSquared);
                 double r = Math.Sqrt(-Math.Log(level) / 40), volume = 4.0 / 3 * Math.PI * r * r * r;
-                DMesh3 dc = Dc(gauss, big, 0.125, true, false, level);
+                DMesh3 dc = Dc(gauss, big, 0.125, true, false, level), mc = McBisection(p => -gauss(p), big, 0.125, -level);
+                Program.Info(F, $"H2-F2 level {level:E0} of exp(-40 r^2)", $"radius {r:F4}, volume {volume:F4}; MarchingCubes {mc.TriangleCount} triangles, volume {Checks.Volume(mc):F4}; DualContouring {dc.TriangleCount} triangles{(dc.TriangleCount > 0 ? $", volume {Checks.Volume(dc):F4}" : "")}");
                 Program.Report(F, $"H2-F2 DualContouring: the level {level:E0} of exp(-40 r^2) (a sphere of radius {r:F4})", dc.TriangleCount == 0 ? "empty mesh" : Program.Rel("volume", Checks.Volume(dc), volume, 0.05));
+            }
+            foreach (double cell in new[] { 0.25, 0.125 }) {
+                double s = Math.Pow(2, -60);
+                DMesh3 a = Dc(Sdf, UnitBox, cell), b = Dc(p => s * Sdf(p / s), new AxisAlignedBox3d(UnitBox.Min * s, UnitBox.Max * s), cell * s);
+                bool sameVertices = a.VertexCount == b.VertexCount && a.VertexIndices().All(v => a.GetVertex(v) * s == b.GetVertex(v));
+                Program.Info(F, $"H2-F2 field and geometry x 2^-60, cell {cell}", $"{b.TriangleCount} triangles (unit scale {a.TriangleCount}), the same vertices: {sameVertices}, volume / s^3 {Checks.Volume(b) / s / s / s:R} against {Checks.Volume(a):R}");
             }
             // H2-F3: a success with another result outside the range a module supports (no documented range)
             foreach (var (name, run, _) in ScaleProbes()) {

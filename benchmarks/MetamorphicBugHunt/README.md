@@ -43,10 +43,10 @@ all of them together take about 75 s):
 | `mesh2d2` | `Mesh2OptionsStage.cs` | `QualityMesh2` on 5 domains x 8 option sets (`Conforming`, 33 degrees, `SizeFunction`, a Steiner limit of 5, no angle bound, `SnapTolerance`): structure (neighbours, subsegments, input points), a brute-force Delaunay test, the bounds outside `BadTriangles`, reuse, 2^k, a far copy, duplicated and shuffled points |
 | `tet` | `TetStage.cs` | `MeshTetrahedralization` on 5 inputs x 9 option sets (target edge, size function, grading, surface deviation, creases, no improve, no peeling, an invalid size function): valid tets, the boundary a clean solid around the input, the volume band, `Targets` against a recount, reuse, one thread, 2^k, permuted and flipped input, a far copy |
 | `robust` | `RobustStage.cs` | across the operations: a mesh with id gaps against its compact copy; a field times 2^k against the field; the input scaled by 2^-320 .. 2^400 (the scaled result bit for bit, or a failure status; an `INFO` line gives the measured range per operation) |
-| `findings2` | `RobustStage.cs` | the reduced cases of the second hunt: `H2-F1` (`TpmsLattice.DomainMesh` with id gaps), `H2-F2` (`DualContouring`, a field of small values), `H2-F3` (success with another result outside the measured range); they fail until the issues are fixed. `O2`, `O3` are observations |
+| `findings2` | `RobustStage.cs` | the reduced cases of the second hunt: `H2-F1` (#1375, `TpmsLattice.DomainMesh` with id gaps), `H2-F2` (#1376, `DualContouring`, a field of small values), `H2-F3` (#1377, success with another result outside the measured range); they fail until the issues are fixed. `O2`, `O3` are observations |
 
 `results/master_dcc8e5ff.txt` is the output of the run described in the first note (Linux x64, net10.0, 4 cores),
-`results/hunt2_master_57623890.txt` that of the stages of the second.
+`results/hunt2_master_42e33ebb.txt` that of the stages of the second.
 
 The independent checks (`Checks.cs`): closed and manifold from the directed edges and the vertex fans, volume and area from the
 triangles, the Euler characteristic, the winding number as a sum of solid angles (Van Oosterom and Strackee 1983), winding

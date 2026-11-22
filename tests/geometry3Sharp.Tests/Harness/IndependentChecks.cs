@@ -120,7 +120,7 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
-        /// <summary> the same vertex and triangle ids, the coordinates of x times scale equal to those of y bit for bit </summary>
+        /// <summary> the same vertex and triangle ids, the coordinates of x times scale equal to those of y (compared with ==: "bit for bit" up to the sign of a zero) </summary>
         public static string SameBits(DMesh3 x, DMesh3 y, double scale = 1)
         {
             if (x == null || y == null) return x == y ? "" : "one mesh is null";

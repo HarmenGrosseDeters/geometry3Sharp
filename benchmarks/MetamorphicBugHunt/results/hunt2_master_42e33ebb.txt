@@ -28,7 +28,7 @@ INFO io | gltf | rotated star | second round trip | float positions about anothe
 INFO io | gltf | rotated star | second write | other bytes (normals or the centre of rounded positions)
 INFO io | gltf | irrational tet | second round trip | float positions about another centre: vertex 1: -9.371138998126582E-08 199999.99913194444 0.1417098214296857 vs -9.371138975922122E-08 199999.99913194444 0.1417098214296857
 INFO io | gltf | irrational tet | second write | other bytes (normals or the centre of rounded positions)
-STAGE io | pass 1404, fail 0, slow 0 | 806 ms
+STAGE io | pass 1404, fail 0, slow 0 | 621 ms
 INFO loft | square-square | MinimumArea | start rotation 1,0 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.295520
 INFO loft | square-square | MinimumArea | start rotation 0,1 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.955336
 INFO loft | square-square | MinimumArea | start rotation 2,3 surface | another band of the same cost: triangle sets differ, first -0.29552020666133955,0.955336489125606,0 | -0.955336
@@ -46,7 +46,7 @@ INFO loft | stack ending saddle | Unsupported contour 1 of slice 0 has no counte
 INFO loft | stack = loft | hexagon-triangle | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.4110438076762642,-0.911615592
 INFO loft | stack = loft | offset circles | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.14351974958216573,0.868713976
 INFO loft | stack = loft | tilted pair | another triangulation (the caps of cocircular contours): triangle sets differ, first -0.02112997126331556,0.498447430
-STAGE loft | pass 2666, fail 0, slow 0 | 2994 ms
+STAGE loft | pass 2666, fail 0, slow 0 | 2510 ms
 INFO contour2 | torus mc | LinearEdges | throws as documented: LinearEdges requires strictly interior edge crossings
 INFO contour2 | two blobs mc | LinearEdges | throws as documented: LinearEdges requires strictly interior edge crossings
 INFO contour2 | tpms Gyroid Sheet | fraction 0.138 for a target of 0.3
@@ -62,13 +62,16 @@ INFO contour2 | tpms SchwarzD skeletal complement | low 0.3173 + high 0.6360 = 0
 INFO contour2 | tpms Neovius skeletal complement | low 0.3896 + high 0.5805 = 0.9700, levels -0.6950503442598903 0.6950503442598903
 INFO contour2 | tpms IWP skeletal complement | low 0.3377 + high 0.6394 = 0.9771, levels -0.9162533567343492 0.9162533567343492
 INFO contour2 | tpms Lidinoid skeletal complement | low 0.3163 + high 0.6159 = 0.9321, levels -0.04531714238426646 0.04531714238426646
+INFO contour2 | tpms gyroid sheet, target 0.3, divisions 8 | Ok, fraction 0.1380, mean wall 0.0437
+INFO contour2 | tpms gyroid sheet, target 0.3, divisions 16 | Ok, fraction 0.2865, mean wall 0.0899
+INFO contour2 | tpms gyroid sheet, target 0.3, divisions 32 | Ok, fraction 0.2941, mean wall 0.0890
 INFO contour2 | tpms gyroid sheet fraction 0.02 divisions 4 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.02 divisions 8 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.05 divisions 4 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.05 divisions 8 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.1 divisions 4 | ContouringFailed the lattice is empty in this domain
 INFO contour2 | tpms gyroid sheet fraction 0.1 divisions 8 | ContouringFailed the lattice is empty in this domain
-STAGE contour2 | pass 594, fail 0, slow 0 | 9373 ms
+STAGE contour2 | pass 594, fail 0, slow 0 | 9525 ms
 INFO geodesic | sphere | source 0 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | sphere | source 50 | FlipOut | 2 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | sphere | source 151 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
@@ -84,8 +87,8 @@ INFO geodesic | terrain | source 168 | FlipOut | 3 of 10 paths are locally but n
 INFO geodesic | terrain alternating | source 0 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | terrain alternating | source 143 | FlipOut | 1 of 10 paths are locally but not globally shortest (documented)
 INFO geodesic | star prism | source 0 | FlipOut | 2 of 10 paths are locally but not globally shortest (documented)
-STAGE geodesic | pass 823, fail 0, slow 0 | 2734 ms
-STAGE intrinsic | pass 602, fail 0, slow 0 | 563 ms
+STAGE geodesic | pass 823, fail 0, slow 0 | 3194 ms
+STAGE intrinsic | pass 602, fail 0, slow 0 | 677 ms
 INFO quad | sphere | default | not closed (DroppedFaces 1; documented)
 INFO quad | sphere | default | flipped | 322/329 vertices/faces vs 315/323
 INFO quad | sphere | default | far copy | 632 faces vs 2 x 323 (sides 0,0,0,57,556,15,4,0 vs 0,0,0,37,277,6,3,0)
@@ -146,73 +149,16 @@ INFO quad | open disc | pure quads | flipped | 234/212 vertices/faces vs 234/210
 INFO quad | open disc | pure quads | far copy | 419 faces vs 2 x 210 (sides 0,0,0,83,319,10,7,0 vs 0,0,0,39,163,6,2,0)
 INFO quad | open disc | pure quads | far copy | pure status FlowInfeasible vs FlowInfeasible
 INFO quad | open disc | scale and rotation, pure quads | pure-quad attempt: FlowInfeasible
-STAGE quad | pass 496, fail 0, slow 0 | 10036 ms
+STAGE quad | pass 496, fail 0, slow 0 | 9631 ms
 INFO wrap2 | passage pin wider than the hole | PinBlockedByInput pin 0: radius 0.45 is not below the input's clearance 0.3919857411351155
 INFO wrap2 | passage pin of the hole's inradius | PinBlockedByInput pin 0: radius 0.3923141121612922 is not below the input's clearance 0.3919857411351155
-INFO wrap2 | feature box alpha 1/20 offset 1/600 | permuted input | another result (184/206/5/16 vs 184/206/5/16 moves/snaps/splits/flips)
-INFO wrap2 | feature box alpha 1/20 offset 1/600 | flipped input | another result (184/206/5/16 vs 184/206/5/16 moves/snaps/splits/flips)
-INFO wrap2 | feature box alpha 1/30 offset 1/300 | permuted input | another result (152/196/0/18 vs 152/196/0/18 moves/snaps/splits/flips)
-INFO wrap2 | feature box alpha 1/30 offset 1/300 | flipped input | another result (152/196/0/18 vs 152/196/0/18 moves/snaps/splits/flips)
-INFO wrap2 | feature box alpha 1/12 offset 1/120 | permuted input | another result (31/61/5/15 vs 31/61/5/15 moves/snaps/splits/flips)
-INFO wrap2 | feature box alpha 1/12 offset 1/120 | flipped input | another result (31/61/5/15 vs 31/61/5/15 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/20 offset 1/600 | permuted input | another result (99/116/6/11 vs 99/116/6/11 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/20 offset 1/600 | flipped input | another result (99/116/6/11 vs 99/116/6/11 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/30 offset 1/300 | permuted input | another result (90/124/7/10 vs 90/124/7/10 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/30 offset 1/300 | flipped input | another result (90/124/7/10 vs 90/124/7/10 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/12 offset 1/120 | permuted input | another result (37/45/1/14 vs 37/45/1/14 moves/snaps/splits/flips)
-INFO wrap2 | feature rotated box alpha 1/12 offset 1/120 | flipped input | another result (37/45/1/14 vs 37/45/1/14 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/20 offset 1/600 | permuted input | another result (162/161/60/22 vs 162/161/60/22 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/20 offset 1/600 | flipped input | another result (162/161/60/22 vs 162/161/60/22 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/30 offset 1/300 | permuted input | another result (144/182/43/34 vs 144/182/43/34 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/30 offset 1/300 | flipped input | another result (144/182/43/34 vs 144/182/43/34 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/12 offset 1/120 | permuted input | another result (59/76/10/37 vs 59/76/10/37 moves/snaps/splits/flips)
-INFO wrap2 | feature star prism alpha 1/12 offset 1/120 | flipped input | another result (59/76/10/37 vs 59/76/10/37 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/20 offset 1/600 | permuted input | another result (169/180/17/12 vs 169/180/17/12 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/20 offset 1/600 | flipped input | another result (169/180/17/12 vs 169/180/17/12 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/30 offset 1/300 | permuted input | another result (140/201/5/12 vs 140/201/5/12 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/30 offset 1/300 | flipped input | another result (140/201/5/12 vs 140/201/5/12 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/12 offset 1/120 | permuted input | another result (32/62/7/15 vs 32/62/7/15 moves/snaps/splits/flips)
-INFO wrap2 | feature L shape alpha 1/12 offset 1/120 | flipped input | another result (32/62/7/15 vs 32/62/7/15 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/20 offset 1/600 | permuted input | another result (142/233/43/28 vs 142/233/43/28 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/20 offset 1/600 | flipped input | another result (142/233/43/28 vs 142/233/43/28 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/30 offset 1/300 | permuted input | another result (164/271/70/39 vs 164/271/70/39 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/30 offset 1/300 | flipped input | another result (164/271/70/39 vs 164/271/70/39 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/12 offset 1/120 | permuted input | another result (69/93/18/50 vs 69/93/18/50 moves/snaps/splits/flips)
-INFO wrap2 | feature tube alpha 1/12 offset 1/120 | flipped input | another result (69/93/18/50 vs 69/93/18/50 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/20 offset 1/600 | permuted input | another result (194/61/246/9 vs 194/61/246/9 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/20 offset 1/600 | flipped input | another result (194/61/246/9 vs 194/61/246/9 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/30 offset 1/300 | permuted input | another result (125/91/83/7 vs 125/91/83/7 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/30 offset 1/300 | flipped input | another result (125/91/83/7 vs 125/91/83/7 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/12 offset 1/120 | permuted input | another result (48/33/42/6 vs 48/33/42/6 moves/snaps/splits/flips)
-INFO wrap2 | feature tet alpha 1/12 offset 1/120 | flipped input | another result (48/33/42/6 vs 48/33/42/6 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/20 offset 1/600 | permuted input | another result (150/159/8/15 vs 150/159/8/15 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/20 offset 1/600 | flipped input | another result (150/159/8/15 vs 150/159/8/15 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/30 offset 1/300 | permuted input | another result (146/212/5/25 vs 146/212/5/25 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/30 offset 1/300 | flipped input | another result (146/212/5/25 vs 146/212/5/25 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/12 offset 1/120 | permuted input | another result (66/79/0/29 vs 66/79/0/29 moves/snaps/splits/flips)
-INFO wrap2 | feature two boxes alpha 1/12 offset 1/120 | flipped input | another result (66/79/0/29 vs 66/79/0/29 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/20 offset 1/600 | permuted input | another result (187/183/4/13 vs 187/183/4/13 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/20 offset 1/600 | flipped input | another result (187/183/4/13 vs 187/183/4/13 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/30 offset 1/300 | permuted input | another result (249/238/280/37 vs 249/238/280/37 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/30 offset 1/300 | flipped input | another result (249/238/280/37 vs 249/238/280/37 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/12 offset 1/120 | permuted input | another result (39/60/7/7 vs 39/60/7/7 moves/snaps/splits/flips)
-INFO wrap2 | feature open box alpha 1/12 offset 1/120 | flipped input | another result (39/60/7/7 vs 39/60/7/7 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/20 offset 1/600 | permuted input | another result (65/93/0/0 vs 65/93/0/0 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/20 offset 1/600 | flipped input | another result (65/93/0/0 vs 65/93/0/0 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/30 offset 1/300 | permuted input | another result (94/113/1/0 vs 94/113/1/0 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/30 offset 1/300 | flipped input | another result (94/113/1/0 vs 94/113/1/0 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/12 offset 1/120 | permuted input | another result (36/52/0/3 vs 36/52/0/4 moves/snaps/splits/flips)
-INFO wrap2 | feature cylinder alpha 1/12 offset 1/120 | flipped input | another result (36/52/0/3 vs 36/52/0/4 moves/snaps/splits/flips)
-INFO wrap2 | feature thin plate alpha 1/20 offset 1/600 | permuted input | another result (130/135/8/40 vs 130/135/8/40 moves/snaps/splits/flips)
-INFO wrap2 | feature thin plate alpha 1/20 offset 1/600 | flipped input | another result (130/135/8/40 vs 130/135/8/40 moves/snaps/splits/flips)
-INFO wrap2 | feature thin plate alpha 1/30 offset 1/300 | permuted input | another result (98/148/0/43 vs 98/148/0/43 moves/snaps/splits/flips)
-INFO wrap2 | feature thin plate alpha 1/30 offset 1/300 | flipped input | another result (98/148/0/43 vs 98/148/0/43 moves/snaps/splits/flips)
+INFO wrap2 | feature pass | permuted or flipped input | 58 of 60 runs give another mesh than the input as generated (every guarantee holds for each)
 INFO wrap2 | option sphere | point limit 300 | PointLimitReached
 INFO wrap2 | option tube | point limit 300 | PointLimitReached
 INFO wrap2 | option star | point limit 300 | PointLimitReached
 INFO wrap2 | option soup | point limit 300 | PointLimitReached
 INFO wrap2 | option plate | point limit 300 | PointLimitReached
-STAGE wrap2 | pass 1550, fail 0, slow 0 | 20424 ms
+STAGE wrap2 | pass 1550, fail 0, slow 0 | 21649 ms
 INFO mesh2d2 | square | steiner limit 5 | Steiner limit reached
 INFO mesh2d2 | square | steiner limit 5 | 2 bad triangles of 8
 INFO mesh2d2 | star | conforming 25 | shuffled points | 154 vs 150 triangles
@@ -234,10 +180,10 @@ INFO mesh2d2 | thin wedge | size function | 13 bad triangles of 42
 INFO mesh2d2 | thin wedge | steiner limit 5 | Steiner limit reached
 INFO mesh2d2 | thin wedge | steiner limit 5 | 6 bad triangles of 6
 INFO mesh2d2 | thin wedge | snap | 1 bad triangles of 1
-STAGE mesh2d2 | pass 575, fail 0, slow 0 | 321 ms
+STAGE mesh2d2 | pass 575, fail 0, slow 0 | 414 ms
 INFO tet | sphere | no improve | dihedral floor not met: 7.72 degrees (reported)
 INFO tet | soup | no improve | dihedral floor not met: 5.99 degrees (reported)
-STAGE tet | pass 721, fail 0, slow 0 | 22701 ms
+STAGE tet | pass 721, fail 0, slow 0 | 24881 ms
 INFO robust | scale 2^e | MeshAlphaWrap | exact from 2^-100 to 2^100; outside: 2^-320: status InvalidInput, 2^-280: status InvalidInput, 2^-260: status InvalidInput, 2^-240: status InvalidInput, 2^-200: status InvalidInput, 2^-150: status InvalidInput, 2^-140: status InvalidInput, 2^200: status InvalidInput, 2^250: status InvalidInput, 2^260: status InvalidInput, 2^300: status InvalidInput, 2^400: status InvalidInput
 INFO robust | scale 2^e | MeshTetrahedralization | exact from 2^-100 to 2^100; outside: 2^-320: status WrapFailed, 2^-280: status WrapFailed, 2^-260: status WrapFailed, 2^-240: status WrapFailed, 2^-200: status WrapFailed, 2^-150: status WrapFailed, 2^-140: status WrapFailed, 2^200: status WrapFailed, 2^250: status WrapFailed, 2^260: status WrapFailed, 2^300: status WrapFailed, 2^400: status WrapFailed
 INFO robust | scale 2^e | PassageWrap | exact from 2^-60 to 2^100; outside: 2^-320: status InvalidInput, 2^-280: status InvalidInput, 2^-260: status InvalidInput, 2^-240: status InvalidInput, 2^-200: status InvalidInput, 2^-150: status InvalidInput, 2^-140: status InvalidInput, 2^-100: status InvalidInput, 2^200: status InvalidInput, 2^250: status InvalidInput, 2^260: status InvalidInput, 2^300: status InvalidInput, 2^400: status InvalidInput
@@ -252,7 +198,7 @@ INFO robust | scale 2^e | DualContouring | exact from 2^-30 to 2^260; outside: 2
 INFO robust | scale 2^e | TpmsLattice | exact from 2^-320 to 2^400
 INFO robust | scale 2^e | ContourLoft | exact from 2^-320 to 2^200; outside: 2^250: status CapFailed, 2^260: status CapFailed, 2^300: status CapFailed, 2^400: status CapFailed
 INFO robust | scale 2^e | QualityMesh2 | exact from 2^-320 to 2^200; outside: 2^250: status ArgumentException, 2^260: status ArgumentException, 2^300: status ArgumentException, 2^400: status ArgumentException
-STAGE robust | pass 58, fail 0, slow 0 | 2905 ms
+STAGE robust | pass 57, fail 0, slow 0 | 3392 ms
 INFO findings2 | H2-F1 box domain with vertex ids 1..8, removed vertex at 0.00000000 0.00000000 0.00000000 | domain clean '', volume 8; lattice Ok, 22648 triangles, volume 1.5569095922592329, bounds x[-0.96900419,0.99992174] y[-0.99992174,0.96900419] z[-0.99992174,0.96900419]; compact domain: 43216 triangles, volume 3.860908571064577
 FAIL findings2 | H2-F1 TpmsLattice: a domain mesh with an id gap (removed vertex at 0.00000000 0.00000000 0.00000000) gives the lattice of its compact copy | 21120 vertices / 43216 triangles vs 11296 / 22648
 INFO findings2 | H2-F1 box domain with vertex ids 1..8, removed vertex at 3.00000000 0.00000000 0.00000000 | domain clean '', volume 8; lattice Ok, 18336 triangles, volume 1.0012731644543098, bounds x[-0.96900419,2.84458518] y[-0.99992174,0.98322890] z[-0.99992174,0.96900419]; compact domain: 43216 triangles, volume 3.860908571064577
@@ -264,10 +210,17 @@ FAIL findings2 | H2-F2 DualContouring, Simplify off: field x 2^-52 has the same 
 INFO findings2 | H2-F2 field 2^-60 x (|p| - 1) | MarchingCubes 2404 triangles, volume 4.150016278936983; DualContouring 0 triangles; Simplify off 2408 triangles, volume 4.126168619191669
 FAIL findings2 | H2-F2 DualContouring: field x 2^-60 has the same level set | 254 vertices / 504 triangles vs 1 / 0
 FAIL findings2 | H2-F2 DualContouring, Simplify off: field x 2^-60 has the same level set | vertex 0 differs: -0.03532484 -0.38387894 -0.88056275 vs -0.03515406 -0.38292698 -0.87812827
+INFO findings2 | H2-F2 field 2^-140 x (|p| - 1) | MarchingCubes 2404 triangles, volume 4.150016278936983; DualContouring 0 triangles; Simplify off 2408 triangles, volume 4.121729714542671
+FAIL findings2 | H2-F2 DualContouring: field x 2^-140 has the same level set | 254 vertices / 504 triangles vs 1 / 0
+FAIL findings2 | H2-F2 DualContouring, Simplify off: field x 2^-140 has the same level set | vertex 0 differs: -0.03532484 -0.38387894 -0.88056275 vs -0.03515406 -0.38292698 -0.87812827
 INFO findings2 | H2-F2 field 2^-150 x (|p| - 1) | MarchingCubes 2404 triangles, volume 4.150016278936983; DualContouring 0 triangles; Simplify off 0 triangles
 FAIL findings2 | H2-F2 DualContouring: field x 2^-150 has the same level set | 254 vertices / 504 triangles vs 0 / 0
 FAIL findings2 | H2-F2 DualContouring, Simplify off: field x 2^-150 has the same level set | 1206 vertices / 2408 triangles vs 0 / 0
+INFO findings2 | H2-F2 level 1E-010 of exp(-40 r^2) | radius 0.7587, volume 1.8295; MarchingCubes 1352 triangles, volume 1.8057; DualContouring 276 triangles, volume 1.8232
+INFO findings2 | H2-F2 level 1E-030 of exp(-40 r^2) | radius 1.3141, volume 9.5061; MarchingCubes 4184 triangles, volume 9.4647; DualContouring 0 triangles
 FAIL findings2 | H2-F2 DualContouring: the level 1E-030 of exp(-40 r^2) (a sphere of radius 1.3141) | empty mesh
+INFO findings2 | H2-F2 field and geometry x 2^-60, cell 0.25 | 132 triangles (unit scale 132), the same vertices: True, volume / s^3 4.180357594107706 against 4.187531634104719
+INFO findings2 | H2-F2 field and geometry x 2^-60, cell 0.125 | 504 triangles (unit scale 504), the same vertices: True, volume / s^3 4.184664281915523 against 4.18688935804509
 FAIL findings2 | H2-F3 QuadRemesher at 2^-260: the scaled result or a failure status | another result
 FAIL findings2 | H2-F3 PolyhedralGeodesicDistance at 2^-260: the scaled result or a failure status | another result (-4.9E-011 relative)
 FAIL findings2 | H2-F3 PolyhedralGeodesicDistance at 2^260: the scaled result or a failure status | another result (1.6E-003 relative)
@@ -302,5 +255,5 @@ INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, as generated |
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, permuted (seed 9) | Success, 196 faces (area / edge^2 = 208), DroppedFaces 0
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, permuted (seed 10) | Success, 185 faces (area / edge^2 = 208), DroppedFaces 1
 INFO findings2 | O3 quad remesher, gridded box, target edge 0.25, flipped | Success, 143 faces (area / edge^2 = 208), DroppedFaces 11
-STAGE findings2 | pass 7, fail 35, slow 0 | 2299 ms
-TOTAL pass 9496, fail 35, slow 0
+STAGE findings2 | pass 8, fail 37, slow 0 | 2548 ms
+TOTAL pass 9496, fail 37, slow 0

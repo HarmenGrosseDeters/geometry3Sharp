@@ -69,7 +69,7 @@ namespace MetamorphicBugHunt
                     Func<DMesh3, double, MeshTetrahedralization> run = (m, s) => { var t = new MeshTetrahedralization(new DMesh3(m, true)) { RelativeAlpha = 20, RelativeOffset = 300 }; opt(t, s); t.Compute(); return t; };
                     MeshTetrahedralization tet = Program.Timed(() => run(input, 1), out long ms);
                     Program.Report(S, c + " | time", "", ms);
-                    if (tet.Status != MeshTetrahedralization.TetStatus.Success) { Program.Info(S, c, $"{tet.Status} wrap {tet.WrapStatus}"); if (tet.Result == null) continue; }
+                    if (tet.Status != MeshTetrahedralization.TetStatus.Success) { Program.Report(S, c + " | status", $"{tet.Status} wrap {tet.WrapStatus}"); if (tet.Result == null) continue; }
                     string valid = TetChecks.Valid(tet.Result, out double vol, out DMesh3 boundary);
                     Program.Report(S, c + " | valid", valid);
                     if (boundary == null) continue;

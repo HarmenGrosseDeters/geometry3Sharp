@@ -150,7 +150,7 @@ namespace MetamorphicBugHunt
                         QualityMesh2 q = make(1);
                         ConstrainedTriangulation2Result r = Program.Timed(() => q.Compute(input), out long ms);
                         Program.Report(S, c + " | time", "", ms);
-                        if (r.Status != Triangulation2Status.Success) { Program.Info(S, c, $"{r.Status} {r.FailureKind} {r.FailureDetail}"); continue; }
+                        if (r.Status != Triangulation2Status.Success) { Program.Report(S, c + " | status", $"{r.Status} {r.FailureKind} {r.FailureDetail}"); continue; }
                         ConstrainedMesh2 m = r.Mesh;
                         bool snap = on == "snap";
                         bool limit = m.SteinerLimitReached;

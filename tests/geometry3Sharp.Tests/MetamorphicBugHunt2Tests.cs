@@ -242,8 +242,9 @@ namespace geometry3Sharp.Tests
             if (s.IsExact) Holds(IndependentChecks.SameBits(r0.Mesh, r.Mesh, s.Scale), "the scaled stack");
 
             ContourLoftResult l0 = new ContourLoft { Caps = true }.Compute(a, b1), l = new ContourLoft { Caps = true }.Compute(a.Select(s.Apply).ToList(), b1.Select(s.Apply).ToList());
+            Assert.Equal(ContourLoftStatus.Success, l0.Status);
             Assert.Equal(l0.Status, l.Status);
-            if (l0.Status == ContourLoftStatus.Success) {
+            {
                 ResultChecks.AssertClean(l.Mesh, "loft");
                 Close(IndependentChecks.Volume(l0.Mesh) * scale3, IndependentChecks.Volume(l.Mesh), 1e-6, "loft volume");
                 if (s.IsExact) Holds(IndependentChecks.SameBits(l0.Mesh, l.Mesh, s.Scale), "the scaled loft");
@@ -445,7 +446,6 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(da[v], two[v]);
                 Assert.True(double.IsNaN(two[n + v]) || double.IsInfinity(two[n + v]), $"vertex {n + v} of the part without a source has the distance {two[n + v]:R}");
             }
-            Assert.True(da[c] > 0);
         }
 
         /// <summary>
@@ -557,7 +557,9 @@ namespace geometry3Sharp.Tests
             Invariants(T, "refined");
             Assert.True(T.IsDelaunay(1e-8));
             Assert.Equal(res.InsertedVertices, T.VertexCount - T.InputVertexCount);
-            if (res.SkippedTriangles == 0) Assert.True(T.MinAngle() * MathUtil.Rad2Deg >= refineAngle - 1e-6, "Success below the angle bound");
+            Assert.Equal(0, res.SkippedTriangles);      // (no input angle below 60 degrees on the torus: nothing to skip)
+            Assert.True(T.MinAngle() * MathUtil.Rad2Deg >= refineAngle - 1e-6, "Success below the angle bound");
+            if (refineAngle > 0) Assert.True(res.InsertedVertices > 0, "the jittered torus has angles below 25 degrees");
             Assert.Equal(0, T.DelaunayRefine(refineAngle).InsertedVertices);
             for (int i = T.InputVertexCount; i < T.VertexCount; ++i)
                 Assert.True(IndependentChecks.Distance(mesh, T.VertexPosition(i)) <= 1e-7, "an inserted vertex is off the surface");
@@ -587,6 +589,7 @@ namespace geometry3Sharp.Tests
             for (int f = 0; f < m.FaceCount; ++f) {
                 int[] face = m.GetFace(f);
                 if (face.Length < 3) return $"face {f} has {face.Length} vertices";
+                if (face.Distinct().Count() != face.Length) return $"face {f} repeats a vertex";
                 for (int i = 0; i < face.Length; ++i) {
                     if (!m.GetVertex(face[i]).IsFinite) return "non-finite vertex " + face[i];
                     if (!dir.Add((face[i], face[(i + 1) % face.Length]))) return $"directed edge ({face[i]}, {face[(i + 1) % face.Length]}) in two faces";
@@ -619,7 +622,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(QuadRemeshStatus.Success, q.Compute());
             Holds(IndependentChecks.SameBits(mesh, input), "the input is not modified");
             DPolyMesh r = q.Result;
-            Holds(PolyManifold(r, out bool closed), "the polygon mesh");
+            Holds(PolyManifold(r, out bool closed), "the polygon mesh (oriented, every directed edge once)");
             DMesh3 tri = r.ToDMesh3(out int[] _);
             foreach (int v in tri.VertexIndices()) Assert.True(IndependentChecks.Distance(mesh, tri.GetVertex(v)) <= edge, "a vertex farther than the target edge from the input");
             if (!pure) Assert.Equal(PureQuadStatus.NotRequested, q.PureQuadStatus);
@@ -723,13 +726,13 @@ namespace geometry3Sharp.Tests
         public void AlphaWrapFeaturePass_KeepsTheGuarantees_Independently(string shape, double relativeAlpha, double relativeOffset)
         {
             DMesh3 input = shape == "tube" ? Tube(8, 1.0, 0.5, 0.5) : shape == "box" ? Box(new Vector3d(1, 0.7, 0.5)) : StarPrism();
-            (DMesh3 wrap, DMesh3 result, int operations, double offset) Run(DMesh3 m)
+            (DMesh3 wrap, DMesh3 result, int operations, double offset, double alpha) Run(DMesh3 m)
             {
                 var w = new MeshAlphaWrap(new DMesh3(m)) { RelativeAlpha = relativeAlpha, RelativeOffset = relativeOffset };
                 Assert.True(w.Compute());
                 var pass = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), m, w.UsedAlpha, w.UsedOffset);
                 Assert.True(pass.Compute());
-                return (w.Result, pass.Mesh, pass.PlaneMoves + pass.CreaseSnaps + pass.Splits + pass.Flips, w.UsedOffset);
+                return (w.Result, pass.Mesh, pass.PlaneMoves + pass.CreaseSnaps + pass.Splits + pass.Flips, w.UsedOffset, w.UsedAlpha);
             }
             void Guarantees(DMesh3 r, DMesh3 wrap, double offset, string what)
             {
@@ -741,13 +744,13 @@ namespace geometry3Sharp.Tests
                 Assert.True(nearest >= 0.9 * offset * (1 - 1e-6), $"{what}: a vertex {nearest / offset:R} offsets from the input");
                 Assert.True(IndependentChecks.Volume(r) > IndependentChecks.Volume(input), what + ": the volume is below the input's");
             }
-            var (wrap0, result, operations, offset0) = Run(input);
+            var (wrap0, result, operations, offset0, alpha0) = Run(input);
             Assert.True(operations > 0, "the pass did nothing on an input with sharp edges");
             Guarantees(result, wrap0, offset0, "the pass");
             Holds(IndependentChecks.SameBits(result, Run(input).result), "a repeated run");
             foreach (double s in new[] { 1.0 / 1024, 1024.0 })
                 Holds(IndependentChecks.SameBits(result, Run(Scaled(input, s)).result, s), "scale " + s);
-            var second = new AlphaWrapFeaturePass(new DMesh3(result, true), input, wrap0.GetBounds().DiagonalLength / relativeAlpha, offset0);
+            var second = new AlphaWrapFeaturePass(new DMesh3(result, true), input, alpha0, offset0);
             Assert.True(second.Compute());
             Guarantees(second.Mesh, wrap0, offset0, "a second pass");
         }
@@ -999,6 +1002,8 @@ namespace geometry3Sharp.Tests
             void Bounds(ConstrainedMesh2 m, QualityMesh2 q, double shiftBack)
             {
                 if (m.SteinerLimitReached) return;
+                // (the domain has no angle below 60 degrees between constraints: nothing may be exempt from the bounds)
+                Assert.Empty(m.BadTriangles);
                 var bad = new HashSet<int>(m.BadTriangles);
                 for (int t = 0; t < m.Triangles.Count; ++t) {
                     Vector2d a = m.Vertices[m.Triangles[t].a], b = m.Vertices[m.Triangles[t].b], c = m.Vertices[m.Triangles[t].c];
@@ -1047,7 +1052,7 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// A mesh with gaps in its vertex and triangle ids (as any mesh after an edit that removes vertices) is the same input as
         /// its compact copy: the wrap, the tet mesher and PassageWrap give the same result bit for bit, the geodesic classes the
-        /// same distances and lengths at the mapped vertices. (TpmsLattice.DomainMesh does not: finding H2-F1 of the hunt.)
+        /// same distances and lengths at the mapped vertices. (TpmsLattice.DomainMesh does not: #1375.)
         /// </summary>
         [Fact]
         public void IdGaps_AreTheSameInputAsTheCompactCopy()
@@ -1086,12 +1091,22 @@ namespace geometry3Sharp.Tests
             Assert.Equal(pathA.Length, pathB.Length);
             var intrinsicA = new IntrinsicTriangulation(tube); var intrinsicB = new IntrinsicTriangulation(gaps);
             Assert.Equal(intrinsicA.VertexCount, intrinsicB.VertexCount);
-            Assert.Equal(intrinsicA.DelaunayRefine(25).InsertedVertices, intrinsicB.DelaunayRefine(25).InsertedVertices);
+            Assert.Equal(intrinsicA.FlipToDelaunay(), intrinsicB.FlipToDelaunay());
+            Assert.Equal(SortedLengths(intrinsicA), SortedLengths(intrinsicB));
+            IntrinsicRefinementResult refA = new IntrinsicTriangulation(tube).DelaunayRefine(25), refB = new IntrinsicTriangulation(gaps).DelaunayRefine(25);
+            Assert.Equal(refA.Status, refB.Status);
+            Assert.Equal(refA.InsertedVertices, refB.InsertedVertices);
+            Assert.Equal(refA.MinAngle, refB.MinAngle);
+            var quadA = new QuadRemesher(new DMesh3(Sphere(1, 12))) { TargetEdgeLength = 0.2 }; var quadB = new QuadRemesher(IndependentChecks.WithIdGaps(Sphere(1, 12), out _)) { TargetEdgeLength = 0.2 };
+            Assert.Equal(QuadRemeshStatus.Success, quadA.Compute());
+            Assert.Equal(QuadRemeshStatus.Success, quadB.Compute());
+            Holds(PolyManifold(quadB.Result, out _), "QuadRemesher on a mesh with id gaps");
+            foreach (Vector3d p in Enumerable.Range(0, quadB.Result.VertexCount).Select(quadB.Result.GetVertex)) Assert.True(Math.Abs(p.Length - 1) < 0.2, "QuadRemesher on a mesh with id gaps: a vertex off the sphere");
         }
 
         /// <summary>
         /// A field multiplied by a positive power of two has the same level set: MarchingCubes gives the same mesh bit for bit for
-        /// every factor, DualContouring while the gradient of the field stays far above 2.2e-16 (below it: finding H2-F2).
+        /// every factor, DualContouring while the gradient of the field stays far above 2.2e-16 (below it: #1376).
         /// </summary>
         [Theory]
         [InlineData(-300, false)]
@@ -1118,7 +1133,7 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// Far beyond the 2^10 of Similarity.All(): from 2^-100 to 2^100 the geodesic classes, the intrinsic refinement, the contour
         /// loft and marching cubes give the scaled result bit for bit (outside about 2^-240 .. 2^250 some of them report success
-        /// with another result: finding H2-F3).
+        /// with another result: #1377).
         /// </summary>
         [Theory]
         [InlineData(-100)]

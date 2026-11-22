@@ -102,7 +102,7 @@ namespace MetamorphicBugHunt
                         QuadRemeshStatus st = Program.Timed(() => q.Compute(), out long ms);
                         Program.Report(S, c + " | time", "", ms);
                         Program.Report(S, c + " | input not modified", SameBits(input, mesh) ? "" : "the input mesh was changed");
-                        if (st != QuadRemeshStatus.Success) { Program.Info(S, c, $"{st} {q.FieldStatus} {q.Error}"); continue; }
+                        if (st != QuadRemeshStatus.Success) { Program.Report(S, c + " | status", $"{st} {q.FieldStatus} {q.Error}"); continue; }
                         DPolyMesh r = q.Result;
                         if (on == "default") stage2 = r;
                         Program.Report(S, c + " | polygon mesh", PolyChecks.Manifold(r, out bool closed, out int euler));

@@ -83,7 +83,7 @@ namespace MetamorphicBugHunt
                     PassageWrap pw = Passage(new DMesh3(mesh), pins, opt);
                     bool ok = Program.Timed(() => pw.Compute(), out long ms);
                     Program.Report(S, c + " | time", "", ms);
-                    if (pw.Status != PassageWrap.PassageStatus.Success) { Program.Info(S, c, $"{pw.Status} {pw.Error} wrap {pw.WrapStatus}"); Program.Report(S, c + " | no claimed pass", pw.AllPassed && pw.Status != PassageWrap.PassageStatus.Success ? "AllPassed with " + pw.Status : ""); continue; }
+                    if (pw.Status != PassageWrap.PassageStatus.Success) { Program.Report(S, c + " | status", $"{pw.Status} {pw.Error} wrap {pw.WrapStatus}"); continue; }
                     DMesh3 r = pw.Result;
                     Program.Report(S, c + " | AllPassed", pw.AllPassed ? "" : "Success without AllPassed");
                     Program.Report(S, c + " | solid", Checks.Solid(r));
@@ -186,6 +186,8 @@ namespace MetamorphicBugHunt
             return m;
         }
 
+        static int OtherResults;
+
         static void Features()
         {
             if (FeatureType == null) { Program.Report(S, "feature pass", "the type AlphaWrapFeaturePass was not found"); return; }
@@ -242,7 +244,7 @@ namespace MetamorphicBugHunt
                         Program.Report(S, c + " | " + vn + " solid", Checks.Solid(fv.Mesh));
                         Program.Report(S, c + " | " + vn + " input inside", ChainStage.InputInside(input, fv.Mesh));
                         string same = BooleanStage.SameBits(r, fv.Mesh, 1);
-                        if (same != "") Program.Info(S, c + " | " + vn, $"another result ({fv.PlaneMoves}/{fv.CreaseSnaps}/{fv.Splits}/{fv.Flips} vs {f.PlaneMoves}/{f.CreaseSnaps}/{f.Splits}/{f.Flips} moves/snaps/splits/flips)");
+                        if (same != "") ++OtherResults;   // (ties of the nearest input triangle: another result of the same guarantees; counted, one INFO line at the end)
                     }
                 }
                 catch (Exception e) { Exception x = e.InnerException ?? e; Program.Report(S, c, "threw " + x.GetType().Name + ": " + x.Message + " at " + (x.StackTrace ?? "").Split('\n').FirstOrDefault()); }
@@ -250,6 +252,8 @@ namespace MetamorphicBugHunt
         }
 
         static DMesh3 Flipped(DMesh3 m) { var f = new DMesh3(m); f.ReverseOrientation(); return f; }
+
+        static void FeatureSummary() => Program.Info(S, "feature pass | permuted or flipped input", $"{OtherResults} of 60 runs give another mesh than the input as generated (every guarantee holds for each)");
 
         // ---- options of MeshAlphaWrap ----
 
@@ -280,7 +284,7 @@ namespace MetamorphicBugHunt
                     MeshAlphaWrap w0 = Program.Timed(() => run(input, 1), out long ms);
                     Program.Report(S, c + " | time", "", ms);
                     bool limit = w0.Status == MeshAlphaWrap.WrapStatus.PointLimitReached;
-                    if (w0.Status != MeshAlphaWrap.WrapStatus.Success && !limit) { Program.Info(S, c, $"{w0.Status} {w0.Error}"); continue; }
+                    if (w0.Status != MeshAlphaWrap.WrapStatus.Success && !limit) { Program.Report(S, c + " | status", $"{w0.Status} {w0.Error}"); continue; }
                     if (limit) Program.Info(S, c, "PointLimitReached");
                     Program.Report(S, c + " | solid", Checks.Solid(w0.Result));
                     Program.Report(S, c + " | input inside", ChainStage.InputInside(input, w0.Result));
@@ -314,6 +318,7 @@ namespace MetamorphicBugHunt
         {
             Passages();
             Features();
+            FeatureSummary();
             Options();
         }
     }
