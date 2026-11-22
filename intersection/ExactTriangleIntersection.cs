@@ -394,9 +394,17 @@ namespace g3
             return ExactPredicates.Orient2d(s, p, x) > 0 && ExactPredicates.Orient2d(s, x, q) > 0;
         }
 
-        static bool same_ray(Vector2d s, Vector2d a, Vector2d b)
+        // do a and b lie on one ray from s (a != s, b != s, s, a, b collinear)? Orient2d is exact; for collinear s, a, b the
+        // vectors a - s and b - s are parallel, so they point the same way iff the signs of their components agree, and
+        // the sign of a coordinate difference is an exact comparison. (The sign of the double dot product (a - s) . (b - s)
+        // is not: its products underflow to 0 near 1e-170 and overflow near 1e154, #1349.) For a = s there is no ray: false.
+        internal static bool same_ray(Vector2d s, Vector2d a, Vector2d b)
         {
-            return ExactPredicates.Orient2d(s, a, b) == 0 && (a - s).Dot(b - s) > 0;
+            if (ExactPredicates.Orient2d(s, a, b) != 0)
+                return false;
+            if (a.x == s.x && a.y == s.y)
+                return false;
+            return a.x.CompareTo(s.x) == b.x.CompareTo(s.x) && a.y.CompareTo(s.y) == b.y.CompareTo(s.y);
         }
 
 
