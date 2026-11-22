@@ -11,10 +11,10 @@ under [AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md).
 - [UNTAPPED_SCIENCE_GEOMETRY_2026-11.md](UNTAPPED_SCIENCE_GEOMETRY_2026-11.md) (#1299) went **field first**: it scanned
   mathematics, physics, biology and chemistry for unused ideas and ranked them by ROI.
 - This note goes **problem first, structure second, field third**. It takes the open problems of the library as they
-  stand on 2026-11-21 ([OPEN_TOPICS.md](../OPEN_TOPICS.md) sections 1, 5 and 6, the hard problems HP 1 to 11 of
+  stand on 2026-11-21 ([OPEN_TOPICS.md](../OPEN_TOPICS.md) sections 1, 5 and 6, the list of hard problems (items 1 to 14) of
   [roadmap/research.md](../roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), the open issues), names the
   mathematical structure under each one, and asks which field solves *that structure* as routine work. The fields
-  searched are the ones #1299 did not cover: satisfiability and constraint solving, operations research, radar
+  searched are the ones #1299 did not cover: satisfiability and constraint solving, operations research, theoretical computer science (Laplacian solvers), radar
   interferometry and geodesy, spatial databases, formal methods and computer-assisted proof, coding theory and
   cryptography, N-body physics, adaptive mesh refinement, performance engineering.
 
@@ -22,7 +22,7 @@ Nothing of #1299 is repeated. Where a finding touches one of its items (the shea
 inverse Cholesky, the sum-of-squares verdict) the text says so and adds only what is new.
 
 The main result is uncomfortable for a "transfer" note and is stated first: **most cross-field candidates die on
-numbers the repository already has.** Section 6 lists twelve of them with the measurement that kills each; one of them was on this note's own shortlist
+numbers the repository already has.** Section 6 lists twelve closed candidates: five closed by a measurement the repository holds, six by an argument, one already in use. One of them was on this note's own shortlist
 until step 6 of the method found the measurement that had already closed it. What
 survives is a short list in which the transfer is small, the upper bound is a measurement of hours, and the problem is
 one the library has today.
@@ -42,7 +42,7 @@ Labels for a source:
 - **[M]**: cited from memory; not re-checked in this session. A spike that builds on an [M] source checks it first.
 
 No paper was read in full for this note, and no code of any external project was opened. Every statement about a paper
-is therefore at abstract level; a spike reads the primary paper before it builds on it
+is therefore at abstract level (one, in 5.5, is from a paper's conclusions); a spike reads the primary paper before it builds on it
 ([CLAUDE.md](../../CLAUDE.md), licences). Where a reference implementation is named, its licence is the one I
 believe it carries and is marked "re-check"; none is proposed for porting. Numbers about this library are quoted from
 the linked notes, not measured again.
@@ -82,16 +82,16 @@ One row per open problem. "Where it stops" quotes the linked note. The last colu
 | | Problem | Where it stops today | Structure | Fields that solve the structure routinely | Result |
 |---|---|---|---|---|---|
 | Q | Pure quads, stage 3B: fallback in 54 % ([QUAD_REMESHING.md](../design/QUAD_REMESHING.md) 4.4) | 26 of the 29 fallbacks end as `BudgetExceeded`; the local repair is a DPLL search with chronological backtracking and no learning under a budget of 300k decisions | a backtracking search over "exactly one" groups that exhausts its budget | SAT solving (conflict-driven clause learning, restarts) | 5.1 |
-| Q' | Position-field integer offsets (3B flow; "flow on the size field" follow-up) | the flow removes the face violations but relabels thin strings of vertices; follow-ups on hold | integer corrections on edges with zero curl per face, L1 cost, sources at the singular faces | radar interferometry (phase unwrapping by min-cost flow), railway timetabling (periodic event scheduling) | 5.4, 6 |
-| T | Tet floor and the improver's work cap (HP 5, #1154; [TET_MESHING.md](../design/TET_MESHING.md) 17.11, 17.16) | hill climbing stops in local optima; slow meshes run all 200 passes with little progress; the count of meshes reaching the floor moves with the order of equal candidates | a budgeted local search whose outcome depends on tie order | SAT / constraint solving (heavy-tailed run times, restart schedules, portfolios) | 5.2 |
+| Q' | Position-field integer offsets (3B flow; "flow on the size field" follow-up) | in the upper-bound spike the flow removes the face violations but the repairs relabel thin strings of vertices; follow-ups on hold | integer corrections on edges with zero curl per face, L1 cost, sources at the singular faces | radar interferometry (phase unwrapping by min-cost flow), railway timetabling (periodic event scheduling) | 5.4, 6 |
+| T | Tet floor and the improver's work cap (HP 5, #1154; [TET_MESHING.md](../design/TET_MESHING.md) 16.3, 17.11, 17.16) | hill climbing stops in local optima; slow meshes run all 200 passes with little progress; the count of meshes reaching the floor moves with the order of equal candidates | a budgeted local search whose outcome depends on tie order | SAT / constraint solving (heavy-tailed run times, restart schedules, portfolios) | 5.2 |
 | R | Rounding cost, part b (HP 3; [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) 4.3) | 20 to 355 box hits per query triangle on results with long thin triangles on tilted flat faces; 0 of 60M pairs intersect on 519511 union | a spatial join in which axis boxes overlap in bulk and almost no pair is a true neighbour | spatial databases (dead-space pruning), collision detection (oriented volumes) | 6 |
 | M6 | 2D meshing, small-angle cascade (HP 6) | exemption up to 60 degrees; a provably tight excuse region is open | a geometric inequality over a compact configuration space of few parameters | computer-assisted proof (interval branch and bound; the Kepler proof), nonlinear SMT | 5.3 |
 | M7 | 2D meshing, oracle speed (HP 7; [MESHING2D_FAST_ORACLE.md](../design/MESHING2D_FAST_ORACLE.md)) | 3.6 times the mesher on Herne, target 2 | a checker that repeats the producer's search | SAT proof checking (DRAT against LRAT), certifying algorithms | 5.5 |
 | B | Biharmonic cold latency (#980, #976) | sparse factorization | a sparse SPD solve on an elliptic operator | theoretical computer science (approximate elimination for Laplacians) | 5.6 |
-| S | 3D snap rounding with a guarantee (HP 1) | no guarantee known; the plateau search is clean in 2 of 3 seeds on its one real case | round many coupled variables so that every local constraint keeps its sign | combinatorics (local lemma, constructive form), geodesy and communications (integer least squares), lattice reduction | 6 (all three) |
-| E | Exact predicate cost on the slow tail | fixed after the allocation-free kernel; multiplications under 1 % | the sign of an integer polynomial | cryptography and computer algebra (residue number systems) | 6 |
+| S | 3D snap rounding with a guarantee (HP 1) | no guarantee known; the plateau search is clean in 2 of 3 seeds at 2 000 evaluations (3 of 3 at 20 000) on its one real case | round many coupled variables so that every local constraint keeps its sign | combinatorics (local lemma, constructive form), geodesy and communications (integer least squares), lattice reduction | 6 (all three) |
+| E | Exact predicate cost on the slow tail | the slow tail was fixed by the allocation-free kernel; the #711 input (coordinates spanning 2^840) is still `BigInteger` arithmetic | the sign of an integer polynomial | cryptography and computer algebra (residue number systems) | 6 |
 | O | Open inputs: inside / outside across patches (plan #1247) | 62 of 111 fallbacks at the structural crack limit; leaning no-go | a minimum chain with a given boundary; a labelling consistent across cycles | algebraic topology with linear programming, quantum error-correction decoders | 6 |
-| C | Boolean classification on open operands (HP 8, #1047) | 66.9 % of the time of the 66 extreme operations | a potential evaluated at many clustered targets | N-body physics (dual-tree traversal) | 7 |
+| C | Boolean classification on open operands (HP 8, #1047) | classification is 66.9 % of the time of the 66 extreme operations (all of it, not only open operands); 61 to 90 % on the large open models | a potential evaluated at many clustered targets | N-body physics (dual-tree traversal) | 7 |
 | K | Contouring certificate, silhouette edges (plan #1289) | double crossings at silhouette edges come back at every level | range bounds of a function over a box | accelerator physics (Taylor models) | 6 |
 | D | Determinism across runtimes (HP 11) | stages 0 and 1 merged | the same bits from two execution environments | consensus systems, WebAssembly's deterministic subset | 6 |
 | N | Integer (normal) coordinates (plan #1284) | study only | a curve stored as crossing counts | low-dimensional topology (compressed curves) | 7 |
@@ -101,9 +101,9 @@ One row per open problem. "Where it stops" quotes the linked note. The last colu
 Fields searched with no usable result for any row: numerical relativity and adaptive mesh refinement (their grid
 rules, proper nesting and 2:1 balance, are the octree balance and grading the library has; the Berger-Rigoutsos box
 clustering [M] has no problem here that asks for it), robust statistics (no open problem is an estimation problem with
-outliers; the thresholds in question, such as #1204, need an exact predicate, not a better estimator), control and
+outliers; the thresholds in question, such as the winding threshold of #1204 (closed 2026-11-22), need an exact predicate, not a better estimator), control and
 certified reachability (the sum-of-squares verdict of #1299 stands for run-time use; the offline use is in 5.3),
-seismic imaging (its fast solvers are eikonal and kriging methods the library has or #1299 covers), crystallography
+seismic imaging (its routine tools are eikonal solvers, which are the geodesic-distance family, and kriging, the Gaussian-process setting behind the factorization of #1299 item 2), crystallography
 beyond #1299 (Coxeter triangulations give in 3D the body-centred lattice that isosurface stuffing already uses).
 
 ## 5. Shortlist
@@ -115,7 +115,7 @@ padded. Item 4 depends on the hold on the 3B follow-ups, item 5 on HP 7, which i
 | Rank | Item | Problem | Class | First measurement | Feeds a running spike |
 |---|---|---|---|---|---|
 | 1 | Clause learning in the 3B local repair | Q | Transfer | hours: classify the 26 budget fallbacks | sheaf H1 for quads, quad layout |
-| 2 | Tie-order distribution and restart schedules for budgeted local searches | T (also S, Q) | Transfer | hours: 8 tie orders on the slow meshes | tet HP 5, 3D snap rounding |
+| 2 | Tie-order distribution and restart schedules for budgeted local searches | T (also S, Q) | Transfer | hours: 8 tie orders on about six meshes | tet HP 5, 3D snap rounding |
 | 3 | Interval branch-and-bound proofs for quality floors | M6 (also T) | Transfer | days: state the lemma, count its parameters | 2D meshing HP 6 / 7, tet HP 5 |
 | 4 | Phase-unwrapping practice for the integer offsets | Q' | Transfer / speculative | a day: reliability-weighted costs on the gate set | quad layout |
 | 5 | Hints instead of search in the checkers | M7 | Known pattern, partly in use | hours: split the oracle time into search and predicates | 2D meshing HP 7, certifying Boolean checker |
@@ -147,8 +147,7 @@ The real bound is the number of those 26 whose instances are satisfiable at all.
 
 **Why it probably fails here.** The budget may be exhausted on instances that have no solution: if the folds cannot
 be removed inside the move range of the rings, every local instance is unsatisfiable, and a better solver only reaches
-the same fallback sooner. The note itself says the dislocations "sit in the integer structure of the lattice and a
-local update cannot move them". Second, the instances are small (rings 1 to 6); on small instances learning helps less
+the same fallback sooner. The note has an analogous finding one stage earlier (4.5: the irregular vertices of the position field sit in its integer structure, which a local update cannot move); whether the folds behave the same way is not known. Second, the instances are small (rings 1 to 6); on small instances learning helps less
 than on industrial ones, and the budget may go to the number of instances, not to one hard one. Third, the label
 covers the split budget too, and that share is not separated in the note. Fourth, a learning solver finds a different
 model, so the clean rows change bits; the option is opt-in, which permits it, but the gate (Hausdorff, corner
@@ -168,9 +167,7 @@ is a tier M brief for the solver, with the determinism and reuse tests.
 ### 5.2 Tie-order distribution and restart schedules for budgeted local searches
 
 **Problem and structure.** Three open items share one shape. The tet improver runs "all 200 passes with little
-progress in the last ones" on its slow meshes (#1154), and the number of meshes that reach the floor is "sensitive
-to choices between equal candidates" (36, 37 or 38 of 40 for versions that differ only in a list order). The plateau
-search of the rounding is clean "in 2 of 3 seeds" on its one real case. The 3B repair has a decision budget. Each is
+progress in the last ones" on its slow meshes (#1154), and the number of meshes that reach the floor is "sensitive to choices between equal candidates" (at alpha / 20, section 16.3: 37 and 38 of 40 against 36, for versions that differed only in the order of lists after a refused split or in a rounding margin). The plateau search of the rounding is clean in 2 of 3 seeds at a budget of 2 000 evaluations and in 3 of 3 at 20 000, on its one real case. The 3B repair has a decision budget. Each is
 a search whose effort and outcome depend on arbitrary choices, cut by a deterministic budget.
 
 **Who solves it.** The constraint-solving community measured exactly this in the late 1990s: the run time of a
@@ -181,10 +178,9 @@ needs no knowledge of the distribution and is within a logarithmic factor of the
 several orders side by side is the algorithm portfolio (Huberman, Lukose and Hogg, Science 275, 1997 [M]; Gomes and
 Selman, Artificial Intelligence 126, 2001 [M]). Maturity: every SAT solver restarts.
 
-**What the transfer needs.** Nothing but a family of deterministic tie orders (a seed that permutes equal
-candidates, as the position search already has with "the vertex id and the pass") and a schedule of budgets in
+**What the transfer needs.** Nothing but a family of deterministic tie orders (a seed that permutes equal candidates, as the 2026-11-12 proposal for the rounding's position search had; the built one enumerates) and a schedule of budgets in
 visits. A restart here means: return to the mesh as it was after the main passes and run the rescue with the next
-order and the next budget of the schedule; the undo log of the improver makes that cheap.
+order and the next budget of the schedule; the improver's journal undoes one split attempt only, so a restart needs a snapshot of the mesh, a cost the measurement has to count.
 
 **Upper bound.** For the work cap: the visits of the fastest of K orders against the visits of today's order, on the
 meshes above 20 s. For the floor: the meshes of the 500-id sample that reach 10 degrees under at least one of K orders
@@ -192,35 +188,30 @@ meshes above 20 s. For the floor: the meshes of the 500-id sample that reach 10 
 
 **Why it probably fails here.** The theory is for searches that succeed or fail. The improver is a hill climb with a
 quality level as its result; a restart throws away real progress, and a portfolio only pays if some order is much
-better, not slightly better. The spread seen so far (36 to 38 of 40) is small. The floor is "a resolution effect" by
-the note's own diagnosis, and 839690 "stays below 8 degrees in every variant tried": an order cannot fix a mesh that
-needs a boundary change. And under the bit-for-bit rule the schedule becomes part of the result, so it can never be
+better, not slightly better. The spread seen so far (36 to 38 of 40, at alpha / 20) is small. At alpha / 20 the floor was a resolution effect by the note's own diagnosis (the meshes left there reach 10 degrees at alpha / 40), and the two left at the default, 38781 and 282598, were not reached by the rescue phase; nothing says another order reaches them. And under the bit-for-bit rule the schedule becomes part of the result, so it can never be
 tuned again without changing outputs.
 
-**Spike brief.** *Question:* is the effort of the rescue phase heavy-tailed over the order of equal candidates?
-*Upper-bound measurement:* on the meshes of TET_MESHING 17.16 that take more than 20 s at floors 20 and 30, and on
-38781 and 282598, run the improver under 8 deterministic permutations of equal candidates (a throwaway switch); record
+**Spike brief.** *Question:* does the effort of the rescue phase vary by a large factor with the order of equal candidates?
+*Upper-bound measurement:* on the 3 to 4 meshes of TET_MESHING 17.16 that take more than 20 s at floor 20, and on 38781 and 282598, run the improver under 8 deterministic permutations of equal candidates (a throwaway switch); record
 the visits to reach the final quality, the worst dihedral and the count below the floor; report minimum, median and
 maximum per mesh. *Constraints:* effort in visits, never in time; no change of the default; one process at a time.
 *Stop:* if the minimum over the 8 orders is above 0.5 of the median on every mesh, and no order lifts 38781 or 282598
-to 10 degrees, stop: the distribution is not heavy-tailed and the cap of #1154 is the answer. If it is heavy-tailed, the
+to 10 degrees, stop: no order is much faster (eight samples cannot settle the shape of a tail, only this practical question) and the cap of #1154 is the answer. If one is, the
 next step is an opt-in Luby schedule over the rescue, with the result to the owner before a PR, as #1154 requires.
 
 ### 5.3 Interval branch-and-bound proofs for quality floors
 
-**Problem and structure.** HP 6 asks for "a region-based oracle excuse that is provably tight (the floor
-arcsin(sin(phi/2)/sqrt 2) near clusters)". HP 5 has a floor that holds on 498 of 500 meshes and no bound. Both
+**Problem and structure.** HP 6 asks for a region-based oracle excuse that is provably tight, with the floor arcsin(sin(phi/2)/sqrt 2) near clusters. HP 5 has a floor that holds on 498 of 500 meshes and no bound. Both
 claims have the form: for every configuration in a described set, an angle is at least a constant. When the set is
 compact and has few parameters this is a finite computation.
 
 **Who solves it.** Computer-assisted proof. Labelle and Shewchuk proved the dihedral bounds of isosurface stuffing
-(10.7 to 164.8 degrees; ACM TOG 26(3), 2007 [V]) this way: Labelle's thesis describes "recursive bisection of the
-space of possible tetrahedron configurations together with interval arithmetic". The largest example is the formal
+(10.7 to 164.8 degrees; ACM TOG 26(3), 2007 [V]) this way: by recursive bisection of the space of tetrahedron configurations with interval arithmetic, according to summaries of Labelle's thesis (the thesis was not opened; to be checked). The largest example is the formal
 proof of the Kepler conjecture, which rests on about a thousand nonlinear inequalities over small boxes, checked by
 interval arithmetic with Taylor approximations (Solovyev and Hales, NASA Formal Methods 2013, arXiv:1301.1702 [V]).
 For inequalities with trigonometric functions there are decision tools: MetiTarski (Akbarpour and Paulson, J.
 Automated Reasoning 44, 2010 [M]) and the delta-complete procedure of dReal (Gao, Kong and Clarke, CADE 2013 [V];
-licence not confirmed, one source reports GPL-3 for one version, so tool use at most, never a port). The library has
+dReal 3 is reported as GPL-3 and dReal 4 as Apache-2.0, re-check; tool use at most, never a port). The library has
 the ingredients for its own checker: `ExactInterval`, and the Z3 pilot (`tools/Z3Pilot`), which already states
 lemmas over the reals. The new part is the method: a proof by bisection over the whole parameter box, as opposed to
 the pilot's searches on tiny configurations.
@@ -257,18 +248,17 @@ tight region" branch of HP 6 and leaves "a new rule").
 
 **Problem and structure.** Stage 3B looks for an integer offset per edge, close to a real target, whose (frame
 rotated) sum around every face is zero; the cost is an L1 distance, the solver a min-cost flow. The 3B upper bound
-(4.3) saw the typical artefact: the repair "relabels thin strings of vertices", and "a unit travels 20-70 edges".
+(4.3) saw the typical artefact: the repairs "relabel thin strings of vertices", and "a unit travels 20-70 edges".
 
 **Who solves it.** This is two-dimensional phase unwrapping as radar interferometry has run it for 25 years: integer
 corrections on the edges of a grid with zero curl per cell, L1 cost, solved as a min-cost flow whose sources are the
-residues (Costantini, IEEE Trans. Geoscience and Remote Sensing 36(3), 1998 [V]: "weights derived from coherence").
+residues (Costantini, IEEE Trans. Geoscience and Remote Sensing 36(3), 1998 [V]; summaries of the paper say its weights come from the coherence of the data).
 The production successor uses statistical, non-uniform costs (Chen and Zebker, J. Opt. Soc. Am. A 18(2), 2001 [V];
-their companion paper of 2000 shows the general problem intractable and motivates the network heuristics). The thin
+their companion paper of 2000 shows the L0 formulation NP-hard and motivates the network heuristics). The thin
 strings are that field's branch cuts, and its standard remedy is the cost: make a unit of flow cheap where the data
 is unreliable, so that the cuts run where they do no harm. In the same structural family, railway timetabling states
 integer period offsets on a cycle basis (the periodic event scheduling problem, Serafini and Ukovich, SIAM J.
-Discrete Math. 2(4), 1989 [M]; integral cycle bases, Liebchen and Peeters, Discrete Optimization 2009 [M, title and
-year to be checked]); it has cutting planes for the integers but no method that fits here better than the flow.
+Discrete Math. 2(4), 1989 [M]; integral cycle bases, Liebchen and Peeters, Discrete Optimization 2009 [M]); it has cutting planes for the integers but no method that fits here better than the flow.
 As far as this search saw, the quad-meshing papers and the interferometry papers do not cite each other; that is an
 observation from a short search, not a novelty claim.
 
@@ -281,8 +271,7 @@ the shortest paths between the sources, expensive elsewhere) against cost mode 2
 
 **Why it probably fails here.** Interferometry works on a planar regular grid, where the constraint matrix is a
 network matrix; on a surface with frame rotations it is not (the 3B note balances the cycles with a holonomy
-greedily), so the guarantees do not carry over. The flow is not what limits 3B today: it is 50 to 54 % of the time
-but the fallbacks are folds and budgets (5.1). The floor on the irregular count is set by the uniform spacing (the
+greedily), so the guarantees do not carry over. The flow is not what limits 3B today: it is 50 % of a clean attempt and 54 % of a fallback, but the fallbacks are folds and budgets (5.1). The floor on the irregular count is set by the uniform spacing (the
 note's coframe argument), which no cost changes. And the follow-ups are on hold for paper access.
 
 **Spike brief.** *Question:* does a reliability-weighted cost shorten the relabelled strings and lower the irregular
@@ -299,8 +288,7 @@ slow when it has to find again what the producer already knew: which triangle ho
 a vertex, which vertices compete for a needle.
 
 **Who solves it.** SAT solving met the same wall. Checking a DRAT proof needs the checker to search for the clauses
-that justify each step; the LRAT format adds those hints to the proof, and a formally verified checker then runs
-"almost as fast as, and in some cases faster than" the unverified search-based one (Cruz-Filipe, Heule, Hunt,
+that justify each step; the LRAT format adds those hints to the proof, and a formally verified checker then runs about as fast as the unverified search-based one, by the paper's conclusions (Cruz-Filipe, Heule, Hunt,
 Kaufmann and Schneider-Kamp, CADE 2017 [V]). The lesson is quantitative and general: move every search to the
 untrusted side, leave the trusted side with a replay. The oracle already follows it in one place (the mesher's hull
 triangulation as a certified witness, after McConnell et al. 2011), and the mesher already carries provenance
@@ -310,8 +298,7 @@ triangulation as a certified witness, after McConnell et al. 2011), and the mesh
 write down so that this check needs no search": a containing triangle per vertex, the nearest segment per excused
 triangle, the chain a pixel belongs to. Each hint is untrusted and is verified by the predicate it shortcuts.
 
-**Upper bound.** The share of the oracle's time that is search and not predicate evaluation. The profile exists in
-part: on the corpus coverage is 35 %, segments 19 %, marks 11 %; on Herne quality is 37 % and Delaunay 24 %.
+**Upper bound.** The share of the oracle's time that is search and not predicate evaluation. Only the profile from before the fast-oracle steps exists (2026-11-04, Herne at 6.0 times: on the corpus coverage 35 %, segments 19 %, marks 11 %; on Herne quality 37 % and Delaunay 24 %); the split at 3.6 times is the measurement.
 
 **Why it probably fails here.** The oracle has been through this once and stopped at its rule; what is left may be
 the per-element exact predicates, which no hint removes. The acceptance strategy wants an oracle that shares no code
@@ -341,8 +328,7 @@ preconditioner of a few hundred lines with no geometric ordering to compute.
 the factor is deterministic), the conjugate gradient iteration with a fixed-order reduction, and a matrix that is
 symmetric diagonally dominant with non-positive off-diagonals.
 
-**Why it probably fails here.** The last condition: a cotangent Laplacian has positive off-diagonals at obtuse
-angles unless the triangulation is intrinsic Delaunay, and the biharmonic operator is not a Laplacian at all (it
+**Why it probably fails here.** The last condition: a cotangent Laplacian has positive off-diagonals on edges whose two opposite angles sum to more than pi, so it qualifies only on an intrinsic Delaunay triangulation, and the biharmonic operator is not a Laplacian at all (it
 would be two nested solves, and with constraints not even that). The sampling order is serial, so the parallel gain
 of the inverse-Cholesky route is absent. It is a preconditioner, so the result depends on the iteration count and
 the tolerance, which the certified biharmonic mode has to bound.
@@ -353,40 +339,39 @@ of the inverse-Cholesky spike at equal residual? *Upper-bound measurement:* one 
 table, on intrinsic Delaunay Laplacians only. *Constraints:* papers only; seeded and serial; fixed-order sums.
 *Stop:* if it is not within a factor 2 of the spike's own candidate on the first mesh, drop the arm.
 
-## 6. Dead ends, with the number that kills each
+## 6. Dead ends, with what closes each
 
-The anti-hype filter of #1299 asked "is the constant too large, is the fit poor". Here most candidates could be
-closed by a number the repository already has. Each row names what would reopen it.
+The anti-hype filter of #1299 asked "is the constant too large, is the fit poor". Here five candidates are closed by a measurement the repository already holds (rows 1, 2, 5, 7 and, by its probe ledger, 10), six by an argument, and one is in use already. Each row names what would reopen it.
 
 | Candidate (field) | Structure it solves | Why not here | Reopen if |
 |---|---|---|---|
-| Dead-space pruning in the rounding's first search (spatial databases: clipped bounding boxes, Šidlauskas, Chester, Tzirita Zacharatou and Ailamaki, ICDE 2018 [V], whose abstract reports 19 % fewer I/Os on the revised R*-tree; collision detection: k-DOPs, Klosowski et al. 1998 [M]) | a spatial join whose axis boxes overlap in bulk (316 box hits per query on 519511 union, 0 of 60.0M pairs intersect) | Measured and closed in [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) 5.3: eight separating axes per pair remove 68 to 97 % of the exact pair tests but 4 to 52 % of the search time, -1.6 % in the real A/B; culling tree nodes by the query's axes "removes a quarter to a third of the hits and costs more". Clip points on the nodes are the same node-level cull. This row was shortlist item 3 of a draft of this note. | a join built in the frame of each flat face (not a filter on the axis-box tree) gets an upper bound first; it is under the speed stop |
-| Residue number systems for exact predicates (cryptography, computer algebra; sign determination in residues, Brönnimann, Emiris, Pan and Pion, Theoretical Computer Science 210, 1999 [V]) | integer polynomial arithmetic with multiplication linear in the operand size | The operands are small: 4 limbs per component cover 100 % of the grid points and 98.9 % of the sphere case, and "the multiplications themselves are under 1 % of the time" ([FIXED_WIDTH_EXACT_POINTS.md](../design/FIXED_WIDTH_EXACT_POINTS.md)). Residues win from tens of limbs on; the sign needs a conversion back at the end. | a predicate class with operands above about 16 limbs dominates a profile |
+| Dead-space pruning in the rounding's first search (spatial databases: clipped bounding boxes, Šidlauskas, Chester, Tzirita Zacharatou and Ailamaki, ICDE 2018 [V], whose abstract reports 19 % fewer I/Os on the revised R*-tree; collision detection: k-DOPs, Klosowski et al. 1998 [M]) | a spatial join whose axis boxes overlap in bulk (316 box hits per query on 519511 union, 0 of 60.0M pairs intersect) | Measured and closed in [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) 5.3: eight separating axes per pair remove 68 to 97 % of the pair tests but 4 to 52 % of the search time (with cached axes), -1.6 % in the real A/B; culling tree nodes by the query's axes "removes a quarter to a third of the hits and costs more". Clip points on the nodes are a different node-level test; they are closed by analogy with that measurement, not by a number of their own. This row was shortlist item 3 of a draft of this note. | a join built in the frame of each flat face (not a filter on the axis-box tree) gets an upper bound first; it is under the speed stop |
+| Residue number systems for exact predicates (cryptography, computer algebra; sign determination in residues, Brönnimann, Emiris, Pan and Pion, Theoretical Computer Science 210, 1999 [V]) | integer polynomial arithmetic with multiplication linear in the operand size | Point components are small (4 limbs cover 100 % of the grid points and 98.9 % of the sphere case; determinants up to 14 limbs), and before the fixed-width kernel, on one case, "the multiplications themselves are under 1 % of the time" ([FIXED_WIDTH_EXACT_POINTS.md](../design/FIXED_WIDTH_EXACT_POINTS.md)). Residues pay only for large operands (no crossover was measured here) and the sign needs a conversion back. The counter-case is the #711 input: 87 % of its time in the `BigInteger` orientation predicates. | the #711 class (coordinates spanning 2^840) matters to a caller; measure its operand widths first |
 | Residue checks as an independent test of the limb kernel (coding theory: arithmetic codes) | a cheap independent check of big-integer results | The tests already compare against a `BigInteger` reference; a second reference adds no kill signal the mutation runs lack. | a limb bug escapes the reference tests |
-| Constructive local lemma for rounding (combinatorics; Moser and Tardos, J. ACM 57(2), 2010 [M]) | set many variables so that all local bad events are avoided, by resampling | Its condition is that each bad event is improbable under random choices. Where that holds, rounding to nearest already works; the leftovers are clusters at ulp scale, where the events are likely. It would be a conditional guarantee for the easy cases only. | a use case accepts a guarantee under a stated clearance |
+| Constructive local lemma for rounding (combinatorics; Moser and Tardos, J. ACM 57(2), 2010 [M]) | set many variables so that all local bad events are avoided, by resampling | Its condition is that each bad event is improbable under random choices. Where that holds, plain rounding should rarely fail either (an expectation, not measured; speculative); the leftovers are clusters at ulp scale, where the events are likely. It would be a conditional guarantee for the easy cases only. | a use case accepts a guarantee under a stated clearance |
 | Integer least squares, LAMBDA and sphere decoding (geodesy; Teunissen, J. Geodesy 70, 1995 [V]; Agrell et al., IEEE Trans. Information Theory 48(8), 2002 [M]) | the nearest integer vector under a quadratic form | In rounding the objective is not quadratic and the constraints are orientation signs. In the quad position field, "the rounding of the origins only changes the representative": the result is bit for bit the same. | a mixed-integer parameterization solver enters the library |
 | Lattice basis reduction | short lattice vectors | Closed in CROSS_FIELD_GEOMETRY section 3; nothing new found. | as stated there |
 | Optimal homologous chains by linear programming; decoders of topological codes (Dey, Hirani and Krishnamoorthy, SIAM J. Computing 40(4), 2011 [M]; Delfosse and Nickerson, Quantum 5, 2021 [M]) | a minimum chain with a given boundary; a consistent labelling from local evidence | The open-input spike (#331) found 62 of 111 fallbacks at the structural crack limit, "no labelling closes them", and the owner question (plan #1247) is a use case, not a method. A minimal closing chain is a completion policy, which changes the semantics. | the owner names a use case for an opt-in closure of large holes |
-| Taylor models (accelerator physics; Makino and Berz, 2003 [M]) | tighter range bounds for smooth functions | The contouring certificate stops at silhouette edges of piecewise linear surfaces; the cause is the geometry of the double crossing, not loose bounds. For class S (analytic implicits) intervals already certify "from 2 cells on". | stage 3 shows refinement chains caused by interval overestimation |
+| Taylor models (accelerator physics; Makino and Berz, 2003 [M]) | tighter range bounds for smooth functions | The contouring certificate stops at silhouette edges of piecewise linear surfaces; the cause is the geometry of the double crossing, not loose bounds. Class S (analytic implicits with interval extensions) is not built; its planned gate is certification "from 2 cells on", so there is no measured overestimation to remove. | the class S spike (the interval interface of CONTOURING_TOPOLOGY's plan) shows refinement chains caused by interval overestimation |
 | Sum-of-squares at run time (control, robotics) | certified polynomial non-negativity | Verdict of #1299 (5b) unchanged. The offline use, as a proof tool, is in 5.3. | curved primitives become a core representation |
-| Determinism checklists of consensus systems and WebAssembly | the same bits on every platform | Every item such a list holds (NaN bits, signed zero in `Min` / `Max`, out-of-range casts, unstable sorts, libm) is a numbered rule in [DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md) (R4, R5, R11, R18), most with a probe. | a rule class is found that the ledger lacks |
+| Determinism checklists of consensus systems and WebAssembly | the same bits on every platform | Every item such a list holds (NaN bits, signed zero in `Min` / `Max`, out-of-range casts, unstable sorts, libm) is a numbered rule in [DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md) (R1, R4, R5, R11, R18), most with a probe. | a rule class is found that the ledger lacks |
 | Multiset fingerprints, memory checking (verified computing; Blum et al., Algorithmica 12, 1994 [M]) | check a pairing in linear time without a table | In use: the oracle's certificate hashes the directed edges with a mixing hash (MESHING2D_FAST_ORACLE). | - |
 | Periodic event scheduling as a solver for quads (railway timetabling) | integer period offsets on a cycle basis | No mixed-integer parameterization in the library to apply the cutting planes to; the dislocation floor of the uniform spacing is not a solver problem. Kept as a formulation pointer in 5.4. | as for integer least squares |
 
 ## 7. Pointers for spikes that are already running
 
-These are not items. Each is one fact or one measurement that a named spike can use; none starts work of its own.
-Spikes with no pointer from this search: the SolidBooleanPipeline audit (#1203 and #1204 ask for exact predicates,
+These are not items. The list of running spikes is the coordinator's (task brief of 2026-11-22); OPEN_TOPICS does not record them yet. Each is one fact or one measurement that a named spike can use; none starts work of its own.
+Spikes with no pointer from this search: the SolidBooleanPipeline audit (#1203 and #1204, the second closed on 2026-11-22, ask for exact predicates,
 which is not a transfer question), alpha-wrap features (HP 4: #1299 item 1 stands; nothing found beyond it),
 cross-runtime determinism (section 6), contouring upgrades (section 6), envelope simplification (row V of section 4).
 
 | Running spike | Pointer |
 |---|---|
-| Sheaf H1 for quads | The unsatisfiable local instances of 5.1 are machine-certified local obstructions: a ready test set for "does the H1 support localize the failure". The real-valued sheaf obstruction and the integer one can differ; the flow's infeasibility has its own classical certificate, a cut that violates the circulation condition (Hoffman; in Ahuja, Magnanti and Orlin, which the repository cites), and it costs nothing extra to report when `FlowInfeasible` occurs. |
+| Sheaf H1 for quads | The unsatisfiable local instances of 5.1 are machine-certified local obstructions: a ready test set for "does the H1 support localize the failure". The real-valued sheaf obstruction and the integer one can differ; the flow's infeasibility has its own classical certificate, a cut that violates the circulation condition (Hoffman; in Ahuja, Magnanti and Orlin, which the repository cites), and it could be reported when `FlowInfeasible` occurs; it certifies infeasibility at the capacity tried (40) only, and says nothing for the out-of-range case of that status. |
 | Quad layout | 5.1 before any layout change (where do the fallbacks come from); 5.4 for the cost model. |
 | Tet HP 5 | 5.2 (tie-order distribution) and 5.3 (how a floor would be proved, and that the method fits lattice meshers only). |
 | 3D snap rounding | 5.2: the plateau variant's "2 of 3 seeds" is the pattern restart schedules address, but the variant is a no-go on its gain (one operation), which a schedule does not change. The three guarantee candidates of section 6 are closed. |
-| Boolean speed | The rounding's box-neighbour enumeration is closed again in section 6. For the classification on open operands (66.9 % of the 66 extreme operations): N-body codes evaluate a potential at many clustered targets by a dual-tree traversal, cell against cell, in place of one descent per target (Dehnen, J. Computational Physics 179, 2002 [M]). Whether it applies depends on how much of the classification time is repeated descent for neighbouring query points after the per-patch evaluation and the hierarchical boundary sum; that share is not in the notes and is the upper bound to measure first. |
+| Boolean speed | The rounding's box-neighbour enumeration is closed again in section 6. For the classification (66.9 % of the time of the 66 extreme operations; 61 to 90 % on the large open models): N-body codes evaluate a potential at many clustered targets by a dual-tree traversal, cell against cell, in place of one descent per target (Dehnen, J. Computational Physics 179, 2002 [M]). Whether it applies depends on how much of the classification time is repeated descent for neighbouring query points after the per-patch evaluation and the hierarchical boundary sum; that share is not in the notes and is the upper bound to measure first. |
 | 2D meshing HP 6 / 7 | 5.3 and 5.5. |
 | Certifying Boolean checker | 5.5: design stage 3 so that the Boolean writes the hints (containing cell, generating pair) and the checker only replays. |
 | Operator-adapted inverse Cholesky | 5.6. |
@@ -400,10 +385,8 @@ cross-runtime determinism (section 6), contouring upgrades (section 6), envelope
   have matched it to flow algorithms (#1299 did, and rightly put the almost-linear flow on the watchlist); the
   problem-first reading of the fallback statuses points at a different field.
 - **The transfers that survive are small and old.** Clause learning (1999), restart schedules (1993), proofs by
-  bisection (2007), flow costs from interferometry (1998 to 2001): none is a 2025 breakthrough. The recent, impressive candidates (residue
-  arithmetic from homomorphic encryption, decoders from quantum error correction) died on the repository's own
-  numbers.
-- **A negative table is a result.** Twelve closed candidates with a number each are worth more to the next search
+  bisection (2007), flow costs from interferometry (1998 to 2001): none is a 2025 breakthrough. The recent, impressive candidates (residue arithmetic as cryptography uses it, decoders from quantum error correction) were closed by the repository's own numbers.
+- **A negative table is a result.** Twelve closed candidates, each with its reason and five with a number, are worth more to the next search
   than a longer shortlist: they say which structures of this library are *not* its bottleneck (integer
   multiplication, the determinism rule set, range bounds on smooth implicits).
 - **Limits of this note.** It is one session's search at abstract level. The [M] sources are unverified, no paper
@@ -428,11 +411,11 @@ of the projects named was opened.
 | F. Labelle, J. R. Shewchuk, *Isosurface Stuffing: Fast Tetrahedral Meshes with Good Dihedral Angles*, ACM TOG 26(3), 2007; F. Labelle, *Tetrahedral Mesh Generation with Good Dihedral Angles Using Point Lattices*, UC Berkeley report EECS-2007-104 | V | 5.3 |
 | A. Solovyev, T. C. Hales, *Formal Verification of Nonlinear Inequalities with Taylor Interval Approximations*, NASA Formal Methods 2013, 383-397, arXiv:1301.1702 | V | 5.3 |
 | B. Akbarpour, L. C. Paulson, *MetiTarski: An Automatic Theorem Prover for Real-Valued Special Functions*, J. Automated Reasoning 44, 175-205, 2010 | M | 5.3 |
-| S. Gao, S. Kong, E. M. Clarke, *dReal: An SMT Solver for Nonlinear Theories over the Reals*, CADE-24, 2013 (licence not confirmed) | V | 5.3 |
+| S. Gao, S. Kong, E. M. Clarke, *dReal: An SMT Solver for Nonlinear Theories over the Reals*, CADE-24, 2013 (licence differs by version, re-check) | V | 5.3 |
 | M. Costantini, *A Novel Phase Unwrapping Method Based on Network Programming*, IEEE Trans. Geoscience and Remote Sensing 36(3), 813-821, 1998 | V | 5.4 |
 | C. W. Chen, H. A. Zebker, *Two-dimensional phase unwrapping with use of statistical models for cost functions in nonlinear optimization*, J. Opt. Soc. Am. A 18(2), 338-351, 2001; *Network approaches to two-dimensional phase unwrapping: intractability and two new algorithms*, J. Opt. Soc. Am. A 17, 401-414, 2000 | V | 5.4 |
 | P. Serafini, W. Ukovich, *A Mathematical Model for Periodic Scheduling Problems*, SIAM J. Discrete Mathematics 2(4), 1989 | M | 5.4, 6 |
-| C. Liebchen, L. Peeters, *Integral cycle bases for cyclic timetabling*, Discrete Optimization, 2009 (title and year to be checked) | M | 5.4 |
+| C. Liebchen, L. Peeters, *Integral cycle bases for cyclic timetabling*, Discrete Optimization, 2009 | M | 5.4 |
 | L. Cruz-Filipe, M. J. H. Heule, W. A. Hunt Jr., M. Kaufmann, P. Schneider-Kamp, *Efficient Certified RAT Verification*, CADE-26, LNCS 10395, 220-236, 2017 | V | 5.5 |
 | R. Kyng, S. Sachdeva, *Approximate Gaussian Elimination for Laplacians: Fast, Sparse, and Simple*, FOCS 2016 | M | 5.6 |
 | Y. Gao, R. Kyng, D. A. Spielman, *Robust and Practical Solution of Laplacian Equations by Approximate Elimination*, arXiv:2303.00709, 2023 (Laplacians.jl; MIT, re-check) | V | 5.6 |
