@@ -1,0 +1,26 @@
+| frame | small cube's edge | edge / diagonal of the large cube | status | components in the result | small cube's volume / expected | components removed by the rounding | Report.Clean |
+|---|---|---|---|---|---|---|---|
+| id | 2^-0 | 5.6e-4 | Success | 2 | 1 | 0 | True |
+| id | 2^-4 | 3.5e-5 | Success | 2 | 1 | 0 | True |
+| id | 2^-8 | 2.2e-6 | Success | 2 | 1 | 0 | True |
+| id | 2^-9 | 1.1e-6 | Success | 1 | 0 | 1 | True |
+| id | 2^-10 | 5.5e-7 | Success | 1 | 0 | 1 | True |
+| id | 2^-11 | 2.8e-7 | Success | 1 | 0 | 1 | True |
+| id | 2^-12 | 1.4e-7 | Success | 1 | 0 | 1 | True |
+| id | 2^-16 | 8.6e-9 | Success | 1 | 0 | 1 | True |
+| rot | 2^-0 | 5.6e-4 | Success | 2 | 1 | 0 | True |
+| rot | 2^-4 | 3.5e-5 | Success | 2 | 1 | 0 | True |
+| rot | 2^-8 | 2.2e-6 | Success | 2 | 1 | 0 | True |
+| rot | 2^-9 | 1.1e-6 | Success | 1 | 0 | 1 | True |
+| rot | 2^-10 | 5.5e-7 | Success | 1 | 0 | 1 | True |
+| rot | 2^-11 | 2.8e-7 | Success | 1 | 0 | 1 | True |
+| rot | 2^-12 | 1.4e-7 | Success | 1 | 0 | 1 | True |
+| rot | 2^-16 | 8.6e-9 | Success | 1 | 0 | 1 | True |
+| rot+utm | 2^-0 | 5.6e-4 | Success | 2 | 1 | 0 | True |
+| rot+utm | 2^-4 | 3.5e-5 | Success | 2 | 1 | 0 | True |
+| rot+utm | 2^-8 | 2.2e-6 | Success | 2 | 1 | 0 | True |
+| rot+utm | 2^-9 | 1.1e-6 | Success | 1 | 0 | 1 | True |
+| rot+utm | 2^-10 | 5.5e-7 | Success | 1 | 0 | 1 | True |
+| rot+utm | 2^-11 | 2.8e-7 | Success | 1 | 0 | 1 | True |
+| rot+utm | 2^-12 | 1.4e-7 | Success | 1 | 0 | 1 | True |
+| rot+utm | 2^-16 | 8.6e-9 | Success | 1 | 0 | 1 | True |

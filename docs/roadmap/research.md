@@ -332,6 +332,7 @@ in the tool project.
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
   OBJ / PLY writers and conversion to and from DMesh3. Stage 5 (#1097), stage 1 (#1098; Hermitian form #1099, vector kernels of `SparseCholesky` #1103) and stage 2 (#1100) are merged. Stage 2 (`PositionField`, `QuadRemesher`): manifold, quad share
   93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): owner 2026-11-17: merged with the gates open, next stage 3B (flow from the paper, measurement first)
+  Research spike 2026-11-22 (seamless parametrization as a seed or replacement for the position field, SIGGRAPH 2025 papers): [QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md); upper bound measured (irregular vertices of 9 closed shapes 863 uniform / 493 size field / 407 with a clamped cone-metric seed / 88 cones; no gain in pure-quad success shown), options with the owner, nothing built.
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
@@ -477,6 +478,13 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Spike 2026-11-22 (owner go; [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)):
+     Devillers et al. 2018 read in full and its upper bounds measured on generated inputs, nothing built. The scheme
+     proves an intersection-free complex, not a clean closed surface (sheets closer than a cell are merged), keeps no
+     solid that SafeRounding removes on the generated sets, and its global form needs at least 16 to 258 times the
+     triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid thin slabs SafeRounding drops when rotated (pipeline audit,
+     #1304) stay clean and unchanged when its removal rule is switched off: a rule decision, not a rounding one (the
+     small cube of that audit is lost to the degenerate-area test instead). Leaning: no build; the owner's decisions on the options are open.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
@@ -602,6 +610,11 @@ Ordered by expected value for the library.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
      At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
+   - 2026-11-22, spike on the proven floor (plan #1281, [research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)):
+     the 21 procedural inputs all reach 10° (the wrap's boundary angles do not follow the input's creases); a lattice mesher
+     (isosurface stuffing) proves 9.31° on every input (10.78° per tet, validity then checked per run) but rounds features and,
+     uniform, is at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering (SIGGRAPH 2026)
+     bounds face angles only. Leaning: stop, keep P5(a); owner decision open.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -609,10 +622,17 @@ Ordered by expected value for the library.
    - Open:
      - a region-based oracle excuse that is provably tight (the floor arcsin(sin(φ/2)/√2) near clusters);
      - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 1): the exemption of Miller, Pav and
+     Walkington 2005 is proven up to 26.45° with a floor of about φ, for circumcentres only; on 96 procedural inputs the library's
+     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Options with the owner; nothing is built.
 7. **Meshing2D oracle speed.**
    - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
+   - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 2): a prototype checker of the core
+     (coverage, chains, constrained Delaunay) takes 1 to 13 % of the mesher's time where the oracle takes 15 to 477 times on procedural
+     inputs; most of the oracle's time there is per-source scans and the exact area, fixable without a certificate. Options with
+     the owner; nothing is built.
 8. **Open-operand classification in the exact booleans.**
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
      w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
@@ -642,6 +662,11 @@ Ordered by expected value for the library.
 10. **Envelope-guaranteed simplification at reasonable speed.**
     - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
+    - **Spike 2026-11-22** ([research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md),
+      `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
+      1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
+      for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
+      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner
