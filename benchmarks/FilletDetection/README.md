@@ -9,6 +9,7 @@ dotnet run -c Release --project benchmarks/FilletDetection -- crease   > results
 dotnet run -c Release --project benchmarks/FilletDetection -- detect   > results/detect.md      # filters: box plate lprofile gear rod, cad, fine, n=8, fast, bound=4
 dotnet run -c Release --project benchmarks/FilletDetection -- defillet > results/defillet.md
 python3 benchmarks/FilletDetection/summarize.py benchmarks/FilletDetection/results/detect.md > results/summary.md
+# results/bound.md: detect cad n=8 fast bound=1.1 | 4 | 10 (the medial rows)
 ```
 
 The raw output of the runs behind the study is in `results/` (2026-11-22, cloud container, 4 cores; about 15 minutes in all).
@@ -46,7 +47,7 @@ tangent supports (one closed-form step, connectivity unchanged) and compares wit
 ## Results
 
 See the study for the tables and their reading. In short (`results/summary.md`): on CAD strips the curvature threshold reaches F1
-0.72 (0.87 with the oracle band), the paper's detector as implemented here 0.28 to 0.43, the medial ball 1.00 (worst 0.99); on
-the subdivided meshes 0.45 (0.55), 0.49 to 0.50 and 1.00. The reconstruction is exact on the box, the plate and the gear when the
+0.72 (0.87 with the oracle band), the paper's detector as implemented here 0.43 (radius bound set; 0.05 with the paper's default bound, which is below the radii
+of the box and the L profile), the medial ball 1.00 (worst 0.99); on the subdivided meshes 0.45 (0.55), 0.48 and 1.00. The reconstruction is exact on the box, the plate and the gear when the
 labels are right and breaks where a support face shares vertices with a fillet (the caps of the L profile) or a few fillet
 triangles were missed (the coarse sphere octants).

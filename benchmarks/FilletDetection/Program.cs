@@ -88,7 +88,7 @@ namespace FilletDetection
                 { "curvature", s => Baselines.Curvature(s.Mesh, RadiusBound * s.MaxFilletRadius) },
                 { "curvature (oracle band)", s => Baselines.CurvatureOracle(s) },
                 { "DeFillet (paper defaults)", s => new VoronoiDetector().Run(s.Mesh) },
-                { "DeFillet (radius bound set)", s => new VoronoiDetector { MaxRadius = RadiusBound * s.MaxFilletRadius * 2 / s.Mesh.CachedBounds.DiagonalLength }.Run(s.Mesh) },
+                { "DeFillet (radius bound set)", s => new VoronoiDetector { MaxRadius = RadiusBound * s.MaxFilletRadius * VoronoiDetector.Scale(s.Mesh) }.Run(s.Mesh) },
                 { "medial ball", s => new MedialDetector { MaxRadius = RadiusBound * s.MaxFilletRadius }.Run(s.Mesh) },
             };
         }

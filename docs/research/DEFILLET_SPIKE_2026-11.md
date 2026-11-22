@@ -11,26 +11,29 @@ full. The authors' code is AGPL-3.0 (with CGAL and libigl): licence checked firs
 ## Result in short
 
 - **The problem is real and measured.** On a filleted solid with 4 or more chords per quarter circle the dihedral crease test
-  of the quad and tet code (30 degrees) finds none of the rounded design edges: 0 of 17.6 length units on the box, 15.4 of
-  19.6 on the L profile, 21.4 of 41.3 on the gear (only the rims that were never rounded). With 2 chords it finds two or
-  three parallel lines per edge instead of one.
+  of the quad and tet code (30 degrees) finds practically none of the rounded design edges: 0.3 of 17.6 length units on the box
+  with 4 chords and 0 from 8 up, 15.4 of 19.6 on the L profile, 21.4 of 41.3 on the gear (only the rims that were never
+  rounded). A lower threshold does not help: at 20 or 10 degrees it finds two to six parallel lines per edge instead of one.
 - **The existing curvature does not solve it.** A threshold on `MeshPrincipalCurvature` reaches F1 0.72 on CAD strip
   tessellations and 0.45 on uniformly subdivided ones; the best possible curvature band (chosen with the answer) 0.87 and
   0.55. It marks sharp rims as fillets (precision 0.28 on the L profile), it marks a plain cylinder, and its radius is off by
   40 % and more.
-- **The paper's detector, as implemented here from the text, does not carry over to these inputs**: F1 0.28 to 0.43 on CAD
-  strips, 0.49 to 0.50 on subdivided meshes, and it marks up to 93 % (paper defaults) or 100 % (bound set) of a plain rod. It needs dense, uniform samples, its
-  tolerance and radius bound are model specific, the paper gives no detection numbers, and the cylinder test it describes is
-  not in the released code (the authors' README calls it unstable). This is a statement about this reimplementation on these
-  solids, not about the authors' program.
+- **The paper's detector, as implemented here from the text, does not carry over to these inputs**: with the radius bound
+  set, F1 0.43 on CAD strips and 0.48 on subdivided meshes, it marks 58 to 100 % of a plain rod, and its score changes
+  under rotation (box, subdivided: F1 0.75 and 0.55). With the paper's default bound it cannot see the box and the L profile
+  at all (their radii are above the bound). It needs dense, uniform samples, its tolerance and radius bound are model
+  specific, the paper gives no detection numbers, and the cylinder test it describes is not in the released code (the
+  authors' README calls it unstable). This is a statement about an untuned reimplementation on these solids, not about the
+  authors' program (section 3 lists what differs).
 - **A medial-ball detector built on the paper's idea works on all of them**: precision 1.00, recall 1.00 (worst case F1 0.99)
   on 30 cases with fillets, nothing marked on the rod and the gear's bore, radius within 1.2 % with 8 or more chords, the same under rotation. It is per facet, has no global optimisation and one user parameter (a radius bound; 1.1 to
   10 times the fillet radius gave the same precision). It misses a few triangles of coarse sphere octants (vertex fillets
   with 2 or 4 chords: recall there 0.81 and 0.95).
 - **Sharp-edge reconstruction works where it is easy and shows what a real one needs.** With right labels one closed-form
-  step gives the design solid exactly on the box, the plate and the gear (Hausdorff distance 0.0000, crease length equal to
-  the design's). It breaks (flipped triangles) where a face shares vertices with a fillet, and a handful of missed fillet
-  triangles ruin it.
+  step puts the surface back on the design solid on the box, the plate and the gear (sampled Hausdorff distance below
+  0.00005; crease length equal to the design's up to 8 chords, 1 to 4 % above it and up to 30 degenerate triangles at 16 and
+  32). It breaks (flipped triangles) where a face shares vertices with a fillet, and a handful of missed fillet triangles
+  ruin it.
 
 **Leaning: go for detection as an opt-in analysis class (the medial-ball detector, not the Voronoi pipeline), after a
 second measurement on real CAD tessellations; no-go for the paper's detection pipeline; reconstruction only as a later,
@@ -79,7 +82,7 @@ quality. Run times given: 3 to 36 s for the detection on 71k to 873k samples, 9 
 | `MeshTopology.CreaseAngle` (used by `CrossField`, `QuadRemesher`, `PositionField`), `AlphaWrapFeaturePass.CreaseAngleDegrees` (tet S1-F) | the crease test fillets defeat | section 2 |
 | `MeshPrincipalCurvature` (Rusinkiewicz 2004) | curvature baseline | section 3 |
 | `MeshWallThickness.InscribedSphere` (shrinking ball of Ma et al. 2012 with the angle condition of Dey and Zhao 2004) | the medial ball; the prototype repeats its iteration because it needs both sides, a radius bound instead of a first ray, and the ball's centre | a library version would share that code |
-| `Delaunay3` | the paper's Voronoi vertices (circumcentres) | works: 94k samples, 328k cells, 4 to 9 s for the whole detector; no sample was refused |
+| `Delaunay3` | the paper's Voronoi vertices (circumcentres) | works: 94k samples, 328k cells, 3 to 8 s for the whole detector; no sample was refused |
 | `DMeshAABBTree3`, `DistPoint3Triangle3` | ball queries | as is |
 | `PrimitiveFit3` | not used: the ball already gives the radius; it is a consumer (section 6) | - |
 | graph cut | none in the library (`QuadFlowRepair` has a flow for another purpose) | the prototype has its own Dinic max flow; the medial detector needs none |
@@ -110,7 +113,7 @@ profile's, 48 % of the gear's. That share is what a detector plus reconstruction
 ## 3. Detection
 
 `dotnet run -c Release --project benchmarks/FilletDetection -- detect` (`results/detect.md`, 200 rows; summary by
-`summarize.py` in `results/summary.md`). Five solids with the answer per triangle (box, thin plate, L profile, gear with a
+`summarize.py` in `results/summary.md`; the bound sweep in `results/bound.md`). Five solids with the answer per triangle (box, thin plate, L profile, gear with a
 bore, a plain rod), 2 to 32 chords per quarter circle, as CAD strips and uniformly subdivided, 8 chords also rotated; see
 the benchmark README. Scores by area. Every detector gets the same hint, a radius bound of twice the largest fillet
 radius; "paper defaults" uses the paper's bound instead.
@@ -119,16 +122,19 @@ radius; "paper defaults" uses the paper's bound instead.
 |---|---|---|---|---|---|---|---|---|---|
 | curvature threshold | CAD strips | 24 | 0.76 | 0.80 | 0.72 | 0.34 | 0.43 | 1.00 | 0.0 |
 | curvature, oracle band | CAD strips | 24 | 0.89 | 0.87 | 0.87 | 0.58 | 0.46 | 0.00 | 0.0 |
-| DeFillet, paper defaults | CAD strips | 24 | 0.73 | 0.28 | 0.28 | 0.00 | 0.57 | 0.00 | 1.8 |
-| DeFillet, radius bound set | CAD strips | 24 | 0.68 | 0.62 | 0.43 | 0.10 | 0.55 | 1.00 | 2.7 |
-| medial ball | CAD strips | 24 | 1.00 | 1.00 | 1.00 | 0.99 | 0.08 | 0.00 | 13.1 |
+| DeFillet, paper defaults | CAD strips | 24 | 0.50 | 0.02 | 0.05 | 0.00 | 0.37 | 0.00 | 1.3 |
+| DeFillet, radius bound set | CAD strips | 24 | 0.65 | 0.63 | 0.43 | 0.10 | 0.54 | 1.00 | 2.2 |
+| medial ball | CAD strips | 24 | 1.00 | 1.00 | 1.00 | 0.99 | 0.08 | 0.00 | 13.0 |
 | curvature threshold | subdivided | 6 | 0.59 | 0.48 | 0.45 | 0.35 | 0.46 | 0.87 | 0.0 |
-| curvature, oracle band | subdivided | 6 | 0.52 | 0.65 | 0.55 | 0.39 | 0.78 | 0.03 | 0.0 |
-| DeFillet, paper defaults | subdivided | 6 | 0.42 | 0.76 | 0.49 | 0.18 | 0.42 | 0.93 | 0.7 |
-| DeFillet, radius bound set | subdivided | 6 | 0.36 | 0.93 | 0.50 | 0.19 | 0.007 | 0.74 | 1.8 |
-| medial ball | subdivided | 6 | 1.00 | 1.00 | 1.00 | 1.00 | 0.025 | 0.00 | 5.9 |
+| curvature, oracle band | subdivided | 6 | 0.52 | 0.65 | 0.55 | 0.39 | 0.78 | 0.00 | 0.0 |
+| DeFillet, paper defaults | subdivided | 6 | 0.42 | 0.77 | 0.50 | 0.17 | 0.49 | 0.85 | 0.6 |
+| DeFillet, radius bound set | subdivided | 6 | 0.36 | 0.88 | 0.48 | 0.19 | 0.049 | 0.75 | 1.2 |
+| medial ball | subdivided | 6 | 1.00 | 1.00 | 1.00 | 1.00 | 0.025 | 0.00 | 5.8 |
 
-(Means over the cases with fillets; a detector that marks nothing counts with precision 0. Radius error: mean over the cases
+("Paper defaults" is no fair row for the box and the L profile: their fillet radii, 0.07 to 0.14 of the bounding sphere
+radius, are above the paper's default bound of 0.06, so rule 1 removes every true centre; it is listed to show that the
+defaults are model specific. The row to read is "radius bound set". Means over the cases with fillets; a detector that marks
+nothing counts with precision 0. Radius error: mean over the cases
 of the area weighted median of abs(r - r_true) / r_true on the true positives. The subdivided set is small because the
 subdivision is capped at 150k triangles: box 4 and 8 chords, L profile 4 and 8, two rotated.)
 
@@ -137,12 +143,12 @@ Per solid at 8 chords (precision / recall / F1):
 | solid | curvature | oracle band | DeFillet, bound set | medial ball |
 |---|---|---|---|---|
 | box, strips | 1.00 / 0.88 / 0.94 | 1.00 / 1.00 / 1.00 | 0.56 / 0.55 / 0.56 | 1.00 / 1.00 / 1.00 |
-| box, subdivided (94k) | 0.94 / 0.37 / 0.53 | 0.73 / 0.62 / 0.67 | 0.63 / 1.00 / 0.77 | 1.00 / 1.00 / 1.00 |
+| box, subdivided (94k); rotated | 0.94 / 0.37 / 0.53 | 0.73 / 0.62 / 0.67 | 0.61 / 0.95 / 0.75; 0.39 / 0.95 / 0.55 | 1.00 / 1.00 / 1.00 |
 | plate, strips | 1.00 / 0.88 / 0.93 | 1.00 / 1.00 / 1.00 | 1.00 / 0.06 / 0.11 | 1.00 / 1.00 / 1.00 |
 | lprofile, strips | 0.28 / 0.91 / 0.42 | 0.96 / 0.62 / 0.75 | 0.07 / 1.00 / 0.13 | 1.00 / 1.00 / 1.00 |
-| lprofile, subdivided (128k) | 0.27 / 0.50 / 0.35 | 0.36 / 0.58 / 0.44 | 0.21 / 0.89 / 0.35 | 1.00 / 1.00 / 1.00 |
-| gear, strips | 0.61 / 0.69 / 0.65 | 0.63 / 0.75 / 0.68 | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 |
-| rod (share of the cylinder marked), strips / subdivided | 1.00 / 0.58 | 0.00 / 0.03 | 1.00 / 0.62 | 0.00 / 0.00 |
+| lprofile, subdivided (128k); rotated | 0.27 / 0.50 / 0.35 | 0.36 / 0.58 / 0.44 | 0.21 / 0.85 / 0.34; 0.11 / 0.87 / 0.19 | 1.00 / 1.00 / 1.00 |
+| gear, strips; rotated | 0.61 / 0.69 / 0.65 | 0.63 / 0.75 / 0.68 | 1.00 / 1.00 / 1.00; 0.52 / 1.00 / 0.68 | 1.00 / 1.00 / 1.00 |
+| rod (share of the cylinder marked), strips / subdivided | 1.00 / 0.58 | 0.00 / 0.00 | 1.00 / 0.58 | 0.00 / 0.00 |
 
 ### Reading
 
@@ -151,19 +157,29 @@ fillet's). It fails for three reasons that no threshold removes: (1) a sharp edg
 depends on the triangle size, so rims fall into any band (L profile: precision 0.28; the oracle band buys precision with
 recall 0.62); (2) on a subdivided faceted fillet the curvature is zero inside a facet and concentrated on the chord lines
 (the stripes the paper shows in its figure 21): recall 0.37 on the box; (3) a cylinder has the curvature of a fillet. The
-radius from 1 / curvature is 30 to 80 % off except on the strip box. The oracle band is the ceiling of every
+radius from 1 / curvature is 30 to 160 % off except on the strip box and plate. The oracle band is the ceiling of every
 curvature-threshold design: 0.87 on strips, 0.55 subdivided.
 
 **The paper's detector** (as reimplemented: one global Voronoi diagram instead of patches, the three filter rules, density,
-transform, score, graph cut; no cylinder test). On CAD strips the samples are too few and too regular: the centroids of the
-strips of one fillet lie on two circles, their Voronoi vertices are degenerate, and the relation of eq. 1 holds for almost no
-vertex (L profile with the paper's defaults: 0 of 825 vertices kept; box: recall 0.04). The gear is the exception (short
-strips, F1 1.00). On the subdivided meshes, the input the paper assumes, the recall is there (0.93 with the bound set, radius
-within 0.7 %) but the precision is 0.36: flat faces next to a fillet and near sharp edges also get nearly constant radii from
-vertices in the wedge of two faces, and the graph cut's smoothness (edge lengths of about 0.01 against a data term of order
-1) does not remove them. The rod is marked to 62 to 100 %. The paper's missing pieces (patches, the cylinder test) and tuning
-per model would improve this; the dependence on dense uniform sampling and on two model-specific lengths would stay. Cost: a
-3D Delaunay triangulation of all centroids plus a k-nearest-neighbour pass (0.7 to 2.7 s per 10k triangles here).
+transform, score, graph cut, duplicate vertices merged; no cylinder test; the paper's defaults for tolerance, k, sigma and
+lambda, nothing tuned).
+
+- On CAD strips the samples are too few and too regular: the centroids of the strips of one fillet lie on two circles, their
+  Voronoi vertices are degenerate, and the relation of eq. 1 holds for few vertices (box: recall 0.55 with the bound set;
+  L profile: recall 1.00 at precision 0.07). The unrotated gear is the one good case (F1 1.00 from 4 chords; 0.68 rotated).
+- On the subdivided meshes the recall is there (0.88, radius within 5 %) but the precision is 0.36: flat faces next to a
+  fillet and near sharp edges also get nearly constant radii, from vertices in the wedge of two faces. The graph cut does
+  not remove them: with the paper's lambda = 1 its smoothness (edge lengths of about 0.01 to 0.03 in the unit sphere)
+  is far below the data term (0 to 1 per triangle), so the labels are in effect the score thresholded at 0.5. A larger
+  lambda or an area weight might help; it was not tried.
+- It is not stable under rotation (table above: 0.75 against 0.55, 0.34 against 0.19, 1.00 against 0.68). The paper's
+  bounding-box rule is axis dependent, and so is which of several equally dense vertices a sample takes.
+- The rod is marked to 58 to 100 % with the bound set: without the cylinder test a cylinder is a fillet to this method.
+- Not reproduced from the paper: the patches (a speed-up and a help with occluding inner walls), the hole test of rule 3, the
+  cylinder test, a sampling as dense as the paper's examples. Each could improve the numbers; the dependence on dense
+  uniform samples and on two model-specific lengths would stay.
+- Cost: a 3D Delaunay triangulation of all centroids plus a k-nearest-neighbour pass, 0.6 to 2.2 s per 10k triangles here
+  (3 to 8 s on the 94k box, 6 to 25 s on the 128k L profile).
 
 **The medial-ball detector** (own construction on the paper's idea; `MedialDetector`). Per planar facet (triangles
 connected without a fold) and side: the largest empty ball that touches the facet, by the shrinking-ball iteration of
@@ -176,14 +192,16 @@ and spheres. No sampling density assumption, no global step, no graph cut; paral
 
 - 30 of 30 cases with fillets at precision 1.00; recall 1.00 except on the sphere octants with 2 and 4 chords (0.81, 0.95:
   the facets of a coarse sphere patch are single triangles and the ball at their 7 sample points is up to 10 % too small).
-- Nothing marked on the rod (10 cases) and on the gear's bore (also with a bound above the bore's radius).
+- Nothing marked on the rod (10 cases: the 135 degree rule) and on the gear's bore (excluded by the radius bound in the main
+  run; with a bound of 0.4, above the bore's 0.3, also nothing: `results/bound.md`).
 - Radius error 0.2 to 1.2 % with 8 or more chords (the inscribed radius of the chord polygon), 2 to 11 % with 4, 23 % with 2
   (83 % on the gear with 2: one or two chords per fillet there).
-- Radius bound 1.1, 2, 4 and 10 times the fillet radius at 8 chords: precision 1.00 each time; recall 1.00 from 2 up, 0.75
+- Radius bound 1.1, 2, 4 and 10 times the fillet radius at 8 chords (strips, `results/bound.md`): precision 1.00 each time; recall 1.00 from 2 up, 0.75
   to 0.93 at 1.1 (the bound must clear the radius by more than the 10 % tolerance).
 - Rotated and moved: the same scores.
-- Cost of the prototype: 6 to 13 s per 10k triangles on 4 cores (one tree traversal per ball step, and the contact search
-  repeated per triangle of a sphere patch). Not optimised; the ball queries are those of `MeshWallThickness`.
+- Cost of the prototype: 6 to 13 s per 10k triangles on 4 cores in the mean, up to 24 s (plate, 32 chords: the contact search
+  is repeated per triangle of a sphere patch), and about twice as long on the rotated subdivided meshes (one tree traversal
+  per ball step). Not optimised; the ball queries are those of `MeshWallThickness`.
 
 ### What these numbers do not cover
 
@@ -192,7 +210,14 @@ and spheres. No sampling density assumption, no global step, no graph cut; paral
   two parallel faces is a fillet by design intent and is rejected or split by the 135 degree rule), chamfers, remeshed or
   scanned surfaces with noise, real CAD exports (ABC, Fusion 360 Gallery, Thingi10K), meshes with defects.
 - The thresholds of the medial detector (10 % contact tolerance, 0.5 / 50 / 135 degrees, 10 degrees separation) were set on
-  these solids. A second, independent set is needed before they are called defaults.
+  these solids. A second, independent set is needed before they are called defaults. The paper's detector got no such
+  tuning (section 3).
+- The medial detector is deterministic, but its verdict per facet starts from the facet's triangle with the largest ball
+  (ties: the lowest id) and its contact search stops at 20000 triangles: the result is not yet proven independent of the
+  triangle numbering, which the invariance tests of a library version would have to cover.
+- The subdivided set is small (2 solids, 4 meshes plus 2 rotations) and its triangle size follows the fillet chord, about 5
+  times the paper's tolerance; the paper's examples are denser (71k to 873k samples on one part).
+- The oracle band is the best of 40 x 40 log-spaced bounds, so the true ceiling of a curvature band can be slightly higher.
 
 ## 4. Sharp-edge reconstruction
 
@@ -208,7 +233,7 @@ leave it free. One closed-form step, connectivity unchanged. Compared with the s
 | box, 16 / 32 chords | both | 0.1098 | 0.0000 | 17.75 / 17.60, 18.28 / 17.60 | 0 | 0 |
 | plate, 8 chords | both | 0.0293 | 0.0000 | 14.40 / 14.40 | 0 | 0 |
 | plate, 16 / 32 chords | both | 0.0293 | 0.0000 | 14.44, 14.58 / 14.40 | 12, 30 | 0 |
-| gear, 2 to 32 chords | both | 0.0093 | 0.0000 | equal (41.28 / 41.28 at 8) | 0 | 0 |
+| gear, 2 to 32 chords | both | 0.0092 to 0.0137 | 0.0000 | equal (41.28 / 41.28 at 8) | 0 | 0 |
 | lprofile, 2 and 4 chords | both | 0.0828 | 0.0000 | 19.60 / 19.60 | 0 | 0 |
 | lprofile, 8 to 32 chords | both | 0.0828 | 0.0000 | 20.1 to 20.9 / 19.60 | 0 to 68 | 6 to 10 |
 | lprofile, subdivided (128k) | both | 0.0828 | 0.0459 | 20.49 / 19.60 | 0 | 110 |
@@ -218,8 +243,12 @@ leave it free. One closed-form step, connectivity unchanged. Compared with the s
 
 Reading:
 
-- With right labels and supports that keep their vertices (box, plate, gear) the design solid comes back exactly, corners
-  included, and the crease test then sees every design edge. The gear's 41.28 against 21.4 before is the gain of section 2
+- The Hausdorff distance is sampled (vertices, edge midpoints, centroids, both ways) and printed to four decimals; the
+  vertex step has a regularisation of 1e-6, so "0.0000" means below 0.00005, not exact, and it says nothing about flipped
+  triangles (the L profile rows have both).
+- With right labels and supports that keep their vertices (box, plate, gear) the surface comes back on the design solid,
+  corners included, and the crease test then sees every design edge. At 16 and 32 chords the crease length is 1 to 4 % above
+  the design's and the plate gets 12 and 30 degenerate triangles (thin triangles at the corners, not cleaned). The gear's 41.28 against 21.4 before is the gain of section 2
   realised.
 - **Faces that share vertices with a fillet fold.** On the L profile the caps are triangulated to the arc's vertices; when
   those move to the design corner the cap triangles around them flip (6 to 110) and, on the subdivided mesh, the surface is
@@ -237,10 +266,14 @@ Reading:
 
 | item | verdict | why |
 |---|---|---|
-| The paper's detection pipeline (Voronoi vertices, density, graph cut) | **no-go** | F1 0.28 to 0.50 here against 0.72 for a plain curvature threshold on strips; needs dense uniform samples and model-specific lengths; cylinder test missing; a 3D Delaunay triangulation per mesh. The licence allows no look at how the authors resolve these |
+| The paper's detection pipeline (Voronoi vertices, density, graph cut) | **no-go** | untuned F1 0.43 to 0.48 here against 0.72 for a plain curvature threshold on strips, not stable under rotation; needs dense uniform samples and model-specific lengths; cylinder test missing; a 3D Delaunay triangulation per mesh. The licence allows no look at how the authors resolve these |
 | Curvature threshold as the detector | **no-go** | ceiling F1 0.87 / 0.55 with the answer known; marks sharp rims and cylinders |
 | Medial-ball detector | **go for a second measurement, then an opt-in analysis class** | 1.00 / 1.00 on every procedural case, one parameter, local, reuses `MeshWallThickness`; open: real CAD exports, variable radius, coarse sphere patches, speed |
 | Sharp-edge reconstruction | **not now** | exact in the easy cases, but needs support retriangulation, region-consistent labels and guarantees; a project of its own, and it changes geometry |
+
+Order of the work: the coordinator asked for the numbers of section 2 before the Delaunay prototype and for a stop if
+curvature alone reached the target; the message arrived after the prototype was built. The curvature ceiling (section 3)
+does not reach it, so the prototype was due, but the check-in was skipped.
 
 Honest size of the evidence: 40 procedural cases from 5 solids, built by the same session that built the detector. The
 detection result is strong enough to justify the second measurement, not to justify defaults.

@@ -61,7 +61,7 @@ namespace FilletDetection
                 while (bin < steps && bounds[bin + 1] <= k[tid]) ++bin;
                 area[bin, truth ? 1 : 0] += a;
             }
-            double bestF = -1; int bestLo = 0, bestHi = steps;
+            double bestF = 0; int bestLo = -1, bestHi = steps;      // nothing marked unless a band scores
             for (int lo = 0; lo <= steps; ++lo) {
                 double tp = 0, fp = 0;
                 for (int hi = lo; hi <= steps; ++hi) {
@@ -71,6 +71,7 @@ namespace FilletDetection
                 }
             }
             var d = new Detection(mesh.MaxTriangleID);
+            if (bestLo < 0) { d.Note = "no band"; return d; }
             double hiBound = bestHi < steps ? bounds[bestHi + 1] : double.MaxValue;
             foreach (int tid in mesh.TriangleIndices())
                 if (k[tid] >= bounds[bestLo] && k[tid] < hiBound) { d.Fillet[tid] = true; d.Radius[tid] = 1 / k[tid]; }

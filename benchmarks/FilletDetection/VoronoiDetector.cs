@@ -21,7 +21,8 @@ namespace FilletDetection
     ///   - a graph cut with the edge lengths as smoothness (eq. 7 to 9, Lambda) gives the labels.
     /// Differences to the paper: one global Voronoi diagram instead of 1000 patches (the patches are a speed-up and help with
     /// occluding inner walls, which the test solids do not have); rule 2 uses the largest distance to the mean instead of the
-    /// minimum enclosing sphere; no test for cylindrical holes (the paper's spherical Voronoi test).
+    /// minimum enclosing sphere; no test for cylindrical holes (the paper's spherical Voronoi test). Duplicate vertices are
+    /// merged, as in the paper.
     /// </summary>
     public class VoronoiDetector
     {
@@ -36,7 +37,7 @@ namespace FilletDetection
             int n = mesh.MaxTriangleID;
             var result = new Detection(n);
             AxisAlignedBox3d bounds = mesh.CachedBounds;
-            Vector3d mid = bounds.Center; double scale = 2 / bounds.DiagonalLength;
+            Vector3d mid = bounds.Center; double scale = Scale(mesh);
             var s = new Vector3d[n];
             foreach (int tid in mesh.TriangleIndices()) s[tid] = (mesh.GetTriCentroid(tid) - mid) * scale;
             Vector3d half = 0.5 * scale * bounds.Diagonal;
@@ -60,6 +61,7 @@ namespace FilletDetection
             var centers = new List<Vector3d>(); var radii = new List<double>(); var related = new List<int[]>();
             int cells = 0;
             var inSet = new int[n]; int stamp = 0;
+            var known = new HashSet<(long, long, long)>();
             var members = new List<int>(); var stack = new Stack<int>();
             foreach (int c in dt.CellIndices()) {
                 Index4i cv = dt.GetCell(c);
@@ -69,6 +71,8 @@ namespace FilletDetection
                 if (!(Math.Abs(v.x) <= half.x && Math.Abs(v.y) <= half.y && Math.Abs(v.z) <= half.z)) continue;
                 double r = v.Distance(dt.GetVertex(cv.a));
                 if (!(r < MaxRadius)) continue;                                           // rule 1
+                // cospherical samples (the centroids of regular strips) give the same vertex for many cells: once
+                if (!known.Add(((long)Math.Round(v.x * 1e9), (long)Math.Round(v.y * 1e9), (long)Math.Round(v.z * 1e9)))) continue;
                 members.Clear();
                 Vector3d mean = Vector3d.Zero;
                 double lo = r * (1 - 1e-9), hi = r + Epsilon;
@@ -146,6 +150,15 @@ namespace FilletDetection
             result.Seconds = sw.Elapsed.TotalSeconds;
             result.Note = "cells " + cells + ", kept " + centerArray.Length + (failed > 0 ? ", " + failed + " samples not inserted" : "");
             return result;
+        }
+
+        /// <summary> factor that takes the mesh into the unit sphere around the centre of its bounding box (the same under rotation) </summary>
+        public static double Scale(DMesh3 mesh)
+        {
+            Vector3d mid = mesh.CachedBounds.Center;
+            double far = 0;
+            foreach (int vid in mesh.VertexIndices()) far = Math.Max(far, mesh.GetVertex(vid).Distance(mid));
+            return 1 / far;
         }
 
         static ulong Morton(Vector3d p)
