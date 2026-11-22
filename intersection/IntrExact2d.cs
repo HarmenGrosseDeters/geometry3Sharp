@@ -129,7 +129,7 @@ namespace g3
         }
 
         /// <summary>
-        /// p + w (q - p), p and q themselves for w = 0 and 1: computed on p and q scaled by a power of two (ScaleFor), so that the difference cannot
+        /// p + w (q - p), p and q themselves for w = 0 and 1: computed per coordinate on p and q scaled by a power of two (ScaleFor), so that the difference cannot
         /// overflow and the result does not depend on the scale (2^k invariant), then scaled back; the crossing of an axis-aligned edge stays on it
         /// (equal coordinates give the coordinate back)
         /// </summary>
@@ -137,9 +137,10 @@ namespace g3
         {
             if (w <= 0) return p;
             if (w >= 1) return q;
-            double sc = ScaleFor(p, q, Vector2d.Zero);
-            Vector2d ps = p * sc, qs = q * sc;
-            return new Vector2d((ps.x + w * (qs.x - ps.x)) / sc, (ps.y + w * (qs.y - ps.y)) / sc);
+            // (a scale of its own for each coordinate: one scale for both would flush a small coordinate next to a large one)
+            double sx = ScaleFor(new Vector2d(p.x, q.x), Vector2d.Zero, Vector2d.Zero), sy = ScaleFor(new Vector2d(p.y, q.y), Vector2d.Zero, Vector2d.Zero);
+            double px = p.x * sx, qx = q.x * sx, py = p.y * sy, qy = q.y * sy;
+            return new Vector2d((px + w * (qx - px)) / sx, (py + w * (qy - py)) / sy);
         }
 
         /// <summary>

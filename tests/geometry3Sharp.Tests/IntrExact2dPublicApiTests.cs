@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     public class IntrExact2dPublicApiTests
     {
         [Fact]
-        public void SegmentSegment_5e9Apart_IsAMiss()
+        public void Regression_SegmentSegment_5e9Apart_IsAMiss()
         {
             var a = new Segment2d(new Vector2d(0, 0), new Vector2d(1, 0));
             var b = new Segment2d(new Vector2d(1 + 5e-9, -0.5), new Vector2d(1 + 5e-9, 0.5));
@@ -20,7 +20,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void LineSegment_5e9Beside_IsAMiss()
+        public void Regression_LineSegment_5e9Beside_IsAMiss()
         {
             var line = new Line2d(new Vector2d(0, 0), new Vector2d(1, 0));
             var seg = new Segment2d(new Vector2d(0.5, 5e-9), new Vector2d(0.5, 1));
@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void NonFiniteInput_IsNeverAHit()
+        public void Regression_NonFiniteInput_IsNeverAHit()
         {
             var a = new Segment2d(new Vector2d(0, 0), new Vector2d(1, 1));
             var nan = new Segment2d(new Vector2d(double.NaN, 0), new Vector2d(1, 0));

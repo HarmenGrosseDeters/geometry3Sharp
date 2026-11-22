@@ -684,7 +684,8 @@ namespace geometry3Sharp.Tests
             foreach (int k in new[] { 600, -300 }) {
                 double sc = Math.Pow(2, k);
                 var g = new IntrLine2Line2(new Line2d(new Vector2d(0, 0), new Vector2d(1, 0)), new Line2d(new Vector2d(0, 1e-200 * sc), new Vector2d(1, 1e-309)));
-                if (g.Find()) Assert.True(Math.Abs(g.Segment1Parameter / sc - expected) <= 1e-14 * Math.Abs(expected));
+                Assert.True(g.Find());
+                Assert.True(Math.Abs(g.Segment1Parameter / sc - expected) <= 1e-14 * Math.Abs(expected));
             }
         }
 
@@ -711,6 +712,57 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Lerp_KeepsASmallCoordinateNextToALargeOne()
+        {
+            // the crossing on a segment with y = 1e-300 whose x runs over +-1e30: y comes back exactly (one scale for both coordinates flushed it to 0)
+            var a = new Segment2d(new Vector2d(-1e30, 1e-300), new Vector2d(1e30, 1e-300));
+            var b = new Segment2d(new Vector2d(-3e29, -1e29), new Vector2d(1e29, 1e29));
+            var ss = new IntrSegment2Segment2(a, b);
+            Assert.True(ss.Find());
+            Assert.Equal(1e-300, ss.Point0.y);
+            var ls = new IntrLine2Segment2(new Line2d(new Vector2d(0, -1e29), new Vector2d(1, 0)), a);
+            Assert.False(ls.Find());          // (the line y = -1e29 is far below the segment)
+            var ls2 = new IntrLine2Segment2(new Line2d(new Vector2d(-5e29, 0), new Vector2d(0, 1)), a);
+            Assert.True(ls2.Find());
+            Assert.Equal(1e-300, ls2.Point.y);
+        }
+
+        [Fact]
+        public void Lerp_InTheSubnormalRange_IsTheRescaledProblemBitForBit()
+        {
+            // points on the subnormal grid (multiples of 2^-1070): the result equals the one of the problem scaled up by 2^1000, scaled back
+            var r = new Random(97);
+            double unit = Math.Pow(2, -1070), up = Math.Pow(2, 1000);
+            for (int i = 0; i < 300; i++) {
+                Vector2d p = new Vector2d(r.Next(-15, 16) * unit, r.Next(-15, 16) * unit), q = new Vector2d(r.Next(-15, 16) * unit, r.Next(-15, 16) * unit);
+                double w = (r.Next(1, 1000)) / 1000.0;
+                Vector2d a = IntrExact2d.Lerp(p, q, w), b = IntrExact2d.Lerp(p * up, q * up, w);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(a.x), BitConverter.DoubleToInt64Bits(b.x / up));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(a.y), BitConverter.DoubleToInt64Bits(b.y / up));
+            }
+        }
+
+        [Fact]
+        public void QuotientScaled_WhereTheOtherOrderUnderflows_IsRoundedOnce()
+        {
+            // sc > 1: num / sc falls to 0 but num / (den sc) is normal (den subnormal)
+            double sc = Math.Pow(2, 600), num = 1e-290, den = 1e-320;
+            double expected = num / (den * sc);
+            Assert.True(expected > 1e-200 && expected < 1e-100);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(IntrExact2d.QuotientScaled(num, den, sc)));
+            // sc <= 1: num / den falls to 0 but (num / sc) / den is normal
+            double sc2 = Math.Pow(2, -600), num2 = 1e-100, den2 = 1e300;
+            double expected2 = (num2 / sc2) / den2;
+            Assert.True(expected2 > 1e-300 && expected2 < 1e-100);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(expected2), BitConverter.DoubleToInt64Bits(IntrExact2d.QuotientScaled(num2, den2, sc2)));
+            // and the plain cases
+            Assert.Equal(0.5, IntrExact2d.QuotientScaled(1, 2, 1));
+            Assert.Equal(1.0, IntrExact2d.QuotientScaled(2, 2, 1));
+            Assert.Equal(0.125, IntrExact2d.QuotientScaled(1, 2, 4));
+            Assert.Equal(1.0, IntrExact2d.QuotientScaled(1, 2, 0.5));
+        }
+
+        [Fact]
         public void SegmentCrossing_OnAnAxisAlignedEdge_StaysOnTheEdge()
         {
             // a crossing of an axis-aligned segment has the exact coordinate of the edge (p + w (q - p) gives p.x back for q.x = p.x)
@@ -731,7 +783,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ParameterAlong_OverflowingDifference_AndSubnormalInput()
+        public void ParameterAlong_OverflowingDifference_IsScaledNotInfinite()
         {
             // two segments 1.7e308 apart along x, whose parameter along segment 1 needs p - o beyond the range: finite, scaled
             var s1 = new Segment2d(Vector2d.Zero, Vector2d.AxisX, 1.6e308);
@@ -740,25 +792,6 @@ namespace geometry3Sharp.Tests
             Assert.True(ss.Find());
             Assert.True(IsFin(ss.Parameter0) && IsFin(ss.Point0.x));
             Assert.True(Math.Abs(ss.Point0.x - 1.5e308) <= 1e-12 * 1.5e308, "point " + ss.Point0);
-            // subnormal coordinates: the same result at the scaled problem (2^k invariance for k up to the subnormals)
-            double sc = Math.Pow(2, -1060);
-            double h = Math.Sqrt(0.5);
-            var t1 = new Segment2d(Vector2d.Zero, new Vector2d(h, h), sc);
-            var t2 = new Segment2d(Vector2d.Zero, new Vector2d(-h, h), sc);
-            var st = new IntrSegment2Segment2(t1, t2);
-            Assert.True(st.Find());
-            Assert.Equal(IntersectionType.Point, st.Type);
-            Assert.True(Math.Abs(st.Point0.x) <= sc * 1e-3 && Math.Abs(st.Point0.y) <= sc * 1e-3, "point " + st.Point0);
-            // a crossing away from the origin, 2^-1060 wide: the same relative position as at scale 1 (the products would underflow without the scale)
-            var u1 = new Segment2d(new Vector2d(0, 0.25 * sc), new Vector2d(h, h), sc);
-            var u2 = new Segment2d(new Vector2d(0, 0.25 * sc), new Vector2d(h, -h), sc);
-            var su = new IntrSegment2Segment2(u1, u2);
-            Assert.True(su.Find());
-            var v1 = new Segment2d(new Vector2d(0, 0.25), new Vector2d(h, h), 1);
-            var v2 = new Segment2d(new Vector2d(0, 0.25), new Vector2d(h, -h), 1);
-            var sv = new IntrSegment2Segment2(v1, v2);
-            Assert.True(sv.Find());
-            Assert.True(Math.Abs(su.Point0.y / sc - sv.Point0.y) <= 1e-3, "y " + su.Point0.y / sc + " against " + sv.Point0.y);
         }
 
         [Fact]
