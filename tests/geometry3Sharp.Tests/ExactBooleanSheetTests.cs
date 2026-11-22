@@ -1501,6 +1501,31 @@ namespace geometry3Sharp.Tests
             Assert.Contains("free edge of sheet 1", op.Error);
         }
 
+        [Theory]
+        [InlineData(0, 1, 2)]
+        [InlineData(1, 2, 0)]
+        [InlineData(2, 0, 1)]
+        [InlineData(0, 2, 1)]
+        [InlineData(2, 1, 0)]
+        [InlineData(1, 0, 2)]
+        public void RimInsideTheWorkpiece_OneTriangleInside_TheWitnessIsTheStartOfItsFirstFreeEdge_AsAnyOfItsThreeEdges(int i, int j, int k)
+        {
+            // one triangle inside the cube, its corners in every order: all three edges are free, the one named is the edge of the sheet's first two
+            // vertices (the first in the order of the arrangement's points), which is the first, second or third edge of the triangle by the order of
+            // its corners: the witness is the corner that edge starts at
+            Vector3d[] p = { new Vector3d(0.25, 0.25, 0.5), new Vector3d(0.75, 0.25, 0.5), new Vector3d(0.25, 0.75, 0.25) };
+            var sheet = new DMesh3();
+            foreach (Vector3d q in p)
+                sheet.AppendVertex(q);
+            Assert.True(sheet.AppendTriangle(i, j, k) >= 0);
+            ExactMeshBoolean op = Run(Box(0, 0, 0, 1, 1, 1), sheet);
+            AssertRefused(op, Refusal.RimInsideWorkpiece, "one triangle inside");
+            // (the edge between the vertices 0 and 1 runs from 0 to 1 in the even orders of the corners)
+            bool even = (i + 1) % 3 == j;
+            Assert.Equal(even ? p[0] : p[1], op.SheetWitnessPoint);
+            Assert.Equal(0, op.SheetWitnessTriangle);
+        }
+
         [Fact]
         public void Witnesses_OfAPieceThatIsNotTheSheetsOrTheWorkpiecesTriangle_NameNoTriangle()
         {
