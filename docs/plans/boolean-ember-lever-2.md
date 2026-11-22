@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Boolean: EMBER lever 2 (skip self-pairs in chains)"
 - **Kind:** parked (owner 2026-11-16; trigger: a concrete caller that chains booleans and needs ~10-15 % more speed)
 - **Tier:** L (touches `mesh_ops/ExactMeshArrangement.cs` / `ExactMeshBoolean.cs`: exact-code review + mutation gate)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): step 1 (the upper bound before any API code) is measured for T6-like steps and seam inputs, not on ABC chains at 12 threads ([EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md) sections 5 and 8a; measurement only). Still parked under the boolean speed stop (owner 2026-11-16).
 
 ## Current state
 
@@ -16,6 +16,11 @@
   - Safety invariant (owner 2026-11-16): the "self-intersection-free" trust flag must **never** come from an unverified
     caller bool — only from the library's own certified output (`NotCleanReason == None`) or an explicit prepared-operand
     handle produced by the library.
+- **Measured 2026-11-22** ([EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md),
+  section 5): at most −24 % at 1 thread and −15 % at 4 for a T6-like step with two certified operands, −20 % / −9 % on
+  the seam union, 0 on raw single booleans; the number of pieces is the same with and without the self-join on all 101
+  clean pairs; a content stamp costs 0.8 % (64-bit mix) to 2.0 % (SHA-256) of the self-join, so the content-hash variant
+  is affordable and no defensive copy of the mesh is needed. Not measured: ABC chains at 12 threads.
 
 ## Trigger / decision needed
 
