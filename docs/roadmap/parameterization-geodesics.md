@@ -45,6 +45,7 @@ Part of the [roadmap](../ROADMAP.md).
   subdivision fails in 7 of 108 runs after flips and 16 of 108 after refinement, and 11 `Success` results after
   insertions carry false crossings; an integer prototype passes its checks in 324 of 324 runs, flips up to about 30 % slower, the
   subdivision 10-46 times faster. The Delaunay test stays floating point. Options and leaning are with the owner.
+  The false crossings are fixed (#1313, 2026-11-22: reported as `Inconsistent`); options 2 and 3 of the note wait for the owner.
 - **Geodesic Bézier curves** (Phase 5 #1): done (paths, waypoints and loops; Bézier curves merged in #540).
 - **Foldover-free maps** (Phase 5 #7, #374; round-off merged in #754, 2026-11-13; done, limits documented): the paper's energy-decrease stop is in (iterations
   115 / 132 / 169 / 132 -> 28 / 41 / 54 / 16, quality within 0.1 % on all four fixtures, time about 2-6x less). The SLIM

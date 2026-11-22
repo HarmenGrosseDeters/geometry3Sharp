@@ -13,7 +13,8 @@ namespace gs
         Success,
         /// <summary>
         /// the traced intrinsic edges are not consistent (eg two crossings of an input edge in the wrong
-        /// order, or a trace ending in the wrong input triangle); Error says where. The faces are not reliable.
+        /// order, a trace ending in the wrong input triangle, or a trace that crosses an input edge of its
+        /// own end vertex: a false crossing); Error says where. The faces are not reliable.
         /// </summary>
         Inconsistent
     }
@@ -91,7 +92,8 @@ namespace gs
         /// every intrinsic edge is traced over the input (TraceEdge); within each input triangle the traced
         /// segments, which cannot cross, cut it into convex faces, and each face is assigned the intrinsic
         /// triangle on its side of the segments. The result is checked: every input triangle and every
-        /// intrinsic triangle must be tiled by its faces (areas to a relative 1e-6); otherwise Status is
+        /// intrinsic triangle must be tiled by its faces (areas to a relative 1e-6), and no trace may cross an
+        /// input edge of its own end vertex (a false crossing: the areas do not show it); otherwise Status is
         /// Inconsistent. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021) would make the
         /// combinatorics exact; here they come from the traces, which are exact up to rounding.
         /// </summary>
@@ -254,6 +256,15 @@ namespace gs
                         for (int k = 0; k < 3 && along < 0; ++k)
                             if (onEdgeK(ch[0], k) && onEdgeK(ch[1], k)) along = k;
                         if (along < 0) { chordList.Add(ch); continue; }
+                        // a piece of a trace along an input edge runs between two vertices (the ends of the input
+                        // edge or vertices inserted on it). If one of its ends is a crossing instead, the trace has
+                        // crossed an input edge of its own end vertex, just outside the snap tolerance, and runs
+                        // between the vertex and the crossing along that edge: a false crossing (it would be a
+                        // subdivision vertex with three edges; the areas would still sum up). At the head the
+                        // piece starts at the crossing; at the tail it ends at one (a tail vertex that counts as
+                        // on an input edge, by the snap above, but lies off it by more than the walk's tolerance).
+                        if (ch[0] >= N || ch[1] >= N)
+                            return fail("trace of intrinsic edge " + ch[2] + " crosses an input edge of its end vertex in input triangle " + inTid[t] + " (false crossing)");
                         var seq = onThisEdge[along];
                         int ia = seq.IndexOf(ch[0]), ib = seq.IndexOf(ch[1]);
                         int c = canonical(3 * t + along);
