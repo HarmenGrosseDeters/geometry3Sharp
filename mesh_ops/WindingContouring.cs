@@ -77,7 +77,13 @@ namespace gs
         /// Prepares the inputs: copies them (compacted), flips inside-out ones and inside-out closed
         /// components (their winding number is -1 inside) and builds the trees and winding number caches.
         /// </summary>
-        public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta, bool useExactWinding = false)
+        public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta)
+            : this(inputs, combineF, fastWindingBeta, false)
+        {
+        }
+
+        /// <summary> As above; with useExactWinding the field is the exact ray-plus-boundary winding number (not an optional parameter: the 3-argument signature stays binary compatible) </summary>
+        public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta, bool useExactWinding)
         {
             UseExactWinding = useExactWinding;
             List<DMesh3> meshes = new List<DMesh3>();

@@ -14,7 +14,7 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactWindingAdoptionTests
     {
-        static DMesh3 Sphere(int edgeVertices = 10, double radius = 1.0, Vector3d center = default(Vector3d))
+        internal static DMesh3 Sphere(int edgeVertices = 10, double radius = 1.0, Vector3d center = default(Vector3d))
         {
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = radius, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
             if (center != Vector3d.Zero)
@@ -22,13 +22,13 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 Box(double size = 2.0, Vector3d center = default(Vector3d))
+        internal static DMesh3 Box(double size = 2.0, Vector3d center = default(Vector3d))
         {
             DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(center, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ, 0.5 * size * Vector3d.One) }.Generate().MakeDMesh();
             return m;
         }
 
-        static DMesh3 Unweld(DMesh3 src)
+        internal static DMesh3 Unweld(DMesh3 src)
         {
             DMesh3 dst = new DMesh3();
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -40,7 +40,7 @@ namespace geometry3Sharp.Tests
         }
 
         // Open subdivided wavy patch / hemisphere with >= 600 exterior boundary edges to exercise BoundaryTree.
-        static DMesh3 LargeBoundaryOpenGrid(int n = 160)
+        internal static DMesh3 LargeBoundaryOpenGrid(int n = 160)
         {
             DMesh3 m = new DMesh3();
             int[,] vid = new int[n + 1, n + 1];

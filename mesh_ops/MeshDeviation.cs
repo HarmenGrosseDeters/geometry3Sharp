@@ -23,7 +23,8 @@ namespace gs
     ///     but undefined for open sheets.
     ///   - ExactWindingNumber: inside where the absolute exact generalized winding number of the reference is > 0.5
     ///     (DMeshAABBTree3.WindingNumber, via ExactWindingCache; faster than FastWindingNumber on closed and
-    ///     unwelded closed meshes and without dipole approximation error).
+    ///     unwelded closed meshes and without dipole approximation error; on a true triangle soup, boundary edges >= triangles
+    ///     and more than 64 triangles, the cache sums the solid angles in floating point: not exact there).
     ///   - Unsigned: the plain distance.
     ///
     /// The vertex values sample the deviation; the largest one is a lower bound of the one-sided Hausdorff

@@ -59,7 +59,7 @@ namespace g3
         Crossings,
         /// <summary> tree.FastWindingNumber(p) &gt; 0.5: also defined for open, non-manifold and noisy meshes (approximate near the surface, see FastWindingNumber) </summary>
         WindingNumber,
-        /// <summary> tree.WindingNumber(p) &gt; 0.5: exact generalized winding number (closed, open, unwelded closed soups, non-manifold; faster than FastWindingNumber on closed meshes and without dipole approximation error) </summary>
+        /// <summary> tree.WindingNumber(p) &gt; 0.5: the generalized winding number by an exact ray plus the boundary sum (closed, open, unwelded closed soups, non-manifold; exact decisions for these; faster than FastWindingNumber on closed meshes and without dipole approximation error). On a true triangle soup (boundary edges >= triangles and more than 64 triangles) the cache falls back on the floating-point solid-angle sum over all triangles: not exact, not faster than FastWindingNumber </summary>
         ExactWindingNumber
     }
 
@@ -201,7 +201,8 @@ namespace g3
         /// For every point whether it is inside the mesh: results[i] is Inside or Outside as tree.IsInside(p)
         /// (method Crossings, the default: exact, for closed meshes), tree.FastWindingNumber(p) &gt; 0.5 (method
         /// WindingNumber: approximate, for any mesh), or tree.WindingNumber(p) &gt; 0.5 (method ExactWindingNumber:
-        /// exact, for closed, open, unwelded closed soups, and non-manifold meshes), Invalid for a point that is not
+        /// exact decisions for closed, open, unwelded closed and non-manifold meshes; on a true triangle soup, boundary
+        /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum), Invalid for a point that is not
         /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
         /// The winding number cache is built once before the parallel part.
         /// </summary>

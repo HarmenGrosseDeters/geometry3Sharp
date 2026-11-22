@@ -344,6 +344,48 @@ namespace geometry3Sharp.Tests
             }
         }
 
+
+        /// <summary> a long band of n x 3 quads (6n triangles: more than its 2n + 6 boundary edges, so no direct-sum mode), the boundary one chain </summary>
+        static DMesh3 LongStrip(int n)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= 3; ++j)
+                for (int i = 0; i <= n; ++i)
+                    m.AppendVertex(new Vector3d(i * 0.01, j / 3.0, 0.001 * Math.Sin(i + j)));
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+                    m.AppendTriangle(a, b, d);
+                    m.AppendTriangle(a, d, c);
+                }
+            return m;
+        }
+
+        [Fact]
+        public void BoundaryTree_ErrorBound_CoversTheSummationOrderOfALongBoundary_AndIsSound()
+        {
+            // The summation-order clause 7.5e-16 * N * sum|w| of bErr is the largest one for a long boundary (N = 40006 here and the point far away:
+            // 1.9e-7 against about 1e-10 for the nodes), so a bound without it is below its own formula: pinned from
+            // below, and still above the true difference to the exact boundary sum at every point.
+            DMesh3 strip = LongStrip(20000);
+            ExactWindingCache cache = new DMeshAABBTree3(strip, true).GetExactWindingCache();
+            cache.PrepareThresholdQueries();
+            Assert.True(cache.HasBoundaryTree);
+            double lowerBound = 1.01 * 7.5e-16 * cache.BoundaryCount * (double)cache.BoundaryCount / MathUtil.TwoPI;
+            var rnd = new Random(31);
+            int used = 0;
+            for (int i = 0; i < 200; ++i) {
+                var p = new Vector3d(rnd.NextDouble() * 4e5 - 2e5, rnd.NextDouble() * 4e5 - 2e5, rnd.NextDouble() * 4e5 - 2e5);   // (far: one node of the chain is enough, its remainder is tiny)
+                if (!cache.TryEvaluateTreeBoundarySumX(p, out double bSum, out double bErr)) continue;
+                ++used;
+                Assert.True(bErr >= lowerBound, $"bErr {bErr:R} below the summation-order clause {lowerBound:R} at {p}");
+                double exact = cache.Evaluate(p);
+                double diff = Math.Abs((exact - Math.Round(exact - bSum)) - bSum);
+                Assert.True(diff <= bErr, $"bound violated at {p}: {diff:R} > {bErr:R}");
+            }
+            Assert.True(used > 100, $"only {used} queries took the tree");
+        }
+
         [Fact]
         public void BoundaryTree_ExtremeScalesLeafOnlyChainsAndConcurrentInit_SafeAndExact()
         {
