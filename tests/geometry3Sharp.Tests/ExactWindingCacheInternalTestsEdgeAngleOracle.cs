@@ -31,10 +31,13 @@ namespace geometry3Sharp.Tests
             return neg ? -v : v;
         }
 
+        // an upper bound of the bit length (the bytes of the magnitude): enough for a starting value and a scale
+        static int Bits(BigInteger v) { return BigInteger.Abs(v).ToByteArray().Length * 8; }
+
         static BigInteger ISqrt(BigInteger n)
         {
             if (n.Sign <= 0) return BigInteger.Zero;
-            BigInteger x = BigInteger.One << (int)((n.GetBitLength() + 1) / 2);
+            BigInteger x = BigInteger.One << ((Bits(n) + 1) / 2);
             while (true) {
                 BigInteger y = (x + n / x) >> 1;
                 if (y >= x) return x;
@@ -66,7 +69,7 @@ namespace geometry3Sharp.Tests
             double d1 = 1e-12 * 1.01;
             // |num| <= numErr and den <= denErr, with a margin of 1 % (the zone of the exact fallback)
             inExactZone = RatioLE(BigInteger.Abs(num), s1, d1) && RatioLE(den, s2, d1);
-            int bits = (int)Math.Max(Math.Max(num.GetBitLength(), den.GetBitLength()), 1);
+            int bits = Math.Max(Math.Max(Bits(num), Bits(den)), 1);
             int shift = Math.Max(0, bits - 900);
             angle = Math.Atan2(ToDouble(num, shift), ToDouble(den, shift));
             return true;
