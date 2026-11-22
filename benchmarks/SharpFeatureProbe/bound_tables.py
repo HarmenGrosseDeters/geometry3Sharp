@@ -7,7 +7,7 @@ result; fh = the same distance (max / p95); corner = share of the network's corn
 offsets; prec = share of the result's sharp edges within 0.25 offsets of the network."""
 import json, statistics as st, sys
 
-ORDER = ["A", "K", "KG", "KC", "KCK", "KO", "KOC", "O"]
+ORDER = ["A", "K", "KC", "KCK", "KO", "KOC", "O"]
 
 
 def load(path):
@@ -91,7 +91,7 @@ def main():
     group(rows, "Clean CAD-like solids, rotated and far", [n for n in clean if n.endswith("@rotfar")], variants)
     group(rows, "Dirty inputs", dirty, variants)
     per_case(rows, "Clean solids, per case", clean, [v for v in ["A", "K", "KC"] if v in variants])
-    per_case(rows, "Dirty inputs, per case", dirty, [v for v in ["A", "K", "KG", "KC", "KO", "KOC"] if v in variants])
+    per_case(rows, "Dirty inputs, per case", dirty, [v for v in ["A", "K", "KC", "KO", "KOC"] if v in variants])
     per_case(rows, "Sweeps (crease angle; feature size in alphas), per case", sweep, [v for v in ["A", "K", "KC"] if v in variants])
 
 
