@@ -1,9 +1,9 @@
 # Plan: SIGGRAPH 2026 contouring upgrades (SDF Dual Contouring and Subgrid Marching Tetrahedra)
 
-- **Board row:** Not yet listed in [OPEN_TOPICS.md](../OPEN_TOPICS.md) (candidate research/implementation items #2 and #3 from SIGGRAPH 2026 survey PR `#1292`; distinct from draft plan PR `#1276` coarse-first sparse octree culling and PR `#1289` contouring topology certificate proof for options B/C)
+- **Board row:** [OPEN_TOPICS.md](../OPEN_TOPICS.md), row "Other: SIGGRAPH 2026 contouring" (candidate research/implementation items #2 and #3 from SIGGRAPH 2026 survey PR `#1292`; distinct from draft plan PR `#1276` coarse-first sparse octree culling and PR `#1289` contouring topology certificate proof for options B/C)
 - **Kind:** research study + prototype (read papers first, check licenses, prototype on procedural thin-feature / sharp-edge SDF benchmarks before committing to public APIs)
 - **Tier:** M/L (paper-only study + opt-in contouring algorithms preserving exact self-intersection-free guarantees)
-- **Plan status:** draft, 2026-11-21 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-21 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([CONTOURING_SDF_SUBGRID_2026-11.md](../research/CONTOURING_SDF_SUBGRID_2026-11.md), PR `#1305`); its option 1 is built (`TwoLevelMarchingTetrahedra`, `TpmsLattice.TwoLevelSheet`, PR `#1345`, owner go 2026-11-22); option 2 (certificate per level) is in progress: its internal certificate record merged (PR `#1422`), the certificate itself is the next PR. Options 3 to 6 wait on an owner decision.
 
 ## Current state
 
@@ -15,6 +15,7 @@
 
 ## Trigger / decision needed
 
+- Update 2026-11-22: the paper study and the prototype measurements are done (see the plan status); the two bullets below are kept as the original trigger.
 - Read both published papers (once full PDFs / arXiv preprints are accessible) and verify license terms before opening any companion code (never GPL/LGPL or unlicensed code).
 - Decide after a short paper study whether the two methods should ship as two separate opt-in PRs (recommended: one for SDF-only sharp-feature QEF in `DualContouring`, one for subgrid thin-feature extraction).
 
