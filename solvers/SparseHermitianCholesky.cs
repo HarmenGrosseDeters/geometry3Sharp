@@ -26,6 +26,8 @@ namespace g3
         public string Error;
         /// <summary> nonzeros of L (complex entries, after Factorize) </summary>
         public int FactorNonZeros { get { return Lp == null ? 0 : Lp[N]; } }
+        /// <summary> fill-reducing ordering strategy applied on the next symbolic analysis in Factorize() (default: MinimumDegree) </summary>
+        public CholeskyOrdering Ordering { get; set; } = CholeskyOrdering.MinimumDegree;
 
         List<int> tRow = new List<int>(), tCol = new List<int>();
         List<double> tRe = new List<double>(), tIm = new List<double>();
@@ -117,7 +119,7 @@ namespace g3
         // entries below the diagonal of the original but above it after the ordering are marked as conjugates in apSrc
         void analyze()
         {
-            var an = new CholeskyAnalysis(N, 1, aColPtr, aRow, true);
+            var an = new CholeskyAnalysis(N, 1, aColPtr, aRow, true, Ordering);
             perm = an.Perm; iperm = an.IPerm; Lp = an.Lp; Li = an.Li;
             snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
             apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;
