@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Platform/QA/CI: determinism across runtimes and CPUs (HP 11)"
 - **Kind:** research study / multi-stage program (stages 0-1 merged; next: stage 2 + #929 local net48/net10 run + optional stage 3 floating-point operations)
 - **Tier:** L (exact-code closed-world proofs, cross-runtime JIT/ABI/CPU verification, `DeterminismHarness`)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the research spike merged (PR `#1306`, [DETERMINISM_CROSS_RUNTIME_2026-11.md](../research/DETERMINISM_CROSS_RUNTIME_2026-11.md)); its L0 defect F1 (`LaplacianMeshSmoother`, issue `#1314`) is fixed on master (`7a5ab9e9`); the two-tier golden-master policy is adopted (PR `#1357`, `DETERMINISM.md` section 6b); stage 2 is in open PR `#1370`; the #929 local measurement is still open.
 
 ## Current state
 
@@ -18,7 +18,7 @@
       `SnapRounding2`, `TriangleBoxTree`, #1076) merged.
   - **In flight / queued in §3 & §7 (linked separately):**
     - Stage 1 obligations O2-O5 (`platform-determinism-stage-1-obligations`, PR #1240).
-    - **Stage 2** (`ExactMeshArrangement`, `ExactMeshBoolean`, `platform-determinism-stage-2`, PR #1241).
+    - **Stage 2** (`ExactMeshArrangement`, `ExactMeshBoolean`, `platform-determinism-stage-2`, plan PR #1241; implementation in open PR #1370).
     - **#929 (owner's local run):** `net48` vs `net10` runtime comparison (and re-measurement of net10-only optimizations
       on net48).
   - **Open research beyond Stage 2 (`DETERMINISM_PROOF.md` §6.1 & §6.4):**
@@ -30,7 +30,8 @@
 
 ## Trigger / decision needed
 
-1. Complete Stage 1 obligations (PR #1240), Stage 2 (PR #1241), and owner's local #929 measurement first.
+1. Complete Stage 1 obligations (PR #1240), Stage 2 (PR #1241, implementation open in PR #1370), and owner's local #929 measurement first.
+   Done since (2026-11-22): the cross-runtime spike (PR #1306), the F1 fix (issue #1314) and the golden-master tiers (PR #1357).
 2. Owner decides whether to extend the closed-world determinism claim to **Stage 3** (floating-point operations such as
    `MarchingCubes` / `Reducer` / `QuadRemesher`) or stop after Stage 2 (exact boolean pipeline fully covered).
 
