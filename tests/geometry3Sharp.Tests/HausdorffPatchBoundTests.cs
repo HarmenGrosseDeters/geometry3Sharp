@@ -108,6 +108,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0));
             // (not tried when the other bounds are below the threshold)
             Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 1));
+            // PatchMinTargetSize: tried only where the grid's triangles (size 0.025: the square root of the doubled area) are at
+            // least that many thresholds in size
+            bounds.PatchMinTargetSize = 1;
+            Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0249));
+            Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0251));
+            bounds.PatchMinTargetSize = 2;
+            Assert.Equal(u, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0124));
+            Assert.Equal(old, bounds.UpperBound(a, b, c, 0.01, 0.02, 0.005, na, nb, nc, 0.0126));
         }
 
         [Fact]

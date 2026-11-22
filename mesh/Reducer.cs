@@ -227,8 +227,9 @@ namespace g3
         /// <summary>
         /// (tests, benchmarks) the MaxDeviation check also uses the patch bound of TriangleDeviationBounds (PatchBound with
         /// PatchTouchingEdges): a new triangle that spans many reference triangles of a flat region is certified in one step
-        /// instead of being split down to their size (issue 1317: 76 s for a flat-faced cube of 4332 triangles). Read when the
-        /// deviation reference is set. False: the check as before
+        /// instead of being split down to their size (issue 1317: 76 s for a flat-faced cube of 4332 triangles); tried where the
+        /// reference triangles are at least MaxDeviation in size (PatchMinTargetSize). Read when the deviation reference is set.
+        /// False: the check as before
         /// </summary>
         internal bool DeviationPatchBound = true;
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
@@ -567,7 +568,7 @@ namespace g3
         public void SetDeviationReference(DMesh3 reference)
         {
             deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
-            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound };
+            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound, PatchMinTargetSize = DeviationPatchBound ? 1 : 0 };
             reverseCoverage = null;     // (the reverse direction refers to the mesh at its start: MaxDeviationTwoSided then refuses)
         }
 
@@ -581,7 +582,7 @@ namespace g3
         internal void SetDeviationReference(DMeshAABBTree3 reference)
         {
             deviationTarget = reference;
-            deviationBounds = new TriangleDeviationBounds(reference.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound };
+            deviationBounds = new TriangleDeviationBounds(reference.Mesh) { PatchBound = DeviationPatchBound, PatchTouchingEdges = DeviationPatchBound, PatchMinTargetSize = DeviationPatchBound ? 1 : 0 };
         }
 
         // current triangles by grid cell, for PreventSelfIntersections

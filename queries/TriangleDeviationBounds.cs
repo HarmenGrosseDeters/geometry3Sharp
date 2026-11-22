@@ -50,7 +50,7 @@ namespace g3
             double u2 = dmax + covering_radius(e01, e12, e20);
 
             double u = Math.Min(u0, Math.Min(u1, u2));
-            if (PatchBound && !(u <= threshold))
+            if (PatchBound && !(u <= threshold) && (PatchMinTargetSize <= 0 || corner_triangle_size(n0, n1, n2) >= PatchMinTargetSize * threshold))
                 // (never below the largest corner distance, a distance of a point of the triangle)
                 u = Math.Min(u, Math.Max(dmax, patch_bound(p0, p1, p2, n0, n1, n2)));
             return u;
@@ -69,6 +69,30 @@ namespace g3
         /// bounds of the other users stay as they are, bit for bit); the Reducer's MaxDeviation check sets it (issue 1317)
         /// </summary>
         internal bool PatchTouchingEdges = false;
+
+        /// <summary>
+        /// (with PatchBound, not with Certified) if above 0, UpperBound tries the patch bound only where the target triangles at the
+        /// corners are at least this many thresholds in size (the square root of the doubled area of the largest). Over target
+        /// triangles much smaller than the threshold a patch has very many of them, while plain subdivision stops at pieces of about
+        /// the threshold's size (the triangle inequality from a corner), so the patch costs more than it saves there
+        /// (benchmarks/ReducerBenchmark, "flat": 0.8x at a tolerance of 2.5 to 4 triangle sizes). A choice of what to try: every
+        /// value returned is a bound. 0 (default): always tried; the Reducer's MaxDeviation check sets 1
+        /// </summary>
+        internal double PatchMinTargetSize = 0;
+
+        // the size of the largest of the corners' nearest triangles: the square root of its doubled area
+        double corner_triangle_size(int n0, int n1, int n2)
+        {
+            double a2 = 0;
+            for (int k = 0; k < 3; ++k) {
+                int t = (k == 0) ? n0 : ((k == 1) ? n1 : n2);
+                if (t < 0 || Target.IsTriangle(t) == false) continue;
+                Index3i tv = Target.GetTriangle(t);
+                Vector3d a = Target.GetVertex(tv.a);
+                a2 = Math.Max(a2, (Target.GetVertex(tv.b) - a).Cross(Target.GetVertex(tv.c) - a).Length);
+            }
+            return Math.Sqrt(a2);
+        }
 
         /// <summary>
         /// (internal, MeshHausdorffDistance.CertifiedUpper) UpperBound is certified: never below the largest exact distance over the
