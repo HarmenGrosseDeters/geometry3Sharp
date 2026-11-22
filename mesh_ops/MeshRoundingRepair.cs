@@ -3513,7 +3513,7 @@ namespace g3
             if (KeepWhenEmptied && before1216.Count > 0) {
                 var all = new List<int[]>(before1216);
                 if (inverted != null)
-                    all.AddRange(flagged_inverted(inverted, before1216, null));
+                    all.AddRange(flagged_inverted(inverted, before1216));
                 int triangles = 0;
                 foreach (int[] comp in all)
                     triangles += comp.Length;
@@ -3530,9 +3530,9 @@ namespace g3
                 // depth of what they enclose: a residue goes only if it is inside out both without the components that go
                 // now and without those the rule before #1216 removed, so that nothing goes that stayed before)
                 bool same = remove.Count == before1216.Count;
-                var old = new HashSet<int[]>(same ? new List<int[]>() : flagged_inverted(inverted, before1216, null));
+                var old = new HashSet<int[]>(same ? new List<int[]>() : flagged_inverted(inverted, before1216));
                 var flaggedInfos = new List<RemovedComponentInfo>();
-                foreach (int[] comp in flagged_inverted(inverted, remove, null))
+                foreach (int[] comp in flagged_inverted(inverted, remove))
                     if (same || old.Contains(comp)) {
                         remove.Add(comp);
                         flaggedInfos.Add(invertedInfos[inverted.IndexOf(comp)]);
@@ -3561,8 +3561,8 @@ namespace g3
         }
 
         // of the tiny inside-out candidates, those that are inside out in the mesh without the components of gone (in the
-        // order of the candidates; found is called with the index of each)
-        List<int[]> flagged_inverted(List<int[]> candidates, List<int[]> gone, Action<int> found)
+        // order of the candidates)
+        List<int[]> flagged_inverted(List<int[]> candidates, List<int[]> gone)
         {
             var rest = new DMesh3(Mesh);
             foreach (int[] comp in gone)
@@ -3574,11 +3574,8 @@ namespace g3
                     flagged[t] = true;
             var result = new List<int[]>();
             for (int i = 0; i < candidates.Count; ++i)
-                if (flagged[candidates[i][0]]) {
+                if (flagged[candidates[i][0]])
                     result.Add(candidates[i]);
-                    if (found != null)
-                        found(i);
-                }
             return result;
         }
 

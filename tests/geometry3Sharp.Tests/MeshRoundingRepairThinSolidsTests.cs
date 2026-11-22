@@ -961,5 +961,80 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, b.Rounding.InitialIntersections + b.Rounding.InitialDegenerate);
             Assert.True(b.Rounding.MeasuredBefore >= 0);
         }
+        /// <summary>
+        /// two thin slabs that share one vertex are two components, each measured before the edits and each judged against its
+        /// own measurement (the shared vertex names neither): both are edited, left as they were, and stay
+        /// </summary>
+        [Fact]
+        public void TwoComponentsSharingAVertex_AreEachJudgedByTheirOwnMeasurement()
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            m = new DMesh3(m, false, MeshComponents.None);
+            int n = m.TriangleCount, sphereVertices = m.VertexCount;
+            // (the second slab starts at the corner (3.5, 0.5, 1e-5) of the first)
+            DMesh3 first = CubeWithNeedle(new Vector3d(3, 0, 0), new Vector3d(0.5, 0.5, 1e-5));
+            DMesh3 second = CubeWithNeedle(new Vector3d(4, 1, 3e-5), new Vector3d(0.5, 0.5, 2e-5));
+            var corner = new Vector3d(3.5, 0.5, 1e-5);
+            // (the corners as the generator computes them, made the same point exactly)
+            foreach (DMesh3 part in new[] { first, second })
+                foreach (int v in part.VertexIndices().ToArray())
+                    if (part.GetVertex(v).Distance(corner) < 1e-15)
+                        part.SetVertex(v, corner);
+            int shared = -1;
+            foreach (DMesh3 part in new[] { first, second }) {
+                var map = new Dictionary<int, int>();
+                foreach (int v in part.VertexIndices()) {
+                    bool isCorner = part.GetVertex(v) == corner;
+                    if (isCorner && shared >= 0) { map[v] = shared; continue; }
+                    map[v] = m.AppendVertex(part.GetVertex(v));
+                    if (isCorner) shared = map[v];
+                }
+                foreach (Index3i t in part.Triangles())
+                    Assert.True(m.AppendTriangle(map[t.a], map[t.b], map[t.c]) >= 0);
+            }
+            Assert.True(shared >= 0);
+            Assert.Equal(sphereVertices + first.VertexCount + second.VertexCount - 1, m.VertexCount);
+            var components = new MeshConnectedComponents(m);
+            components.FindConnectedT();
+            Assert.Equal(3, components.Count);
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            // (one needle is contracted, the other, at the shared corner, is repaired by moves)
+            Assert.True(r.Collapses >= 1 && r.Collapses + r.Moves >= 2);
+            Assert.Equal(0, r.RemainingDegenerate);
+            Assert.Equal(2, r.MeasuredBefore);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(n + 26, m.TriangleCount);
+            Assert.True(r.IsClean);
+            Assert.True(m.IsClosed() && Invariance.AllFinite(m));
+        }
+
+        /// <summary>
+        /// an inside-out residue enclosed by a tiny solid that the removal takes goes with it: its nesting is judged on the mesh
+        /// without the components that go (as a cavity of the solid it would stay, and be left alone inside out). The solid is
+        /// made to go by switching the measurement off; measured, it stays with the residue as its cavity
+        /// (SafeRoundingInsideOutResidueTests.ResidueInsideATinyEditedSolid_StaysAsItsCavity)
+        /// </summary>
+        [Fact]
+        public void ResidueInsideARemovedSolid_GoesWithIt()
+        {
+            DMesh3 outer = SafeRoundingInsideOutResidueTests.Bipyramid(17, 5e-5, 5e-5, new Vector3d(3, 0, 0), false);
+            int eid = outer.EdgeIndices().First();
+            Index2i ev = outer.GetEdgeV(eid);
+            Vector3d p = outer.GetVertex(ev.a), q = outer.GetVertex(ev.b);
+            Assert.Equal(MeshResult.Ok, outer.SplitEdge(eid, out DMesh3.EdgeSplitInfo split));
+            outer.SetVertex(split.vNew, p + 3e-10 * (q - p).Normalized);
+            new MeshEditor(outer).AppendMesh(SafeRoundingInsideOutResidueTests.Bipyramid(17, 3e-5, 1e-9, new Vector3d(3, 0, 0), true));
+            DMesh3 m = SafeRoundingInsideOutResidueTests.SphereWithNeedlesAndResidue(outer);
+            int parts = MeshConnectedComponents.Separate(m).Length;
+            var r = new MeshRoundingRepair(m) { MeasureWindow = 0 };
+            r.Apply();
+            Assert.Equal(2, r.RemovedComponents);
+            Assert.Equal(new[] { Reasons.NotMeasured, Reasons.InsideOutResidue }, r.RemovedComponentInfos.Select(i => i.Reason).ToArray());
+            Assert.Equal(new[] { true, false }, r.RemovedComponentInfos.Select(i => i.Resolvable).ToArray());
+            Assert.Equal(parts - 2, MeshConnectedComponents.Separate(m).Length);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            AssertSolid(m);
+        }
     }
 }
