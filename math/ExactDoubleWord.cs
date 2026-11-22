@@ -116,11 +116,11 @@ namespace g3
         /// x / y by two corrections, certified by the residual (section 3.3): q1 = fl(xh / yh), q = q1 + fl(rh / yh) with
         /// r = x - q1 y, then the exact identity x'/y' - q = (x' - q y') / y' gives the error from a certified residual
         /// x - q y: |x'/y' - q| &lt;= (|x - q y| + err(x - q y) + err(x) + |q| err(y)) / (|yh| - |yl| - err(y)). Requires
-        /// err(y) &lt;= |yh| / 4, else Invalid. The quotient's own rounding is not assumed to be small: it only costs a larger bound.
+        /// that denominator to be positive, else Invalid. The quotient's own rounding is not assumed to be small: it only costs a larger bound.
         /// </summary>
         public static DoubleWord Div(DoubleWord x, DoubleWord y)
         {
-            if (y.IsValid == false || x.IsValid == false || y.Hi == 0 || y.Err > 0.25 * Math.Abs(y.Hi))
+            if (y.IsValid == false || x.IsValid == false || y.Hi == 0)
                 return Invalid;
             double q1 = x.Hi / y.Hi;
             DoubleWord r = x - y * Of(q1);

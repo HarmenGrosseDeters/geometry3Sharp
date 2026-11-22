@@ -94,7 +94,7 @@ the exact operands `x`, `y`, `q`), and `|y'| >= |yh| - |yl| - ey`. So
 
     Err(q) = (|res.Hi + res.Lo| + res.Err + ex + |q| ey) / (|yh| - |yl| - ey),
 
-requiring `ey <= |yh| / 4` (else `Invalid`) so the denominator is at least `0.7 |yh|`. Since `q` agrees with `x / y` to about `2^-104`
+valid whenever the denominator `|yh| - |yl| - ey` is positive (else `Invalid`). Since `q` agrees with `x / y` to about `2^-104`
 relative (two correction steps), `Err` is about `2^-100` relative; the bound itself is valid for any `q`.
 
 ## 4. Certification of the rounding (`RoundsTo`)
@@ -126,6 +126,20 @@ operands (including operands that carry an error), `RoundsTo` at the tie and pow
 (`t.x - s.x = 3 k 2^-52`, `k` odd: `x` is exactly a midpoint) that must round half to even through the exact route and must not be
 certified, near ties, the crossing point of random, axis-aligned and scaled edges against an independent oracle (nearest double of the exact
 rational), and `Find` end points against the rounded crossings of the edges. Mutation results: see the PR.
+
+## 6a. Mutation checks of the changed lines (local run, 16 mutants of `ExactDoubleWord.cs` and `find_transversal`/`round_ratio`)
+
+Killed (10): `Eps2` to `2^-106`; `<` to `<=` in `RoundsTo`; dropping `Err` from `RoundsTo`; the power-of-two lower gap; the `Eps2` term of the sum, of the product,
+the residual error of the quotient; the exact-zero certificate; the range rule; and the two `round_ratio` variants (no sticky remainder; always round up at the midpoint).
+Survivors, argued:
+
+- Disabling the double-word route (`crossing_dd` never used), `passes_through` always true (four candidates: `n > 2` returns false), the coplanar-edge check removed, `n != 2` weakened:
+  every one of these sends a pair to the exact route `find_exact`, which returns the same result, so the output cannot differ; only the route taken does (a performance
+  difference, measured in section 7, not a correctness one). The coplanar-edge check and `p0 == p1` are redundant guards for an exactly touching pair (its two crossing points
+  coincide as rational points, hence round to equal doubles, hence `p0 == p1`); the check `p0 == p1` additionally covers a rounding collapse of a positive-length segment,
+  for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): the check is kept as a guard, not covered by a test.
+- The `Div` guard `err(y) <= |yh| / 4` was redundant with the `den > 0` test (the residual bound is valid for any positive denominator) and is removed.
+- The factor `1 + 2^-48` on the bounds could not be told from 1 by any test and was removed; the explicit slack of `Eps2` over the derived bounds covers the rounding of the bounds (section 3).
 
 ## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
 
