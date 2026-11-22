@@ -304,8 +304,16 @@ numbers, not re-run here): both cases reproduce at `ExactMeshBoolean` level with
   moved (that spike's inference from the paper's steps; the paper says nothing about solids).
 
 For option (c) this means two separate changes: the thin rule for edited components (slabs), and the degenerate area
-relative to the component instead of the whole result (small well-shaped solids). The certifying checker spike has not
-reported yet.
+relative to the component instead of the whole result (small well-shaped solids).
+
+What the certifying checker spike found (its message of 2026-11-22; branch `research/boolean-certified-mode-spike`,
+`docs/research/BOOLEAN_CERTIFIED_MODE_2026-11.md` section 4.4; its own numbers, not re-run here): its checker as built
+certifies both drops, because it exempts the components that are tiny or thin by the removal's own rule from the coverage
+and only counts them. With the exemption off it rejects both (the cube: a corner of the result before rounding is farther
+than the bound from the result; the slab: the result before rounding has triangles, the result none). So neither removal
+is inside "up to the rounding bound": the bound is a distance (1e-5 of the largest component's diagonal, 0.0177 in the
+cube case, with the cube 76 away from the rest). The removal is a separate licence by size and thickness, not a
+consequence of the bound, which is what the pipeline's class comment gets wrong (F1).
 
 **Leaning: (a) at once.** For (b) and (c) the owner decides; the leaning is the opt-in refusal of (b) now and, for (c),
 a degenerate area relative to the component, so that a valid input solid is no longer deleted from a union (the case
