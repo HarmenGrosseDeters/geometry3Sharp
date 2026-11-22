@@ -65,7 +65,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Other: Remesher `RejectInvertingPasses` cheaper snapshot | Parked as owner options, 2026-11-17 | Owner picks labels + undo log or buffers | [note](design/INVERSION_GUARD_SNAPSHOT.md), plan #1273 |
 | Other: TPMS transitions keeping wall thickness (Ren 2021, Gao 2022) | Later; papers must be provided | Owner provides the papers | [research](roadmap/research.md), plan #1274 |
 | Other: batch query extras (Span overloads, early any-hit, all-hits, CLI) | Not done by owner decision | A caller | [batch](design/BATCH_QUERIES.md), plan #1275 |
-| Other: dual contouring coarse-first construction | Idea, opt-in, not scheduled | Bounds on the implicit | [DC](design/DC_ADAPTIVE_SIMPLIFICATION.md), plan #1276 |
+| Other: dual contouring coarse-first construction | Idea, opt-in, not scheduled | Bounds on the implicit | [DC](design/DC_ADAPTIVE_SIMPLIFICATION.md), [bound at N = 512](research/CONTOURING_SDF_SUBGRID_2026-11.md#7b-plan-1276-coarse-first-construction-of-the-grid), plan #1276 |
 | Other: unread sources (permissive libraries, PaMO, RWTH, Minkowski, Sci. Rep.) | Documented only | An item that needs one; licence / patent check | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17), plan #1277 |
 
 ## 5. Research / hard open problems (no known solution; a study first)
@@ -83,7 +83,8 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Platform/QA/CI: determinism across runtimes and CPUs (HP 11) | Stages 0-1 merged | Stage 2, then the #929 measurement | [proof](design/DETERMINISM_PROOF.md), plan #1286 |
 | Platform/QA/CI: golden masters across runtimes vs bit-for-bit | Lead untried | Study | [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15), plan #1287 |
 | Other: envelope-guaranteed simplification, the paper's algorithm (HP 10) | Envelope stopped 2026-11-01; Phase 5 #2 open | A cheap certified per-collapse bound | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1288 |
-| Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule | Reviewed proof before any build | [note](design/CONTOURING_TOPOLOGY.md), plan #1289 |
+| Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule | Reviewed proof before any build | [note](design/CONTOURING_TOPOLOGY.md), [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1289 |
+| Other: SIGGRAPH 2026 contouring (distance-grid dual contouring, subgrid marching tetrahedra) | Spike measured 2026-11-22; no code | Owner decision on the options | [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1297 |
 | Other: open research questions (metamorphic testing, agent APIs, showcases) | Listed, not started | Pick one with a synergy | [research](roadmap/research.md#open-research-questions), plan #1290 |
 
 ## 6. Known limits and tails (documented, kept open on purpose)
