@@ -229,7 +229,7 @@ namespace Meshing2Acceptance
         /// coordinate of the vectors u = b - a and v = p - a is an integer over D, and each case of Dist2ToSegment is a quotient of
         /// integers with a positive denominator (v.v over D^2 beyond a, w.w over D^2 beyond b, cross^2 over u.u * D^2 between), compared
         /// with the limit by cross-multiplication. No gcd; the same sign as the rational computation, exactly (the equivalence is argued in
-        /// docs/design/MESHING2D_FAST_ORACLE.md, section 8).
+        /// docs/design/MESHING2D_FAST_ORACLE.md, section 7).
         /// </summary>
         public static int Dist2ToSegmentCompare(Pt a, Pt b, Pt p, Q limit)
         {
