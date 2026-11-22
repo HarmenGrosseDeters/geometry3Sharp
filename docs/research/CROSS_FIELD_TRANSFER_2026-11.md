@@ -123,6 +123,8 @@ padded. Item 4 depends on the hold on the 3B follow-ups, item 5 on HP 7, which i
 
 ### 5.1 Clause learning in the 3B local repair
 
+**Measured 2026-11-22, stop:** [QUAD_3B_CLAUSE_LEARNING_2026-11.md](QUAD_3B_CLAUSE_LEARNING_2026-11.md). With every local instance decided, 3 of 29 fallbacks of master and 1 of 11 with PR #1293 become fold-free (0 of the 11 clean); the budget goes to instances that are unsatisfiable, most of them because the lattice area of the region is negative.
+
 **Problem and structure.** `QuadRemesher.PureQuads` falls back on 29 of the 54 gate runs, and 26 of those 29 are
 `BudgetExceeded`: "the SAT budget or the split budget is used up and the map still has folds". The solver is
 `GroupSatSolver`: unit propagation with two watched literals, chronological backtracking, no learning, a total budget
