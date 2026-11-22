@@ -59,7 +59,8 @@ kernels are on); the workflow also runs the cases with `DOTNET_EnableHWIntrinsic
 matrix of the note (groups of cases against pairs of configurations) from the trace directories of a run.
 
 `adversary` lists a case of `KnownOrderDependent` (`Program.cs`: a known finding, with its reference) as `KNOWN` and does not
-fail on it; it fails when such a case stops differing, so the list only shrinks.
+fail on it; it fails when such a case stops differing, so the list only shrinks. The list is empty since the fix of issue 1314
+(`LaplacianMeshSmoother`, `examples.Smoothing.Laplacian`).
 
 `scope_report.py <build log>` summarizes the G3D diagnostics of a library build with more files in the proof scope (what a
 stage of the determinism proof would have to register). The static counterpart of the cases is

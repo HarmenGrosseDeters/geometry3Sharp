@@ -88,7 +88,7 @@ namespace geometry3Sharp.Tests
             tree.FastWindingNumber(Vector3d.Zero);
             var exact = new System.Collections.Generic.List<int>();
             int checkedPoints = 0;
-            foreach (int t in m.TriangleIndices().Where(t => t % 5 == 0)) {
+            foreach (int t in m.TriangleIndices().Where(t => t % 5 == 0 || t >= m.MaxTriangleID - 4)) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 m.GetTriVertices(t, ref a, ref b, ref c);
                 foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
@@ -96,8 +96,12 @@ namespace geometry3Sharp.Tests
                     tree.FastWindingExactTriangles(p, exact);
                     Assert.True(exact.Contains(t), $"far {far}, triangle {t}, point {p}: not summed exactly ({exact.Count} are)");
                     // (the own term of the triangle is +-0.5 on it: an expanded box above it would be off by about that)
-                    double fast = tree.FastWindingNumber(p), reference = legacyRef.WindingNumber(p);
-                    Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs legacy {reference}");
+                    // (the legacy reference costs 10 to 50 times the checks above, so it runs on every 4th point and on all
+                    // points of the added far part, the last triangles of the scene; the exact-list check runs on all)
+                    if (checkedPoints % 4 == 0 || t >= m.MaxTriangleID - 4) {
+                        double fast = tree.FastWindingNumber(p), reference = legacyRef.WindingNumber(p);
+                        Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs legacy {reference}");
+                    }
                     checkedPoints++;
                 }
             }

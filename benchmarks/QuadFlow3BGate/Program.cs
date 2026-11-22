@@ -5,7 +5,7 @@
 //   fallback         PureQuadStatus is not Success and Result is the stage 2 mesh face for face (checked here)
 //   undetected bad   Success, but an independent check fails (must be 0), or a fallback whose Result is not the stage 2 mesh
 // plus the time gate (clean rows: PureQuads Compute() at most max(3 x stage 2 Compute(), 1 s)) and the quality gates of stage 3.
-//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>]
+//   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>] [align=<x>]
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -83,6 +83,7 @@ static class Program
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
+        if (A.ContainsKey("open") && A["open"] == "1") return OpenShapes.Run(A);
         bool profile = A.ContainsKey("profile") && A["profile"] == "1";
         int adaptArg = A.ContainsKey("adapt") ? int.Parse(A["adapt"], CultureInfo.InvariantCulture) : 0;
         if (adaptArg < 0 || adaptArg > 2) throw new ArgumentOutOfRangeException("adapt", "adapt must be 0 (Off), 1 (Scale), or 2 (ScaleAndRotation).");
@@ -90,6 +91,8 @@ static class Program
         double minGain = A.ContainsKey("mingain") ? double.Parse(A["mingain"], CultureInfo.InvariantCulture) : 0.2;
         if (double.IsNaN(minGain) || double.IsInfinity(minGain)) throw new ArgumentOutOfRangeException("mingain", "mingain must be finite.");
         int repeat = A.ContainsKey("repeat") ? int.Parse(A["repeat"]) : 1;
+        double? alignOverride = A.ContainsKey("align") ? double.Parse(A["align"], CultureInfo.InvariantCulture) : (double?)null;
+        if (alignOverride.HasValue && (!(alignOverride.Value >= 0) || double.IsInfinity(alignOverride.Value))) throw new ArgumentOutOfRangeException("align", "align must be finite and >= 0.");
         Func<Vector3d, double> sphere = p => p.Length - 1;
         Func<Vector3d, double> torus = p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 1; return Math.Sqrt(q * q + p.z * p.z) - 0.35; };
         Func<Vector3d, double> bumpy = p => p.Length - 1 - 0.08 * Math.Sin(4 * p.x) * Math.Sin(4 * p.y) * Math.Sin(4 * p.z);
@@ -128,7 +131,7 @@ static class Program
             foreach (var (scale, ratio) in variations) {
                 double s = s0 * scale;
                 DMesh3 input = MakeInput(fn, s * ratio, noise);
-                var cf = new CrossField(input) { CurvatureAlignment = align }; cf.Compute();
+                var cf = new CrossField(input) { CurvatureAlignment = alignOverride ?? align }; cf.Compute();
                 if (!cf.Success) { Console.WriteLine($"| {name} | {scale}/{ratio} | cross field failed {cf.Status} |"); continue; }
                 double t2 = double.MaxValue, t3 = double.MaxValue; QuadRemesher q2 = null, q3 = null;
                 for (int rep = 0; rep < repeat; ++rep) {

@@ -531,14 +531,21 @@ namespace g3
             if (IsSymmetric == false)
                 return square_nonsymmetric();
 
-            DVector<matrix_entry> entries = new DVector<matrix_entry>();
-            SpinLock entries_lock = new SpinLock();
+            // Each row computes its own entries, in the order of their columns, into its own slot; the rows are then
+            // appended in order. So the entries, and with them the order of the nonzeros in the rows of the result (the
+            // order in which Multiply adds the terms of a product), do not depend on the schedule of the loop or on the
+            // enumeration order of a hash set. (They were appended to one list under a lock, in the order the blocks
+            // finished: issue 1314.)
+            matrix_entry[][] row_entries = new matrix_entry[N][];
 
             gParallel.BlockStartEnd(0, N - 1, (r_start, r_end) => {
+                HashSet<int> nbrs = new HashSet<int>();
+                List<int> columns = new List<int>();
+                List<matrix_entry> found = new List<matrix_entry>();
                 for (int r1i = r_start; r1i <= r_end; r1i++) {
 
                     // determine which entries of squared matrix might be nonzeros
-                    HashSet<int> nbrs = new HashSet<int>();
+                    nbrs.Clear();
                     nbrs.Add(r1i);
                     PackedSparseMatrix.nonzero[] row = Rows[r1i];
                     for (int k = 0; k < row.Length; ++k) {
@@ -550,19 +557,26 @@ namespace g3
                                 nbrs.Add(row2[j].j);
                         }
                     }
+                    columns.Clear();
+                    columns.AddRange(nbrs);
+                    columns.Sort();
 
                     // compute them!
-                    foreach (int c2i in nbrs) {
+                    found.Clear();
+                    foreach (int c2i in columns) {
                         double v = DotRowColumn(r1i, c2i, this);
-                        if (Math.Abs(v) > MathUtil.ZeroTolerance) {
-                            bool taken = false;
-                            entries_lock.Enter(ref taken);
-                            entries.Add(new matrix_entry() { r = r1i, c = c2i, value = v });
-                            entries_lock.Exit();
-                        }
+                        if (Math.Abs(v) > MathUtil.ZeroTolerance)
+                            found.Add(new matrix_entry() { r = r1i, c = c2i, value = v });
                     }
+                    row_entries[r1i] = found.ToArray();
                 }
             });
+
+            DVector<matrix_entry> entries = new DVector<matrix_entry>();
+            for (int r1i = 0; r1i < N; r1i++) {
+                foreach (matrix_entry e in row_entries[r1i])
+                    entries.Add(e);
+            }
 
             PackedSparseMatrix R = new PackedSparseMatrix(entries, N, N, true);
             return R;
