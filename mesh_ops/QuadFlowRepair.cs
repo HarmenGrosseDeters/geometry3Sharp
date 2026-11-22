@@ -66,6 +66,14 @@ namespace gs
         public int Triangles, Splits, FlowArcs, FlowNodes, FlowCapacity, FlowSearches, SatAttempts, SatSolved, SatFailed, GreedyMoves, Cancelled, UnpairedTriangles, BadTriangles, Quads;
         public long FlowSettled, SatDecisions, BalancingWork;
         public bool SatBudgetExhausted;
+        /// <summary>
+        /// DIAGNOSTIC ONLY (it is not a check: no status depends on it): the lattice area of the integer map over the geometric area of the input, both in
+        /// squared lengths: (1/2 sum of det(D0, D1) * (s * spacing)^2 over the triangles of the map) / (the area of the input triangles). A map that covers the surface
+        /// once gives about 1; a map that has lost part of the lattice (cells cancelled by folds or by cones that the flow moved) gives less, a folded one
+        /// is reduced by the negative determinants. AreaRatioAfterFlow is read right after the flow, AreaRatio after the subdivision, the greedy moves and the SAT
+        /// (they keep the area except in a SAT region that holds several cones); both are NaN until they are computed (a run that ends before the flow, or an input of area 0)
+        /// </summary>
+        public double AreaRatioAfterFlow = double.NaN, AreaRatio = double.NaN;
 
         // ------------------------------------------------------------------------------------------ data
 
@@ -131,6 +139,26 @@ namespace gs
             return r;
         }
 
+        /// <summary> the ratio of the lattice area (sum of 1/2 det * cell area over the items, in squared lengths) to the geometric area; NaN if the geometric area is not positive </summary>
+        internal static double LatticeAreaRatio(IEnumerable<(long det, double cellArea)> map, double geometricArea)
+        {
+            if (!(geometricArea > 0) || double.IsInfinity(geometricArea)) return double.NaN;
+            double lattice = 0;
+            foreach (var (det, cellArea) in map) lattice += 0.5 * det * cellArea;
+            return lattice / geometricArea;
+        }
+
+        double MapAreaRatio()
+        {
+            double geo = 0; foreach (int t in mesh.TriangleIndices()) geo += mesh.GetTriArea(t);
+            double[] spc = pf.SpacingFactors;
+            IEnumerable<(long, double)> Items()
+            {
+                foreach (var t in tris) { double sf = spc == null ? s : s * spc[t.Fa]; yield return ((long)t.D[0].X * t.D[1].Y - (long)t.D[0].Y * t.D[1].X, sf * sf); }
+            }
+            return LatticeAreaRatio(Items(), geo);
+        }
+
         // ------------------------------------------------------------------------------------------ run
 
         bool ran;
@@ -140,7 +168,7 @@ namespace gs
         {
             if (ran) throw new InvalidOperationException("QuadFlowRepair.Run can be called once");
             ran = true;
-            Status = PureQuadStatus.NotRequested; Result = null; InvertedTriangles = FlippedQuads = 0;
+            Status = PureQuadStatus.NotRequested; Result = null; InvertedTriangles = FlippedQuads = 0; AreaRatio = AreaRatioAfterFlow = double.NaN;
             var sw = Stopwatch.StartNew();
             BuildOffsets();
             if (setupFailed) { FlowSeconds = sw.Elapsed.TotalSeconds; return Status = PureQuadStatus.FlowInfeasible; }
@@ -152,6 +180,7 @@ namespace gs
             bool feasible = SolveFlow();
             FlowSeconds = sw.Elapsed.TotalSeconds;
             if (!feasible) { InvertedTriangles = Inverted(); return Status = PureQuadStatus.FlowInfeasible; }
+            AreaRatioAfterFlow = MapAreaRatio();
             sw.Restart();
             bool splitOk = Subdivide(); SubdivisionSeconds = sw.Elapsed.TotalSeconds; sw.Restart();
             Greedy(); GreedySeconds = sw.Elapsed.TotalSeconds; sw.Restart();
@@ -159,6 +188,7 @@ namespace gs
             SatSeconds = sw.Elapsed.TotalSeconds;
             RepairSeconds = SubdivisionSeconds + GreedySeconds + SatSeconds;
             InvertedTriangles = Inverted();
+            AreaRatio = MapAreaRatio();
             if (!splitOk) return Status = PureQuadStatus.BudgetExceeded;
             if (InvertedTriangles > 0) return Status = SatBudgetExhausted ? PureQuadStatus.BudgetExceeded : PureQuadStatus.OrientationFolds;
             if (!MapCloses()) return Status = PureQuadStatus.FlowInfeasible;
