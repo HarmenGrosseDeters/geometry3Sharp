@@ -7,6 +7,7 @@ namespace g3
     /// <summary> The outcome of <see cref="PolyhedralGeodesicDistance.Compute"/>. </summary>
     /// <summary> PartiallyReached: the run finished, but a vertex of a source's connected component (reachable over the edges) has no distance
     /// (MaxDistance infinite); the reached values are in Distance, UnreachedVertices counts the rest. Seen on triangles of aspect ratio beyond about 1e5. </summary>
+    /// <summary> DegenerateTriangles: a triangle without area, and also edge lengths more than 2^200 apart (the shortest non-zero edge below 2^-200 of the longest: the products of four lengths of the geometry would leave the double range). </summary>
     public enum PolyhedralGeodesicStatus { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, Cancelled, PartiallyReached }
 
     /// <summary>
@@ -150,7 +151,7 @@ namespace g3
             int me = Mesh.MaxEdgeID;
             elen = new double[me];
             foreach (int e in Mesh.EdgeIndices()) { Index2i ev = Mesh.GetEdgeV(e); elen[e] = Len(ev.a, ev.b); }
-            foreach (int e in Mesh.EdgeIndices()) if (elen[e] > 0 && elen[e] < DisparityLimit) return PolyhedralGeodesicStatus.DegenerateTriangles;     // edge lengths more than 2^200 apart
+            foreach (int e in Mesh.EdgeIndices()) { Index2i ev = Mesh.GetEdgeV(e); bool vanished = elen[e] == 0 && (vx[ev.a] != vx[ev.b] || vy[ev.a] != vy[ev.b] || vz[ev.a] != vz[ev.b]); if (vanished || (elen[e] > 0 && elen[e] < DisparityLimit)) return PolyhedralGeodesicStatus.DegenerateTriangles; }     // edge lengths more than 2^200 apart
             vrec = new VRec[n];
             dist = new double[n]; xiV = new double[n]; emitted = new double[n]; root = new int[n]; kind = new byte[n]; vpos = new int[n];
             for (int v = 0; v < n; ++v) { dist[v] = emitted[v] = double.PositiveInfinity; root[v] = -1; vpos[v] = -1; }

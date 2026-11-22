@@ -63,6 +63,10 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(ExponentData))]
+        [InlineData(-1000)]
+        [InlineData(-700)]
+        [InlineData(700)]
+        [InlineData(1000)]
         public void IntrinsicTriangulation_FlipsLengthsAndAreas_ScaleExactly(int e)
         {
             DMesh3 mesh = Sphere();
@@ -270,8 +274,30 @@ namespace geometry3Sharp.Tests
                 DMesh3 mesh = Scaled(Sphere(4), e);
                 var g = new MeshGeodesicDistance(mesh);
                 bool ok = g.Compute(new[] { 0 });
+                Assert.True(ok == (g.Distance != null), "Distance is null exactly when Compute is false");
                 if (ok) foreach (int v in mesh.VertexIndices()) Assert.False(double.IsNaN(g.Distance[v]), $"e {e}, vertex {v}");
             }
+        }
+
+        [Fact]
+        public void MeshGeodesicDistance_LengthDisparity_RefusesWithoutTheIntrinsicTriangulationToo()
+        {
+            var g = new MeshGeodesicDistance(HalfSliver()) { IntrinsicDelaunay = false };
+            Assert.False(g.Compute(new[] { 0 }));
+        }
+
+        [Fact]
+        public void LengthDisparity_BelowTheSquareRangeOfTheLongestEdge_IsStillDetected()
+        {
+            // an edge 2^-600 of the longest: its square underflows to 0 (the length would read as 0), the disparity must still be seen
+            var m = new DMesh3();
+            double s = Math.Pow(2, -600);
+            m.AppendVertex(Vector3d.Zero); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(1, s, 0)); m.AppendVertex(new Vector3d(1, -s, 0));
+            m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 3, 1);
+            Assert.True(new IntrinsicTriangulation(m).HasLengthDisparity);
+            Assert.True(IntrinsicTriangulation.HasEdgeDisparity(m));
+            Assert.Equal(PolyhedralGeodesicStatus.DegenerateTriangles, new PolyhedralGeodesicDistance(m).Compute(new[] { 0 }));
+            Assert.False(new MeshGeodesicDistance(m).Compute(new[] { 0 }));
         }
 
         // ---------------------------------------------------------------------------------------------- PolyhedralGeodesicDistance
@@ -306,6 +332,8 @@ namespace geometry3Sharp.Tests
             var g = new PolyhedralGeodesicDistance(Scaled(mesh, 300)) { MaxDistance = Sc(1.0, 300) };
             g.Compute(new[] { 0 });
             Assert.Equal(g0.Status, g.Status);
+            int cut = mesh.VertexIndices().Count(v => double.IsNaN(g0.Distance[v])), kept = mesh.VertexCount - cut;
+            Assert.True(cut > 0 && kept > 1, $"the cutoff must cut some vertices and keep others ({cut} cut, {kept} kept)");
             foreach (int v in mesh.VertexIndices()) {
                 Assert.Equal(double.IsNaN(g0.Distance[v]), double.IsNaN(g.Distance[v]));
                 if (!double.IsNaN(g0.Distance[v])) SameBitsScaled(g0.Distance[v], g.Distance[v], 300, "distance " + v);

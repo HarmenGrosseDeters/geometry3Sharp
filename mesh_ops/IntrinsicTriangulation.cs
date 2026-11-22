@@ -53,6 +53,7 @@ namespace gs
         // and fourth powers of the geometry (areas, cotangents) neither overflow nor underflow, and the absolute thresholds of the
         // walks and of the classes built on this one act on lengths of unit size. The public accessors give caller units.
         double mollificationDeltaU, meanEdgeLengthU;
+        bool lengthUnderflow;
         int scaleExp;
 
         /// <summary> the exponent k of the unit scale: lengths of the triangulation are stored times 2^-k (0 for an empty or non-finite mesh) </summary>
@@ -292,6 +293,7 @@ namespace gs
                     Vector3d d = mesh.GetVertex(tri[(c + 1) % 3]) - mesh.GetVertex(tri[c]);
                     double x = ExactPoint3.ScaleB(d.x, -k), y = ExactPoint3.ScaleB(d.y, -k), z = ExactPoint3.ScaleB(d.z, -k);
                     double l = Math.Sqrt(x * x + y * y + z * z);
+                    if (l == 0 && (x != 0 || y != 0 || z != 0)) return true;      // the squares vanish: below about 2^-511 of the longest edge
                     if (l > 0 && l < shortest) shortest = l;
                 }
             }
@@ -302,7 +304,9 @@ namespace gs
         double edge_length_unit(int a, int b)
         {
             Vector3d d = Down(Mesh.GetVertex(b) - Mesh.GetVertex(a));
-            return Math.Sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+            double l = Math.Sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+            if (l == 0 && (d.x != 0 || d.y != 0 || d.z != 0)) lengthUnderflow = true;       // below about 2^-511 of the longest edge: the squares vanish
+            return l;
         }
 
         void build(double mollifyFactor)
@@ -351,7 +355,7 @@ namespace gs
 
             double shortest = double.MaxValue;
             for (int h = 0; h < 3 * F; ++h) if (hLen[h] > 0 && hLen[h] < shortest) shortest = hLen[h];
-            HasLengthDisparity = shortest < DisparityLimit;       // (before the mollification, which lengthens the short edges)
+            HasLengthDisparity = shortest < DisparityLimit || lengthUnderflow;       // (before the mollification, which lengthens the short edges)
 
             // mollification
             double eps = mollifyFactor * meanEdgeLengthU;
@@ -857,14 +861,18 @@ namespace gs
             return CoreMath.Atan2(Math.Sqrt((1.0 - c) * (1.0 + c)), c);
         }
 
-        double CornerAngle_input(int h)
+        internal double CornerAngle_input(int h)
         {
             int t = h / 3, c = h % 3;
             Vector2d a = inLayout[h], b = inLayout[3 * t + (c + 1) % 3], d = inLayout[3 * t + (c + 2) % 3];
             Vector2d u = b - a, w = d - a;
             double lu = Math.Sqrt(u.x * u.x + u.y * u.y), lw = Math.Sqrt(w.x * w.x + w.y * w.y);
             if (!(lu > 0 && lw > 0)) return AcosDeterministic(0);
-            return AcosDeterministic((u.x * w.x + u.y * w.y) / (lu * lw));       // the angle between the edges, with a portable acos (the dot of the unit vectors; before #1352 the unnormalized vectors, which gave the angle only for edges of length 1)
+            // the angle between the edges, with a portable acos: the dot product of the unit vectors. (Before, the dot of the
+            // unnormalized edge vectors, clamped to [-1, 1]: the angle only for edges of length 1, so the tangent normal, which weights
+            // the corners by these angles, and with it GetTangentBasis, ToWorld, FromWorld and VectorHeatMethod.ComputeLogMap depended on
+            // the scale of the mesh.)
+            return AcosDeterministic((u.x * w.x + u.y * w.y) / (lu * lw));
         }
 
         int hV_input_head(int h)

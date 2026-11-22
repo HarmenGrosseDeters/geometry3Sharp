@@ -179,7 +179,7 @@ namespace gs
             // 2^-scaleExp, the exponent of the longest edge, so that a mesh scaled by 2^j gives the same bits at every scale and the
             // absolute thresholds of the heat method act on lengths of unit size; Distance is scaled back at the end of Compute.
             scaleExp = T != null ? T.ScaleExponent : IntrinsicTriangulation.EdgeExponent(Mesh);
-            lengthDisparity = T != null && T.HasLengthDisparity;
+            lengthDisparity = T != null ? T.HasLengthDisparity : IntrinsicTriangulation.HasEdgeDisparity(Mesh);
             double edgeSum = 0; int edgeCount = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
