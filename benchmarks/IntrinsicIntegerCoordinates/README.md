@@ -71,6 +71,10 @@ factor of 2):
 | sheared torus s=9, 200 x 160 | 32000 | 800000 | 321.1 ms | 371.1 ms | 31.7 ms | 306.1 ms | 15571.3 ms | 44.8 ms | 632.6 ms | 3072000 |
 | obtuse plane 40 x 800 | 32441 | 31560 | 18.3 ms | 17.2 ms | 27.3 ms | 39.8 ms | 784.4 ms | 8.6 ms | 17.0 ms | 31560 |
 
+Since the fix of #1313 (2026-11-22) the library reports a false crossing as `Inconsistent`: the row "flips +
+insertions" now reads 76 of 108 with 0 false crossings; nothing else changes. The table above and the raw output
+are the state before the fix.
+
 ## Limits of the prototype
 
 - The library still computes its signposts in every flip and insertion, so "library" times include them and
