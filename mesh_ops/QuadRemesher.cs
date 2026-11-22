@@ -190,7 +190,7 @@ namespace gs
             if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");
             if (!(CurvatureAlignment >= 0) || double.IsInfinity(CurvatureAlignment)) return Fail(QuadRemeshStatus.InvalidInput, "CurvatureAlignment must be non-negative and finite");
             if (!(CreaseAngleDegrees >= 0 && CreaseAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CreaseAngleDegrees must be in [0, 180]");
-            if (PreserveCreases && PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "PreserveCreases and PureQuads cannot be combined (the pure-quad repair does not keep the feature curves)");
+            if (PreserveCreases && PureQuads && !QuadFlowRepair.FixFeatureEdges) return Fail(QuadRemeshStatus.InvalidInput, "PreserveCreases and PureQuads cannot be combined (the pure-quad repair does not keep the feature curves)");
             if (SizeAdaptation != SizeAdaptationMode.Off) {
                 if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
             }

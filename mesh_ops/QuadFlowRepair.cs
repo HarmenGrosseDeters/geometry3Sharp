@@ -78,6 +78,11 @@ namespace gs
         Vector3d[] P, Nrm, Q, T;
         int[] gA; Off[] dA; (double, double)[] rA, rGeoA;
         bool setupFailed;
+        /// <summary> PROTOTYPE (runs/quad-4c-prototype, never merged): boundary edges keep their offsets in the flow, open meshes are not rejected </summary>
+        public static bool FixFeatureEdges;
+        public DPolyMesh DebugExtracted;
+        /// <summary> PROTOTYPE: with FixFeatureEdges also keep the interior crease edges (dihedral angle above this, degrees; 0 or less: no creases) fixed in the flow, the greedy moves and the SAT </summary>
+        public static double FixCreaseAngle = 0;
 
         struct Off
         {
@@ -108,14 +113,16 @@ namespace gs
             public int[] Rot = new int[3];      // D_neighbour = - R^Rot D_self
             public int[] E = new int[3];        // mesh edge ids (original triangles only)
             public int Fa;                      // frame vertex (an original mesh vertex)
+            public int[] Fj = { -1, -1, -1 };   // PROTOTYPE: the component of the slot offset that a crease edge keeps (perpendicular to the lattice line), -1: none (kept by splits)
         }
 
-        sealed class Edge { public int F0, S0, F1 = -1, S1, M; public Off Dv; public (double, double) Rr, Rg; }
+        sealed class Edge { public int FixJ = -1; public int F0, S0, F1 = -1, S1, M; public Off Dv; public (double, double) Rr, Rg; }
         struct BalMove { public int K, J, Dir, C0, C1, D0, D1; }
         struct BalItem { public long Score, Gain; public int Move, Ver; }
 
         readonly List<Tri> tris = new List<Tri>();
         readonly List<Vector3d> VP = new List<Vector3d>(), VN = new List<Vector3d>();
+        readonly List<bool> VBnd = new List<bool>();        // PROTOTYPE: the vertex lies on the boundary of the input
 
         public QuadFlowRepair(DMesh3 mesh, CrossField cf, PositionField pf, double scale)
         {
@@ -148,7 +155,7 @@ namespace gs
             SetupSeconds = sw.Elapsed.TotalSeconds; Triangles = tris.Count;
             // a boundary is not supported: its edges would be free variables of the flow, and the offsets that the position field leaves
             // there are not small (the measurement covers closed meshes only)
-            foreach (var tr in tris) if (tr.Nb[0] < 0 || tr.Nb[1] < 0 || tr.Nb[2] < 0) { FlowSeconds = sw.Elapsed.TotalSeconds; return Status = PureQuadStatus.FlowInfeasible; }
+            if (!FixFeatureEdges) foreach (var tr in tris) if (tr.Nb[0] < 0 || tr.Nb[1] < 0 || tr.Nb[2] < 0) { FlowSeconds = sw.Elapsed.TotalSeconds; return Status = PureQuadStatus.FlowInfeasible; }
             bool feasible = SolveFlow();
             FlowSeconds = sw.Elapsed.TotalSeconds;
             if (!feasible) { InvertedTriangles = Inverted(); return Status = PureQuadStatus.FlowInfeasible; }
@@ -256,6 +263,14 @@ namespace gs
                 tidToF[t] = tris.Count;
                 tris.Add(tr);
             }
+            if (FixFeatureEdges && FixCreaseAngle > 0) {
+                var topo = new MeshTopology(mesh) { CreaseAngle = FixCreaseAngle }; topo.Compute();
+                foreach (var tr in tris) for (int sl = 0; sl < 3; ++sl) {
+                    if (!topo.CreaseEdges.Contains(tr.E[sl])) continue;
+                    Vector3d tg = P[tr.V[(sl + 1) % 3]] - P[tr.V[sl]];
+                    tr.Fj[sl] = Math.Abs(tg.Dot(Q[tr.Fa])) >= Math.Abs(tg.Dot(T[tr.Fa])) ? 1 : 0;       // the edge runs along the first axis: the second component is kept
+                }
+            }
             // G of two vertices of a triangle (the frame vertex with another vertex)
             int GT(Tri tt, int u, int w)
             {
@@ -276,6 +291,7 @@ namespace gs
                     Tri Tf = tris[f], Tn = tris[nb];
                     int fa = Tf.V[0], fb = Tn.V[0];
                     tris[f].Rot[sl] = (((GT(Tn, fb, q) - Ge(p, q, e) - GT(Tf, fa, p)) % 4) + 4) % 4;
+                    if (nb > f && tris[f].Fj[sl] >= 0) tris[nb].Fj[ns] = tris[f].Rot[sl] % 2 == 0 ? tris[f].Fj[sl] : 1 - tris[f].Fj[sl];
                 }
         }
 
@@ -322,7 +338,7 @@ namespace gs
                 for (int sl = 0; sl < 3; ++sl) {
                     int nb = tris[f].Nb[sl];
                     if (nb >= 0 && nb < f) continue;
-                    var e = new Edge { F0 = f, S0 = sl, Dv = tris[f].D[sl], Rr = tris[f].Dr[sl], Rg = tris[f].Dg[sl] };
+                    var e = new Edge { FixJ = tris[f].Fj[sl], F0 = f, S0 = sl, Dv = tris[f].D[sl], Rr = tris[f].Dr[sl], Rg = tris[f].Dg[sl] };
                     if (nb >= 0) { e.F1 = nb; e.S1 = tris[f].NbS[sl]; e.M = tris[f].Rot[sl]; }
                     edges.Add(e);
                 }
@@ -364,7 +380,7 @@ namespace gs
             for (int k = 0; k < E; ++k) {
                 var e = edges[k];
                 balanced[k] = e.F1 >= 0 && (((ex[e.F0 * 3 + e.S0] - ex[e.F1 * 3 + e.S1] - 2) % 4) + 4) % 4 == 0;
-                if (!balanced[k]) unbalEdges.Add(k);
+                if (!balanced[k] && !(FixFeatureEdges && e.F1 < 0)) unbalEdges.Add(k);
             }
             // clamp the initial values to [-2, 2]
             const int H0 = 2;
@@ -414,6 +430,7 @@ namespace gs
                     int k = unbalEdges[ui];
                     var e = edges[k];
                     for (int j = 0; j < 2; ++j) {
+                        if (e.FixJ == j) continue;
                         RowOf(ex[e.F0 * 3 + e.S0], j, out int row0, out int sg0);
                         int c0 = FindRoot(uf, 2 * e.F0 + row0), s0 = sg0;
                         int c1 = -1, s1 = 0;
@@ -523,7 +540,7 @@ namespace gs
             BalancingWork = work;
             if (tot > 0) {
                 // d = 0 on every fixed variable
-                for (int k = 0; k < E; ++k) if (!balanced[k]) edges[k].Dv = new Off(0, 0);
+                for (int k = 0; k < E; ++k) if (!balanced[k]) { var ez = edges[k]; ez.Dv = ez.FixJ == 0 ? new Off(ez.Dv.X, 0) : ez.FixJ == 1 ? new Off(0, ez.Dv.Y) : new Off(0, 0); }
                 Recompute();
             }
             FlowPrepSeconds = sw.Elapsed.TotalSeconds; sw.Restart();
@@ -540,6 +557,7 @@ namespace gs
                     if (!balanced[k]) continue;
                     var e = edges[k];
                     for (int j = 0; j < 2; ++j) {
+                        if (e.FixJ == j) continue;
                         RowOf(ex[e.F0 * 3 + e.S0], j, out int row, out int sg);
                         int n0 = 2 * e.F0 + row, n1 = 2 * e.F1 + row;
                         int head = sg > 0 ? n0 : n1, tail = sg > 0 ? n1 : n0;
@@ -632,7 +650,7 @@ namespace gs
         /// <summary> splits every edge with |d|inf above 1, the largest first (then the lowest triangle, then the lowest slot); false if MaxSplits is exceeded </summary>
         bool Subdivide()
         {
-            for (int v = 0; v < maxV; ++v) { VP.Add(mesh.IsVertex(v) ? P[v] : Vector3d.Zero); VN.Add(mesh.IsVertex(v) ? Nrm[v] : Vector3d.Zero); }
+            for (int v = 0; v < maxV; ++v) { VP.Add(mesh.IsVertex(v) ? P[v] : Vector3d.Zero); VN.Add(mesh.IsVertex(v) ? Nrm[v] : Vector3d.Zero); VBnd.Add(mesh.IsVertex(v) && mesh.IsBoundaryVertex(v)); }
             var heap = new LongHeap();
             long Key(int f, int sl, int inf) { return ((long)(100000 - Math.Min(inf, 99999)) << 40) | ((long)f << 2) | (long)sl; }
             void PushTri(int f) { for (int sl = 0; sl < 3; ++sl) { int inf = tris[f].D[sl].Inf; if (inf > 1) heap.Push(Key(f, sl, inf)); } }
@@ -655,8 +673,9 @@ namespace gs
             Tri F = tris[f];
             int p = F.V[sl], q = F.V[(sl + 1) % 3], x = F.V[(sl + 2) % 3];
             int nf = F.Nb[sl], ns = F.NbS[sl], m = F.Rot[sl];
+            int[] ofx = (int[])F.Fj.Clone();
             int w = VP.Count;
-            VP.Add(0.5 * (VP[p] + VP[q]));
+            VP.Add(0.5 * (VP[p] + VP[q])); VBnd.Add(nf < 0 && VBnd[p] && VBnd[q]);
             Vector3d nn = VN[p] + VN[q]; VN.Add(nn.Length > 0 ? nn / nn.Length : VN[p]);
             Off D = F.D[sl], Dp = Half(D), Dq = D - Dp;
             Off Dqx = F.D[(sl + 1) % 3], Dxp = F.D[(sl + 2) % 3];
@@ -668,12 +687,13 @@ namespace gs
             F = tris[f];
             F.V[0] = p; F.V[1] = w; F.V[2] = x; F.D[0] = Dp; F.D[1] = E; F.D[2] = Dxp;
             tB.V[0] = w; tB.V[1] = q; tB.V[2] = x; tB.D[0] = Dq; tB.D[1] = Dqx; tB.D[2] = -E;
+            F.Fj = new[] { ofx[sl], -1, ofx[(sl + 2) % 3] }; tB.Fj = new[] { ofx[sl], ofx[(sl + 1) % 3], -1 };
             // the neighbours across the outer edges
             if (oq >= 0) Link(ib, 1, oq, oqs, oqr); else tB.Nb[1] = -1;
             if (ox >= 0) Link(f, 2, ox, oxs, oxr); else F.Nb[2] = -1;
             Link(f, 1, ib, 2, 0);
             if (nf >= 0) {
-                Tri N = tris[nf];
+                Tri N = tris[nf]; int[] nfx = (int[])N.Fj.Clone();
                 // N has the slot ns: q -> p; its third vertex y is at slot ns + 2 -> ns (y -> q is slot ns + 2)
                 int y = N.V[(ns + 2) % 3];
                 Off Hqw = -Off.Rot(Dq, m), Hwp = -Off.Rot(Dp, m);        // q -> w and w -> p in the frame of N
@@ -686,6 +706,7 @@ namespace gs
                 N = tris[nf];
                 N.V[0] = q; N.V[1] = w; N.V[2] = y; N.D[0] = Hqw; N.D[1] = E2; N.D[2] = Dyq;
                 tD.V[0] = w; tD.V[1] = p; tD.V[2] = y; tD.D[0] = Hwp; tD.D[1] = Dpy; tD.D[2] = -E2;
+                N.Fj = new[] { nfx[ns], -1, nfx[(ns + 2) % 3] }; tD.Fj = new[] { nfx[ns], nfx[(ns + 1) % 3], -1 };
                 int fc = nf;
                 if (opn >= 0) Link(fd, 1, opn, opns, opr); else tD.Nb[1] = -1;
                 if (oyn >= 0) Link(fc, 2, oyn, oyns, oyr); else N.Nb[2] = -1;
@@ -755,6 +776,7 @@ namespace gs
                         for (int k = 0; k < n && ok; ++k) {
                             Off Vk = Off.Rot(Vj, cum[k] - cum[j]);
                             Tri t = tris[ft[k]]; int i = fi[k];
+                            if (FixFeatureEdges && (!CreaseOk(t, i, Vk) || !CreaseOk(t, (i + 2) % 3, Vk))) { ok = false; break; }
                             Off o = t.D[i] - Vk, inn = t.D[(i + 2) % 3] + Vk;
                             if (o.Inf > 1 || inn.Inf > 1) { ok = false; break; }
                             Off[] nd = { t.D[0], t.D[1], t.D[2] }; nd[i] = o; nd[(i + 2) % 3] = inn;
@@ -775,6 +797,8 @@ namespace gs
                 if (moves == 0) break;
             }
         }
+
+        static bool CreaseOk(Tri t, int slot, Off v) { int j = t.Fj[slot]; return j < 0 || (j == 0 ? v.X : v.Y) == 0; }
 
         static readonly Off[] Dom = BuildDom();
         static Off[] BuildDom() { var l = new List<Off>(); for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x) l.Add(new Off(x, y)); return l.ToArray(); }
@@ -825,6 +849,7 @@ namespace gs
                 groups[e] = new int[9]; groups[e][0] = 9 * e + cur + 1;
                 for (int k = 0; k < 8; ++k) groups[e][k + 1] = 9 * e + order[k] + 1;
                 var all = new int[9]; for (int k = 0; k < 9; ++k) all[k] = 9 * e + k + 1;
+                { int fj = FixFeatureEdges ? tris[f].Fj[sl] : -1; if (fj >= 0) for (int k = 0; k < 9; ++k) if ((fj == 0 ? Dom[k].X : Dom[k].Y) != (fj == 0 ? curV.X : curV.Y)) sat.AddClause(new[] { -(9 * e + k + 1) }); }
                 sat.AddClause(all);
                 for (int a = 0; a < 9; ++a) for (int b = a + 1; b < 9; ++b) sat.AddClause(-(9 * e + a + 1), -(9 * e + b + 1));
             }
@@ -959,11 +984,13 @@ namespace gs
             var uf = new int[nv]; for (int i = 0; i < nv; ++i) uf[i] = i;
             foreach (var t in tris)
                 for (int sl = 0; sl < 3; ++sl) if (t.D[sl].IsZero) { int a = FindRoot(uf, t.V[sl]), b = FindRoot(uf, t.V[(sl + 1) % 3]); if (a != b) uf[Math.Max(a, b)] = Math.Min(a, b); }
-            var sum = new Vector3d[nv]; var cnt = new int[nv]; var nsum = new Vector3d[nv];
+            var sum = new Vector3d[nv]; var cnt = new int[nv]; var nsum = new Vector3d[nv]; var bcl = new bool[nv];
             for (int i = 0; i < nv; ++i) {
                 if (i < maxV && !mesh.IsVertex(i)) continue;
-                int r = FindRoot(uf, i); sum[r] += pos[i]; cnt[r]++; nsum[r] += VN[i];
+                int r = FindRoot(uf, i); sum[r] += pos[i]; cnt[r]++; nsum[r] += VN[i]; if (VBnd[i]) bcl[r] = true;
             }
+            var bseg = new List<(Vector3d a, Vector3d b)>();
+            if (FixFeatureEdges) foreach (int be in mesh.BoundaryEdgeIndices()) { Index2i bv = mesh.GetEdgeV(be); bseg.Add((mesh.GetVertex(bv.a), mesh.GetVertex(bv.b))); }
             // the non-degenerate triangles, grouped by the pair of clusters of the hypotenuse (in the order of first appearance)
             var hyp = new Dictionary<(int, int), List<(int a, int b, int c)>>();
             var hypKeys = new List<(int, int)>();
@@ -989,6 +1016,11 @@ namespace gs
                     Vector3d p = sum[c] / cnt[c];
                     int nt = tree.FindNearestTriangle(p);
                     if (nt >= 0) p = MeshQueries.TriangleDistance(mesh, nt, p).TriangleClosest;     // projection onto the input
+                    if (FixFeatureEdges && bcl[c] && bseg.Count > 0) {      // PROTOTYPE: a cluster with a boundary vertex goes onto the boundary curve
+                        double bd = double.MaxValue; Vector3d bp = p;
+                        foreach (var sg in bseg) { Vector3d ab = sg.b - sg.a; double l2 = ab.LengthSquared; double tt = l2 > 0 ? Math.Max(0, Math.Min(1, (p - sg.a).Dot(ab) / l2)) : 0; Vector3d q = sg.a + tt * ab; double dd = (q - p).LengthSquared; if (dd < bd) { bd = dd; bp = q; } }
+                        p = bp;
+                    }
                     id = outMesh.AppendVertex(p.x, p.y, p.z); vmap[c] = id;
                 }
                 return id;
@@ -1023,6 +1055,7 @@ namespace gs
             }
             foreach (var tr in leftover) outMesh.AppendFace(new List<int> { Vid(tr[0]), Vid(tr[1]), Vid(tr[2]) }, 0);
             // the second gate, on the extracted mesh
+            DebugExtracted = outMesh;
             Status = CheckExtracted(outMesh, BadTriangles, UnpairedTriangles, FlippedQuads);
             if (Status == PureQuadStatus.Success) Result = outMesh;
         }
@@ -1080,7 +1113,7 @@ namespace gs
             if (mesh == null || mesh.FaceCount == 0 || badTriangles > 0 || unpairedTriangles > 0) return PureQuadStatus.NotManifold;
             for (int v = 0; v < mesh.VertexCount; ++v) if (!mesh.GetVertex(v).IsFinite) return PureQuadStatus.NotManifold;
             PolyMeshMetrics m = PolyMeshMetrics.Compute(mesh);
-            if (!m.IsManifold || m.QuadFraction < 1 || m.BoundaryVertices > 0) return PureQuadStatus.NotManifold;   // closed meshes only
+            if (!m.IsManifold || m.QuadFraction < 1 || (m.BoundaryVertices > 0 && !FixFeatureEdges)) return PureQuadStatus.NotManifold;   // closed meshes only
             return flippedQuads > 0 ? PureQuadStatus.FlippedFaces : PureQuadStatus.Success;
         }
     }

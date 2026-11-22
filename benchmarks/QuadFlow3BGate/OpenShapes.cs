@@ -5,7 +5,7 @@
 //   pure today  QuadRemesher.PureQuads = true as the library does it (an open mesh gives FlowInfeasible: the boundary is rejected; the creases are not kept)
 //   raw map     the integer map of the position field as QuadFlowRepair builds it (BuildOffsets, BuildTriangles through reflection, no flow, no library change):
 //               triangles, boundary slots, triangles whose three offsets do not sum to 0, inverted triangles, the largest |d|
-// With a QuadFlowRepair that has the public field FixFeatureEdges (a prototype on a runs/* branch) the attempt is repeated with it and reported as "proto".
+// With a QuadFlowRepair that has the public static field FixFeatureEdges (the prototype of runs/quad-4c-prototype) the attempt is repeated with it and reported as "proto".
 //   dotnet run -c Release --project benchmarks/QuadFlow3BGate -- open=1 [only=<regex>] [adapt=0|1|2]
 using System;
 using System.Collections;
@@ -138,9 +138,9 @@ static class OpenShapes
 
     static readonly BindingFlags NP = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance;
 
-    static string RawMap(DMesh3 mesh, CrossField cf, PositionField pf, double s, out int tris, out int boundarySlots, out int notClosed, out int inverted, out int maxD)
+    static string RawMap(DMesh3 mesh, CrossField cf, PositionField pf, double s, out int tris, out int boundarySlots, out int notClosed, out int inverted, out int maxD, out int nonzero)
     {
-        tris = boundarySlots = notClosed = inverted = maxD = 0;
+        nonzero = 0; tris = boundarySlots = notClosed = inverted = maxD = 0;
         var rep = new QuadFlowRepair(mesh, cf, pf, s); Type t = typeof(QuadFlowRepair);
         t.GetMethod("BuildOffsets", NP).Invoke(rep, null);
         if ((bool)t.GetField("setupFailed", NP).GetValue(rep)) return "setup failed";
@@ -151,12 +151,27 @@ static class OpenShapes
             int[] x = new int[3], y = new int[3];
             for (int k = 0; k < 3; ++k) {
                 object o = D.GetValue(k); Type ot = o.GetType(); x[k] = (int)ot.GetField("X").GetValue(o); y[k] = (int)ot.GetField("Y").GetValue(o);
-                maxD = Math.Max(maxD, Math.Max(Math.Abs(x[k]), Math.Abs(y[k]))); if (Nb[k] < 0) boundarySlots++;
+                maxD = Math.Max(maxD, Math.Max(Math.Abs(x[k]), Math.Abs(y[k]))); if (x[k] != 0 || y[k] != 0) nonzero++; if (Nb[k] < 0) boundarySlots++;
             }
             if (x[0] + x[1] + x[2] != 0 || y[0] + y[1] + y[2] != 0) notClosed++;
             long det = (long)x[0] * y[1] - (long)y[0] * x[1]; if (det < 0) inverted++;
         }
         return "ok";
+    }
+
+    // sum of the lattice cells of the integer map (det / 2 per triangle, in cells) against the surface area in cells (1 for a map that covers the surface once)
+    static double LatticeAreaRatio(QuadFlowRepair rep, DMesh3 input, double s)
+    {
+        var list = (IList)typeof(QuadFlowRepair).GetField("tris", NP).GetValue(rep);
+        double cells = 0;
+        foreach (object tr in list) {
+            Type tt = tr.GetType(); var D = (Array)tt.GetField("D").GetValue(tr);
+            object o0 = D.GetValue(0), o1 = D.GetValue(1); Type ot = o0.GetType();
+            double x0 = (int)ot.GetField("X").GetValue(o0), y0 = (int)ot.GetField("Y").GetValue(o0), x1 = (int)ot.GetField("X").GetValue(o1), y1 = (int)ot.GetField("Y").GetValue(o1);
+            cells += 0.5 * (x0 * y1 - y0 * x1);
+        }
+        double area = 0; foreach (int t in input.TriangleIndices()) area += input.GetTriArea(t);
+        return area > 0 ? cells / (area / (s * s)) : double.NaN;
     }
 
     // ------------------------------------------------------------------------------------------ run
@@ -168,9 +183,12 @@ static class OpenShapes
         if (adaptArg < 0 || adaptArg > 2) throw new ArgumentOutOfRangeException("adapt", "adapt must be 0, 1 or 2");
         var adaptMode = adaptArg == 1 ? SizeAdaptationMode.Scale : adaptArg == 2 ? SizeAdaptationMode.ScaleAndRotation : SizeAdaptationMode.Off;
         var variations = new (double scale, double ratio)[] { (1, 0.5), (0.8, 0.5), (1.25, 0.5) };
-        bool hasProto = typeof(QuadFlowRepair).GetField("FixFeatureEdges") != null;
+        FieldInfo protoFlag = typeof(QuadFlowRepair).GetField("FixFeatureEdges", BindingFlags.Public | BindingFlags.Static);
+        FieldInfo protoAngle = typeof(QuadFlowRepair).GetField("FixCreaseAngle", BindingFlags.Public | BindingFlags.Static);
+        bool hasProto = protoFlag != null;
         Console.WriteLine("| shape | scale | input V | feat. edges | stage 2: quads % / irr. / feat cov % / ang p95 / feat Haus (s) / t (s) | pure today: status / feat cov % / feat Haus (s) | raw map: tris / bnd slots / not closed / inverted / max abs d | " + (hasProto ? "proto: status / inv. / t (s) |" : "proto |"));
         Console.WriteLine("|---|---|---|---|---|---|---|---|");
+        var tally = new SortedDictionary<string, (int runs, int clean, int kept)>(); var statuses = new SortedDictionary<string, int>(); var ratios = new List<double>();
         foreach (var (name, creased, s0, build) in Shapes()) {
             if (only != null && !only.IsMatch(name)) continue;
             foreach (var (scale, ratio) in variations) {
@@ -195,14 +213,40 @@ static class OpenShapes
                 var pf = new PositionField(input, cf) { TargetEdgeLength = s, PreserveCreases = creased, CreaseAngleDegrees = 30 };
                 string raw;
                 if (pf.Compute() != PositionFieldStatus.Success) raw = "position field failed";
-                else { string r = RawMap(input, cf, pf, s, out int nt, out int bs, out int nc, out int inv, out int md); raw = r == "ok" ? $"{nt} / {bs} / {nc} / {inv} / {md}" : r; }
+                else { string r = RawMap(input, cf, pf, s, out int nt, out int bs, out int nc, out int inv, out int md, out int nzr); raw = r == "ok" ? $"{nt} / {bs} / {nc} / {inv} / {md} / nonzero {nzr}" : r; }
                 string proto = "-";
                 if (hasProto) {
-                    var c = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, PreserveCreases = creased, SizeAdaptation = adaptMode };
-                    proto = "(prototype hook not wired)";
+                    protoFlag.SetValue(null, true); if (protoAngle != null) protoAngle.SetValue(null, creased ? 30.0 : 0.0);
+                    try {
+                        var c = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true, PreserveCreases = creased, SizeAdaptation = adaptMode };
+                        sw.Restart(); c.Compute(); double tc = sw.Elapsed.TotalSeconds;
+                        string cls = c.Status != QuadRemeshStatus.Success ? c.Status.ToString() : c.PureQuadStatus.ToString();
+                        bool isClean = false, kept = false;
+                        if (c.Status == QuadRemeshStatus.Success && c.PureQuadStatus == PureQuadStatus.Success) {
+                            PolyMeshMetrics mc = PolyMeshMetrics.Compute(c.Result);
+                            bool finite = Enumerable.Range(0, c.Result.VertexCount).All(v => c.Result.GetVertex(v).IsFinite);
+                            bool bad = !mc.IsManifold || mc.QuadFraction < 1 || !finite || !c.Result.Validate().IsValid;
+                            Features(input, c.Result, s, out _, out double covc, out double angc, out double hfc);
+                            isClean = !bad; kept = isClean && covc > 0.95 && angc <= 10 && hfc <= 0.1;
+                            cls = (bad ? "BAD" : kept ? "clean+features" : "clean") + $" / irr {mc.IrregularVertices} / cov {F(100 * covc, "F1")} / ang {F(angc, "F1")} / Haus {F(hfc, "F2")}";
+                            if (isClean) ratios.Add(tc / Math.Max(t2, 1e-9));
+                        }
+                        if (c.PureQuadRepair != null) cls += $" / lattice area {F(LatticeAreaRatio(c.PureQuadRepair, input, s), "F2")} x surface";
+                        proto = $"{cls} / inv {c.InvertedTriangles} / flipped {c.FlippedQuads} / t {F(tc, "F2")} s (stage 2 {F(t2, "F2")} s)";
+                        string grp = creased ? "creased" : name.EndsWith("closed") ? "closed" : "open";
+                        tally.TryGetValue(grp, out var tl); tl.runs++; if (isClean) tl.clean++; if (kept) tl.kept++; tally[grp] = tl;
+                        string key = grp + ": " + (c.Status != QuadRemeshStatus.Success ? c.Status.ToString() : c.PureQuadStatus.ToString());
+                        statuses.TryGetValue(key, out int sc2); statuses[key] = sc2 + 1;
+                    } finally { protoFlag.SetValue(null, false); if (protoAngle != null) protoAngle.SetValue(null, 0.0); }
                 }
                 Console.WriteLine($"| {name} | {F(scale, "G3")} | {input.VertexCount} | {fc} | {st2} | {stb} | {raw} | {proto} |");
             }
+        }
+        if (hasProto) {
+            Console.WriteLine();
+            foreach (var kv in tally) Console.WriteLine($"prototype, {kv.Key}: runs {kv.Value.runs}, clean {kv.Value.clean} ({F(100.0 * kv.Value.clean / Math.Max(1, kv.Value.runs), "F0")} %), clean with features kept (coverage > 95 %, angle p95 <= 10, feature Hausdorff <= 0.1 s) {kv.Value.kept}");
+            Console.WriteLine("statuses: " + string.Join(", ", statuses.Select(kv => kv.Key + " " + kv.Value)));
+            if (ratios.Count > 0) { ratios.Sort(); Console.WriteLine($"time ratio prototype / stage 2 on clean rows: median {F(ratios[ratios.Count / 2], "F1")}, max {F(ratios[ratios.Count - 1], "F1")}"); }
         }
         return 0;
     }
