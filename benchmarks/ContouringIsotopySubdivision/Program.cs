@@ -5,7 +5,8 @@
 //
 //   dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- all > results/all.csv
 //   dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- run <case> <N> [seed] [classP]
-//   dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- selftest
+//   dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- hull > results/hull.csv
+//   dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- selftest | invariance | debug <case[:k]> <N> <seed>
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -193,8 +194,9 @@ static class Program
             Console.WriteLine(Line(Run(p[0], p.Length > 1 ? double.Parse(p[1], Inv) : 0, int.Parse(args[2], Inv), args.Length > 3 ? int.Parse(args[3], Inv) : -1, args.Length > 4 && args[4] == "classP", true, args.Length > 5 ? int.Parse(args[5], Inv) : 4, args.Length > 6 ? int.Parse(args[6], Inv) : 3)));
             return 0;
         }
-        if (args.Length >= 1 && args[0] == "all") {
-            Console.WriteLine(Header);
+        bool hull = args.Length >= 1 && args[0] == "hull";
+        if (args.Length >= 1 && (args[0] == "all" || hull)) {
+            Console.WriteLine(hull ? "case,k,seed,N,surface_cells,hull_cells,hull_certified,hull_at_t0,hull_ms" : Header);
             var specs = new List<(string name, double k)>();
             foreach (string fam in new[] { "torus", "gap", "shell", "tunnel", "rod" }) foreach (double k in new[] { 0.5, 1, 2, 4 }) if (k < 4 || fam == "torus") specs.Add((fam, k));
             specs.Add(("sphere", 0));
@@ -206,6 +208,18 @@ static class Program
                 bool tpms = sp.name == "gyroid" || sp.name == "schwarzp" || sp.name == "diamond";
                 int[] seeds = tpms || sp.name == "nodesphere" ? new[] { -1 } : new[] { -1, 0 };
                 foreach (int seed in seeds) {
+                    if (hull) {
+                        // the PV test in its published form only (the hull of the sub-boxes as the box function), same cases and grids
+                        foreach (int N in tpms && sp.k >= 1.2 ? new[] { 16, 32, 64, 128 } : new[] { 16, 32, 64 }) {
+                            Case c = Make(sp.name, sp.k, N, seed);
+                            var sw = Stopwatch.StartNew();
+                            var g = new GridCertificate { F = c.Field, Origin = c.Origin, H = c.Size / N, N = N, MaxT = 4, DoS = false, HullOnly = true };
+                            g.Run();
+                            Console.WriteLine(string.Join(",", sp.name, F(sp.k, "0.####"), seed.ToString(Inv), N.ToString(Inv), g.SurfaceCells.ToString(Inv), g.PvCells.ToString(Inv), g.PvCertified ? "yes" : "no", g.PvAtT[0].ToString(Inv), F(sw.Elapsed.TotalMilliseconds, "0")));
+                        }
+                        Console.Out.Flush();
+                        continue;
+                    }
                     var rows = new List<Row>();
                     foreach (int N in new[] { 16, 32, 64 }) rows.Add(Run(sp.name, sp.k, N, seed, N <= 32 && !tpms));
                     if (tpms) {
@@ -220,7 +234,7 @@ static class Program
             }
             return 0;
         }
-        Console.Error.WriteLine("usage: all | run <case[:k]> <N> [seed] [classP] | selftest");
+        Console.Error.WriteLine("usage: all | hull | run <case[:k]> <N> [seed] [classP] [maxT] [maxTS] | selftest | invariance | debug <case[:k]> <N> <seed>");
         return 2;
     }
 

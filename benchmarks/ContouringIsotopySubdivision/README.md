@@ -15,7 +15,7 @@ For a field with enclosures of its value and gradient over a box (`Fields.cs`), 
 | part | file | what |
 |---|---|---|
 | intervals | `Iv.cs` | a local copy of the semantics of the library's internal `ExactInterval` (round to nearest, widen by one unit in the last place), plus division, square root, and sin / cos by a Taylor polynomial with remainder (no libm) |
-| PV | `Certificate.cs`, `GridCertificate` | every grid cell passes C0 (the enclosure of f excludes 0) or C1 (no two gradients in the cell are orthogonal); a failing cell is cut into 2^t sub-boxes per axis (t up to 4) only to tighten the enclosures; C1 is then tested for every pair of sub-boxes |
+| PV | `Certificate.cs`, `GridCertificate` | every grid cell passes C0 (the enclosure of f excludes 0) or C1 (no two gradients in the cell are orthogonal); a failing cell is cut into 2^t sub-boxes per axis (t up to 4) only to tighten the enclosures; C1 is then tested for every pair of sub-boxes (`all`) or on the hull of their gradient enclosures (`hull`, the published form) |
 | S | the same class | the cell test (S0) to (S3) of Theorem 5 of [CONTOURING_TOPOLOGY.md](../../docs/design/CONTOURING_TOPOLOGY.md) 7.8 with the same enclosures (t up to 3), for comparison |
 | subdivision | `Subdivision` | Plantinga and Vegter's first phase: an octree split until C0 or C1 holds, to four levels below the grid; counts only, no balancing, no mesh |
 | contour | `Program.cs` | `DualContouring` on the same grid and node values, its topology against the truth |
@@ -31,6 +31,7 @@ grid nodes. Seed -1 is the shape as defined with a grid shift, seed 0 a random r
 ```
 dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- selftest
 dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- invariance
+dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- hull > benchmarks/ContouringIsotopySubdivision/results/hull.csv
 dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- all > benchmarks/ContouringIsotopySubdivision/results/all.csv
 python3 benchmarks/ContouringIsotopySubdivision/analyze.py benchmarks/ContouringIsotopySubdivision/results/all.csv
 dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- run torus:2 32 0 classP
@@ -43,7 +44,8 @@ it passes, sampled gradients are pairwise less than 90 degrees apart). `G3_CIS_M
 2^10, 2^-10, 2^40 and 2^-40 and compares the rows bit for bit (39 of 40 equal; the quartic field at 2^-40 leaves the
 `float` range of the contouring's node values and is refused). `all` takes about 40 minutes on 4 cores; its raw rows
 are in `results/all.csv`, the tables of the note come from `analyze.py`. `run <case[:k]> <N> [seed] [classP] [maxT]
-[maxTS]` is one row; `debug <case[:k]> <N> <seed>` prints sampled values and gradients of cells that fail the PV test.
+[maxTS]` is one row; `hull` (one minute) repeats the PV test of `all` in its published form (the hull of the sub-boxes'
+gradient enclosures as one box, `results/hull.csv`: 26 runs certified against 28 in the pairwise form of `all.csv`); `debug <case[:k]> <N> <seed>` prints sampled values and gradients of cells that fail the PV test.
 
 ## Columns of `all.csv`
 

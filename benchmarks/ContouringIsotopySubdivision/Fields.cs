@@ -122,7 +122,7 @@ static class Fields
             }
             Iv u = (Iv.Sqr(x) + Iv.Sqr(y) + Iv.Sqr(z)) / Iv.Sqr(C(R));
             Iv u2 = Iv.Sqr(u);
-            Iv d = C(6 * cap) * u2 / Iv.Sqr(C(R));           // cap * 3 u^2 * 2 p / R^2
+            Iv d = C(6) * C(cap) * u2 / Iv.Sqr(C(R));           // cap * 3 u^2 * 2 p / R^2
             return new Enc { F = g - C(level) + C(cap) * (u2 * u), Gx = C(k) * gx + d * x, Gy = C(k) * gy + d * y, Gz = C(k) * gz + d * z, Smooth = true };
         } };
     }

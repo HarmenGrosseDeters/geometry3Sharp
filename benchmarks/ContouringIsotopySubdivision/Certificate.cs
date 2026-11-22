@@ -91,7 +91,7 @@ sealed class GridCertificate
             }
             if (allFree) { zeroFree = true; break; }
             smoothAll = smooth;
-            if (!refuted && smooth && (t <= 3 ? pairwisePositive(enc) : inCone(enc))) pvT = t;
+            if (!refuted && smooth && (HullOnly ? hullPositive(enc) : t <= 3 ? pairwisePositive(enc) : inCone(enc))) pvT = t;
             else if (t == 1 && !refuted) {
                 // a proof that C1 is false ends the deepening: two points of the cell whose gradients have a certified
                 // inner product <= 0 (the nine points are the corners of the cell and its centre)
@@ -128,6 +128,17 @@ sealed class GridCertificate
         if (pv && s) ++BothCells;
         if (!pv && !s) ++NeitherCells;
         Cell[i + N * (j + N * k)] = flags;
+    }
+
+    // The published form of C1 with a tighter box function: the hull of the sub-boxes' gradient enclosures is an enclosure of the
+    // gradient over the cell, and the interval inner product of that one box with itself must exclude 0. Stronger than the
+    // pairwise test (it implies that one partial derivative keeps its sign on the cell).
+    public bool HullOnly;
+    static bool hullPositive(Enc[] enc)
+    {
+        Enc h = enc[0];
+        foreach (Enc e in enc) { h.Gx = Iv.Hull(h.Gx, e.Gx); h.Gy = Iv.Hull(h.Gy, e.Gy); h.Gz = Iv.Hull(h.Gz, e.Gz); }
+        return lowerDot(h, h) > 0;
     }
 
     static double lowerDot(Enc p, Enc q) { return ((p.Gx * q.Gx) + (p.Gy * q.Gy) + (p.Gz * q.Gz)).Lo; }

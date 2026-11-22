@@ -14,7 +14,7 @@ arXiv 2302.04908, for several curves) give the reviewed proof that options B and
 
 | Option | Does the method give the proof? | What was measured |
 |---|---|---|
-| **B, smooth fields** (TPMS, analytic shapes, a level of one C1 function, a `min` / `max` whose pieces are active in different cells) | **Yes, by composition, with one cited premise.** If every cell of the uniform grid passes C0 or C1 and the node signs are certified, Plantinga and Vegter's theorem gives level set ~ marching-cubes-type mesh, and our Theorems 1 and 2 give that mesh ~ the `DualContouring` output (section 4). No edge or face test is needed, so the tangencies with the grid that Theorem 5 refuses are covered. The premise (the 3D theorem with an arbitrary pairing on ambiguous faces) could not be read in the original here; a reviewer must | section 5: the whole run certified in 28 of 176 runs, never on a wrong contour; capped TPMS at 32 cells per period 3 of 3 (Theorem 5's cell test: 0 of 3, 97.5 % of the cells); the test alone costs 0.3 times the contouring there |
+| **B, smooth fields** (TPMS, analytic shapes, a level of one C1 function, a `min` / `max` whose pieces are active in different cells) | **Yes, by composition, on a cited premise that is not verified here.** If every cell of the uniform grid passes C0 or C1 and the node signs are certified, Plantinga and Vegter's theorem gives level set ~ marching-cubes-type mesh, and our Theorems 1 and 2 give that mesh ~ the `DualContouring` output (section 4). No edge or face test is needed, so the tangencies with the grid that Theorem 5 refuses are covered. The premise (the 3D theorem with an arbitrary pairing on ambiguous faces) could not be read in the original here; a reviewer must | section 5: the whole run certified in 26 of 176 runs with the published form of the test (28 with a tightened form that needs one more premise), never on a wrong contour (for 5 and 6 of them the truth is the certified run itself); capped TPMS at 32 cells per period 2 of 3 (3 of 3 tightened; Theorem 5's cell test: 0 of 3, 97.5 % of the cells); the test alone costs 0.3 to 0.5 times the contouring there |
 | **B, non-smooth level sets** (creases of CSG, offset creases, thin walls given as one field) | **No.** C1 is false at every depth at a crease of 90 degrees or more, and the theorem is stated for C1 functions. Theorem 5 (a cone below 180 degrees, Clarke gradients) stays the proof there. Burr and Byrd's test for several curves is planar; nothing exists for surfaces | section 5: tunnel and rod (creases): 0 of 36 runs; every leaf left open four levels below the grid holds a non-smooth point |
 | **C, winding number of a broken mesh** | **No.** The two things option C misses (enclosures of w and of grad w; any statement at a defect edge) are not supplied by a subdivision method, and in the clean regions the level set is the input's triangles, where C1 fails and the exact class P test is the right tool | not measured (nothing to run) |
 
@@ -119,14 +119,16 @@ rule for a certificate (`RecordCertificateData`, `ContourGrid()`, internal). The
   `origin + h * i` as `DualContouring` computes them; the cells are the closed boxes between consecutive coordinates.
 - f is locally Lipschitz on a neighbourhood of Ω: a C1 function, or `min` / `max` of C1 functions. L is its zero set
   in Ω. D is the raw `DualContouring` mesh on K (no cleanup, no simplification).
-- For a cell c, **Z(c)**: f has no zero in c. **A(c)**: f is C1 on c (one piece is active on all of c) and
-  <grad f(p), grad f(q)> > 0 for all p, q in c. These are facts about f; C0 and C1 are the rounded tests that prove
+- For a cell c, **Z(c)**: f has no zero in c. **A(c)**: f is C1 on a neighbourhood of c (one piece is strictly active on
+  all of c, hence near it) and <grad f(p), grad f(q)> > 0 for all p, q in c. **A+(c)**: A(c), and an axis-aligned box
+  G that contains every gradient of f on c has a positive interval inner product with itself (the published form of
+  the test: besides A it says that one partial derivative keeps its sign on c). These are facts about f; C0 and C1 are the rounded tests that prove
   them.
 
-**Hypotheses** (each is established by the certificate; none is assumed about f):
+**Hypotheses** (none is assumed about f; what the prototype establishes of each is said in section 4.4):
 
 - (P0) f is not 0 at any node, and the contouring's inside flag of every node is the true sign.
-- (P1) every cell satisfies Z or A.
+- (P1) every cell satisfies Z or A+ (the published form), or, with premise 5 of section 4.3, Z or A.
 - (P2) every cell of the outermost layer satisfies Z.
 - (M) D satisfies (H1) to (H4) of Theorem 2 of the design note (vertices strictly in their cells, manifold, no
   self-intersection, no polygon left out).
@@ -186,11 +188,11 @@ was tried), so they are listed as unread. What step 3 relies on, in the words of
   it as an ambient isotopy between the approximation and the zero set, for a smooth zero set inside the bounding box.
 
 The chapter gives no proof for surfaces ("The analysis of the possible cases is now more involved") and leaves the
-case of a zero at a box vertex aside. So a reviewer with the 2007 paper checks four points:
+case of a zero at a box vertex aside. So a reviewer with the 2007 paper checks five points:
 
-1. The theorem holds for a uniform subdivision in which every box satisfies Z or A as facts, whatever proved them
-   (the later texts treat it so: the finite-precision analysis calls an output correct if every box satisfies C0 or
-   C1).
+1. The theorem holds for a uniform subdivision in which every box satisfies Z or A+ as facts, whichever box function
+   proved them (the later texts treat it so: the finite-precision analysis calls an output correct if every box
+   satisfies C0 or C1).
 2. On a face with alternating corner signs either pairing is admissible (the chapter of Boissonnat et al., section
    1.2.4, states it; the original has a table of configurations).
 3. The mesh of a box is one embedded disk per loop, disjoint from the others (so that step 5's compatibility holds);
@@ -198,6 +200,14 @@ case of a zero at a box vertex aside. So a reviewer with the 2007 paper checks f
    isotopic to L.
 4. The function class (C1 suffices: the proof uses the mean value theorem) and the assumption that the zero set is
    bounded inside the root box (our (P2)).
+
+5. **Whether the weaker fact A is enough.** The published test on one box proves A+. Cutting a cell into sub-boxes
+   and testing every pair proves A only: gradients in a cone of 45 degrees around (1, 1, 1) are pairwise less than 90
+   degrees apart, and all three partial derivatives change sign. The chapter says that the condition (1.2) "implies
+   that the function is monotone in some coordinate direction" (its exercises 5 to 7, not worked here), and Lin, Yap
+   and Yu show that the choice on ambiguous faces depends on which box test is used. So A in place of A+ is a second
+   unverified premise. The prototype measures both forms: the published one with a tighter box function (the hull of
+   the sub-boxes' gradient enclosures, which is an enclosure of the gradient over the cell), and the pairwise one.
 
 Lin's thesis notes that 9 of the 14 corner-sign types can occur under C1, two of them with an ambiguous face; the
 prototype counts both (section 5.5).
@@ -214,7 +224,7 @@ only err towards "fail":
 | Enclosure of f and grad f over a box | the natural interval extension of the formula | inclusion holds by induction over the operations |
 | `min` / `max` | one piece if its enclosure is strictly below (above) the other's over the box; else the hull of both and the box is marked not smooth | requirement (i) of the design note's Theorem 5: never decided from a point value. A cell is A only if no sub-box is marked: the pieces' strict regions are open and disjoint, the cell is connected, so one piece is active on all of it |
 | A square root or division at 0 | the whole line, and the box is marked not smooth | requirement (ii) |
-| Tightening | a cell is cut into 2^t sub-boxes per axis. Z: every sub-box excludes 0. A: the lower bound of the inner product is positive for **every pair** of sub-boxes (any two points lie in two of them) | the sub-boxes cover the cell exactly: their coordinates are `origin + (h / 2^t) * j`, and `(h / 2^t) * (i 2^t) = h * i` in doubles, so the breakpoints of level t contain the grid's own |
+| Tightening | a cell is cut into 2^t sub-boxes per axis. Z: every sub-box excludes 0. A+: the hull of the sub-boxes' gradient enclosures, as one box, has a positive interval inner product with itself. A: the lower bound of the inner product is positive for **every pair** of sub-boxes (any two points lie in two of them) | the sub-boxes cover the cell exactly: their coordinates are `origin + (h / 2^t) * j`, and `(h / 2^t) * (i 2^t) = h * i` in doubles, so the breakpoints of level t contain the grid's own |
 | Node signs (P0) | the enclosure of f at the node's doubles excludes 0 (by more than 1e-30, because the contouring keeps node values as `float`) | the prototype feeds the midpoint of that enclosure to the contouring, so its sign is the certified one. A build must either take the contouring's node signs from the certified evaluation or compare them (the offset probe did the latter) |
 | Grid | cells are defined by the computed coordinates, not by ideal ones | nothing to round: the complex *is* the doubles |
 
@@ -225,6 +235,12 @@ infinite bound, and a NaN the whole line, both of which fail a test. What is *no
 the invariance under scaling (section 5.5), and the node values must stay inside the `float` range the contouring
 stores them in (the certificate's 1e-30 margin refuses a node below it).
 
+What the prototype does **not** establish, and a build must: (P0) is checked at the nodes of the cells that are not
+proven zero-free only (a node deep inside a zero-free region whose value is below the `float` range would be seen as
+outside by the contouring; not reachable with the fields here); and (M) is read from the public flags of
+`DualContouring` only (closed, `SelfIntersectionFree`, no non-manifold triangle), not from its certificate data for
+(H1) and (H4). The `pv_certified` column is the level-set side alone; every certified run here also has a clean mesh.
+
 Not covered by this table: the mesh side (M), which the library already checks exactly (`SelfIntersectionFree`, the
 certificate data of `DualContouring`); the prototype reads only the public flags.
 
@@ -232,7 +248,8 @@ certificate data of `DualContouring`); the prototype reads only the public flags
 
 - **A singular point of f on or near L** (a cone point, two sheets touching, a pinch): A is false in every cell that
   holds the point, at every size. The subdivision does not terminate; with a depth limit the cells are listed. Near a
-  singular member of a family the needed depth grows with the logarithm of the distance to it (section 5.3).
+  singular member of a family the needed depth grows (by the published analysis with the logarithm of the distance to
+  the singular point; the prototype's depth limit of four levels shows the growth, not the law; section 5.3).
 - **Thin features.** A cell that holds two sheets (a wall, a gap, a tube thinner than about two cells) has
   gradients more than 90 degrees apart, so A is false, correctly: this is where the contour is wrong. Refinement
   fixes it at cells of a fraction of the feature size; a wall given as one function costs cells below the wall
@@ -269,15 +286,18 @@ at 16, 32 and 64 cells across the box (two capped gyroids also at 128). One run 
   and 32 cells per period) closed by a smooth cap `g(x) - level + 4 (|x|^2 / 0.81)^3`, the gyroid also at levels 0.6
   to 1.35 (it pinches off near 1.41), Cassini surfaces `|x - a|^2 |x + a|^2 = b^4` towards the singular one (b / a =
   1), and a polynomial sphere through six grid nodes. Seed -1 is the shape with a grid shift, seed 0 a random rotation.
-- **PV**: the test of section 4 on every grid cell, with the tightening to t = 4 (4096 sub-boxes).
+- **PV**: the test of section 4 on every grid cell, with the tightening to t = 4 (4096 sub-boxes), in two forms: the
+  **published** form A+ (`-- hull`, `results/hull.csv`) and the **pairwise** form A (the columns of `all.csv`; all tables
+  below unless they say otherwise).
 - **S**: the cell test (S0) to (S3) of Theorem 5 with the same enclosures (t up to 3), in the segment form of the
   offset probe (direction tests on the sub-pieces that can hold a zero). A cell with several circles is refused (the
-  separating-surface test is not built); no cell failed for that reason.
+  separating-surface test is not built); one cell of the 176 runs failed for that reason.
 - **Octree**: the subdivision proper (split until C0 or C1 as one box, no tightening), to four levels below the grid.
 - **Contour**: `DualContouring` (`Simplify` off) on the same grid and node values; right = clean (closed,
   `SelfIntersectionFree`, no non-manifold triangle) with the truth's components and genera. Truth: by construction; for
   a capped TPMS the contour of the finest grid whose PV certificate passes (so the certificate supplies the
-  reference, which is the gate the design note set for stage 3).
+  reference, which is the gate the design note set for stage 3; for those runs "right" is then true by construction,
+  and the coarser grids of the same field are the ones tested against it).
 - **Class P**: the built certificate (`MeshWindingNumberSolidify`, blocks and growth) on a marching-cubes mesh of the
   same field at the same cell size, for 16 and 32 cells. It certifies *its own* contour (adaptive, with the hidden-gap
   refinement), not the one above, so only the verdicts and the soundness can be compared.
@@ -303,18 +323,27 @@ one test and not the other.
 
 Reading:
 
-- **Whole runs.** The PV test certifies 28 of the 176 runs, Theorem 5's cell test 11; 4 runs pass both. A run needs
-  every cell, so a share of 99 % is still "not certified".
+- **Whole runs.** The PV test certifies 28 of the 176 runs in the pairwise form and **26 in the published form**
+  (the same runs without the diamond at 64, which misses by 3 of 13 211 cells, and the unrotated torus with a tube of
+  four cells at 64); 13 runs pass with every cell as one box (t = 0). Theorem 5's cell test certifies 11; 4 runs pass
+  both. Over all cells the two forms differ little: 74.2 against 77.6 % at 16, 85.1 against 85.6 % at 32, 86.9 against
+  86.9 % at 64. A run needs every cell, so a share of 99 % is still "not certified".
 - **Smooth fields at an adequate resolution are the PV test's ground.** The three capped TPMS at 32 cells per period
-  are certified in full (100.0 % of 41 875 cells); the cell test of Theorem 5 certifies none of them: it leaves 2.5 % of
-  the cells (1 046 of 41 875), all of them refused by the edge test (S1: 1 012) or the face test (S2: 34), which is the tangency
-  with the grid that no refinement removes (the design note, section 4.8, for meshes). At 16 cells per period the PV
+  are certified in full in the pairwise form (100.0 % of 41 875 cells) and 2 of 3 in the published form; the cell test
+  of Theorem 5 certifies none of them: it leaves 2.5 % of the cells (1 046 of 41 875), all of them refused by the edge
+  test (S1: 1 012) or the face test (S2: 34). That is where a tangency with the grid shows (the design note, section
+  4.8, for meshes); the test stops at t = 3, and a fail is not a refutation, so the share that is a true tangency is
+  not separated here. The share Theorem 5 leaves falls with the resolution (11 to 29 % per field at 8 cells per
+  period, 4 to 10 % at 16, 2 to 3 % at 32) while their number grows (413, 640 and 1 046 cells).
+  The (S2) of the prototype tries the two axes with a positive sign only and relies on the in-plane gradient for the
+  rest, which can cost it a few cells. At 16 cells per period the PV
   test reaches 98.3 % and no full run; at 8 cells per period 69 %.
 - **Why the PV test fails where it fails** (table B of `analyze.py`): on the thin torus 77 % of the cells are
   *refuted* (two points with a certified inner product of the gradients <= 0: C1 is false, not unproven); on the
-  torus with a tube of two cells both runs stay at 56 % (the normal turns through more than 90 degrees inside a cell);
+  torus with a tube of two cells the unrotated runs stay at 62 to 64 % and the rotated ones at 49 to 51 % (the normal
+  turns through more than 90 degrees inside a cell);
   with a tube of four cells the unrotated run is certified at every N and the rotated one stops at 96 to 97 % with
-  no refutation, which is the looseness of the enclosure in a rotated frame (the tightening passes 7 % of the smooth
+  one refuted cell in the three runs, which is the looseness of the enclosure in a rotated frame (the tightening passes 7 % of the smooth
   group's cells at t = 1, 5 % at t = 2, 2 % at t = 3; without it they would count as failures).
 - **Pieces of a `min` / `max`.** The shell is the clearest case: half of its cells hold one sheet and the piece
   boundary (the mid-surface between the two spheres), so they are not C1 for the PV argument, while Theorem 5 passes
@@ -352,9 +381,9 @@ The octree (the subdivision as published: split until a box passes as one enclos
   rotated tube of half a cell, which stays open. This
   is the earlier spike's finding (cells of about an eighth of the thickness) with sound intervals.
 - **Near-singular: the depth grows as the singular member is approached, and the certificate says so.** Cassini with
-  b / a = 1.05 is certified by the PV test in 1 of 2 runs at 32 and 2 of 2 at 64; at 1.01 in none (16 to 53 cells
-  left, the octree closes at depth 3 to 4); at 1.001, 1 and 0.999 the same 19 to 59 cells around the origin stay open
-  at every N and the octree does not close four levels down. Of the 12 runs there with a known truth the contour is right in 10 and
+  b / a = 1.05 is certified by the PV test in 1 of 2 runs at 32 and 2 of 2 at 64; at 1.01 in none (6 to 36 cells
+  left per run; the octree stays open at 16 and closes at 32 and 64); at 1.001, 1 and 0.999 7 to 39 cells per run
+  around the origin stay open at every N and the octree does not close four levels down. Of the 12 runs there with a known truth the contour is right in 10 and
   wrong in 2 (the rotated surface with the 0.001 neck at 16 and 32 cells: two components for one); none is certified. The singular surface
   itself (b = a) is refused like its neighbours, as it must be.
 - **The pinch-off of the gyroid** behaves the same way: at level 1.35 the contour has genus 2 at 16 cells and genus 5
@@ -373,7 +402,8 @@ these procedural fields: the field evaluation is an interval evaluation in both,
 | 128 | 2 | 5 146 | 0.32 (0.27 to 0.36) | 2.5 (2.1 to 2.9) | - |
 
 - Where the cells pass as one box, the PV test is a fraction of the contouring: the capped TPMS at 64 take 0.27 to
-  0.35 times the contouring (212 to 315 ms against 797 to 1 022 ms) for a full certificate; Theorem 5's test takes
+  0.34 times the contouring in the pairwise form (212 to 315 ms against 797 to 1 022 ms) and 0.32 to 0.49 times in the
+  published form (291 to 441 ms, a separate run) for the level-set side of the certificate; Theorem 5's test takes
   2.9 to 4.2 times the contouring on the same runs and certifies none. One enclosure of a cell replaces twelve edges
   and six faces.
 - The maxima are the tightening: a cell that is cut down to t = 4 has cost 4 681 enclosures and 131 000 pair
@@ -395,7 +425,9 @@ Verdicts of the 98 runs with a class P result (16 and 32 cells; 4 more have no u
 | no | no | yes | 56 | 44 | 56 |
 | no | no | no | 25 | 11 | 6 |
 
-- **No certificate passed on a wrong contour**: PV 0 of 28, S 0 of 11, class P 0 of 72 (41 of the 176
+- **No certificate passed on a wrong contour**: PV 0 of 28 (published form: 0 of 26), S 0 of 11, class P 0 of 72. For
+  6 of the 28 (5 of the 26) the truth is the certified run's own contour (the capped TPMS), so the count with an
+  independent truth is 0 of 22 (0 of 21) (41 of the 176
   `DualContouring` results are wrong, all on features of half a cell or one cell, or next to the singular Cassini surface).
 - Every run the PV test or Theorem 5's test certifies is also certified by class P on the meshed field (16 of 17), with
   one exception that is not a disagreement: the gap of half a cell at 32, where `DualContouring` is right and
@@ -405,7 +437,7 @@ Verdicts of the 98 runs with a class P result (16 and 32 cells; 4 more have no u
   it is right where the uniform contour is wrong (the shells, 12 of 12); and it certifies by blocks, which absorb
   the tangencies and need no smoothness (the creases of tunnel and rod). The comparison is of verdicts on
   different contours, so it shows the direction, not a ranking.
-- Ambiguous faces do occur in PV cells (150 cell sides, so 75 faces, over all runs), and 94 PV cells have more than
+- Ambiguous faces do occur in PV cells (150 cell sides over all runs, about half as many faces), and 94 PV cells have more than
   one patch: premise 2 of section 4.3 is exercised, not vacuous. All of those runs with a full PV certificate have the
   right topology.
 - **Invariance under 2^k** (`-- invariance`): the whole case scaled by 2^10, 2^-10, 2^40 and 2^-40, ten cases at 32
@@ -436,8 +468,9 @@ of this note (non-local, C1 only, one cited premise to check). They are compleme
 one carries: 
 
 - on smooth fields at an adequate resolution Theorem 7 certifies whole runs (the capped TPMS at 32 cells per period:
-  3 of 3) where Theorem 5's cell test certifies none, because 2 to 6 % of the cells are tangencies with the grid, at
-  every resolution; and its test is cheaper (0.3 against 3 to 4 times the contouring);
+  2 of 3 in the published form, 3 of 3 in the pairwise form) where Theorem 5's cell test certifies none: it leaves 2
+  to 3 % of the cells there, by its edge and face tests; and the PV test is cheaper (0.3 to 0.5 against 3 to 4 times
+  the contouring);
 - where a cell holds a crease or a piece boundary, only Theorem 5 applies (the shell: 78 % of the cells against
   51 %), and neither certifies a run with a crease of 90 degrees (0 and 1 of 36).
 
@@ -480,8 +513,8 @@ contouring, interval, Plantinga Vegter, simultaneous, surfaces, finite precision
 
 | # | Option | Gain (measured here) | Effort | Risk |
 |---|---|---|---|---|
-| 1 | **Review of Theorem 7** (section 4): a fresh session with this note and the 2007 paper checks the four points of 4.3 and the composition with Theorems 1 and 2 | turns "B: the proof first" into a reviewed statement for smooth fields; decides options 2 and 3 | S, docs only; the owner or the coordinator has to supply the paper (the publisher is not reachable from cloud sessions) | low. If a point of 4.3 fails, the fall-back is Theorem 5 on box-shaped blocks (option 4) |
-| 2 | **Class S for smooth fields as the C0 / C1 cell test**, opt-in, report only, beside `ContouringTopologyCertificate`: an interval interface for implicits (value and gradient over a box), interval sin / cos without libm, the built-in smooth shapes and the TPMS functions; `TpmsLattice` skeletal levels first | whole-run certificates where Theorem 5's test gives none (TPMS at 32 cells per period: 3 of 3 against 0 of 3); the test at 0.3 times the contouring; the certified reference for the gyroid that stage 3's gate asks for | M: a new non-exact file with outward-rounded bounds (the `ExactInterval` rule), tests (invariance under 2^k, reuse, determinism, cell-level oracles as mutation targets, never certified on a wrong result) | medium: all or nothing (one failing cell voids the statement; 16 cells per period reach 98 % and no certificate); loose enclosures in rotated frames need a centred form; the public interval interface is new API |
+| 1 | **Review of Theorem 7** (section 4): a fresh session with this note and the 2007 paper checks the five points of 4.3 and the composition with Theorems 1 and 2 | turns "B: the proof first" into a reviewed statement for smooth fields; decides options 2 and 3 | S, docs only; the owner or the coordinator has to supply the paper (the publisher is not reachable from cloud sessions) | low. If a point of 4.3 fails, the fall-back is Theorem 5 on box-shaped blocks (option 4) |
+| 2 | **Class S for smooth fields as the C0 / C1 cell test**, opt-in, report only, beside `ContouringTopologyCertificate`: an interval interface for implicits (value and gradient over a box), interval sin / cos without libm, the built-in smooth shapes and the TPMS functions; `TpmsLattice` skeletal levels first | whole-run certificates where Theorem 5's test gives none (TPMS at 32 cells per period: 2 of 3, or 3 of 3 if premise 5 holds, against 0 of 3); the test at 0.3 to 0.5 times the contouring; the certified reference for the gyroid that stage 3's gate asks for | M: a new non-exact file with outward-rounded bounds (the `ExactInterval` rule), tests (invariance under 2^k, reuse, determinism, cell-level oracles as mutation targets, never certified on a wrong result) | medium: all or nothing (one failing cell voids the statement; 16 cells per period reach 98 % and no certificate); loose enclosures in rotated frames need a centred form; the public interval interface is new API |
 | 3 | **Both tests per cell** (C1, else Theorem 5), for fields with pieces and creases | the cells only one test certifies: 2 to 10 % each way on smooth fields, 27 % (Theorem 5 only) on the shell | M on top of option 2, **after a proof**: a mixed grid of non-local and cell-by-cell cells is not covered by either theorem | medium to high: the mixed statement is plausible (a Theorem 5 cell admits no excursion through its faces) and unproven; without it the two tests can only be reported side by side |
 | 4 | **Theorem 5 on box-shaped blocks** (the class S analogue of Theorem 6): merge the cells that fail (S1) / (S2) into boxes with a graph direction | would cover tangencies *and* creases below 180 degrees, cell by cell, with a partial statement (Theorem 1b) | S for the proof (a box is a convex cell of the design note's grid, so Theorem 5 and Lemma 6.4 should compose), M to L to build | medium: not measured here; the separating-surface test for several circles is unbuilt; the edge and face tests cost 3 to 4 times the contouring in the prototype |
 | 5 | **Refinement by the certificate** (the octree, or the two-level grid) where cells fail | thin features and near-singular spots certify at depth 3 to 4 | L: the 2:1 rules against `DualContouring`'s transitions, a proof for the refined complex | high: no bound at creases and singular points (it must stop and report); the stage 2 spike's cost (3 to 15 times) applies |
@@ -496,8 +529,8 @@ Option 1 now, then option 2 if the review holds; option 4's proof as the next do
 
 - The question of the brief has a split answer. For **smooth fields** the subdivision method does give the missing
   proof, and it is the stronger tool in practice: it is the only one of the two function certificates that certified
-  a TPMS in full, at a third of the contouring's time. It is conditional on one cited theorem that this session could
-  not read in the original, so the review is the gate, and it is small.
+  a TPMS in full, at a third to a half of the contouring's time. It is conditional on one cited theorem that this
+  session could not read in the original (and, for the tightened form of the test, on one more point of it), so the review is the gate, and it is small.
 - For **creases and for option C** it gives nothing, for reasons that no refinement removes (section 4.5, section 6).
   That closes the "excursion-aware" idea of the untapped-science list (item 5a) for those inputs: Burr and Byrd's
   excursions are planar, and their surface counterpart is exactly Plantinga and Vegter's argument, which needs C1.

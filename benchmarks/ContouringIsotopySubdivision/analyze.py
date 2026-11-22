@@ -30,8 +30,8 @@ GROUPS = [
     ("rod (concave crease)", lambda r: r["case"] == "rod"),
     ("capped TPMS, level 0", lambda r: r["case"] in ("gyroid", "schwarzp", "diamond") and r["k"] == 0),
     ("capped gyroid, levels 0.6 to 1.35", lambda r: r["case"] == "gyroid" and r["k"] > 0),
-    ("Cassini, b/a 1.2 to 1.01 and 0.99 to 0.95", lambda r: r["case"] == "cassini" and abs(r["k"] - 1) >= 0.01),
-    ("Cassini, b/a 1.001, 1, 0.999", lambda r: r["case"] == "cassini" and abs(r["k"] - 1) < 0.01),
+    ("Cassini, b/a 1.2 to 1.01 and 0.99 to 0.95", lambda r: r["case"] == "cassini" and abs(r["k"] - 1) > 0.005),
+    ("Cassini, b/a 1.001, 1, 0.999", lambda r: r["case"] == "cassini" and abs(r["k"] - 1) < 0.005),
     ("sphere through nodes", lambda r: r["case"] == "nodesphere"),
 ]
 
